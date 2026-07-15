@@ -1,6 +1,13 @@
-import { basename, dirname } from 'path'
+import { basename, dirname, resolve } from 'path'
 import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
 import { MobileSprintEngineSnapshotService, sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from '../sprintengine/snapshot'
+import { filterToDefaultSnapshotStatePaths } from '../../mobile-sprintengine-discovery'
+import {
+  isWorkspaceIdToken,
+  resolveWorkspaceIdToRoot,
+  workspaceRootFromStatePath,
+} from '../sprintengine/workspace-id'
+import { mobileSnapshotCollections, type MobileSnapshotCollection } from '../../../shared/mobile-control/protocol'
 import {
   acceptedBridgeCommand,
   relayResultSummaryMaxBytes,
@@ -18,23 +25,125 @@ export async function dispatchSnapshotRequest(input: {
   workspaceRootsProvider?: () => Promise<string[]>
 }): Promise<MobileSprintEngineCommandResult> {
   const { command, snapshotService, desktopSessionId, statePathsProvider, workspaceRootsProvider } = input
-  const allStatePaths = await statePathsProvider()
-  const requestedSprintEngineId = command.type === 'snapshot.request' && typeof command.payload.sprintEngineId === 'string'
-    ? command.payload.sprintEngineId
-    : null
-  const statePaths = requestedSprintEngineId
-    ? allStatePaths.filter((statePath) => basename(dirname(statePath)) === requestedSprintEngineId)
-    : allStatePaths
+  const payload = command.type === 'snapshot.request' ? command.payload : undefined
+  const requestedSprintEngineId = typeof payload?.sprintEngineId === 'string' ? payload.sprintEngineId : null
+  const requestedWorkspacePath = typeof payload?.workspacePath === 'string' ? payload.workspacePath : null
+  const knownSnapshotVersion = typeof payload?.knownSnapshotVersion === 'string' ? payload.knownSnapshotVersion : null
+  const include = readIncludeCollections(payload?.include)
+
+  const [allStatePaths, allWorkspaceRoots] = await Promise.all([
+    statePathsProvider(),
+    workspaceRootsProvider ? workspaceRootsProvider() : Promise.resolve<string[]>([]),
+  ])
+
+  const scope = await resolveSnapshotScope({
+    requestedSprintEngineId,
+    requestedWorkspacePath,
+    allStatePaths,
+    allWorkspaceRoots,
+  })
+
   // readSnapshot() returns the internal snapshot with real local paths; the
   // on-demand command-result path (workspace open / backlog refresh) does not go
   // through the publish emit() chokepoint, so sanitize here too or the relay
   // rejects the result for carrying local paths.
   const snapshot = sanitizeMobileSnapshotForRelay(await snapshotService.readSnapshot({
     desktopSessionId,
-    statePaths,
-    workspaceRoots: workspaceRootsProvider ? await workspaceRootsProvider() : undefined,
+    statePaths: scope.statePaths,
+    workspaceRoots: scope.workspaceRoots,
+    ...(include ? { include } : {}),
   }))
-  return acceptedBridgeCommand(command, relaySizedSnapshot(command, snapshot, requestedSprintEngineId !== null))
+
+  // If-None-Match on the read path (item 1599). Building to compare is cheap —
+  // the cost we shed is the up-to-256 KB ledger write and transfer, not the
+  // local assembly. When the client already holds this exact version, answer
+  // with a tiny change-token result. It carries only the boolean and the hash
+  // token — no content-bearing keys — so it stays inside the relay
+  // result-summary rules. An absent or stale version falls through to the full
+  // snapshot exactly as before, so old clients are unaffected.
+  if (knownSnapshotVersion && knownSnapshotVersion === snapshot.snapshotVersion) {
+    return acceptedBridgeCommand(command, { unchanged: true, snapshotVersion: snapshot.snapshotVersion })
+  }
+
+  return acceptedBridgeCommand(command, relaySizedSnapshot(command, snapshot, scope.scoped))
+}
+
+type SnapshotScope = {
+  statePaths: string[]
+  workspaceRoots: string[]
+  // Whether the request named a scope (sprintEngineId or workspacePath). A scoped
+  // request skips the size-shedding ladder and the unscoped terminal-run filter —
+  // the phone gets exactly the scope it named, finished runs included.
+  scoped: boolean
+}
+
+// Map a request's scope fields to the state paths and workspace roots readSnapshot
+// composes from. Item 1600: `workspacePath` narrows to one project root, an
+// unscoped request sheds terminal runs beyond the recent-N keep-window, and a
+// `sprintEngineId` request keeps its established shape (narrows the engine set only).
+async function resolveSnapshotScope(input: {
+  requestedSprintEngineId: string | null
+  requestedWorkspacePath: string | null
+  allStatePaths: string[]
+  allWorkspaceRoots: string[]
+}): Promise<SnapshotScope> {
+  const { requestedSprintEngineId, requestedWorkspacePath, allStatePaths, allWorkspaceRoots } = input
+
+  if (requestedWorkspacePath) {
+    // The phone holds a relay-safe token (projectKey), never the absolute root, so
+    // resolve it against the roots we know before scoping engines/backlog/automations.
+    const candidateRoots = uniqueResolvedRoots([...allStatePaths.map(workspaceRootFromStatePath), ...allWorkspaceRoots])
+    const matchedRoot = resolveScopedRoot(requestedWorkspacePath, candidateRoots)
+    // Unknown workspace: fail closed with an empty-but-valid scope rather than
+    // falling back to the whole fleet.
+    if (!matchedRoot) {
+      return { statePaths: [], workspaceRoots: [], scoped: true }
+    }
+    return {
+      statePaths: allStatePaths.filter((statePath) => workspaceRootFromStatePath(statePath) === matchedRoot),
+      workspaceRoots: [matchedRoot],
+      scoped: true,
+    }
+  }
+
+  if (requestedSprintEngineId) {
+    return {
+      statePaths: allStatePaths.filter((statePath) => basename(dirname(statePath)) === requestedSprintEngineId),
+      workspaceRoots: allWorkspaceRoots,
+      scoped: true,
+    }
+  }
+
+  return {
+    statePaths: await filterToDefaultSnapshotStatePaths(allStatePaths),
+    workspaceRoots: allWorkspaceRoots,
+    scoped: false,
+  }
+}
+
+function resolveScopedRoot(requested: string, candidateRoots: string[]): string | null {
+  if (isWorkspaceIdToken(requested)) {
+    return resolveWorkspaceIdToRoot(requested, candidateRoots)
+  }
+  // A raw absolute root (desktop-internal callers/tests): honor it only when it is
+  // one we actually serve, so an unknown path cannot widen the scope.
+  const target = resolve(requested)
+  return candidateRoots.includes(target) ? target : null
+}
+
+function uniqueResolvedRoots(roots: string[]): string[] {
+  return [...new Set(roots.map((root) => resolve(root)))]
+}
+
+function readIncludeCollections(value: unknown): MobileSnapshotCollection[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  const collections = value.filter((entry): entry is MobileSnapshotCollection =>
+    (mobileSnapshotCollections as readonly string[]).includes(entry as string)
+  )
+  // Empty (unspecified or all-invalid) → default composition, never an empty snapshot.
+  return collections.length > 0 ? collections : undefined
 }
 
 function relaySizedSnapshot(

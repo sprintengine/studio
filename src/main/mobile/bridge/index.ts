@@ -24,6 +24,7 @@ import { relayCommandTypeToMobile, relayEnvelopeToMobileCommand } from './relay-
 import { dispatchArtifactRead } from './artifact-read'
 import { dispatchDeviceRevoke } from './device-revoke'
 import { dispatchSnapshotRequest } from './snapshot-request'
+import { filterToDefaultSnapshotStatePaths } from '../../mobile-sprintengine-discovery'
 import { authorizeRelayCommand } from './relay-auth'
 import { upsertRelayDevice } from './relay-device'
 import {
@@ -275,10 +276,22 @@ export type MobileRelayTransport = {
 export type MobileBridgeRelayStatus =
   | 'disabled'
   | 'unconfigured'
+  // Enabled and configured, but deliberately not connected because no active
+  // paired device (and no pending pairing challenge) can be listening. The bridge
+  // issues zero relay traffic in this state; pairing a device brings it up.
+  | 'idle'
   | 'connecting'
   | 'connected'
   | 'retrying'
   | 'error'
+
+// Current effective command-poll cadence, surfaced on the bridge status payload so
+// Settings → Mobile can explain first-command latency. `paused` = not polling (no
+// device/challenge); `fast` = base interval; `decayed` = backed off toward the ceiling.
+export type MobileBridgeCommandPollCadence = {
+  intervalMs: number
+  state: 'paused' | 'fast' | 'decayed'
+}
 
 export type MobileBridgePresence = 'available' | 'busy' | 'idle' | 'offline'
 
@@ -326,6 +339,7 @@ export type MobileBridgeState = {
   capabilities: MobileControlCapabilities
   diagnostics: MobileBridgeDiagnosticEntry[]
   recentCommands: MobileBridgeCommandEvent[]
+  commandPollCadence: MobileBridgeCommandPollCadence
 }
 
 export type MobileBridgeSettingsUpdate = {
@@ -348,6 +362,8 @@ export type MobileBridgeOptions = {
   statePathsProvider?: SprintEngineStatePathsProvider
   workspaceRootsProvider?: MobileWorkspaceRootsProvider
   commandPollIntervalMs?: number
+  commandPollCeilingMs?: number
+  commandPollAttentionWindowMs?: number
 }
 
 const DEFAULT_RELAY_URL = 'https://multiauth-production.up.railway.app'
@@ -356,6 +372,12 @@ const USING_DEFAULT_RELAY_URL = RELAY_URL === DEFAULT_RELAY_URL
 const INITIAL_RECONNECT_DELAY_MS = 1000
 const MAX_RECONNECT_DELAY_MS = 60 * 1000
 const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
+// Idle backoff: once no command has arrived for the attention window, the poll
+// interval doubles each tick up to the ceiling; any delivered command snaps it back
+// to the base interval. The window covers the phone's own ~20s foreground cadence so
+// an actively-viewed phone keeps the desktop fast.
+const DEFAULT_COMMAND_POLL_CEILING_MS = 30_000
+const DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS = 150_000
 const REQUESTED_SCOPES: MobileControlCapability[] = [
   'snapshots.read',
   'artifacts.read',
@@ -450,6 +472,10 @@ export class MobileBridge {
   private readonly statePathsProvider: SprintEngineStatePathsProvider
   private readonly workspaceRootsProvider: MobileWorkspaceRootsProvider
   private readonly commandPollIntervalMs: number
+  private readonly commandPollCeilingMs: number
+  private readonly commandPollAttentionWindowMs: number
+  private commandPollIntervalMsCurrent: number
+  private commandPollAttentionUntil = 0
   private readonly activeRelayCommandIds = new Set<string>()
 
   constructor(
@@ -465,6 +491,15 @@ export class MobileBridge {
     this.statePathsProvider = options.statePathsProvider ?? defaultSprintEngineStatePaths
     this.workspaceRootsProvider = options.workspaceRootsProvider ?? (async () => [])
     this.commandPollIntervalMs = Math.max(250, options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS)
+    this.commandPollCeilingMs = Math.max(
+      this.commandPollIntervalMs,
+      options.commandPollCeilingMs ?? DEFAULT_COMMAND_POLL_CEILING_MS
+    )
+    this.commandPollAttentionWindowMs = Math.max(
+      0,
+      options.commandPollAttentionWindowMs ?? DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS
+    )
+    this.commandPollIntervalMsCurrent = this.commandPollIntervalMs
   }
 
   async getState(): Promise<MobileBridgeState> {
@@ -520,6 +555,10 @@ export class MobileBridge {
   async requestPairingCode(): Promise<MobileBridgePairingChallenge> {
     await this.load()
     this.assertEnabled()
+    // With no active paired device the bridge stays idle (no relay traffic), so a
+    // pairing request has to bring the connection up on demand before a challenge
+    // can be minted. Already-connected callers pass straight through.
+    await this.ensureRelayConnectedForPairing()
     this.assertRelayReady()
 
     const session = await this.sessionProvider()
@@ -548,6 +587,14 @@ export class MobileBridge {
     }
     this.recordDiagnostic('info', 'relay_connected', 'Created a relay-backed mobile pairing challenge.', false)
     await this.persist()
+    // The pending challenge now gates polling on, so the desktop can receive the new
+    // phone's first command. The awaited createPairingChallenge above yields, during
+    // which the connect-time poll can have found no device/challenge yet and dropped
+    // us to idle; the session is retained, so restore connected and arm the loop.
+    if (this.relayStatus === 'idle') {
+      this.relayStatus = 'connected'
+    }
+    this.startCommandPolling()
     this.emitStateChanged()
 
     return {
@@ -592,6 +639,12 @@ export class MobileBridge {
         trimmedReason ? `Revoked mobile device ${device.displayName}: ${trimmedReason}` : `Revoked mobile device ${device.displayName}.`,
         false
       )
+    }
+
+    // Revoking the last active device tears the connection back down to idle: with
+    // nobody able to listen, holding a relay session and polling is pure waste.
+    if (!this.shouldPollCommands()) {
+      this.pauseRelayForNoDevices()
     }
 
     await this.persist()
@@ -754,6 +807,16 @@ export class MobileBridge {
       return
     }
 
+    // Demand gate: only hold a relay session while an active device can be listening,
+    // or a pairing challenge is pending (so a new phone can complete pairing). With
+    // neither, stay idle and issue zero relay traffic. requestPairingCode connects
+    // directly via connectOnce, bypassing this gate to mint the first challenge.
+    if (!this.shouldPollCommands()) {
+      this.pauseRelayForNoDevices()
+      this.emitStateChanged()
+      return
+    }
+
     const boundedDelay = Math.min(Math.max(delayMs, 0), MAX_RECONNECT_DELAY_MS)
     this.relayStatus = boundedDelay > 0 ? 'retrying' : 'connecting'
     this.nextReconnectAt = new Date(Date.now() + boundedDelay).toISOString()
@@ -838,6 +901,7 @@ export class MobileBridge {
       capabilities: this.capabilities,
       diagnostics: this.diagnostics,
       recentCommands: this.recentCommands,
+      commandPollCadence: this.commandPollCadence(),
     }
   }
 
@@ -896,8 +960,69 @@ export class MobileBridge {
     return getDefaultMobileBridgeStorePath()
   }
 
+  private hasActivePairedDevice(): boolean {
+    return this.pairedDevices.some((device) => !device.revokedAt)
+  }
+
+  // The relay session is only worth holding while an active device can listen, or a
+  // pairing challenge is pending so a new phone can complete pairing and send its
+  // first command. Gates both the connection and the command poll loop.
+  private shouldPollCommands(): boolean {
+    return this.hasActivePairedDevice() || this.pairingChallenge !== null
+  }
+
+  // Stop polling and drop to idle when nothing can be listening. The relay session is
+  // retained rather than torn down: a held session issues no traffic on its own (no
+  // keepalive), and nulling the desktop token here would break the in-flight
+  // postCommandResult of a command that self-revoked the last device. A fresh pairing
+  // reconnects via connectOnce, replacing any stale session.
+  private pauseRelayForNoDevices(): void {
+    this.clearReconnectTimer()
+    this.clearCommandPollTimer()
+    this.relayStatus = 'idle'
+    this.nextReconnectAt = null
+    this.resetCommandPollCadence()
+  }
+
+  private async ensureRelayConnectedForPairing(): Promise<void> {
+    if (this.relayStatus === 'connected' && this.relayToken && this.desktopRelaySessionId) return
+    await this.connectOnce()
+  }
+
+  private resetCommandPollCadence(): void {
+    this.commandPollIntervalMsCurrent = this.commandPollIntervalMs
+    this.commandPollAttentionUntil = 0
+  }
+
+  // A delivered command means a human is looking: hold the fast base cadence for the
+  // attention window before backoff resumes.
+  private markCommandActivity(): void {
+    this.commandPollIntervalMsCurrent = this.commandPollIntervalMs
+    this.commandPollAttentionUntil = Date.now() + this.commandPollAttentionWindowMs
+  }
+
+  private nextCommandPollIntervalMs(): number {
+    if (Date.now() < this.commandPollAttentionUntil) return this.commandPollIntervalMs
+    return Math.min(
+      Math.max(this.commandPollIntervalMsCurrent * 2, this.commandPollIntervalMs),
+      this.commandPollCeilingMs
+    )
+  }
+
+  private commandPollCadence(): MobileBridgeCommandPollCadence {
+    if (!this.enabled || this.relayStatus !== 'connected' || !this.shouldPollCommands()) {
+      return { intervalMs: 0, state: 'paused' }
+    }
+    const intervalMs = this.commandPollIntervalMsCurrent
+    return { intervalMs, state: intervalMs > this.commandPollIntervalMs ? 'decayed' : 'fast' }
+  }
+
   private startCommandPolling(): void {
     this.clearCommandPollTimer()
+    // Fresh connection (or newly-armed pairing loop): start fast with an attention
+    // window so the first command is delivered promptly, then decay if it stays quiet.
+    this.commandPollIntervalMsCurrent = this.commandPollIntervalMs
+    this.commandPollAttentionUntil = Date.now() + this.commandPollAttentionWindowMs
     this.commandPollTimer = setTimeout(() => {
       void this.pollRelayCommands()
     }, 0)
@@ -911,15 +1036,35 @@ export class MobileBridge {
 
   private scheduleNextCommandPoll(): void {
     this.clearCommandPollTimer()
-    if (!this.enabled || this.relayStatus !== 'connected') return
+    if (!this.enabled || this.relayStatus !== 'connected' || !this.shouldPollCommands()) {
+      // Nothing left to poll for. If we were connected — last active device revoked, or
+      // a pairing challenge expired unpaired — drop to idle. This runs in pollRelayCommands'
+      // finally, after any in-flight postCommandResult, so the session is safe to retire.
+      if (this.enabled && this.relayStatus === 'connected') {
+        this.pauseRelayForNoDevices()
+        this.emitStateChanged()
+      } else {
+        this.resetCommandPollCadence()
+      }
+      return
+    }
+    const intervalMs = this.nextCommandPollIntervalMs()
+    this.commandPollIntervalMsCurrent = intervalMs
     this.commandPollTimer = setTimeout(() => {
       void this.pollRelayCommands()
-    }, this.commandPollIntervalMs)
+    }, intervalMs)
   }
 
   private async pollRelayCommands(): Promise<void> {
     try {
-      if (!this.enabled || this.relayStatus !== 'connected' || !this.relayUrl || !this.relayToken || !this.desktopRelaySessionId) {
+      if (
+        !this.enabled ||
+        this.relayStatus !== 'connected' ||
+        !this.relayUrl ||
+        !this.relayToken ||
+        !this.desktopRelaySessionId ||
+        !this.shouldPollCommands()
+      ) {
         return
       }
 
@@ -928,6 +1073,8 @@ export class MobileBridge {
         relayToken: this.relayToken,
         desktopRelaySessionId: this.desktopRelaySessionId,
       })
+
+      if (deliveries.length > 0) this.markCommandActivity()
 
       for (const delivery of deliveries) {
         await this.processRelayCommandDelivery(delivery)
@@ -1120,9 +1267,13 @@ export class MobileBridge {
   private async publishSnapshotToRelay(): Promise<void> {
     if (!this.relayTransport.publishSnapshot || !this.relayUrl || !this.relayToken || !this.desktopRelaySessionId) return
     try {
+      // The proactive publish is the unscoped default snapshot, so it sheds
+      // terminal runs beyond the recent-N keep-window (item 1600) exactly as the
+      // unscoped on-demand read does. The default composition (readSnapshot with no
+      // `include`) also drops the switchboard/watchtower/multiloop projections.
       const snapshot = await this.snapshotService.publishSnapshot({
         desktopSessionId: this.desktopRelaySessionId,
-        statePaths: await this.statePathsProvider(),
+        statePaths: await filterToDefaultSnapshotStatePaths(await this.statePathsProvider()),
         workspaceRoots: await this.workspaceRootsProvider(),
       })
       if (snapshot) {

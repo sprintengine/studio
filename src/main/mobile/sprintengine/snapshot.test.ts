@@ -8,6 +8,7 @@ import {
   sanitizeMobileSnapshotForRelay,
 } from './snapshot'
 import { normalizeRoleCatalog } from './role-catalog'
+import { deriveWorkspaceId } from './workspace-id'
 import { containsLocalPath } from './relay-path-safety'
 import { relayResultSummaryMaxBytes, relaySummaryByteLength, summarizeCommandResult } from '../bridge/command-results'
 import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
@@ -50,6 +51,11 @@ async function main(): Promise<void> {
   await assertSnapshotSurfacesCreatedSpikeBacklogItem()
   await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
   await assertSnapshotOmitsUnavailableWorkspaceKinds()
+  await assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow()
+  await assertUnscopedDefaultSnapshotIsValidForOldClients()
+  await assertWorkspacePathScopingReturnsOnlyThatRoot()
+  await assertScopedRequestSkipsSheddingLadder()
+  await assertIncludeScopingOmitsUnrequestedCollections()
   await assertMalformedMultiloopStateIsSkipped()
   await assertSnapshotOmitsNonMobileStatePayloads()
   await assertSnapshotSkipsMalformedStateFiles()
@@ -543,10 +549,13 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
     },
   })
 
+  // The switchboard/watchtower/multiloop projections are off in the default
+  // composition (item 1600); a surface that wants them names `desktopWorkspaces`.
   const snapshot = await service.readSnapshot({
     desktopSessionId: 'desktop_1',
     statePaths: [statePath],
     generatedAt,
+    include: ['sprintEngines', 'desktopWorkspaces', 'backlog', 'roleCatalogs', 'automations'],
   })
 
   assert.equal(snapshot.sprintEngines.length, 1)
@@ -1104,10 +1113,151 @@ async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
     desktopSessionId: 'desktop_1',
     statePaths: [statePath],
     generatedAt,
+    include: ['sprintEngines', 'desktopWorkspaces'],
   })
 
   assert.deepEqual(snapshot.workspaces?.map((workspace) => workspace.kind), ['sprintengine'])
   service.shutdown()
+}
+
+// Item 1600 part 1: the unscoped default keeps every live run but only the
+// most-recent few terminal ones, and drops the switchboard/watchtower/multiloop
+// projections entirely.
+async function assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow(): Promise<void> {
+  // Newest-first, mirroring discovery's updatedAt-descending order.
+  const statePaths = [
+    await writeRunProjectionFixture({ id: 'live-a', status: 'executing' }),
+    await writeRunProjectionFixture({ id: 'done-1', status: 'completed' }),
+    await writeRunProjectionFixture({ id: 'done-2', status: 'failed' }),
+    await writeRunProjectionFixture({ id: 'done-3', status: 'archived' }),
+    await writeRunProjectionFixture({ id: 'live-b', status: 'planning' }),
+    await writeRunProjectionFixture({ id: 'done-4', status: 'completed' }),
+  ]
+  const service = new MobileSprintEngineSnapshotService()
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c-terminal', deviceId: 'd1', payload: {} } as never,
+    snapshotService: service,
+    desktopSessionId: 'desktop_1',
+    statePathsProvider: async () => statePaths,
+  })
+  assert.equal(result.ok, true)
+  const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
+
+  const ids = snapshot.sprintEngines.map((sprintEngine) => sprintEngine.sprintEngineId).sort()
+  // Both live runs plus the three most-recent terminal runs survive; the fourth is shed.
+  assert.deepEqual(ids, ['done-1', 'done-2', 'done-3', 'live-a', 'live-b'])
+  assert.equal(snapshot.sprintEngines.some((sprintEngine) => sprintEngine.sprintEngineId === 'done-4'), false)
+  // Default composition carries no switchboard/watchtower/multiloop projections.
+  assert.equal(snapshot.workspaces?.every((workspace) => workspace.kind === 'sprintengine'), true)
+  service.shutdown()
+}
+
+// Item 1600: a request with none of the new fields still gets a valid, now-leaner
+// default snapshot — old-client compatibility.
+async function assertUnscopedDefaultSnapshotIsValidForOldClients(): Promise<void> {
+  const statePath = await writeRunProjectionFixture({ id: 'default-engine', status: 'executing' })
+  const service = new MobileSprintEngineSnapshotService()
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c-default', deviceId: 'd1', payload: {} } as never,
+    snapshotService: service,
+    desktopSessionId: 'desktop_1',
+    statePathsProvider: async () => [statePath],
+  })
+  assert.equal(result.ok, true)
+  const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
+  assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
+  assert.equal(snapshot.sprintEngines.length, 1)
+  assert.equal(snapshot.workspaces?.every((workspace) => workspace.kind === 'sprintengine'), true)
+  service.shutdown()
+}
+
+// Item 1600 acceptance: a scoped request keeps skipping the size-shedding ladder,
+// so an oversized scoped result is returned whole rather than shed.
+async function assertScopedRequestSkipsSheddingLadder(): Promise<void> {
+  const statePath = await writeRunProjectionFixture({ id: 'scoped-shed', status: 'executing' })
+  const oversized: MobileControlSnapshot = {
+    protocolVersion: mobileControlProtocolVersion,
+    generatedAt,
+    desktopSessionId: 'desktop_1',
+    snapshotVersion: 'snap_scoped',
+    commands: [],
+    sprintEngines: [],
+    workspaces: [],
+    automations: ['ws_alpha', 'ws_beta', 'ws_gamma', 'ws_delta'].flatMap(automationsAtFullCap),
+  }
+  assert.equal(relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes, true, 'fixture must exceed the budget')
+
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c-scoped', deviceId: 'd1', payload: { workspacePath: deriveWorkspaceId(workspaceRootForStatePath(statePath)) } } as never,
+    snapshotService: { readSnapshot: async () => oversized } as never,
+    desktopSessionId: 'desktop_1',
+    statePathsProvider: async () => [statePath],
+    workspaceRootsProvider: async () => [workspaceRootForStatePath(statePath)],
+  })
+  assert.equal(result.ok, true)
+  const returned = (result.ok ? result.data : null) as MobileControlSnapshot
+  // No shedding: every automation keeps its run history despite the over-budget size.
+  assert.equal(returned.automations?.length, oversized.automations?.length)
+  assert.equal(returned.automations?.every((automation) => automation.recentRuns !== undefined), true)
+}
+
+// Item 1600 part 2: a `workspacePath`-scoped request (the phone sends the relay-safe
+// projectKey token) narrows engines and backlog to that one root.
+async function assertWorkspacePathScopingReturnsOnlyThatRoot(): Promise<void> {
+  const engineA = await writeRunProjectionFixture({ id: 'engine-a', status: 'executing' })
+  const rootA = workspaceRootForStatePath(engineA)
+  const engineB = await writeRunProjectionFixture({ id: 'engine-b', status: 'executing' })
+  const rootB = workspaceRootForStatePath(engineB)
+  await writeBacklogFixture(rootB, 'backlog_root_b', 'Only in root B')
+
+  const service = new MobileSprintEngineSnapshotService()
+  const result = await dispatchSnapshotRequest({
+    command: { type: 'snapshot.request', commandId: 'c-ws', deviceId: 'd1', payload: { workspacePath: deriveWorkspaceId(rootA) } } as never,
+    snapshotService: service,
+    desktopSessionId: 'desktop_1',
+    statePathsProvider: async () => [engineA, engineB],
+    workspaceRootsProvider: async () => [rootA, rootB],
+  })
+  assert.equal(result.ok, true)
+  const snapshot = (result.ok ? result.data : null) as MobileControlSnapshot
+  // Only root A's engine, and none of root B's backlog.
+  assert.deepEqual(snapshot.sprintEngines.map((sprintEngine) => sprintEngine.sprintEngineId), ['engine-a'])
+  assert.equal(snapshot.backlog, undefined)
+  service.shutdown()
+}
+
+// Item 1600 part 3: `include` restricts the payload to the named collections, and
+// `roleCatalogs` gates the role catalog that rides the backlog workspace.
+async function assertIncludeScopingOmitsUnrequestedCollections(): Promise<void> {
+  const statePath = await writeRunProjectionFixture({ id: 'inc-engine', status: 'executing' })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  await writeBacklogFixture(workspaceRoot, 'backlog_inc', 'Include-scoped item')
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readRoleCatalog: async () => [{ roleId: 'architect', label: 'Architect', summary: 'Plans the run.', source: 'bundled' }],
+    },
+  })
+
+  const onlyEngines = await service.readSnapshot({
+    desktopSessionId: 'desktop_1', statePaths: [statePath], workspaceRoots: [workspaceRoot], generatedAt, include: ['sprintEngines'],
+  })
+  assert.equal(onlyEngines.sprintEngines.length, 1)
+  assert.equal(onlyEngines.backlog, undefined)
+  assert.equal(onlyEngines.automations, undefined)
+
+  const onlyBacklog = await service.readSnapshot({
+    desktopSessionId: 'desktop_1', statePaths: [statePath], workspaceRoots: [workspaceRoot], generatedAt, include: ['backlog', 'roleCatalogs'],
+  })
+  assert.equal(onlyBacklog.sprintEngines.length, 0)
+  assert.equal(onlyBacklog.backlog?.length, 1)
+  assert.equal(onlyBacklog.backlog?.[0]?.roles?.length, 1)
+
+  // Same request minus roleCatalogs: the backlog ships without its role catalog.
+  const backlogNoRoles = await service.readSnapshot({
+    desktopSessionId: 'desktop_1', statePaths: [statePath], workspaceRoots: [workspaceRoot], generatedAt, include: ['backlog'],
+  })
+  assert.equal(backlogNoRoles.backlog?.length, 1)
+  assert.equal(backlogNoRoles.backlog?.[0]?.roles, undefined)
 }
 
 async function assertMalformedMultiloopStateIsSkipped(): Promise<void> {
@@ -1132,6 +1282,7 @@ async function assertMalformedMultiloopStateIsSkipped(): Promise<void> {
     desktopSessionId: 'desktop_1',
     statePaths: [statePath],
     generatedAt,
+    include: ['sprintEngines', 'desktopWorkspaces'],
   })
 
   assert.equal(snapshot.workspaces?.some((workspace) => workspace.kind === 'multiloop'), false)
@@ -1243,6 +1394,52 @@ async function writeStateFixture(state: Record<string, unknown>): Promise<string
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
   return statePath
+}
+
+// A run with a projection.json carrying a concrete run-level status, in its own
+// workspace root and its own team directory (so its sprintEngineId is `id`). Used
+// by the scoping/terminal-filter tests, which read that status.
+async function writeRunProjectionFixture(input: { id: string; status: string }): Promise<string> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-snapshot-'))
+  const teamDirectory = join(workspaceRoot, '.multi-code', 'sprintengine', input.id)
+  await mkdir(teamDirectory, { recursive: true })
+  const statePath = join(teamDirectory, 'run.yaml')
+  const isLive = input.status === 'executing' || input.status === 'planning' || input.status === 'planned'
+  await writeFile(statePath, `${JSON.stringify({ schemaVersion: 2, name: input.id, status: input.status }, null, 2)}\n`, 'utf8')
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    updatedAt: generatedAt,
+    run: { id: input.id, name: input.id, status: input.status, updatedAt: generatedAt },
+    tasks: [task('T1', isLive ? 'in_progress' : 'done', [])],
+    artifacts: [],
+  }), 'utf8')
+  return statePath
+}
+
+async function writeBacklogFixture(workspaceRoot: string, itemId: string, title: string): Promise<void> {
+  await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(join(workspaceRoot, 'backlog', `${itemId}.md`), `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`, 'utf8')
+  await mkdir(join(workspaceRoot, '.multi-code', 'backlog'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      items: [
+        {
+          id: itemId,
+          source: { type: 'file', relativePath: `backlog/${itemId}.md` },
+          status: 'ready',
+          type: 'feature',
+          metadata: {},
+          links: [],
+          createdAt: generatedAt,
+          updatedAt: generatedAt,
+        },
+      ],
+    }),
+    'utf8'
+  )
 }
 
 async function writeStateText(content: string): Promise<string> {

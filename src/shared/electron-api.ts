@@ -1981,10 +1981,21 @@ export type MobileControlCapabilities = {
 export type MobileBridgeRelayStatus =
   | 'disabled'
   | 'unconfigured'
+  // Enabled and configured, but deliberately not connected because no active paired
+  // device (and no pending pairing challenge) can be listening; zero relay traffic.
+  | 'idle'
   | 'connecting'
   | 'connected'
   | 'retrying'
   | 'error'
+
+// Current effective command-poll cadence, surfaced so Settings → Mobile can explain
+// first-command latency. `paused` = not polling; `fast` = base interval; `decayed` =
+// backed off toward the idle ceiling.
+export type MobileBridgeCommandPollCadence = {
+  intervalMs: number
+  state: 'paused' | 'fast' | 'decayed'
+}
 
 export type MobileBridgePresence = 'available' | 'busy' | 'idle' | 'offline'
 
@@ -2032,6 +2043,7 @@ export type MobileBridgeState = {
   capabilities: MobileControlCapabilities
   diagnostics: MobileBridgeDiagnosticEntry[]
   recentCommands: MobileBridgeCommandEvent[]
+  commandPollCadence: MobileBridgeCommandPollCadence
 }
 
 export type MobileBridgeSettingsUpdate = {

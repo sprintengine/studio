@@ -55,6 +55,7 @@ import type {
   MobileControlWatchtowerGeneratedInboxSummary as MobileWatchtowerGeneratedInboxSummary,
   MobileControlMultiloopMilestoneSummary as MobileMultiloopMilestoneSummary,
   MobileControlMultiloopBlockerSummary as MobileMultiloopBlockerSummary,
+  MobileSnapshotCollection,
 } from '../../../shared/mobile-control/protocol'
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
@@ -116,7 +117,21 @@ export type MobileSprintEngineSnapshotRequest = {
   workspaceRoots?: string[]
   commands?: MobileControlCommandType[]
   generatedAt?: string
+  // Collection scoping (item 1600). Absent = the default set below; a caller that
+  // names collections gets exactly those. Scoped to the read composition, not the
+  // wire — `dispatchSnapshotRequest` maps the request `include` field to this.
+  include?: MobileSnapshotCollection[]
 }
+
+// The unscoped default: every collection except the switchboard/watchtower/multiloop
+// projections (`desktopWorkspaces`), which nothing on the phone drives today, so they
+// ship only when a caller asks for them explicitly (item 1600).
+const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set([
+  'sprintEngines',
+  'backlog',
+  'roleCatalogs',
+  'automations',
+])
 
 type MobileSprintEngineSnapshotListener = (snapshot: MobileControlSnapshot) => void
 
@@ -263,26 +278,31 @@ export class MobileSprintEngineSnapshotService {
 
   async readSnapshot(request: MobileSprintEngineSnapshotRequest): Promise<MobileControlSnapshot> {
     const generatedAt = request.generatedAt ?? new Date().toISOString()
-    const settledSprintEngines = await Promise.allSettled(
-      request.statePaths.map((statePath) => readSprintEngineSnapshot(statePath))
-    )
+    const collections = request.include ? new Set(request.include) : defaultSnapshotCollections
+    const settledSprintEngines = collections.has('sprintEngines')
+      ? await Promise.allSettled(request.statePaths.map((statePath) => readSprintEngineSnapshot(statePath)))
+      : []
     const sprintEngines = settledSprintEngines.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
     const workspaceRoots = uniqueResolved([
       ...(request.workspaceRoots ?? []),
       ...sprintEngines.map((sprintEngine) => sprintEngine.workspacePath),
     ])
-    const desktopWorkspaces = await this.readDesktopWorkspaceSnapshots(workspaceRoots, generatedAt)
+    const desktopWorkspaces = collections.has('desktopWorkspaces')
+      ? await this.readDesktopWorkspaceSnapshots(workspaceRoots, generatedAt)
+      : []
     const workspaces = [
       ...sprintEngines.map(toSprintEngineWorkspaceSnapshot),
       ...desktopWorkspaces,
     ]
-    const backlog = await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt, this.stateReaders.readRoleCatalog)
+    const backlog = collections.has('backlog')
+      ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt, this.stateReaders.readRoleCatalog, collections.has('roleCatalogs'))
+      : []
     // Item 47: the automations monitor. One projection per workspace root, joined to
     // the other collections on `projectKey` (stamped by the producer, from the same
     // deriveWorkspaceId the sanitize pass stamps sprint engines with).
-    const automations = (
-      await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))
-    ).flat()
+    const automations = collections.has('automations')
+      ? (await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))).flat()
+      : []
 
     return {
       protocolVersion: mobileControlProtocolVersion,
@@ -377,12 +397,14 @@ export class MobileSprintEngineSnapshotService {
 async function readBacklogWorkspaceSnapshots(
   workspaceRoots: string[],
   generatedAt: string,
-  readRoleCatalog: RoleCatalogReader
+  readRoleCatalog: RoleCatalogReader,
+  includeRoleCatalogs: boolean
 ): Promise<MobileControlBacklogWorkspaceSnapshot[]> {
   const settled = await Promise.allSettled(
     workspaceRoots.map(async (workspaceRoot) => {
       const workspace = await readMobileBacklogWorkspaceSnapshot(workspaceRoot, generatedAt)
       if (!workspace) return null
+      if (!includeRoleCatalogs) return workspace
       const roles = await readRoleCatalog(workspaceRoot).catch(() => undefined)
       return roles && roles.length > 0 ? { ...workspace, roles } : workspace
     })

@@ -142,10 +142,52 @@ export interface MobileControlCommandBase<Type extends MobileControlCommandType,
   payload: Payload;
 }
 
+// Snapshot collections a `snapshot.request` may scope down to (item 1600).
+// `desktopWorkspaces` is the switchboard/watchtower/multiloop projections; it is
+// the one collection absent from the default set, so a phone surface that wants
+// those monitors must name it explicitly. The rest ship by default.
+export const mobileSnapshotCollections = [
+  "sprintEngines",
+  "desktopWorkspaces",
+  "backlog",
+  "roleCatalogs",
+  "automations",
+] as const;
+export type MobileSnapshotCollection = (typeof mobileSnapshotCollections)[number];
+
 export type SnapshotRequestCommand = MobileControlCommandBase<
   "snapshot.request",
   {
     sprintEngineId?: string;
+    /**
+     * The `snapshotVersion` the client already holds. When it equals the
+     * version the desktop would ship, `dispatchSnapshotRequest` skips the
+     * payload and answers `{ ok: true, unchanged: true, snapshotVersion }`
+     * (item 1599) — an If-None-Match on the read path. Additive and
+     * old-client-safe: a client that omits it gets the full snapshot exactly
+     * as before, so the protocol stays v2 with no re-pair.
+     *
+     * This is skip-on-match, the opposite of the base `expectedSnapshotVersion`
+     * (a reject-on-mismatch mutation guard) — do not fold the two together.
+     */
+    knownSnapshotVersion?: string;
+    /**
+     * Scope the snapshot to a single project root (item 1600). The value is the
+     * relay-safe workspace token the phone already holds as `projectKey` on every
+     * collection (deriveWorkspaceId output); the desktop resolves it back to the
+     * real root and returns only that root's sprint engines, backlog and
+     * automations. Like `sprintEngineId`, a scoped request skips the size-shedding
+     * ladder. Additive and old-client-safe.
+     */
+    workspacePath?: string;
+    /**
+     * Restrict the payload to these collections (item 1600) so a list screen can
+     * skip the ones it does not render. Absent means the default set — sprint
+     * engines, backlog, role catalogs and automations; `desktopWorkspaces`
+     * (switchboard/watchtower/multiloop) is off by default and ships only when
+     * named here. Additive and old-client-safe.
+     */
+    include?: MobileSnapshotCollection[];
   }
 >;
 
@@ -1508,7 +1550,12 @@ function validateSprintEngineCreateConfig(payload: Record<string, unknown>): str
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
     case "snapshot.request":
-      return optionalString(payload, "sprintEngineId");
+      return (
+        optionalString(payload, "sprintEngineId") ??
+        optionalString(payload, "knownSnapshotVersion") ??
+        optionalString(payload, "workspacePath") ??
+        optionalSnapshotCollections(payload, "include")
+      );
     case "artifact.read":
       return (
         requireString(payload, "sprintEngineId") ??
@@ -2461,6 +2508,22 @@ function optionalLiteral<const Values extends readonly string[]>(
     return null;
   }
   return isOneOf(record[field], allowed) ? null : `${fieldName} must be one of: ${allowed.join(", ")}`;
+}
+
+function optionalSnapshotCollections(record: Record<string, unknown>, field: string): string | null {
+  const value = record[field];
+  if (value === undefined) {
+    return null;
+  }
+  if (!Array.isArray(value)) {
+    return `${field} must be an array of snapshot collections when provided`;
+  }
+  for (const entry of value) {
+    if (!isOneOf(entry, mobileSnapshotCollections)) {
+      return `${field} must contain only: ${mobileSnapshotCollections.join(", ")}`;
+    }
+  }
+  return null;
 }
 
 function optionalPercentage(record: Record<string, unknown>, field: string): string | null {

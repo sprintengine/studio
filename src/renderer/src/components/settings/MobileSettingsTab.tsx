@@ -48,10 +48,21 @@ type MobileControlDevice = {
 type MobileBridgeRelayStatus =
   | 'disabled'
   | 'unconfigured'
+  // Enabled and configured, but not connected because no active paired device can be
+  // listening; zero relay traffic until a device pairs. Mirrors src/shared/electron-api.ts.
+  | 'idle'
   | 'connecting'
   | 'connected'
   | 'retrying'
   | 'error'
+
+// Current effective command-poll cadence, surfaced by the bridge so we can explain
+// first-command latency. `paused` = not polling; `fast` = base interval; `decayed` =
+// backed off toward the idle ceiling. Mirrors src/shared/electron-api.ts.
+type MobileBridgeCommandPollCadence = {
+  intervalMs: number
+  state: 'paused' | 'fast' | 'decayed'
+}
 
 type MobileBridgePresence = 'available' | 'busy' | 'idle' | 'offline'
 
@@ -107,6 +118,7 @@ type MobileBridgeState = {
   }
   diagnostics: MobileBridgeDiagnosticEntry[]
   recentCommands: MobileBridgeCommandEvent[]
+  commandPollCadence: MobileBridgeCommandPollCadence
 }
 
 type MobileBridgeApi = {
@@ -446,6 +458,11 @@ export default function MobileSettingsTab() {
         <SettingsSectionTitle className="mb-1.5">Relay state</SettingsSectionTitle>
         <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
           <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
+          <MetaCell
+            label="Relay polling"
+            value={pollCadenceLabel(enabled, state?.commandPollCadence, activeDevices.length)}
+            tone={pollCadenceTone(enabled, state?.commandPollCadence)}
+          />
           <MetaCell label="Session" value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'} tone={state?.desktopRelaySessionId ? 'positive' : 'muted'} />
           <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
           <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
@@ -532,6 +549,9 @@ function statusMessage(state: MobileBridgeState | null): string {
   if (!state.enabled) return 'Turn the companion on, then generate a pairing code for a phone.'
   if (state.relayStatus === 'connected') return 'Connected to the relay and ready for paired phones.'
   if (state.relayStatus === 'unconfigured') return 'No relay URL is configured.'
+  if (state.relayStatus === 'idle') {
+    return 'No paired phone is listening, so the relay stays idle to save traffic. Generate a pairing code to link one.'
+  }
   const diagnosticMessage = latestDiagnosticMessage(state)
   if (diagnosticMessage?.toLowerCase().includes('access token has expired')) {
     return 'Desktop access token has expired. Multicode will refresh it automatically; sign in again if this persists.'
@@ -561,6 +581,8 @@ function relayStatusLabel(status: MobileBridgeRelayStatus | undefined): string {
       return 'Error'
     case 'unconfigured':
       return 'Not configured'
+    case 'idle':
+      return 'Idle'
     case 'disabled':
       return 'Disabled'
     default:
@@ -568,9 +590,39 @@ function relayStatusLabel(status: MobileBridgeRelayStatus | undefined): string {
   }
 }
 
+// Plain-language cadence line for the diagnostics grid. The cadence value (interval +
+// state) comes straight from the bridge; we only pick the copy — pairing `paused` with
+// `enabled`/paired-device count to tell "companion off", "no phone listening", and a
+// live poll interval apart, since the payload's state enum does not encode those.
+function pollCadenceLabel(
+  enabled: boolean,
+  cadence: MobileBridgeCommandPollCadence | undefined,
+  activeDeviceCount: number
+): string {
+  if (!enabled) return 'Off'
+  if (!cadence || cadence.state === 'paused') {
+    return activeDeviceCount === 0 ? 'Paused — no paired phones' : 'Paused'
+  }
+  const every = formatCadenceInterval(cadence.intervalMs)
+  return cadence.state === 'decayed' ? `Every ${every} (idle backoff)` : `Every ${every} (active)`
+}
+
+function pollCadenceTone(
+  enabled: boolean,
+  cadence: MobileBridgeCommandPollCadence | undefined
+): 'positive' | 'muted' | undefined {
+  if (!enabled || !cadence || cadence.state === 'paused') return 'muted'
+  return cadence.state === 'fast' ? 'positive' : undefined
+}
+
+function formatCadenceInterval(intervalMs: number): string {
+  if (intervalMs >= 1000) return `${Math.round(intervalMs / 1000)}s`
+  return `${Math.max(intervalMs, 0)}ms`
+}
+
 function relayStatusTone(status: MobileBridgeRelayStatus | undefined): 'positive' | 'muted' | undefined {
   if (status === 'connected') return 'positive'
-  if (!status || status === 'disabled' || status === 'unconfigured') return 'muted'
+  if (!status || status === 'disabled' || status === 'unconfigured' || status === 'idle') return 'muted'
   return undefined
 }
 
