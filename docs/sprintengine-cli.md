@@ -211,9 +211,11 @@ sprintengine roster configure --id architect --roles-json '[
   the plan is approved.
 
 Over MCP the same operation is `sprintengine.roster.configure` with
-`{ roles: [{ role, cli, model }, ...], id? }`. It is architect-only in the role
-capability table (withheld from a `general` identity alongside the other
-roster-growth tools), so only the run's planning architect can seat the team.
+`{ roles: [{ role, cli, model }, ...], id? }`. It lives in `PLANNING_TOOLS`, so
+the planning role holds it — architect and general converge on the same surface
+(MC-1591 deleted the roster-growth tools that used to distinguish them). It still
+gates on `rosterSource: architect`, so only an architect-composed run can seat a
+team through it.
 
 ### Operator runtime edits (`roster runtime`, MC-1516)
 
@@ -335,7 +337,7 @@ Current command groups:
 - `recover`: run an integrity recovery audit prompt.
 - `projection`: read the normalized run projection.
 - `runner`: read or update the durable runner policy.
-- `roster`: add, configure (architect team composition), or list canonical roster members.
+- `roster`: run-config operations only — `configure` (architect team composition) and `runtime` (operator per-role runtime edit). MC-1591 deleted the membership ops (`add`/`retire`/`replenish`/`list`); membership is `configuredRoles` and assignment is a task lease.
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
 - `mcp`: run the local stdio MCP server.
@@ -596,11 +598,12 @@ owner), and the respawn startup brief for an owner that died mid-phase
 a terminal.
 
 Renderer roster prompts for unclaimed ready tasks are wake candidates, not
-durable dispatch assignments. The durable `currentDispatch` id and
-`dispatch.jsonl` row are created only after Sprint Engine records a task claim,
-owner re-engagement, or an explicit current dispatch target. Existing claimed
-tasks may already have durable dispatch ids, and repeated directive or
-`task next` calls must reuse those assignments rather than creating duplicates.
+durable dispatch assignments. A `dispatch.jsonl` row is appended only after
+Sprint Engine records a task claim, owner re-engagement, or an expiry re-queue; a
+worker's `currentDispatch` is then reconstructed from that ledger by the derived
+worker view, not persisted per agent (MC-1591 deleted the per-agent dispatch
+cursor tools `dispatch.next`/`dispatch.ack`/`subscribe`). Repeated directive or
+`task next` calls reuse the existing dispatch id rather than creating duplicates.
 
 ## DAG Readiness
 
