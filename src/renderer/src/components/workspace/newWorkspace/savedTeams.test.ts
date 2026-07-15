@@ -51,10 +51,18 @@ assert.equal(
   true,
   'identical roster matches',
 )
+// Pool model: a persisted count is read as an enabled flag, so bumping developer
+// 2 -> 3 (still enabled) is NOT divergence — only enable/disable + runtime are.
 assert.equal(
   sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 3 }, { architect: 'claude-code', developer: 'codex' }),
+  true,
+  'a changed count on a still-enabled role is not divergence (tolerant count read)',
+)
+// Disabling a role the team staffed (count -> 0) IS divergence.
+assert.equal(
+  sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 0 }, { architect: 'claude-code' }),
   false,
-  'a changed count diverges',
+  'disabling a staffed role diverges',
 )
 assert.equal(
   sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 2 }, { architect: 'claude-code', developer: 'claude-code' }),

@@ -43,6 +43,7 @@ import type {
 import type {
   SprintEngineAutoState,
   SprintEngineAutomationEvent,
+  SprintEngineAutomationRuntimeState,
 } from '../shared/sprintengine/automation-types'
 import {
   sprintEngineAutomationShouldRun,
@@ -54,6 +55,7 @@ import type {
 } from '../shared/sprintengine/automation-intent'
 import {
   buildSprintEngineAgentRosterForState,
+  isCanceledSprintEngineRun,
   isCompletedSprintEngineRun,
   normalizeSprintEngineProjection,
   resolveSprintEngineAgentRuntime,
@@ -423,7 +425,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         const settings = deps.getLaunchSettings()
         return {
           projectKnowledgeRoots: settings.projectKnowledgeRoots,
-          sprintEngineModelCatalog: settings.sprintEngineModelCatalog,
         }
       },
 
@@ -573,58 +574,15 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         return { status: 'changed', state: normalized }
       },
 
-      // Completion dormancy ---------------------------------------------------
+      // Completion / cancellation dormancy ------------------------------------
+      // One entry point for both terminal transitions (the auto-run hard gate
+      // routes a completed OR canceled run here). `enterTerminalDormancy` reads
+      // the run's stored cancel flag to fire the right terminal event and then
+      // runs the shared one-shot teardown.
       enterDormancy: (workspace) => {
         const target = entryForWorkspaceId(workspace.id)
         if (!target) return
-        const autoState = currentAutoState(target)
-        // The completion transition must always land — a run re-adopted into
-        // `running` while the one-shot teardown marker is still set would
-        // otherwise stay active forever, holding the power-save blocker and
-        // burning a projection read every tick. Only the teardown side
-        // effects below are one-shot (renderer marker semantics).
-        if (autoState.runtimeState !== 'complete') {
-          applyAutomationEventToView(target, { type: 'runner_complete' })
-          deps.broadcastOp({
-            kind: 'stop_reason',
-            statePath: target.statePath,
-            reason: 'all_tasks_done',
-          })
-        }
-        if (autoState.completionTeardownAt !== undefined) return
-        const at = now()
-        target.view.sprintEngineAutoState = {
-          ...currentAutoState(target),
-          completionTeardownAt: at,
-        }
-        // Main owns the completion teardown (Phase 3): record every agent's
-        // resumable session and dispose its PTY — LIVE and SUSPENDED sessions
-        // alike (idle-reaped agents are exactly the population a completed
-        // run carries), plus agents whose terminals already exited but whose
-        // records still hold a resumable identity. A headless completion
-        // parks the run exactly like a windowed one; windows apply the
-        // retirement ops (record + tab removal) and their projection-driven
-        // dormancy remains an idempotent no-op after this.
-        const sessions = deps.terminal.list()
-        const agentIdsToRetire = new Set<string>()
-        for (const session of sessions) {
-          if (
-            (session.processAlive || session.suspended)
-            && session.kind === 'agent'
-            && session.sprintEngineStatePath === target.statePath
-            && session.agentId
-          ) {
-            agentIdsToRetire.add(session.agentId)
-          }
-        }
-        for (const [agentId, agent] of Object.entries(target.view.agents)) {
-          if (agent.cli && agent.cliSessionId) agentIdsToRetire.add(agentId)
-        }
-        for (const agentId of agentIdsToRetire) {
-          retireWorkerSession(target, agentId, sessions)
-        }
-        deps.broadcastOp({ kind: 'completion_teardown_at', statePath: target.statePath, at })
-        persistResidue(target)
+        enterTerminalDormancy(target)
       },
 
       // Departed task-scoped worker teardown ---------------------------------
@@ -725,6 +683,94 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         }
       }
     }
+  }
+
+  /**
+   * The shared one-shot teardown for a run that reached a terminal state
+   * (completion or cancellation): record every agent's resumable session and
+   * dispose its PTY — LIVE and SUSPENDED sessions alike (idle-reaped agents are
+   * exactly the population a completed/canceled run carries), plus agents whose
+   * terminals already exited but whose records still hold a resumable identity.
+   * Windows apply the retirement ops (record + tab removal) and their
+   * projection-driven dormancy remains an idempotent no-op after this. Guarded
+   * by the persisted `completionTeardownAt` marker so it fires exactly once per
+   * terminal entry (the marker is generic, shared by both terminal reasons).
+   */
+  function performTerminalTeardown(target: RunEntry): void {
+    if (currentAutoState(target).completionTeardownAt !== undefined) return
+    const at = now()
+    target.view.sprintEngineAutoState = {
+      ...currentAutoState(target),
+      completionTeardownAt: at,
+    }
+    const sessions = deps.terminal.list()
+    const agentIdsToRetire = new Set<string>()
+    for (const session of sessions) {
+      if (
+        (session.processAlive || session.suspended)
+        && session.kind === 'agent'
+        && session.sprintEngineStatePath === target.statePath
+        && session.agentId
+      ) {
+        agentIdsToRetire.add(session.agentId)
+      }
+    }
+    for (const [agentId, agent] of Object.entries(target.view.agents)) {
+      if (agent.cli && agent.cliSessionId) agentIdsToRetire.add(agentId)
+    }
+    for (const agentId of agentIdsToRetire) {
+      retireWorkerSession(target, agentId, sessions)
+    }
+    deps.broadcastOp({ kind: 'completion_teardown_at', statePath: target.statePath, at })
+    persistResidue(target)
+  }
+
+  /**
+   * Drive a run into its terminal dormant state. Completion and cancellation
+   * share the exact same teardown; only the terminal automation event differs,
+   * chosen from the run's stored cancel flag (`isCanceledSprintEngineRun`).
+   * The terminal transition must always land — a run re-adopted into `running`
+   * while the one-shot teardown marker is still set would otherwise stay active
+   * forever, holding the power-save blocker and burning a projection read every
+   * tick. The completion path keeps its renderer `stop_reason` broadcast; the
+   * cancel glyph is derived from the projection's stored flag instead, so no
+   * new bridge stop-reason is introduced here.
+   */
+  function enterTerminalDormancy(target: RunEntry): void {
+    const runState = target.view.sprintEngineState
+    const canceled = runState ? isCanceledSprintEngineRun(runState) : false
+    const targetRuntimeState: SprintEngineAutomationRuntimeState = canceled ? 'canceled' : 'complete'
+    if (currentAutoState(target).runtimeState !== targetRuntimeState) {
+      applyAutomationEventToView(
+        target,
+        canceled ? { type: 'runner_canceled' } : { type: 'runner_complete' },
+      )
+      if (!canceled) {
+        deps.broadcastOp({
+          kind: 'stop_reason',
+          statePath: target.statePath,
+          reason: 'all_tasks_done',
+        })
+      }
+    }
+    performTerminalTeardown(target)
+  }
+
+  /**
+   * User-initiated run cancellation (MC-1604): the board/workspace Cancel action
+   * (wired by the renderer/IPC layer in MC-1604b) calls this after the engine
+   * cancel op (`sprintengine cancel`) has written run/task status. It parks the
+   * run through the same terminal dormancy as completion — terminal `canceled`
+   * automation state (stops polling) and the shared one-shot teardown (records
+   * resumable sessions, disposes PTYs, removes panels). Unlike the auto-run hard
+   * gate (which only reaches a run whose automation is running), this direct
+   * path also tears down a paused/manual run with live agents. Idempotent via
+   * the reducer's terminal guard and the persisted teardown marker.
+   */
+  function cancelRun(statePath: string): void {
+    const entry = runsByStatePath.get(statePath)
+    if (!entry) return
+    enterTerminalDormancy(entry)
   }
 
   /**
@@ -1057,6 +1103,16 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       if (!entry) return
       applyAutomationEventToView(entry, { type: 'runner_started' })
       if (sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) void tick()
+    },
+
+    /**
+     * User-initiated run cancellation (MC-1604). Called after the engine cancel
+     * op has written run/task status; parks the run in terminal `canceled`
+     * dormancy with the shared completion teardown (records sessions, disposes
+     * PTYs, removes panels, stops polling). Safe for a paused/manual run too.
+     */
+    cancelRun(statePath: string): void {
+      cancelRun(statePath)
     },
 
     /** Renderer-originated lifecycle stop (terminal closed, blocked, removed…). */

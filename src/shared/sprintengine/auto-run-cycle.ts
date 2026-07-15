@@ -37,7 +37,6 @@ import type {
 import type { PluginRegistryListEntry } from '../plugin-manifest'
 import type {
   SprintEngineArtifact,
-  SprintEngineModelCatalogEntry,
   SprintEngineRoleId,
   SprintEngineState,
   SprintEngineWorkspaceView,
@@ -56,6 +55,7 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   getSprintEngineRoleLabel,
+  isCanceledSprintEngineRun,
   isCompletedSprintEngineRun,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
@@ -131,7 +131,6 @@ type MutableRef<T> = { current: T }
 /** The subset of app settings the spawn path reads live from the host's settings store. */
 export type SprintEngineAutoRunSpawnSettings = {
   projectKnowledgeRoots?: Record<string, string | null> | null
-  sprintEngineModelCatalog?: SprintEngineModelCatalogEntry[]
 }
 
 /** Mirror of the renderer sync client's terminal launch-state payload (minus ids). */
@@ -387,21 +386,27 @@ async function runFailSoftStage<T>(
   }
 }
 
-// Hard-completion gate. A finished run (every task done) enters dormancy through
-// the shared helper: fire `runner_complete` once and tear its agents down once,
-// identically to the projection reconcile — so completion detected first by this
-// poll (before the reactive reconcile marks it) still tears down exactly once,
-// and the terminal `complete` runtime state then makes later ticks skip the
-// workspace. Returns true when the run was complete so the caller skips the rest
-// of the supervise cycle. Idempotent: repeat entries no-op via the reducer's
+// Hard terminal gate. A finished run (every task done) OR a user-canceled run
+// (MC-1604, the stored cancel flag) enters dormancy through the shared helper:
+// fire the terminal transition once and tear its agents down once, identically
+// to the projection reconcile — so a terminal state detected first by this poll
+// (before the reactive reconcile marks it) still tears down exactly once, and
+// the terminal `complete`/`canceled` runtime state then makes later ticks skip
+// the workspace. `enterDormancy` reads the same cancel flag to fire the right
+// terminal event. Catching cancellation here is defense-in-depth: it guarantees
+// a canceled run stops polling even if its automation was left `running`.
+// Returns true when the run was terminal so the caller skips the rest of the
+// supervise cycle. Idempotent: repeat entries no-op via the reducer's
 // terminal-state gate and the persisted teardown marker.
 export function enterDormancyIfRunComplete(
   ports: Pick<SprintEngineAutoRunCyclePorts, 'enterDormancy'>,
   workspace: Pick<Workspace, 'id' | 'sprintEngineAutoState'>,
-  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'canceled'>,
   dormancyPorts?: SprintEngineAutoRunDormancyPorts,
 ): boolean {
-  if (!isCompletedSprintEngineRun(sprintEngineState)) return false
+  if (!isCompletedSprintEngineRun(sprintEngineState) && !isCanceledSprintEngineRun(sprintEngineState)) {
+    return false
+  }
   ports.enterDormancy(workspace, dormancyPorts)
   return true
 }
@@ -1564,9 +1569,6 @@ export async function spawnAutoRunCandidate(
   options: { trackPendingSpawn?: boolean; revealPolicy?: AgentTerminalRevealPolicy } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentWorkspace = ports.getWorkspace(workspace.id)
-  // Settings snapshot taken where the supervisor captured the store state at
-  // spawn entry (the model catalog reads from this snapshot below).
-  const entrySpawnSettings = ports.getSpawnSettings()
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
   // Defensive belt over the reconcile-stamped record (MC-1450): re-resolve
   // the full runtime hierarchy (per-agent override > role `roleRuntimes`
@@ -1750,12 +1752,6 @@ export async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         configuredRoles: sprintEngineState.configuredRoles,
-        // Architect-roster inputs (see agentPrompt): mode + palette ride the
-        // projection; scores from the global catalog, guidance from auto state.
-        rosterSource: sprintEngineState.rosterSource,
-        allowedRuntimes: sprintEngineState.allowedRuntimes,
-        modelCatalog: entrySpawnSettings.sprintEngineModelCatalog,
-        architectGuidance: autoState.architectGuidance,
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,

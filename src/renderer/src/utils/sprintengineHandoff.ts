@@ -103,6 +103,10 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   reference = false,
   seedAlreadyPersisted = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
+  // Roles are user config now, not seat assignments. `rosterArgs` are `role:id`
+  // seat strings; the architect only needs the distinct role set (order-preserved)
+  // to know which roles this run staffs — never the seat ids.
+  const configuredRoles = [...new Set(rosterArgs.map((arg) => arg.split(':', 1)[0]).filter(Boolean))]
   const hasExplicitSourceBundle = sourceBundle.length > 0
   const bundle = hasExplicitSourceBundle
     ? sourceBundle
@@ -177,8 +181,8 @@ export function buildPlanFileSprintEngineHandoffPrompt({
       : 'Only after `sprintengine.handover` succeeds, initialize the sprint state for this managed session:',
     '`sprintengine.init`',
     jsonBlock(initPayload),
-    rosterArgs.length > 0
-      ? `Roster constraint: the architect must create tasks only for these selected sprint agents: ${rosterArgs.join(', ')}. If a specialist role is absent from this roster, do not create tasks for that role.`
+    configuredRoles.length > 0
+      ? `Your run's roles are: ${configuredRoles.join(', ')}. Create tasks and schedule reviews only for these roles. If the work needs a role you don't have, raise needs_input to the user rather than inventing a role.`
       : null,
     sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind, reference),
     autoRunRequested

@@ -287,13 +287,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         sprintEngineStatePath: workspace.sprintEngineContext?.statePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
         configuredRoles: workspace.sprintEngineState.configuredRoles,
-        // Architect-roster inputs: rosterSource/allowedRuntimes ride the
-        // projection; scores come from the global catalog and the guidance from
-        // renderer-owned auto state (never engine-persisted).
-        rosterSource: workspace.sprintEngineState.rosterSource,
-        allowedRuntimes: workspace.sprintEngineState.allowedRuntimes,
-        modelCatalog: s.appSettings.sprintEngineModelCatalog,
-        architectGuidance: workspace.sprintEngineAutoState?.architectGuidance,
         commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
         autonomousPlanningOverride:
           rosterAgent.role === 'architect'
