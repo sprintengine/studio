@@ -1,156 +1,29 @@
-"""Sprint Engine roster command handlers."""
+"""Sprint Engine run-config command handlers.
+
+`roster configure` and `roster runtime` are the run's configuredRoles /
+roleRuntimes editors. They are all that survives of the old roster surface:
+MC-1591 deleted membership (leases replace the roster), so
+`roster add/retire/replenish/list` and the seat machinery they drove are gone.
+Both ops keep the `roster` command namespace so their existing CLI and MCP
+callers are unaffected, but neither touches an agents map — they only mutate
+run-level config.
+"""
 from __future__ import annotations
 
 import argparse
 import json
-import re
 from typing import Any, Dict, List, Optional
 
-from sprintengine_core import store as folder_store
-from sprintengine_core.tool.constants import ACTIVE_TASK_STATUSES
-from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.plans import find_architect_plan_gate, resolve_planning_role
-from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
+from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.state import (
-    SINGLETON_SEAT_ROLE_IDS,
-    agent_is_retired,
-    agent_owned_task_ids,
     append_event,
     apply_configured_roles,
     apply_role_runtimes,
     configured_role_set,
-    planning_seat_taken,
-    role_has_open_work,
-    roster_is_configured,
     runtime_matches_allowed,
     with_locked_state,
 )
-from sprintengine_core.tool.tasks import task_is_ready
-
-# Seat machinery, relocated verbatim from state.py by MC-1591 T1. The lease is now
-# the assignment authority, so nothing on the claim/seat/capacity/role path uses
-# these; the ONLY remaining callers are this roster surface, which T2 deletes
-# wholesale. Kept here (not in the state model) so state.py holds no agents-map
-# seat logic while the roster commands keep working until T2 removes them.
-
-
-def add_roster_agent(state: Dict[str, Any], role: str, agent_id: str, actor: str) -> Dict[str, Any]:
-    role = require_configured_role(role, context="Roster")
-    clean_id = agent_id.strip()
-    if not clean_id:
-        raise SystemExit("--id cannot be empty.")
-
-    agents = state.setdefault("agents", {})
-    existing = agents.get(clean_id)
-    if isinstance(existing, dict):
-        if existing.get("role") != role:
-            raise SystemExit(f"Agent {clean_id!r} already exists with role {existing.get('role')!r}.")
-        state.setdefault("sprintengine", {})["rosterConfigured"] = True
-        return existing
-
-    # Enforce the run's configured roster boundary on genuinely new seats only:
-    # a role the user did not enable cannot be seated, and a singleton-seat role
-    # (the architect) takes one live member. No-ops when configuredRoles is
-    # absent/blank (legacy runs).
-    configured = configured_role_set(state)
-    if configured is not None:
-        if role not in configured:
-            raise SystemExit(
-                f"Role {role!r} is not enabled for this run; ask the user to add it to the roster."
-            )
-        if role in SINGLETON_SEAT_ROLE_IDS and planning_seat_taken(agents, role):
-            raise SystemExit(
-                f"This run already has a seated {role}; the {role} seat is a singleton "
-                "and cannot take a second member."
-            )
-
-    timestamp = now_iso()
-    agent = {
-        "role": role,
-        "status": "idle",
-        "heartbeatAt": timestamp,
-        "subscription": {"mode": "none"},
-        "currentDispatch": None,
-        "joinedAt": timestamp,
-        "currentTaskId": None,
-    }
-    agents[clean_id] = agent
-    state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    append_event(state, "roster_member_added", actor, f"{actor} added {clean_id} to the Sprint Engine roster as {role}.")
-    return agent
-
-
-def next_replacement_agent_id(state: Dict[str, Any], role: str) -> str:
-    agents = state.get("agents", {})
-    used = {str(agent_id) for agent_id in agents.keys()}
-    pattern = re.compile(rf"^{re.escape(role)}(?:-(\d+))?$")
-    highest = 0
-    for agent_id in used:
-        match = pattern.match(agent_id)
-        if not match:
-            continue
-        highest = max(highest, int(match.group(1) or "1"))
-    # D-Naming: the first minted worker of a role is `<role>-1`. A bare id from an
-    # older run still counts as index 1 so a mint never collides with it. Mirrors
-    # the renderer allocator (getNextSprintEngineAgentId) — TS/Python drift bites.
-    candidate_index = highest + 1
-    while True:
-        candidate = f"{role}-{candidate_index}"
-        if candidate not in used:
-            return candidate
-        candidate_index += 1
-
-
-def retired_agent_has_live_replacement(state: Dict[str, Any], retired_agent: Dict[str, Any]) -> bool:
-    replacement_id = str(retired_agent.get("replacedByAgentId") or "").strip()
-    if not replacement_id:
-        return False
-    replacement = state.get("agents", {}).get(replacement_id)
-    return isinstance(replacement, dict) and not agent_is_retired(replacement)
-
-# One agent session per task (MC-1444) never applies to a singleton-seat role: an
-# architect orchestrates the run, so queue-depth replenishment must not mint a
-# second one. Generals ARE minted — the default product is a pool of plain agents
-# sharing one task graph, so `general-N` workers replenish exactly like developers.
-# The set lives in state.py (SINGLETON_SEAT_ROLE_IDS) so the roster seat cap and
-# this mint-exclusion share one source.
-
-
-def _agent_is_new_task_capacity(state: Dict[str, Any], agent: Any) -> bool:
-    """True when this roster id can host a fresh session for a NEW task.
-
-    Task-scoped roster ids never recycle: a worker id owns at most one task for
-    its whole lifetime, so an id that has EVER owned a task is spent — not
-    capacity for new work even after that task is done. Only a never-owned id is
-    spawnable capacity. Retired, run-complete ('done' status), and currently
-    task-owning ids are excluded too. Liveness the caller knows about arrives
-    separately via --busy-agent. A never-owned id keeps counting across left/dead
-    respawns; it just has not consumed its single claim yet.
-    """
-    if not isinstance(agent, dict) or agent_is_retired(agent):
-        return False
-    if str(agent.get("status") or "") == "done":
-        return False
-    if agent.get("currentTaskId"):
-        return False
-    return not agent_owned_task_ids(agent)
-
-def cmd_roster_add(args: argparse.Namespace) -> Dict[str, Any]:
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        clean_id = args.id.strip()
-        role = require_configured_role(args.role, context="Roster")
-        before = dict(state.get("agents", {}))
-        agent = add_roster_agent(state, role, clean_id, args.actor or "architect")
-        created = clean_id not in before
-        return {
-            "ok": True,
-            "action": "added" if created else "exists",
-            "agentId": clean_id,
-            "role": role,
-            "agent": agent,
-        }
-
-    return with_locked_state(args.state, run)
 
 
 def _parse_configure_roles(args: argparse.Namespace) -> List[Dict[str, Any]]:
@@ -254,6 +127,7 @@ def cmd_roster_configure(args: argparse.Namespace) -> Dict[str, Any]:
 
     return with_locked_state(args.state, run)
 
+
 def cmd_roster_runtime(args: argparse.Namespace) -> Dict[str, Any]:
     """Operator edit of one role's execution runtime (cli/model) mid-run.
 
@@ -298,218 +172,5 @@ def cmd_roster_runtime(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
-def cmd_roster_retire(args: argparse.Namespace) -> Dict[str, Any]:
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        clean_id = args.id.strip()
-        if not clean_id:
-            raise SystemExit("--id cannot be empty.")
-        reason = (args.reason or "").strip()
-        if not reason:
-            raise SystemExit("--reason is required.")
-
-        agent = state.get("agents", {}).get(clean_id)
-        if not isinstance(agent, dict):
-            raise SystemExit(f"Agent {clean_id!r} is not in this Sprint Engine roster.")
-        role = str(agent.get("role") or "").strip()
-        role = require_configured_role(role, context=f"Agent {clean_id!r}")
-
-        active_task = next(
-            (
-                task
-                for task in state.get("tasks", []) or []
-                if isinstance(task, dict)
-                and task.get("ownerAgentId") == clean_id
-                and task.get("status") in ACTIVE_TASK_STATUSES
-            ),
-            None,
-        )
-        if active_task:
-            raise SystemExit(
-                f"Agent {clean_id!r} still owns active task {active_task.get('id')!r}; "
-                "finish it, route it to needs_input, or have the architect release it before retiring."
-            )
-
-        already_retired = agent_is_retired(agent)
-        agent["status"] = "retired"
-        agent["currentTaskId"] = None
-        agent.setdefault("retiredAt", now_iso())
-        agent["retiredReason"] = reason
-        actor = (args.actor or clean_id).strip() or clean_id
-        event = append_event(
-            state,
-            "roster_member_retired",
-            actor,
-            f"{actor} retired Sprint Engine roster member {clean_id}.",
-            {"agentId": clean_id, "role": role, "reason": reason},
-        )
-        replacement = None
-        # The replenishment trigger uses the normalized runner policy so it
-        # picks up either the legacy `runner.mode: auto` or the new
-        # `runner.cliWatchPolling: enabled` shape.
-        runner_policy = folder_store.normalize_runner_policy(state.get("runner"))
-        if (
-            runner_policy.get("cliWatchPolling") == "enabled"
-            and role_has_open_work(state, role)
-            and not retired_agent_has_live_replacement(state, agent)
-        ):
-            replacement_id = next_replacement_agent_id(state, role)
-            replacement = add_roster_agent(state, role, replacement_id, actor)
-            agent["replacedByAgentId"] = replacement_id
-            append_event(
-                state,
-                "roster_replacement_added",
-                actor,
-                f"{actor} added replacement Sprint Engine roster member {replacement_id} for retired {role} capacity.",
-                {"agentId": replacement_id, "role": role, "replaces": [clean_id]},
-            )
-        return {
-            "ok": True,
-            "action": "already_retired" if already_retired else "retired",
-            "agentId": clean_id,
-            "role": role,
-            "agent": agent,
-            "event": event,
-            "replacement": {"id": agent.get("replacedByAgentId"), "role": role, "agent": replacement, "replaces": [clean_id]} if replacement else None,
-        }
-
-    return with_locked_state(args.state, run)
-
-def cmd_roster_replenish(args: argparse.Namespace) -> Dict[str, Any]:
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        actor = (args.actor or "runner").strip() or "runner"
-        # The role universe is the run's OWN configuredRoles, not the registry's
-        # manifest ids: `general` is a built-in identity with no manifest (roles.py
-        # recognises it by id), so a registry-sourced list silently excluded it and
-        # a general-only run could never replenish anything. Seating is bounded by
-        # configuredRoles regardless (add_roster_agent rejects off-roster roles), so
-        # this only removes roles that could never have been minted. Legacy runs with
-        # no configuredRoles keep the registry universe.
-        roles = (
-            [require_configured_role(args.role, context="Roster")]
-            if getattr(args, "role", None)
-            else sorted(configured_role_set(state) or set(configured_role_ids()))
-        )
-        created = []
-        for role in roles:
-            # A singleton seat can hold only one live member, so while one is
-            # seated the occupied seat IS every retiree's replacement — minting
-            # here would exceed the seat cap and fail the whole command,
-            # starving the queue-depth pass below (2026-07-14 incident; the
-            # roster model this guards is deleted by MC-1591).
-            if role in SINGLETON_SEAT_ROLE_IDS and planning_seat_taken(state.get("agents", {}), role):
-                continue
-            retired_for_role = [
-                agent_id
-                for agent_id, agent in state.get("agents", {}).items()
-                if (
-                    isinstance(agent, dict)
-                    and agent.get("role") == role
-                    and agent_is_retired(agent)
-                    and not retired_agent_has_live_replacement(state, agent)
-                )
-            ]
-            if not retired_for_role:
-                continue
-            if not role_has_open_work(state, role):
-                continue
-            # One mint fills a vacated singleton seat; every further retiree is
-            # then replaced by that occupied seat, and a second mint would trip
-            # the seat cap mid-loop.
-            if role in SINGLETON_SEAT_ROLE_IDS:
-                retired_for_role = retired_for_role[:1]
-            for retired_id in retired_for_role:
-                replacement_id = next_replacement_agent_id(state, role)
-                replacement = add_roster_agent(state, role, replacement_id, actor)
-                retired_agent = state.get("agents", {}).get(retired_id)
-                if isinstance(retired_agent, dict):
-                    retired_agent["replacedByAgentId"] = replacement_id
-                append_event(
-                    state,
-                    "roster_replacement_added",
-                    actor,
-                    f"{actor} added replacement Sprint Engine roster member {replacement_id} for retired {role} capacity.",
-                    {"agentId": replacement_id, "role": role, "replaces": [str(retired_id)]},
-                )
-                created.append({"id": replacement_id, "role": role, "agent": replacement, "replaces": [str(retired_id)]})
-
-        # Task-scoped assignment op (queue-depth mode): with one agent session
-        # per task and no slot recycling, every unowned ready task needs its own
-        # fresh roster id. Mint one per uncovered ready task for each non-planning
-        # role, bounded by --max-new (the caller's concurrency headroom; spawning
-        # stays capped by the renderer's availableSlots either way), and return
-        # authoritative [{agentId, role, taskId}] assignments. Runs after the
-        # retired-replacement pass so freshly minted replacements count as
-        # capacity — no double mint.
-        assignments: list[Dict[str, Any]] = []
-        if getattr(args, "queue_depth", False):
-            remaining = max(0, int(getattr(args, "max_new", 0) or 0))
-            busy_agent_ids = {
-                str(agent_id).strip()
-                for agent_id in (getattr(args, "busy_agents", None) or [])
-                if str(agent_id).strip()
-            }
-            # Only `todo` tasks are ready (MC-1542), and a reopened task is re-bound
-            # to its previous owner rather than returned to the queue, so no ready
-            # task can already be covered by a live agent. The old
-            # `changes_requested`-covered exclusion is therefore gone.
-            tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
-            for role in roles:
-                if remaining <= 0:
-                    break
-                if role in SINGLETON_SEAT_ROLE_IDS:
-                    continue
-                ready_tasks = [task for task in tasks if task.get("role") == role and task_is_ready(state, task)]
-                if not ready_tasks:
-                    continue
-                # Never-owned spawnable ids already absorb the head of the ready
-                # queue; each remaining ready task needs a fresh task-scoped id.
-                capacity = sum(
-                    1 for agent_id, agent in state.get("agents", {}).items()
-                    if isinstance(agent, dict)
-                    and agent.get("role") == role
-                    and str(agent_id) not in busy_agent_ids
-                    and _agent_is_new_task_capacity(state, agent)
-                )
-                for task in ready_tasks[capacity:]:
-                    if remaining <= 0:
-                        break
-                    task_id = str(task.get("id") or "")
-                    new_id = next_replacement_agent_id(state, role)
-                    new_agent = add_roster_agent(state, role, new_id, actor)
-                    append_event(
-                        state,
-                        "roster_capacity_added",
-                        actor,
-                        f"{actor} added Sprint Engine roster member {new_id}: task-scoped id for ready {role} task {task_id}.",
-                        {"agentId": new_id, "role": role, "reason": "queue_depth", "readyDepth": len(ready_tasks), "taskId": task_id},
-                    )
-                    created.append({"id": new_id, "role": role, "agent": new_agent, "reason": "queue_depth", "taskId": task_id})
-                    assignments.append({"agentId": new_id, "role": role, "taskId": task_id})
-                    remaining -= 1
-
-        return {"ok": True, "action": "replenished" if created else "none", "created": created, "assignments": assignments}
-
-    return with_locked_state(args.state, run)
-
-def cmd_roster_list(args: argparse.Namespace) -> Dict[str, Any]:
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        agents = [
-            {"id": str(agent_id), "role": agent.get("role"), "status": agent.get("status"), "currentTaskId": agent.get("currentTaskId")}
-            for agent_id, agent in state.get("agents", {}).items()
-            if isinstance(agent, dict)
-        ]
-        return {
-            "ok": True,
-            "rosterConfigured": roster_is_configured(state),
-            "agents": sorted(agents, key=lambda item: (str(item.get("role")), item["id"])),
-            "write": False,
-        }
-
-    return with_locked_state(args.state, run)
-
-add = cmd_roster_add
 configure = cmd_roster_configure
 runtime = cmd_roster_runtime
-retire = cmd_roster_retire
-replenish = cmd_roster_replenish
-list_roster = cmd_roster_list

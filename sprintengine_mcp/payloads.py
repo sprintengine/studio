@@ -38,16 +38,8 @@ def command_payload_to_namespace(
         base.update(role=payload["role"], id=payload["id"], watch=bool(payload.get("watch", False)), max_wait_seconds=payload.get("maxWaitSeconds"))
     elif tool_name == "sprintengine.agent.next_directive":
         base.update(role=payload["role"], id=payload["agentId"], attempts=payload.get("attempts") or 1)
-    elif tool_name == "sprintengine.roster.add":
-        base.update(role=payload["role"], id=payload["id"], actor=payload.get("actor") or _actor_id(actor, "architect"))
     elif tool_name == "sprintengine.roster.configure":
         base.update(roles=list(payload.get("roles") or []), id=payload.get("id") or _actor_id(actor, "architect"))
-    elif tool_name == "sprintengine.roster.retire":
-        base.update(id=payload["id"], reason=payload["reason"], actor=payload.get("actor") or _actor_id(actor, payload["id"]))
-    elif tool_name == "sprintengine.roster.replenish":
-        base.update(role=payload.get("role"), actor=payload.get("actor") or _actor_id(actor, "runner"))
-    elif tool_name == "sprintengine.roster.list":
-        pass
     elif tool_name == "sprintengine.triage.needs_input":
         base.update(id=payload["id"])
     elif tool_name == "sprintengine.task.next":

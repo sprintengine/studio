@@ -12,11 +12,13 @@ because roles are plugin-extensible:
 - ``operator`` — the workspace user (`role == "user"` or no role): the app's
   IPC actor, the human/debug CLI, and stdio sessions. Full surface.
 - ``architect`` — the system planning role (registry-normalized id
-  ``architect``): full agent surface including plan/roster/run-level tools.
+  ``architect``): full agent surface including plan/run-level tools.
 - ``general`` — the soulless ``general`` identity that plans, builds, reviews,
-  and tests a sprint by itself: the planning surface minus the roster-growth
-  tools (``roster.add`` / ``roster.configure`` / ``roster.replenish``), so a
-  General can never expand the team. No registry manifest required.
+  and tests a sprint by itself: the full planning surface, identical to the
+  architect's. MC-1591 deleted the roster-growth tools (leases replaced
+  membership, so there is no team to expand), and those tools were the only
+  thing that set a General apart, so the two classifications now converge. No
+  registry manifest required.
 - ``owner`` — every other resolvable role, and the conservative fallback for
   roles the registry cannot resolve (such a role cannot join anyway).
 
@@ -37,21 +39,11 @@ from sprintengine_core.role_registry import discover_role_registry, normalize_ro
 
 RoleClassification = str  # "operator" | "architect" | "general" | "owner"
 
-# Roster-growth tools withheld from a General so it can never expand the team —
-# the structural fix for the soulless-General sprint (a General keeps
-# `roster.list` for visibility). `roster.configure` ('Architect picks the team')
-# is architect-only for the same reason: only the run's planning architect seats
-# the team, and a wizard architect-roster run always seats an architect.
-ROSTER_GROWTH_TOOLS: frozenset[str] = frozenset({
-    "sprintengine.roster.add",
-    "sprintengine.roster.configure",
-    "sprintengine.roster.replenish",
-})
-
 # Tools every joined agent needs to receive, work, evidence, and finish a task
-# or stop safely (including self-retirement near context capacity). One agent owns
-# a task from claim through `done` (MC-1542), so `task.publish` and `task.advance`
-# are the whole lifecycle surface — there is no separate reviewer tool set.
+# or stop safely (self-retirement near context capacity is `agent.leave`, which
+# releases the lease). One agent owns a task from claim through `done` (MC-1542),
+# so `task.publish` and `task.advance` are the whole lifecycle surface — there is
+# no separate reviewer tool set.
 AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.help",
     "sprintengine.agent.join",
@@ -61,7 +53,6 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.subscribe",
     "sprintengine.dispatch.next",
     "sprintengine.dispatch.ack",
-    "sprintengine.roster.retire",
     "sprintengine.task.get",
     "sprintengine.task.list",
     "sprintengine.task.next",
@@ -106,10 +97,7 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.plan.list",
     "sprintengine.plan.read",
     "sprintengine.triage.needs_input",
-    "sprintengine.roster.add",
     "sprintengine.roster.configure",
-    "sprintengine.roster.replenish",
-    "sprintengine.roster.list",
     "sprintengine.summary",
     "sprintengine.feedback.summarize",
     "sprintengine.feedback.recommend_actions",
@@ -152,10 +140,10 @@ PERMITTED_ALTERNATIVES: dict[str, str] = {
 def allowed_tools_for_classification(classification: RoleClassification, all_tools: Iterable[str]) -> frozenset[str]:
     if classification == "operator":
         return frozenset(all_tools)
-    if classification == "architect":
+    # architect and general share one planning surface: roster growth was the
+    # only tool difference and MC-1591 deleted it.
+    if classification in ("architect", "general"):
         return AGENT_COMMON_TOOLS | PLANNING_TOOLS
-    if classification == "general":
-        return AGENT_COMMON_TOOLS | (PLANNING_TOOLS - ROSTER_GROWTH_TOOLS)
     return AGENT_COMMON_TOOLS
 
 

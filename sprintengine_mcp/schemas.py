@@ -197,7 +197,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}}),
     "sprintengine.recover": object_schema(["statePath"], {}),
-    "sprintengine.roster.add": object_schema(["statePath", "role", "id"], {"role": {"type": "string"}, "id": {"type": "string"}, "actor": {"type": "string"}}),
     "sprintengine.roster.configure": object_schema(
         ["statePath", "roles"],
         {
@@ -217,9 +216,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "id": {"type": "string", "description": "Architect actor id recording the configuration."},
         },
     ),
-    "sprintengine.roster.retire": object_schema(["statePath", "id", "reason"], {"id": {"type": "string"}, "reason": {"type": "string"}, "actor": {"type": "string"}}),
-    "sprintengine.roster.replenish": object_schema(["statePath"], {"role": {"type": "string"}, "actor": {"type": "string"}}),
-    "sprintengine.roster.list": object_schema(["statePath"], {}),
     "sprintengine.agent.join": object_schema(
         ["statePath", "role", "agentId"],
         {

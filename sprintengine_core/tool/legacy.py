@@ -480,15 +480,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("projection", help="Read normalized Sprint Engine run projection.")
     p.set_defaults(handler=run_commands.projection)
 
-    # roster
-    roster_p = sub.add_parser("roster", help="Roster operations.")
+    # roster — run-config ops only; membership (add/retire/replenish/list) was
+    # deleted by MC-1591 when leases replaced the roster.
+    roster_p = sub.add_parser("roster", help="Run-config operations (configuredRoles + per-role runtimes).")
     roster_sub = roster_p.add_subparsers(dest="action", required=True)
-
-    p = roster_sub.add_parser("add", help="Add a specialist to the canonical Sprint Engine roster.")
-    p.add_argument("--role", required=True)
-    p.add_argument("--id", required=True, help="Stable agent id, e.g. security or developer-2.")
-    p.add_argument("--actor", default="architect")
-    p.set_defaults(handler=roster_commands.add)
 
     p = roster_sub.add_parser("configure", help="Architect: enable roles + pick each role's cli/model ('Architect picks the team' runs, pre-plan-approval).")
     p.add_argument("--id", default="architect", help="Architect actor id recording the configuration.")
@@ -506,40 +501,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="Model id; omit for the CLI's default model (launches with no --model flag).")
     p.add_argument("--actor", default="user")
     p.set_defaults(handler=roster_commands.runtime)
-
-    p = roster_sub.add_parser("retire", help="Mark a roster member retired so it cannot claim more Sprint Engine work.")
-    p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
-    p.add_argument("--reason", required=True, help="Why this agent is retiring, e.g. context capacity near limit.")
-    p.add_argument("--actor", help="Actor recording the retirement; defaults to --id.")
-    p.set_defaults(handler=roster_commands.retire)
-
-    p = roster_sub.add_parser("replenish", help="Let Sprint Engine add replacement roster slots for retired capacity when open work remains.")
-    p.add_argument("--role", help="Limit replenishment to one role.")
-    p.add_argument("--actor", default="runner")
-    p.add_argument(
-        "--queue-depth",
-        action="store_true",
-        dest="queue_depth",
-        help="Also top non-planning roles up to their ready-queue depth (MC-1444 task-scoped workers).",
-    )
-    p.add_argument(
-        "--max-new",
-        type=int,
-        default=0,
-        dest="max_new",
-        help="Upper bound on queue-depth roster additions this invocation (caller's concurrency headroom).",
-    )
-    p.add_argument(
-        "--busy-agent",
-        action="append",
-        default=[],
-        dest="busy_agents",
-        help="Roster id with a live task-bound terminal (repeatable); excluded from queue-depth capacity. The caller owns liveness.",
-    )
-    p.set_defaults(handler=roster_commands.replenish)
-
-    p = roster_sub.add_parser("list", help="List the canonical Sprint Engine roster.")
-    p.set_defaults(handler=roster_commands.list_roster)
 
     # join
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")
