@@ -59,7 +59,6 @@ EXTRA_DIRS_PROPERTY = {
 
 TASK_ID_PROPERTY = {"type": "string", "description": "Sprint Engine task id, for example T3."}
 ARTIFACT_ID_PROPERTY = {"type": "string", "description": "Sprint Engine artifact id."}
-DISPATCH_ID_PROPERTY = {"type": "string", "description": "Stable idempotent dispatch ledger id."}
 
 ACTOR_SCHEMA = {
     "type": "object",
@@ -197,7 +196,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}}),
     "sprintengine.recover": object_schema(["statePath"], {}),
-    "sprintengine.roster.add": object_schema(["statePath", "role", "id"], {"role": {"type": "string"}, "id": {"type": "string"}, "actor": {"type": "string"}}),
     "sprintengine.roster.configure": object_schema(
         ["statePath", "roles"],
         {
@@ -217,17 +215,12 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "id": {"type": "string", "description": "Architect actor id recording the configuration."},
         },
     ),
-    "sprintengine.roster.retire": object_schema(["statePath", "id", "reason"], {"id": {"type": "string"}, "reason": {"type": "string"}, "actor": {"type": "string"}}),
-    "sprintengine.roster.replenish": object_schema(["statePath"], {"role": {"type": "string"}, "actor": {"type": "string"}}),
-    "sprintengine.roster.list": object_schema(["statePath"], {}),
     "sprintengine.agent.join": object_schema(
         ["statePath", "role", "agentId"],
         {
             "role": ROLE_PROPERTY,
             "agentId": AGENT_ID_PROPERTY,
             "workspaceRoot": WORKSPACE_ROOT_PROPERTY,
-            "subscribe": {"type": "boolean", "description": "Whether the agent wants dispatch subscription metadata recorded during join."},
-            "subscriptionMode": {"type": "string", "enum": ["none", "poll", "mcp_notifications"]},
         },
     ),
     "sprintengine.agent.next_directive": object_schema(
@@ -244,14 +237,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY}),
     "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY, "reason": {"type": "string"}}),
-    "sprintengine.subscribe": object_schema(
-        ["statePath", "agentId"],
-        {
-            "agentId": AGENT_ID_PROPERTY,
-            "lastDispatchId": DISPATCH_ID_PROPERTY,
-            "transport": {"type": "string", "enum": ["mcp_notifications", "poll"]},
-        },
-    ),
     "sprintengine.join": object_schema(
         ["statePath", "role", "id"],
         {
@@ -262,14 +247,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     ),
     "sprintengine.summary": object_schema(["statePath"], {}),
-    "sprintengine.dispatch.next": object_schema(
-        ["statePath", "agentId"],
-        {"agentId": AGENT_ID_PROPERTY, "lastDispatchId": DISPATCH_ID_PROPERTY},
-    ),
-    "sprintengine.dispatch.ack": object_schema(
-        ["statePath", "agentId", "dispatchId"],
-        {"agentId": AGENT_ID_PROPERTY, "dispatchId": DISPATCH_ID_PROPERTY, "outcome": {"type": "string"}},
-    ),
     "sprintengine.triage.needs_input": object_schema(["statePath", "id"], {"id": AGENT_ID_PROPERTY}),
     "sprintengine.roles.list": object_schema(["workspaceRoot"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "includeShadowed": {"type": "boolean"}, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),
     "sprintengine.roles.get": object_schema(["workspaceRoot", "roleId"], {"workspaceRoot": WORKSPACE_ROOT_PROPERTY, "roleId": ROLE_PROPERTY, "pluginRegistryRoots": PLUGIN_REGISTRY_ROOTS_PROPERTY, "extraDirs": EXTRA_DIRS_PROPERTY}),

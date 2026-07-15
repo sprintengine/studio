@@ -13,7 +13,7 @@ from pathlib import Path
 
 from sprintengine_core import store as folder_store
 from sprintengine_mcp import SprintEngineMcpServer
-from sprintengine_mcp.capabilities import PLANNING_TOOLS, ROSTER_GROWTH_TOOLS
+from sprintengine_mcp.capabilities import PLANNING_TOOLS
 from sprintengine_mcp.schemas import MCP_V1_CONTRACT_SCHEMAS
 from helpers import SwarmCli, read_state
 
@@ -276,20 +276,18 @@ def test_configure_locked_after_plan_approval(tmp_path) -> None:
 # Capability scoping (test_capabilities-style)
 # --------------------------------------------------------------------------- #
 
-def test_configure_is_planning_surface_architect_only(tmp_path) -> None:
-    # Structural: a planning tool in the roster-growth fence. Architect gets the
-    # full planning surface, so it is granted to the architect; general and worker
-    # never get planning tools, so it is withheld from them. The operator (app/CLI
-    # human) keeps the full surface by design, exactly like roster.add — the
-    # per-call enforcement below is the "architect only" boundary for agents.
+def test_configure_is_a_planners_surface_withheld_from_workers(tmp_path) -> None:
+    # Structural: roster.configure is a run-administration tool on the planning
+    # surface. MC-1591 deleted the roster-growth fence, so the architect and the
+    # general (converged onto one planning surface) both get it, as does the
+    # operator (app/CLI human). A worker/reviewer role never gets planning tools.
     assert "sprintengine.roster.configure" in PLANNING_TOOLS
-    assert "sprintengine.roster.configure" in ROSTER_GROWTH_TOOLS
     assert "sprintengine.roster.configure" in MCP_V1_CONTRACT_SCHEMAS
     from sprintengine_mcp.capabilities import allowed_tools_for_classification
     from sprintengine_mcp.schemas import TOOL_SCHEMAS
-    assert "sprintengine.roster.configure" in allowed_tools_for_classification("architect", TOOL_SCHEMAS)
-    assert "sprintengine.roster.configure" in allowed_tools_for_classification("operator", TOOL_SCHEMAS)
-    for withheld in ("general", "reviewer", "worker"):
+    for planner in ("architect", "general", "operator"):
+        assert "sprintengine.roster.configure" in allowed_tools_for_classification(planner, TOOL_SCHEMAS), planner
+    for withheld in ("reviewer", "worker"):
         assert "sprintengine.roster.configure" not in allowed_tools_for_classification(withheld, TOOL_SCHEMAS), withheld
 
 
@@ -323,17 +321,23 @@ def test_run_metadata_omits_roster_source_for_user_mode(tmp_path) -> None:
     assert "rosterSource" not in got["result"]["run"]
 
 
-def test_configure_withheld_from_general_and_worker(tmp_path) -> None:
+def test_configure_allowed_for_general_withheld_from_worker(tmp_path) -> None:
+    # MC-1591 converged the general onto the architect's planning surface, so a
+    # general passes the capability gate and its configure takes effect; a worker
+    # role (developer) never reaches the planning surface at all.
     root, state_path = _workspace(tmp_path)
     cli = SwarmCli(state_path, cwd=root)
     _init_architect_run(cli, [OPUS])
     server = _server_for(state_path, root)
     roles = [{"role": "developer", "cli": "claude-code", "model": "claude-opus-4-8"}]
 
-    for classification_role in ("general", "developer"):
-        denied = _configure(server, state_path, roles, actor_id=f"{classification_role}-a", role=classification_role)
-        assert denied["ok"] is False, classification_role
-        assert denied["error"]["code"] == "tool_not_permitted_for_role"
+    denied = _configure(server, state_path, roles, actor_id="developer-a", role="developer")
+    assert denied["ok"] is False
+    assert denied["error"]["code"] == "tool_not_permitted_for_role"
+
+    allowed = _configure(server, state_path, roles, actor_id="general-a", role="general")
+    assert allowed["ok"] is True
+    assert "developer" in allowed["result"]["configuredRoles"]
 
 
 def test_init_flags_are_not_mcp_mutable(tmp_path) -> None:

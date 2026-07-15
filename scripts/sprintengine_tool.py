@@ -141,18 +141,11 @@ def _mcp_payload(args) -> tuple[str, dict]:
     if group == "recover":
         return "sprintengine.recover", base
     if group == "roster":
-        if action == "add":
-            return "sprintengine.roster.add", {**base, "role": args.role, "id": args.id, "actor": args.actor}
-        if action == "retire":
-            return "sprintengine.roster.retire", {**base, "id": args.id, "reason": args.reason, "actor": args.actor}
-        if action == "replenish":
-            payload = {**base, "actor": args.actor}
-            if args.role:
-                payload["role"] = args.role
-            return "sprintengine.roster.replenish", payload
-        if action == "list":
-            return "sprintengine.roster.list", base
-        raise SystemExit(f"MCP backend does not support roster action: {action}")
+        # Membership roster ops were deleted (MC-1591: leases replaced the
+        # roster). The survivors — `configure` and `runtime` — are run-config ops
+        # routed through the direct backend's parser handlers, not this mcp-local
+        # payload mapper.
+        raise SystemExit(f"MCP backend does not support roster action: {action}; use --backend direct-core.")
     if group == "join":
         payload = {**base, "role": args.role, "id": args.id, "watch": bool(args.watch)}
         if args.max_wait_seconds is not None:

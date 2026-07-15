@@ -1,13 +1,10 @@
 import type { IpcMain } from 'electron'
 import type {
   SprintEngineArtifactCommandResult,
-  SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
-  SprintEngineRosterAddInput,
-  SprintEngineRosterReplenishInput,
   SprintEngineRosterRuntimeInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
@@ -60,13 +57,10 @@ type SprintEngineIpcDependencies = {
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
-  replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
-  addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
-  readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
   readTokenUsage(payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport>
 }
@@ -125,14 +119,6 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
     return deps.refreshPullRequestStatus(payload)
   })
 
-  ipcMain.handle('sprintengine:roster:replenish', async (_, payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.replenishRoster(payload)
-  })
-
-  ipcMain.handle('sprintengine:roster:add', async (_, payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.addRosterMember(payload)
-  })
-
   ipcMain.handle('sprintengine:roster:runtime', async (_, payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.setRoleRuntime(payload)
   })
@@ -147,10 +133,6 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:registry:role:read', async (_, payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult> => {
     return deps.readRegistryRole(payload)
-  })
-
-  ipcMain.handle('sprintengine:dispatch:read', async (_, payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult> => {
-    return deps.readDispatch(payload)
   })
 
   ipcMain.handle('sprintengine:feedback:summarize', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult> => {

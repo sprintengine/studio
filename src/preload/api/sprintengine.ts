@@ -9,13 +9,10 @@ import type {
   SprintEngineAutomationReadResult,
   SprintEngineAutomationSetModeInput,
   SprintEngineAutomationWriteResult,
-  SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
-  SprintEngineRosterAddInput,
-  SprintEngineRosterReplenishInput,
   SprintEngineRosterRuntimeInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
@@ -93,14 +90,6 @@ export const sprintEngineApi = {
     statePath: string
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:vcs:pr-status', { statePath }),
-  replenishSprintEngineRoster: (
-    input: SprintEngineRosterReplenishInput
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:roster:replenish', input),
-  addSprintEngineRosterMember: (
-    input: SprintEngineRosterAddInput
-  ): Promise<SprintEngineArtifactCommandResult> =>
-    ipcRenderer.invoke('sprintengine:roster:add', input),
   setSprintEngineRoleRuntime: (
     input: SprintEngineRosterRuntimeInput
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -118,10 +107,6 @@ export const sprintEngineApi = {
     input: SprintEngineRegistryRoleReadInput
   ): Promise<SprintEngineMcpReadResult> =>
     ipcRenderer.invoke('sprintengine:registry:role:read', input),
-  readSprintEngineDispatch: (
-    input: SprintEngineDispatchReadInput
-  ): Promise<SprintEngineMcpReadResult> =>
-    ipcRenderer.invoke('sprintengine:dispatch:read', input),
   summarizeSprintEngineFeedback: (
     statePath: string
   ): Promise<SprintEngineMcpReadResult> =>
@@ -209,13 +194,10 @@ export const sprintEngineApi = {
   | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
-  | 'replenishSprintEngineRoster'
-  | 'addSprintEngineRosterMember'
   | 'setSprintEngineRoleRuntime'
   | 'readSprintEngineProjection'
   | 'readSprintEngineRegistryRoles'
   | 'readSprintEngineRegistryRole'
-  | 'readSprintEngineDispatch'
   | 'summarizeSprintEngineFeedback'
   | 'readSprintEngineTokenUsage'
   | 'installUserSprintEngineRoleFolder'

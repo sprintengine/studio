@@ -288,9 +288,6 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       setRunnerMode: async () => {
         throw new Error('not used')
       },
-      replenishRoster: async () => {
-        throw new Error('not used')
-      },
     },
   })
 

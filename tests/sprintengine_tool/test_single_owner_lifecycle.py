@@ -183,7 +183,12 @@ def test_publish_with_changes_enters_the_first_phase_and_keeps_the_owner(tmp_pat
     # Decision 1: the owner is mid-tool-call and stays bound to the task.
     assert record["ownerAgentId"] == "developer-1"
     assert record["completedAt"] is None
-    assert state["agents"]["developer-1"]["currentTaskId"] == "T1"
+    # The lease is the binding; the derived worker view (no agents map, MC-1591)
+    # still reports the owner running T1 through the review phase.
+    assert record["lease"]["workerId"] == "developer-1"
+    projection = folder_store.build_projection(fixture.team_dir, state_path=fixture.state_path)
+    assert projection["workers"]["developer-1"]["currentTaskId"] == "T1"
+    assert projection["workers"]["developer-1"]["status"] == "running"
 
 
 def test_publish_with_changes_but_no_phases_routes_to_done(tmp_path: Path) -> None:

@@ -298,7 +298,5 @@ function serviceBackedSprintEngineFrontDoors(
   return {
     setRunnerMode: async (input) =>
       resolve()?.setRunnerMode(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
-    replenishRoster: async (input) =>
-      resolve()?.replenishRoster(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
   }
 }

@@ -51,7 +51,7 @@ commands.
 
 `run.yaml` stores compact run metadata and graph mirrors:
 
-- `schemaVersion`: folder-store schema version, currently `2`
+- `schemaVersion`: folder-store schema version, currently `3`
   (`store.RUN_SCHEMA_VERSION`). See "Store Version Rejection" below.
 - `name`: team display name.
 - `goal`: run goal.
@@ -60,6 +60,9 @@ commands.
 - `graphPolicy`: graph/readiness policy metadata.
 - `rosterPolicy`: durable worker-assignment policy
   (`{"workerAssignment": "per_task"}`; an absent policy reads as `per_task`).
+  Retained as a run-config field; under leases (v3) the live invariant is "a
+  worker holds at most one **active lease**", enforced on the task record, not a
+  seat count. See "Task Leases" below.
 - `defaultPhases`: the ordered post-implementation phases every task inherits,
   and the ceiling a per-task `phases` list must be a subset of. Written once at
   init from `--default-phases-json`; absent means the engine default
@@ -75,7 +78,11 @@ commands.
   `taskId`.
 - `runner`: durable runner policy (`cliWatchPolling: enabled | disabled`) plus
   polling and completion settings. Legacy `mode: auto | off` is still read.
-- `agents`: durable agent lifecycle records keyed by stable agent id.
+- There is **no `agents` map** (v3, MC-1591). Membership is `configuredRoles` and
+  assignment is a **lease on the task record**; `sync_run_yaml_from_state` strips
+  any legacy `agents` key on write and `state_from_folder_store` reconstructs
+  none. The live "who is doing what" view is derived from task leases into
+  `projection.workers` (and a `projection.roster` bridge). See "Task Leases".
 - `roles`, `roleRuntimes`: the run's role metadata and per-role `{model, cli}`
   execution runtime map.
 - `configuredRoles`: the run's enabled role set — the roles a task may be tagged
@@ -117,16 +124,18 @@ omitted when absent.
 
 ### Store Version Rejection
 
-`RUN_SCHEMA_VERSION` is `2`. A run store written before MC-1542 (single-owner
-tasks) is **rejected, never migrated**: its status enum, its per-task quality
-requirements, and its role manifests are all incompatible.
+`RUN_SCHEMA_VERSION` is `3` (v2 = MC-1542 single-owner; v3 = MC-1591 leases
+replace the roster). Any store below the current version is **rejected, never
+migrated**: its status enum, its per-task quality requirements, its role
+manifests, and — pre-v3 — its persistent `agents` map are all incompatible.
 
 `assert_store_is_current` (`sprintengine_core/store.py`) is the one function both
 `state_from_folder_store` and `build_projection` call; it raises
 `RunStoreVersionError` naming the team directory to delete. The projection also
 carries `run.schemaVersion`, so the app can reject a stale `projection.json`
 without invoking Python — `describeUnsupportedSprintEngineStore`
-(`src/main/sprintengine-artifacts.ts`) guards every surface that reads one. The
+(`src/main/sprintengine-artifacts.ts`, mirror constant
+`SPRINT_ENGINE_RUN_SCHEMA_VERSION = 3`) guards every surface that reads one. The
 remedy is deleting `.multi-code/sprintengine/<team>/` and re-running the sprint.
 
 ## Role Registry Boundary
@@ -194,68 +203,81 @@ inline in the owner's `task.publish` / `task.advance` tool response — or, for 
 owner revived mid-phase, in the `build_phase_respawn_brief` startup brief. Those
 are the only two channels.
 
-### Agent Records
+### Task Leases
 
-`run.yaml` `agents` is the lifecycle mirror used by MCP dispatch, CLI
-compatibility, projection, and Multicode terminal wake/resume orchestration. It
-is keyed by stable Sprint Engine agent id, such as `developer-1`. The map is
-owned by Sprint Engine commands and the local MCP server; manual edits can leave
-task ownership, projection, and dispatch ledger state inconsistent.
+There is no persistent `agents` map. Assignment is a **lease minted on the task
+record at claim** (`mint_lease`, `sprintengine_core/tool/state.py`), the sole
+authority for claim, seat, and capacity decisions. The lease is stored under the
+task's `lease` key:
 
-Each agent record normalizes to:
+- `workerId`: the worker id holding the lease. `ownerAgentId` on the task is its
+  denormalized copy, kept in lockstep for every consumer that reads it.
+- `role`: the role recorded at claim.
+- `heartbeatAt`: UTC timestamp refreshed at every ownership event and by
+  `sprintengine.agent.heartbeat`; the expiry sweep measures liveness from it.
+- `since`: UTC timestamp the current worker took the lease.
+- `sessionId`: optional CLI session id, present when recorded.
 
-- `role`: canonical role id assigned to the agent.
-- `status`: one of `KNOWN_AGENT_STATUSES` — `idle`, `running`, `needs_input`,
-  `retired`, `done`. Any other on-disk value coerces to `idle` on load
-  (`normalize_legacy_agent_statuses`). Active dispatch is represented by
-  `currentDispatch` and `sprintengine.dispatch.next` state, not by a persisted
-  agent status value.
-- `heartbeatAt`: UTC timestamp of the latest heartbeat observed through
-  `sprintengine.agent.heartbeat` or a compatibility join refresh.
-- `joinedAt`: UTC timestamp when the agent first joined this run.
-- `leftAt`: UTC timestamp for a graceful leave, when present.
-- `deadAt`: UTC timestamp set by liveness reconciliation, when present.
-- `subscription`: dispatch subscription metadata with `mode` (`none`, `poll`,
-  or `mcp_notifications`), `subscribedAt`, optional `lastDispatchId`, and ack
-  mirrors such as `lastDispatchAckAt` and `lastDispatchOutcome`.
-- `currentDispatch`: current durable dispatch target, when assigned.
-- `currentTaskId`: compatibility mirror for the agent's active task.
-- `ownedTaskIds`: the durable set of every task this id has owned. Bare
-  (never-owned) ids omit the key.
-- `lastOwnedTaskId`: the most recent owned task id, when present.
-- `lastDirectiveAt`: UTC timestamp for the latest directive returned to or
-  recorded for the agent.
+A lease is active while the task status is in `ACTIVE_TASK_STATUSES`
+(`in_progress`, `review`, `needs_input`) and ends at `done`/`canceled` or on
+release to the queue (`end_lease`). `active_lease_worker` returns the active
+holder, falling back to `ownerAgentId` for records predating the field.
 
-`currentDispatch` records:
+Invariants (`tests/sprintengine_tool/test_lease_claim_property.py`):
 
-- `dispatchId`: stable idempotency key from `dispatch.jsonl`.
-- `targetKind`: `task` for active assignments; future server-created targets may
-  use values such as `architect_judgment` or `run`.
-- `taskId`: the assigned task.
-- `role`: target role used for routing.
-- `reason`: dispatch reason such as `task_claimed` or `agent_expired_release`.
-  Unclaimed ready tasks are wake candidates and must not be represented as
-  `currentDispatch` assignments.
-- `assignedAt`: UTC timestamp of assignment.
+- **Atomic claim.** `runner/claim.queue.lock` serializes the mint, so concurrent
+  claimers never double-assign a task.
+- **≤1 active lease per worker.** `worker_has_active_lease` (the replacement for
+  the deleted `task_claim_exceeds_worker_capacity` / `ownedTaskIds` cap) refuses
+  a second claim; a re-claim of the worker's own task (rework) is allowed. A
+  worker whose task is `done` holds none and may claim again — the deleted
+  per-task-for-life rule.
+- **Same-worker re-mint preserves `since`/`sessionId`; a different worker resets
+  both**, so a successor never inherits the prior owner's session or token
+  attribution.
+- **Expiry / leave release only `in_progress` leases.** `release_agent_targets`
+  (shared by MCP `agent.leave` and the 300s headless sweep
+  `release_expired_agent_targets`, `agent_liveness_timeout_seconds`) frees an
+  `in_progress` lease back to `todo`; a `review` or `needs_input` lease stays
+  bound to its worker id, revived under the same id with a phase brief.
 
-Agents and app code must not edit this map directly. Use the lifecycle tools or
-the CLI compatibility commands so store locks, task ownership, events,
-projection sync, and dispatch ledger writes remain coherent.
+The live "who is doing what" view is derived from task leases, never stored:
+`derive_worker_views(tasks, dispatches)` (`sprintengine_core/store.py`) builds
+`projection.workers` (keyed by worker id) and the `projection.roster` bridge in
+one pass, so the two shapes cannot drift. Each worker view carries `role`, a
+derived `status` (`idle`/`running`/`needs_input`), `currentTaskId`,
+`lastOwnedTaskId`, a derived `ownedTaskIds` list, `currentDispatch` (rebuilt from
+the `dispatch.jsonl` ledger), and — when present on the lease — `sessionId`,
+`since`, and `heartbeatAt`. `worker_view(state, id)` is the single-worker echo
+that `agent.join`/`task.next`/`task.claim` return (a fresh joiner with no lease
+→ `null`).
+
+`currentDispatch` (on a worker view) records `dispatchId`, `targetKind` (`task`),
+`taskId`, `role`, `reason` (e.g. `task_claimed`, `agent_expired_release`), and
+`assignedAt`. Unclaimed ready tasks are wake candidates and are never
+represented as `currentDispatch` assignments.
+
+Agents and app code must not edit task records directly. Use the lifecycle tools
+so store locks, leases, task ownership, events, projection sync, and dispatch
+ledger writes remain coherent.
 
 ## Dispatch Ledger
 
-`dispatch.jsonl` is an append-only sibling of `events.jsonl`. It records durable
-dispatch assignments with an idempotency key. Acknowledgement and subscription
-state is mirrored on the agent record and in normal events; consumers should use
-Sprint Engine tools or projection fields instead of parsing or editing the file
-directly.
+`dispatch.jsonl` is an append-only sibling of `events.jsonl` — durable dispatch
+telemetry with an idempotency key, surfaced as `projection.dispatches`. MC-1591
+deleted the per-agent dispatch **cursor** surface (`sprintengine.dispatch.next` /
+`sprintengine.dispatch.ack` / `sprintengine.subscribe`, plus the per-agent
+`subscription`, `currentDispatch`, and `dispatchCursors` state): leases on the
+task record are the assignment authority, so there is no cursor to replay. A
+worker's `currentDispatch` is now *reconstructed* from this ledger by
+`derive_worker_views` (`sprintengine_core/store.py`), never persisted per agent.
+Consumers read Sprint Engine tools or projection fields, never the file directly.
 
-Durable dispatch assignments are created for claimed tasks, re-engagement
-directed back to the task owner, and explicit `currentDispatch` targets.
-Renderer prompts for unclaimed ready tasks are wake candidates only: they may
-wake an available live agent to call the direct claim tool, but they do not write
-`currentDispatch`, append `dispatch.jsonl`, or mutate canonical task state before
-the claim tool claims.
+Durable dispatch records are created for claimed tasks, re-engagement directed
+back to the task owner, and expiry re-queues. Renderer prompts for unclaimed
+ready tasks are wake candidates only: they may wake an available live agent to
+call the direct claim tool, but they do not append `dispatch.jsonl` or mutate
+canonical task state before the claim tool claims.
 
 Each line is a JSON object with:
 
@@ -275,52 +297,37 @@ Each line is a JSON object with:
   Sprint Engine core path. Future transports may identify `mcp`, `cli_compat`,
   or `system`.
 
-`sprintengine.dispatch.next` is the read contract for this ledger. It requires
-an `agentId`, returns the agent's `currentDispatch`, and filters ledger rows by
-that same `agentId` before applying `lastDispatchId` pagination — when the
-caller omits `lastDispatchId`, the cursor defaults to the acked
-`agents.<id>.subscription.lastDispatchId`, so a subscribed agent replays only
-the delta since its own ack. A cursor that matches no ledger row (mistyped
-ack, pruned `dispatch.jsonl`) falls back to the full capped history instead
-of an empty reply, so a poisoned cursor self-heals. Over MCP the replayed
-rows are slim stubs in the `currentDispatch` field dialect (`dispatchId`,
-`targetKind`, `taskId`, `reason`, `assignedAt`), capped
-at the newest `DISPATCH_REPLAY_LIMIT` (20) with `truncated`/`totalCount` when
-older rows are dropped; the on-disk ledger keeps the full record shape.
-`sprintengine.dispatch.ack` records acknowledgement metadata on
-`agents.<id>.subscription` and appends a normal event; it does not rewrite
-`dispatch.jsonl`. Its MCP response is the minimal ack
-`{ok, dispatchId, outcome}` echoing the values the server persisted (not the
-raw payload); `sprintengine.subscribe` answers `{ok, subscription}`, and
-`sprintengine.agent.heartbeat` answers the pure-liveness ack `{ok, known}` —
-heartbeat never conveys assignment state; agents learn assignments from
-`dispatch.next` (`currentDispatch`) and `task.next` resume
-(`sprintengine_mcp/response_shapes.py`).
+There is no MCP read contract for this ledger — the deleted `dispatch.next` /
+`dispatch.ack` / `subscribe` tools were its cursor surface. Headless watch is
+re-expressed as a `task.next` poll loop (which also runs the expiry sweep on each
+poll); an agent learns its assignment from the `currentDispatch` reconstructed on
+its worker view and from `task.next` resume. `sprintengine.agent.heartbeat`
+answers the pure-liveness ack `{ok, known}` and never conveys assignment state.
+The `run.subscribe` run-event stream is unaffected — it is the run-level history
+feed, not a per-agent dispatch cursor.
 
-Dispatch is durable state, not a guarantee that a model session woke up.
+Dispatch is durable telemetry, not a guarantee that a model session woke up.
 Multicode remains responsible for spawning, focusing, or injecting terminal
-input for current CLIs. MCP notifications and subscriptions are allowed as
-observability and future transport, but correctness must come from reconciling
-agent records and dispatch ids.
+input for current CLIs. Correctness comes from reconciling task leases and
+dispatch ids, not from a notification arriving.
 
 ## MCP Tool Contract
 
 The final MCP v1 surface is schema-first in `sprintengine_mcp/schemas.py`.
-Lifecycle, discovery, dispatch, task, artifact, plan, run, and support
-operations all use structured JSON schemas. Final contract schemas are exposed
-separately from the active `TOOL_SCHEMAS` registry so `list_tools` advertises
-only operations with server handlers (`ACTIVE_TOOL_NAMES`,
-`sprintengine_mcp/tool_contracts.py`). Future names move into active
-`TOOL_SCHEMAS` when their handlers land.
+Lifecycle, discovery, task, artifact, plan, run, and support operations all use
+structured JSON schemas. Final contract schemas are exposed separately from the
+active `TOOL_SCHEMAS` registry so `list_tools` advertises only operations with
+server handlers (`ACTIVE_TOOL_NAMES`, `sprintengine_mcp/tool_contracts.py`).
+Future names move into active `TOOL_SCHEMAS` when their handlers land.
 
-Final lifecycle and dispatch names:
+Lifecycle names (MC-1591 deleted the per-agent dispatch cursor tools
+`sprintengine.dispatch.next` / `sprintengine.dispatch.ack` / the bare
+`sprintengine.subscribe`; a call to any of them is now an unknown tool):
 
 - `sprintengine.agent.join`
 - `sprintengine.agent.heartbeat`
 - `sprintengine.agent.leave`
-- `sprintengine.subscribe`
-- `sprintengine.dispatch.next`
-- `sprintengine.dispatch.ack`
+- `sprintengine.agent.next_directive` (headless-CLI routing adapter)
 
 Discovery names:
 
@@ -355,13 +362,15 @@ Active operation names:
   tool: it exists for the UI, which reads `projection.json` from disk, and
   over MCP it returned more tokens than an agent context window. The CLI
   `projection` command is unaffected.
-- Roster: `sprintengine.roster.add`, `sprintengine.roster.configure`,
-  `sprintengine.roster.retire`, `sprintengine.roster.replenish`,
-  `sprintengine.roster.list`. `sprintengine.roster.configure` is the
-  "Architect picks the team" mutation: it enables roles and pins each role's
-  `{cli, model}` in one call on an `architect`-source run (see below).
-- Support: `sprintengine.init`, `sprintengine.recover`, roster tools,
-  `sprintengine.summary`, feedback tools, and `sprintengine.health`.
+- Roster: `sprintengine.roster.configure` only. MC-1591 deleted the membership
+  ops (`roster.add` / `roster.retire` / `roster.replenish` / `roster.list`) — a
+  call to one is an unknown tool for every role. `roster.configure` is the
+  "Architect picks the team" run-config mutation: it enables roles and pins each
+  role's `{cli, model}` in one call on an `architect`-source run (see below). The
+  operator `roster runtime` runtime edit is CLI/IPC-only, never an MCP tool.
+- Support: `sprintengine.init`, `sprintengine.recover`,
+  `sprintengine.roster.configure`, `sprintengine.summary`, feedback tools, and
+  `sprintengine.health`.
 
 `sprintengine.roster.configure` takes `{ roles, id? }`, where `roles` is a JSON
 array of `{ "role", "cli", "model" }` objects (`"model": null` = the CLI's own
@@ -480,10 +489,11 @@ plugin roles participate. There are four classifications:
   CLI, and stdio sessions. Full surface.
 - `architect` — the registry-normalized `architect` id: `AGENT_COMMON_TOOLS` plus
   the planning surface (`PLANNING_TOOLS`).
-- `general` — the manifest-less `general` identity, recognised by id: the same
-  surface minus `ROSTER_GROWTH_TOOLS` (`roster.add`, `roster.configure`,
-  `roster.replenish`), so a General can never expand the team. It keeps
-  `roster.list`.
+- `general` — the manifest-less `general` identity, recognised by id: identical
+  to `architect` (`AGENT_COMMON_TOOLS` + `PLANNING_TOOLS`). MC-1591 deleted the
+  roster-growth tools (`ROSTER_GROWTH_TOOLS` is gone with the roster), and those
+  were the only difference, so the two classifications converge. A General still
+  cannot expand the team — no membership op exists for anyone.
 - `owner` — every other resolvable role, and the conservative fallback for a role
   the registry cannot resolve. `AGENT_COMMON_TOOLS` only.
 
@@ -931,10 +941,12 @@ dispatch, or `needs_input` ownership. `task next`, `task claim`, or
 `join --watch` must perform the actual claim before any task owner,
 `currentDispatch`, or dispatch ledger row is created.
 
-A worker roster id owns at most one task for its whole lifetime
-(`rosterPolicy.workerAssignment: per_task`). A claim by an id that already owns a
-different task is refused with `worker_task_capacity_reached`; a re-claim of the
-id's own task is allowed.
+A worker id holds at most one **active lease** (MC-1591; `worker_has_active_lease`,
+`sprintengine_core/tool/state.py`). A claim by an id that already holds an active
+lease on a different task is refused with `worker_task_capacity_reached` /
+`agent_already_has_active_task`; a re-claim of the id's own task is allowed. Once
+that task reaches `done` the lease ends and the same id may claim again — there
+is no per-task-for-life cap.
 
 `needsTriage` is a task-card readiness flag, not a replacement for
 `needsInput`. Missing `needsTriage` normalizes to `false`. When `true`, the task
@@ -985,7 +997,11 @@ Projection fields include:
 - `source`: `folder_store`
 - `generatedAt`, `updatedAt`
 - `run`
-- `roster`
+- `workers`: the canonical lease-derived worker view (`derive_worker_views`),
+  keyed by worker id.
+- `roster`: the bridge derived from the same worker views for the four TS
+  `roster` readers; it cannot drift from `workers`.
+- `dispatches`: the append-only `dispatch.jsonl` telemetry.
 - `tasks`
 - `board`
 - `artifacts`

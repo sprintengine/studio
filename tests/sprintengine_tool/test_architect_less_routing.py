@@ -12,7 +12,14 @@ from __future__ import annotations
 import json
 
 from helpers import SwarmCli, create_team, read_state, task, write_state
+from sprintengine_core import store as folder_store
 from sprintengine_mcp import SprintEngineMcpServer
+
+
+def worker_roles(fixture) -> set[str]:
+    """The roles present in the run's lease-derived workers view (no agents map)."""
+    projection = folder_store.build_projection(fixture.team_dir, state_path=fixture.state_path)
+    return {str(worker.get("role") or "") for worker in projection["workers"].values()}
 
 
 def general_run(tmp_path, name: str, tasks=None):
@@ -63,8 +70,10 @@ def test_general_can_triage_without_an_architect_seat(tmp_path) -> None:
     # The triage prompt must hand the agent its OWN id, not the literal `architect`.
     assert "--id general" in triaged["prompt"]
     assert "--id architect " not in triaged["prompt"]
-    # No architect seat was conjured into a general-only roster.
-    assert set(read_state(fixture.state_path)["agents"]) == {"general"}
+    # No architect worker was conjured onto a general-only run (leases derive the
+    # worker set; there is no agents map to seat a phantom architect into).
+    assert "architect" not in worker_roles(fixture)
+    assert read_state(fixture.state_path)["configuredRoles"] == ["general"]
 
 
 def test_an_architect_run_still_triages_exactly_as_before(tmp_path) -> None:
@@ -154,7 +163,9 @@ def test_an_artifact_review_block_routes_to_the_general_planner(tmp_path) -> Non
     # It lands in the lane the general is routed to, and triage reaches it.
     triaged = fixture.cli.run("triage", "needs-input", "--id", "general")
     assert [entry["id"] for entry in triaged["tasks"]] == ["T1"]
-    assert set(read_state(fixture.state_path)["agents"]) == {"general"}
+    # No architect worker was conjured to adjudicate it — only the general can.
+    assert "architect" not in worker_roles(fixture)
+    assert read_state(fixture.state_path)["configuredRoles"] == ["general"]
 
 
 def test_a_general_cannot_review_its_own_plan(tmp_path) -> None:

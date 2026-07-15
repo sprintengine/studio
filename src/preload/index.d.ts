@@ -88,12 +88,10 @@ import type {
   SoulPromptResult as SharedSoulPromptResult,
   SpecialistActionId as SharedSpecialistActionId,
   SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
-  SprintEngineDispatchReadInput as SharedSprintEngineDispatchReadInput,
   SprintEngineMcpReadResult as SharedSprintEngineMcpReadResult,
   SprintEngineProjectionReadResult as SharedSprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput as SharedSprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput as SharedSprintEngineRegistryRolesReadInput,
-  SprintEngineRosterReplenishInput as SharedSprintEngineRosterReplenishInput,
   SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   TerminalKind as SharedTerminalKind,
@@ -212,12 +210,10 @@ declare global {
   type WorkspaceFolderCheckResult = SharedWorkspaceFolderCheckResult
   type WindowState = SharedWindowState
   type SprintEngineArtifactCommandResult = SharedSprintEngineArtifactCommandResult
-  type SprintEngineDispatchReadInput = SharedSprintEngineDispatchReadInput
   type SprintEngineMcpReadResult = SharedSprintEngineMcpReadResult
   type SprintEngineProjectionReadResult = SharedSprintEngineProjectionReadResult
   type SprintEngineRegistryRoleReadInput = SharedSprintEngineRegistryRoleReadInput
   type SprintEngineRegistryRolesReadInput = SharedSprintEngineRegistryRolesReadInput
-  type SprintEngineRosterReplenishInput = SharedSprintEngineRosterReplenishInput
   type MultiloopInitInput = SharedMultiloopInitInput
   type MultiloopInitResult = SharedMultiloopInitResult
   type SessionUser = SharedSessionUser

@@ -33,12 +33,10 @@ async function main(): Promise<void> {
   await testReadRegistryRolesPassesLoadedPluginSoulsRoots()
   await testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles()
   await testReadRegistryRoleSurfacesUnknownRole()
-  await testReadDispatchUsesMcpTool()
   await testInitializeSprintEngineStatePreservesDisplayName()
   await testInitializeSprintEngineStateRecordsRoleRuntimes()
   await testInitializeSprintEngineStateRecordsConfiguredRoles()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
-  await testRosterAddCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
   await testIpcRegistersReadOnlyBridgeChannels()
 
@@ -172,8 +170,9 @@ function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
   assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)
-  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'), null)
+  // v3 is current; v2 and v1 are rejected (MC-1591 / MC-1542: never migrate).
+  assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 1 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: {} }, '/team'))
 }
@@ -649,34 +648,6 @@ async function testReadRegistryRoleSurfacesUnknownRole(): Promise<void> {
   assert.match(result.message, /Unknown registry role/)
 }
 
-async function testReadDispatchUsesMcpTool(): Promise<void> {
-  const { workspaceRoot, statePath } = await createStateFixture()
-  const calls: Array<{ context: { workspaceRoot: string }; tool: string; payload: Record<string, unknown> }> = []
-  const handlers = createHandlers(async (context, tool, payload) => {
-    calls.push({ context, tool, payload })
-    return {
-      exitCode: 0,
-      stdout: '',
-      stderr: '',
-      response: {
-        ok: true,
-        tool,
-        result: {
-          ok: true,
-          currentDispatch: { dispatchId: 'DISP-1', targetKind: 'task', taskId: 'T1' },
-          dispatches: [],
-        },
-      },
-    }
-  })
-
-  const result = await handlers.readDispatch({ statePath, agentId: 'developer-1', lastDispatchId: 'DISP-0' })
-  assert.equal(result.ok, true)
-  assert.equal(calls[0]?.context.workspaceRoot, workspaceRoot)
-  assert.equal(calls[0]?.tool, 'sprintengine.dispatch.next')
-  assert.deepEqual(calls[0]?.payload, { statePath, agentId: 'developer-1', lastDispatchId: 'DISP-0' })
-}
-
 async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-runner-'))
   const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
@@ -808,50 +779,8 @@ async function testInitializeSprintEngineStateRecordsConfiguredRoles(): Promise<
   }
 }
 
-async function testRosterAddCliInvocationUsesSprintEngineTool(): Promise<void> {
-  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-roster-add-'))
-  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
-  const handlers = createHandlers(async () => {
-    throw new Error('roster mutations must use the Sprint Engine CLI bridge')
-  })
-
-  try {
-    const init = await handlers.initializeSprintEngineState({
-      statePath,
-      name: 'Roster add bridge test',
-      goal: 'Verify roster add CLI invocation',
-      agents: {
-        architect: { role: 'architect' },
-      },
-    })
-    assert.equal(init.ok, true, init.ok ? undefined : init.message)
-
-    const result = await handlers.addRosterMember({ statePath, agentId: 'frontend-1', role: 'frontend' })
-    assert.equal(result.ok, true, result.ok ? undefined : result.message)
-    if (!result.ok) return
-    assert.equal((result.data as { agentId?: string }).agentId, 'frontend-1')
-
-    const runYaml = await readFile(statePath, 'utf-8')
-    assert.match(runYaml, /frontend-1/u)
-
-    const unknownRole = await handlers.addRosterMember({ statePath, agentId: 'mystery-1', role: 'not_a_role' })
-    assert.equal(unknownRole.ok, false)
-    if (!unknownRole.ok) assert.match(unknownRole.message, /unknown role/iu)
-
-    const missingAgentId = await handlers.addRosterMember({ statePath, agentId: '  ', role: 'frontend' })
-    assert.equal(missingAgentId.ok, false)
-    if (!missingAgentId.ok) assert.match(missingAgentId.message, /Agent id is required/u)
-
-    const unsafeAgentId = await handlers.addRosterMember({ statePath, agentId: 'bad id;rm', role: 'frontend' })
-    assert.equal(unsafeAgentId.ok, false)
-    if (!unsafeAgentId.ok) assert.match(unsafeAgentId.message, /safe sprintengine identifier/u)
-  } finally {
-    await rm(workspaceRoot, { recursive: true, force: true })
-  }
-}
-
 async function testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads(): Promise<void> {
-  const { statePath } = await createStateFixture()
+  const { workspaceRoot, statePath } = await createStateFixture()
   const handlers = createHandlers(async () => ({
     exitCode: 1,
     stdout: '',
@@ -859,13 +788,9 @@ async function testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads(): Promi
     response: null,
   }))
 
-  const unavailable = await handlers.readDispatch({ statePath, agentId: 'developer-1' })
+  const unavailable = await handlers.readRegistryRoles({ workspaceRoot })
   assert.equal(unavailable.ok, false)
   if (!unavailable.ok) assert.match(unavailable.message, /mcp unavailable/)
-
-  const malformed = await handlers.readDispatch({ statePath, agentId: '' })
-  assert.equal(malformed.ok, false)
-  if (!malformed.ok) assert.match(malformed.message, /Agent id is required/)
 
   const malformedRegistry = await handlers.readRegistryRoles({ workspaceRoot: '' })
   assert.equal(malformedRegistry.ok, false)
@@ -900,8 +825,6 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     setRunnerMode: async () => ({ ok: true, data: {} }),
     createPullRequest: async () => ({ ok: true, data: {} }),
     refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
-    replenishRoster: async () => ({ ok: true, data: {} }),
-    addRosterMember: async () => ({ ok: true, data: {} }),
     setRoleRuntime: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),
     readRegistryRoles: async () => {
@@ -912,18 +835,14 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
       calls.push('role')
       return { ok: true, data: null }
     },
-    readDispatch: async () => {
-      calls.push('dispatch')
-      return { ok: true, data: null }
-    },
     summarizeFeedback: async () => ({ ok: true, data: null }),
+    readTokenUsage: async () => ({} as never),
   })
 
   await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })
   await handlers.get('sprintengine:registry:role:read')?.(null, { workspaceRoot: '/tmp/workspace', roleId: 'developer' })
-  await handlers.get('sprintengine:dispatch:read')?.(null, { statePath: '/tmp/workspace/.multi-code/sprintengine/team/run.yaml', agentId: 'developer-1' })
 
-  assert.deepEqual(calls, ['roles', 'role', 'dispatch'])
+  assert.deepEqual(calls, ['roles', 'role'])
 }
 
 void main().catch((error) => {

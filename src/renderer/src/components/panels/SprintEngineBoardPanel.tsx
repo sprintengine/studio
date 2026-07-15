@@ -172,11 +172,11 @@ type SyncState = {
  message: string
 }
 
-// Local spawn intent for a canonical roster addition, keyed by the expected
-// agent id passed to `sprintengine:roster:add`. The member becomes real only
-// when the normalized projection contains it; the confirm effect then applies
-// the chosen runtime and (optionally) starts the terminal. This is launch
-// intent, not roster state — the canonical roster lives in the run store.
+// Local spawn intent for an operator-added worker, keyed by the id the board
+// mints for it (MC-1591 leases: the engine binds the worker at claim, so there
+// is no roster op to register it first). The confirm effect applies the chosen
+// runtime and (optionally) starts the terminal on the minted id. This is launch
+// intent, not roster state — the worker becomes canonical once it claims.
 type PendingRosterMemberSpawn = {
  agentId: string
  role: SprintEngineRoleId
@@ -1483,32 +1483,10 @@ function SprintEngineBoardPanelContent({
  setAddMemberBusy(true)
  setAddMemberError(null)
  try {
- const result = await window.api.addSprintEngineRosterMember({
- statePath: sprintEngineContext.statePath,
- agentId,
- role,
- })
- if (!result.ok) {
- setAddMemberError(result.message)
- void publishDiagnostic({
- level: 'error',
- source: 'terminal',
- title: 'Roster member was not added',
- message: result.message,
- details: [
- `Workspace ID: ${workspaceId}`,
- `Role: ${role}`,
- `Agent ID: ${agentId}`,
- ].join('\n'),
- workspaceId,
- workspaceName: workspace?.name,
- agentId,
- })
- return
- }
- // The member is real only once the normalized projection contains it;
- // the pending-spawn effect applies the chosen runtime then. Refresh so
- // confirmation does not wait for the next watcher tick.
+ // MC-1591 leases: there is no roster to register into — the engine binds
+ // the worker to its task at claim. Spawn on the minted id directly; the
+ // pending-spawn effect starts the terminal without waiting for a
+ // projection roster entry that only appears once the worker has claimed.
  enqueuePendingRosterMemberSpawn({
  agentId,
  role,
@@ -1721,10 +1699,12 @@ function SprintEngineBoardPanelContent({
  if (pendingRosterMemberSpawns.length === 0) return
 
  for (const pending of pendingRosterMemberSpawns) {
- // Only act once the canonical projection contains the member with the
- // expected role — never spawn a terminal for an invented local identity.
+ // MC-1591 leases: a minted worker only appears in the projection roster
+ // once it has claimed, so we can no longer wait for a canonical roster entry
+ // before starting it. The pending record is the source of truth for the
+ // member's role and runtime; spawn on the minted id and let the engine bind
+ // it to a task at claim. `rosterAgent`, when present, only supplies a label.
  const rosterAgent = rosterById[pending.agentId]
- if (!rosterAgent || rosterAgent.role !== pending.role) continue
 
  if (!pending.spawnNow) {
  // Member confirmed but the user did not ask for an immediate start:
@@ -1746,7 +1726,7 @@ function SprintEngineBoardPanelContent({
  if (pendingRosterMemberSpawnInFlightRef.current.has(pending.agentId)) continue
 
  pendingRosterMemberSpawnInFlightRef.current.add(pending.agentId)
- const label = pending.name || getAgentName(pending.agentId, rosterAgent.label)
+ const label = pending.name || getAgentName(pending.agentId, rosterAgent?.label ?? pending.agentId)
  void startAgentTerminalWhenReady(
  pending.agentId,
  label,

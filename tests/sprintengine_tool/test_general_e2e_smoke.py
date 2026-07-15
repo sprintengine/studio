@@ -22,6 +22,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from helpers import create_team, get_task, read_state, task, write_state
+from sprintengine_core import store as folder_store
 from sprintengine_core.tool.plans import ensure_plan_approval_gate, find_architect_plan_gate
 from sprintengine_mcp import SprintEngineMcpServer
 
@@ -45,10 +46,9 @@ def seed_general_run(tmp_path: Path, name: str, agent_ids: list[str], impl_task_
     fixture = create_team(tmp_path, name, [])
     state = read_state(fixture.state_path)
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    state["agents"] = {
-        agent_id: {"role": "general", "status": "idle", "currentTaskId": None}
-        for agent_id in agent_ids
-    }
+    # `general` is the run's only enabled role, so the planner resolves to the
+    # General (MC-1591: planning authority is configuredRoles, not a seated roster).
+    state["configuredRoles"] = ["general"]
     ensure_plan_approval_gate(state, fixture.state_path, "sprintengine", start_active=False)
     write_state(fixture.state_path, state)
 
@@ -69,8 +69,15 @@ def seed_general_run(tmp_path: Path, name: str, agent_ids: list[str], impl_task_
     return fixture, plan_task_id, plan_artifact_id
 
 
-def roster_role_ids(state: dict) -> set[str]:
-    return {agent_id for agent_id in state.get("agents", {})}
+def present_worker_roles(fixture) -> set[str]:
+    """The roles present in the run's lease-derived workers view (no agents map).
+
+    The "roster never grew" invariant under leases: this set never contains a role
+    outside `configuredRoles`, because a claim can only mint a lease for a role the
+    run enabled — there is no roster-growth op to add another.
+    """
+    projection = folder_store.build_projection(fixture.team_dir, state_path=fixture.state_path)
+    return {str(worker.get("role") or "") for worker in projection["workers"].values()}
 
 
 def call(server: SprintEngineMcpServer, state_path: Path, name: str, agent_id: str, actor_role: str, **args):
@@ -82,7 +89,6 @@ def test_one_general_run_bootstraps_plans_self_reviews_then_publishes_without_ro
         tmp_path, "gen-e2e-one", ["general-1"], ["T-impl"]
     )
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-    roster_before = roster_role_ids(read_state(fixture.state_path))
 
     # Join: the General receives a soulless surface (no role-personality soul).
     joined = call(server, fixture.state_path, "sprintengine.agent.join", "general-1", "general",
@@ -127,9 +133,10 @@ def test_one_general_run_bootstraps_plans_self_reviews_then_publishes_without_ro
     final = read_state(fixture.state_path)
     assert get_task(final, "T-impl")["status"] == "done"
     assert get_task(final, "T-impl")["ownerAgentId"] is None
-    # No architect/specialist ever joined and the roster never grew.
-    assert roster_role_ids(final) == roster_before == {"general-1"}
-    assert all(agent["role"] == "general" for agent in final["agents"].values())
+    # No architect/specialist ever appeared and the enabled-role set never grew:
+    # every worker the run ever had is a General.
+    assert present_worker_roles(fixture) == {"general"}
+    assert final["configuredRoles"] == ["general"]
 
 
 def test_three_general_run_shares_work_and_interleaves_review_with_implementation(tmp_path) -> None:
@@ -137,7 +144,6 @@ def test_three_general_run_shares_work_and_interleaves_review_with_implementatio
         tmp_path, "gen-e2e-three", ["general-1", "general-2", "general-3"], ["T-a", "T-b"]
     )
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-    roster_before = roster_role_ids(read_state(fixture.state_path))
 
     call(server, fixture.state_path, "sprintengine.artifact.approve", "general-1", "general",
          artifactId=plan_artifact_id, id="general-1")
@@ -184,33 +190,29 @@ def test_three_general_run_shares_work_and_interleaves_review_with_implementatio
     after = read_state(fixture.state_path)
     assert get_task(after, "T-a")["status"] == "done"
     assert get_task(after, "T-b")["status"] == "in_progress"
-    assert roster_role_ids(after) == roster_before
+    # Only Generals ever worked the run; no other role appeared.
+    assert present_worker_roles(fixture) == {"general"}
+    assert after["configuredRoles"] == ["general"]
 
 
-def test_general_tool_surface_excludes_roster_growth(tmp_path) -> None:
-    """AC3: a General can never expand the team — `roster.add` / `roster.replenish`
-    are out of surface (denied by name), and the roster is unchanged after."""
+def test_general_cannot_grow_the_team_the_roster_ops_are_gone(tmp_path) -> None:
+    """AC3: a General can never expand the team. MC-1591 replaced the roster with
+    leases, so the growth ops (`roster.add` / `roster.replenish` / `roster.list`)
+    no longer exist at all — a call to one is an unknown tool, for anyone. Membership
+    is `configuredRoles`, which no agent tool can widen."""
     fixture, _plan_task_id, _plan_artifact_id = seed_general_run(
         tmp_path, "gen-e2e-fence", ["general-1"], ["T-impl"]
     )
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
-    roster_before = roster_role_ids(read_state(fixture.state_path))
 
-    add_denied = call(server, fixture.state_path, "sprintengine.roster.add", "general-1", "general",
-                      role="developer", id="developer-1")
-    assert add_denied["ok"] is False
-    assert add_denied["error"]["code"] == "tool_not_permitted_for_role"
-    assert add_denied["error"]["details"]["role"] == "general"
+    for tool_name, args in (
+        ("sprintengine.roster.add", {"role": "developer", "id": "developer-1"}),
+        ("sprintengine.roster.replenish", {}),
+        ("sprintengine.roster.list", {}),
+    ):
+        gone = call(server, fixture.state_path, tool_name, "general-1", "general", **args)
+        assert gone["ok"] is False, tool_name
+        assert gone["error"]["code"] == "unknown_tool", tool_name
 
-    replenish_denied = call(server, fixture.state_path, "sprintengine.roster.replenish", "general-1", "general")
-    assert replenish_denied["ok"] is False
-    assert replenish_denied["error"]["code"] == "tool_not_permitted_for_role"
-
-    # Authorization matches the documented surface: a General keeps read-only
-    # roster *visibility* (`roster.list`) even though it cannot grow the team.
-    listed = server.call_tool("sprintengine.roster.list", {"statePath": str(fixture.state_path)},
-                              actor("general-1", "general"))
-    assert listed["ok"] is True
-
-    # The roster is byte-identical: no growth happened.
-    assert roster_role_ids(read_state(fixture.state_path)) == roster_before == {"general-1"}
+    # The enabled-role set is untouched: no growth path exists.
+    assert read_state(fixture.state_path)["configuredRoles"] == ["general"]

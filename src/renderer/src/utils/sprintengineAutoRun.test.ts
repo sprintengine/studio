@@ -27,7 +27,6 @@ import {
   getAutoApprovalIntentArtifacts,
   getPendingAgentNotificationEvents,
   getSprintEngineAutoRunOccupiedAgentIds,
-  sprintEngineHasUnownedReadyTask,
   getSprintEngineWakeCandidateTasks,
   isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
@@ -139,7 +138,6 @@ async function main(): Promise<void> {
   testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles()
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
   await testWindowDisposalRetainsResumeStateInStore()
-  testHasUnownedReadyTaskTrigger()
   testTaskScopedRetirementStormBoundFallsBackToSlowCadence()
   testGenericPickAvoidsReworkReservedOwners()
   testPickNextAutoRunsNeverReusesSpentIdForNewClaim()
@@ -153,12 +151,11 @@ async function main(): Promise<void> {
   testReconcileLaunchFlagsPreservesRetainedResumeShape()
   await testSpawnResumeBlockedForCrashedLiveFlags()
   await testWindowDisposalWithoutTokenFullyClears()
-  await testQueueDepthTriggerPayloadAndNoopFingerprint()
   await testStaleRetainedResumeStateClearedOnceTaskDone()
   testActiveAssignmentRescueStopsAfterTwoPromptsWithDiagnostic()
   await testActiveAssignmentExhaustionDiagnosticMarksLedger()
   await testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt()
-  await testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity()
+  await testSuperviseRunnerCycleMintsWorkerForUncoveredReadyTask()
   await testSuperviseRunnerCycleRestartsExitedRoleForReadyTask()
   await testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun()
   await testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
@@ -401,17 +398,8 @@ function installTestWindow(api: TestWindowApi): void {
   const cryptoShim = globalThis.crypto ?? {
     randomUUID: () => `test-uuid-${Math.random().toString(36).slice(2)}`,
   }
-  // The queue-depth replenish trigger (MC-1444 Phase 3) may fire during any
-  // supervise cycle whose fixture has ready tasks beyond spawnable capacity;
-  // default it to a no-op "nothing created" result so fixtures that don't
-  // exercise replenishment keep working. Tests that assert on replenish
-  // behavior pass their own stub.
-  const apiWithDefaults = {
-    replenishSprintEngineRoster: async () => ({ ok: true, data: {} }),
-    ...api,
-  }
   Object.defineProperty(globalThis, 'window', {
-    value: { localStorage, api: apiWithDefaults, crypto: cryptoShim },
+    value: { localStorage, api, crypto: cryptoShim },
     configurable: true,
     writable: true,
   })
@@ -2253,7 +2241,7 @@ function testPickNextAutoRunsDefersBoundOwnerReworkToRevival(): void {
   assert.equal(revivalPlan.respawns[0].taskId, 'T-mine')
 
   // Without a previous owner bound to the task, the picker hands it to fresh
-  // never-owned capacity as usual.
+  // never-owned capacity as usual (reused over the spent id, not minted anew).
   const noOwnerState = sprintEngineStateFixture({
     tasks: [boundTask],
     sprintEngineAgents: {
@@ -2443,8 +2431,8 @@ function testGenericPickAvoidsReworkReservedOwners(): void {
   // Review finding: iteration order must not burn a rework owner (and its
   // retained conversation) on an unrelated earlier task. Post-T2 the owner is
   // reserved by DEFERRAL — the picker never selects a bound owner (its rework is
-  // the revival pass's throttled job), so the fresh agent takes only the new
-  // task and the owner is never pulled onto the unrelated one.
+  // the revival pass's throttled job), so the fresh (reusable) agent takes only
+  // the new task and the owner is never pulled onto the unrelated one.
   const state = sprintEngineStateFixture({
     tasks: [
       task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
@@ -2467,29 +2455,29 @@ function testGenericPickAvoidsReworkReservedOwners(): void {
 }
 
 function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
-  // B1/B2 contract (task-scoped roster ids, no slot recycling): a NEW claim
-  // (a todo task with no owner) may never be handed to a spent id — one that
-  // has ever owned a task (lastOwnedTaskId set), even after that task is done.
-  // The engine assignment op mints a fresh id for it; the renderer waits.
+  // MC-1591 leases: a NEW claim (a ready task with no owner) never reuses a
+  // spent id (one that has ever owned a task, even after it is done). It reuses
+  // an eligible never-owned idle worker when one exists; otherwise the spawner
+  // MINTS a fresh id that the engine binds to the task at claim.
   const spentOnlyState = sprintEngineStateFixture({
     tasks: [
       task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null }),
       task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
     ],
     sprintEngineAgents: {
-      // Spent (finished a prior task) and idle — the old recycling pick would
-      // have reused it for T-new; the task-scoped contract refuses.
+      // Spent (finished a prior task) — the spent id is skipped and the next
+      // free id is minted for the new claim.
       'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }),
     },
   })
-  assert.deepEqual(
-    pickNextAutoRuns(workspaceFixture(), spentOnlyState, pickInput()),
-    [],
-    'a spent id is never reused for a new claim — the engine must mint a fresh id'
-  )
+  const spentOnly = pickNextAutoRuns(workspaceFixture(), spentOnlyState, pickInput())
+  assert.equal(spentOnly.length, 1)
+  assert.equal(spentOnly[0].taskId, 'T-new')
+  assert.equal(spentOnly[0].agentId, 'developer-2', 'the spent id is skipped; a fresh developer-2 is minted')
 
-  // With a never-owned id present alongside the spent one (sorting first),
-  // the new claim goes to the never-owned engine-minted capacity.
+  // With a never-owned idle id present alongside the spent one, the new claim
+  // reuses that reusable capacity rather than minting — only the spent id is
+  // off limits.
   const withFreshState = sprintEngineStateFixture({
     tasks: [task({ id: 'T-new', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null })],
     sprintEngineAgents: {
@@ -2500,15 +2488,15 @@ function testPickNextAutoRunsNeverReusesSpentIdForNewClaim(): void {
   const candidates = pickNextAutoRuns(workspaceFixture(), withFreshState, pickInput())
   assert.equal(candidates.length, 1)
   assert.equal(candidates[0].taskId, 'T-new')
-  assert.equal(candidates[0].agentId, 'developer-2', 'the never-owned id takes the new claim over the spent id')
+  assert.equal(candidates[0].agentId, 'developer-2', 'the never-owned idle id takes the new claim over the spent id')
 }
 
 function testPickNextAutoRunsReusesPlanningIdAcrossSequentialTasks(): void {
   // Persistent planning identity (MC-1454): planning roles are NOT task-scoped.
   // The seated architect that already owned (and finished) a prior task must be
-  // REUSED for the next architect task — findFreshTaskAgent would exclude it as
-  // a spent id, and queue-depth replenish skips planning roles, so without the
-  // planning pick a sequential architect task stalls or mints architect-N.
+  // REUSED for the next architect task — the task-scoped mint would hand it a
+  // fresh id, so planning roles route through the persistent-planner pick, and
+  // without it a sequential architect task stalls or mints architect-N.
   const readyArchitectTask = task({
     id: 'T-plan-2',
     role: 'architect',
@@ -2616,62 +2604,6 @@ function testReconcileLaunchFlagsPreservesRetainedResumeShape(): void {
   assert.equal(agents['developer-2'].cliSessionId, 'dead-session', 'identity survives; the resume gate does not')
 }
 
-function testHasUnownedReadyTaskTrigger(): void {
-  // B1/B2 execution-only supervisor: the renderer trigger is a cheap boolean
-  // with no capacity math — true when any non-planning ready task exists. Python
-  // owns the mint/capacity decision, so a ready task fires the trigger even when
-  // a never-owned id could already take it (Python then mints nothing and the
-  // no-op park suppresses the repeat call).
-  const readyState = sprintEngineStateFixture({
-    tasks: [
-      task({ id: 'T0', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null }),
-      task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
-      task({ id: 'G1', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
-    ],
-    sprintEngineAgents: {
-      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T0' }),
-      'developer-2': runtimeAgent('developer'),
-    },
-  })
-  assert.equal(
-    sprintEngineHasUnownedReadyTask(readyState),
-    true,
-    'an unowned ready implementation task fires the trigger regardless of never-owned capacity; the planning-role task alone would not'
-  )
-
-  const planningOnlyState = sprintEngineStateFixture({
-    tasks: [task({ id: 'G1', role: 'general', status: 'todo', boardColumn: 'ready', ownerAgentId: null })],
-    sprintEngineAgents: {},
-  })
-  assert.equal(
-    sprintEngineHasUnownedReadyTask(planningOnlyState),
-    false,
-    'a ready planning-role task never fires the trigger'
-  )
-
-  const triageState = sprintEngineStateFixture({
-    tasks: [
-      { ...task({ id: 'T-triage', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null }), needsTriage: true } as SprintEngineTask,
-    ],
-    sprintEngineAgents: {},
-  })
-  assert.equal(
-    sprintEngineHasUnownedReadyTask(triageState),
-    false,
-    'triage-pending tasks never fire the trigger (Python would refuse to fill them)'
-  )
-
-  const idleState = sprintEngineStateFixture({
-    tasks: [task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null })],
-    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-done' }) },
-  })
-  assert.equal(
-    sprintEngineHasUnownedReadyTask(idleState),
-    false,
-    'no ready implementation work leaves the trigger off'
-  )
-}
-
 async function testSpawnResumeBlockedForCrashedLiveFlags(): Promise<void> {
   // Coverage gap from review: the crashed-live guard (!cliHasLaunched &&
   // !cliStartRequested) must suppress resume — a crashed session's stale
@@ -2775,56 +2707,6 @@ async function testWindowDisposalWithoutTokenFullyClears(): Promise<void> {
   const cleared = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspace.id)?.agents['developer-1']
   assert.equal(cleared?.cliSessionId, undefined, 'no captured harness id for a non-stable-id CLI → full clear')
   assert.equal(cleared?.cliResumeAvailable, false, 'fresh-brief fallback: resume availability is not retained without a token')
-}
-
-async function testQueueDepthTriggerPayloadAndNoopFingerprint(): Promise<void> {
-  // Coverage gap from review: the Phase 3 trigger payload was unasserted (a
-  // regression could silently disable queue-depth minting), and a no-mint
-  // outcome must park the trigger until the projection changes instead of
-  // spawning a no-op CLI subprocess every supervise tick.
-  const replenishCalls: Array<Record<string, unknown>> = []
-  installTestWindow({
-    terminalList: async () => [],
-    terminalStatus: async () => ({ processAlive: false }),
-    terminalWrite: async () => ({ ok: true }),
-    terminalSpawn: async (sessionId: string) => ({ ok: true, sessionId }),
-    pathExists: async () => true,
-    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
-    replenishSprintEngineRoster: async (input: Record<string, unknown>) => {
-      replenishCalls.push(input)
-      return { ok: true, data: {} }
-    },
-    logDiagnostic: async (input) => input,
-  })
-  const supervisor = await loadSupervisor()
-  const sprintEngineState = sprintEngineStateFixture({
-    updatedAt: '2026-07-02T12:00:00Z',
-    tasks: [
-      task({ id: 'T1', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
-      task({ id: 'T2', role: 'developer', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
-    ],
-    sprintEngineAgents: {
-      'developer-1': runtimeAgent('developer'),
-    },
-  })
-  const workspace = workspaceFixture({
-    sprintEngineState,
-    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One') },
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
-      maxConcurrentAgents: 4, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
-    },
-  })
-  installWorkspaceStore(workspace)
-  const idleClockByAgent = mutableRef(new Map<string, number>())
-  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
-  assert.equal(replenishCalls.length, 1, 'a role deficit triggers exactly one replenish call')
-  assert.equal(replenishCalls[0].queueDepth, true, 'the payload requests queue-depth mode')
-  assert.equal(replenishCalls[0].maxNew, 4, 'maxNew carries the local concurrency ceiling')
-
-  // Same projection, no mint: the trigger is parked — no per-tick churn.
-  await runIdleRetirementCycle(supervisor, workspace, sprintEngineState, idleClockByAgent)
-  assert.equal(replenishCalls.length, 1, 'a no-mint outcome parks the trigger until the projection changes')
 }
 
 async function testStaleRetainedResumeStateClearedOnceTaskDone(): Promise<void> {
@@ -3155,54 +3037,17 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
   )
 }
 
-async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promise<void> {
+async function testSuperviseRunnerCycleMintsWorkerForUncoveredReadyTask(): Promise<void> {
+  // MC-1591 leases: with the roster ledger gone, an uncovered ready task is
+  // covered by a worker id the supervisor MINTS locally (no roster-replenish
+  // round-trip). A spent/retired id is never reused — developer-1 already
+  // exists, so the mint allocates the next free id, developer-2, and spawns it.
   const spawns: Array<{ agentId?: string; cli?: AgentCli; initialPrompt?: string }> = []
-  const replenishedProjection = {
-    ok: true,
-    projectionVersion: 1,
-    source: 'folder_store',
-    generatedAt: '2026-05-21T12:00:00Z',
-    updatedAt: '2026-05-21T12:00:00Z',
-    run: {
-      id: 'run-id',
-      name: 'Auto-run workspace',
-      goal: '',
-      status: 'executing',
-      rosterConfigured: true,
-      runner: { cliWatchPolling: 'enabled' },
-    },
-    roleCounts: { developer: 2 },
-    roster: {
-      'developer-1': { role: 'developer', status: 'retired', currentTaskId: null },
-      'developer-2': { role: 'developer', status: 'idle', currentTaskId: null },
-    },
-    // Replenished capacity only spawns for claimable work: the lazy-spawn
-    // contract routes the replacement through pickNextAutoRuns, so the run
-    // must have a ready developer task for the same-cycle spawn to happen.
-    tasks: [{
-      id: 'T-ready',
-      title: 'Ready developer task',
-      role: 'developer',
-      status: 'ready',
-      folderStatus: 'ready',
-      dependsOn: [],
-      activity: [],
-    }],
-    artifacts: [],
-    activity: [],
-  }
   installTestWindow({
     terminalList: async () => [],
     terminalStatus: async () => ({ processAlive: false }),
     pathExists: async () => true,
     memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
-    replenishSprintEngineRoster: async () => ({
-      ok: true,
-      data: {
-        projectionContent: JSON.stringify(replenishedProjection),
-        tool: { created: [{ id: 'developer-2', role: 'developer' }] },
-      },
-    }),
     terminalSpawn: async (
       sessionId: string,
       _cols: number,
@@ -3231,6 +3076,9 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
       maxBackoffSeconds: 30,
       stopWhenComplete: true,
     },
+    // roleRuntimes pins each role's cli/model (MC-1450); a minted worker that is
+    // not yet in workspace.agents resolves its runtime from here at spawn.
+    roleRuntimes: { developer: { cli: 'claude-code', model: null } },
     sprintEngineAgents: {
       'developer-1': runtimeAgent('developer', { status: 'retired' }),
     },
@@ -3268,21 +3116,21 @@ async function testSuperviseRunnerCycleSpawnsReplenishedRetiredCapacity(): Promi
     idleClockByAgent: mutableRef(new Map()),
   })
 
-  const replacementSpawn = spawns.find((spawn) => spawn.agentId === 'developer-2')
+  const mintedSpawn = spawns.find((spawn) => spawn.agentId === 'developer-2')
   assert.ok(
-    replacementSpawn,
-    `newly replenished roster member is spawned in the same supervise cycle; spawned ${JSON.stringify(spawns)}`
+    mintedSpawn,
+    `a freshly minted worker is spawned for the uncovered ready task in the same supervise cycle; spawned ${JSON.stringify(spawns)}`
   )
-  assert.ok(!spawns.some((spawn) => spawn.agentId === 'developer-1'), 'retired roster member is not respawned')
-  assert.equal(replacementSpawn.cli, 'claude-code')
-  assert.ok(replacementSpawn.initialPrompt?.includes('sprintengine.agent.join'), 'replacement spawn names the MCP join tool')
+  assert.ok(!spawns.some((spawn) => spawn.agentId === 'developer-1'), 'the spent/retired id is not reused')
+  assert.equal(mintedSpawn.cli, 'claude-code')
+  assert.ok(mintedSpawn.initialPrompt?.includes('sprintengine.agent.join'), 'minted spawn names the MCP join tool')
   assert.ok(
-    replacementSpawn.initialPrompt?.includes('"role": "developer"') && replacementSpawn.initialPrompt?.includes('"agentId": "developer-2"'),
-    'replacement spawn embeds the MCP payload for the new agent'
+    mintedSpawn.initialPrompt?.includes('"role": "developer"') && mintedSpawn.initialPrompt?.includes('"agentId": "developer-2"'),
+    'minted spawn embeds the MCP payload for the new agent'
   )
   assert.ok(
-    !/sprintengine (join|task|gate|triage|init|handover)/.test(replacementSpawn.initialPrompt ?? ''),
-    'replacement spawn prompt does not embed any sprintengine CLI command'
+    !/sprintengine (join|task|gate|triage|init|handover)/.test(mintedSpawn.initialPrompt ?? ''),
+    'minted spawn prompt does not embed any sprintengine CLI command'
   )
 }
 
@@ -3445,7 +3293,7 @@ function testRevivesDepartedWorkerForOwnTask(): void {
   assert.equal(plan.respawns[0].taskId, 'T-rework')
 
   // A fresh, never-owned ready task is NOT a revival: no departed id is bound to
-  // it, so `findFreshTaskAgent`/replenish (not this path) mints a new session.
+  // it, so the candidate picker (not this path) mints a fresh worker for it.
   const freshTask = task({
     id: 'T-fresh',
     title: 'Fresh developer task',
@@ -6039,7 +5887,7 @@ function testBootstrapSkipsRunningInFlightAndRetiredArchitect(): void {
       bootstrapOptions()
     ).kind,
     'none',
-    'a retired architect waits for roster replenishment instead of bootstrap'
+    'a retired architect already exists, so it is re-engaged through the picker/revival path, not duplicated by bootstrap'
   )
 }
 
@@ -6112,6 +5960,8 @@ function testGetSprintEngineAutoRunOccupiedAgentIdsDoesNotCountDeadNeedsInputOwn
 }
 
 function testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent(): void {
+  // A never-owned idle worker of the role is reusable capacity (restart-in-place,
+  // no id churn) — the picker hands the ready task to it rather than minting.
   const readyTask = task({
     id: 'T-ready',
     status: 'todo',
@@ -6149,6 +5999,8 @@ function testPickNextAutoRunsSkipsUnresolvedNeedsInputOwner(): void {
 }
 
 function testPickNextAutoRunsSkipsRetiredRoleAgent(): void {
+  // MC-1591 leases: a retired/spent id is never reused for a new claim — the
+  // picker skips it and mints a fresh worker (developer-2) for the ready task.
   const readyTask = task({
     id: 'T-ready',
     status: 'todo',
@@ -6162,7 +6014,8 @@ function testPickNextAutoRunsSkipsRetiredRoleAgent(): void {
     sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'retired' }) },
   })
   const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
-  assert.equal(candidates.length, 0, 'retired agents are not reusable auto-run candidates')
+  assert.equal(candidates.length, 1, 'the retired id is skipped; a fresh worker is minted')
+  assert.equal(candidates[0].agentId, 'developer-2', 'the minted id skips the retired developer-1')
 }
 
 function testPickNextAutoRunsHonoursContinuationGraceWindow(): void {

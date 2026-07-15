@@ -96,13 +96,14 @@ function testManualRefreshIsWiredDisplayOnly(): void {
   assertNoRevive(body, 'refreshSprintEngineState')
 }
 
-// Wiring guard: adding a roster member adds the agent + display-refreshes only;
-// it never re-arms automation or triggers reconcile/teardown.
+// Wiring guard: adding a member spawns on a board-minted id + display-refreshes
+// only; it never re-arms automation or triggers reconcile/teardown (MC-1591
+// leases: there is no roster op — the engine binds the worker at claim).
 function testAddMemberIsWiredDisplayOnly(): void {
   const body = functionBody(boardSource, 'confirmAddMember')
   assert.ok(
-    body.includes('addSprintEngineRosterMember'),
-    'confirmAddMember adds the roster member through the projection mutation',
+    body.includes('enqueuePendingRosterMemberSpawn('),
+    'confirmAddMember spawns the member on the minted id via the pending-spawn queue',
   )
   assert.ok(
     body.includes('refreshSprintEngineWorkspaceProjection({'),

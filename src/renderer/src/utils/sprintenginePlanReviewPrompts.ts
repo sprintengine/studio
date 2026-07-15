@@ -64,8 +64,8 @@ export function buildSprintEngineRosterRevisionPrompt(
   ].join('\n')
 }
 
-// Variant for the app-owned roster-add path: the member is already canonical
-// (added through `sprintengine:roster:add`), so the architect is asked only to
+// Variant for the app-owned add-member path: the operator spawned a new worker
+// on a board-minted id (MC-1591 leases), so the architect is asked only to
 // review whether the plan needs revision for the new specialist.
 export function buildSprintEnginePlanRevisionForNewMemberPrompt(
   input: SprintEngineRosterRevisionPromptInput,

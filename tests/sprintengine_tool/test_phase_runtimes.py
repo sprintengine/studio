@@ -349,9 +349,12 @@ def test_task_next_never_claims_a_phase_session(tmp_path: Path) -> None:
     assert task_awaiting_phase_session(record) == "review"
 
 
-def test_a_spent_worker_id_cannot_run_a_phase_session(tmp_path: Path) -> None:
-    """The per_task capacity guard still holds: a fresh id must run the phase."""
+def test_a_worker_holding_a_lease_cannot_run_a_phase_session(tmp_path: Path) -> None:
+    """The ≤1-active-lease guard holds for phase sessions too: a worker already
+    holding an active lease cannot take a second (a phase session is a claim), so a
+    fresh id must run the phase."""
     from sprintengine_core.tool.commands.task import cmd_task_claim
+    from sprintengine_core.tool.state import mint_lease
 
     fixture = _team(tmp_path, "handoff-capacity", [_owned(status="review")], phaseRuntimes={"review": FABLE})
 
@@ -359,8 +362,10 @@ def test_a_spent_worker_id_cannot_run_a_phase_session(tmp_path: Path) -> None:
         candidate = get_task(state, "T1")
         candidate["ownerAgentId"] = None
         candidate["awaitingPhaseSession"] = {"phase": "review", "runtime": FABLE}
-        # `developer-2` already spent its single claim on another task.
-        state["agents"]["developer-2"]["ownedTaskIds"] = ["T9"]
+        # `developer-2` already holds an active lease on another task.
+        busy = task("T9", "Other work", "developer", status="in_progress", owner="developer-2")
+        mint_lease(busy, "developer-2", "developer")
+        state["tasks"].append(busy)
         return {}
 
     _mutate(fixture, prepare)

@@ -65,7 +65,6 @@ export function createDefaultSprintEngineAutoRunExecutorPorts(): SprintEngineAut
     readSprintEngineProjection: (statePath) => window.api.readSprintEngineProjection(statePath),
     autoApproveSprintEngineArtifact: (statePath, artifactId) =>
       window.api.autoApproveSprintEngineArtifact(statePath, artifactId),
-    replenishSprintEngineRoster: (input) => window.api.replenishSprintEngineRoster(input),
     memoryResolveRoot: (input) => window.api.memoryResolveRoot(input),
     publishDiagnostic: (input) => publishDiagnostic(input),
     applyTerminalRevealPolicy: applyAgentTerminalRevealPolicy,

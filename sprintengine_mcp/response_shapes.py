@@ -41,12 +41,7 @@ CARD_TEXT_LIMIT = 700
 # pass an explicit limit.
 COMMENT_LIST_DEFAULT_LIMIT = 20
 
-# Newest dispatch ledger records replayed per `sprintengine.dispatch.next`
-# call. The ledger grows unboundedly over a run; with an ack cursor the reply
-# is a small delta, and this cap bounds the cold-start (no-cursor) case.
-DISPATCH_REPLAY_LIMIT = 20
-
-TASK_GET_INCLUDE_SECTIONS = ("activity", "comments", "evidence_log", "diffs", "notes", "needs_input")
+TASK_GET_INCLUDE_SECTIONS =("activity", "comments", "evidence_log", "diffs", "notes", "needs_input")
 
 # Mutating tools whose responses become minimal acks: the agent already knows
 # what it wrote, so the full task dict is replaced with task identity fields
@@ -296,61 +291,13 @@ def _directive_response(result: dict[str, Any]) -> dict[str, Any]:
     return shaped
 
 
-def dispatch_record_stub(record: Any) -> dict[str, Any] | None:
-    """Delta reference for one dispatch ledger record: identity and target
-    only, in the same field dialect as `currentDispatch`
-    (dispatchId/assignedAt). Constant fields (`outcome`, `source`), the
-    caller's own `agentId`, and the mostly-null `state` sub-object stay in
-    the on-disk ledger."""
-    if not isinstance(record, dict):
-        return None
-    target = record.get("target") if isinstance(record.get("target"), dict) else {}
-    stub: dict[str, Any] = {
-        "dispatchId": record.get("id"),
-        "targetKind": target.get("kind"),
-        "reason": record.get("reason"),
-        "assignedAt": record.get("timestamp"),
-    }
-    if target.get("taskId"):
-        stub["taskId"] = target["taskId"]
-    return stub
-
-
 def _heartbeat_response(result: dict[str, Any]) -> dict[str, Any]:
-    """Heartbeat is pure liveness: the server compares the roster record
-    before/after within one mutation that only refreshes `heartbeatAt`, so a
-    heartbeat can never observe a reassignment — assignment state travels
-    through `dispatch.next` (`currentDispatch`) and `task.next` resume, never
-    through this ack (see MC-36's dispatch contract)."""
+    """Heartbeat is pure liveness: the mutation only renews the lease `heartbeatAt`
+    of the tasks the worker owns (MC-1591 deleted the agents-map mirror), so a
+    heartbeat can never observe a reassignment — assignment state travels through
+    the `task.next` claim/resume, never through this ack. `known` reports whether
+    the worker held any active lease to renew."""
     return {"ok": True, "known": result.get("known") is not False}
-
-
-def _dispatch_next_response(result: dict[str, Any]) -> dict[str, Any]:
-    shaped = dict(result)
-    records = result.get("dispatches") if isinstance(result.get("dispatches"), list) else []
-    tail = records[-DISPATCH_REPLAY_LIMIT:]
-    shaped["dispatches"] = [stub for stub in (dispatch_record_stub(record) for record in tail) if stub]
-    if len(records) > len(tail):
-        shaped["truncated"] = True
-        shaped["totalCount"] = len(records)
-    return shaped
-
-
-def _dispatch_ack_response(result: dict[str, Any]) -> dict[str, Any]:
-    # Echo what the server PERSISTED (the subscription cursor it wrote), not
-    # the raw request payload — the ack is the caller's only confirmation of
-    # the cursor that future dispatch.next replays will be filtered by.
-    agent = result.get("agent") if isinstance(result.get("agent"), dict) else {}
-    subscription = agent.get("subscription") if isinstance(agent.get("subscription"), dict) else {}
-    return {
-        "ok": True,
-        "dispatchId": subscription.get("lastDispatchId"),
-        "outcome": subscription.get("lastDispatchOutcome"),
-    }
-
-
-def _subscribe_response(result: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "subscription": result.get("subscription")}
 
 
 def _summary_response(result: dict[str, Any]) -> dict[str, Any]:
@@ -404,12 +351,6 @@ def shape_tool_result(tool_name: str, payload: dict[str, Any], result: Any) -> A
         return _directive_response(result)
     if tool_name == "sprintengine.agent.heartbeat":
         return _heartbeat_response(result)
-    if tool_name == "sprintengine.dispatch.next":
-        return _dispatch_next_response(result)
-    if tool_name == "sprintengine.dispatch.ack":
-        return _dispatch_ack_response(result)
-    if tool_name == "sprintengine.subscribe":
-        return _subscribe_response(result)
     if tool_name == "sprintengine.summary":
         return _summary_response(result)
     if tool_name == "sprintengine.task.comment.list":

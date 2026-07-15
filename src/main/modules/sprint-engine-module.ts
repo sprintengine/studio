@@ -39,7 +39,6 @@ export const sprintEngineModule: CapabilityModule = {
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
       setRunnerMode: artifacts.setRunnerMode,
-      replenishRoster: artifacts.replenishRoster,
     }))
 
     mcpHub.claimOwnership({
@@ -77,13 +76,10 @@ export const sprintEngineModule: CapabilityModule = {
       setRunnerMode: artifacts.setRunnerMode,
       createPullRequest: artifacts.createPullRequest,
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
-      replenishRoster: artifacts.replenishRoster,
-      addRosterMember: artifacts.addRosterMember,
       setRoleRuntime: artifacts.setRoleRuntime,
       readProjection: artifacts.readProjection,
       readRegistryRoles: artifacts.readRegistryRoles,
       readRegistryRole: artifacts.readRegistryRole,
-      readDispatch: artifacts.readDispatch,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
     })

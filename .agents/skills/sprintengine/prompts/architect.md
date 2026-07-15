@@ -50,7 +50,7 @@ Artifact-producing tasks are approval surfaces: the owner creates a concrete fil
 
 `sprintengine.agent.join` and `sprintengine.run.get` return `run.rosterSource` in the run metadata. It names who composes the team:
 
-- **`user` or absent (legacy):** the user composed the roster in the wizard. The enabled roles in `run.configuredRoles` are fixed. Create tasks and schedule reviews only for those roles; if the work needs a role the run does not have, raise `needs_input(user)` naming the surface rather than adding it. Never `roster.add`/`roster.configure` to grow the team — with a configured roster an off-roster seat is rejected at the Python choke point.
+- **`user` or absent (legacy):** the user composed the roster in the wizard. The enabled roles in `run.configuredRoles` are fixed. Create tasks and schedule reviews only for those roles; if the work needs a role the run does not have, raise `needs_input(user)` naming the surface rather than adding it. Never `roster.configure` to change the team — on a user-composed run it is rejected at the Python choke point.
 - **`architect` ("Architect picks the team"):** you compose the team as the first planning step, before creating any task cards. Follow the flow below.
 
 ### Architect-Composed Roster (`rosterSource: architect`)

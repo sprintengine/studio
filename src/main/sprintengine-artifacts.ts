@@ -4,14 +4,11 @@ import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import type {
   SprintEngineArtifactCommandResult,
-  SprintEngineDispatchReadInput,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
-  SprintEngineRosterAddInput,
   SprintEngineRosterRuntimeInput,
-  SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineStateInitializeSource,
@@ -235,17 +232,6 @@ function resolveSprintEngineTaskId(input: unknown): string {
     throw new Error('Task id must be a safe sprintengine identifier.')
   }
   return taskId
-}
-
-function resolveSprintEngineRosterAgentId(input: unknown): string {
-  if (typeof input !== 'string' || !input.trim()) {
-    throw new Error('Agent id is required.')
-  }
-  const agentId = input.trim()
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(agentId)) {
-    throw new Error('Agent id must be a safe sprintengine identifier.')
-  }
-  return agentId
 }
 
 // Roster roles accept any configured registry role (including custom and
@@ -571,12 +557,13 @@ function validateWorkspaceRoot(input: unknown): string {
 }
 
 // The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
-// in sprintengine_core/store.py. Bumped to 2 by MC-1542 (single-owner tasks), which
-// deleted quality gates and the `changes_requested`/`testing`/`product` statuses.
-export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 2
+// in sprintengine_core/store.py. v2 (MC-1542, single-owner tasks) deleted quality
+// gates and the `changes_requested`/`testing`/`product` statuses; v3 (MC-1591,
+// leases replace the roster) removed the persistent `agents` map from run.yaml.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 3
 
 /**
- * Reject a pre-MC-1542 run store, returning a readable message (or null when the
+ * Reject an out-of-date run store, returning a readable message (or null when the
  * store is current).
  *
  * Decision 8 is a pre-release clean break: old stores are local runtime state and
@@ -601,8 +588,9 @@ export function describeUnsupportedSprintEngineStore(projection: unknown, teamDi
   if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
   return (
     `This sprint was created by an older version of Multicode (run store v${version}, ` +
-    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Single-owner tasks replaced quality gates, ` +
-    `so the run cannot be opened. Delete "${teamDirectory}" and start the sprint again.`
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Leases replaced the roster ` +
+    `(and single-owner tasks replaced quality gates before that), so the run cannot be ` +
+    `opened. Delete "${teamDirectory}" and start the sprint again.`
   )
 }
 
@@ -1000,13 +988,10 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
-  replenishRoster(payload: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
-  addRosterMember(payload: SprintEngineRosterAddInput): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
-  readDispatch(payload: SprintEngineDispatchReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
 } {
   const runMcpTool = deps.runMcpTool ?? runSprintEngineMcpToolProcess
@@ -1456,93 +1441,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
       }
     },
 
-    async replenishRoster(payload) {
-      try {
-        const state = validateSprintEngineStatePath(payload?.statePath)
-        const args = [
-          '--state',
-          state.statePath,
-          'roster',
-          'replenish',
-          '--actor',
-          'runner',
-        ]
-        if (payload?.role) {
-          args.push('--role', resolveTaskRole(payload.role))
-        }
-        if (payload?.queueDepth) {
-          const maxNew = Math.max(1, Math.min(10, Math.trunc(payload.maxNew ?? 1)))
-          args.push('--queue-depth', '--max-new', String(maxNew))
-          for (const busyAgentId of payload.busyAgentIds ?? []) {
-            if (typeof busyAgentId === 'string' && busyAgentId.trim()) {
-              args.push('--busy-agent', busyAgentId.trim())
-            }
-          }
-        }
-        const toolResult = await runSprintEngineCli(state, args)
-        if (toolResult.exitCode !== 0) {
-          return {
-            ok: false,
-            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine roster command failed.',
-            stdout: toolResult.stdout,
-            stderr: toolResult.stderr,
-            exitCode: toolResult.exitCode ?? 'unknown',
-          }
-        }
-        const tool = parseSprintEngineCliJsonOutput(toolResult.stdout)
-        return {
-          ok: true,
-          data: await buildSprintEngineMutationData(state, {
-            action: 'roster-replenish',
-            tool,
-          }),
-        }
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-
-    async addRosterMember(payload) {
-      try {
-        const state = validateSprintEngineStatePath(payload?.statePath)
-        const agentId = resolveSprintEngineRosterAgentId(payload?.agentId)
-        const role = resolveSprintEngineRosterRole(payload?.role)
-        const toolResult = await runSprintEngineCli(state, [
-          '--state',
-          state.statePath,
-          'roster',
-          'add',
-          '--id',
-          agentId,
-          '--role',
-          role,
-          '--actor',
-          'ui',
-        ])
-        if (toolResult.exitCode !== 0) {
-          return {
-            ok: false,
-            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine roster command failed.',
-            stdout: toolResult.stdout,
-            stderr: toolResult.stderr,
-            exitCode: toolResult.exitCode ?? 'unknown',
-          }
-        }
-        const tool = parseSprintEngineCliJsonOutput(toolResult.stdout)
-        return {
-          ok: true,
-          data: await buildSprintEngineMutationData(state, {
-            action: 'roster-add',
-            agentId,
-            role,
-            tool,
-          }),
-        }
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-
     async setRoleRuntime(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
@@ -1647,26 +1545,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           { workspaceRoot, allowedRoots: pluginRegistryRoots.map((root) => root.root) },
           'sprintengine.roles.get',
           { workspaceRoot, roleId, pluginRegistryRoots }
-        )
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-
-    async readDispatch(payload) {
-      try {
-        const state = validateSprintEngineStatePath(payload?.statePath)
-        const agentId = resolveRequiredString(payload?.agentId, 'Agent id')
-        const lastDispatchId = resolveOptionalString(payload?.lastDispatchId, 'Last dispatch id')
-        return runReadOnlyMcpTool(
-          runMcpTool,
-          { workspaceRoot: state.workspaceRoot },
-          'sprintengine.dispatch.next',
-          {
-            statePath: state.statePath,
-            agentId,
-            ...(lastDispatchId ? { lastDispatchId } : {}),
-          }
         )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }

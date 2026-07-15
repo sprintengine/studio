@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import type { AutomationActionProvider, AutomationRun } from '../../../shared/automations/contracts'
 import type {
   SprintEngineArtifactCommandResult,
-  SprintEngineRosterReplenishInput,
   SprintEngineRunnerSetInput,
   SprintEngineTaskMutationRole,
 } from '../../../shared/electron-api'
@@ -25,7 +24,6 @@ const SPRINT_ENGINE_AUTOMATION_ROLES: SprintEngineTaskMutationRole[] = [
 
 export type SprintEngineAutomationFrontDoors = {
   setRunnerMode(input: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
-  replenishRoster(input: SprintEngineRosterReplenishInput): Promise<SprintEngineArtifactCommandResult>
 }
 
 export function createSprintEngineRunActionProvider(
@@ -51,14 +49,11 @@ export function createSprintEngineRunActionProvider(
       const parsed = parseSprintEngineRunConfig(config)
       const statePath = join(ctx.workspaceRoot, '.multi-code', 'sprintengine', parsed.team, 'run.yaml')
 
+      // Enabling the runner starts the sprint; the supervisor mints and spawns
+      // task-scoped workers on its own as ready tasks appear (MC-1591 leases —
+      // there is no roster to pre-seed). `role` narrows the summary only.
       const runner = await frontDoors.setRunnerMode({ statePath, cliWatchPolling: 'enabled' })
       if (!runner.ok) return failedRun(runner.message)
-
-      const roster = await frontDoors.replenishRoster({
-        statePath,
-        ...(parsed.role ? { role: parsed.role } : {}),
-      })
-      if (!roster.ok) return failedRun(roster.message)
 
       return {
         status: 'completed',

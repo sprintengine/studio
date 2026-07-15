@@ -29,6 +29,7 @@ from sprintengine_core.tool.state import (
     create_task_comment,
     find_task,
     with_locked_state,
+    worker_role,
 )
 from sprintengine_core.tool.tasks import recompute_phase
 
@@ -237,7 +238,10 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
         # timestamp surface in the activity feed and enter open_feedback /
         # open_rework comment queues. The artifact-state activity entry above
         # carries the verb; this comment carries the human prose.
-        actor_role = str(state.get("agents", {}).get(args.id, {}).get("role") or "").strip().lower()
+        # Reviewer role via lease authority (MC-1591), not the deleted agents map:
+        # worker_role derives it from the reviewer's active lease, the tasks it owns
+        # or last implemented, then the minted-id convention.
+        actor_role = worker_role(state, args.id).strip().lower()
         # Planner feedback follows the run's planning role (a general plans its own
         # run), not the literal architect — otherwise it fell through to the generic
         # review_feedback bucket.

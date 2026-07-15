@@ -19,7 +19,6 @@ RUN_EXECUTING_TASK_STATUSES = set(ACTIVE_TASK_STATUSES)
 VALID_TASK_PHASES = ("review",)
 DEFAULT_RUN_PHASES = ("review",)
 VALID_PHASE_OUTCOMES = {"pass", "pass_with_fixes", "escalate"}
-TERMINAL_AGENT_STATUSES = {"retired"}
 VALID_TASK_COMMENT_TYPES = {
     "implementation_summary",
     "implementation_response",

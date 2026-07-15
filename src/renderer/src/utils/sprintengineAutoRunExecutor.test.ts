@@ -54,8 +54,6 @@ function createFakePorts(overrides: Overrides = {}): FakePorts {
       ?? (async () => ({ ok: true, data: {} } as any)),
     autoApproveSprintEngineArtifact: overrides.autoApproveSprintEngineArtifact
       ?? (async () => ({ ok: true, data: {} } as any)),
-    replenishSprintEngineRoster: overrides.replenishSprintEngineRoster
-      ?? (async () => ({ ok: true, data: {} } as any)),
     memoryResolveRoot: overrides.memoryResolveRoot
       ?? (async () => ({ ok: false, status: 'inaccessible', relativeRoot: null, message: '' } as any)),
     publishDiagnostic: overrides.publishDiagnostic

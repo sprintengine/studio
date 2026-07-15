@@ -31,9 +31,9 @@ def test_phase_vocabulary_matches_across_python_modules() -> None:
 
 def test_phase_vocabulary_matches_the_renderer() -> None:
     """The renderer keeps its own copy of the phase vocabulary; pin it to Python."""
-    source = (REPO_ROOT / "src/renderer/src/utils/sprintengine.ts").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "src/shared/sprintengine/state.ts").read_text(encoding="utf-8")
     match = re.search(r"export const sprintEngineTaskPhases = \[([^\]]*)\] as const", source)
-    assert match, "sprintEngineTaskPhases not found in src/renderer/src/utils/sprintengine.ts"
+    assert match, "sprintEngineTaskPhases not found in src/shared/sprintengine/state.ts"
     phases = tuple(value.strip().strip("'\"") for value in match.group(1).split(",") if value.strip())
     assert phases == folder_store.VALID_TASK_PHASES
 
@@ -188,7 +188,7 @@ def test_pre_1542_run_store_is_rejected_loudly(tmp_path: Path) -> None:
 
     with pytest.raises(folder_store.RunStoreVersionError) as loader_error:
         folder_store.state_from_folder_store(fixture.team_dir)
-    assert "Pre-MC-1542" in str(loader_error.value)
+    assert "predates a breaking change" in str(loader_error.value)
     assert "Delete" in str(loader_error.value)
     assert str(fixture.team_dir) in str(loader_error.value)
 
@@ -210,7 +210,7 @@ def test_missing_schema_version_reads_as_pre_1542(tmp_path: Path) -> None:
 def test_fresh_store_is_stamped_with_the_current_schema_version(tmp_path: Path) -> None:
     fixture = create_team(tmp_path, "fresh-store", [task("T1", "Work", "developer")])
     run = folder_store.load_run_yaml(fixture.team_dir)
-    assert run["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION == 2
+    assert run["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION == 3
 
 
 def test_projection_carries_the_store_schema_version(tmp_path: Path) -> None:
@@ -252,4 +252,4 @@ def test_pre_1542_store_raises_a_readable_cli_error_not_a_traceback(tmp_path: Pa
 
     with pytest.raises(SystemExit) as error:
         load_mutation_state(fixture.state_path)
-    assert "Pre-MC-1542" in str(error.value.code)
+    assert "predates a breaking change" in str(error.value.code)

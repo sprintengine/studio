@@ -14,10 +14,13 @@ import re
 from helpers import REPO_ROOT
 from sprintengine_mcp.schemas import TOOL_SCHEMAS
 
+# Only sources that embed literal `sprintengine.*` tool names belong here: this
+# guard exists to fail the build when such a literal names a renamed/removed tool.
+# `sprintengineAutoRun.ts` and `agentPrompt.ts` compose their prompts without any
+# literal tool name (MC-1591 retired the roster-replenish MCP round-trip that was
+# AutoRun's only tool reference), so listing them would only assert an empty set.
 RENDERER_PROMPT_SOURCES = [
-    "src/renderer/src/utils/sprintengineAutoRun.ts",
     "src/renderer/src/utils/sprintengineHandoff.ts",
-    "src/renderer/src/utils/agentPrompt.ts",
     "src/renderer/src/utils/multiloop.ts",
     "src/main/mobile/sprintengine/session.ts",
 ]

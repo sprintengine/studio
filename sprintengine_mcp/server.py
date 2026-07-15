@@ -48,15 +48,13 @@ from sprintengine_core.tool.prompts import (
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
-    clear_task_refs,
     create_task_comment,
-    ensure_agent,
     find_task,
     record_agent_heartbeat,
-    record_agent_join,
     release_agent_targets,
-    set_agent_idle,
     with_locked_state,
+    worker_active_lease_tasks,
+    worker_view,
 )
 from sprintengine_core.tool.tasks import ensure_evidence, recompute_phase
 
@@ -227,15 +225,6 @@ class SprintEngineMcpServer:
         if tool_name == "sprintengine.agent.leave":
             assert state_path is not None
             return self._agent_leave(state_path, payload)
-        if tool_name == "sprintengine.dispatch.next":
-            assert state_path is not None
-            return self._dispatch_next(state_path, payload)
-        if tool_name == "sprintengine.dispatch.ack":
-            assert state_path is not None
-            return self._dispatch_ack(state_path, payload)
-        if tool_name == "sprintengine.subscribe":
-            assert state_path is not None
-            return self._subscribe(state_path, payload)
         if tool_name == "sprintengine.run.get":
             assert state_path is not None
             return self._run_get(state_path)
@@ -376,16 +365,17 @@ class SprintEngineMcpServer:
         agent_id = str(payload["agentId"]).strip()
         if not agent_id:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
-        subscription_mode = str(payload.get("subscriptionMode") or ("mcp_notifications" if payload.get("subscribe") else "none"))
-        if subscription_mode not in {"none", "poll", "mcp_notifications"}:
-            raise McpToolError("invalid_payload", "subscriptionMode must be one of none, poll, or mcp_notifications.")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = record_agent_join(state, agent_id, role, subscription_mode=subscription_mode)
+            # Join no longer records any per-agent state: assignment is a lease on
+            # the task record (MC-1591), so a fresh joiner that holds no lease
+            # simply has no worker view — the projection's lazy roster owns the
+            # pre-seat placeholder. A worker rejoining mid-task resolves back to
+            # its active lease, so its worker view carries the resume dispatch.
             run = state.get("sprintengine", {})
             return {
                 "ok": True,
-                "agent": agent,
+                "agent": worker_view(state, agent_id),
                 "run": _run_metadata(
                     run,
                     state_path,
@@ -395,7 +385,7 @@ class SprintEngineMcpServer:
                 # Compose-time gate for the multicode_backlog layer skill: only a
                 # backlog-sourced run pays its prompt cost.
                 "backlogSourced": run_is_backlog_sourced(state),
-                "write": True,
+                "write": False,
             }
 
         lifecycle = with_locked_state(state_path, mutate)
@@ -417,7 +407,7 @@ class SprintEngineMcpServer:
             "agentId": agent_id,
             "role": role,
             "agent": lifecycle["agent"],
-            "currentDispatch": lifecycle["agent"].get("currentDispatch"),
+            "currentDispatch": (lifecycle["agent"] or {}).get("currentDispatch"),
             "run": lifecycle["run"],
             "roleManifest": role_payload,
             "prompt": prompt,
@@ -434,43 +424,24 @@ class SprintEngineMcpServer:
             raise McpToolError("invalid_payload", "agentId cannot be empty.")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
-            existing = agents.get(agent_id) if isinstance(agents, dict) else None
-            if not isinstance(existing, dict):
-                return {
-                    "ok": True,
-                    "known": False,
-                    "agent": None,
-                    "previous": {},
-                    "write": False,
-                }
-            before = dict(existing)
-            role = payload.get("role") or before.get("role")
-            agent = record_agent_heartbeat(state, agent_id, str(role) if role else None)
+            # Heartbeat is pure liveness: renew the lease heartbeat on every active
+            # lease the worker holds. Liveness lives only on the task lease now
+            # (MC-1591 deleted the agents-map mirror), so `known` reports whether
+            # there was any active lease to renew; a reassignment can never be
+            # observed here — assignment travels through the task.next claim/resume.
+            renewed = record_agent_heartbeat(state, agent_id)
             return {
                 "ok": True,
-                "known": True,
-                "agent": agent,
-                "previous": {
-                    "status": before.get("status"),
-                    "currentTaskId": before.get("currentTaskId"),
-                    "currentDispatch": before.get("currentDispatch"),
-                },
-                "write": True,
+                "known": renewed,
+                "agent": worker_view(state, agent_id),
+                "write": renewed,
             }
 
         result = with_locked_state(state_path, mutate)
-        agent = result.get("agent") if isinstance(result.get("agent"), dict) else None
         return {
             "ok": True,
-            "known": result.get("known", True),
-            "agent": agent,
-            "currentDispatch": agent.get("currentDispatch") if agent else None,
-            "assignmentUnchanged": {
-                "status": bool(agent) and agent.get("status") == result["previous"].get("status"),
-                "currentTaskId": bool(agent) and agent.get("currentTaskId") == result["previous"].get("currentTaskId"),
-                "currentDispatch": bool(agent) and agent.get("currentDispatch") == result["previous"].get("currentDispatch"),
-            },
+            "known": bool(result.get("known")),
+            "agent": result.get("agent"),
         }
 
     def _agent_leave(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -480,37 +451,37 @@ class SprintEngineMcpServer:
         reason = str(payload.get("reason") or "agent left")
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agents = state.get("agents") if isinstance(state.get("agents"), dict) else {}
-            agent = agents.get(agent_id)
-            known = isinstance(agent, dict)
-            # Single release authority: frees the departing agent's owned
-            # `in_progress` task and resets it to idle. Tasks in `review` and
-            # `needs_input` stay owned — the owner is revived under the same id.
-            # Runs for unknown agents too, as defensive cleanup of stale ownership;
-            # it never mints a roster entry.
+            # A worker is "known" to the run when it holds a lease we can act on.
+            # With no agents map (MC-1591), that is derived from the task leases,
+            # not a roster record.
+            known = bool(worker_active_lease_tasks(state, agent_id))
+            # Single release authority: frees the departing worker's owned
+            # `in_progress` task and returns it to the queue. Tasks in `review`
+            # and `needs_input` stay owned — the owner is revived under the same
+            # id. Runs for unknown workers too, as defensive cleanup of stale
+            # ownership; it never mints a roster entry.
             released = [
                 _leave_released_payload(entry)
                 for entry in release_agent_targets(state, agent_id, reason=reason, actor=agent_id)
             ]
-            if not known:
-                if not released:
-                    return {"ok": True, "known": False, "agent": None, "releasedTargets": [], "event": None, "write": False}
-                event = append_event(
-                    state,
-                    "agent_left",
-                    agent_id,
-                    f"Unknown agent {agent_id} left Sprint Engine. Released targets: {len(released)}.",
-                    {"releasedTargets": released, "reason": reason},
-                )
-                return {"ok": True, "known": False, "agent": None, "releasedTargets": released, "event": event, "write": True}
+            if not known and not released:
+                return {"ok": True, "known": False, "agent": None, "releasedTargets": [], "event": None, "write": False}
+            actor_note = agent_id if known else f"Unknown agent {agent_id}"
             event = append_event(
                 state,
                 "agent_left",
                 agent_id,
-                f"{agent_id} left Sprint Engine. Released targets: {len(released)}.",
+                f"{actor_note} left Sprint Engine. Released targets: {len(released)}.",
                 {"releasedTargets": released, "reason": reason},
             )
-            return {"ok": True, "known": True, "agent": agent, "releasedTargets": released, "event": event, "write": True}
+            return {
+                "ok": True,
+                "known": known,
+                "agent": worker_view(state, agent_id),
+                "releasedTargets": released,
+                "event": event,
+                "write": True,
+            }
 
         result = with_locked_state(state_path, mutate)
         return {
@@ -520,95 +491,6 @@ class SprintEngineMcpServer:
             "releasedTargets": result["releasedTargets"],
             "event": result["event"],
         }
-
-    def _dispatch_next(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-        agent_id = str(payload["agentId"]).strip()
-        last_dispatch_id = str(payload.get("lastDispatchId") or "").strip()
-        if not agent_id:
-            raise McpToolError("invalid_payload", "agentId cannot be empty.")
-
-        def run(state: dict[str, Any]) -> dict[str, Any]:
-            agent = state.get("agents", {}).get(agent_id)
-            current = agent.get("currentDispatch") if isinstance(agent, dict) else None
-            # Default the replay cursor to the agent's last acked dispatch so
-            # a caller that omits lastDispatchId gets the delta since its own
-            # ack instead of the run's full ledger history.
-            cursor = last_dispatch_id
-            if not cursor and isinstance(agent, dict):
-                subscription = agent.get("subscription")
-                if isinstance(subscription, dict):
-                    cursor = str(subscription.get("lastDispatchId") or "").strip()
-            dispatches = [
-                record for record in folder_store.read_jsonl_file(state_path.parent / folder_store.DISPATCH_FILE)
-                if record.get("agentId") == agent_id
-            ]
-            if cursor:
-                seen = False
-                filtered = []
-                for record in dispatches:
-                    if seen:
-                        filtered.append(record)
-                    elif record.get("id") == cursor:
-                        seen = True
-                # A cursor absent from the agent's ledger rows (mistyped ack,
-                # pruned/recreated dispatch.jsonl) must not blank the replay
-                # forever: fall back to the full (shaper-capped) history so
-                # delivery self-heals instead of trusting a poisoned cursor.
-                if seen:
-                    dispatches = filtered
-            return {
-                "ok": True,
-                "agentId": agent_id,
-                "currentDispatch": current,
-                "dispatches": dispatches,
-                "state": "dispatched" if current else "idle",
-                "write": False,
-            }
-
-        return with_locked_state(state_path, run)
-
-    def _dispatch_ack(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-        agent_id = str(payload["agentId"]).strip()
-        dispatch_id = str(payload["dispatchId"]).strip()
-        outcome = str(payload.get("outcome") or "acknowledged").strip() or "acknowledged"
-        if not agent_id or not dispatch_id:
-            raise McpToolError("invalid_payload", "agentId and dispatchId cannot be empty.")
-
-        def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = ensure_agent(state, agent_id, None)
-            subscription = agent.setdefault("subscription", {})
-            subscription["lastDispatchId"] = dispatch_id
-            subscription["lastDispatchAckAt"] = folder_store.now_iso()
-            subscription["lastDispatchOutcome"] = outcome
-            event = append_event(
-                state,
-                "dispatch_acknowledged",
-                agent_id,
-                f"{agent_id} acknowledged dispatch {dispatch_id}.",
-                {"dispatchId": dispatch_id, "outcome": outcome},
-            )
-            return {"ok": True, "agent": agent, "currentDispatch": agent.get("currentDispatch"), "event": event, "write": True}
-
-        return with_locked_state(state_path, mutate)
-
-    def _subscribe(self, state_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
-        agent_id = str(payload["agentId"]).strip()
-        transport = str(payload.get("transport") or "poll")
-        if transport not in {"poll", "mcp_notifications"}:
-            raise McpToolError("invalid_payload", "transport must be one of poll or mcp_notifications.")
-        if not agent_id:
-            raise McpToolError("invalid_payload", "agentId cannot be empty.")
-
-        def mutate(state: dict[str, Any]) -> dict[str, Any]:
-            agent = ensure_agent(state, agent_id, None)
-            subscription = agent.setdefault("subscription", {})
-            subscription["mode"] = transport
-            if payload.get("lastDispatchId"):
-                subscription["lastDispatchId"] = str(payload["lastDispatchId"])
-            subscription.setdefault("subscribedAt", folder_store.now_iso())
-            return {"ok": True, "agent": agent, "subscription": subscription, "currentDispatch": agent.get("currentDispatch"), "write": True}
-
-        return with_locked_state(state_path, mutate)
 
     def _run_get(self, state_path: Path) -> dict[str, Any]:
         def run(state: dict[str, Any]) -> dict[str, Any]:

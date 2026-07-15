@@ -33,11 +33,12 @@ def actor(agent_id: str, role: str) -> dict[str, object]:
 
 
 def roster_state(fixture, *roles: str) -> dict:
+    # Planning authority is `configuredRoles`, the run's enabled-role set, not a
+    # seated roster (MC-1591 deleted the agents map). `resolve_planning_role` reads
+    # it, so the enabled roles decide the planner at init, before anyone claims.
     state = read_state(fixture.state_path)
     state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    state["agents"] = {
-        f"{role}-1": {"role": role, "status": "idle", "currentTaskId": None} for role in roles
-    }
+    state["configuredRoles"] = list(roles)
     return state
 
 
