@@ -62,6 +62,7 @@ import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
  formatSprintEngineLockAge,
+ deriveSprintEngineRepoMergeRollup,
  deriveSprintEngineRunGlyph,
  getNextSprintEngineAgentId,
  getSprintEngineBoardRunPhase,
@@ -985,11 +986,15 @@ function SprintEngineBoardPanelContent({
  // The run-config chip's label tracks the run's real end-state once complete: a
  // merged worktree run reads "Merged", a done-but-unmerged one "Ready for review";
  // otherwise it shows the automation runtime state (Running / Paused / Complete…).
+ // A run spanning projects is "Merged" only once EVERY project's pull request has
+ // landed, so this reads the same rollup the run glyph does rather than the primary
+ // project's state alone.
+ const mergeRollup = deriveSprintEngineRepoMergeRollup(sprintEngineState.vcs)
  const runConfigLabel =
    automationRuntimeState === 'complete'
-     ? sprintEngineState.vcs?.pullRequestState === 'merged'
+     ? mergeRollup?.allMerged
        ? 'Merged'
-       : sprintEngineState.vcs
+       : mergeRollup
          ? 'Ready for review'
          : 'Complete'
      : sprintEngineAutomationRuntimeLabels[automationRuntimeState]
@@ -2109,7 +2114,7 @@ function SprintEngineBoardPanelContent({
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
-  <RunPullRequestViewChip vcs={sprintEngineState.vcs} />
+  <RunPullRequestViewChip vcs={sprintEngineState.vcs} folderPath={folderPath} />
   <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}

@@ -10,13 +10,21 @@ import { RosterAndRunSettings } from './WizardControls'
 // The split must therefore be a partition of the existing render, not a rewrite —
 // these tests pin that, since a regression here silently changes Guided Brief.
 
+type ProjectPickerProps = {
+  projectOptions: readonly { id: string; root: string; name: string }[]
+  selectedProjectIds: readonly string[]
+  onToggleProject: (id: string, on: boolean) => void
+  projectsDisabled: boolean
+  useWorktrees: boolean
+}
+
 // The markers below are the three blocks the component composes: the roster
 // label, the caller-injected workflow panels, and the run-settings card.
 const ROSTER_MARK = 'Roster'
 const WORKFLOW_MARK = 'data-marker="workflow-section"'
 const RUN_MARK = 'Run settings'
 
-function render(sections?: 'all' | 'roster' | 'run'): string {
+function render(sections?: 'all' | 'roster' | 'run', projects?: Partial<ProjectPickerProps>): string {
   return renderToStaticMarkup(
     <RosterAndRunSettings
       roleCounts={{ developer: 2, tester: 1 }}
@@ -38,6 +46,7 @@ function render(sections?: 'all' | 'roster' | 'run'): string {
       onChangeUseWorktrees={() => {}}
       workflowSection={<div data-marker="workflow-section" />}
       sections={sections}
+      {...(projects ?? {})}
     />,
   )
 }
@@ -75,5 +84,54 @@ const run = render('run')
 assert.ok(run.includes(WORKFLOW_MARK), "sections='run' renders the workflow panels")
 assert.ok(run.includes(RUN_MARK), "sections='run' renders Run settings")
 assert.ok(!run.includes(ROSTER_MARK), "sections='run' withholds the roster")
+
+// "Also changes these projects" (MC-1613). A run can only span projects when each
+// gets its own worktree — the engine refuses the pair — so the picker must not
+// exist to be picked from until worktree mode is on.
+const PROJECTS = [{ id: 'mobile', root: '../multicode-mobile', name: 'multicode-mobile' }]
+const pickerProps = (over: Partial<ProjectPickerProps> = {}): Partial<ProjectPickerProps> => ({
+  projectOptions: PROJECTS,
+  selectedProjectIds: [],
+  onToggleProject: () => {},
+  projectsDisabled: false,
+  useWorktrees: true,
+  ...over,
+})
+
+const withProjects = render('run', pickerProps())
+assert.ok(withProjects.includes('Also changes these projects'), 'worktree mode offers the sibling projects')
+assert.ok(withProjects.includes('multicode-mobile'), 'a project is named by its folder, not its id or path')
+assert.ok(!withProjects.includes('mobile"'), 'the declared id is never shown as the project name')
+
+// Worktree mode off: no picker at all, rather than a dead control.
+assert.ok(
+  !render('run', pickerProps({ useWorktrees: false })).includes('Also changes these projects'),
+  'without worktree mode the picker stays out of the way',
+)
+// A workspace with no sibling project has nothing to offer.
+assert.ok(
+  !render('run', pickerProps({ projectOptions: [] })).includes('Also changes these projects'),
+  'no sibling projects, no picker',
+)
+// Default is none: nothing is preselected, so a run stays single-project unless
+// asked. A picked project carries the accent rail, so its absence is the check
+// (the run-settings card has other checkboxes, incl. the worktree toggle above).
+const SELECTED_ROW = 'bg-[color:var(--accent-primary-soft)]'
+assert.ok(!withProjects.includes(SELECTED_ROW), 'no project is selected by default')
+assert.ok(
+  render('run', pickerProps({ selectedProjectIds: ['mobile'] })).includes(SELECTED_ROW),
+  'a picked project reads as selected',
+)
+// Fixed once created: an existing team can read the projects but not change them.
+const lockedProjects = render('run', pickerProps({ projectsDisabled: true, selectedProjectIds: ['mobile'] }))
+assert.ok(lockedProjects.includes('disabled=""'), 'an existing team cannot change the projects')
+assert.ok(
+  lockedProjects.includes('fixed when it is created'),
+  'the locked picker says the set is fixed at creation, in plain words',
+)
+// No jargon reaches the user: never `repoId`, never `vcs`.
+for (const jargon of ['repoId', 'vcs', 'repo id']) {
+  assert.ok(!withProjects.includes(jargon), `the picker never shows "${jargon}"`)
+}
 
 console.log('WizardControls sections tests passed')

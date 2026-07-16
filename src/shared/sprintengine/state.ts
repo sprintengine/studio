@@ -267,6 +267,57 @@ export function willResumeRecordedRosterSession(input: {
 //   6. paused (rollup) — a started run (≥1 done) with nothing currently running.
 //   7. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
+/**
+ * How far a run's branches are through merging, counted across every repo it
+ * declared (MC-1613). A run spanning projects delivers one branch per project,
+ * so it is only merged when the last one lands — reading the flat
+ * `vcs.pullRequestState` would call the whole run merged the moment the primary
+ * project's pull request did, while a sibling's branch was still open.
+ *
+ * Null for a run with no branch to merge (no worktree), which is what separates
+ * "Complete" from "Ready for review". A single-repo run reports `total: 1` and
+ * rolls up to exactly what the flat field said.
+ */
+export type SprintEngineRepoMergeRollup = {
+  /** Repos the run declared; always ≥ 1 for a worktree run. */
+  total: number
+  /** Declared repos whose pull request has merged. */
+  merged: number
+  /** Declared repos still waiting to merge — `total - merged`. */
+  unmerged: number
+  /** True only when every declared repo's pull request has merged. */
+  allMerged: boolean
+}
+
+export function deriveSprintEngineRepoMergeRollup(
+  vcs: SprintEngineVcs | null | undefined,
+): SprintEngineRepoMergeRollup | null {
+  if (!vcs) return null
+  // The projection normalizes `repos` to a non-empty list, but this also reads a
+  // `vcs` restored from persisted workspace state, which can predate the list and
+  // carry only the flat fields until the next projection lands. That block IS the
+  // one repo such a run has, so it rolls up as a one-entry list rather than
+  // reporting "no branch to merge" and downgrading the glyph to plain Complete.
+  const repos = Array.isArray(vcs.repos) && vcs.repos.length > 0
+    ? vcs.repos
+    : [{ pullRequestState: vcs.pullRequestState ?? null }]
+  const merged = repos.filter((repo) => repo.pullRequestState === 'merged').length
+  return { total: repos.length, merged, unmerged: repos.length - merged, allMerged: merged === repos.length }
+}
+
+/**
+ * The completion label for a run whose branches have not all merged. A run in one
+ * project says only "Ready for review" — there is no second project to count, and
+ * a count there would be noise on every single-repo run. A run spanning projects
+ * names how many are still out, because "Ready for review" alone hides that some
+ * of its branches have already landed.
+ */
+function sprintEngineAwaitingMergeLabel(rollup: SprintEngineRepoMergeRollup): string {
+  if (rollup.total <= 1) return 'Ready for review'
+  const noun = rollup.unmerged === 1 ? 'project' : 'projects'
+  return `Ready for review · ${rollup.unmerged} ${noun} left to merge`
+}
+
 export function deriveSprintEngineRunGlyph(input: {
   sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs' | 'canceled'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
@@ -316,14 +367,17 @@ export function deriveSprintEngineRunGlyph(input: {
     // Vocabulary matches the run-summary verdict: a worktree run is "Ready for
     // review" until its PR merges, then "Complete"; a non-worktree run is
     // "Complete" the moment work is done.
-    const vcs = input.sprintEngineState?.vcs
-    if (vcs && vcs.pullRequestState !== 'merged') {
-      return { state: 'done_unmerged', live: false, label: 'Ready for review' }
+    //
+    // Every declared repo counts (MC-1613): a run spanning projects has one branch
+    // per project and stays "Ready for review" until the last one merges.
+    const rollup = deriveSprintEngineRepoMergeRollup(input.sprintEngineState?.vcs)
+    if (rollup && !rollup.allMerged) {
+      return { state: 'done_unmerged', live: false, label: sprintEngineAwaitingMergeLabel(rollup) }
     }
     // A merged worktree run gets the git-merge mark in merged-purple (GitHub's
     // merged-PR idiom). A non-worktree run has no branch to merge, so it stays
     // the plain green `done` check.
-    if (vcs && vcs.pullRequestState === 'merged') {
+    if (rollup) {
       return { state: 'done_merged', live: false, label: 'Merged' }
     }
     return { state: 'done', live: false, label: 'Complete' }

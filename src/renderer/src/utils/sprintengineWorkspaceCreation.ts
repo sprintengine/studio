@@ -58,6 +58,9 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
+  // The other projects this run also changes (MC-1613). Forwarded verbatim to
+  // init as `--repo <id>=<root>`; only meaningful alongside useWorktrees.
+  repos?: Array<{ id: string; root: string }>
   // Record file-backed sources as project-root-relative references (no copy into
   // the run store). Set for backlog/file-sourced launches so the canonical design
   // docs stay authoritative and are reviewed/updated in place.
@@ -178,6 +181,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
+  repos,
   sourceReference,
   pathExists,
   initializeSprintEngineState,
@@ -233,6 +237,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       events: sprintEngineState.events,
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
+      ...(repos && repos.length > 0 ? { repos } : {}),
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
       enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts, additionalEnabledRoles),
       // "Workflow steps" + "Final sweeps" keys, present only when set — the

@@ -43,6 +43,7 @@ import {
   resolveSprintEngineArtifactEditorPath,
   sprintEngineArtifactKindLabel,
   sprintEngineNeutralRoleAccent,
+  deriveSprintEngineRepoMergeRollup,
   deriveSprintEngineRunGlyph,
   sprintEngineRoleOrder,
   sprintEngineRunAwaitsHumanInput,
@@ -617,6 +618,63 @@ assert.deepEqual(
     autoState: manualIdle,
   }),
   { state: 'done_unmerged', live: false, label: 'Ready for review' },
+)
+// A run spanning projects (MC-1613) merges only when its LAST branch does. The
+// three cases above also pin the legacy read: `worktreeVcs` carries no `repos`, so
+// they prove a persisted pre-`repos` vcs still rolls up as its one repo.
+const repo = (id: string, pullRequestState: string | null) =>
+  ({ id, root: id === 'primary' ? '.' : `../${id}`, worktreePath: `.x/worktree-${id}`, branchName: 'sprintengine/x', pullRequestState })
+const multiRepoVcs = (...repos: unknown[]) =>
+  ({ mode: 'run_worktree', worktreePath: '.x/worktree', branchName: 'sprintengine/x', pullRequestState: 'merged', repos }) as never
+// The regression this exists for: the primary merged, the sibling still open. The
+// flat `pullRequestState` says 'merged' — reading it alone called the whole run
+// merged while another project's branch was still out.
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: {
+      tasks: [boardTask('done')],
+      vcs: multiRepoVcs(repo('primary', 'merged'), repo('mobile', 'open')),
+    },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review · 1 project left to merge' },
+)
+// Nothing merged yet: the count names every project still out, and pluralizes.
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: {
+      tasks: [boardTask('done')],
+      vcs: multiRepoVcs(repo('primary', 'open'), repo('mobile', null), repo('multiauth', 'open')),
+    },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review · 3 projects left to merge' },
+)
+// Every project merged: the run is merged, and says so without a count.
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: {
+      tasks: [boardTask('done')],
+      vcs: multiRepoVcs(repo('primary', 'merged'), repo('mobile', 'merged')),
+    },
+    autoState: manualIdle,
+  }),
+  { state: 'done_merged', live: false, label: 'Merged' },
+)
+// A run in ONE project keeps the bare label: there is no second project to count.
+assert.deepEqual(
+  deriveSprintEngineRunGlyph({
+    sprintEngineState: { tasks: [boardTask('done')], vcs: multiRepoVcs(repo('primary', 'open')) },
+    autoState: manualIdle,
+  }),
+  { state: 'done_unmerged', live: false, label: 'Ready for review' },
+)
+// The rollup itself: null when there is no branch to merge at all, which is what
+// keeps a non-worktree run on plain "Complete" rather than a permanent "unmerged".
+assert.equal(deriveSprintEngineRepoMergeRollup(null), null)
+assert.deepEqual(
+  deriveSprintEngineRepoMergeRollup(multiRepoVcs(repo('primary', 'merged'), repo('mobile', 'open'))),
+  { total: 2, merged: 1, unmerged: 1, allMerged: false },
 )
 // An architect-routed needs_input task (no user question) is in-flight work, not
 // a user prompt — it reads in_progress, not needs_input.
