@@ -38,7 +38,7 @@ import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
-import { sprintEngineDeclaredSiblingRepoRoots } from './sprintengine-artifacts'
+import { sprintEngineDeclaredSiblingRepoRoots, sprintEngineRepoIdForLaunchCwd } from './sprintengine-artifacts'
 import {
   appendTerminalOutput,
   clearAgentStallTimer,
@@ -100,6 +100,7 @@ type TerminalRuntimeOptions = {
       workspaceId?: string
       agentId?: string
       role?: string
+      repo?: string
       cli?: AgentCli
       knowledgeRoot?: string
       http?: {
@@ -342,6 +343,10 @@ export function buildManagedSprintEngineSyncInputForLaunch(
     workspaceId: launch?.workspaceId,
     agentId: launch?.agentId,
     role: launch?.role,
+    // The repo this session works in, from the worktree it launches into
+    // (MC-1610): binds its claim queue to that tree. Null for a launch outside
+    // any declared worktree, which leaves the session unbound as before.
+    repo: sprintEngineRepoIdForLaunchCwd(statePath, launchCwd) ?? undefined,
     cli: launch?.cli,
     knowledgeRoot: launch?.knowledgeRoot ?? '',
   }

@@ -34,6 +34,11 @@ export type SprintEngineMcpRunRegistrationInput = {
   // registration stays run-scoped (operator surface).
   agentId?: string
   role?: string
+  // The declared repo this session works in (MC-1610), derived from the worktree
+  // it launches into. The returned token binds the session's claim queue to that
+  // repo, so it never claims work living in another project's tree. Absent keeps
+  // the session repo-unbound (single-repo runs, operator surface).
+  repo?: string
   // The workspace's configured Knowledge Graph root ('' when unset). Sent so
   // the server can gate the workspace_knowledge prompt layer at compose time
   // instead of paying its tokens on every join.
@@ -135,6 +140,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         workspaceId: input.workspaceId,
         agentId: input.agentId,
         role: input.role,
+        repo: input.repo,
         knowledgeRoot: input.knowledgeRoot ?? '',
       })
     } catch (error) {
@@ -428,8 +434,14 @@ export function createGatedSprintEngineMcpHub(hub: SprintEngineMcpHubService): G
 
 function runRegistrationKey(input: SprintEngineMcpRunRegistrationInput): string {
   // Agent-scoped registrations get their own token per agent; run-scoped
-  // registrations keep sharing one token per state path.
-  const agentSuffix = input.agentId ? `::agent::${input.agentId}::${input.role ?? ''}` : ''
+  // registrations keep sharing one token per state path. The repo is part of the
+  // key (MC-1610) because the token BINDS it: an agent id that later launches in
+  // another declared repo's worktree — a persistent planning id following its
+  // work across projects — must get a token bound to the repo it is actually in,
+  // not the cached one from its first launch.
+  const agentSuffix = input.agentId
+    ? `::agent::${input.agentId}::${input.role ?? ''}${input.repo ? `::repo::${input.repo}` : ''}`
+    : ''
   return `${resolve(input.statePath)}${agentSuffix}`
 }
 

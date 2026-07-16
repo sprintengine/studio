@@ -2175,7 +2175,9 @@ async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runt
   const runDir = join(workspaceRoot, '.multi-code', 'sprintengine', 'multi-repo')
   const sprintEngineStatePath = join(runDir, 'run.yaml')
   const worktreeCwd = join(runDir, 'worktree')
+  const mobileWorktreeCwd = join(runDir, 'worktree-mobile')
   await mkdir(worktreeCwd, { recursive: true })
+  await mkdir(mobileWorktreeCwd, { recursive: true })
   await writeFile(
     join(runDir, 'projection.json'),
     JSON.stringify({
@@ -2183,8 +2185,8 @@ async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runt
         vcs: {
           mode: 'run_worktree',
           repos: [
-            { id: 'primary', root: '.', worktreePath: 'worktree', branchName: 'sprintengine/multi-repo' },
-            { id: 'mobile', root: relative(workspaceRoot, declared), worktreePath: 'worktree-mobile', branchName: 'sprintengine/multi-repo' },
+            { id: 'primary', root: '.', worktreePath: relative(workspaceRoot, worktreeCwd), branchName: 'sprintengine/multi-repo' },
+            { id: 'mobile', root: relative(workspaceRoot, declared), worktreePath: relative(workspaceRoot, mobileWorktreeCwd), branchName: 'sprintengine/multi-repo' },
           ],
         },
       },
@@ -2232,7 +2234,34 @@ async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runt
       'allowed roots are exactly the projects the run declared: its own plus each declared sibling'
     )
     assert.ok(!allowedRoots.includes(undeclared), 'a project the run never declared is not authorized')
+    // MC-1613: the session's repo is bound from the worktree it launched in, so
+    // its `task.next` only ever offers work living in that tree.
+    assert.equal(
+      syncInputs[0]?.managedSprintEngine?.repo,
+      'primary',
+      'a session launched in the primary worktree binds to the primary repo'
+    )
     runtime.ipcHandlers.killTerminal('session_multi_repo')
+
+    const mobileResult = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
+      sessionId: 'session_multi_repo_mobile',
+      cols: 120,
+      rows: 30,
+      cwd: mobileWorktreeCwd,
+      sprintEngineStatePath,
+      agentId: 'developer-2',
+      cli: 'claude-code',
+      kind: 'agent',
+      shellOnly: false,
+      mcpSettings: { syncEnabled: true, servers: {} } satisfies McpSettings,
+    })
+    assert.equal(mobileResult.ok, true, JSON.stringify(mobileResult))
+    assert.equal(
+      syncInputs[1]?.managedSprintEngine?.repo,
+      'mobile',
+      'the same run spawning into the mobile worktree binds that session to the mobile repo'
+    )
+    runtime.ipcHandlers.killTerminal('session_multi_repo_mobile')
   } finally {
     await runtime.shutdown()
     await rm(workspaceRoot, { recursive: true, force: true })

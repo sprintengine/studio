@@ -10,6 +10,8 @@ import {
   findHealthyWorktreeScope,
   resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
+  resolveWorkspaceWorktrees,
+  resolveWorktreeFallbackRoot,
   resolveWorktreeSpawnFallback,
   slugifyWorktreeName,
   worktreeContainerPath,
@@ -47,6 +49,10 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
   assert.deepEqual(resolved, {
     gitRoot: '/Users/example/project/.multi-code/sprintengine/auth/worktree',
     branch: 'sprintengine/auth',
+    // A store with no `repos` list describes its one repo with the flat fields:
+    // that repo is the primary, and its root is the workspace itself.
+    repoId: 'primary',
+    repoRoot: '/Users/example/project',
   })
 }
 
@@ -62,6 +68,7 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     gitRoot: '/Users/example/wt/parser-spike',
     branch: 'spike/parser',
   })
+  assert.equal(resolved?.repoId, undefined, 'a non-sprint worktree workspace declares no repo set')
 }
 
 // 3. Sprint vcs takes precedence over an explicit marker (a worktree-mode sprint
@@ -101,6 +108,91 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     } as unknown as Workspace['sprintEngineState'],
   })
   assert.equal(resolveWorkspaceWorktree(ws)?.gitRoot, '/abs/worktree')
+}
+
+// --- resolveWorkspaceWorktrees: one scope per declared repo (MC-1610) ---
+
+/** A run declaring two projects: the primary, plus a `mobile` sibling. */
+function twoRepoWorkspace(): WorktreeInput {
+  return make({
+    sprintEngineState: {
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/sprintengine/x/worktree',
+        branchName: 'sprintengine/x',
+        repos: [
+          { id: 'primary', root: '.', worktreePath: '.multi-code/sprintengine/x/worktree', branchName: 'sprintengine/x' },
+          { id: 'mobile', root: '../multicode-mobile', worktreePath: '.multi-code/sprintengine/x/worktree-mobile', branchName: 'sprintengine/x' },
+        ],
+      },
+    } as unknown as Workspace['sprintEngineState'],
+  })
+}
+
+// 8. Every declared repo gets a scope, primary first; each carries its own
+//    worktree, branch, and the root of the checkout it was created from.
+{
+  const resolved = resolveWorkspaceWorktrees(twoRepoWorkspace())
+  assert.deepEqual(resolved, [
+    {
+      gitRoot: '/Users/example/project/.multi-code/sprintengine/x/worktree',
+      branch: 'sprintengine/x',
+      repoId: 'primary',
+      repoRoot: '/Users/example/project',
+    },
+    {
+      gitRoot: '/Users/example/project/.multi-code/sprintengine/x/worktree-mobile',
+      branch: 'sprintengine/x',
+      repoId: 'mobile',
+      repoRoot: '/Users/example/multicode-mobile',
+    },
+  ])
+  // "The" worktree stays the PRIMARY one for every single-scope surface.
+  assert.equal(resolveWorkspaceWorktree(twoRepoWorkspace())?.repoId, 'primary')
+}
+
+// 9. Single-repo control: a one-entry list resolves to exactly the one scope a
+//    single-repo run always had.
+{
+  const ws = make({
+    sprintEngineState: {
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/sprintengine/x/worktree',
+        branchName: 'sprintengine/x',
+        repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/sprintengine/x/worktree', branchName: 'sprintengine/x' }],
+      },
+    } as unknown as Workspace['sprintEngineState'],
+  })
+  assert.deepEqual(resolveWorkspaceWorktrees(ws), [{
+    gitRoot: '/Users/example/project/.multi-code/sprintengine/x/worktree',
+    branch: 'sprintengine/x',
+    repoId: 'primary',
+    repoRoot: '/Users/example/project',
+  }])
+  assert.deepEqual(resolveWorkspaceWorktrees(make({})), [], 'a regular workspace is backed by no worktree')
+}
+
+// --- resolveWorktreeFallbackRoot: fall back per repo, not to the workspace ---
+
+// 10. A pruned SIBLING worktree falls back to that sibling's own repo root; the
+//     primary's falls back to the workspace, which is its root.
+{
+  const ws = twoRepoWorkspace()
+  assert.equal(
+    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.multi-code/sprintengine/x/worktree-mobile'),
+    '/Users/example/multicode-mobile',
+    'a pruned mobile worktree redirects into the mobile checkout, not the multicode root',
+  )
+  assert.equal(
+    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.multi-code/sprintengine/x/worktree'),
+    '/Users/example/project',
+  )
+  // A cwd belonging to no declared worktree, and a workspace with none at all,
+  // both fall back to the workspace folder — today's behavior.
+  assert.equal(resolveWorktreeFallbackRoot(ws, '/somewhere/else'), '/Users/example/project')
+  assert.equal(resolveWorktreeFallbackRoot(ws, undefined), '/Users/example/project')
+  assert.equal(resolveWorktreeFallbackRoot(make({}), '/x'), '/Users/example/project')
 }
 
 // --- findHealthyWorktreeScope ---
