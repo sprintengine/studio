@@ -57,11 +57,17 @@ export function TruncatedText({
     const el = ref.current
     if (!el) return
     const check = () => {
+      // Flipping `overflowing` swaps the rendered root (bare element <-> Tooltip
+      // wrapper), which REMOUNTS the host node. Always measure the live node via
+      // the ref, and drop observations of the detached old node — its final 0x0
+      // reading would otherwise reset the state right back to false.
+      const node = ref.current
+      if (!node || !node.isConnected) return
       // +1 guards against sub-pixel rounding reporting a false overflow.
       setOverflowing(
         multiline
-          ? el.scrollHeight > el.clientHeight + 1
-          : el.scrollWidth > el.clientWidth + 1,
+          ? node.scrollHeight > node.clientHeight + 1
+          : node.scrollWidth > node.clientWidth + 1,
       )
     }
     check()
@@ -72,7 +78,11 @@ export function TruncatedText({
       observer.disconnect()
       window.removeEventListener('resize', check)
     }
-  }, [text, multiline])
+    // `overflowing` is deliberately a dep: after the wrap/unwrap remount the
+    // observer must re-attach to the NEW host node, or it silently watches the
+    // detached one and never fires again. setOverflowing with an unchanged value
+    // schedules no re-render, so this cannot loop.
+  }, [text, multiline, overflowing])
 
   const element = React.createElement(as, {
     ref,

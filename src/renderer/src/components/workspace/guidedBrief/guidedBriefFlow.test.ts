@@ -52,6 +52,7 @@ import {
   humanizeFileTitle,
   htmlPreviewTitle,
   pageTitleFromHtml,
+  stripHtmlFrontmatter,
   resolveHtmlArtifactView,
 } from './MockupPreviewPane'
 import { nextDesignerStageForReadiness } from './useDesignerSession'
@@ -1025,6 +1026,29 @@ function testCanvasStudioModel() {
     htmlPreviewTitle('mockups/app-shell.html', '<div>no title</div>'),
     'App shell',
     'a document with no title falls back to the humanized filename',
+  )
+
+  // The rendered srcDoc drops a leading YAML frontmatter block (the backlog id
+  // allocation writes one into mockup HTML files); anything else passes through.
+  assert.equal(
+    stripHtmlFrontmatter('---\nid: 1642\n---\n<title>Mockup</title>'),
+    '<title>Mockup</title>',
+    'a leading frontmatter block is stripped from the rendered document',
+  )
+  assert.equal(
+    stripHtmlFrontmatter('---\r\nid: 7\r\n---\r\n<main/>'),
+    '<main/>',
+    'CRLF frontmatter is stripped too',
+  )
+  assert.equal(
+    stripHtmlFrontmatter('<!doctype html><title>Plain</title>'),
+    '<!doctype html><title>Plain</title>',
+    'a document without frontmatter is untouched',
+  )
+  assert.equal(
+    stripHtmlFrontmatter('<hr>---\nnot frontmatter\n---\n'),
+    '<hr>---\nnot frontmatter\n---\n',
+    'a --- past the start of the document never strips',
   )
 
   // Collapsed bubble status line + dot tone come from the same live stage status

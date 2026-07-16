@@ -145,6 +145,17 @@ export function humanizeFileTitle(name: string): string {
   return base.charAt(0).toUpperCase() + base.slice(1)
 }
 
+/**
+ * Backlog mockup HTML files open with a YAML frontmatter block (`---` / `id: N` /
+ * `---`, written by the scan-time id allocation) that a browser would paint as
+ * literal text above the document. Strip it from the rendered document only —
+ * Source view and the on-disk file keep the real bytes.
+ */
+export function stripHtmlFrontmatter(content: string): string {
+  const match = /^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content)
+  return match ? content.slice(match[0].length) : content
+}
+
 /** The `<title>` text of an HTML document, whitespace-collapsed; null when absent or empty. */
 export function pageTitleFromHtml(html: string): string | null {
   const match = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
@@ -490,7 +501,10 @@ export function HtmlArtifactFrame({
   // Annotate mode swaps the srcDoc for the composed one (author scripts
   // neutralized, picker injected); the normal preview path is untouched.
   const annotateSrcDoc = useMemo(
-    () => (annotateActive && frameState.kind === 'ready' ? composeAnnotateSrcDoc(frameState.content) : null),
+    () =>
+      annotateActive && frameState.kind === 'ready'
+        ? composeAnnotateSrcDoc(stripHtmlFrontmatter(frameState.content))
+        : null,
     [annotateActive, frameState],
   )
 
@@ -688,7 +702,7 @@ export function HtmlArtifactFrame({
                 ref={iframeRef}
                 key={`${absolutePath}::${annotateActive ? 'annotate' : allowScripts ? 'scripts' : 'no-scripts'}::${reloadNonce}`}
                 title={`Preview · ${pageTitle}`}
-                srcDoc={annotateSrcDoc ?? frameState.content}
+                srcDoc={annotateSrcDoc ?? stripHtmlFrontmatter(frameState.content)}
                 sandbox={annotateFrameSandbox(annotateActive, allowScripts)}
                 onLoad={() => setFrameLoaded(true)}
                 className={`border-0 bg-white transition-opacity duration-150 ${frameLoaded ? 'opacity-100' : 'opacity-0'}`}

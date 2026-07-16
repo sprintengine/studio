@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { InlineNotice, Popover, Section, Tooltip } from '../ui'
+import { InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
 import type { BacklogItem } from '../../utils/backlog'
 import type { BacklogDependencyNode, BacklogPrerequisite } from '../../utils/backlogDependencies'
 import { BACKLOG_STATUS_LABEL } from './BacklogRow'
@@ -96,7 +96,11 @@ export function BacklogDependenciesSection({
             <ul className="flex flex-col gap-0.5">
               {blocks.map((blocked) => (
                 <li key={blocked.id} className="flex min-w-0 items-center gap-2">
-                  <NavigateButton title={blocked.title} onNavigate={() => onNavigate(blocked.id)} />
+                  <NavigateButton
+                    displayId={blocked.displayId}
+                    title={blocked.title}
+                    onNavigate={() => onNavigate(blocked.id)}
+                  />
                   <StatusWord>{BACKLOG_STATUS_LABEL[blocked.status]}</StatusWord>
                 </li>
               ))}
@@ -143,7 +147,11 @@ function PrerequisiteRow({
   return (
     <li className="flex min-w-0 items-center gap-2">
       {target ? (
-        <NavigateButton title={target.title} onNavigate={() => onNavigate(target.id)} />
+        <NavigateButton
+          displayId={target.displayId}
+          title={target.title}
+          onNavigate={() => onNavigate(target.id)}
+        />
       ) : (
         <Tooltip
           content={`No backlog item matches “${prerequisite.slug}”. Remove the stale prerequisite or create the item.`}
@@ -169,14 +177,30 @@ function PrerequisiteRow({
   )
 }
 
-function NavigateButton({ title, onNavigate }: { title: string; onNavigate: () => void }): JSX.Element {
+// Dependency references read id-first (`MC-240 · title`), matching how items are
+// referenced everywhere else; the title truncates and reveals its full text in a
+// tooltip only when actually clipped (TruncatedText).
+function NavigateButton({
+  displayId,
+  title,
+  onNavigate,
+}: {
+  displayId?: string
+  title: string
+  onNavigate: () => void
+}): JSX.Element {
   return (
     <button
       type="button"
       onClick={onNavigate}
       className="interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
     >
-      <span className="min-w-0 truncate">{title}</span>
+      {displayId ? (
+        <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">
+          {displayId}
+        </span>
+      ) : null}
+      <TruncatedText as="span" text={title} className="min-w-0 flex-1" />
     </button>
   )
 }

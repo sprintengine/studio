@@ -27,7 +27,8 @@ import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
-import { basename } from '../../utils/paths'
+import { basename, parentPath } from '../../utils/paths'
+import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
@@ -2679,17 +2680,27 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     }
     return <div className="markdown-body">{renderMarkdown(body)}</div>
   }
-  // HTML/mockup and oversized markdown render as preformatted source — never
-  // inject arbitrary HTML into the renderer (design §5 / renderer-safety rule).
+  if (isHtml) {
+    // Mockups render through the shared sandboxed frame (scripts off by default,
+    // never same-origin — the same seam as the sprint inbox and Design preview),
+    // so arbitrary HTML still never touches the renderer document (design §5 /
+    // renderer-safety rule). Source stays reachable via the frame's toggle.
+    return (
+      <div className="flex h-[65vh] min-h-[320px] flex-col">
+        <HtmlArtifactFrame
+          absolutePath={item.path}
+          relativePath={item.relativePath}
+          watchDirectoryPath={parentPath(item.path)}
+          enableSourceView
+        />
+      </div>
+    )
+  }
+  // Oversized markdown renders as preformatted source.
   return (
-    <>
-      {isHtml ? (
-        <p className="mb-2 text-[11px] text-[color:var(--text-subtle)]">HTML source preview (not rendered).</p>
-      ) : null}
-      <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
-        {item.sourceContent}
-      </pre>
-    </>
+    <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[color:var(--text-default)]">
+      {item.sourceContent}
+    </pre>
   )
 }
 
