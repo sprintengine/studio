@@ -25,18 +25,20 @@ export {
 } from '../../../shared/sprintengine/automation-lifecycle'
 
 /**
- * The single dormancy bit. A finished run is dormant once its automation
- * lifecycle reaches the terminal `complete` state — the one persisted signal
- * that every renderer activity source honours to stop periodic work. It is the
- * resulting *state* of completion; `isCompletedSprintEngineRun` (task-level) is
- * the signal that *triggers* the transition into it. The reducer's
- * terminal-state guard makes `complete` one-way (only `user_set_mode` leaves
- * it), so dormancy ends only by explicit user action.
+ * The single dormancy bit. A run is dormant once its automation lifecycle
+ * reaches a terminal state — `complete` (every task done) or `canceled` (the
+ * user stopped the run, MC-1604) — the persisted signal every renderer activity
+ * source honours to stop periodic work. It is the resulting *state*;
+ * `isCompletedSprintEngineRun` / `isCanceledSprintEngineRun` are the signals
+ * that *trigger* the transition. The reducer's terminal-state guard makes both
+ * one-way (only `user_set_mode` leaves them), so dormancy ends only by explicit
+ * user action.
  */
 export function isSprintEngineWorkspaceDormant(
   workspace: Pick<Workspace, 'sprintEngineAutoState'> | null | undefined,
 ): boolean {
-  return workspace?.sprintEngineAutoState?.runtimeState === 'complete'
+  const runtimeState = workspace?.sprintEngineAutoState?.runtimeState
+  return runtimeState === 'complete' || runtimeState === 'canceled'
 }
 
 /**

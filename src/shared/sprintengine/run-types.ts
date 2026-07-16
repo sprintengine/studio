@@ -555,6 +555,24 @@ export type SprintEngineRuntimeAgent = {
   currentDispatch?: SprintEngineCurrentDispatch | null
 }
 
+/**
+ * Lease-derived "who is doing what" record from the v3 projection
+ * (`projection.workers`, MC-1591). The Python engine reconstructs it from task
+ * leases — there is no `agents` map — so it is a superset of
+ * {@link SprintEngineRuntimeAgent}, additionally carrying the session recorded
+ * on the worker's active lease and the set of tasks it has owned this run.
+ * Keyed by worker id in {@link SprintEngineState.workers}. The `projection.roster`
+ * bridge is a subset projection of the same view, so a worker and its roster
+ * entry never disagree on role/status/currentTaskId.
+ */
+export type SprintEngineWorker = SprintEngineRuntimeAgent & {
+  /** Session id recorded on the worker's active lease, when it holds one. */
+  sessionId?: string
+  /** Every task id this worker has owned across the run (active lease +
+   *  last-implemented), oldest-first. */
+  ownedTaskIds?: string[]
+}
+
 export type SprintEngineTaskActivityType =
   | 'comment'
   | 'status_change'
@@ -725,11 +743,31 @@ export type SprintEngineState = {
   name: string
   goal: string
   rosterConfigured?: boolean
+  /**
+   * Whether the run was canceled by the user (MC-1604). A stored run-level
+   * lifecycle flag from run.yaml `sprintengine.canceled`, surfaced via the
+   * projection's `run.status === 'canceled'`; the projection normalizer sets it.
+   * Read through {@link isCanceledSprintEngineRun}, never derived from task
+   * statuses — a canceled run's non-done tasks are all `canceled`, which would
+   * otherwise read as completion. Absent/false for every other run.
+   */
+  canceled?: boolean
   source?: SprintEngineSource
   sourceBundle?: SprintEngineSourceBundleStateItem[]
   updatedAt?: string | null
   roleCounts: SprintEngineRoleCounts
   sprintEngineAgents: Record<string, SprintEngineRuntimeAgent>
+  /**
+   * Canonical lease-derived worker view from the v3 projection
+   * (`projection.workers`, MC-1591), keyed by worker id. Populated by
+   * {@link normalizeSprintEngineProjection} from `projection.workers` when
+   * present, falling back to the `projection.roster` bridge when it is absent.
+   * `buildSprintEngineAgentRosterForState` derives its rows from this so board,
+   * tabs, and layout read "who is doing what" from leases, not the seat ledger.
+   * `sprintEngineAgents` stays populated in parallel for consumers that have not
+   * yet migrated. Absent for states built outside the projection normalizer.
+   */
+  workers?: Record<string, SprintEngineWorker>
   events: SprintEngineEvent[]
   tasks: SprintEngineTask[]
   artifacts: SprintEngineArtifact[]
@@ -845,6 +883,15 @@ export type SprintEngineVcs = {
    *  in its base; 'merged'/'closed' are terminal (polling stops). */
   pullRequestState?: 'open' | 'merged' | 'closed' | null
   lastCommitSha?: string | null
+  /**
+   * Multi-repo seam (MC-1615): a schema-v4 store may carry a per-repo vcs array
+   * alongside the single-worktree fields. Recognized as an optional pass-through
+   * today — no TS consumer reads it yet — so syncing a multi-repo projection
+   * never strips the field (normalizeResponse whitelist precedent). The concrete
+   * per-repo shape is owned by the multi-repo epic (MC-1610); this normalizer
+   * parses and re-emits the array verbatim.
+   */
+  repos?: unknown[]
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>

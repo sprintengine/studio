@@ -43,6 +43,7 @@ from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worke
 from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
 from sprintengine_core.tool.state import (
     append_event,
+    append_task_activity,
     apply_allowed_runtimes,
     apply_configured_roles,
     apply_init_source,
@@ -53,12 +54,14 @@ from sprintengine_core.tool.state import (
     apply_roster_source,
     run_required_sweeps,
     configured_role_set,
+    end_lease,
     ensure_role_in_roster,
     find_task,
     load_mutation_state,
     reconcile_worker,
     release_expired_agent_targets,
     roster_is_configured,
+    run_is_canceled,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -746,10 +749,10 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             "missing commands/dependencies, or `--needs-input-reason verification` when real validation cannot be completed. "
             "Include `--needs-input-question` and, when useful, `--needs-input-suggested-resolution`. "
             "If the task is too large for one agent or needs decomposition, use `needs_input` with "
-            "`--needs-input-kind architect --needs-input-reason task_scope`; do not retire to signal task scope problems. "
-            "After you finish your current work and should not accept more work because of context capacity, run "
-            "`sprintengine roster retire --id <your-agent-id> --reason \"context capacity near limit\"`. "
-            "Sprint Engine decides whether to replenish the roster; do not try to spawn your own replacement. "
+            "`--needs-input-kind architect --needs-input-reason task_scope`. "
+            "After you finish your current work, if you are near context capacity and should not accept more, "
+            "stop — do not claim another task. Sprint Engine reclaims your task lease and spawns a replacement "
+            "worker on demand; do not try to spawn your own replacement. "
             f"{EVIDENCE_STYLE_GUIDANCE}"
             f"{BENCHMARK_FEEDBACK_GUIDANCE} {DIFFICULTY_FEEDBACK_GUIDANCE} "
         )
@@ -1202,6 +1205,78 @@ def cmd_recover(args: argparse.Namespace) -> Dict[str, Any]:
         "prompt": prompt,
     }
 
+def cmd_cancel(args: argparse.Namespace) -> Dict[str, Any]:
+    """Cancel the run under the run lock.
+
+    A lifecycle decision, not a completion: run status → `canceled`, every
+    non-`done` task → `canceled` with its owner and lease released, and a single
+    `run_canceled` event is appended. Done tasks and their evidence are left
+    untouched, and the run worktree/branch (if any) is intentionally left in
+    place — parity with completed runs, where the user keeps or deletes the
+    branch. Cancel is persisted as a stored run-level flag (`sprintengine.canceled`)
+    because it cannot be derived from task statuses: a run whose non-done tasks
+    are all `canceled` would otherwise recompute as `completed`.
+    """
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        sprintengine = state.setdefault("sprintengine", {})
+        actor = str(getattr(args, "id", None) or "user")
+        if run_is_canceled(state):
+            return {
+                "ok": True,
+                "action": "cancel",
+                "alreadyCanceled": True,
+                "status": sprintengine.get("status") or "canceled",
+                "canceledTaskIds": [],
+                "message": "Run is already canceled.",
+                "write": False,
+            }
+        canceled_task_ids: List[str] = []
+        for task in state.get("tasks", []) or []:
+            if not isinstance(task, dict) or task.get("status") == "done":
+                continue
+            from_status = task.get("status")
+            task["status"] = "canceled"
+            task["ownerAgentId"] = None
+            task["completedAt"] = None
+            end_lease(task)
+            task.pop("awaitingPhaseSession", None)
+            append_task_activity(
+                task,
+                "status_change",
+                actor,
+                f"{actor} canceled {task.get('id')} because the run was canceled.",
+                {"status": "canceled", "fromStatus": from_status},
+            )
+            canceled_task_ids.append(str(task.get("id")))
+        now = now_iso()
+        sprintengine["canceled"] = True
+        sprintengine["canceledAt"] = now
+        sprintengine["canceledBy"] = actor
+        sprintengine["status"] = "canceled"
+        event = append_event(
+            state,
+            "run_canceled",
+            actor,
+            f"{actor} canceled the run; {len(canceled_task_ids)} task(s) moved to canceled.",
+            {"canceledTaskCount": len(canceled_task_ids)},
+        )
+        # Honors the cancel flag (guarded), so status stays `canceled` rather than
+        # rolling up the now done/canceled task set into `completed`.
+        recompute_phase(state)
+        return {
+            "ok": True,
+            "action": "cancel",
+            "status": "canceled",
+            "canceledTaskIds": canceled_task_ids,
+            "event": event,
+            "message": (
+                f"Run canceled; {len(canceled_task_ids)} task(s) moved to canceled. "
+                "Done tasks and any run worktree/branch are left in place."
+            ),
+        }
+
+    return with_locked_state(args.state, run)
+
 def cmd_summary(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": True, "summary": build_run_summary(state), "write": False}
@@ -1346,6 +1421,7 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
 
     return with_locked_state(args.state, run)
 
+cancel = cmd_cancel
 handover = cmd_handover
 init = cmd_init
 join = cmd_join

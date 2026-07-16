@@ -199,7 +199,7 @@ export default function CommandPalette({
       { id: 'sprintengine.focus.agent', label: 'Sprint: Focus active agent', run: runPanel('sprintengine.focus.agent') },
       { id: 'sprintengine.refresh.board', label: 'Sprint: Refresh board', run: runPanel('sprintengine.refresh.board') },
       { id: 'sprintengine.goto.inbox', label: 'Sprint: Inbox', shortcut: shortcutFor('sprintengine.goto.inbox'), run: runPanel('sprintengine.goto.inbox') },
-      { id: 'sprintengine.goto.roster', label: 'Sprint: Roster', shortcut: shortcutFor('sprintengine.goto.roster'), run: runPanel('sprintengine.goto.roster') },
+      { id: 'sprintengine.goto.roster', label: 'Sprint: Agents', shortcut: shortcutFor('sprintengine.goto.roster'), run: runPanel('sprintengine.goto.roster') },
       { id: 'sprintengine.goto.tasks', label: 'Sprint: Tasks', shortcut: shortcutFor('sprintengine.goto.tasks'), run: runPanel('sprintengine.goto.tasks') },
       { id: 'sprintengine.goto.graph', label: 'Sprint: Tasks → Graph layout', shortcut: shortcutFor('sprintengine.goto.graph'), run: runPanel('sprintengine.goto.graph') },
       { id: 'sprintengine.goto.kanban', label: 'Sprint: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },

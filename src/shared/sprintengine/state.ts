@@ -75,6 +75,7 @@ import type {
   SprintEngineTaskStatus,
   SprintEngineTaskTriage,
   SprintEngineVcs,
+  SprintEngineWorker,
 } from './run-types'
 import type { AgentState } from './agent-state'
 import type {
@@ -141,6 +142,9 @@ const AUTOMATION_RUN_GLYPH: Partial<Record<SprintEngineAutomationRuntimeState, S
   blocked: { state: 'needs_input', live: false, label: 'Blocked — needs input' },
   failed: { state: 'failed', live: false, label: 'Failed' },
   complete: { state: 'done', live: false, label: 'Completed' },
+  // Canceled reads as a plain, decided terminal — the `archived` lifecycle mark
+  // (a filed-away record), distinct from the green `done` completion tick.
+  canceled: { state: 'archived', live: false, label: 'Canceled' },
 }
 
 // Board columns that mean work is genuinely in flight. `review` counts — under
@@ -163,6 +167,18 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 // projectionRefresh↔backlogLinks import cycle. Accepts any task-bearing shape.
 export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks'>): boolean {
   return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
+}
+
+// Canonical "this run was canceled" signal, the sibling to
+// `isCompletedSprintEngineRun`. Reads the stored run-level flag (run.yaml
+// `sprintengine.canceled`, surfaced by the projection normalizer from
+// `run.status === 'canceled'`) rather than deriving cancellation from task
+// statuses: a canceled run's non-done tasks are all `canceled`, so a
+// completeness rollup would misread it as done. Every consumer that needs a
+// "decided, no more effort" read (run glyph, backlog link, inbox suppression)
+// shares this one predicate so cancellation is judged identically everywhere.
+export function isCanceledSprintEngineRun(state: Pick<SprintEngineState, 'canceled'>): boolean {
+  return state.canceled === true
 }
 
 /**
@@ -249,7 +265,7 @@ export function willResumeRecordedRosterSession(input: {
 //   7. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
 export function deriveSprintEngineRunGlyph(input: {
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs' | 'canceled'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
 }): SprintEngineRunGlyph | null {
   const tasks = input.sprintEngineState?.tasks ?? []
@@ -259,6 +275,15 @@ export function deriveSprintEngineRunGlyph(input: {
         deriveSprintEngineAutomationDesiredMode(input.autoState),
       )
     : null
+
+  // Cancellation is a decided terminal: it outranks needs_input, in-progress,
+  // and completion. The stored run flag is authoritative; the terminal
+  // `canceled` runtime state covers the window before the projection carries
+  // the flag (e.g. a cold reopen reading persisted lifecycle only).
+  if (input.sprintEngineState && isCanceledSprintEngineRun(input.sprintEngineState)) {
+    return AUTOMATION_RUN_GLYPH.canceled ?? null
+  }
+  if (runtimeState === 'canceled') return AUTOMATION_RUN_GLYPH.canceled ?? null
 
   if (input.sprintEngineState && sprintEngineRunAwaitsHumanInput(input.sprintEngineState)) {
     return { state: 'needs_input', live: false, label: 'Needs input' }
@@ -1222,6 +1247,10 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
         ? record.pullRequestState
         : null,
     lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+    // MC-1615 multi-repo seam: recognize `vcs.repos` as an optional pass-through
+    // so a schema-v4 store round-trips through parse without field loss. No TS
+    // consumer reads it yet; the array is preserved verbatim.
+    ...(Array.isArray(record.repos) ? { repos: record.repos } : {}),
   }
 }
 
@@ -1673,8 +1702,9 @@ export function getNextSprintEngineAgentId(
   // is `<role>-1`. MC-1542 removed the reviewer carve-out (a reserved bare
   // `<role>` id), but a bare id — the seeded architect, or a reviewer id from an
   // older run — still counts as index 1 so a mint never collides with it.
-  // Mirrors the Python allocator (next_replacement_agent_id: max matching index
-  // + 1) — TS/Python drift here has bitten before.
+  // The spawner is the sole id authority under MC-1591 leases: there is no Python
+  // allocator to mirror or drift against — the engine treats a minted id as an
+  // opaque actor label and binds it to a task only at claim.
   const usedIds = new Set(Object.keys(sprintEngineAgents))
 
   let nextIndex = 1
@@ -1795,8 +1825,16 @@ export function buildSprintEngineAgentRosterFromRuntimeAgents(
 }
 
 export function buildSprintEngineAgentRosterForState(
-  sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'roleCounts' | 'sprintEngineAgents' | 'workers'> | null | undefined
 ): SprintEngineAgentRosterItem[] {
+  // Canonical source: the lease-derived workers view (MC-1591). A worker is a
+  // superset of a runtime agent, so the same row builder applies.
+  const workers = sprintEngineState?.workers
+  if (workers && Object.keys(workers).length > 0) {
+    return buildSprintEngineAgentRosterFromRuntimeAgents(workers)
+  }
+  // Fallback for states built outside the projection normalizer (no workers
+  // view) and the pre-seat lazy placeholder that only populates sprintEngineAgents.
   if (sprintEngineState?.sprintEngineAgents && Object.keys(sprintEngineState.sprintEngineAgents).length > 0) {
     return buildSprintEngineAgentRosterFromRuntimeAgents(sprintEngineState.sprintEngineAgents)
   }
@@ -2349,6 +2387,9 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     name: input.name?.trim() || 'Sprint Roster',
     goal: input.goal ?? '',
     rosterConfigured: Boolean(input.rosterConfigured),
+    // Preserve the stored cancel flag through both the projection normalizer and
+    // the renderer persist/HMR round-trip, so a canceled run reloads canceled.
+    ...(input.canceled ? { canceled: true as const } : {}),
     ...(input.source ? { source: input.source } : {}),
     ...(input.sourceBundle ? { sourceBundle: input.sourceBundle } : {}),
     updatedAt: input.updatedAt ?? null,
@@ -2372,6 +2413,14 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...(input.runner ? { runner: input.runner } : {}),
     ...(input.useWorktrees ? { useWorktrees: true } : {}),
     ...(input.vcs ? { vcs: input.vcs } : {}),
+    ...((): Partial<Pick<SprintEngineState, 'workers'>> => {
+      // Re-normalize the workers view so persisted renderer state carrying a
+      // legacy status coerces clean, mirroring sprintEngineAgents above. Empty
+      // is omitted; consumers fall back to sprintEngineAgents / roleCounts.
+      if (!input.workers) return {}
+      const workers = normalizeProjectionWorkers(input.workers)
+      return Object.keys(workers).length > 0 ? { workers } : {}
+    })(),
     ...((): Partial<Pick<SprintEngineState, 'roleRuntimes'>> => {
       const roleRuntimes = normalizeSprintEngineRoleRuntimes(input.roleRuntimes)
       return roleRuntimes ? { roleRuntimes } : {}
@@ -2546,26 +2595,55 @@ function coerceSprintEngineRuntimeAgentStatus(value: unknown): SprintEngineRunti
     : 'idle'
 }
 
+// Shared base for the roster bridge and the canonical workers view: both carry
+// the runtime-agent fields the board reads. Accepts any registry-keyed role id
+// (bundled or custom); an entry with a fully missing/empty role is dropped.
+function normalizeRuntimeAgentRecord(record: Record<string, unknown>): SprintEngineRuntimeAgent | null {
+  const roleId = normalizeSprintEngineRoleId(record.role)
+  if (!roleId) return null
+  return {
+    role: roleId,
+    status: coerceSprintEngineRuntimeAgentStatus(record.status),
+    currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
+    ...(typeof record.lastOwnedTaskId === 'string' && record.lastOwnedTaskId
+      ? { lastOwnedTaskId: record.lastOwnedTaskId }
+      : {}),
+    currentDispatch: normalizeCurrentDispatch(record.currentDispatch),
+  }
+}
+
 function normalizeProjectionRoster(value: unknown): Record<string, SprintEngineRuntimeAgent> {
   if (!value || typeof value !== 'object') return {}
   const result: Record<string, SprintEngineRuntimeAgent> = {}
   for (const [agentId, agent] of Object.entries(value as Record<string, unknown>)) {
     if (!agent || typeof agent !== 'object') continue
-    const record = agent as Record<string, unknown>
-    // Accept any registry-keyed role id (bundled or custom). Roster entries
-    // are required to carry a role; only fully missing/empty roles are
-    // dropped.
-    const roleId = normalizeSprintEngineRoleId(record.role)
-    if (!roleId) continue
-    const status = coerceSprintEngineRuntimeAgentStatus(record.status)
-    result[agentId] = {
-      role: roleId,
-      status,
-      currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
-      ...(typeof record.lastOwnedTaskId === 'string' && record.lastOwnedTaskId
-        ? { lastOwnedTaskId: record.lastOwnedTaskId }
-        : {}),
-      currentDispatch: normalizeCurrentDispatch(record.currentDispatch),
+    const base = normalizeRuntimeAgentRecord(agent as Record<string, unknown>)
+    if (base) result[agentId] = base
+  }
+  return result
+}
+
+// Canonical v3 worker view (`projection.workers`, MC-1591). A superset of the
+// roster bridge: same runtime-agent fields plus the recorded lease session and
+// the tasks the worker has owned. The roster bridge (`projection.roster`) shares
+// the runtime-agent fields, so this same parser accepts either shape — the
+// fallback path feeds it the roster when a projection predates `workers`.
+function normalizeProjectionWorkers(value: unknown): Record<string, SprintEngineWorker> {
+  if (!value || typeof value !== 'object') return {}
+  const result: Record<string, SprintEngineWorker> = {}
+  for (const [workerId, worker] of Object.entries(value as Record<string, unknown>)) {
+    if (!worker || typeof worker !== 'object') continue
+    const record = worker as Record<string, unknown>
+    const base = normalizeRuntimeAgentRecord(record)
+    if (!base) continue
+    const sessionId = optionalTrimmedString(record.sessionId)
+    const ownedTaskIds = Array.isArray(record.ownedTaskIds)
+      ? record.ownedTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : []
+    result[workerId] = {
+      ...base,
+      ...(sessionId ? { sessionId } : {}),
+      ...(ownedTaskIds.length > 0 ? { ownedTaskIds } : {}),
     }
   }
   return result
@@ -2585,6 +2663,12 @@ export function normalizeSprintEngineProjection(
   const runRecord = record.run && typeof record.run === 'object' ? record.run as Record<string, unknown> : {}
 
   const roster = normalizeProjectionRoster(record.roster)
+  // Canonical lease-derived workers view (MC-1591): read `projection.workers`
+  // when the field is present, and fall back to the `projection.roster` bridge
+  // only when it is absent (pre-v3 projections carry no `workers`).
+  const workers = normalizeProjectionWorkers(
+    record.workers !== undefined ? record.workers : record.roster,
+  )
   const rawTasks = Array.isArray(record.tasks) ? record.tasks : []
   const rawArtifacts = Array.isArray(record.artifacts) ? record.artifacts : []
   const rawActivity = Array.isArray(record.activity) ? record.activity : []
@@ -2624,11 +2708,17 @@ export function normalizeSprintEngineProjection(
     name: optionalTrimmedString(runRecord.name) ?? fallbackName ?? 'Sprint Roster',
     goal: typeof runRecord.goal === 'string' ? runRecord.goal : '',
     rosterConfigured: Boolean(runRecord.rosterConfigured),
+    // Stored run-level cancel flag, surfaced from the projection's run status
+    // (`sprintengine.canceled` drives `run.status === 'canceled'`). Only set when
+    // true so a normal run's state object stays unchanged. Read via
+    // `isCanceledSprintEngineRun`, never derived from task-completeness.
+    ...(runRecord.status === 'canceled' ? { canceled: true as const } : {}),
     updatedAt: optionalTrimmedString(runRecord.updatedAt) ?? optionalTrimmedString(record.updatedAt) ?? null,
     roleCounts,
     sprintEngineAgents: Object.keys(roster).length > 0
       ? roster
       : Object.fromEntries(buildSprintEngineAgentRoster(roleCounts).map((a) => [a.id, { role: a.role, status: 'idle' as const, currentTaskId: null }])),
+    workers,
     events,
     tasks: rawTasks as SprintEngineState['tasks'],
     artifacts: rawArtifacts as SprintEngineState['artifacts'],

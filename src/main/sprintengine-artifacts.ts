@@ -986,6 +986,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
+  cancelRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
@@ -1377,6 +1378,42 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     // push/PR failure is recorded on the vcs record (status=failed +
     // pullRequestError) and surfaced through the refreshed projection, so the
     // summary shows the real reason and a Retry rather than a silent "pending".
+    // User cancellation (MC-1604b): run the engine `cancel` op under the run
+    // lock — run status → canceled, non-done tasks canceled, owners/leases
+    // released. The caller (the module) additionally parks the automation
+    // runtime via sprintRuntime.cancelRun so live agents are torn down; this
+    // service only owns the state write, mirroring createPullRequest's shape.
+    async cancelRun(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'cancel',
+          '--id',
+          'ui',
+        ])
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'Canceling the sprint failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'cancel-run',
+            tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
     async createPullRequest(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)

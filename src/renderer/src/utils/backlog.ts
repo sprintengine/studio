@@ -56,7 +56,7 @@ export type BacklogHighlight = {
   color: BacklogHighlightColor | null
 }
 
-export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown'
+export type BacklogItemLinkStatus = 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
 
 export type BacklogItemLink = {
   id: string

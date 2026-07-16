@@ -55,6 +55,7 @@ type SprintEngineIpcDependencies = {
   resolveTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
   setTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
+  cancelRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
@@ -104,6 +105,12 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:task:set-status', async (_, payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.setTaskStatus(payload)
+  })
+
+  // User-initiated sprint cancellation (MC-1604b): runs the engine `cancel` op
+  // and parks the automation runtime (the dep composes both in the module).
+  ipcMain.handle('sprintengine:run:cancel', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.cancelRun(payload)
   })
 
   // `sprintengine:runner:set-mode` was removed (MC-1567): the renderer no

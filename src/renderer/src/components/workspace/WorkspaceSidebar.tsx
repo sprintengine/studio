@@ -60,6 +60,9 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
+import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
+import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
+import { publishDiagnostic } from '../../utils/diagnostics'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
@@ -387,6 +390,20 @@ function workspaceHasOnDiskState(workspace: Workspace): boolean {
   return false
 }
 
+// A Cancel-sprint action is offered only for a live Sprint Engine run: the
+// right mode, a resolved run file to target, and not already in a terminal
+// state. Terminality is read from whichever signal is hydrated — the projection
+// flags when present, else the persisted automation runtime state — so a
+// canceled/completed run in the sidebar never re-offers Cancel.
+function isCancelableSprintEngineWorkspace(workspace: Workspace): boolean {
+  if (workspace.mode !== 'sprintengine') return false
+  if (!workspace.sprintEngineContext?.statePath) return false
+  const state = workspace.sprintEngineState
+  if (state && (isCanceledSprintEngineRun(state) || isCompletedSprintEngineRun(state))) return false
+  const runtimeState = workspace.sprintEngineAutoState?.runtimeState
+  return runtimeState !== 'canceled' && runtimeState !== 'complete'
+}
+
 // The one fold idiom for older rows: hidden rows reveal FOLD_PAGE_SIZE at a
 // time ("Show 5 more" → 5 more → …), and whenever anything extra is revealed a
 // "Show fewer" affordance snaps the fold back to the at-rest view.
@@ -522,6 +539,8 @@ export default function WorkspaceSidebar({
   const [createMenu, setCreateMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
+  const [confirmCancelSprint, setConfirmCancelSprint] = useState<WorkspaceId | null>(null)
+  const [cancelSprintBusy, setCancelSprintBusy] = useState(false)
   const [confirmForget, setConfirmForget] = useState<string | null>(null)
   const [deleteTypedName, setDeleteTypedName] = useState('')
 
@@ -746,6 +765,43 @@ export default function WorkspaceSidebar({
       onCloseWorkspace(workspaceId)
     },
     [workspaceById, activityByWorkspaceId, onCloseWorkspace]
+  )
+
+  // Cancel a Sprint Engine run from the sidebar: run the engine cancel op, then
+  // force a projection refresh so the run glyph and the Backlog run-link settle
+  // on the canceled state immediately (the poller's routine ticks are display-
+  // only once the run turns dormant, so the forced refresh is what recolors the
+  // link chip). A failure surfaces as a diagnostic rather than silently leaving
+  // a half-canceled run.
+  const cancelSprintForWorkspace = useCallback(
+    async (workspaceId: WorkspaceId) => {
+      const workspace = workspaceById.get(workspaceId)
+      const statePath = workspace?.sprintEngineContext?.statePath
+      if (!workspace || !statePath || cancelSprintBusy) return
+      setCancelSprintBusy(true)
+      try {
+        const result = await window.api.cancelSprintEngineRun({ statePath })
+        if (!result.ok) throw new Error(result.message ?? 'Canceling the sprint failed.')
+        await refreshSprintEngineWorkspaceProjection({
+          workspace,
+          tokens: new Map(),
+          cause: 'manual',
+          force: true,
+        })
+      } catch (error) {
+        await publishDiagnostic({
+          level: 'warning',
+          source: 'sprintengine',
+          title: 'Cancel sprint failed',
+          message: error instanceof Error ? error.message : String(error),
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+        })
+      } finally {
+        setCancelSprintBusy(false)
+      }
+    },
+    [workspaceById, cancelSprintBusy]
   )
 
   const handleRowDragStart = (event: React.DragEvent, workspace: Workspace, fKey: string) => {
@@ -1858,6 +1914,11 @@ export default function WorkspaceSidebar({
               setContextMenu(null)
               return
             }
+            if (action === 'cancel-sprint') {
+              setConfirmCancelSprint(workspace.id)
+              setContextMenu(null)
+              return
+            }
             if (action === 'toggle-star') {
               setWorkspaceHighlight(workspace.id, {
                 starred: !isStarred(workspace.highlight),
@@ -1936,6 +1997,46 @@ export default function WorkspaceSidebar({
                     }}
                   >
                     Close workspace
+                  </ModalButton>
+                </ModalFooter>
+              </>
+            )
+          })()
+        ) : null}
+      </Modal>
+
+      {/* Cancel-sprint confirm */}
+      <Modal
+        open={confirmCancelSprint !== null}
+        onClose={() => setConfirmCancelSprint(null)}
+        labelledBy="ws-cancel-sprint-title"
+        width={440}
+      >
+        {confirmCancelSprint ? (
+          (() => {
+            const workspace = workspaceById.get(confirmCancelSprint)
+            return (
+              <>
+                <ModalHeader
+                  titleId="ws-cancel-sprint-title"
+                  title={`Cancel sprint “${workspace?.name ?? 'workspace'}”?`}
+                  subtitle="Running agents stop and every unfinished task is marked canceled. Finished work and the run branch are kept. This cannot be undone."
+                  onClose={() => setConfirmCancelSprint(null)}
+                />
+                <ModalFooter>
+                  <ModalButton onClick={() => setConfirmCancelSprint(null)} disabled={cancelSprintBusy}>
+                    Keep running
+                  </ModalButton>
+                  <ModalButton
+                    variant="danger"
+                    disabled={cancelSprintBusy}
+                    onClick={() => {
+                      const id = confirmCancelSprint
+                      setConfirmCancelSprint(null)
+                      if (id) void cancelSprintForWorkspace(id)
+                    }}
+                  >
+                    Cancel sprint
                   </ModalButton>
                 </ModalFooter>
               </>
@@ -2159,6 +2260,7 @@ type ContextMenuAction =
   | 'move-to-main-window'
   | 'close'
   | 'delete'
+  | 'cancel-sprint'
   | 'toggle-star'
   | 'clear-color'
 
@@ -2184,6 +2286,7 @@ function WorkspaceContextMenu({
 }) {
   if (!workspace) return null
   const showDelete = workspaceHasOnDiskState(workspace)
+  const showCancelSprint = isCancelableSprintEngineWorkspace(workspace)
   const folderPathExists = Boolean(workspace.folderPath) && !workspace.folderMissing
   const starred = isStarred(workspace.highlight)
   const currentColor = workspace.highlight?.color ?? null
@@ -2233,6 +2336,11 @@ function WorkspaceContextMenu({
         onClear={() => onSelect('clear-color')}
       />
       <MenuDivider />
+      {showCancelSprint ? (
+        <MenuItem variant="danger" onClick={() => onSelect('cancel-sprint')}>
+          Cancel sprint…
+        </MenuItem>
+      ) : null}
       <MenuItem onClick={() => onSelect('close')}>Close workspace</MenuItem>
       {showDelete ? (
         <MenuItem variant="danger" onClick={() => onSelect('delete')}>

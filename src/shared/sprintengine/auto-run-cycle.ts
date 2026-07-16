@@ -37,7 +37,6 @@ import type {
 import type { PluginRegistryListEntry } from '../plugin-manifest'
 import type {
   SprintEngineArtifact,
-  SprintEngineModelCatalogEntry,
   SprintEngineRoleId,
   SprintEngineState,
   SprintEngineWorkspaceView,
@@ -56,6 +55,7 @@ import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
   getSprintEngineRoleLabel,
+  isCanceledSprintEngineRun,
   isCompletedSprintEngineRun,
   isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
@@ -69,6 +69,7 @@ import {
   architectTriageMessageKey,
   artifactApprovalMessageKey,
   buildArchitectNeedsInputTriagePrompt,
+  computeSprintEngineDemand,
   planSprintEngineDispatch,
   promptRetryLimitReached,
   recordPromptRetry,
@@ -86,6 +87,7 @@ import {
   isSprintEngineRunBlockedOnExternalInput,
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
+  resolveSprintEngineSessionCwd,
   sprintEngineAutoRunPerfLog as logPerfEvent,
   type AutoRunCandidate,
   type RoleContinuationGrace,
@@ -129,7 +131,6 @@ type MutableRef<T> = { current: T }
 /** The subset of app settings the spawn path reads live from the host's settings store. */
 export type SprintEngineAutoRunSpawnSettings = {
   projectKnowledgeRoots?: Record<string, string | null> | null
-  sprintEngineModelCatalog?: SprintEngineModelCatalogEntry[]
 }
 
 /** Mirror of the renderer sync client's terminal launch-state payload (minus ids). */
@@ -339,21 +340,73 @@ export function publishTerminalListIpcFailureNotice(
   )
 }
 
-// Hard-completion gate. A finished run (every task done) enters dormancy through
-// the shared helper: fire `runner_complete` once and tear its agents down once,
-// identically to the projection reconcile — so completion detected first by this
-// poll (before the reactive reconcile marks it) still tears down exactly once,
-// and the terminal `complete` runtime state then makes later ticks skip the
-// workspace. Returns true when the run was complete so the caller skips the rest
-// of the supervise cycle. Idempotent: repeat entries no-op via the reducer's
+/**
+ * Run one supervise-cycle stage fail-soft (MC-1592). Auto-approval, notification
+ * delivery, recovery, and triage each compute from the same snapshot and must
+ * degrade independently: a stage that throws logs a diagnostic and is skipped,
+ * so a single broken stage (an unreadable artifact, a transient engine error)
+ * never aborts the tick — the later stages, crucially spawning, still run.
+ *
+ * `TerminalListIpcError` is deliberately NOT swallowed: it is the shared
+ * "terminal list is unavailable, pause this workspace" signal the cycle caller
+ * (`superviseWorkspace`) handles specially, so it re-throws to that boundary.
+ */
+async function runFailSoftStage<T>(
+  ports: SprintEngineAutoRunCyclePorts,
+  workspace: Workspace,
+  stage: string,
+  fn: () => Promise<T>,
+  fallback: T
+): Promise<T> {
+  try {
+    return await fn()
+  } catch (error) {
+    if (error instanceof TerminalListIpcError) throw error
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stage-failed', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      stage,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    await ports.publishDiagnostic({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Sprint supervisor stage skipped',
+      message: `The ${stage} stage failed this tick and was skipped; the rest of the tick still ran.`,
+      details: [
+        `Workspace: ${workspace.name}`,
+        `Stage: ${stage}`,
+        `Error: ${error instanceof Error ? error.message : String(error)}`,
+        'The roster runner remains enabled; the stage retries on the next tick.',
+      ].join('\n'),
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    }).catch(() => {})
+    return fallback
+  }
+}
+
+// Hard terminal gate. A finished run (every task done) OR a user-canceled run
+// (MC-1604, the stored cancel flag) enters dormancy through the shared helper:
+// fire the terminal transition once and tear its agents down once, identically
+// to the projection reconcile — so a terminal state detected first by this poll
+// (before the reactive reconcile marks it) still tears down exactly once, and
+// the terminal `complete`/`canceled` runtime state then makes later ticks skip
+// the workspace. `enterDormancy` reads the same cancel flag to fire the right
+// terminal event. Catching cancellation here is defense-in-depth: it guarantees
+// a canceled run stops polling even if its automation was left `running`.
+// Returns true when the run was terminal so the caller skips the rest of the
+// supervise cycle. Idempotent: repeat entries no-op via the reducer's
 // terminal-state gate and the persisted teardown marker.
 export function enterDormancyIfRunComplete(
   ports: Pick<SprintEngineAutoRunCyclePorts, 'enterDormancy'>,
   workspace: Pick<Workspace, 'id' | 'sprintEngineAutoState'>,
-  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'canceled'>,
   dormancyPorts?: SprintEngineAutoRunDormancyPorts,
 ): boolean {
-  if (!isCompletedSprintEngineRun(sprintEngineState)) return false
+  if (!isCompletedSprintEngineRun(sprintEngineState) && !isCanceledSprintEngineRun(sprintEngineState)) {
+    return false
+  }
   ports.enterDormancy(workspace, dormancyPorts)
   return true
 }
@@ -1516,9 +1569,6 @@ export async function spawnAutoRunCandidate(
   options: { trackPendingSpawn?: boolean; revealPolicy?: AgentTerminalRevealPolicy } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentWorkspace = ports.getWorkspace(workspace.id)
-  // Settings snapshot taken where the supervisor captured the store state at
-  // spawn entry (the model catalog reads from this snapshot below).
-  const entrySpawnSettings = ports.getSpawnSettings()
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
   // Defensive belt over the reconcile-stamped record (MC-1450): re-resolve
   // the full runtime hierarchy (per-agent override > role `roleRuntimes`
@@ -1654,15 +1704,17 @@ export async function spawnAutoRunCandidate(
       })
     }
 
-    let executionCwd = workspaceFolderPath
-    let executionMode: 'current_workspace' | 'worktree' = 'current_workspace'
-    // Worktree mode: route every agent terminal into the one shared run
-    // worktree so all agents work and commit in the same isolated checkout.
-    const runWorktree = sprintEngineState.vcs
-    if (runWorktree?.mode === 'run_worktree' && runWorktree.worktreePath) {
-      executionCwd = pathJoin(workspaceFolderPath, runWorktree.worktreePath)
-      executionMode = 'worktree'
-    }
+    // MC-1615 single cwd choke point: every session cwd resolves through
+    // resolveSprintEngineSessionCwd, so the spawn path never reads
+    // vcs.worktreePath directly. Worktree mode routes every agent terminal into
+    // the one shared run worktree so all agents work and commit in the same
+    // isolated checkout; multi-repo (MC-1610) swaps the resolver body, keyed by
+    // the task id, without touching this caller.
+    const sessionCwd = resolveSprintEngineSessionCwd(sprintEngineState, nextRun.taskId)
+    const executionMode = sessionCwd.executionMode
+    const executionCwd = sessionCwd.worktreeRelativePath
+      ? pathJoin(workspaceFolderPath, sessionCwd.worktreeRelativePath)
+      : workspaceFolderPath
     const autoState = getSprintEngineAutoState(workspace)
 
     const memoryConfig = resolveProjectKnowledgeConfig(
@@ -1700,12 +1752,6 @@ export async function spawnAutoRunCandidate(
         sprintEngineStatePath,
         rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
         configuredRoles: sprintEngineState.configuredRoles,
-        // Architect-roster inputs (see agentPrompt): mode + palette ride the
-        // projection; scores from the global catalog, guidance from auto state.
-        rosterSource: sprintEngineState.rosterSource,
-        allowedRuntimes: sprintEngineState.allowedRuntimes,
-        modelCatalog: entrySpawnSettings.sprintEngineModelCatalog,
-        architectGuidance: autoState.architectGuidance,
         commandMode: getSprintEngineStartupCommandMode(nextRun.role, nextRun.agentId, sprintEngineState),
         autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState),
         useWorktrees: sprintEngineState.useWorktrees === true,
@@ -2145,13 +2191,25 @@ export async function superviseWorkspace(
   // decide whether to spawn agents, and the CLI flag is the CLI's concern.
 
   if (approvalActive) {
-    const approvalResult = await sendApprovalToNextEligibleArtifactProducer(
+    // Fail-soft (MC-1592): a broken auto-approval (e.g. an unreadable artifact)
+    // logs a diagnostic and is skipped, so it never blocks agent dispatch this
+    // tick — the runner stage below still runs against the same snapshot. Bind
+    // the narrowed state to a const so the deferred closure keeps the non-null
+    // type (the outer `let` is reassigned after a successful approval below).
+    const approvalState = sprintEngineState
+    const approvalResult = await runFailSoftStage(
       ports,
       workspace,
-      sprintEngineState,
-      sentArtifactApprovalMessages,
-      autoApprovalDiagnostics,
-      projectionTokensByWorkspace
+      'auto-approval',
+      () => sendApprovalToNextEligibleArtifactProducer(
+        ports,
+        workspace,
+        approvalState,
+        sentArtifactApprovalMessages,
+        autoApprovalDiagnostics,
+        projectionTokensByWorkspace
+      ),
+      'none' as const
     )
     if (approvalResult === 'failed') return
     if (approvalResult === 'sent') {
@@ -2318,44 +2376,56 @@ export async function superviseRunnerActiveCycle(
   // before any path that can early-return the cycle, and before slot
   // accounting — dead in-progress owners consume the very slots spawn-side
   // recovery would need.
-  const dispatchResult = await runSprintEngineDispatchPaths(ports, cycleState, {
+  const dispatchResult = await runFailSoftStage(
+    ports,
     workspace,
-    sprintEngineState,
-    paths: ['notification', 'dispatch', 'task_wake', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
-    runningAgentIds,
-    idleAgentIds: continuationCapacity.agentIds,
-    ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },
-    notifications: {
-      deliveredKeys: new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys),
-      sentKeys: sentAgentNotificationEvents.current,
-      liveSessionAgentIds: agentSessions.live,
-      canSpawnTargets: sprintEngineAutomationShouldRun(autoState),
-    },
-    spawnContext: {
+    'recovery-and-dispatch',
+    () => runSprintEngineDispatchPaths(ports, cycleState, {
+      workspace,
       sprintEngineState,
+      paths: ['notification', 'dispatch', 'task_wake', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
+      runningAgentIds,
+      idleAgentIds: continuationCapacity.agentIds,
+      ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },
+      notifications: {
+        deliveredKeys: new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys),
+        sentKeys: sentAgentNotificationEvents.current,
+        liveSessionAgentIds: agentSessions.live,
+        canSpawnTargets: sprintEngineAutomationShouldRun(autoState),
+      },
+      spawnContext: {
+        sprintEngineState,
+        cliRuntimes,
+        mcpSettings,
+        inFlightSpawns,
+        sentNotificationKeys: sentAgentNotificationEvents,
+        onAgentSpawned: (agentId) => runningAgentIds.add(agentId),
+      },
+      idleClock,
+      retirementCooldown: input.retirementCooldownByAgent,
+      sessionsSnapshot: cycleSessions,
+    }),
+    { restarted: false, notificationSpawned: false, notificationSpawnFailed: false, engagedAgentIds: new Set<string>() as ReadonlySet<string> }
+  )
+  if (dispatchResult.notificationSpawnFailed) return
+
+  const architectTriageSignal = await runFailSoftStage(
+    ports,
+    workspace,
+    'architect-triage',
+    () => signalArchitectForNeedsInputTriage(
+      ports,
+      workspace,
+      sprintEngineState,
+      pendingSpawns,
+      runningAgentIds,
       cliRuntimes,
       mcpSettings,
       inFlightSpawns,
-      sentNotificationKeys: sentAgentNotificationEvents,
-      onAgentSpawned: (agentId) => runningAgentIds.add(agentId),
-    },
-    idleClock,
-    retirementCooldown: input.retirementCooldownByAgent,
-    sessionsSnapshot: cycleSessions,
-  })
-  if (dispatchResult.notificationSpawnFailed) return
-
-  const architectTriageSignal = await signalArchitectForNeedsInputTriage(
-    ports,
-    workspace,
-    sprintEngineState,
-    pendingSpawns,
-    runningAgentIds,
-    cliRuntimes,
-    mcpSettings,
-    inFlightSpawns,
-    sentArchitectTriageMessages,
-    dispatchResult.engagedAgentIds
+      sentArchitectTriageMessages,
+      dispatchResult.engagedAgentIds
+    ),
+    'none' as 'started' | 'sent' | 'failed' | 'none'
   )
   if (architectTriageSignal === 'failed') return
   if (architectTriageSignal === 'started' || architectTriageSignal === 'sent') {
@@ -2377,15 +2447,21 @@ export async function superviseRunnerActiveCycle(
   // leases): the candidate picker below mints a fresh worker id for each
   // uncovered ready task and the engine binds it at claim, so there is no
   // roster-replenish round-trip to run before bootstrap and candidate picking.
-  const bootstrapResult = await ensureSprintEngineBootstrapAgent(
+  const bootstrapResult = await runFailSoftStage(
     ports,
-    cycleState,
     workspace,
-    sprintEngineState,
-    runningAgentIds,
-    cliRuntimes,
-    mcpSettings,
-    inFlightSpawns
+    'bootstrap',
+    () => ensureSprintEngineBootstrapAgent(
+      ports,
+      cycleState,
+      workspace,
+      sprintEngineState,
+      runningAgentIds,
+      cliRuntimes,
+      mcpSettings,
+      inFlightSpawns
+    ),
+    'none' as 'started' | 'failed' | 'none'
   )
   if (bootstrapResult === 'failed') return
 
@@ -2445,6 +2521,11 @@ export async function superviseRunnerActiveCycle(
     return
   }
 
+  // Desired-pool demand (MC-1592/MC-1615): the reconciler's model of what work
+  // wants sessions — ready, unowned, launchable tasks grouped by the demand key
+  // (today role; the key function is the multi-repo seam). Occupied sessions and
+  // the concurrency cap are subtracted below; the picker fills the remainder.
+  const demandByKey = computeSprintEngineDemand(sprintEngineState)
   const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
     tasks: sprintEngineState.tasks,
     pendingSpawns,
@@ -2460,6 +2541,8 @@ export async function superviseRunnerActiveCycle(
     maxConcurrentAgents,
     availableSlots,
     occupiedAgentCount: occupiedAgentIds.size,
+    demandGroups: demandByKey.size,
+    demandByKey: Object.fromEntries([...demandByKey].map(([key, tasks]) => [key, tasks.length])),
   })
   if (availableSlots <= 0) {
     logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {

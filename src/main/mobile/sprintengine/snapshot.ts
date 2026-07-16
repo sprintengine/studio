@@ -213,7 +213,6 @@ type RawSprintEngineState = {
   sprintengine?: Record<string, unknown>
   tasks?: unknown[]
   artifacts?: unknown[]
-  sprintEngineAgents?: Record<string, unknown>
   runSummary?: unknown
   summary?: unknown
   planReview?: unknown
@@ -460,7 +459,10 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     board,
     tasks: taskSnapshots,
     artifacts,
-    ...(normalizeRoster(parsed.sprintEngineAgents) ? { roster: normalizeRoster(parsed.sprintEngineAgents) } : {}),
+    // No roster on the pre-projection raw path: the run.yaml `agents` map was
+    // deleted when leases replaced the roster (MC-1591), and the roster map is
+    // now derived only from the projection's workers view. A store this old is
+    // rejected by the schema guard anyway; this branch survives for shape safety.
     ...(recordSummary(parsed.runSummary ?? parsed.summary) ? { runSummary: recordSummary(parsed.runSummary ?? parsed.summary) } : {}),
     ...(recordSummary(parsed.planReview ?? parsed.planReviewState) ? { planReview: recordSummary(parsed.planReview ?? parsed.planReviewState) } : {}),
     ...(intentMode ? { automationMode: intentMode } : {}),
@@ -520,7 +522,7 @@ async function readSprintEngineProjectionSnapshot(
     board,
     tasks: taskSnapshots,
     artifacts,
-    ...(normalizeRoster(projection.roster) ? { roster: normalizeRoster(projection.roster) } : {}),
+    ...(normalizeRoster(projection.workers) ? { roster: normalizeRoster(projection.workers) } : {}),
     ...(recordSummary(projection.runSummary) ? { runSummary: recordSummary(projection.runSummary) } : {}),
     ...(automationMode ? { automationMode } : {}),
     ...(startedFrom ? { startedFrom } : {}),
@@ -652,6 +654,12 @@ function buildVcsState(vcsValue: unknown): MobileControlSprintEngineVcsState | u
     ...(pullRequestUrl ? { pullRequestUrl } : {}),
     ...(pullRequestStatus ? { pullRequestStatus } : {}),
     ...(pullRequestError ? { pullRequestError } : {}),
+    // MC-1615 multi-repo seam: recognize `vcs.repos` as an optional pass-through
+    // so a schema-v4 store round-trips through the snapshot without field loss.
+    // No phone surface reads it yet; the array is preserved verbatim (its shape is
+    // owned by the engine), and the relay sanitize pass redacts any local paths in
+    // it as a backstop. Mirrors the TS normalizer pass-through in state.ts.
+    ...(Array.isArray(vcs.repos) ? { repos: vcs.repos } : {}),
   }
 }
 
@@ -1248,6 +1256,12 @@ function normalizeRelease(value: unknown): NormalizedTask['release'] | undefined
   return Object.values(release).some(Boolean) ? release : undefined
 }
 
+// The wire `roster` map ({[id]:{role,status,currentTaskId}}, MC-1594) is derived
+// from the projection's canonical workers view (`projection.workers` — active
+// leases + live sessions, MC-1591). The workers record is a superset carrying
+// the same runtime-agent fields, so this same parser reads it and keeps only the
+// three the v2 phone renders. Idle seats never appear (there are none under
+// pooling), which is truthful; a v2 phone keeps rendering the same shape.
 function normalizeRoster(value: unknown): MobileSprintEngineSnapshot['roster'] | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const roster: NonNullable<MobileSprintEngineSnapshot['roster']> = {}

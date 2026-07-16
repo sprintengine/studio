@@ -436,6 +436,184 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
   assert.equal(backlogMutations[0].link.status, 'completed')
 }
 
+// Cancellation (MC-1604b) recolors the run-link chip to `canceled` but — unlike
+// completion — never drives the Backlog item status: a canceled sprint is a
+// decision, not a finish, so the item stays whatever the user left it.
+async function testCanceledProjectionRecolorsBacklogLinkWithoutDrivingItem(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const automationEvents: SprintEngineAutomationEvent[] = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const result = await refreshSprintEngineWorkspaceProjection({
+    // Non-dormant at entry (no autoState) so the full lifecycle path runs.
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('canceled', '2026-06-07T15:00:00Z', 'canceled'),
+      applied,
+      automationEvents,
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [{
+          id: 'backlog_refresh',
+          source: { type: 'file', relativePath: 'backlog/refresh.md' },
+          status: 'in_progress',
+          metadata: {},
+          links: [{
+            id: 'sprint-engine:unified-refresh',
+            moduleId: 'sprint-engine',
+            type: 'execution',
+            label: 'Sprint Engine run',
+            target: {
+              kind: 'sprintengine.run',
+              id: 'unified-refresh',
+              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+            },
+            status: 'active',
+          }],
+        }],
+      },
+    }),
+  })
+
+  assert.equal(result.status, 'changed')
+  assert.deepEqual(automationEvents, [], 'cancellation is parked by the runtime, not by the projection reconcile')
+  assert.equal(backlogMutations.length, 1)
+  assert.equal(backlogMutations[0].relativePath, 'backlog/refresh.md')
+  assert.equal(backlogMutations[0].link.status, 'canceled', 'the chip recolors to canceled')
+  assert.equal(backlogMutations[0].status, undefined, 'cancellation never drives the item status')
+}
+
+// A canceled run reaches its terminal `canceled` automation state via the
+// runtime broadcast, so it is usually already dormant when the post-cancel
+// refresh runs. A FORCED refresh still recolors its chip (the one write the
+// display-only path allows for cancellation); a routine (non-forced) dormant
+// poll stays strictly display-only.
+async function testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot(): Promise<void> {
+  const dormantCanceled = {
+    ...workspace(),
+    sprintEngineAutoState: autoState('canceled', 500),
+  } as unknown as Workspace
+  const backlogStore = {
+    schemaVersion: 1 as const,
+    items: [{
+      id: 'backlog_refresh',
+      source: { type: 'file' as const, relativePath: 'backlog/refresh.md' },
+      status: 'in_progress',
+      metadata: {},
+      links: [{
+        id: 'sprint-engine:unified-refresh',
+        moduleId: 'sprint-engine',
+        type: 'execution' as const,
+        label: 'Sprint Engine run',
+        target: {
+          kind: 'sprintengine.run',
+          id: 'unified-refresh',
+          path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+        },
+        status: 'active' as const,
+      }],
+    }],
+  }
+
+  // Forced: the chip recolors even though the run is dormant.
+  const forcedMutations: Array<{ workspaceRoot: string; relativePath: string; link: BacklogItemLinkPayload; status?: 'completed' }> = []
+  const forcedTeardown: string[] = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: dormantCanceled,
+    tokens: new Map(),
+    cause: 'manual',
+    force: true,
+    ports: portsFor({
+      data: projection('canceled', '2026-06-07T15:00:00Z', 'canceled'),
+      applied: [],
+      backlogMutations: forcedMutations,
+      teardownCalls: forcedTeardown,
+      backlogStore,
+    }),
+  })
+  assert.equal(forcedMutations.length, 1, 'a forced refresh recolors a canceled dormant run link')
+  assert.equal(forcedMutations[0].link.status, 'canceled')
+  assert.deepEqual(forcedTeardown, [], 'the forced canceled refresh stays otherwise display-only (no teardown)')
+
+  // Routine (non-forced) dormant poll: strictly display-only, no link write.
+  const routineMutations: Array<{ workspaceRoot: string; relativePath: string; link: BacklogItemLinkPayload; status?: 'completed' }> = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: dormantCanceled,
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('canceled', '2026-06-07T15:00:00Z', 'canceled'),
+      applied: [],
+      backlogMutations: routineMutations,
+      backlogStore,
+    }),
+  })
+  assert.equal(routineMutations.length, 0, 'a routine dormant poll never writes the backlog link')
+}
+
+// An epic launched as a sprint carries the run's execution link, but its status
+// derives up from its children — a finished run must complete the epic's link chip
+// without driving the epic to completed while children are still open. The leaf in
+// the same store still completes, so only the epic is spared.
+async function testCompletedProjectionSparesEpicStatus(): Promise<void> {
+  const applied: SprintEngineState[] = []
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const runLink = (id: string): BacklogItemLinkPayload => ({
+    id: `sprint-engine:${id}`,
+    moduleId: 'sprint-engine',
+    type: 'execution',
+    label: 'Sprint Engine run',
+    target: { kind: 'sprintengine.run', id: 'unified-refresh', path: '.multi-code/sprintengine/unified-refresh/run.yaml' },
+    status: 'active',
+  })
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('done', '2026-06-07T15:00:00Z', 'complete'),
+      applied,
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [
+          {
+            id: 'epic_relay',
+            source: { type: 'file', relativePath: 'backlog/epics/relay.md' },
+            metadata: {},
+            links: [runLink('epic')],
+          },
+          {
+            id: 'leaf_child',
+            source: { type: 'file', relativePath: 'backlog/relay-child.md' },
+            metadata: {},
+            links: [runLink('child')],
+          },
+        ],
+      },
+    }),
+  })
+
+  const epicWrite = backlogMutations.find((mutation) => mutation.relativePath === 'backlog/epics/relay.md')
+  const leafWrite = backlogMutations.find((mutation) => mutation.relativePath === 'backlog/relay-child.md')
+  assert.ok(epicWrite, 'the epic run link is still reconciled to completed')
+  assert.equal(epicWrite?.link.status, 'completed', 'the epic link chip reflects the finished run')
+  assert.equal(epicWrite?.status, undefined, 'the finished run never drives the epic status to completed')
+  assert.equal(leafWrite?.status, 'completed', 'a leaf item launched as a sprint still completes on the run finishing')
+}
+
 async function testNonterminalProjectionDoesNotCompleteBacklogLink(): Promise<void> {
   const applied: SprintEngineState[] = []
   const backlogMutations: Array<{
@@ -835,6 +1013,9 @@ await testPermanentReadErrorSkipsBackgroundDiagnostic()
 await testPermanentReadErrorStillNotifiesManualRefresh()
 await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()
+await testCanceledProjectionRecolorsBacklogLinkWithoutDrivingItem()
+await testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot()
+await testCompletedProjectionSparesEpicStatus()
 await testNonterminalProjectionDoesNotCompleteBacklogLink()
 await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
 await testFinishedPausedRunTransitionsAndTearsDown()

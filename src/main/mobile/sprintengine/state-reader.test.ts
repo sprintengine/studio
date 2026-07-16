@@ -21,8 +21,8 @@ async function main(): Promise<void> {
   await assertFindReadyTaskRejectsAlreadyOwnedTask()
   await assertFindReadyTaskRejectsRoleMismatch()
   await assertFindArtifactReadsFromProjection()
-  await assertActiveAgentResolvedViaProjectionRoster()
-  await assertIdleAgentResolvedViaProjectionRosterWithoutRunYamlPayload()
+  await assertActiveAgentResolvedViaProjectionWorkers()
+  await assertIdleAgentResolvedViaProjectionWorkersWithoutRunYamlPayload()
 }
 
 async function writeFixture(state: {
@@ -47,7 +47,7 @@ async function assertProjectionIsPreferredForState(): Promise<void> {
       { id: 'T2', role: 'frontend', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'] },
     ],
     artifacts: [{ id: 'A1', path: 'docs/notes.md', status: 'approved' }],
-    roster: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
+    workers: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
   }
   const { statePath } = await writeFixture({
     // run.yaml graph mirror says T2 still has T1 as todo; projection wins
@@ -113,7 +113,7 @@ async function assertFindReadyTaskAcceptsProjectionReadyStatus(): Promise<void> 
       { id: 'T2', role: 'frontend', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'] },
     ],
     artifacts: [],
-    roster: {},
+    workers: {},
   }
   const { statePath } = await writeFixture({ projection })
   const validated = validateSprintEngineStatePath(statePath)
@@ -134,7 +134,7 @@ async function assertFindReadyTaskBlocksWhenDependencyNotDone(): Promise<void> {
       { id: 'T2', role: 'frontend', status: 'todo', stateStatus: 'todo', dependsOn: ['T1'] },
     ],
     artifacts: [],
-    roster: {},
+    workers: {},
   }
   const { statePath } = await writeFixture({ projection })
   const validated = validateSprintEngineStatePath(statePath)
@@ -157,7 +157,7 @@ async function assertFindReadyTaskRejectsAlreadyOwnedTask(): Promise<void> {
       },
     ],
     artifacts: [],
-    roster: {},
+    workers: {},
   }
   const { statePath } = await writeFixture({ projection })
   const validated = validateSprintEngineStatePath(statePath)
@@ -173,7 +173,7 @@ async function assertFindReadyTaskRejectsRoleMismatch(): Promise<void> {
       { id: 'T1', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: [] },
     ],
     artifacts: [],
-    roster: {},
+    workers: {},
   }
   const { statePath } = await writeFixture({ projection })
   const validated = validateSprintEngineStatePath(statePath)
@@ -189,7 +189,7 @@ async function assertFindArtifactReadsFromProjection(): Promise<void> {
     artifacts: [
       { id: 'A1', path: 'reviews/feedback.md', status: 'ready_for_review', kind: 'code_review' },
     ],
-    roster: {},
+    workers: {},
   }
   const { statePath } = await writeFixture({ projection })
   const validated = validateSprintEngineStatePath(statePath)
@@ -198,25 +198,25 @@ async function assertFindArtifactReadsFromProjection(): Promise<void> {
   assert.equal(artifact.path, 'reviews/feedback.md')
 }
 
-async function assertActiveAgentResolvedViaProjectionRoster(): Promise<void> {
+async function assertActiveAgentResolvedViaProjectionWorkers(): Promise<void> {
   const projection = {
     tasks: [
       { id: 'T1', role: 'developer', status: 'in_progress', stateStatus: 'in_progress', ownerAgentId: 'developer-1', dependsOn: [] },
     ],
     artifacts: [],
-    roster: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
+    workers: { 'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T1' } },
   }
   const { statePath } = await writeFixture({ projection })
   const validated = validateSprintEngineStatePath(statePath)
-  // Active agent on roster: resolves without throwing.
+  // Active worker in the projection workers view: resolves without throwing.
   await assertKnownActiveSprintEngineAgent(validated, 'developer-1')
 
-  // Done agent on roster: should reject.
+  // Done worker in the workers view: should reject.
   const doneFixture = await writeFixture({
     projection: {
       tasks: [],
       artifacts: [],
-      roster: { 'developer-2': { role: 'developer', status: 'done', currentTaskId: null } },
+      workers: { 'developer-2': { role: 'developer', status: 'done', currentTaskId: null } },
     },
   })
   const doneValidated = validateSprintEngineStatePath(doneFixture.statePath)
@@ -225,27 +225,27 @@ async function assertActiveAgentResolvedViaProjectionRoster(): Promise<void> {
     (error: Error) => error.message.includes('already done'),
   )
 
-  // Agent missing from roster but owns an active task: resolves via task fallback.
+  // Worker missing from the workers view but owns an active task: resolves via task fallback.
   const taskFixture = await writeFixture({
     projection: {
       tasks: [
         { id: 'T2', role: 'frontend', status: 'in_progress', stateStatus: 'in_progress', ownerAgentId: 'frontend-7', dependsOn: [] },
       ],
       artifacts: [],
-      roster: {},
+      workers: {},
     },
   })
   const taskValidated = validateSprintEngineStatePath(taskFixture.statePath)
   await assertKnownActiveSprintEngineAgent(taskValidated, 'frontend-7')
 }
 
-async function assertIdleAgentResolvedViaProjectionRosterWithoutRunYamlPayload(): Promise<void> {
+async function assertIdleAgentResolvedViaProjectionWorkersWithoutRunYamlPayload(): Promise<void> {
   const { statePath } = await writeFixture({
     stateContent: '{"tasks":',
     projection: {
       tasks: [],
       artifacts: [],
-      roster: { 'developer-idle': { role: 'developer', status: 'idle', currentTaskId: null } },
+      workers: { 'developer-idle': { role: 'developer', status: 'idle', currentTaskId: null } },
     },
   })
   const validated = validateSprintEngineStatePath(statePath)

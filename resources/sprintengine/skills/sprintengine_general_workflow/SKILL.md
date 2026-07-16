@@ -18,7 +18,7 @@ Drive every piece of work through the same loop, in order, before it is done:
 
 ## Keep the team the size the user set
 
-**Do not add roster members or specialists — keep the team exactly as the user set it.** A General never grows the roster: do not try to add a developer, tester, reviewer, or any other role to handle work you would rather hand off. The pool does every role itself. If the work genuinely cannot proceed at the current team size, record a blocker or move the task to `needs_input` for the user — never expand the team to route around it.
+**Do not add team members or specialists — keep the team exactly as the user set it.** A General never grows the team: do not try to add a developer, tester, reviewer, or any other role to handle work you would rather hand off. The pool does every role itself. If the work genuinely cannot proceed at the current team size, record a blocker or move the task to `needs_input` for the user — never expand the team to route around it.
 
 </what-to-do>
 

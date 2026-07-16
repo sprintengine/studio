@@ -1222,6 +1222,12 @@ def build_projection(
     locks = _projection_locks(team_dir, state_path)
     updated_at = run.get("updatedAt") or now_iso()
     run_sprintengine = run.get("sprintengine") if isinstance(run.get("sprintengine"), dict) else {}
+    # The whole vcs dict rides into the projection verbatim — never reconstructed
+    # field-by-field. That is the multi-repo seam (MC-1615): an unknown `vcs.repos`
+    # array (schema-v4 multi-repo runs) reaches the renderer's normalizer and the
+    # mobile snapshot without field loss, mirroring the TS pass-throughs in
+    # normalizeSprintEngineVcs (state.ts) and buildVcsState (snapshot.ts). Do not
+    # rebuild this into a fixed key list — that would silently strip repos.
     vcs = run_sprintengine.get("vcs") if isinstance(run_sprintengine.get("vcs"), dict) else None
     # Lease-derived "who is doing what" (MC-1591): the deleted `agents` map is
     # replaced by a view built from task leases. `workers` is canonical; `roster`

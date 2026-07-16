@@ -36,6 +36,7 @@ export const sprintEngineModule: CapabilityModule = {
     const artifacts = host.requireService(SprintEngineArtifactsToken)
     const automation = host.requireService(SprintEngineAutomationServiceToken)
     const mcpHub = host.requireService(SprintEngineMcpHubToken)
+    const sprintRuntime = host.requireService(SprintRuntimeToken)
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
       setRunnerMode: artifacts.setRunnerMode,
@@ -74,6 +75,16 @@ export const sprintEngineModule: CapabilityModule = {
       resolveTaskInput: artifacts.resolveTaskInput,
       setTaskStatus: artifacts.setTaskStatus,
       setRunnerMode: artifacts.setRunnerMode,
+      // Cancel writes run/task status via the engine op, then parks the
+      // automation runtime so a paused/manual run with live agents is also torn
+      // down (the auto-run gate only reaches a *running* automation). Runtime
+      // teardown is best-effort — a successful state write is the user-facing
+      // truth even if the run was never registered with the scheduler.
+      cancelRun: async (payload) => {
+        const result = await artifacts.cancelRun(payload)
+        if (result.ok) sprintRuntime.cancelRun(payload.statePath)
+        return result
+      },
       createPullRequest: artifacts.createPullRequest,
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
       setRoleRuntime: artifacts.setRoleRuntime,
@@ -96,7 +107,7 @@ export const sprintEngineModule: CapabilityModule = {
     // stops to) the main scheduler; scheduler store-ops broadcast back on
     // `sprintengine:runtime-op`.
     registerSprintRuntimeIpc(host.ipcMain, {
-      sprintRuntime: host.requireService(SprintRuntimeToken),
+      sprintRuntime,
     })
   },
 }

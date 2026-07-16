@@ -94,6 +94,68 @@ export type RoleContinuationGrace = {
   startedAt: number
 }
 
+/**
+ * Where a sprint session's terminal should cwd, plus the execution mode the
+ * spawn metadata records. `worktreeRelativePath` is project-root-relative; the
+ * spawn path joins it onto the workspace folder.
+ */
+export type SprintEngineSessionCwd = {
+  executionMode: 'current_workspace' | 'worktree'
+  worktreeRelativePath?: string
+}
+
+/**
+ * MC-1615 single cwd choke point. THE one reader of `vcs.worktreePath` in the
+ * TS spawn path — every sprint session cwd resolves through here, so a caller
+ * never dereferences the vcs seam directly. Today the run has one shared
+ * worktree, so `_taskOrRepoId` is unused; it stays in the signature as the
+ * routing key multi-repo sprints (MC-1610) key on to select a per-repo
+ * worktree, swapping this body without touching a single caller.
+ */
+export function resolveSprintEngineSessionCwd(
+  state: Pick<SprintEngineState, 'vcs'>,
+  _taskOrRepoId: string | null | undefined
+): SprintEngineSessionCwd {
+  const vcs = state.vcs
+  if (vcs?.mode === 'run_worktree' && vcs.worktreePath) {
+    return { executionMode: 'worktree', worktreeRelativePath: vcs.worktreePath }
+  }
+  return { executionMode: 'current_workspace' }
+}
+
+/**
+ * MC-1615 demand grouping key. The reconciler groups ready work by this key to
+ * compute per-group session demand; today one key per role, so pooling is
+ * per-role. Kept a function (not an inline `task.role`) so (role, repo) —
+ * multi-repo sprints, MC-1610 — becomes a one-line body change rather than a
+ * reconciler redesign.
+ */
+export function sprintEngineDemandKey(task: Pick<SprintEngineTask, 'role'>): string {
+  return task.role
+}
+
+/**
+ * The reconciler's demand computation: ready, launchable, unowned work grouped
+ * by `sprintEngineDemandKey`, each group's task ids oldest-first. This is the
+ * "desired pool" input — how many sessions each group wants before the
+ * concurrency cap and already-working sessions are subtracted (MC-1592).
+ */
+export function computeSprintEngineDemand(
+  sprintEngineState: SprintEngineState,
+  keyFn: (task: SprintEngineTask) => string = sprintEngineDemandKey
+): Map<string, SprintEngineTask[]> {
+  const demand = new Map<string, SprintEngineTask[]>()
+  for (const task of sprintEngineState.tasks) {
+    if (!isSprintEngineTaskLaunchable(task, sprintEngineState)) continue
+    if (task.ownerAgentId) continue
+    const key = keyFn(task)
+    const group = demand.get(key)
+    if (group) group.push(task)
+    else demand.set(key, [task])
+  }
+  return demand
+}
+
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   const timeout = new Promise<never>((_, reject) => {
@@ -739,19 +801,11 @@ export function sprintEngineActiveAssignmentLedgerKey(
   return continuationMessageKey(workspace, `active:${sprintEngineAutoRunTaskWorkKey(work)}`, agentId)
 }
 
-export function sprintEngineReviveLedgerKey(
-  workspace: SprintEngineWorkspaceView,
-  work: { taskId: string },
-  agentId: string
-): string {
-  // The `revive:` prefix keeps left-agent revival budgets in their own namespace,
-  // distinct from `respawn:` (claimed-work recovery). Critical: the respawn sweep
-  // only preserves keys backed by a live server-side claim, which a revival never
-  // has — sharing the `respawn:` prefix would let that sweep delete revival
-  // entries every pass, nullifying the retry cap. The revival path runs its own
-  // sweep keyed on still-active revival targets instead.
-  return continuationMessageKey(workspace, `revive:${sprintEngineAutoRunTaskWorkKey(work)}`, agentId)
-}
+// MC-1592 collapsed the separate `revive:` recovery ledger into the single
+// `respawn:` namespace: claimed-work respawns and departed-owner revivals now
+// share one ledger, cap, and sweep (see sprintEngineRespawnLedgerKey and the
+// unified recovery sweep in planSprintEngineDispatch), so there is no longer a
+// distinct revive ledger key.
 
 function sprintEngineTimestampMs(value: string | null | undefined): number | null {
   if (!value) return null
@@ -1244,30 +1298,21 @@ export function planSprintEngineDispatch(input: {
   }
 
   if (include('respawn')) {
-    // Claimed work whose claimant has no live terminal can never be re-engaged
-    // by a paste, and with zero live agents server-side claim expiry never
-    // runs — after an app restart this deadlocks the run. Respawn the
-    // claimant's terminal; the claim tool resumes its own claim.
+    // Single recovery path (MC-1592): a lease whose worker has no live session
+    // gets one resume attempt on the recorded session; when its retry cap is
+    // spent, the engine's lease expiry returns the task to the queue and the
+    // desired-pool loop covers it with a fresh session. Claimed work whose
+    // claimant has no live terminal can never be re-engaged by a paste, and with
+    // zero live agents server-side claim expiry never runs — after an app
+    // restart this deadlocks the run. Both the claimed-work respawn and the
+    // departed-owner revival below share ONE `respawn:` ledger, cap, and sweep
+    // (the unified retry cap), so recovery is one resume-then-expire path.
     const liveAgentIds = new Set([...input.runningAgentIds, ...input.idleAgentIds])
     const claims: Array<{ agentId: string; role: SprintEngineRoleId; taskId: string }> = []
     for (const task of sprintEngineState.tasks) {
       if (task.status !== 'in_progress' || !task.ownerAgentId) continue
       claims.push({ agentId: task.ownerAgentId, role: task.role, taskId: task.id })
     }
-
-    // Sweep respawn ledger entries whose claim no longer exists, so a
-    // resolved claim frees the budget for a future, unrelated recovery.
-    // Entries for still-live claims are kept on purpose: a broken CLI that
-    // spawns and immediately exits must keep consuming the same capped
-    // budget, not reset it on every short-lived "alive" observation.
-    const activeRespawnKeys = new Set(
-      claims.map((claim) => sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId))
-    )
-    input.continuationLedger.forEach((_, ledgerKey) => {
-      const workKey = getSprintEngineContinuationMessageWorkKey(workspace, ledgerKey)
-      if (!workKey || !workKey.startsWith('respawn:')) return
-      if (!activeRespawnKeys.has(ledgerKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key: ledgerKey })
-    })
 
     const plannedRespawnAgentIds = new Set<string>()
     for (const claim of claims) {
@@ -1342,9 +1387,9 @@ export function planSprintEngineDispatch(input: {
     // already covered by the claimed-work respawn above (which runs first and
     // records `plannedRespawnAgentIds`); it stays in the predicate so a claim
     // that pass skipped is not silently dropped here. A fresh ready task with no
-    // prior owner gets a never-owned id from `findFreshTaskAgent`. We reuse the
-    // same ledger + retry-limit + retry-interval machinery as the claimed-work
-    // respawn for storm safety. Scoped to roles with NO live agent: a role whose
+    // prior owner is minted a never-owned id by the candidate picker instead. This
+    // shares the one `respawn:` ledger + retry-limit + retry-interval machinery
+    // (the unified recovery cap). Scoped to roles with NO live agent: a role whose
     // agent is merely busy/stalled is a capacity/restart concern handled by other
     // paths, not a revival.
     const liveRoles = new Set<SprintEngineRoleId>()
@@ -1403,22 +1448,26 @@ export function planSprintEngineDispatch(input: {
       revivalTargets.push({ role: runtimeAgent.role, work: { taskId: reviveTaskId }, agentId })
     }
 
-    // Sweep stale `revive:` ledger entries — any whose revival is no longer an
-    // active target this pass (work resolved, or the role acquired a live agent).
-    // This is the revival analogue of the `respawn:` sweep above, scoped to the
-    // `revive:` namespace so the two retry budgets stay independent; without it a
-    // maxed-out retry entry would permanently block a later legitimate revival.
-    const activeReviveKeys = new Set(
-      revivalTargets.map((target) => sprintEngineReviveLedgerKey(workspace, target.work, target.agentId))
-    )
+    // Unified recovery sweep (MC-1592): claimed-work respawns and departed-owner
+    // revivals share the one `respawn:` namespace, so a single sweep frees the
+    // budget of any recovery target that is no longer active this pass (work
+    // resolved, or the role acquired a live agent) while preserving the retry
+    // cap of every still-active target — claims AND revivals. Keeping a spent
+    // target's entry is deliberate: a broken CLI that spawns and immediately
+    // exits must keep consuming the same capped budget, not reset it on every
+    // short-lived "alive" observation.
+    const activeRecoveryKeys = new Set([
+      ...claims.map((claim) => sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId)),
+      ...revivalTargets.map((target) => sprintEngineRespawnLedgerKey(workspace, target.work, target.agentId)),
+    ])
     input.continuationLedger.forEach((_, ledgerKey) => {
       const workKey = getSprintEngineContinuationMessageWorkKey(workspace, ledgerKey)
-      if (!workKey || !workKey.startsWith('revive:')) return
-      if (!activeReviveKeys.has(ledgerKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key: ledgerKey })
+      if (!workKey || !workKey.startsWith('respawn:')) return
+      if (!activeRecoveryKeys.has(ledgerKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key: ledgerKey })
     })
 
-    // Pass 2: plan each revival, capped by the retry limit + retry interval on the
-    // `revive:` ledger key (now sweep-stable, so the cap actually holds).
+    // Pass 2: plan each revival, capped by the retry limit + retry interval on
+    // the shared `respawn:` ledger key (the unified recovery cap).
     for (const { role, work, agentId: reviveAgentId } of revivalTargets) {
       const respawnData = {
         agentId: reviveAgentId,
@@ -1426,7 +1475,7 @@ export function planSprintEngineDispatch(input: {
         taskId: work.taskId,
         reason: 'revive-departed-worker-for-own-task',
       }
-      const key = sprintEngineReviveLedgerKey(workspace, work, reviveAgentId)
+      const key = sprintEngineRespawnLedgerKey(workspace, work, reviveAgentId)
       const previous = input.continuationLedger.get(key)
       if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
         plan.skips.push({

@@ -335,6 +335,12 @@ def advance_task(
 
 def recompute_phase(state: Dict[str, Any]) -> bool:
     sprintengine = state.setdefault("sprintengine", {})
+    # A canceled run is terminal: its status is the stored cancel flag, never
+    # recomputed from task-completeness. Without this guard a run whose non-done
+    # tasks were all moved to `canceled` would recompute to `completed` (the
+    # done/canceled rollup below), erasing the cancel decision.
+    if sprintengine.get("canceled"):
+        return set_if_changed(sprintengine, "status", "canceled")
     tasks = state.get("tasks", [])
     if tasks and all(t.get("status") in {"done", "canceled"} for t in tasks):
         return set_if_changed(sprintengine, "status", "completed")

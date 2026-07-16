@@ -111,6 +111,54 @@ assert.equal(completeThenResumed.desiredMode, 'run_agents')
 assert.equal(completeThenResumed.reason, undefined)
 assert.equal(sprintEngineAutomationShouldRun(completeThenResumed), true)
 
+// Cancellation (MC-1604) is a terminal state mirroring `complete`: the run stops
+// running, carries the `run_canceled` reason, and does not auto-resume.
+const canceled = transitionSprintEngineAutomation(resumed, { type: 'runner_canceled' }, 700)
+assert.equal(canceled.desiredMode, 'run_agents')
+assert.equal(canceled.runtimeState, 'canceled')
+assert.equal(canceled.reason, 'run_canceled')
+assert.deepEqual(canceled.pendingSpawns, [])
+assert.equal(sprintEngineAutomationShouldRun(canceled), false)
+
+// Terminal like `complete`: the async terminal-close events from the cancel
+// teardown must not demote it back to paused.
+const canceledThenTerminalClosed = transitionSprintEngineAutomation(
+  canceled,
+  { type: 'runner_paused', reason: 'terminal_closed', message: 'An agent terminal was closed.', agentId: 'developer-1' },
+  710,
+)
+assert.equal(canceledThenTerminalClosed.runtimeState, 'canceled')
+assert.equal(canceledThenTerminalClosed.reason, 'run_canceled')
+assert.equal(canceledThenTerminalClosed.changedAt, 700)
+assert.equal(sprintEngineAutomationShouldRun(canceledThenTerminalClosed), false)
+
+// A late spawn failure also cannot move a canceled run off its terminal state.
+const canceledThenFailed = transitionSprintEngineAutomation(
+  canceled,
+  { type: 'runner_failed', reason: 'spawn_failed', message: 'late spawn failure', agentId: 'developer-2' },
+  715,
+)
+assert.equal(canceledThenFailed.runtimeState, 'canceled')
+
+// Lifecycle-neutral pending-spawn bookkeeping still passes through `canceled`.
+const canceledThenPendingSpawns = transitionSprintEngineAutomation(
+  canceled,
+  { type: 'pending_spawns_changed', pendingSpawns: [{ taskId: 'T2', agentId: 'developer-3' }] },
+  720,
+)
+assert.equal(canceledThenPendingSpawns.runtimeState, 'canceled')
+assert.deepEqual(canceledThenPendingSpawns.pendingSpawns, [{ taskId: 'T2', agentId: 'developer-3' }])
+
+// Re-selecting a mode is the only escape out of a canceled run.
+const canceledThenResumed = transitionSprintEngineAutomation(
+  canceled,
+  { type: 'user_set_mode', mode: 'run_agents' },
+  730,
+)
+assert.equal(canceledThenResumed.runtimeState, 'running')
+assert.equal(canceledThenResumed.reason, undefined)
+assert.equal(sprintEngineAutomationShouldRun(canceledThenResumed), true)
+
 const manual = transitionSprintEngineAutomation(
   { ...resumed, pendingSpawns: [{ taskId: 'T1', agentId: 'frontend' }] },
   { type: 'user_set_mode', mode: 'manual' },
@@ -204,6 +252,11 @@ function dormancyWorkspace(runtimeState?: SprintEngineAutomationRuntimeState): W
   return { sprintEngineAutoState: runtimeState ? baseAutoState({ runtimeState }) : undefined } as unknown as Workspace
 }
 assert.equal(isSprintEngineWorkspaceDormant(dormancyWorkspace('complete')), true)
+assert.equal(
+  isSprintEngineWorkspaceDormant(dormancyWorkspace('canceled')),
+  true,
+  'a canceled run is terminal and dormant — polling stops',
+)
 for (const runtimeState of ['idle', 'running', 'paused', 'blocked', 'failed'] as const) {
   assert.equal(
     isSprintEngineWorkspaceDormant(dormancyWorkspace(runtimeState)),

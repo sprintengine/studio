@@ -26,7 +26,7 @@ import {
  type Tone,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 
@@ -70,6 +70,8 @@ import {
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
+ isCanceledSprintEngineRun,
+ isCompletedSprintEngineRun,
  isNewSprintEngineRoleForRun,
 } from '../../utils/sprintengine'
 import { canLaunchSprintEngineInitialSpawn } from '../../utils/sprintengineInitialSpawns'
@@ -329,6 +331,7 @@ const sprintEngineAutomationRuntimeLabels: Record<SprintEngineAutomationRuntimeS
  blocked: 'Blocked',
  failed: 'Failed',
  complete: 'Complete',
+ canceled: 'Canceled',
 }
 
 // Automation status reads by shape, not a colored dot: only the exceptional
@@ -553,6 +556,7 @@ function SprintEngineBoardPanelContent({
   const applySprintEngineAutomationEvent = useWorkspaceStore((s) => s.applySprintEngineAutomationEvent)
   const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
  const addSprintEngineMember = useWorkspaceStore((s) => s.addSprintEngineMember)
+ const setSprintEngineMaxConcurrentAgents = useWorkspaceStore((s) => s.setSprintEngineMaxConcurrentAgents)
  const consumeSprintEngineInitialSpawns = useWorkspaceStore((s) => s.consumeSprintEngineInitialSpawns)
  const updateAgent = useWorkspaceStore((s) => s.updateAgent)
  const openFile = useWorkspaceStore((s) => s.openFile)
@@ -655,6 +659,8 @@ function SprintEngineBoardPanelContent({
  const [pendingRosterMemberSpawns, setPendingRosterMemberSpawns] = useState<PendingRosterMemberSpawn[]>([])
  const pendingRosterMemberSpawnInFlightRef = useRef<Set<string>>(new Set())
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
+ const [confirmCancelSprint, setConfirmCancelSprint] = useState(false)
+ const [cancelSprintBusy, setCancelSprintBusy] = useState(false)
  const [pendingAutomationMode, setPendingAutomationMode] = useState<SprintEngineAutomationMode | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
  const [taskInputActions, setTaskInputActions] = useState<Record<string, TaskInputActionState>>({})
@@ -1061,6 +1067,35 @@ function SprintEngineBoardPanelContent({
  }
  }
 
+ // A run can be canceled while it is live — not once it has reached a terminal
+ // state. Cancellation is a lifecycle decision distinct from completion.
+ const sprintRunCanceled = isCanceledSprintEngineRun(sprintEngineState)
+ const canCancelSprint =
+ !sprintRunCanceled && !isCompletedSprintEngineRun(sprintEngineState)
+
+ // Cancel the sprint: run the engine cancel op (run/tasks → canceled, agents
+ // torn down) then force a refresh so the board, glyph, and backlog link settle
+ // on the canceled state. The op owns the state write; a failure surfaces in the
+ // sync banner rather than silently leaving a half-canceled run.
+ const cancelSprint = async () => {
+ const statePath = sprintEngineContext?.statePath
+ if (!statePath || cancelSprintBusy) return
+ setCancelSprintBusy(true)
+ setSyncState({ status: 'syncing', message: 'Canceling sprint...' })
+ try {
+ const result = await window.api.cancelSprintEngineRun({ statePath })
+ if (!result.ok) throw new Error(result.message ?? 'Canceling the sprint failed.')
+ await refreshSprintEngineState()
+ } catch (error) {
+ setSyncState({
+ status: 'error',
+ message: error instanceof Error ? error.message : 'Failed to cancel the sprint.',
+ })
+ } finally {
+ setCancelSprintBusy(false)
+ }
+ }
+
  const {
  openArtifact,
  popOutPreviewedArtifact,
@@ -1186,7 +1221,7 @@ function SprintEngineBoardPanelContent({
  : null
  const selectedTaskOwnerLabel = selectedTask ? getSprintEngineTaskOwnerLabel(selectedTask, rosterById) : ''
  const selectedTaskNeedsInputNote = selectedTask?.status === 'needs_input'
- ? 'Worker is waiting for input.'
+ ? 'This agent is waiting for input.'
  : null
  const selectedTaskArtifacts = selectedTask
  ? [...(artifactsByTaskId[selectedTask.id] ?? [])].sort((a, b) => {
@@ -1479,7 +1514,13 @@ function SprintEngineBoardPanelContent({
 
  if (sprintEngineState.rosterConfigured) {
  if (!sprintEngineContext) return
- const agentId = getNextSprintEngineAgentId(role, sprintEngineState.sprintEngineAgents)
+ // Mint the display id against the canonical workers view when present
+ // (MC-1593a), falling back to the bridge; there is no engine registration —
+ // the engine binds the worker to a task at claim.
+ const agentId = getNextSprintEngineAgentId(
+ role,
+ sprintEngineState.workers ?? sprintEngineState.sprintEngineAgents,
+ )
  setAddMemberBusy(true)
  setAddMemberError(null)
  try {
@@ -1539,6 +1580,18 @@ function SprintEngineBoardPanelContent({
  }
  setSelectedAgentId(addedAgent.id)
  setAddMemberOpen(false)
+ }
+
+ // "Add an agent" from the Agents header: raise the run's concurrent-agent
+ // count (so the pool keeps this puller running) and mint + spawn one agent of
+ // the chosen configured role now. Minting is local (no engine registration);
+ // the engine binds the worker to a task at claim (MC-1591 leases).
+ const addSprintEngineAgentForRole = (role: SprintEngineRole) => {
+ // 3 is the store's canonical default (normalizeSprintEngineAutoState); the
+ // ?? only fires before auto-state is first written for this workspace.
+ const currentMax = workspace?.sprintEngineAutoState?.maxConcurrentAgents ?? 3
+ setSprintEngineMaxConcurrentAgents(workspaceId, currentMax + 1)
+ void confirmAddMember(role)
  }
 
  const {
@@ -1674,8 +1727,8 @@ function SprintEngineBoardPanelContent({
  }
 
  // Kill = stop the app-owned terminal process and release Sprint Engine
- // claims (main-process teardown sends agent.leave). Never removes the
- // canonical roster member, and says so.
+ // claims (main-process teardown sends agent.leave). The role stays configured
+ // on the run, and says so.
  const killAgentTerminal = async (agentId: string) => {
  const fallbackLabel = rosterById[agentId]?.label ?? agentId
  const label = getAgentName(agentId, fallbackLabel)
@@ -1686,8 +1739,8 @@ function SprintEngineBoardPanelContent({
  const confirmed = await dialog.confirm({
  title: `Kill ${label}'s terminal?`,
  body: ownedTask
- ? `${label} is working on ${ownedTask.id} · ${ownedTask.title}. Killing the terminal releases the claim so the work can be picked up again. The roster member stays on the team.`
- : `${label}'s terminal process will be stopped and its sprint claims released. The roster member stays on the team.`,
+ ? `${label} is working on ${ownedTask.id} · ${ownedTask.title}. Killing the terminal releases the claim so the work can be picked up again. The role stays on the team.`
+ : `${label}'s terminal process will be stopped and its sprint claims released. The role stays on the team.`,
  confirmLabel: 'Kill terminal',
  tone: 'danger',
  })
@@ -1844,6 +1897,16 @@ function SprintEngineBoardPanelContent({
  label: 'Read plan',
  onSelect: () => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan'),
  })
+ if (canCancelSprint) {
+ items.push({ kind: 'separator', id: 'sep-3' })
+ items.push({
+ id: 'cancel-sprint',
+ label: 'Cancel sprint…',
+ destructive: true,
+ onSelect: () => setConfirmCancelSprint(true),
+ disabled: !folderPath || cancelSprintBusy,
+ })
+ }
  return items
  })()
 
@@ -1852,11 +1915,13 @@ function SprintEngineBoardPanelContent({
  id: 'inbox',
  label: 'Inbox',
  icon: SprintEngineInboxIcon,
- count: inboxArtifactCount > 0 ? inboxArtifactCount : undefined,
+ // A canceled run has no actionable review queue — mirror completion by
+ // dropping the badge so it never disagrees with the suppressed inbox list.
+ count: !sprintRunCanceled && inboxArtifactCount > 0 ? inboxArtifactCount : undefined,
  },
  {
  id: 'roster',
- label: 'Roster',
+ label: 'Agents',
  icon: SprintEngineRosterNavIcon,
  count: roster.length > 0 ? roster.length : undefined,
  },
@@ -1893,7 +1958,7 @@ function SprintEngineBoardPanelContent({
  level: 'info',
  source: 'sprintengine',
  title: 'Verify progress is unavailable',
- message: 'No architect agent is on the roster yet. Spawn the architect to verify progress.',
+ message: 'No architect agent is running yet. Spawn the architect to verify progress.',
  workspaceId,
  workspaceName: workspace?.name,
  })
@@ -2229,7 +2294,7 @@ function SprintEngineBoardPanelContent({
  >
  <SprintEngineInboxView
  sprintEngineState={sprintEngineState}
- reviewArtifacts={reviewArtifacts}
+ reviewArtifacts={sprintRunCanceled ? [] : reviewArtifacts}
  runPhase={runPhase}
  workspaceId={workspaceId}
  folderPath={folderPath}
@@ -2254,9 +2319,14 @@ function SprintEngineBoardPanelContent({
  roster={roster}
  agents={agents}
  runtimeAgents={runtimeAgents}
- onAddRole={(role) => {
+ onEnableRole={(role) => {
+ // Enabling a not-yet-configured role writes configuredRoles/roleRuntimes
+ // through the sanctioned run-config path: a genuinely new role prompts the
+ // architect to revise the plan (roster.configure is architect-only), and a
+ // display agent is minted locally so the role's band appears immediately.
  void confirmAddMember(role)
  }}
+ onAddAgent={addSprintEngineAgentForRole}
  addMemberOptions={addMemberOptions}
  isAgentTerminalLive={isAgentTerminalLive}
  cliOptions={cliOptions}
@@ -2561,6 +2631,38 @@ function SprintEngineBoardPanelContent({
  </Modal>
  ) : null}
 
+ {confirmCancelSprint ? (
+ <Modal
+ open
+ contained
+ width={440}
+ labelledBy="cancel-sprint-dialog-title"
+ onClose={() => setConfirmCancelSprint(false)}
+ >
+ <ModalHeader
+ titleId="cancel-sprint-dialog-title"
+ title="Cancel this sprint?"
+ subtitle="Running agents stop and every unfinished task is marked canceled. Finished work and the run branch are kept. This cannot be undone."
+ onClose={() => setConfirmCancelSprint(false)}
+ />
+ <ModalFooter>
+ <ModalButton onClick={() => setConfirmCancelSprint(false)} disabled={cancelSprintBusy}>
+ Keep running
+ </ModalButton>
+ <ModalButton
+ variant="danger"
+ disabled={cancelSprintBusy}
+ onClick={() => {
+ setConfirmCancelSprint(false)
+ void cancelSprint()
+ }}
+ >
+ Cancel sprint
+ </ModalButton>
+ </ModalFooter>
+ </Modal>
+ ) : null}
+
  {addMemberOpen ? (
  <Modal
  open
@@ -2572,10 +2674,10 @@ function SprintEngineBoardPanelContent({
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div>
  <div className="mb-1 text-[10px] font-bold text-[color:var(--text-disabled)]">
- SprintEngine Roster
+ SprintEngine agents
  </div>
  <h3 id="add-member-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
- {sprintEngineState.rosterConfigured ? 'Add Roster Member' : 'Spawn Team Member'}
+ {sprintEngineState.rosterConfigured ? 'Add an agent' : 'Spawn a team agent'}
  </h3>
  </div>
  <CloseIconButton
@@ -2677,7 +2779,7 @@ function SprintEngineBoardPanelContent({
 
  {sprintEngineState.rosterConfigured ? (
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
- The member is added to the canonical sprint roster first.
+ The new agent joins the run first.
  {hasPlannedTasks
  ? ' The architect will be asked to review whether the plan needs revision for this new specialist.'
  : ' No tasks are planned yet, so no architect revision is requested.'}

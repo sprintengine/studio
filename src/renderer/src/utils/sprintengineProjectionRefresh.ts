@@ -11,7 +11,8 @@ import type { SprintEngineAutomationEvent } from '../types/workspace'
 import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
 import { isSprintEngineWorkspaceDormant } from './sprintengineAutomationLifecycle'
-import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
+import { isBacklogEpicPath } from './backlogEpics'
+import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
   sprintEngineStatePathForBacklogLink,
@@ -162,6 +163,21 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       })
     } else {
       healInterruptedDormancyTeardown(workspace, ports)
+      // A forced refresh of a *canceled* dormant run still recolors its Backlog
+      // run-link chip. Cancellation reaches its terminal `canceled` state via the
+      // runtime broadcast, so the workspace is usually already dormant at entry
+      // and the poller's routine display-only ticks skip the link write — without
+      // this the chip would never turn Canceled. Scoped to cancellation (not
+      // completion, whose link is written on the non-dormant completing tick) and
+      // to forced refreshes so routine dormant polls stay strictly display-only.
+      // Idempotent: the link refresh self-skips once the chip already matches.
+      if (force && isCanceledSprintEngineRun(parsedState)) {
+        await refreshBacklogSprintEngineRunLinks({
+          workspace,
+          state: parsedState,
+          ports,
+        })
+      }
     }
     logPerfEvent('SprintEngineProjection', 'refresh', {
       workspaceId: workspace.id,
@@ -340,7 +356,14 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   ports: SprintEngineProjectionRefreshPorts
 }): Promise<void> {
   const { workspace, state, ports } = input
-  if (!isCompletedSprintEngineRun(state)) return
+  // Both terminals refresh the run-link chip. Completion drives the item to
+  // `completed`; cancellation only recolors the chip to `canceled` and never
+  // drives the item status — a canceled sprint is a decision, not a finish, so
+  // the Backlog item stays whatever the user left it (they may re-plan).
+  const canceled = isCanceledSprintEngineRun(state)
+  const completed = !canceled && isCompletedSprintEngineRun(state)
+  if (!canceled && !completed) return
+  const runLinkStatus = canceled ? 'canceled' : 'completed'
   if (!workspace.folderPath || !workspace.sprintEngineContext?.statePath) return
   if (!ports.readBacklogObjectStore || !ports.addOrUpdateBacklogLink) return
 
@@ -360,19 +383,33 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
   const pullRequestUrl = state.vcs?.pullRequestUrl?.trim() || null
   for (const record of storeResult.store.items) {
+    // An epic carries the run's execution link too, but its lifecycle derives UP
+    // from its children (see nextBacklogItemStatusFromLinks) — a finished run must
+    // not complete the epic while children are still open (live incident
+    // 2026-07-15). This store-only tick cannot see epic membership (frontmatter
+    // `epic:`/`type:` are not persisted here), so it refreshes an epic's link chip
+    // to Completed but never drives the epic's status; the epic-aware sync tick
+    // owns epic completion.
+    const isEpic = isBacklogEpicPath(record.source.relativePath)
     let matchedThisRun = false
     for (const link of record.links ?? []) {
       if (link.type !== 'execution') continue
       const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
       if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
       matchedThisRun = true
-      if (link.status === 'completed' && record.status === 'completed') continue
+      // Nothing to reconcile once the chip already carries this run's terminal
+      // status — and, for a completed run, the epic link (its only touch) or an
+      // already-completed item is fully settled.
+      if (link.status === runLinkStatus && (canceled || isEpic || record.status === 'completed')) continue
 
       const result = await ports.addOrUpdateBacklogLink({
         workspaceRoot: workspace.folderPath,
         relativePath: record.source.relativePath,
-        link: { ...link, status: 'completed' },
-        status: record.status === 'archived' ? undefined : 'completed',
+        link: { ...link, status: runLinkStatus },
+        // Completion drives the item to `completed`; cancellation never drives
+        // item status (see the entry comment). Epics and archived items keep
+        // their own status derivation.
+        status: canceled || isEpic || record.status === 'archived' ? undefined : 'completed',
       })
       if (!result.ok) {
         await ports.publishDiagnostic?.({

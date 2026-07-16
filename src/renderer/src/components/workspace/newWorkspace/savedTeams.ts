@@ -153,10 +153,13 @@ export function pruneSprintEngineRoleModelOverrides(
 }
 
 // True when the current wizard roster still matches the saved team it was loaded
-// from — counts plus each active role's effective CLI and effective model. A
-// model change (like a CLI change) marks the team edited so Update can re-save
-// it. null/absent/"" all resolve to the same "CLI default", so an explicit
-// default pick does not falsely read as diverged.
+// from — the same enabled ROLE SET plus each role's effective CLI and effective
+// model. Under the pool model a persisted `roleCounts` is read as an enabled-set
+// (0 vs >0), never a seat headcount, so bumping a stored count from 2 to 3 does
+// not read as divergence — only enabling/disabling a role, or changing its CLI or
+// model, does. A model change (like a CLI change) marks the team edited so Update
+// can re-save it. null/absent/"" all resolve to the same "CLI default", so an
+// explicit default pick does not falsely read as diverged.
 export function sprintEngineRosterMatchesTeam(
   team: SprintEngineRosterTeam,
   counts: SprintEngineRoleCounts,
@@ -168,7 +171,10 @@ export function sprintEngineRosterMatchesTeam(
     ...activeSprintEngineRoleIds(counts),
   ])
   for (const role of roles) {
-    if ((team.roleCounts[role] ?? 0) !== (counts[role] ?? 0)) return false
+    // Enabled-set comparison: both sides staff the role (>0) or neither does.
+    // The union above already excludes count-0 roles, so a role reaching this
+    // loop from only one side is a genuine enable/disable divergence.
+    if (((team.roleCounts[role] ?? 0) > 0) !== ((counts[role] ?? 0) > 0)) return false
     const teamCli = team.roleCliDefaults[role] ?? DEFAULT_CLI
     const currentCli = cliDefaults[role] ?? DEFAULT_CLI
     if (teamCli !== currentCli) return false

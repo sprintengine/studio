@@ -148,7 +148,6 @@ const rendererCyclePorts: SprintEngineAutoRunCyclePorts = {
     const { appSettings } = useWorkspaceStore.getState()
     return {
       projectKnowledgeRoots: appSettings.projectKnowledgeRoots,
-      sprintEngineModelCatalog: appSettings.sprintEngineModelCatalog,
     }
   },
   dispatchAssignTerminalSession: (workspaceId, agentId, sessionId, cli) =>

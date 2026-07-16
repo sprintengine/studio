@@ -894,7 +894,14 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws?.sprintEngineState) return
 
-        const agentId = getNextSprintEngineAgentId(role, ws.sprintEngineState.sprintEngineAgents)
+        // Mint the display id against the canonical workers view when present
+        // (MC-1593a) so it never collides with a live worker; the bridge is the
+        // pre-projection fallback. Seed a local record so the agent's tab and
+        // row resolve their role from the worker record before it first claims.
+        const agentId = getNextSprintEngineAgentId(
+          role,
+          ws.sprintEngineState.workers ?? ws.sprintEngineState.sprintEngineAgents,
+        )
         ws.sprintEngineState.sprintEngineAgents[agentId] = {
           role,
           status: 'idle',
