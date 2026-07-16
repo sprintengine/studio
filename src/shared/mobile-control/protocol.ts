@@ -549,6 +549,21 @@ export interface MobileControlSprintEngineCounts {
 // `sprintengine.setAutomationMode` (MC-1497).
 export type MobileControlAutomationMode = "manual" | "run_agents" | "run_agents_and_approve_artifacts";
 
+// One project a run works in, mirroring the engine's `vcs.repos` entry (MC-1613)
+// trimmed to what a phone can render. Phone-shaped, like the vcs block below: run
+// worktree paths, base refs and commit shas stay on the desktop, which is why this
+// is not the engine's entry verbatim.
+export interface MobileControlSprintEngineRepo {
+  /** The project id the run declares and its tasks target: `primary`, or a name like `multicode-mobile`. */
+  id: string;
+  /** Workspace-relative project root: `.` for the primary project, `../multicode-mobile` for the rest. */
+  root: string;
+  /** The run branch in this project (every project of a run shares one branch name). */
+  branch: string;
+  /** This project's run-worktree state (`not_created` · `ready` · …); absent until the engine records one. */
+  status?: string;
+}
+
 // Worktree / pull-request state for a run, mirroring the desktop `SprintEngineVcs`
 // (renderer/src/types/workspace.ts). Present only for worktree runs; the phone
 // uses it to decide "Open pull request" vs "View pull request" (MC-1496/MC-1498).
@@ -563,12 +578,15 @@ export interface MobileControlSprintEngineVcsState {
   /** Reason the last PR-open attempt failed, surfaced with a Retry affordance. */
   pullRequestError?: string;
   /**
-   * Multi-repo seam (MC-1615): the run's per-repo vcs blocks, passed through
-   * verbatim from the projection's `run.vcs.repos`. Optional and unread by any
-   * phone surface today — present only so a multi-repo (schema-v4) store round-
-   * trips through the snapshot without field loss. Single-repo runs omit it.
+   * Every project a multi-repo run works in, the primary one first (MC-1613).
+   *
+   * Additive: the fields above keep describing the primary project, so a client
+   * that never reads this list renders a two-project run exactly as it renders a
+   * one-project run. Absent for single-repo runs — their one project IS the block
+   * above — and absent from a desktop older than MC-1613, so a client that wants
+   * the list reads `repos ?? [the primary block]` and handles both.
    */
-  repos?: unknown[];
+  repos?: MobileControlSprintEngineRepo[];
 }
 
 // One "Started from" provenance row — a real on-disk seed document the run was
