@@ -69,6 +69,13 @@ class HttpMcpRunRegistry:
         # surface), which keeps older app builds working.
         agent_id = str(payload.get("agentId") or "").strip()
         agent_role = str(payload.get("role") or "").strip()
+        # The declared repo this session was spawned into (MC-1610), derived by
+        # the launcher from the session's worktree cwd. It binds the session's
+        # work queue to one tree the same way `role` binds its tool surface: a
+        # session sitting in the mobile worktree must not claim desktop work.
+        # Absent (single-repo runs, older callers, operator surface) leaves the
+        # session unbound, which is exactly the pre-multi-repo behavior.
+        agent_repo = str(payload.get("repo") or "").strip()
         # Compose-time gate for the workspace_knowledge layer skill. Tri-state:
         # key absent (older caller) -> None -> the server falls back to its env;
         # key present -> truthiness of the workspace's configured knowledge root.
@@ -85,6 +92,7 @@ class HttpMcpRunRegistry:
             actor_id=actor_id,
             agent_id=agent_id,
             role=agent_role,
+            repo=agent_repo,
             knowledge_root_configured=knowledge_root_configured,
         )
         token = secrets.token_urlsafe(32)

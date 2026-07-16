@@ -726,6 +726,57 @@ export function sprintEngineDeclaredSiblingRepoRoots(statePath: string): string[
   return roots
 }
 
+/**
+ * The declared repo a session launching in `launchCwd` works in (MC-1610), or
+ * null when that cwd is not a declared repo's run worktree (a non-worktree run,
+ * a terminal in the main checkout, an unreadable projection).
+ *
+ * This is what binds a session's MCP token to one repo, so its `task.next` only
+ * offers work that lives in the tree it is actually sitting in. Derived from the
+ * launch cwd rather than passed down from the scheduler: the cwd is the thing
+ * that makes the binding true, and reading it here keeps the one authority in
+ * the same place the allowed roots are derived from. A single-repo run's
+ * worktree matches its primary entry, so its sessions bind to `primary` and see
+ * every task — the pre-multi-repo behavior.
+ */
+export function sprintEngineRepoIdForLaunchCwd(statePath: string, launchCwd: string): string | null {
+  let state: ValidSprintEngineStatePath
+  try {
+    state = validateSprintEngineStatePath(statePath)
+  } catch {
+    return null
+  }
+  let repos: unknown
+  let workspaceRoot: string
+  let cwd: string
+  try {
+    const projection = JSON.parse(readFileSync(join(state.teamDirectory, 'projection.json'), 'utf8'))
+    repos = (projection as { run?: { vcs?: { repos?: unknown } } })?.run?.vcs?.repos
+    workspaceRoot = realpathSync(state.workspaceRoot)
+    cwd = realpathSync(launchCwd)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(repos)) return null
+  for (const entry of repos) {
+    if (!entry || typeof entry !== 'object') continue
+    const { id, worktreePath } = entry as { id?: unknown; worktreePath?: unknown }
+    if (typeof id !== 'string' || typeof worktreePath !== 'string' || !worktreePath.trim()) continue
+    // Resolve links on both sides before comparing: the worktree lives under the
+    // run dir, which a symlinked project root would spell differently than the
+    // realpath'd launch cwd, and a missed match would silently unbind the
+    // session rather than misbind it.
+    let resolved: string
+    try {
+      resolved = realpathSync(resolve(workspaceRoot, worktreePath.trim()))
+    } catch {
+      continue
+    }
+    if (resolved === cwd) return id
+  }
+  return null
+}
+
 function runSprintEngineMcpToolProcess(
   context: SprintEngineMcpRunnerContext,
   tool: string,

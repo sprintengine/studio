@@ -199,6 +199,9 @@ export function sprintEngineWorkerRepoId(
   return sprintEngineSessionRepoId(task?.repo)
 }
 
+/** The task fields a demand key may read: the (role, repo) pair it groups by. */
+export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
+
 /**
  * MC-1615 demand grouping key, now (role, repo) — multi-repo sprints, MC-1610.
  * The reconciler groups ready work by this key to compute per-group session
@@ -211,9 +214,6 @@ export function sprintEngineWorkerRepoId(
  * run keys every task to the same `<role>` group it always did, so its
  * grouping — and therefore its spawning — is unchanged.
  */
-/** The task fields a demand key may read: the (role, repo) pair it groups by. */
-export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
-
 export function sprintEngineDemandKey(task: SprintEngineDemandKeyInput): string {
   const repo = sprintEngineSessionRepoId(task.repo)
   return repo === DEFAULT_SPRINTENGINE_TASK_REPO ? task.role : `${task.role}@${repo}`
@@ -1531,6 +1531,12 @@ export function planSprintEngineDispatch(input: {
     // neither can ever claim the other's work.
     const plannedRevivalKeys = new Set<string>()
     for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
+      // Revival is for DEPARTED ids only: a live id has a session already, and
+      // respawning it would dispose the very terminal it is working in. Kept as
+      // its own guard, per agent id — the group check below answers a different
+      // question ("is this work already covered?"), and conflating the two is
+      // what let a live planner be revived for another repo's ready task.
+      if (liveAgentIds.has(agentId)) continue
       if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
       if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
       // Owner affinity: revive the id for its own retained task when that task is

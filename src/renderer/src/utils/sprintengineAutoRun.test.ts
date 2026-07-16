@@ -2231,6 +2231,36 @@ function testALiveAgentOnlyCoversItsOwnReposWork(): void {
   assert.equal(plan.respawns[0].agentId, 'developer-2')
   assert.equal(plan.respawns[0].taskId, 'T-mobile')
 
+  // A LIVE id is never a revival target, whatever repo its next work is in.
+  // Revival respawns a terminal; doing that to a live session would dispose the
+  // one it is working in. A planner is the sharp case: it is persistent, so it
+  // is revivable for the NEXT ready task of its role — which may be in another
+  // repo, i.e. a group its own session does not cover.
+  const livePlannerState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-plan-mobile', role: 'architect', repo: 'mobile', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
+    ],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'running', currentTaskId: 'T-plan-desktop', lastOwnedTaskId: 'T-plan-desktop' }),
+    },
+    workers: { architect: { role: 'architect', status: 'running', currentTaskId: 'T-plan-desktop', repo: 'primary' } },
+  } as Partial<SprintEngineState>)
+  const livePlannerPlan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { architect: sprintAgent('architect', 'Archie') } }),
+    sprintEngineState: livePlannerState,
+    now: Date.parse('2026-07-16T22:00:00Z'),
+    runningAgentIds: new Set(['architect']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(
+    livePlannerPlan.respawns.length,
+    0,
+    'a live planner is never respawned, even for ready work in a repo its session does not cover',
+  )
+
   // The control: a live agent IN THAT TREE does cover it, so no revival — the
   // single-repo behavior, unchanged.
   const coveredState = sprintEngineStateFixture({
