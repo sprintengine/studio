@@ -204,9 +204,10 @@ def test_default_run_pull_request_body_is_byte_identical_to_pre_epic(tmp_path) -
 
 def test_repo_targeting_is_a_no_op_filter_for_a_default_run(tmp_path) -> None:
     # AC3 (engine side): the repo a default run's tasks resolve to is the primary, so
-    # every repo-keyed lookup returns the same answer for every task. The TS demand
-    # key is the renderer half of this and is covered by
-    # `src/renderer/src/utils/sprintengineAutoRun.test.ts`.
+    # every repo-keyed lookup returns the same answer for every task, and the one tree
+    # is the answer for all of them. The scheduler half — a demand key that stays the
+    # bare role — is `testDemandKeyIsRoleAndRepo` in
+    # `src/shared/sprintengine/auto-run.test.ts`.
     fixture = _default_run(tmp_path)
     state = read_state(fixture.state_path)
     state["tasks"] = _delivered_tasks()
@@ -214,7 +215,9 @@ def test_repo_targeting_is_a_no_op_filter_for_a_default_run(tmp_path) -> None:
     repos = {folder_store.task_repo(task) for task in state["tasks"]}
     assert repos == {folder_store.DEFAULT_TASK_REPO}
     for task in state["tasks"]:
-        assert shell.worktree_for_task(state, fixture.state_path, task) == fixture.team_dir / "worktree"
+        # `worktree_for_task` resolves its path, so resolve both sides: a symlinked
+        # temp dir must not be the reason this passes or fails.
+        assert shell.worktree_for_task(state, fixture.state_path, task) == (fixture.team_dir / "worktree").resolve()
 
 
 def test_every_orphan_in_a_default_run_is_reported_against_the_one_repo(tmp_path) -> None:
