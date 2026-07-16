@@ -12,7 +12,7 @@ import { publishDiagnostic } from './diagnostics'
 import { logPerfEvent } from './perfDiagnostics'
 import { isSprintEngineWorkspaceDormant } from './sprintengineAutomationLifecycle'
 import { isBacklogEpicPath } from './backlogEpics'
-import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
+import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
   sprintEngineStatePathForBacklogLink,
@@ -163,6 +163,21 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       })
     } else {
       healInterruptedDormancyTeardown(workspace, ports)
+      // A forced refresh of a *canceled* dormant run still recolors its Backlog
+      // run-link chip. Cancellation reaches its terminal `canceled` state via the
+      // runtime broadcast, so the workspace is usually already dormant at entry
+      // and the poller's routine display-only ticks skip the link write — without
+      // this the chip would never turn Canceled. Scoped to cancellation (not
+      // completion, whose link is written on the non-dormant completing tick) and
+      // to forced refreshes so routine dormant polls stay strictly display-only.
+      // Idempotent: the link refresh self-skips once the chip already matches.
+      if (force && isCanceledSprintEngineRun(parsedState)) {
+        await refreshBacklogSprintEngineRunLinks({
+          workspace,
+          state: parsedState,
+          ports,
+        })
+      }
     }
     logPerfEvent('SprintEngineProjection', 'refresh', {
       workspaceId: workspace.id,
@@ -341,7 +356,14 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   ports: SprintEngineProjectionRefreshPorts
 }): Promise<void> {
   const { workspace, state, ports } = input
-  if (!isCompletedSprintEngineRun(state)) return
+  // Both terminals refresh the run-link chip. Completion drives the item to
+  // `completed`; cancellation only recolors the chip to `canceled` and never
+  // drives the item status — a canceled sprint is a decision, not a finish, so
+  // the Backlog item stays whatever the user left it (they may re-plan).
+  const canceled = isCanceledSprintEngineRun(state)
+  const completed = !canceled && isCompletedSprintEngineRun(state)
+  if (!canceled && !completed) return
+  const runLinkStatus = canceled ? 'canceled' : 'completed'
   if (!workspace.folderPath || !workspace.sprintEngineContext?.statePath) return
   if (!ports.readBacklogObjectStore || !ports.addOrUpdateBacklogLink) return
 
@@ -375,15 +397,19 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       const linkStatePath = sprintEngineStatePathForBacklogLink(workspace.folderPath, link)
       if (!linkStatePath || normalizedPathKey(linkStatePath) !== targetStatePathKey) continue
       matchedThisRun = true
-      // For an epic the link is the only thing we touch, so once it is completed
-      // there is nothing left to reconcile.
-      if (link.status === 'completed' && (isEpic || record.status === 'completed')) continue
+      // Nothing to reconcile once the chip already carries this run's terminal
+      // status — and, for a completed run, the epic link (its only touch) or an
+      // already-completed item is fully settled.
+      if (link.status === runLinkStatus && (canceled || isEpic || record.status === 'completed')) continue
 
       const result = await ports.addOrUpdateBacklogLink({
         workspaceRoot: workspace.folderPath,
         relativePath: record.source.relativePath,
-        link: { ...link, status: 'completed' },
-        status: isEpic || record.status === 'archived' ? undefined : 'completed',
+        link: { ...link, status: runLinkStatus },
+        // Completion drives the item to `completed`; cancellation never drives
+        // item status (see the entry comment). Epics and archived items keep
+        // their own status derivation.
+        status: canceled || isEpic || record.status === 'archived' ? undefined : 'completed',
       })
       if (!result.ok) {
         await ports.publishDiagnostic?.({

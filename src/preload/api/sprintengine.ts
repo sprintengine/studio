@@ -164,6 +164,10 @@ export const sprintEngineApi = {
     input: { statePath: string }
   ): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('sprintengine:runtime:resume', input),
+  cancelSprintEngineRun: (
+    input: { statePath: string }
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:run:cancel', input),
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
     const ch = SPRINT_RUNTIME_OP_CHANNEL
     const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
@@ -191,6 +195,7 @@ export const sprintEngineApi = {
   | 'unregisterSprintRuntimeRun'
   | 'pushSprintRuntimeStopReason'
   | 'resumeSprintRuntimeRun'
+  | 'cancelSprintEngineRun'
   | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'

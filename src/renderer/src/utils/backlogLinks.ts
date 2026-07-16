@@ -114,6 +114,7 @@ export function linkStatusChanged(link: BacklogItemLink, resolved: BacklogResolv
 export const BACKLOG_LINK_STATUS_TEXT: Record<BacklogItemLinkStatus, string> = {
   active: 'Active',
   completed: 'Completed',
+  canceled: 'Canceled',
   failed: 'Failed',
   unknown: 'Unavailable',
 }

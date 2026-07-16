@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { FilePreviewPane, InboxSearchInput, Section, SidePane } from '../../ui'
 import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
 import { isEditableTarget } from '../../../utils/keyboard'
-import { getSprintEngineArtifactDependencyBlockers } from '../../../utils/sprintengine'
+import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
 import { joinFilePath, parentPath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
@@ -167,7 +167,13 @@ export function SprintEngineInboxView({
       .filter(({ blockers }) => blockers.length > 0)
   ), [reviewArtifacts, sprintEngineState.tasks])
 
-  const inboxEmptyMessage = sprintEngineInboxEmptyMessage(runPhase)
+  // A canceled run's review queue is suppressed upstream (the parent passes no
+  // review artifacts), so name that state instead of the phase-based prompt —
+  // otherwise an empty inbox would read as "waiting for work" on a stopped run.
+  const runCanceled = isCanceledSprintEngineRun(sprintEngineState)
+  const inboxEmptyMessage = runCanceled
+    ? 'This sprint was canceled. Nothing is waiting for review.'
+    : sprintEngineInboxEmptyMessage(runPhase)
   const filteringActive = search.trim().length > 0
   const emptyMessage =
     filteringActive && inboxArtifacts.length > 0

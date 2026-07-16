@@ -26,7 +26,7 @@ import {
  type Tone,
 } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import { Modal, ModalBody, ModalButton, ModalFooter } from '../ui/Modal'
+import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
 import { focusOrAddComponentTab } from '../../utils/modelRegistry'
 
@@ -70,6 +70,8 @@ import {
  getSprintEngineRoleAccent,
  getUserDisabledSprintEngineRoleIds,
  getSprintEngineRoleLabel,
+ isCanceledSprintEngineRun,
+ isCompletedSprintEngineRun,
  isNewSprintEngineRoleForRun,
 } from '../../utils/sprintengine'
 import { canLaunchSprintEngineInitialSpawn } from '../../utils/sprintengineInitialSpawns'
@@ -657,6 +659,8 @@ function SprintEngineBoardPanelContent({
  const [pendingRosterMemberSpawns, setPendingRosterMemberSpawns] = useState<PendingRosterMemberSpawn[]>([])
  const pendingRosterMemberSpawnInFlightRef = useRef<Set<string>>(new Set())
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
+ const [confirmCancelSprint, setConfirmCancelSprint] = useState(false)
+ const [cancelSprintBusy, setCancelSprintBusy] = useState(false)
  const [pendingAutomationMode, setPendingAutomationMode] = useState<SprintEngineAutomationMode | null>(null)
  const [artifactActions, setArtifactActions] = useState<Record<string, ArtifactActionState>>({})
  const [taskInputActions, setTaskInputActions] = useState<Record<string, TaskInputActionState>>({})
@@ -1060,6 +1064,35 @@ function SprintEngineBoardPanelContent({
  })
  } finally {
  setManualRefreshBusy(false)
+ }
+ }
+
+ // A run can be canceled while it is live — not once it has reached a terminal
+ // state. Cancellation is a lifecycle decision distinct from completion.
+ const sprintRunCanceled = isCanceledSprintEngineRun(sprintEngineState)
+ const canCancelSprint =
+ !sprintRunCanceled && !isCompletedSprintEngineRun(sprintEngineState)
+
+ // Cancel the sprint: run the engine cancel op (run/tasks → canceled, agents
+ // torn down) then force a refresh so the board, glyph, and backlog link settle
+ // on the canceled state. The op owns the state write; a failure surfaces in the
+ // sync banner rather than silently leaving a half-canceled run.
+ const cancelSprint = async () => {
+ const statePath = sprintEngineContext?.statePath
+ if (!statePath || cancelSprintBusy) return
+ setCancelSprintBusy(true)
+ setSyncState({ status: 'syncing', message: 'Canceling sprint...' })
+ try {
+ const result = await window.api.cancelSprintEngineRun({ statePath })
+ if (!result.ok) throw new Error(result.message ?? 'Canceling the sprint failed.')
+ await refreshSprintEngineState()
+ } catch (error) {
+ setSyncState({
+ status: 'error',
+ message: error instanceof Error ? error.message : 'Failed to cancel the sprint.',
+ })
+ } finally {
+ setCancelSprintBusy(false)
  }
  }
 
@@ -1864,6 +1897,16 @@ function SprintEngineBoardPanelContent({
  label: 'Read plan',
  onSelect: () => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan'),
  })
+ if (canCancelSprint) {
+ items.push({ kind: 'separator', id: 'sep-3' })
+ items.push({
+ id: 'cancel-sprint',
+ label: 'Cancel sprint…',
+ destructive: true,
+ onSelect: () => setConfirmCancelSprint(true),
+ disabled: !folderPath || cancelSprintBusy,
+ })
+ }
  return items
  })()
 
@@ -1872,7 +1915,9 @@ function SprintEngineBoardPanelContent({
  id: 'inbox',
  label: 'Inbox',
  icon: SprintEngineInboxIcon,
- count: inboxArtifactCount > 0 ? inboxArtifactCount : undefined,
+ // A canceled run has no actionable review queue — mirror completion by
+ // dropping the badge so it never disagrees with the suppressed inbox list.
+ count: !sprintRunCanceled && inboxArtifactCount > 0 ? inboxArtifactCount : undefined,
  },
  {
  id: 'roster',
@@ -2249,7 +2294,7 @@ function SprintEngineBoardPanelContent({
  >
  <SprintEngineInboxView
  sprintEngineState={sprintEngineState}
- reviewArtifacts={reviewArtifacts}
+ reviewArtifacts={sprintRunCanceled ? [] : reviewArtifacts}
  runPhase={runPhase}
  workspaceId={workspaceId}
  folderPath={folderPath}
@@ -2581,6 +2626,38 @@ function SprintEngineBoardPanelContent({
  disabled={requestChangesDialog.submitting || requestChangesDialog.feedback.trim().length === 0}
  >
  {requestChangesDialog.submitting ? 'Requesting changes…' : 'Request changes'}
+ </ModalButton>
+ </ModalFooter>
+ </Modal>
+ ) : null}
+
+ {confirmCancelSprint ? (
+ <Modal
+ open
+ contained
+ width={440}
+ labelledBy="cancel-sprint-dialog-title"
+ onClose={() => setConfirmCancelSprint(false)}
+ >
+ <ModalHeader
+ titleId="cancel-sprint-dialog-title"
+ title="Cancel this sprint?"
+ subtitle="Running agents stop and every unfinished task is marked canceled. Finished work and the run branch are kept. This cannot be undone."
+ onClose={() => setConfirmCancelSprint(false)}
+ />
+ <ModalFooter>
+ <ModalButton onClick={() => setConfirmCancelSprint(false)} disabled={cancelSprintBusy}>
+ Keep running
+ </ModalButton>
+ <ModalButton
+ variant="danger"
+ disabled={cancelSprintBusy}
+ onClick={() => {
+ setConfirmCancelSprint(false)
+ void cancelSprint()
+ }}
+ >
+ Cancel sprint
  </ModalButton>
  </ModalFooter>
  </Modal>

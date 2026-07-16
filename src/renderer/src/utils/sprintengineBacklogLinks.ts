@@ -1,5 +1,5 @@
 import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
-import { isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
+import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   SPRINT_ENGINE_RUN_TARGET_KIND,
   safeProjectRelativeRunPath,
@@ -134,7 +134,14 @@ export async function resolveSprintEngineBacklogLink(
     return unavailableLink(input.link, 'Sprint projection is malformed.')
   }
 
-  const status = isCompletedSprintEngineRun(state) ? 'completed' : 'active'
+  // Cancellation is a decided terminal that outranks completeness: a canceled
+  // run's non-done tasks are all `canceled`, never `done`, so it is not
+  // `completed` — but it must read as Canceled, not fall back to Active.
+  const status = isCanceledSprintEngineRun(state)
+    ? 'canceled'
+    : isCompletedSprintEngineRun(state)
+      ? 'completed'
+      : 'active'
   return {
     ...input.link,
     status,

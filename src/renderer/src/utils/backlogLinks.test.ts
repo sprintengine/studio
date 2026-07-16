@@ -385,8 +385,8 @@ function runSourceContracts(): void {
   )
   assert.match(
     projectionSource,
-    /status: isEpic \|\| record\.status === 'archived' \? undefined : 'completed',/,
-    'a finished run never drives an epic status to completed from the projection tick',
+    /status: canceled \|\| isEpic \|\| record\.status === 'archived' \? undefined : 'completed',/,
+    'a finished run never drives an epic (or any item, when canceled) status to completed from the projection tick',
   )
 }
 

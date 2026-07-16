@@ -2105,7 +2105,7 @@ export type BacklogItemLinkPayload = {
     path?: string
     url?: string
   }
-  status?: 'active' | 'completed' | 'failed' | 'unknown'
+  status?: 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
   updatedAt?: string
 }
 
@@ -2544,6 +2544,10 @@ export type ElectronApi = {
   pushSprintRuntimeStopReason: (input: SprintRuntimeStopReasonPush) => Promise<{ ok: boolean }>
   /** Resume a paused/blocked/failed run in the scheduler (same-mode recovery). */
   resumeSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
+  /** User-initiated sprint cancellation (MC-1604b): runs the engine `cancel` op
+   *  (run/tasks → canceled) and parks the automation runtime so live agents are
+   *  torn down. The Cancel action on the board overflow and workspace menu. */
+  cancelSprintEngineRun: (input: { statePath: string }) => Promise<SprintEngineArtifactCommandResult>
   /** Scheduler-performed store mutations, mirrored to every window (Phase 2). */
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
