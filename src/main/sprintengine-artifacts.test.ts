@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   await testInitializeSprintEngineStateRecordsRoleRuntimes()
   await testInitializeSprintEngineStateRecordsConfiguredRoles()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
+  await testMergePullRequestSurfacesTheEnginesRefusal()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
   await testIpcRegistersReadOnlyBridgeChannels()
   await testDeclaredSiblingRepoRootsResolveEveryDeclaredProject()
@@ -731,6 +732,38 @@ async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> 
 
     const runYaml = await readFile(statePath, 'utf-8')
     assert.match(runYaml, /cliWatchPolling:\s+enabled/u)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// MC-1612: `vcs pr-merge` reports a REFUSAL (out of merge order, no pull request,
+// not a worktree run) as `ok: false` inside its result document and still exits 0 —
+// it did its job. The bridge must surface that refusal, because the alternative is a
+// Merge button that reports success while the pull request sits exactly where it was.
+// Drives the real engine: this is a contract between two processes, and a faked
+// stdout would pin the mock's shape rather than the CLI's.
+async function testMergePullRequestSurfacesTheEnginesRefusal(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-pr-merge-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('pr-merge must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Merge bridge test',
+      goal: 'Verify pr-merge refusals reach the user',
+      agents: { architect: { role: 'architect' } },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+
+    // This run has no worktree, so it has no branch and no pull request to merge.
+    const result = await handlers.mergePullRequest({ statePath })
+
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.message, /worktree mode/u)
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

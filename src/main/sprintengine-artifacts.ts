@@ -365,8 +365,29 @@ async function buildSprintEngineMutationData(
   }
 }
 
+/**
+ * The result document `scripts/sprintengine_tool.py` printed, or null.
+ *
+ * The CLI prints ONE pretty-printed JSON document (`json.dumps(result, indent=2)`),
+ * so the whole of stdout is the result and its last line is a bare `}`. Parsing the
+ * last line alone therefore never parsed anything — it returned null for every
+ * command, silently. That mattered the moment a caller needed to read the engine's
+ * own verdict rather than just its exit code: `vcs pr-merge` reports a refusal as
+ * `ok: false` in this document and still exits 0 (it did its job), so a null here
+ * would read as "merged" and tell the user their pull request landed when it did not.
+ *
+ * The line fallback stays for any caller whose output is a stream of records rather
+ * than one document.
+ */
 function parseSprintEngineCliJsonOutput(stdout: string): unknown {
-  const responseLine = stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1)
+  const trimmed = stdout.trim()
+  if (!trimmed) return null
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    // Not one document; fall back to the last complete line.
+  }
+  const responseLine = trimmed.split(/\r?\n/u).filter(Boolean).at(-1)
   if (!responseLine) return null
   try {
     return JSON.parse(responseLine) as unknown

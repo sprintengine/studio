@@ -389,7 +389,6 @@ export type MobileSprintEnginePullRequest = {
   url: string
   /** The project's name as a person says it; absent on a single-project run. */
   repoLabel?: string
-  error?: string
 }
 
 /**
@@ -400,9 +399,10 @@ export type MobileSprintEnginePullRequest = {
  * when it is there and fall back to the flat field, so a run whose store predates the
  * list still yields its one pull request.
  *
- * Projects with no url (no commits, or an open that failed) are not pull requests and
- * are not returned; a project that FAILED carries its reason so the phone can say why
- * rather than silently showing one link where two were expected.
+ * Projects with no url are not pull requests and are not returned: a project the run
+ * never committed to, or one whose open failed (the engine records the reason on that
+ * repo's entry and never pairs it with a url). The phone reads why from the run
+ * snapshot's per-repo state, which is where that already lives.
  */
 export function pullRequestsFromVcsPr(data: unknown): MobileSprintEnginePullRequest[] {
   if (typeof data !== 'object' || data === null) return []
@@ -417,7 +417,6 @@ export function pullRequestsFromVcsPr(data: unknown): MobileSprintEnginePullRequ
     const repo = trimmedString((entry as { repo?: unknown }).repo)
     const url = trimmedString((entry as { pullRequestUrl?: unknown }).pullRequestUrl)
     if (!repo || !url) continue
-    const error = trimmedString((entry as { error?: unknown }).error)
     pullRequests.push({
       repo,
       url,
@@ -425,7 +424,6 @@ export function pullRequestsFromVcsPr(data: unknown): MobileSprintEnginePullRequ
       // single-project run there is nothing to tell apart, and the label it has
       // always had is the right one.
       ...(repos.length > 1 ? { repoLabel: trimmedString((entry as { project?: unknown }).project) ?? repo } : {}),
-      ...(error ? { error } : {}),
     })
   }
   return pullRequests
