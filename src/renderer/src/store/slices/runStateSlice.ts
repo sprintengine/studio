@@ -46,7 +46,6 @@ import type {
   MultiloopRole,
   MultiloopState,
   MultiloopWorkspaceContext,
-  SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
@@ -71,7 +70,6 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   changedAt: undefined,
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
-  pendingSpawns: [],
   deliveredAgentNotificationEventKeys: [],
   completionTeardownAt: undefined,
 })
@@ -140,18 +138,6 @@ import {
 
 export { resolveSprintEngineAgentRuntime, resolveSprintEngineRoleRuntime }
 
-function normalizeSprintEngineAutoPendingSpawn(
-  input: Partial<SprintEngineAutoPendingSpawn> | null | undefined
-): SprintEngineAutoPendingSpawn | null {
-  return typeof input?.taskId === 'string' && typeof input.agentId === 'string'
-    ? {
-      taskId: input.taskId,
-      agentId: input.agentId,
-      ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
-    }
-    : null
-}
-
 function isMultiloopAutoRole(input: unknown): input is MultiloopRole | SprintEngineRoleId {
   return typeof input === 'string' && input.trim().length > 0
 }
@@ -172,19 +158,10 @@ function normalizeMultiloopAutoPendingSpawn(
 export function normalizeSprintEngineAutoState(
   input: (
     Partial<SprintEngineAutoState> & {
-      pending?: SprintEngineAutoPendingSpawn | null
       deliveredAgentNotificationEventIds?: string[]
     }
   ) | null | undefined
 ): SprintEngineAutoState {
-  const legacyPending = normalizeSprintEngineAutoPendingSpawn(input?.pending)
-  const pendingSpawns = Array.isArray(input?.pendingSpawns)
-    ? input.pendingSpawns
-      .map((pending) => normalizeSprintEngineAutoPendingSpawn(pending))
-      .filter((pending): pending is SprintEngineAutoPendingSpawn => Boolean(pending))
-    : legacyPending
-      ? [legacyPending]
-      : []
   const deliveredAgentNotificationEventKeysInput =
     Array.isArray(input?.deliveredAgentNotificationEventKeys)
       ? input.deliveredAgentNotificationEventKeys
@@ -216,7 +193,6 @@ export function normalizeSprintEngineAutoState(
       : undefined,
     cliPermissionPreset,
     maxConcurrentAgents,
-    pendingSpawns,
     deliveredAgentNotificationEventKeys,
     // Preserve the one-shot completion-teardown marker: this normalizer runs on
     // every projection write (`setSprintEngineState`), so dropping the field
@@ -509,10 +485,6 @@ export interface RunStateSliceActions {
     session: SprintEngineRosterSession
   ) => void
   setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
-  setSprintEngineAutoPendingSpawns: (
-    workspaceId: WorkspaceId,
-    pendingSpawns: SprintEngineAutoPendingSpawn[]
-  ) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (
@@ -792,17 +764,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           changedAt: Date.now(),
         }
         rememberSprintEngineRunSettings(state, ws, { maxConcurrentAgents: nextMaxConcurrentAgents })
-      }),
-
-    setSprintEngineAutoPendingSpawns: (workspaceId, pendingSpawns) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-        ws.sprintEngineAutoState = transitionSprintEngineAutomation(
-          current,
-          { type: 'pending_spawns_changed', pendingSpawns },
-        )
       }),
 
     upsertSprintEngineRosterSession: (workspaceId, agentId, session) =>

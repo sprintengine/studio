@@ -43,7 +43,6 @@ const seededWorkspace = {
   sprintEngineAutoState: {
     desiredMode: 'manual',
     runtimeState: 'idle',
-    pendingSpawns: [],
     notificationsDelivered: {},
   },
   multiloopAutoState: {

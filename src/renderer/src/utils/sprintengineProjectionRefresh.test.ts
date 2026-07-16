@@ -164,7 +164,6 @@ function autoState(
     runtimeState,
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 1,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
     completionTeardownAt,
   }
@@ -187,8 +186,7 @@ function completedWorkspace(
       desiredMode: 'run_agents',
       runtimeState,
       reason: runtimeState === 'paused' ? 'terminal_closed' : 'all_tasks_done',
-      pendingSpawns: [],
-      deliveredAgentNotificationEventKeys: [],
+        deliveredAgentNotificationEventKeys: [],
       completionTeardownAt: options?.completionTeardownAt,
     },
   } as unknown as Workspace

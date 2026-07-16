@@ -136,7 +136,6 @@ function registration(overrides: Partial<SprintRuntimeRunRegistration> = {}): Sp
     memoryRelativeRoot: null,
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 3,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
     rosterSessions: {},
     agents: {},
@@ -326,11 +325,7 @@ async function testRegistrationActivatesRun(): Promise<void> {
 // payload + broadcasts.
 async function testStartupDelayThenBootstrapSpawn(): Promise<void> {
   const harness = createHarness()
-  // Stale renderer-persisted residue rides the first registration; the cycle
-  // clears it (its task is gone) and broadcasts the new pendingSpawns.
-  harness.runtime.registerRun(registration({
-    pendingSpawns: [{ taskId: 'T-stale', agentId: 'ghost-1', startedAt: 0 }],
-  }))
+  harness.runtime.registerRun(registration())
   await settle()
   assert.equal(harness.spawnCalls.length, 0, 'no spawn before the startup delay elapses')
 
@@ -356,16 +351,12 @@ async function testStartupDelayThenBootstrapSpawn(): Promise<void> {
 
   const kinds = new Set(harness.ops.map((op) => op.kind))
   assert.ok(kinds.has('agent_updated'), 'agent_updated broadcast emitted')
-  assert.ok(kinds.has('pending_spawns'), 'pending_spawns broadcast emitted (stale residue cleared)')
   assert.ok(kinds.has('launch_state'), 'launch_state broadcast emitted')
   const assignOp = harness.ops.find((op) => op.kind === 'assign_session')
   assert.ok(assignOp && assignOp.kind === 'assign_session', 'assign_session broadcast emitted')
   assert.equal(assignOp.agentId, 'architect-1')
   assert.equal(assignOp.sessionId, spawn.sessionId)
   assert.equal(assignOp.cli, 'claude')
-  const pendingOp = harness.ops.find((op) => op.kind === 'pending_spawns')
-  assert.ok(pendingOp && pendingOp.kind === 'pending_spawns')
-  assert.deepEqual(pendingOp.pendingSpawns, [], 'stale pending spawn was cleared')
   assert.ok(harness.ops.every((op) => op.statePath === STATE_PATH), 'every broadcast carries the statePath')
 
   harness.runtime.shutdown()
@@ -809,7 +800,6 @@ async function testAgentConfigMergeOnReRegistration(): Promise<void> {
 async function testSidecarResidueAdoptionOnFirstRegistration(): Promise<void> {
   const harness = createHarness({ projection: completedProjection() })
   const residue: SprintEngineAutomationRuntimeResidue = {
-    pendingSpawns: [{ taskId: 'T9', agentId: 'ghost', startedAt: 1 }],
     deliveredAgentNotificationEventKeys: ['EVT-9'],
     completionTeardownAt: 123,
     rosterSessions: {
@@ -822,11 +812,6 @@ async function testSidecarResidueAdoptionOnFirstRegistration(): Promise<void> {
   await settle()
 
   const run = harness.runtime.inspectRun(STATE_PATH)
-  assert.deepEqual(
-    run?.view.sprintEngineAutoState?.pendingSpawns,
-    residue.pendingSpawns,
-    'sidecar pendingSpawns adopted over the registration\'s empty residue',
-  )
   assert.deepEqual(
     run?.view.sprintEngineAutoState?.deliveredAgentNotificationEventKeys,
     ['EVT-9'],

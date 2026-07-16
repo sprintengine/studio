@@ -18,7 +18,6 @@
  */
 
 export {
-  AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
   AUTO_RUN_ROLE_CONTINUATION_RETRY_MS,
   AUTO_RUN_DISPATCH_PROMPT_RETRY_MS,
   AUTO_RUN_MAX_PROMPT_RETRIES,
@@ -56,6 +55,5 @@ export {
 export type {
   AutoRunCandidate,
   PickNextAutoRunsOptions,
-  RoleContinuationGrace,
   SprintEngineBootstrapDecision,
 } from './sprintengineAutoRun'

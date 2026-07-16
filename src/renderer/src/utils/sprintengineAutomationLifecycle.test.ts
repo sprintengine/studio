@@ -20,7 +20,6 @@ function baseAutoState(overrides: Partial<SprintEngineAutoState> = {}): SprintEn
     changedAt: undefined,
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 3,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
     ...overrides,
   }
@@ -90,16 +89,6 @@ const completeThenFailed = transitionSprintEngineAutomation(
 )
 assert.equal(completeThenFailed.runtimeState, 'complete')
 
-// Lifecycle-neutral pending-spawn bookkeeping still passes through `complete`
-// without moving the runtime state.
-const completeThenPendingSpawns = transitionSprintEngineAutomation(
-  complete,
-  { type: 'pending_spawns_changed', pendingSpawns: [{ taskId: 'T9', agentId: 'frontend' }] },
-  615,
-)
-assert.equal(completeThenPendingSpawns.runtimeState, 'complete')
-assert.deepEqual(completeThenPendingSpawns.pendingSpawns, [{ taskId: 'T9', agentId: 'frontend' }])
-
 // Re-selecting an automation mode is the explicit escape hatch out of complete.
 const completeThenResumed = transitionSprintEngineAutomation(
   complete,
@@ -117,7 +106,6 @@ const canceled = transitionSprintEngineAutomation(resumed, { type: 'runner_cance
 assert.equal(canceled.desiredMode, 'run_agents')
 assert.equal(canceled.runtimeState, 'canceled')
 assert.equal(canceled.reason, 'run_canceled')
-assert.deepEqual(canceled.pendingSpawns, [])
 assert.equal(sprintEngineAutomationShouldRun(canceled), false)
 
 // Terminal like `complete`: the async terminal-close events from the cancel
@@ -140,15 +128,6 @@ const canceledThenFailed = transitionSprintEngineAutomation(
 )
 assert.equal(canceledThenFailed.runtimeState, 'canceled')
 
-// Lifecycle-neutral pending-spawn bookkeeping still passes through `canceled`.
-const canceledThenPendingSpawns = transitionSprintEngineAutomation(
-  canceled,
-  { type: 'pending_spawns_changed', pendingSpawns: [{ taskId: 'T2', agentId: 'developer-3' }] },
-  720,
-)
-assert.equal(canceledThenPendingSpawns.runtimeState, 'canceled')
-assert.deepEqual(canceledThenPendingSpawns.pendingSpawns, [{ taskId: 'T2', agentId: 'developer-3' }])
-
 // Re-selecting a mode is the only escape out of a canceled run.
 const canceledThenResumed = transitionSprintEngineAutomation(
   canceled,
@@ -160,14 +139,13 @@ assert.equal(canceledThenResumed.reason, undefined)
 assert.equal(sprintEngineAutomationShouldRun(canceledThenResumed), true)
 
 const manual = transitionSprintEngineAutomation(
-  { ...resumed, pendingSpawns: [{ taskId: 'T1', agentId: 'frontend' }] },
+  resumed,
   { type: 'user_set_mode', mode: 'manual' },
   600,
 )
 assert.equal(manual.desiredMode, 'manual')
 assert.equal(manual.runtimeState, 'idle')
 assert.equal(manual.reason, 'user_selected_manual')
-assert.deepEqual(manual.pendingSpawns, [])
 assert.equal(sprintEngineAutomationShouldRun(manual), false)
 
 assert.equal(
@@ -225,15 +203,9 @@ assert.equal(
   true,
   'an agent whose owned task needs input still has a live session worth protecting'
 )
-assert.equal(
-  sprintEngineAgentHasLiveRunWork(
-    liveWorkState,
-    baseAutoState({ pendingSpawns: [{ taskId: 'T9', agentId: 'developer-3', startedAt: 1 }] }),
-    'developer-3'
-  ),
-  true,
-  'a pending spawn counts as live work — projection lag must not misclassify an early close'
-)
+// Removed: the pending-spawn live-work case tested deleted machinery (MC-1592
+// pool reconciler — the persisted pending-spawn ledger no longer exists; a
+// just-spawned worker is protected by its live session, not by store residue).
 // Removed: the gate-claim ("reviewer holds a gate with no task claim") live-work
 // case tested deleted gate machinery (MC-1542 single-owner tasks — currentGateId
 // no longer exists; a task in its review phase is held via currentTaskId).

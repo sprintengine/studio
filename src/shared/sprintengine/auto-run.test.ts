@@ -20,7 +20,6 @@ import {
   pickNextAutoRuns,
   resolveSprintEngineSessionCwd,
   sprintEngineDemandKey,
-  type RoleContinuationGrace,
 } from './auto-run'
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
@@ -75,11 +74,8 @@ function workspaceFixture(overrides: Partial<SprintEngineWorkspaceView> = {}): S
 function pickOptions(overrides: Partial<Parameters<typeof pickNextAutoRuns>[2]> = {}): Parameters<typeof pickNextAutoRuns>[2] {
   return {
     limit: 3,
-    pendingSpawns: [],
     runningAgentIds: new Set<string>(),
     inFlightSpawns: new Set<string>(),
-    continuationCapacityByRole: new Map(),
-    continuationGraceByTask: new Map<string, RoleContinuationGrace>(),
     ...overrides,
   }
 }
@@ -147,6 +143,31 @@ function testComputeDemandHonoursACustomKeyFunction(): void {
   assert.deepEqual([...byRepo.keys()].sort(), ['developer:repo-a', 'developer:repo-b'])
 }
 
+function testCustomDemandKeyChangesSpawnGrouping(): void {
+  // The wiring proof (MC-1592 review): the demand key must change SPAWNING,
+  // not just telemetry. Three ready developer tasks across two repos with two
+  // slots: keyed by role they form one group and the two oldest tasks are
+  // covered; keyed by (role, repo) they form two groups drained round-robin,
+  // so each repo gets a session before repo-a doubles up.
+  const state = stateFixture({
+    tasks: [
+      task({ id: 'A1', role: 'developer', ownedPaths: ['repo-a/x'] }),
+      task({ id: 'A2', role: 'developer', ownedPaths: ['repo-a/y'] }),
+      task({ id: 'B1', role: 'developer', ownedPaths: ['repo-b/z'] }),
+    ],
+  })
+
+  const byRole = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2 }))
+  assert.deepEqual(byRole.map((run) => run.taskId), ['A1', 'A2'], 'role key: one group, oldest two tasks covered')
+
+  const byRepo = pickNextAutoRuns(workspaceFixture(), state, pickOptions({
+    limit: 2,
+    demandKeyFn: (t) => `${t.role}:${t.ownedPaths[0]?.split('/')[0] ?? 'root'}`,
+  }))
+  assert.deepEqual(byRepo.map((run) => run.taskId), ['A1', 'B1'], '(role, repo) key: both repos get a session before repo-a doubles up')
+  assert.equal(new Set(byRepo.map((run) => run.agentId)).size, 2, 'each pool spawn mints its own fresh worker id')
+}
+
 // --- AC3: the 2026-07-14 starvation projection, replayed -------------------
 
 function testReconcilerSpawnsFromStarvationFixture(): void {
@@ -184,6 +205,7 @@ function main(): void {
   testDemandKeyIsRoleToday()
   testComputeDemandGroupsReadyUnownedWorkByKey()
   testComputeDemandHonoursACustomKeyFunction()
+  testCustomDemandKeyChangesSpawnGrouping()
   testReconcilerSpawnsFromStarvationFixture()
   console.log('auto-run.test.ts: all tests passed')
 }

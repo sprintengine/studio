@@ -40,7 +40,7 @@ import type {
 } from '../electron-api'
 import type { AgentExecution, AgentState } from './agent-state'
 import type { AgentId, SprintEngineState, SprintEngineWorkspaceView } from './run-types'
-import type { SprintEngineAutoPendingSpawn, SprintEngineAutomationMode } from './automation-types'
+import type { SprintEngineAutomationMode } from './automation-types'
 import { withTimeout } from './auto-run'
 
 type WorkspaceId = string
@@ -118,10 +118,6 @@ export interface SprintEngineAutoRunExecutorPorts {
   // Workspace store -----------------------------------------------------
   getWorkspace(workspaceId: WorkspaceId): SprintEngineWorkspaceView | undefined
   setSprintEngineState(workspaceId: WorkspaceId, state: SprintEngineState | null): void
-  setSprintEngineAutoPendingSpawns(
-    workspaceId: WorkspaceId,
-    pendingSpawns: SprintEngineAutoPendingSpawn[]
-  ): void
   setSprintEngineAutomationMode(
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode
@@ -313,7 +309,6 @@ export async function recordSpawnFailure(
       `Session: ${input.sessionId}`,
     ].join('\n'),
   })
-  ports.setSprintEngineAutoPendingSpawns(input.workspaceId, [])
   ports.updateAgent(input.workspaceId, input.agentId, {
     cliSessionId: undefined,
     cliStartRequested: false,

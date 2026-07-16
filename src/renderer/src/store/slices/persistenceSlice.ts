@@ -107,10 +107,7 @@ function repairSprintEngineAutomationLifecycleState(workspace: Workspace): Works
   })
   return {
     ...workspace,
-    sprintEngineAutoState: {
-      ...sprintEngineAutoState,
-      pendingSpawns: [],
-    },
+    sprintEngineAutoState,
   }
 }
 
@@ -868,16 +865,10 @@ export function migratePersistedWorkspaceState(
     }))
   }
   if (version < 51) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const sprintEngineAutoState = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-      return {
-        ...ws,
-        sprintEngineAutoState: {
-          ...sprintEngineAutoState,
-          pendingSpawns: [],
-        },
-      }
-    })
+    mapMigrationWorkspaces(migrationState, (ws) => ({
+      ...ws,
+      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
+    }))
   }
   if (version < 52) {
     // The guided brief panel owns its own step nav, so the FlexLayout tab
@@ -890,17 +881,12 @@ export function migratePersistedWorkspaceState(
     })
   }
   if (version < 53) {
-    // Normalize automation state while clearing transient spawn bookkeeping.
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const sprintEngineAutoState = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
-      return {
-        ...ws,
-        sprintEngineAutoState: {
-          ...sprintEngineAutoState,
-          pendingSpawns: [],
-        },
-      }
-    })
+    // Normalize automation state (the normalizer also drops any legacy
+    // transient spawn bookkeeping).
+    mapMigrationWorkspaces(migrationState, (ws) => ({
+      ...ws,
+      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
+    }))
   }
   if (version < 54) {
     // Files / Git / Knowledge Graph are now exclusive strip-less switches that

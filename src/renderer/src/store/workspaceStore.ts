@@ -13,7 +13,6 @@ import type {
   LayoutTemplate,
   AgentState,
   AgentId,
-  SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
@@ -366,10 +365,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
     session: SprintEngineRosterSession
   ) => void
   setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
-  setSprintEngineAutoPendingSpawns: (
-    workspaceId: WorkspaceId,
-    pendingSpawns: SprintEngineAutoPendingSpawn[]
-  ) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
   setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
   setMultiloopCliPermissionPreset: (

@@ -377,7 +377,6 @@ const permissionCarrier = {
         runtimeState: 'idle',
         cliPermissionPreset: 'default',
         maxConcurrentAgents: 3,
-        pendingSpawns: [],
         deliveredAgentNotificationEventKeys: [],
       },
       multiloopState: null,

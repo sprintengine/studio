@@ -70,7 +70,7 @@ import {
   type SprintEngineAutoRunDepartedWorkerTeardown,
   type SprintEngineAutoRunProjectionRefreshResult,
 } from '../shared/sprintengine/auto-run-cycle'
-import type { RoleContinuationGrace, SprintEngineDispatchAttempt } from '../shared/sprintengine/auto-run'
+import type { SprintEngineDispatchAttempt } from '../shared/sprintengine/auto-run'
 import type { TerminalSpawnArgs } from '../shared/sprintengine/auto-run-executor'
 import {
   agentCliSupportsConversationResume,
@@ -116,7 +116,6 @@ type RunEntry = {
     sentDispatchMessages: MutableRef<Map<string, SprintEngineDispatchAttempt>>
     sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>
     sentAgentNotificationEvents: MutableRef<Set<string>>
-    continuationGraceByTask: MutableRef<Map<string, RoleContinuationGrace>>
     projectionTokensByWorkspace: MutableRef<Map<string, string>>
     idleClockByAgent: MutableRef<Map<string, number>>
     retirementCooldownByAgent: MutableRef<Map<string, number>>
@@ -142,11 +141,11 @@ export type SprintRuntimeDeps = {
   getLaunchSettings(): SprintEngineLaunchSettings
   readAutomationMode(statePath: string): Promise<SprintEngineAutomationIntentRecord | null>
   /**
-   * Durable scheduler bookkeeping (Phase 3): persists pending spawns,
-   * delivered notification keys, the completion-teardown marker, and roster
-   * resume records into the automation sidecar so headless retirements and
-   * completions survive with zero windows and an app restart re-adopts main's
-   * own record rather than a stale renderer mirror. Fire-and-forget.
+   * Durable scheduler bookkeeping (Phase 3): persists delivered notification
+   * keys, the completion-teardown marker, and roster resume records into the
+   * automation sidecar so headless retirements and completions survive with
+   * zero windows and an app restart re-adopts main's own record rather than a
+   * stale renderer mirror. Fire-and-forget.
    */
   persistRuntimeResidue(statePath: string, runtime: SprintEngineAutomationRuntimeResidue): void
   powerManager: Pick<SprintPowerManager, 'markRunActive' | 'markRunInactive' | 'shutdown'>
@@ -233,7 +232,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       runtimeState: 'idle',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     }
   }
@@ -285,7 +283,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
   function persistResidue(entry: RunEntry): void {
     const autoState = currentAutoState(entry)
     deps.persistRuntimeResidue(entry.statePath, {
-      pendingSpawns: autoState.pendingSpawns,
       deliveredAgentNotificationEventKeys: autoState.deliveredAgentNotificationEventKeys,
       ...(autoState.completionTeardownAt !== undefined
         ? { completionTeardownAt: autoState.completionTeardownAt }
@@ -438,16 +435,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         reconcileViewAgents(target.view, state)
         // No broadcast: the renderer polls projection.json itself; pushing a
         // second copy would only race its own normalizer.
-      },
-      setSprintEngineAutoPendingSpawns: (workspaceId, pendingSpawns) => {
-        const target = entryForWorkspaceId(workspaceId)
-        if (!target) return
-        target.view.sprintEngineAutoState = {
-          ...currentAutoState(target),
-          pendingSpawns,
-        }
-        deps.broadcastOp({ kind: 'pending_spawns', statePath: target.statePath, pendingSpawns })
-        persistResidue(target)
       },
       setSprintEngineAutomationMode: () => {
         // The cycle never sets the mode directly (mode intent belongs to the
@@ -884,7 +871,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             entry.refs.sentDispatchMessages,
             entry.refs.sentArchitectTriageMessages,
             entry.refs.sentAgentNotificationEvents,
-            entry.refs.continuationGraceByTask,
             entry.refs.projectionTokensByWorkspace,
             entry.refs.idleClockByAgent,
             entry.refs.retirementCooldownByAgent,
@@ -943,8 +929,8 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       const teamSlug = basename(teamDirectoryPath)
       if (existing) {
         // Context refresh: identity + run configuration follow the renderer;
-        // scheduler-owned runtime residue (pendingSpawns, delivered keys,
-        // runtimeState) stays main-owned once adopted.
+        // scheduler-owned runtime residue (delivered keys, runtimeState) stays
+        // main-owned once adopted.
         if (existing.view.id !== registration.workspaceId) {
           if (runsByWorkspaceId.get(existing.view.id) === existing) {
             runsByWorkspaceId.delete(existing.view.id)
@@ -1000,7 +986,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
               : {}),
             cliPermissionPreset: registration.cliPermissionPreset,
             maxConcurrentAgents: registration.maxConcurrentAgents,
-            pendingSpawns: registration.pendingSpawns,
             deliveredAgentNotificationEventKeys: registration.deliveredAgentNotificationEventKeys,
             ...(registration.completionTeardownAt !== undefined
               ? { completionTeardownAt: registration.completionTeardownAt }
@@ -1028,7 +1013,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           sentDispatchMessages: { current: new Map() },
           sentArchitectTriageMessages: { current: new Map() },
           sentAgentNotificationEvents: { current: new Set() },
-          continuationGraceByTask: { current: new Map() },
           projectionTokensByWorkspace: { current: new Map() },
           idleClockByAgent: { current: new Map() },
           retirementCooldownByAgent: { current: new Map() },
@@ -1055,7 +1039,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           if (record.runtime) {
             target.view.sprintEngineAutoState = {
               ...currentAutoState(target),
-              pendingSpawns: record.runtime.pendingSpawns,
               deliveredAgentNotificationEventKeys: record.runtime.deliveredAgentNotificationEventKeys,
               ...(record.runtime.completionTeardownAt !== undefined
                 ? { completionTeardownAt: record.runtime.completionTeardownAt }

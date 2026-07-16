@@ -48,7 +48,6 @@ import type {
   MultiloopAutoState,
   MultiloopState,
   MultiloopWorkspaceContext,
-  SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineState,
   SprintEngineRole,
@@ -338,7 +337,6 @@ export interface WorkspacesSliceDependencies {
   normalizeSprintEngineAutoState: (
     input:
       | (Partial<SprintEngineAutoState> & {
-        pending?: SprintEngineAutoPendingSpawn | null
         deliveredAgentNotificationEventIds?: string[]
       })
       | null

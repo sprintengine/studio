@@ -17,11 +17,10 @@
  *    scheduler pauses in step with the UI.
  * 3. **Runtime ops (main -> renderer broadcast)**: store mutations the cycle
  *    performed against main's run view, mirrored into every window's store so
- *    the UI reflects scheduling live (agent launch flags, pending spawns,
- *    stop reasons, roster-session records, retirements).
+ *    the UI reflects scheduling live (agent launch flags, stop reasons,
+ *    roster-session records, retirements).
  */
 import type {
-  SprintEngineAutoPendingSpawn,
   SprintEngineAutomationRuntimeState,
   SprintEngineAutomationStopReason,
   SprintEngineCliPermissionPreset,
@@ -46,11 +45,9 @@ export type SprintRuntimeRunRegistration = {
   architectGuidance?: string
   /**
    * Renderer-persisted runtime residue the scheduler adopts on first
-   * registration so an in-flight run migrates cleanly (pending spawns dedup
-   * markers, delivered notification keys, the one-shot completion-teardown
-   * marker).
+   * registration so an in-flight run migrates cleanly (delivered notification
+   * keys, the one-shot completion-teardown marker).
    */
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
   deliveredAgentNotificationEventKeys: string[]
   completionTeardownAt?: number
   /**
@@ -123,7 +120,6 @@ export type SprintRuntimeOp =
       cliResumeAvailable?: boolean
     }
   }
-  | { kind: 'pending_spawns'; statePath: string; pendingSpawns: SprintEngineAutoPendingSpawn[] }
   | { kind: 'notification_delivered'; statePath: string; eventKey: string }
   | { kind: 'folder_missing'; statePath: string; missing: boolean }
   | {

@@ -72,8 +72,6 @@ export function createDefaultSprintEngineAutoRunExecutorPorts(): SprintEngineAut
       useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId),
     setSprintEngineState: (workspaceId, state) =>
       useWorkspaceStore.getState().setSprintEngineState(workspaceId, state),
-    setSprintEngineAutoPendingSpawns: (workspaceId, pendingSpawns) =>
-      useWorkspaceStore.getState().setSprintEngineAutoPendingSpawns(workspaceId, pendingSpawns),
     setSprintEngineAutomationMode: (workspaceId, mode) =>
       useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, mode),
     setFolderMissing: (workspaceId, missing) =>

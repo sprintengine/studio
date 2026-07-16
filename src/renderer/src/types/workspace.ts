@@ -207,7 +207,6 @@ export type LayoutTemplate = {
 // `src/shared/sprintengine/automation-types.ts`; these re-exports keep every
 // existing renderer import site working unchanged.
 export type {
-  SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineAutomationDesiredMode,
   SprintEngineAutomationEvent,

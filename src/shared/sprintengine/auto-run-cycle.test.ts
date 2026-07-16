@@ -1,9 +1,14 @@
 /**
- * Supervise-cycle fail-soft test (MC-1592). A stage that throws must log a
- * diagnostic and be skipped without aborting the tick — later stages, crucially
- * spawning, still run from the same snapshot. Exercised end-to-end through
- * `superviseWorkspace`: the recovery-and-dispatch stage throws (a dispatch paste
- * whose terminal write fails), and a ready task must still spawn the same tick.
+ * Supervise-cycle tests (MC-1592), exercised end-to-end through
+ * `superviseWorkspace`:
+ *
+ * 1. Fail-soft: a stage that throws must log a diagnostic and be skipped
+ *    without aborting the tick — later stages, crucially spawning, still run
+ *    from the same snapshot (the recovery-and-dispatch stage throws via a
+ *    failing terminal write, and a ready task must still spawn the same tick).
+ * 2. Planner preference: triage acting (a triage paste into the planner's
+ *    terminal) must NOT suppress pool spawning the same tick — triage is a
+ *    scheduling preference, not an early-returning pipeline stage.
  *
  * Runner: esbuild bundle -> node, `node:assert/strict`.
  */
@@ -13,12 +18,13 @@ import type { AgentState } from './agent-state'
 import type { SprintEngineState, SprintEngineWorkspaceView } from './run-types'
 import type { SprintEngineAutoState } from './automation-types'
 import type { ArchitectTriageMessage, SprintEngineAutoRunCyclePorts } from './auto-run-cycle'
-import type { RoleContinuationGrace, SprintEngineDispatchAttempt } from './auto-run'
+import type { SprintEngineDispatchAttempt } from './auto-run'
 import { createSprintEngineAutoRunCycleState, superviseWorkspace } from './auto-run-cycle'
 
 type Captured = {
   spawns: Array<{ sessionId: string; agentId?: string }>
   diagnostics: Array<{ title?: string; details?: string }>
+  writes: Array<{ sessionId: string; data: string }>
 }
 
 const STATE_PATH = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
@@ -56,12 +62,16 @@ function makePorts(
   captured: Captured,
   workspace: SprintEngineWorkspaceView,
   sessions: TerminalSessionSnapshot[],
+  options: { terminalWriteFails?: boolean } = {},
 ): SprintEngineAutoRunCyclePorts {
   return {
     terminalList: async () => sessions,
-    // The dispatch paste fails: this is the stage that throws (a non-IPC error,
-    // so it is swallowed fail-soft, not re-thrown like a TerminalListIpcError).
-    terminalWrite: async () => { throw new Error('terminal write failed') },
+    // With terminalWriteFails, the dispatch paste throws (a non-IPC error, so
+    // it is swallowed fail-soft, not re-thrown like a TerminalListIpcError).
+    terminalWrite: async (sessionId: string, data: string) => {
+      if (options.terminalWriteFails) throw new Error('terminal write failed')
+      captured.writes.push({ sessionId, data })
+    },
     terminalKill: async () => {},
     terminalStatus: async () => ({ processAlive: false }),
     terminalSpawn: async (args) => {
@@ -79,7 +89,6 @@ function makePorts(
     getSpawnSettings: () => ({ projectKnowledgeRoots: null, sprintEngineModelCatalog: [] }),
     getWorkspace: () => workspace,
     setSprintEngineState: () => {},
-    setSprintEngineAutoPendingSpawns: () => {},
     setSprintEngineAutomationMode: () => {},
     setFolderMissing: () => {},
     updateAgent: () => {},
@@ -100,9 +109,32 @@ function autoState(): SprintEngineAutoState {
     runtimeState: 'running',
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 3,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
   }
+}
+
+function superviseArgs(
+  ports: SprintEngineAutoRunCyclePorts,
+  workspace: SprintEngineWorkspaceView,
+  cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
+): Parameters<typeof superviseWorkspace> {
+  return [
+    ports,
+    createSprintEngineAutoRunCycleState(),
+    workspace,
+    cliRuntimes,
+    {} as McpSettings,
+    ref(new Set<string>()),
+    ref(new Map<string, number>()),
+    ref(new Map<string, number>()),
+    ref(new Map<string, SprintEngineDispatchAttempt>()),
+    ref(new Map<string, SprintEngineDispatchAttempt>()),
+    ref(new Map<string, ArchitectTriageMessage>()),
+    ref(new Set<string>()),
+    ref(new Map<string, string>()),
+    ref(new Map<string, number>()),
+    ref(new Map<string, number>()),
+  ]
 }
 
 function ref<T>(value: T): { current: T } {
@@ -151,28 +183,11 @@ async function testAThrowingStageDoesNotPreventSpawning(): Promise<void> {
     memory: { relativeRoot: '' },
   } as unknown as SprintEngineWorkspaceView
 
-  const captured: Captured = { spawns: [], diagnostics: [] }
-  const ports = makePorts(captured, workspace, [agentSession('developer-1')])
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports = makePorts(captured, workspace, [agentSession('developer-1')], { terminalWriteFails: true })
   const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
 
-  await superviseWorkspace(
-    ports,
-    createSprintEngineAutoRunCycleState(),
-    workspace,
-    cliRuntimes,
-    {} as McpSettings,
-    ref(new Set<string>()),
-    ref(new Map<string, number>()),
-    ref(new Map<string, number>()),
-    ref(new Map<string, SprintEngineDispatchAttempt>()),
-    ref(new Map<string, SprintEngineDispatchAttempt>()),
-    ref(new Map<string, ArchitectTriageMessage>()),
-    ref(new Set<string>()),
-    ref(new Map<string, RoleContinuationGrace>()),
-    ref(new Map<string, string>()),
-    ref(new Map<string, number>()),
-    ref(new Map<string, number>()),
-  )
+  await superviseWorkspace(...superviseArgs(ports, workspace, cliRuntimes))
 
   assert.equal(captured.spawns.length, 1, `the ready task still spawns despite the thrown stage; spawns=${JSON.stringify(captured.spawns)}`)
   assert.equal(captured.spawns[0].agentId, 'developer-2', 'a fresh worker is minted for the ready task')
@@ -182,8 +197,69 @@ async function testAThrowingStageDoesNotPreventSpawning(): Promise<void> {
   )
 }
 
+async function testTriageActingDoesNotSuppressPoolSpawning(): Promise<void> {
+  // The planner has a live session and an architect-actionable needs_input
+  // task exists, so the planner-preference path pastes the triage prompt into
+  // the architect terminal ("triage acted"). Under the retired stage ordering
+  // that early-returned the whole tick; the reconciler must still spawn the
+  // ready unowned developer task the same tick.
+  const task = (over: Record<string, unknown>) => ({
+    id: 'T', title: '', description: '', role: 'developer', status: 'todo', ownerAgentId: null,
+    dependsOn: [], ownedPaths: [], acceptanceCriteria: [], implementationNotes: [],
+    evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] }, notes: [], comments: [],
+    startedAt: null, completedAt: null, boardColumn: 'ready', ...over,
+  })
+  const state = {
+    name: 'team',
+    goal: '',
+    roleCounts: { architect: 1 },
+    roleRuntimes: { developer: { cli: 'claude-code' }, architect: { cli: 'claude-code' } },
+    sprintEngineAgents: {
+      architect: { role: 'architect', status: 'running', currentTaskId: null },
+    },
+    events: [],
+    artifacts: [],
+    tasks: [
+      task({
+        id: 'T-blocked', title: 'Needs planner input', status: 'needs_input', boardColumn: 'blocked',
+        needsInput: { kind: 'architect', reason: 'plan ambiguity' },
+      }),
+      task({ id: 'T-open', title: 'Ready developer work' }),
+    ],
+  } as unknown as SprintEngineState
+
+  const architectAgent = {
+    ...viewAgent('architect'),
+    cliSessionId: 'session-architect',
+  } as AgentState
+  const workspace = {
+    id: 'workspace-1',
+    name: 'Planner-preference workspace',
+    folderPath: '/tmp/workspace',
+    agents: { architect: architectAgent },
+    sprintEngineState: state,
+    sprintEngineAutoState: autoState(),
+    sprintEngineContext: { teamSlug: 'team', statePath: STATE_PATH },
+    memory: { relativeRoot: '' },
+  } as unknown as SprintEngineWorkspaceView
+
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports = makePorts(captured, workspace, [agentSession('architect')])
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  await superviseWorkspace(...superviseArgs(ports, workspace, cliRuntimes))
+
+  assert.ok(
+    captured.writes.some((write) => write.sessionId === 'session-architect' && write.data.includes('triage')),
+    `triage acted: the planner terminal received the triage prompt; writes=${JSON.stringify(captured.writes.map((w) => w.sessionId))}`,
+  )
+  assert.equal(captured.spawns.length, 1, `pool spawning still ran the same tick; spawns=${JSON.stringify(captured.spawns)}`)
+  assert.equal(captured.spawns[0].agentId, 'developer-1', 'the ready developer task got a fresh pool worker')
+}
+
 async function main(): Promise<void> {
   await testAThrowingStageDoesNotPreventSpawning()
+  await testTriageActingDoesNotSuppressPoolSpawning()
   console.log('auto-run-cycle.test.ts: all tests passed')
 }
 

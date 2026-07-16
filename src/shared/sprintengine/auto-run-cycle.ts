@@ -37,12 +37,10 @@ import type {
 import type { PluginRegistryListEntry } from '../plugin-manifest'
 import type {
   SprintEngineArtifact,
-  SprintEngineRoleId,
   SprintEngineState,
   SprintEngineWorkspaceView,
 } from './run-types'
 import type {
-  SprintEngineAutoPendingSpawn,
   SprintEngineAutoState,
   SprintEngineAutomationEvent,
 } from './automation-types'
@@ -57,7 +55,6 @@ import {
   getSprintEngineRoleLabel,
   isCanceledSprintEngineRun,
   isCompletedSprintEngineRun,
-  isSprintEngineTaskLaunchable,
   normalizeSprintEngineProjection,
   resolveSprintEngineAgentRuntime,
 } from './state'
@@ -90,7 +87,6 @@ import {
   resolveSprintEngineSessionCwd,
   sprintEngineAutoRunPerfLog as logPerfEvent,
   type AutoRunCandidate,
-  type RoleContinuationGrace,
 } from './auto-run'
 import {
   TerminalListIpcError,
@@ -105,7 +101,6 @@ import {
   type SprintEngineAutoRunExecutorPorts,
   type TerminalListNoticeCooldown,
 } from './auto-run-executor'
-import { isSprintEnginePlanningRole } from './initial-spawns'
 import {
   deriveSprintEngineAutomationDesiredMode,
   normalizeSprintEngineAutomationRuntimeState,
@@ -266,16 +261,10 @@ export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleS
 // Constants + small pure helpers
 // ---------------------------------------------------------------------------
 
-export const AUTO_RUN_PENDING_SPAWN_GRACE_MS = 60000
 const ARTIFACT_AUTO_APPROVAL_RETRY_MS = 60000
 const AUTO_APPROVAL_DIAGNOSTIC_COOLDOWN_MS = 30000
 export const BACKGROUND_TERMINAL_COLS = 100
 export const BACKGROUND_TERMINAL_ROWS = 30
-
-export type RunningContinuationCapacity = {
-  capacityByRole: Map<SprintEngineRoleId, number>
-  agentIds: Set<string>
-}
 
 type RoleContinuationMessage = SprintEngineDispatchAttempt
 
@@ -289,7 +278,6 @@ export const DEFAULT_AUTO_STATE: SprintEngineAutoState = {
   runtimeState: 'idle',
   cliPermissionPreset: 'default',
   maxConcurrentAgents: 3,
-  pendingSpawns: [],
   deliveredAgentNotificationEventKeys: [],
 }
 
@@ -768,14 +756,6 @@ function sessionBelongsToWorkspaceSprintEngine(
   )
 }
 
-async function agentHasRunningProcess(
-  ports: SprintEngineAutoRunCyclePorts,
-  workspace: Workspace,
-  agentId: string
-): Promise<boolean> {
-  return Boolean(await findRunningAgentSession(ports, workspace, agentId))
-}
-
 export async function getRunningAutoRunAgentIds(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
@@ -816,21 +796,26 @@ export async function getRunningAutoRunAgentIds(
   return { running: runningAgentIds, live: liveAgentIds }
 }
 
-export async function getRunningContinuationCapacityByRole(
+/**
+ * The planner's idle-agent universe: every live session whose runtime agent is
+ * not actively working (no non-done current task, no owned active task, not
+ * needs_input/retired). This set feeds own-task wakes, stalled restarts, and
+ * idle retirement. It is NOT spawn capacity: under leases (MC-1591/MC-1592)
+ * ready unowned work is covered by the desired-pool pass minting fresh
+ * sessions, never by reserving slots against idle terminals.
+ */
+export async function getIdleAutoRunAgentIds(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   sessionsSnapshot?: TerminalSessionSnapshot[]
-): Promise<RunningContinuationCapacity> {
-  const capacityByRole = new Map<SprintEngineRoleId, number>()
-  const countedAgentIds = new Set<string>()
+): Promise<Set<string>> {
+  const idleAgentIds = new Set<string>()
   const sessions = sessionsSnapshot
-    ?? await listTerminalSessionsForAutoRun(ports, workspace, 'role-continuation-capacity')
+    ?? await listTerminalSessionsForAutoRun(ports, workspace, 'idle-agent-ids')
 
-  // Index tasks once. The per-session loop previously ran two full
-  // sprintEngineState.tasks.find() scans per session — O(sessions × tasks) — to
-  // resolve the agent's current task and detect an owned active task. A by-id
-  // map and an owner set make each session's checks O(1), i.e. O(sessions + tasks).
+  // Index tasks once so each session's checks are O(1) — O(sessions + tasks)
+  // overall instead of O(sessions × tasks).
   const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
   const agentIdsOwningActiveTask = new Set<string>()
   for (const task of sprintEngineState.tasks) {
@@ -840,7 +825,7 @@ export async function getRunningContinuationCapacityByRole(
   }
 
   for (const session of sessions) {
-    if (!session.agentId || countedAgentIds.has(session.agentId)) continue
+    if (!session.agentId || idleAgentIds.has(session.agentId)) continue
     if (!sessionBelongsToWorkspaceSprintEngine(session, workspace)) continue
 
     const runtimeAgent = sprintEngineState.sprintEngineAgents[session.agentId]
@@ -853,18 +838,10 @@ export async function getRunningContinuationCapacityByRole(
 
     if (agentIdsOwningActiveTask.has(session.agentId)) continue
 
-    countedAgentIds.add(session.agentId)
-    // Task-scoped workers (MC-1444) only ever wake for their own task, so a
-    // used live terminal is NOT generic role capacity: counting it made the
-    // continuation-grace reservation hold back ready tasks it can never take,
-    // and left its own task unreserved (review finding). It still joins
-    // countedAgentIds — that set is the planner's idle-agent universe, which
-    // must keep seeing used agents for own-task wake and retirement.
-    if (runtimeAgent.lastOwnedTaskId && !isSprintEnginePlanningRole(runtimeAgent.role)) continue
-    capacityByRole.set(runtimeAgent.role, (capacityByRole.get(runtimeAgent.role) ?? 0) + 1)
+    idleAgentIds.add(session.agentId)
   }
 
-  return { capacityByRole, agentIds: countedAgentIds }
+  return idleAgentIds
 }
 
 /**
@@ -1056,7 +1033,6 @@ export async function executeSprintEngineDispatchPlan(
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,
       spawnContext.inFlightSpawns,
-      { trackPendingSpawn: false }
     )
     if (result === 'failed') {
       notificationSpawnFailed = true
@@ -1153,7 +1129,6 @@ export async function executeSprintEngineDispatchPlan(
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,
       spawnContext.inFlightSpawns,
-      { trackPendingSpawn: false }
     )
     // 'skipped' means a live session or in-flight spawn already covers this
     // agent — no budget consumed. Started and failed attempts both count
@@ -1362,7 +1337,7 @@ export async function respawnDeadSprintEngineClaimants(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: ReadonlySet<string>,
-  continuationCapacity: RunningContinuationCapacity,
+  idleAgentIds: ReadonlySet<string>,
   sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>,
   spawnDeps: {
     cliRuntimes: Record<AgentCli, CliRuntimeSettings>
@@ -1375,7 +1350,7 @@ export async function respawnDeadSprintEngineClaimants(
     sprintEngineState,
     paths: ['respawn'],
     runningAgentIds,
-    idleAgentIds: continuationCapacity.agentIds,
+    idleAgentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: null },
     spawnContext: { sprintEngineState, ...spawnDeps },
   })
@@ -1386,7 +1361,7 @@ export async function sendContinuationPromptsToIdleAgents(
   cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  continuationCapacity: RunningContinuationCapacity,
+  idleAgentIds: ReadonlySet<string>,
   sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
   await runSprintEngineDispatchPaths(ports, cycleState, {
@@ -1394,7 +1369,7 @@ export async function sendContinuationPromptsToIdleAgents(
     sprintEngineState,
     paths: ['task_wake'],
     runningAgentIds: new Set(),
-    idleAgentIds: continuationCapacity.agentIds,
+    idleAgentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: null },
   })
 }
@@ -1404,7 +1379,7 @@ export async function escalateStalledLiveIdleAgents(
   cycleState: SprintEngineAutoRunCycleState,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  continuationCapacity: RunningContinuationCapacity,
+  idleAgentIds: ReadonlySet<string>,
   sentContinuationMessages: MutableRef<Map<string, RoleContinuationMessage>>
 ): Promise<'restarted' | 'none'> {
   const result = await runSprintEngineDispatchPaths(ports, cycleState, {
@@ -1412,7 +1387,7 @@ export async function escalateStalledLiveIdleAgents(
     sprintEngineState,
     paths: ['restart'],
     runningAgentIds: new Set(),
-    idleAgentIds: continuationCapacity.agentIds,
+    idleAgentIds,
     ledgers: { continuation: sentContinuationMessages, dispatch: null },
   })
   return result.restarted ? 'restarted' : 'none'
@@ -1486,78 +1461,6 @@ async function reconcileDuplicateAgentSessions(
   return sessions
 }
 
-function setAutoRunPendingSpawns(
-  ports: SprintEngineAutoRunCyclePorts,
-  workspaceId: string,
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
-): void {
-  ports.setSprintEngineAutoPendingSpawns(workspaceId, pendingSpawns)
-}
-
-function addAutoRunPendingSpawn(
-  ports: SprintEngineAutoRunCyclePorts,
-  workspaceId: string,
-  pending: SprintEngineAutoPendingSpawn
-): void {
-  const workspace = ports.getWorkspace(workspaceId)
-  const current = getSprintEngineAutoState(workspace).pendingSpawns
-  ports.setSprintEngineAutoPendingSpawns(workspaceId, [
-    ...current.filter((candidate) =>
-      candidate.taskId !== pending.taskId && candidate.agentId !== pending.agentId
-    ),
-    pending,
-  ])
-}
-
-async function reconcileAutoRunPendingSpawns(
-  ports: SprintEngineAutoRunCyclePorts,
-  workspace: Workspace,
-  sprintEngineState: SprintEngineState
-): Promise<SprintEngineAutoPendingSpawn[]> {
-  const pendingSpawns = getSprintEngineAutoState(workspace).pendingSpawns
-  if (pendingSpawns.length === 0) return []
-
-  const activePendingSpawns: SprintEngineAutoPendingSpawn[] = []
-  let changed = false
-
-  for (const pending of pendingSpawns) {
-    const pendingTask = sprintEngineState.tasks.find((task) => task.id === pending.taskId)
-    const pendingTaskStillReady = pendingTask
-      ? isSprintEngineTaskLaunchable(pendingTask, sprintEngineState)
-      : false
-    const pendingAgent = workspace.agents[pending.agentId]
-    const pendingAgentHasProcess = await agentHasRunningProcess(ports, workspace, pending.agentId)
-    const pendingStartedAt = pending.startedAt ?? 0
-    const pendingStillInGrace = Date.now() - pendingStartedAt < AUTO_RUN_PENDING_SPAWN_GRACE_MS
-
-    if (pendingTaskStillReady && (pendingAgentHasProcess || pendingStillInGrace)) {
-      activePendingSpawns.push(pending)
-      continue
-    }
-
-    changed = true
-    if (pendingAgent && pendingAgent.cliStartRequested && !pendingAgentHasProcess) {
-      ports.updateAgent(workspace.id, pending.agentId, {
-        cliSessionId: undefined,
-        cliStartRequested: false,
-        cliHasLaunched: false,
-        cliOnboardingPromptSent: false,
-        cliResumeAvailable: false,
-      })
-      void ports.dispatchUpdateTerminalLaunchState(workspace.id, pending.agentId, {
-        cliSessionId: null,
-        cliStartRequested: false,
-        cliHasLaunched: false,
-        cliOnboardingPromptSent: false,
-        cliResumeAvailable: false,
-      })
-    }
-  }
-
-  if (changed) setAutoRunPendingSpawns(ports, workspace.id, activePendingSpawns)
-  return activePendingSpawns
-}
-
 export async function spawnAutoRunCandidate(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
@@ -1566,7 +1469,7 @@ export async function spawnAutoRunCandidate(
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRef<Set<string>>,
-  options: { trackPendingSpawn?: boolean; revealPolicy?: AgentTerminalRevealPolicy } = {}
+  options: { revealPolicy?: AgentTerminalRevealPolicy } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentWorkspace = ports.getWorkspace(workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
@@ -1627,11 +1530,9 @@ export async function spawnAutoRunCandidate(
       : undefined
   const workspaceFolderPath = workspace.folderPath
   const sprintEngineStatePath = workspace.sprintEngineContext.statePath
-  const pendingSpawn = {
-    taskId: nextRun.taskId,
-    agentId: nextRun.agentId,
-    startedAt: Date.now(),
-  }
+  // In-flight spawns are tracked in-memory only (MC-1592): a spawn either
+  // produces a session this tick or the desired-pool pass covers the work next
+  // tick — there is no persisted pending-spawn ledger to reconcile.
   inFlightSpawns.current.add(spawnKey)
 
   try {
@@ -1648,7 +1549,6 @@ export async function spawnAutoRunCandidate(
     const folderExists = await ports.pathExists(workspaceFolderPath)
     if (!folderExists) {
       ports.setFolderMissing(workspace.id, true)
-      setAutoRunPendingSpawns(ports, workspace.id, [])
       ports.applyAutomationStopReason(workspace.id, 'folder_missing', {
         agentId: nextRun.agentId,
         taskId: nextRun.taskId,
@@ -1764,7 +1664,6 @@ export async function spawnAutoRunCandidate(
       memoryPrompt,
     ].filter(Boolean).join('\n\n')
 
-    if (options.trackPendingSpawn !== false) addAutoRunPendingSpawn(ports, workspace.id, pendingSpawn)
     ports.updateAgent(workspace.id, nextRun.agentId, {
       name: nextRun.label,
       execution: {
@@ -1890,7 +1789,7 @@ export async function spawnAutoRunCandidate(
  * the actual spawn). All other spawning is work-driven and capped: ready
  * tasks through `pickNextAutoRuns`, notification
  * targets through `deliverAgentNotificationEvents`, and needs-input triage
- * through `signalArchitectForNeedsInputTriage`.
+ * through the planner-preference path (`signalPlannerForNeedsInputTriage`).
  */
 async function ensureSprintEngineBootstrapAgent(
   ports: SprintEngineAutoRunCyclePorts,
@@ -1962,7 +1861,6 @@ async function ensureSprintEngineBootstrapAgent(
     cliRuntimes,
     mcpSettings,
     inFlightSpawns,
-    { trackPendingSpawn: false }
   )
   if (result === 'failed') return 'failed'
   if (result === 'started') {
@@ -2017,11 +1915,18 @@ function clearStaleRetainedResumeState(
   }
 }
 
-async function signalArchitectForNeedsInputTriage(
+/**
+ * Planner preference (MC-1592): when planner-routed work exists (needs_input
+ * triage), prefer re-engaging the most recent planning session — paste the
+ * triage prompt into a live planner terminal, or resume/spawn the planner id —
+ * before the pool pass spawns anything fresh. A scheduling preference, not a
+ * pipeline stage: whatever this returns, the tick continues to the pool
+ * reconcile, so triage can never suppress spawning.
+ */
+async function signalPlannerForNeedsInputTriage(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  pendingSpawns: SprintEngineAutoPendingSpawn[],
   runningAgentIds: Set<string>,
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
@@ -2053,7 +1958,6 @@ async function signalArchitectForNeedsInputTriage(
   }
 
   const spawnKey = `${workspace.id}:${architect.id}`
-  const architectPending = pendingSpawns.some((pending) => pending.agentId === architect.id)
   const taskIds = architectBlockers.map((task) => task.id)
   const triagePrompt = buildArchitectNeedsInputTriagePrompt({
     workspaceFolderPath: workspace.folderPath,
@@ -2100,7 +2004,7 @@ async function signalArchitectForNeedsInputTriage(
     return 'sent'
   }
 
-  if (architectPending || inFlightSpawns.current.has(spawnKey)) return 'none'
+  if (inFlightSpawns.current.has(spawnKey)) return 'none'
 
   const result = await spawnAutoRunCandidate(
     ports,
@@ -2116,7 +2020,6 @@ async function signalArchitectForNeedsInputTriage(
     cliRuntimes,
     mcpSettings,
     inFlightSpawns,
-    { trackPendingSpawn: false }
   )
   if (result === 'failed') return 'failed'
   if (result === 'started') {
@@ -2139,7 +2042,6 @@ export async function superviseWorkspace(
   sentDispatchMessages: MutableRef<Map<string, RoleContinuationMessage>>,
   sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>,
   sentAgentNotificationEvents: MutableRef<Set<string>>,
-  continuationGraceByTask: MutableRef<Map<string, RoleContinuationGrace>>,
   projectionTokensByWorkspace: MutableRef<Map<string, string>>,
   idleClockByAgent: MutableRef<Map<string, number>>,
   retirementCooldownByAgent: MutableRef<Map<string, number>>
@@ -2268,7 +2170,6 @@ export async function superviseWorkspace(
       sentDispatchMessages,
       sentArchitectTriageMessages,
       sentAgentNotificationEvents,
-      continuationGraceByTask,
       idleClockByAgent,
       retirementCooldownByAgent,
     })
@@ -2293,7 +2194,6 @@ export type SprintEngineRunnerActiveCycleInput = {
   sentDispatchMessages: MutableRef<Map<string, RoleContinuationMessage>>
   sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>
   sentAgentNotificationEvents: MutableRef<Set<string>>
-  continuationGraceByTask: MutableRef<Map<string, RoleContinuationGrace>>
   /** Cross-tick idle observations for the idle_retire path; must persist across ticks or retirement never reaches its window. */
   idleClockByAgent: MutableRef<Map<string, number>>
   /**
@@ -2321,48 +2221,34 @@ export async function superviseRunnerActiveCycle(
     sentDispatchMessages,
     sentArchitectTriageMessages,
     sentAgentNotificationEvents,
-    continuationGraceByTask,
   } = input
-
-  logPerfEvent('SprintEngineAutoRun', 'reconcile-pending-start', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    pendingSpawnCount: autoState.pendingSpawns.length,
-  })
-  const pendingSpawns = await reconcileAutoRunPendingSpawns(ports, workspace, sprintEngineState)
-  logPerfEvent('SprintEngineAutoRun', 'reconcile-pending-end', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    pendingSpawnCount: pendingSpawns.length,
-  })
 
   logPerfEvent('SprintEngineAutoRun', 'running-agents-start', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
   })
   // One terminal-list snapshot for the whole supervise cycle: the running-id
-  // scan, the continuation-capacity scan, and the dispatch executor's session
-  // lookups all read the same set. Taken after pending-spawn reconciliation so
-  // it reflects terminals spawned this tick; nothing between here and the
+  // scan, the idle-agent scan, and the dispatch executor's session
+  // lookups all read the same set. Nothing between here and the
   // executor spawns or kills a terminal, so it cannot go stale for an agent the
   // cycle acts on (the executor's own spawns take their session from the spawn
   // result, not this snapshot).
   const cycleSessions = await listTerminalSessionsForAutoRun(ports, workspace, 'supervise-cycle')
   const agentSessions = await getRunningAutoRunAgentIds(ports, workspace, sprintEngineState, cycleSessions)
   const runningAgentIds = agentSessions.running
-  const continuationCapacity = await getRunningContinuationCapacityByRole(ports, workspace, sprintEngineState, cycleSessions)
+  const idleAgentIds = await getIdleAutoRunAgentIds(ports, workspace, sprintEngineState, cycleSessions)
   logPerfEvent('SprintEngineAutoRun', 'running-agents-end', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
     runningAgentCount: runningAgentIds.size,
-    continuationCapacity: Object.fromEntries(continuationCapacity.capacityByRole),
+    idleAgentCount: idleAgentIds.size,
   })
 
   const idleClock = input.idleClockByAgent.current
   updateSprintEngineIdleClock({
     workspace,
     sprintEngineState,
-    idleAgentIds: continuationCapacity.agentIds,
+    idleAgentIds,
     now: Date.now(),
     clock: idleClock,
   })
@@ -2385,7 +2271,7 @@ export async function superviseRunnerActiveCycle(
       sprintEngineState,
       paths: ['notification', 'dispatch', 'task_wake', 'active_assignment', 'restart', 'respawn', 'idle_retire'],
       runningAgentIds,
-      idleAgentIds: continuationCapacity.agentIds,
+      idleAgentIds,
       ledgers: { continuation: sentContinuationMessages, dispatch: sentDispatchMessages },
       notifications: {
         deliveredKeys: new Set(getSprintEngineAutoState(workspace).deliveredAgentNotificationEventKeys),
@@ -2409,15 +2295,20 @@ export async function superviseRunnerActiveCycle(
   )
   if (dispatchResult.notificationSpawnFailed) return
 
-  const architectTriageSignal = await runFailSoftStage(
+  // Planner preference (MC-1592): triage is a scheduling preference, not a
+  // pipeline stage — whatever it did (pasted, spawned, failed, nothing), the
+  // tick continues to the pool reconcile below. A failed triage spawn already
+  // stopped the automation via recordSpawnFailure, which the per-spawn
+  // automation re-check in the pool loop honours; nothing here may suppress
+  // spawning for the rest of the tick.
+  const plannerTriageSignal = await runFailSoftStage(
     ports,
     workspace,
-    'architect-triage',
-    () => signalArchitectForNeedsInputTriage(
+    'planner-triage',
+    () => signalPlannerForNeedsInputTriage(
       ports,
       workspace,
       sprintEngineState,
-      pendingSpawns,
       runningAgentIds,
       cliRuntimes,
       mcpSettings,
@@ -2427,18 +2318,14 @@ export async function superviseRunnerActiveCycle(
     ),
     'none' as 'started' | 'sent' | 'failed' | 'none'
   )
-  if (architectTriageSignal === 'failed') return
-  if (architectTriageSignal === 'started' || architectTriageSignal === 'sent') {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+  if (plannerTriageSignal !== 'none') {
+    logPerfEvent('SprintEngineAutoRun', 'planner-triage-signal', {
       workspaceId: workspace.id,
       workspaceName: workspace.name,
-      reason: architectTriageSignal === 'started'
-        ? 'architect-needs-input-triage-started'
-        : 'architect-needs-input-triage-sent',
+      signal: plannerTriageSignal,
       taskIds: getArchitectActionableNeedsInputTasks(sprintEngineState).map((task) => task.id),
       elapsedMs: Math.round(performance.now() - superviseStartedAt),
     })
-    return
   }
 
   clearStaleRetainedResumeState(ports, workspace, sprintEngineState, agentSessions.live)
@@ -2524,11 +2411,13 @@ export async function superviseRunnerActiveCycle(
   // Desired-pool demand (MC-1592/MC-1615): the reconciler's model of what work
   // wants sessions — ready, unowned, launchable tasks grouped by the demand key
   // (today role; the key function is the multi-repo seam). Occupied sessions and
-  // the concurrency cap are subtracted below; the picker fills the remainder.
+  // the concurrency cap are subtracted below; the picker fills the remainder,
+  // grouping by the same key. Occupied = active leases (task owners) +
+  // in-flight spawns (in-memory only) + live sessions folded in via
+  // runningAgentIds.
   const demandByKey = computeSprintEngineDemand(sprintEngineState)
   const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
     tasks: sprintEngineState.tasks,
-    pendingSpawns,
     inFlightSpawnKeys: inFlightSpawns.current,
     workspaceId: workspace.id,
     runningAgentIds,
@@ -2555,15 +2444,29 @@ export async function superviseRunnerActiveCycle(
     return
   }
 
+  // Booting pool workers: live sessions whose worker id the engine has not
+  // bound yet (no runtime record before the first claim). The picker counts
+  // them as per-key supply — the in-memory replacement for the retired
+  // persisted pending-spawn ledger.
+  const unboundLiveWorkers = cycleSessions
+    .filter((session): session is TerminalSessionSnapshot & { agentId: string } =>
+      Boolean(session.agentId)
+      && sessionBelongsToWorkspaceSprintEngine(session, workspace)
+      && !sprintEngineState.sprintEngineAgents[session.agentId!]
+    )
+    .map((session) => ({
+      agentId: session.agentId,
+      role: session.agentSession?.role ?? '',
+      taskId: session.agentSession?.workId ?? null,
+    }))
+
   let nextRuns: AutoRunCandidate[] = []
   try {
     nextRuns = pickNextAutoRuns(workspace, sprintEngineState, {
       limit: availableSlots,
-      pendingSpawns,
       runningAgentIds,
       inFlightSpawns: inFlightSpawns.current,
-      continuationCapacityByRole: continuationCapacity.capacityByRole,
-      continuationGraceByTask: continuationGraceByTask.current,
+      unboundLiveWorkers,
     })
   } catch (error) {
     logPerfEvent('SprintEngineAutoRun', 'candidate-pick-error', {

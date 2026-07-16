@@ -66,13 +66,18 @@ const autoRunCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
     runtimeState: 'running',
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 4,
+    // Legacy pending-spawn residue from an older build: dropped on partialize.
     pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
     deliveredAgentNotificationEventKeys: ['EVT-1'],
-  },
+  } as never,
 }))
 assert.equal(autoRunCleaned.sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(autoRunCleaned.sprintEngineAutoState.runtimeState, 'running')
-assert.deepEqual(autoRunCleaned.sprintEngineAutoState.pendingSpawns, [])
+assert.equal(
+  'pendingSpawns' in autoRunCleaned.sprintEngineAutoState,
+  false,
+  'legacy pending-spawn residue never survives partialize (MC-1592: no persisted spawn ledger)',
+)
 assert.equal(autoRunCleaned.sprintEngineAutoState.maxConcurrentAgents, 4)
 
 // Creation "start now" launch intent is session-only: persisting it would

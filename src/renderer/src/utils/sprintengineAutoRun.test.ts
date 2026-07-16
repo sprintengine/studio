@@ -10,7 +10,6 @@ import {
   AUTO_RUN_ACTIVE_ASSIGNMENT_MAX_PROMPTS,
   AUTO_RUN_ACTIVE_ASSIGNMENT_PROMPT,
   AUTO_RUN_IDLE_RETIREMENT_MS,
-  AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
   AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS,
   findSprintEngineWakeCandidateTaskForAgent,
   sprintEngineWakeRestrictionTaskId,
@@ -37,8 +36,6 @@ import {
   sprintEngineIdleClockKey,
   sprintEngineRespawnLedgerKey,
   AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES,
-  type AutoRunCandidate,
-  type RoleContinuationGrace,
   type SprintEngineDispatchAttempt,
   type SprintEngineDispatchPath,
   type SprintEngineDispatchPlan,
@@ -56,7 +53,6 @@ import type {
   AppNotification,
   SprintEngineArtifact,
   SprintEngineEvent,
-  SprintEngineRole,
   SprintEngineRoleId,
   SprintEngineRuntimeAgent,
   SprintEngineState,
@@ -101,7 +97,7 @@ async function main(): Promise<void> {
   testPickNextAutoRunsSelectsReadyTaskForIdleRoleAgent()
   testPickNextAutoRunsSkipsUnresolvedNeedsInputOwner()
   testPickNextAutoRunsSkipsRetiredRoleAgent()
-  testPickNextAutoRunsHonoursContinuationGraceWindow()
+  testPickNextAutoRunsSpawnsReadyWorkImmediatelyWithoutReservation()
   testGetSprintEngineStartupCommandModePicksInitOnlyForEmptyArchitect()
   testDeriveAutomationModeTrustsLocalAutoStateOverRunnerPolicy()
   testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs()
@@ -220,7 +216,6 @@ async function testRespawnCarriesStampedRuntimeOverride(): Promise<void> {
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -430,13 +425,11 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
     multiloopAutoState: {
       enabled: false,
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
     },
     createdAt: 1,
     ...overrides,
@@ -561,7 +554,6 @@ async function testAutoApprovalOnlyBranchSkipsTerminalListWhenNothingToApprove()
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -625,7 +617,6 @@ function autoApprovalFixture(): {
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -840,7 +831,6 @@ async function testDeliverAgentNotificationsSkipsRetiredTargets(): Promise<void>
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -887,7 +877,6 @@ function reworkNotificationWorkspaceFixture(): Workspace {
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -1291,7 +1280,6 @@ async function testDeliverNotificationLeavesPendingWhenSupervisorDisabledAndNoTe
     sprintEngineAutoState: {
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -1548,10 +1536,7 @@ async function testWakeCandidatePromptStopsAfterSmallRetryLimit(): Promise<void>
   await supervisor.sendContinuationPromptsToIdleAgents(
     workspace,
     state,
-    {
-      capacityByRole: new Map([['frontend', 1]]),
-      agentIds: new Set(['frontend-2']),
-    },
+    new Set(['frontend-2']),
     sent
   )
   assert.equal(writes.length, 2, 'wake-candidate prompt is still pasted and submitted for the final allowed retry')
@@ -1561,10 +1546,7 @@ async function testWakeCandidatePromptStopsAfterSmallRetryLimit(): Promise<void>
   await supervisor.sendContinuationPromptsToIdleAgents(
     workspace,
     state,
-    {
-      capacityByRole: new Map([['frontend', 1]]),
-      agentIds: new Set(['frontend-2']),
-    },
+    new Set(['frontend-2']),
     sent
   )
 
@@ -1682,10 +1664,7 @@ async function testWakeCandidateCleanupPreservesNamespacedRetryKeys(): Promise<v
   await supervisor.sendContinuationPromptsToIdleAgents(
     workspace,
     state,
-    {
-      capacityByRole: new Map([['frontend', 1]]),
-      agentIds: new Set(['frontend-2']),
-    },
+    new Set(['frontend-2']),
     sent
   )
 
@@ -2334,7 +2313,6 @@ async function testSpawnAutoRunCandidateResumesPreviousOwnerConversation(): Prom
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -2635,7 +2613,7 @@ async function testSpawnResumeBlockedForCrashedLiveFlags(): Promise<void> {
     agents: { 'developer-1': crashedAgent },
     sprintEngineAutoState: {
       desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
-      maxConcurrentAgents: 3, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+      maxConcurrentAgents: 3, deliveredAgentNotificationEventKeys: [],
     },
   })
   const state = sprintEngineStateFixture({
@@ -2694,7 +2672,7 @@ async function testWindowDisposalWithoutTokenFullyClears(): Promise<void> {
     agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'codex') },
     sprintEngineAutoState: {
       desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
-      maxConcurrentAgents: 3, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+      maxConcurrentAgents: 3, deliveredAgentNotificationEventKeys: [],
     },
   })
   installWorkspaceStore(workspace)
@@ -2742,7 +2720,7 @@ async function testStaleRetainedResumeStateClearedOnceTaskDone(): Promise<void> 
     agents: { 'developer-1': retainedAgent },
     sprintEngineAutoState: {
       desiredMode: 'run_agents', runtimeState: 'running', cliPermissionPreset: 'default',
-      maxConcurrentAgents: 3, pendingSpawns: [], deliveredAgentNotificationEventKeys: [],
+      maxConcurrentAgents: 3, deliveredAgentNotificationEventKeys: [],
     },
   })
   installWorkspaceStore(workspace)
@@ -2807,7 +2785,6 @@ async function testWindowDisposalRetainsResumeStateInStore(): Promise<void> {
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -2991,7 +2968,6 @@ async function testSpawnAutoRunCandidateStartsMissingTerminalWithJoinPrompt(): P
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3093,7 +3069,6 @@ async function testSuperviseRunnerCycleMintsWorkerForUncoveredReadyTask(): Promi
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3111,7 +3086,6 @@ async function testSuperviseRunnerCycleMintsWorkerForUncoveredReadyTask(): Promi
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -3191,7 +3165,6 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3209,7 +3182,6 @@ async function testSuperviseRunnerCycleRestartsExitedRoleForReadyTask(): Promise
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -3532,7 +3504,7 @@ async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
     workspace,
     state,
     new Set(),
-    { capacityByRole: new Map(), agentIds: new Set() },
+    new Set<string>(),
     sent,
     { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
   )
@@ -3549,7 +3521,7 @@ async function testRespawnsDeadTaskClaimantAfterRestart(): Promise<void> {
     workspace,
     state,
     new Set(),
-    { capacityByRole: new Map(), agentIds: new Set() },
+    new Set<string>(),
     sent,
     { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
   )
@@ -3602,7 +3574,7 @@ async function testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants(): Promis
     workspace,
     state,
     new Set(['developer-live']),
-    { capacityByRole: new Map(), agentIds: new Set() },
+    new Set<string>(),
     sent,
     { cliRuntimes: respawnTestCliRuntimes, mcpSettings: emptyMcpSettings, inFlightSpawns: mutableRef(new Set<string>()) }
   )
@@ -3660,7 +3632,6 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3678,7 +3649,6 @@ async function testSuperviseRunnerCycleRespawnsDeadClaimantsAtFullOccupancy(): P
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -3756,7 +3726,6 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3779,7 +3748,6 @@ async function testAllPathsPlanNeverPastesAndKillsSameAgentInOnePass(): Promise<
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent,
   })
 
@@ -3845,7 +3813,6 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3863,7 +3830,6 @@ async function testNotificationPasteSuppressesSamePassDispatchPaste(): Promise<v
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -3893,7 +3859,6 @@ function idleReviewerCycleFixtures(input: { tasks: SprintEngineTask[]; reviewerO
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -3949,7 +3914,6 @@ async function runIdleRetirementCycle(
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent,
     retirementCooldownByAgent,
   })
@@ -4257,7 +4221,6 @@ async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -4275,7 +4238,6 @@ async function testNotificationSpawnFailureAbortsRemainingPlanActions(): Promise
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -4410,7 +4372,6 @@ async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void>
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -4428,7 +4389,6 @@ async function testTriageDefersWhenPlanEngagedArchitectThisPass(): Promise<void>
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -4501,7 +4461,6 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 6,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -4519,7 +4478,6 @@ async function testSuperviseRunnerCycleBootstrapsOnlyArchitectForFreshRun(): Pro
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -4628,7 +4586,6 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForReadyTask
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -4653,7 +4610,6 @@ async function testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForReadyTask
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -4730,7 +4686,6 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 1,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -4748,7 +4703,6 @@ async function testSuperviseRunnerCycleDoesNotRestartUnresolvedNeedsInputOwner()
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -4815,7 +4769,6 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskState(): Promise<void> {
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })
@@ -4833,7 +4786,6 @@ async function testSuperviseRunnerCycleDoesNotMutateTaskState(): Promise<void> {
     sentDispatchMessages: mutableRef(new Map()),
     sentArchitectTriageMessages: mutableRef(new Map()),
     sentAgentNotificationEvents: mutableRef(new Set()),
-    continuationGraceByTask: mutableRef(new Map()),
     idleClockByAgent: mutableRef(new Map()),
   })
 
@@ -5684,8 +5636,10 @@ function testPickNextAutoRunsBirthsPhaseSessionOnBoundRuntime(): void {
 }
 
 function testPickNextAutoRunsSkipsAwaitingPhaseSessionAlreadyPending(): void {
-  // Idempotency: if a Birth is already in flight for the task (pendingSpawns),
-  // the picker must not birth a second session for the same phase.
+  // Idempotency: if a Birth session is already live for the task (a booting
+  // worker whose id the engine has not bound yet, carrying the task as its
+  // routing exemplar), the picker must not birth a second session for the
+  // same phase.
   const awaitingTask = task({
     id: 'T-phase',
     role: 'developer',
@@ -5699,12 +5653,10 @@ function testPickNextAutoRunsSkipsAwaitingPhaseSessionAlreadyPending(): void {
     workspaceFixture(),
     state,
     pickInput({
-      pendingSpawns: [
-        { agentId: 'developer-2', label: 'Dev', role: 'developer', taskId: 'T-phase' } as AutoRunCandidate,
-      ],
+      unboundLiveWorkers: [{ agentId: 'developer-2', role: 'developer', taskId: 'T-phase' }],
     }),
   )
-  assert.equal(candidates.length, 0, 'no second Birth while one is already pending for the task')
+  assert.equal(candidates.length, 0, 'no second Birth while one is already booting for the task')
 }
 
 function testPickNextAutoRunsMintsDistinctIdsForTwoPhaseSessions(): void {
@@ -5749,23 +5701,15 @@ function runtimeAgent(role: SprintEngineRoleId, overrides: Partial<SprintEngineR
   return { role, status: 'idle', currentTaskId: null, ...overrides }
 }
 
-function pickInput(overrides: Partial<{
-  limit: number
-  pendingSpawns: AutoRunCandidate[]
-  runningAgentIds: Set<string>
-  inFlightSpawns: Set<string>
-  continuationCapacityByRole: Map<SprintEngineRole, number>
-  continuationGraceByTask: Map<string, RoleContinuationGrace>
-}> = {}): Parameters<typeof pickNextAutoRuns>[2] {
+function pickInput(
+  overrides: Partial<Parameters<typeof pickNextAutoRuns>[2]> = {}
+): Parameters<typeof pickNextAutoRuns>[2] {
   return {
     limit: 3,
-    pendingSpawns: [],
     runningAgentIds: new Set<string>(),
     inFlightSpawns: new Set<string>(),
-    continuationCapacityByRole: new Map(),
-    continuationGraceByTask: new Map(),
     ...overrides,
-  } as Parameters<typeof pickNextAutoRuns>[2]
+  }
 }
 
 function bootstrapWorkspace(agents: Workspace['agents'] = {}): Workspace {
@@ -5946,7 +5890,6 @@ function testGetSprintEngineAutoRunOccupiedAgentIdsDoesNotCountDeadNeedsInputOwn
       task({ id: 'T1', status: 'needs_input', ownerAgentId: 'developer-1', role: 'developer' }),
       task({ id: 'T2', status: 'needs_input', ownerAgentId: 'frontend', role: 'frontend' }),
     ],
-    pendingSpawns: [],
     inFlightSpawnKeys: new Set<string>(),
     workspaceId: 'workspace-1',
     runningAgentIds: new Set(['frontend']),
@@ -6018,7 +5961,12 @@ function testPickNextAutoRunsSkipsRetiredRoleAgent(): void {
   assert.equal(candidates[0].agentId, 'developer-2', 'the minted id skips the retired developer-1')
 }
 
-function testPickNextAutoRunsHonoursContinuationGraceWindow(): void {
+function testPickNextAutoRunsSpawnsReadyWorkImmediatelyWithoutReservation(): void {
+  // MC-1592: the time-based continuation-grace reservation is gone. Ready
+  // unowned work is spawnable the moment it is uncovered — an unbound ready
+  // task is never held back on the theory that an idle terminal might take it.
+  // Only a bound owner (retained lastOwnedTaskId) defers a task, and a booting
+  // unbound session covers its key's demand.
   const readyTask = task({
     id: 'T-ready',
     status: 'todo',
@@ -6032,35 +5980,20 @@ function testPickNextAutoRunsHonoursContinuationGraceWindow(): void {
     sprintEngineAgents: { 'developer-1': runtimeAgent('developer') },
   })
 
-  // With continuation capacity 1 and a fresh grace window, the task is reserved
-  // for the currently-idle agent and is NOT immediately spawned.
-  const continuationGraceByTask = new Map<string, RoleContinuationGrace>()
-  const continuationCapacityByRole = new Map<SprintEngineRole, number>([['developer', 1]])
-  const candidates = pickNextAutoRuns(
-    workspaceFixture(),
-    state,
-    pickInput({ continuationCapacityByRole, continuationGraceByTask })
-  )
-  assert.equal(candidates.length, 0, 'fresh grace window reserves the ready task for the idle agent')
-  assert.equal(continuationGraceByTask.size, 1, 'grace entry was recorded')
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  assert.equal(candidates.length, 1, 'ready unowned work is spawnable immediately — no grace reservation')
+  assert.equal(candidates[0].taskId, 'T-ready')
 
-  // After the grace window expires, the same task is offered as a candidate.
-  const expiredGrace = new Map<string, RoleContinuationGrace>([
-    [
-      `workspace-1:/tmp/workspace/.multi-code/sprintengine/team/run.yaml:T-ready`,
-      { startedAt: Date.now() - AUTO_RUN_ROLE_CONTINUATION_GRACE_MS - 1 },
-    ],
-  ])
-  const expiredCandidates = pickNextAutoRuns(
+  // A booting unbound session for the same key covers the demand instead.
+  const covered = pickNextAutoRuns(
     workspaceFixture(),
     state,
     pickInput({
-      continuationCapacityByRole,
-      continuationGraceByTask: expiredGrace,
+      runningAgentIds: new Set(['developer-2']),
+      unboundLiveWorkers: [{ agentId: 'developer-2', role: 'developer', taskId: 'T-ready' }],
     })
   )
-  assert.equal(expiredCandidates.length, 1, 'after grace expires the task becomes a candidate')
-  assert.equal(expiredCandidates[0].taskId, 'T-ready')
+  assert.equal(covered.length, 0, 'a booting unbound worker covers its demand key — no double spawn')
 }
 
 function testDeriveAutomationModeTrustsLocalAutoStateOverRunnerPolicy(): void {
@@ -6137,7 +6070,6 @@ async function testHardCompletionGateEntersDormancyExactlyOnceViaHelper(): Promi
       runtimeState: 'running',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 3,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
   })

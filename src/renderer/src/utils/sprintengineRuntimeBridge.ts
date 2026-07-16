@@ -10,7 +10,7 @@
  *    (statePath + sprintEngineState) to the scheduler with its identity, run
  *    configuration, and persisted runtime residue. Re-registration is keyed on
  *    an identity+config SIGNATURE only — main adopts the runtime residue
- *    (agents, pendingSpawns, rosterSessions, delivered keys, teardown marker)
+ *    (agents, rosterSessions, delivered keys, teardown marker)
  *    on FIRST registration and owns it afterwards, so churn in those fields
  *    must never re-register (it would clobber main's newer view with our
  *    mirror of it). A statePath that disappears from the store unregisters.
@@ -73,7 +73,6 @@ function buildRegistration(workspace: Workspace, statePath: string): SprintRunti
     cliPermissionPreset: autoState.cliPermissionPreset,
     maxConcurrentAgents: autoState.maxConcurrentAgents,
     ...(architectGuidance !== undefined ? { architectGuidance } : {}),
-    pendingSpawns: autoState.pendingSpawns,
     deliveredAgentNotificationEventKeys: autoState.deliveredAgentNotificationEventKeys,
     ...(autoState.completionTeardownAt !== undefined
       ? { completionTeardownAt: autoState.completionTeardownAt }
@@ -116,8 +115,8 @@ function buildAgentConfigs(workspace: Workspace): Record<string, SprintRuntimeAg
 }
 
 /**
- * Identity + run configuration only. Runtime residue (agents, pendingSpawns,
- * delivered keys, rosterSessions, completionTeardownAt) is adopted by main on
+ * Identity + run configuration only. Runtime residue (agents, delivered keys,
+ * rosterSessions, completionTeardownAt) is adopted by main on
  * first registration and main-owned afterwards — it must NOT re-register.
  * `agentConfigs` IS in the signature: user edits must reach main's spawns.
  */
@@ -163,9 +162,6 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
         agentId: op.agentId,
         ...op.update,
       })
-      return
-    case 'pending_spawns':
-      store.setSprintEngineAutoPendingSpawns(workspaceId, op.pendingSpawns)
       return
     case 'notification_delivered':
       store.markSprintEngineAgentNotificationDelivered(workspaceId, op.eventKey)

@@ -54,7 +54,6 @@ function autoState(overrides: Partial<SprintEngineAutoState> = {}): SprintEngine
     runtimeState: 'running',
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 1,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
     ...overrides,
   }

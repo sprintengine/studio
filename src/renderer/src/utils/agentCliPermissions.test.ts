@@ -32,7 +32,6 @@ const workspace = (agent: AgentState): Workspace => ({
     runtimeState: 'idle',
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 3,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
   },
   multiloopAutoState: {

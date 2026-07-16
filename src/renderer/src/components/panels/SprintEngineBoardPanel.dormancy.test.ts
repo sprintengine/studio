@@ -33,7 +33,6 @@ function completeAutoState(): SprintEngineAutoState {
     reason: 'all_tasks_done',
     cliPermissionPreset: 'default',
     maxConcurrentAgents: 1,
-    pendingSpawns: [],
     deliveredAgentNotificationEventKeys: [],
     completionTeardownAt: 500,
   }
@@ -131,30 +130,26 @@ function testReArmSurfaceIsOnlyTheUserExits(): void {
   )
 }
 
-// Behavioral: `pending_spawns_changed` is the ONLY non-user event the reducer's
-// terminal-state guard lets through on a `complete` run (spawn bookkeeping is
-// lifecycle-neutral). Adding a member drives spawn bookkeeping, so this is the
-// safety net that guarantees it can only record the pending spawn — never move a
-// finished run out of `complete` — no matter what re-triggers it.
-function testAddMemberPendingSpawnsCannotLeaveComplete(): void {
+// Behavioral: `user_set_mode` is the ONLY event the reducer's terminal-state
+// guard lets through on a `complete` run (the pending-spawn bookkeeping event
+// is retired with the MC-1592 pool reconciler — in-flight spawns are in-memory
+// only). Adding a member re-triggers runner events, so this is the safety net
+// that guarantees nothing but an explicit user mode selection can move a
+// finished run out of `complete`.
+function testAddMemberRunnerEventsCannotLeaveComplete(): void {
   const complete = completeAutoState()
   assert.equal(isSprintEngineWorkspaceDormant({ sprintEngineAutoState: complete }), true)
   const next = transitionSprintEngineAutomation(
     complete,
-    { type: 'pending_spawns_changed', pendingSpawns: [{ taskId: 'T2', agentId: 'developer-2' }] },
+    { type: 'runner_started' },
     1000,
   )
-  assert.equal(next.runtimeState, 'complete', 'pending-spawn bookkeeping keeps the run dormant')
+  assert.equal(next.runtimeState, 'complete', 'a non-user runner event keeps the run dormant')
   assert.equal(next.desiredMode, 'run_agents', 'desired mode is untouched')
-  assert.deepEqual(
-    next.pendingSpawns,
-    [{ taskId: 'T2', agentId: 'developer-2' }],
-    'the pending spawn is recorded for the spawn effect',
-  )
   assert.equal(
     isSprintEngineWorkspaceDormant({ sprintEngineAutoState: next }),
     true,
-    'the run is still dormant after add-member bookkeeping',
+    'the run is still dormant after add-member re-triggered runner events',
   )
 }
 
@@ -208,7 +203,7 @@ function testReopenResumesRecordedSessionWhileDormant(): void {
 testManualRefreshIsWiredDisplayOnly()
 testAddMemberIsWiredDisplayOnly()
 testReArmSurfaceIsOnlyTheUserExits()
-testAddMemberPendingSpawnsCannotLeaveComplete()
+testAddMemberRunnerEventsCannotLeaveComplete()
 testReopenResumesRecordedSessionWhileDormant()
 
 console.log('sprintengine board panel dormancy tests passed')

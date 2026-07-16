@@ -303,7 +303,6 @@ function createRoutingPlaceholderWorkspace(
       runtimeState: 'idle',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
     multiloopAutoState: {

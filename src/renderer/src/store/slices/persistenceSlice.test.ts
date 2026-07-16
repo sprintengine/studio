@@ -185,7 +185,6 @@ const v60SprintEnginePermissionState = {
         runtimeState: 'idle',
         cliPermissionPreset: 'default',
         maxConcurrentAgents: 3,
-        pendingSpawns: [],
         deliveredAgentNotificationEventKeys: [],
       },
     },
@@ -242,7 +241,6 @@ const migratedAutoRun = migratePersistedWorkspaceState(v52AutoRunState, 52) as {
       runtimeState: string
       cliPermissionPreset: string
       maxConcurrentAgents: number
-      pendingSpawns: unknown[]
       deliveredAgentNotificationEventKeys: string[]
     }
   }>
@@ -258,7 +256,11 @@ assert.equal(
 )
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.runtimeState, 'running')
-assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.pendingSpawns, [])
+assert.equal(
+  'pendingSpawns' in migratedAutoRun.workspaces[0].sprintEngineAutoState,
+  false,
+  'legacy pending-spawn residue is dropped by normalization (MC-1592: no persisted spawn ledger)',
+)
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass_all')
 assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.maxConcurrentAgents, 4)
 assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.deliveredAgentNotificationEventKeys, ['EVT-1'])

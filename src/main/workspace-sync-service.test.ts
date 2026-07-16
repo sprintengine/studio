@@ -22,7 +22,6 @@ function workspace(id: string, folderPath: string | null = null): Workspace {
       runtimeState: 'idle',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
     multiloopAutoState: {

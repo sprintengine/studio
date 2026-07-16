@@ -4,13 +4,13 @@
  * beside `run.yaml`).
  *
  * Only the intent lives here (mode + revision + provenance). Runtime lifecycle
- * state (`runtimeState`, reasons, pending spawns) stays renderer-derived while
- * the auto-run loop is renderer-driven; the scheduler phases extend this file.
+ * state (`runtimeState`, reasons) stays renderer-derived while the auto-run
+ * loop is renderer-driven; the scheduler phases extend this file.
  *
  * Pure data logic: parsing, normalization, and successor-record math. All fs
  * and clock access lives in `src/main/sprintengine-automation-service.ts`.
  */
-import type { SprintEngineAutoPendingSpawn, SprintEngineAutomationMode } from './automation-types'
+import type { SprintEngineAutomationMode } from './automation-types'
 import type { SprintEngineRosterSession } from './run-types'
 import { isSprintEngineAutomationMode } from './automation-lifecycle'
 
@@ -34,7 +34,6 @@ export type SprintEngineAutomationIntentWrite = {
  * revision — it is bookkeeping beside the intent, not the intent.
  */
 export type SprintEngineAutomationRuntimeResidue = {
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
   deliveredAgentNotificationEventKeys: string[]
   completionTeardownAt?: number
   rosterSessions: Record<string, SprintEngineRosterSession>
@@ -100,9 +99,6 @@ export function normalizeRuntimeResidue(raw: unknown): SprintEngineAutomationRun
     ? raw as Record<string, unknown>
     : {}
   return {
-    pendingSpawns: Array.isArray(record.pendingSpawns)
-      ? record.pendingSpawns as SprintEngineAutoPendingSpawn[]
-      : [],
     deliveredAgentNotificationEventKeys: Array.isArray(record.deliveredAgentNotificationEventKeys)
       ? (record.deliveredAgentNotificationEventKeys as unknown[])
         .filter((key): key is string => typeof key === 'string')

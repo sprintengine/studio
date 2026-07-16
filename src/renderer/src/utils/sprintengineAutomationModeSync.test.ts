@@ -182,20 +182,12 @@ async function main(): Promise<void> {
 
   // ── Echo ordering (review finding 1): the broadcast echo of a local push is
   // delivered BEFORE the push response resolves, and carries our clientToken.
-  // A rapid double-toggle must not transiently revert or clear pendingSpawns.
+  // A rapid double-toggle must not transiently revert the final mode.
   useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'manual')
   useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')
-  useWorkspaceStore.getState().setSprintEngineAutoPendingSpawns(workspaceId, [
-    { taskId: 'T1', agentId: 'developer-1', startedAt: 1 },
-  ])
   await settle()
   assert.equal(workspace()?.sprintEngineAutoState?.desiredMode, 'run_agents',
     'echoes of both pushes were dropped by client token; final mode is the second toggle')
-  assert.deepEqual(
-    workspace()?.sprintEngineAutoState?.pendingSpawns,
-    [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
-    'pendingSpawns survive local push echoes'
-  )
   assert.equal(fakeApi.pushCalls.length, 2)
   assert.ok(fakeApi.pushCalls.every((call) => typeof call.clientToken === 'string' && call.clientToken),
     'every push carries the window client token')

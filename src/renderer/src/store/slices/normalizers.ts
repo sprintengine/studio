@@ -224,10 +224,7 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),
     backlogState: normalizeWorkspaceBacklogState(launchSafeWorkspace.backlogState),
     gitPanelState: normalizeWorkspaceGitPanelState(launchSafeWorkspace.gitPanelState),
-    sprintEngineAutoState: {
-      ...sprintEngineAutoState,
-      pendingSpawns: [],
-    },
+    sprintEngineAutoState,
     // Session-only creation launch intent; never persist it, or a restart
     // would replay the initial spawns.
     sprintEngineInitialSpawnAgentIds: undefined,

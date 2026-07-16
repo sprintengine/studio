@@ -33,7 +33,6 @@ function testWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspac
       runtimeState: 'idle',
       cliPermissionPreset: 'default',
       maxConcurrentAgents: 0,
-      pendingSpawns: [],
       deliveredAgentNotificationEventKeys: [],
     },
     multiloopAutoState: {

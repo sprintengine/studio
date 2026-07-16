@@ -51,9 +51,7 @@ export function isSprintEngineWorkspaceDormant(
  * "Live run work" means: the roster says the agent currently holds a task
  * claim (`currentTaskId`) or an active dispatch (`currentDispatch` — assigned
  * work it may not have claimed yet); or a task it owns is actively being worked
- * (`in_progress` / `needs_input`); or the auto-run supervisor has a pending
- * spawn for it (a just-spawned worker that has not claimed yet — projection lag
- * must not misclassify an early close as routine). A task in its `review` phase
+ * (`in_progress` / `needs_input`). A task in its `review` phase
  * is still held by its single owner, so it is covered by the `currentTaskId`
  * claim above rather than by the owned-task status check.
  *
@@ -62,15 +60,14 @@ export function isSprintEngineWorkspaceDormant(
  */
 export function sprintEngineAgentHasLiveRunWork(
   sprintEngineState: Pick<SprintEngineState, 'sprintEngineAgents' | 'tasks'> | null | undefined,
-  autoState: Partial<SprintEngineAutoState> | null | undefined,
+  _autoState: Partial<SprintEngineAutoState> | null | undefined,
   agentId: string | undefined,
 ): boolean {
   if (!agentId || !sprintEngineState) return false
   const rosterAgent = sprintEngineState.sprintEngineAgents?.[agentId]
   if (rosterAgent?.currentTaskId || rosterAgent?.currentDispatch) return true
-  if (sprintEngineState.tasks?.some((task) =>
+  return Boolean(sprintEngineState.tasks?.some((task) =>
     task.ownerAgentId === agentId
     && (task.status === 'in_progress' || task.status === 'needs_input')
-  )) return true
-  return (autoState?.pendingSpawns ?? []).some((spawn) => spawn.agentId === agentId)
+  ))
 }

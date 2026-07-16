@@ -274,12 +274,14 @@ def test_auto_approval_policy_allows_only_approved_artifact_kinds(tmp_path) -> N
 
 def test_renderer_auto_approval_policy_matches_approved_artifact_kinds() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    renderer_source = (repo_root / "src/renderer/src/utils/sprintengine.ts").read_text(encoding="utf-8")
-    match = re.search(r"const reviewGateArtifactKinds: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)", renderer_source)
-    assert match, "renderer reviewGateArtifactKinds declaration not found"
+    # The review-gate vocabulary lives in the shared Sprint Engine state module
+    # (consumed by both the renderer and the main-process reconciler).
+    shared_state_source = (repo_root / "src/shared/sprintengine/state.ts").read_text(encoding="utf-8")
+    match = re.search(r"const reviewGateArtifactKinds: ReadonlySet<string> = new Set\(\[([\s\S]*?)\]\)", shared_state_source)
+    assert match, "shared reviewGateArtifactKinds declaration not found"
 
-    renderer_kinds = set(re.findall(r"'([^']+)'", match.group(1)))
-    assert renderer_kinds == APPROVED_AUTO_APPROVAL_KINDS
+    shared_kinds = set(re.findall(r"'([^']+)'", match.group(1)))
+    assert shared_kinds == APPROVED_AUTO_APPROVAL_KINDS
 
     # The same vocabulary is duplicated in the python store contract and the
     # main-process auto-approval gate; drift in any copy silently breaks
@@ -296,27 +298,29 @@ def test_renderer_auto_approval_policy_matches_approved_artifact_kinds() -> None
 
 def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
-    executor_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRunExecutor.ts").read_text(
+    # The supervisor moved to the main-process reconciler: the shared cycle
+    # decides, the main scheduler binds its ports (sprint-runtime-ownership).
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
+    runtime_source = (repo_root / "src/main/sprint-runtime.ts").read_text(encoding="utf-8")
+    renderer_executor_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRunExecutor.ts").read_text(
         encoding="utf-8"
     )
     artifacts_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
 
-    # Supervisor must not push approval through the agent terminal.
-    assert "sendArtifactApprovalToTerminal" not in supervisor_source
-    assert "Sent the user approval intent to the responsible agent terminal." not in supervisor_source
-    # Post-T5 boundary: the supervisor routes auto-approval through the
-    # executor port, and the executor binds the live IPC call. Behaviour test:
-    # the supervisor calls the port, and the default-port factory wires the
-    # window.api IPC.
-    assert "defaultExecutorPorts.autoApproveSprintEngineArtifact(statePath, artifact.id)" in supervisor_source
+    # The cycle must not push approval through the agent terminal; it routes
+    # auto-approval through the executor port surface.
+    assert "sendArtifactApprovalToTerminal" not in cycle_source
+    assert "Sent the user approval intent to the responsible agent terminal." not in cycle_source
+    assert "ports.autoApproveSprintEngineArtifact(statePath, artifact.id)" in cycle_source
+    assert "Artifact auto-approved through the sprint" in cycle_source
+    # Both hosts bind the port to the real engine call: main in-process, the
+    # renderer's historical test surface through window.api.
+    assert "autoApproveSprintEngineArtifact: (statePath, artifactId) =>" in runtime_source
+    assert "deps.artifacts.autoApproveArtifact({ statePath, artifactId })" in runtime_source
     assert (
-        "autoApproveSprintEngineArtifact: (statePath, artifactId) =>" in executor_source
-        and "window.api.autoApproveSprintEngineArtifact(statePath, artifactId)" in executor_source
+        "autoApproveSprintEngineArtifact: (statePath, artifactId) =>" in renderer_executor_source
+        and "window.api.autoApproveSprintEngineArtifact(statePath, artifactId)" in renderer_executor_source
     )
-    assert "Artifact auto-approved through Sprint Engine" in supervisor_source
     assert "action: 'approve-intent'" not in artifacts_source
     assert "await assertAutoApprovalAllowed(state, artifactId)" in artifacts_source
     assert "sprintengine.artifact.approve" in artifacts_source
@@ -324,15 +328,14 @@ def test_electron_auto_run_approves_through_sprint_engine_not_terminal() -> None
 
 def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
-    prompt_source = (repo_root / "src/renderer/src/utils/agentPrompt.ts").read_text(encoding="utf-8")
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
+    prompt_source = (repo_root / "src/shared/sprintengine/agent-prompt.ts").read_text(encoding="utf-8")
     terminal_view_source = (repo_root / "src/renderer/src/components/panels/TerminalView.tsx").read_text(encoding="utf-8")
 
-    # Lazy-spawning rewrite: both spawn paths now derive the override from the
-    # automation helpers instead of reading autoApproveArtifacts directly.
-    assert "autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState)" in supervisor_source
+    # Both spawn paths derive the override from the automation helpers instead
+    # of reading autoApproveArtifacts directly: the reconciler's spawn path and
+    # the manual TerminalView launch.
+    assert "autonomousPlanningOverride: nextRun.role === 'architect' && sprintEngineArtifactApprovalDesired(autoState)" in cycle_source
     assert "rosterAgent.role === 'architect'" in terminal_view_source
     assert (
         "deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts'"
@@ -342,47 +345,44 @@ def test_sprintengine_auto_approval_marks_architect_startup_as_autonomous() -> N
     # The MCP-only prompt rewrite reframed the trigger as the automation mode
     # name (still semantically "Approve all artifacts is on") and described the
     # division of responsibility between agent automation and artifact approval.
-    assert "Sprint Engine automation mode is Run agents + approve artifacts" in prompt_source
+    assert "Sprint automation mode is Run agents + approve artifacts" in prompt_source
     assert "Agent automation controls spawning; artifact approval automation is the signal to skip normal grilling." in prompt_source
     assert "Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions" in prompt_source
 
 
 def test_electron_auto_run_prompts_idle_running_agents_for_ready_work() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
-    auto_run_utils_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRun.ts").read_text(encoding="utf-8")
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
+    planner_source = (repo_root / "src/shared/sprintengine/auto-run.ts").read_text(encoding="utf-8")
 
-    assert "function sendContinuationPromptsToIdleAgents" in supervisor_source
-    # Reconciler: every re-engagement decision (wake, gate, dispatch, restart)
-    # lives in the pure planner; the supervisor only executes the plan.
-    assert "planSprintEngineDispatch" in supervisor_source
-    assert "buildSprintEngineContinuationPrompt(task, agentId)" in auto_run_utils_source
-    assert "Sprint Engine roster runner found a wake candidate for a ready" in auto_run_utils_source
+    assert "function sendContinuationPromptsToIdleAgents" in cycle_source
+    # Reconciler: every re-engagement decision (wake, dispatch, restart,
+    # respawn, retirement) lives in the pure planner; the cycle only executes
+    # the plan.
+    assert "planSprintEngineDispatch" in cycle_source
+    assert "buildSprintEngineContinuationPrompt(task, agentId)" in planner_source
+    assert "Sprint Engine roster runner found a wake candidate for a ready" in planner_source
     # Claim-first dispatch: the continuation prompt hands the agent the claim
     # tool directly; the directive hop is headless-CLI only and must not
-    # appear in renderer prompt sources.
-    assert "sprintengine.task.next" in auto_run_utils_source
-    assert "sprintengine.agent.next_directive" not in auto_run_utils_source
-    assert "sprintengine join --role" not in auto_run_utils_source, (
+    # appear in supervisor prompt sources.
+    assert "sprintengine.task.next" in planner_source
+    assert "sprintengine.agent.next_directive" not in planner_source
+    assert "sprintengine join --role" not in planner_source, (
         "MCP-native autonomous prompts must not embed `sprintengine join` CLI invocations."
     )
     # One all-paths reconcile call per supervise cycle; the per-path wrappers
     # (sendContinuationPromptsToIdleAgents and friends) are test-surface shims.
-    assert "paths: ['notification', 'dispatch', 'task_wake', 'gate', 'restart', 'respawn', 'idle_retire']" in supervisor_source
-    assert "continuation-prompt-sent" in auto_run_utils_source
+    assert "paths: ['notification', 'dispatch', 'task_wake', 'active_assignment', 'restart', 'respawn', 'idle_retire']" in cycle_source
+    assert "continuation-prompt-sent" in planner_source
 
 
 def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     prompt_sources = [
-        (repo_root / "src/renderer/src/utils/agentPrompt.ts").read_text(encoding="utf-8"),
-        (repo_root / "src/renderer/src/utils/sprintengineAutoRun.ts").read_text(encoding="utf-8"),
+        (repo_root / "src/shared/sprintengine/agent-prompt.ts").read_text(encoding="utf-8"),
+        (repo_root / "src/shared/sprintengine/auto-run.ts").read_text(encoding="utf-8"),
         (repo_root / "src/renderer/src/components/panels/SprintEngineBoardPanel.tsx").read_text(encoding="utf-8"),
-        (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-            encoding="utf-8"
-        ),
+        (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8"),
     ]
     combined_source = "\n".join(prompt_sources)
 
@@ -403,22 +403,18 @@ def test_sprintengine_agent_prompts_do_not_continue_polling_after_claim() -> Non
 
 def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
-    executor_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRunExecutor.ts").read_text(
-        encoding="utf-8"
-    )
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
+    executor_source = (repo_root / "src/shared/sprintengine/auto-run-executor.ts").read_text(encoding="utf-8")
 
-    # Post-T5 boundary: the supervisor checks the existing session via the
-    # executor's safeTerminalStatus helper (which routes the catch-fallback
-    # through the executor port) before declaring the session stale and
-    # clearing the cliSessionId.
-    assert "const status = await safeTerminalStatus(defaultExecutorPorts, latestAgent.cliSessionId)" in supervisor_source
-    assert "if (status.processAlive) return 'skipped'" in supervisor_source
-    assert "cliSessionId: undefined" in supervisor_source
-    assert "if (!agent.cliSessionId)" in supervisor_source
-    assert "agent.kind !== 'sprintengine'" in supervisor_source
+    # The reconciler checks the existing session via the executor's
+    # safeTerminalStatus helper (which routes the catch-fallback through the
+    # executor port) before declaring the session stale and clearing the
+    # cliSessionId.
+    assert "const status = await safeTerminalStatus(ports, latestAgent.cliSessionId)" in cycle_source
+    assert "if (status.processAlive) return 'skipped'" in cycle_source
+    assert "cliSessionId: undefined" in cycle_source
+    assert "if (!agent.cliSessionId)" in cycle_source
+    assert "agent.kind !== 'sprintengine'" in cycle_source
     # safeTerminalStatus must keep the fallback shape (terminalStatus call wrapped
     # in try/catch returning processAlive: false) so transient IPC failures do
     # not crash the retry path.
@@ -428,66 +424,68 @@ def test_electron_auto_run_clears_stale_spawn_state_before_retrying() -> None:
 
 
 def test_electron_roster_runner_starts_roster_agents_without_task_named_workers() -> None:
-    """Lazy-spawning contract: run start bootstraps only the architect via the
-    pure planner decision (`pickSprintEngineBootstrapCandidate`) plus the
-    supervisor IPC wrapper (`ensureSprintEngineBootstrapAgent`); every other
-    spawn is work-driven through the capped planner. Agents keep roster
-    identities — there are no per-task named workers. The old blanket roster
-    audit (`startMissingRosterAgents`) must not return.
-    See future-plans/2026-06-10-sprintengine-lazy-agent-spawning.md.
+    """Lazy-spawning contract, reconciler edition (MC-1592): run start
+    bootstraps only the planner via the pure planner decision
+    (`pickSprintEngineBootstrapCandidate`) plus the cycle IPC wrapper
+    (`ensureSprintEngineBootstrapAgent`); every other spawn is work-driven —
+    the desired-pool pass groups ready unowned work by the demand key and
+    mints fresh worker ids per key. There are no per-task named workers, no
+    blanket roster audit (`startMissingRosterAgents`), and no seat-like
+    role-wide waits holding ready work back.
     """
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
-    auto_run_utils_source = (repo_root / "src/renderer/src/utils/sprintengineAutoRun.ts").read_text(encoding="utf-8")
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
+    planner_source = (repo_root / "src/shared/sprintengine/auto-run.ts").read_text(encoding="utf-8")
 
-    assert "async function ensureSprintEngineBootstrapAgent" in supervisor_source
-    assert "pickSprintEngineBootstrapCandidate(workspace, sprintEngineState, {" in supervisor_source
-    assert "export function pickSprintEngineBootstrapCandidate" in auto_run_utils_source
-    assert "buildSprintEngineAgentRosterForState(sprintEngineState)" in auto_run_utils_source
+    assert "async function ensureSprintEngineBootstrapAgent" in cycle_source
+    assert "pickSprintEngineBootstrapCandidate(workspace, sprintEngineState, {" in cycle_source
+    assert "export function pickSprintEngineBootstrapCandidate" in planner_source
+    assert "buildSprintEngineAgentRosterForState(sprintEngineState)" in planner_source
     # Bootstrap spawns keep the roster agent id; the synthetic task id only
     # namespaces the spawn, it does not create a task-named worker.
-    assert "taskId: `bootstrap-${architect.id}`" in auto_run_utils_source
-    assert "candidate-pick-ready-task-waiting-for-roster-agent" in auto_run_utils_source
-    assert "async function startMissingRosterAgents" not in supervisor_source
-    assert "taskId: `roster-${agent.id}`" not in supervisor_source
-    assert "function buildAutoRunAgentId" not in supervisor_source
-    assert "buildAutoRunAgentId(task.role, task.id)" not in supervisor_source
+    assert "taskId: `bootstrap-${planner.id}`" in planner_source
+    # The pool pass is demand-keyed (computeSprintEngineDemand grouped by
+    # sprintEngineDemandKey) and never waits on a role-wide seat.
+    assert "export function computeSprintEngineDemand" in planner_source
+    assert "export function sprintEngineDemandKey" in planner_source
+    assert "candidate-pick-demand" in planner_source
+    assert "candidate-pick-ready-task-waiting-for-planning-agent" not in planner_source, (
+        "seat-like roleHasAgent-wait semantics were removed with the pool reconciler"
+    )
+    assert "async function startMissingRosterAgents" not in cycle_source
+    assert "taskId: `roster-${agent.id}`" not in cycle_source
+    assert "function buildAutoRunAgentId" not in cycle_source
+    assert "buildAutoRunAgentId(task.role, task.id)" not in cycle_source
 
 
 def test_electron_roster_runner_uses_local_automation_mode_only() -> None:
-    """Regression: the supervisor must derive runner activity from local autoState
+    """Regression: the reconciler must derive runner activity from local autoState
     only, never from the persisted CLI watch-polling flag in run.yaml. The old
     `ensureDurableAutoMode` bridge was removed because it caused the Manual
     radio to flick back to the previous automation mode whenever the run.yaml
     write completed slightly later than the React re-render.
     """
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
 
-    assert "deriveSprintEngineAutomationMode" in supervisor_source
-    assert "const runnerActive = automationMode !== 'manual'" in supervisor_source
-    assert "async function ensureDurableAutoMode" not in supervisor_source, (
+    assert "deriveAutomationMode(autoState)" in cycle_source
+    assert "const runnerActive = automationMode !== 'manual'" in cycle_source
+    assert "async function ensureDurableAutoMode" not in cycle_source, (
         "ensureDurableAutoMode was removed; see knowledge/multicode/sprint-engine.md "
         "and src/renderer/src/utils/sprintengineAutomation.ts for the rationale."
     )
-    assert "sprintEngineState.runner?.mode" not in supervisor_source, (
-        "Supervisor must not read the legacy runner.mode field. The new field is "
-        "runner.cliWatchPolling, and Multicode's supervisor reads neither — local "
+    assert "sprintEngineState.runner?.mode" not in cycle_source, (
+        "The cycle must not read the legacy runner.mode field. The new field is "
+        "runner.cliWatchPolling, and Multicode's reconciler reads neither — local "
         "autoState alone gates spawning."
     )
 
 
 def test_electron_auto_approval_runs_without_roster_runner_enabled() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    supervisor_source = (repo_root / "src/renderer/src/components/workspace/SprintEngineAutoRunSupervisor.tsx").read_text(
-        encoding="utf-8"
-    )
+    cycle_source = (repo_root / "src/shared/sprintengine/auto-run-cycle.ts").read_text(encoding="utf-8")
 
-    assert "const approvalActive = automationMode === 'run_agents_and_approve_artifacts'" in supervisor_source
-    assert "if ((!runnerActive && !approvalActive)" in supervisor_source
-    assert "if (approvalActive) {" in supervisor_source
-    assert "reason: 'artifact-approval-only'" in supervisor_source
+    assert "const approvalActive = automationMode === 'run_agents_and_approve_artifacts'" in cycle_source
+    assert "if ((!runnerActive && !approvalActive)" in cycle_source
+    assert "if (approvalActive) {" in cycle_source
+    assert "reason: 'artifact-approval-only'" in cycle_source

@@ -80,14 +80,12 @@ const sprintAuto = normalizeSprintEngineAutoState({
   runtimeState: 'running',
   cliPermissionPreset: 'invalid' as never,
   maxConcurrentAgents: 99,
-  pending: { taskId: 'T1', agentId: 'frontend', startedAt: 123 },
   deliveredAgentNotificationEventIds: [' EVT-1 ', '', 'EVT-2'],
 })
 assert.equal(sprintAuto.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(sprintAuto.runtimeState, 'running')
 assert.equal(sprintAuto.cliPermissionPreset, 'default')
 assert.equal(sprintAuto.maxConcurrentAgents, 10)
-assert.deepEqual(sprintAuto.pendingSpawns, [{ taskId: 'T1', agentId: 'frontend', startedAt: 123 }])
 assert.deepEqual(sprintAuto.deliveredAgentNotificationEventKeys, [' EVT-1 ', 'EVT-2'])
 assert.equal(sprintAuto.completionTeardownAt, undefined)
 
@@ -282,11 +280,7 @@ assert.equal(stableOverriddenAgents, overriddenAgents, 'override-resolved reconc
 
 runStateSlice.setSprintEngineMaxConcurrentAgents('ws-direct-run-state', 0)
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.maxConcurrentAgents, 1)
-runStateSlice.setSprintEngineAutoPendingSpawns('ws-direct-run-state', [
-  { taskId: 'T1', agentId: 'frontend', startedAt: 1 },
-])
 runStateSlice.setSprintEngineAutomationMode('ws-direct-run-state', 'manual')
-assert.deepEqual(carrier.workspaces[0].sprintEngineAutoState?.pendingSpawns, [])
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.desiredMode, 'manual')
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.runtimeState, 'idle')
 runStateSlice.setSprintEngineAutomationMode('ws-direct-run-state', 'run_agents')

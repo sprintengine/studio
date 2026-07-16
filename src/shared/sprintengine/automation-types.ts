@@ -35,12 +35,6 @@ export type SprintEngineAutomationStopReason =
   | 'workspace_removed'
   | 'startup'
 
-export type SprintEngineAutoPendingSpawn = {
-  taskId: string
-  agentId: string
-  startedAt?: number
-}
-
 export type SprintEngineAutomationEvent =
   | { type: 'user_set_mode'; mode: SprintEngineAutomationDesiredMode }
   | { type: 'runner_started' }
@@ -61,7 +55,6 @@ export type SprintEngineAutomationEvent =
   }
   | { type: 'runner_complete'; message?: string }
   | { type: 'runner_canceled'; message?: string }
-  | { type: 'pending_spawns_changed'; pendingSpawns: SprintEngineAutoPendingSpawn[] }
 
 export type SprintEngineAutoState = {
   desiredMode?: SprintEngineAutomationDesiredMode
@@ -73,7 +66,6 @@ export type SprintEngineAutoState = {
   changedAt?: number
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
   deliveredAgentNotificationEventKeys: string[]
   // One-shot completion-teardown marker: set (to the teardown timestamp) after
   // `tearDownCompletedSprintRunAgents` finished for the current completion, so

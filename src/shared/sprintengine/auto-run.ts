@@ -26,7 +26,6 @@ import type {
   SprintEngineTask,
   SprintEngineWorkspaceView,
 } from './run-types'
-import type { SprintEngineAutoPendingSpawn } from './automation-types'
 import type { SprintEngineToolName } from '../sprintengineToolNames.generated'
 import {
   buildSprintEngineAgentRosterForState,
@@ -68,8 +67,6 @@ export function sprintEngineAutoRunPerfLog(
   autoRunPerfLogger(scope, event, payload)
 }
 
-export const AUTO_RUN_ROLE_CONTINUATION_GRACE_MS = 30000
-
 export const NEEDS_INPUT_AUTO_APPROVAL_STATUSES = new Set<SprintEngineArtifact['status']>([
   'ready_for_review',
   'changes_requested',
@@ -88,10 +85,6 @@ export type AutoRunCandidate = {
    * runs even though the task's role default is a cheaper build model.
    */
   runtimeOverride?: SprintEngineAllowedRuntime
-}
-
-export type RoleContinuationGrace = {
-  startedAt: number
 }
 
 /**
@@ -1521,7 +1514,7 @@ export function planSprintEngineDispatch(input: {
     // appears. Pre-plan runs (no tasks) and completed runs are excluded:
     // bootstrap and the all-tasks-done closure own those terminals.
     //
-    // Triage (signalArchitectForNeedsInputTriage) runs outside this plan and
+    // Triage (signalPlannerForNeedsInputTriage) runs outside this plan and
     // re-engages the architect whenever architect-actionable needs_input tasks
     // exist. Retiring that architect here would make triage respawn it next
     // tick and idle_retire retire it again — an unbounded kill/respawn storm.
@@ -1712,7 +1705,6 @@ export function pickSprintEngineBootstrapCandidate(
 
 export function getSprintEngineAutoRunOccupiedAgentIds(input: {
   tasks: SprintEngineTask[]
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
   inFlightSpawnKeys: Iterable<string>
   workspaceId: string
   runningAgentIds?: ReadonlySet<string>
@@ -1727,7 +1719,6 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
         && Boolean(task.ownerAgentId)
       )
       .map((task) => task.ownerAgentId!),
-    ...input.pendingSpawns.map((pending) => pending.agentId),
   ])
   for (const spawnKey of input.inFlightSpawnKeys) {
     if (!spawnKey.startsWith(`${input.workspaceId}:`)) continue
@@ -1887,11 +1878,26 @@ export function getPendingAgentNotificationEvents(
 
 export type PickNextAutoRunsOptions = {
   limit: number
-  pendingSpawns: SprintEngineAutoPendingSpawn[]
   runningAgentIds: ReadonlySet<string>
   inFlightSpawns: ReadonlySet<string>
-  continuationCapacityByRole: ReadonlyMap<SprintEngineRoleId, number>
-  continuationGraceByTask: Map<string, RoleContinuationGrace>
+  /**
+   * Demand grouping key for the pool pass; defaults to `sprintEngineDemandKey`
+   * (per-role). The key function is load-bearing for spawning: re-keying to
+   * (role, repo) — multi-repo sprints, MC-1610 — changes which groups get
+   * sessions, not just telemetry.
+   */
+  demandKeyFn?: (task: SprintEngineTask) => string
+  /**
+   * Live sprint sessions whose worker id has no runtime record yet — spawned,
+   * still booting toward their first claim (the engine binds the id at claim).
+   * They are per-key SUPPLY: the pool pass counts them against their group's
+   * demand so the tick cadence never double-covers work a booting session is
+   * about to pull. `taskId` is the spawn's routing exemplar
+   * (`agentSession.workId`) used to key the worker through the demand key
+   * function; phase-session births dedup on it directly (their task binding is
+   * a sanctioned exception).
+   */
+  unboundLiveWorkers?: ReadonlyArray<{ agentId: string; role: string; taskId?: string | null }>
   /** Read-only access to existing agent name overrides; defaults to label fallback when absent. */
   agentLabelById?: (agentId: string) => string | undefined
 }
@@ -1910,10 +1916,8 @@ export function pickNextAutoRuns(
     limit: options.limit,
     taskCount: sprintEngineState.tasks.length,
     agentCount: Object.keys(sprintEngineState.sprintEngineAgents).length,
-    pendingSpawnCount: options.pendingSpawns.length,
     runningAgentCount: options.runningAgentIds.size,
     inFlightSpawnCount: options.inFlightSpawns.size,
-    continuationCapacity: Object.fromEntries(options.continuationCapacityByRole),
   })
   const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
   autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-roster', {
@@ -1924,8 +1928,7 @@ export function pickNextAutoRuns(
   const rosterById = Object.fromEntries(roster.map((agent) => [agent.id, agent]))
   const labelFor = (agentId: string, fallback: string): string =>
     options.agentLabelById?.(agentId) ?? workspace.agents[agentId]?.name ?? fallback
-  const pendingTaskIds = new Set(options.pendingSpawns.map((pending) => pending.taskId))
-  const pendingAgentIds = new Set(options.pendingSpawns.map((pending) => pending.agentId))
+  const unboundLiveWorkers = options.unboundLiveWorkers ?? []
   const selectedTaskIds = new Set<string>()
   const selectedAgentIds = new Set<string>()
   const candidates: AutoRunCandidate[] = []
@@ -1942,7 +1945,6 @@ export function pickNextAutoRuns(
     return candidateRole === role
       && runtime?.status === 'idle'
       && !runtime.currentTaskId
-      && !pendingAgentIds.has(candidateId)
       && !selectedAgentIds.has(candidateId)
       && !options.runningAgentIds.has(candidateId)
       && !hasInFlightSpawn(candidateId)
@@ -1962,8 +1964,8 @@ export function pickNextAutoRuns(
     )
     if (reusable) return reusable.id
     // Mint. Mirror the phase-session birth below: seed the allocator with every
-    // id a concurrent spawn already holds (projection roster, pending, selected,
-    // running, in-flight) so a minted `<role>-N` never collides with live
+    // id a concurrent spawn already holds (projection roster, selected, running,
+    // in-flight) so a minted `<role>-N` never collides with live
     // capacity or another mint this pass. Placeholders only need to occupy the
     // id in the allocator's used-id set; a role matching no real role keeps them
     // out of its per-role index scan so they never distort a `<role>-N` value.
@@ -1971,7 +1973,6 @@ export function pickNextAutoRuns(
     const reserve = (id: string) => {
       if (!reserved[id]) reserved[id] = { role: '' as SprintEngineRoleId } as SprintEngineRuntimeAgent
     }
-    for (const id of pendingAgentIds) reserve(id)
     for (const id of selectedAgentIds) reserve(id)
     for (const id of options.runningAgentIds) reserve(id)
     for (const spawnKey of options.inFlightSpawns) {
@@ -1983,9 +1984,9 @@ export function pickNextAutoRuns(
   // Owner-keyed respawn (MC-1444 Phase 2) is NOT a picker responsibility:
   // a departed owner now reads as `idle` (T1), so a picker respawn here would be
   // an UNTHROTTLED second authority racing the retry-limited revival pass in
-  // planSprintEngineDispatch and defeating its storm cap. The ready-task loop
+  // planSprintEngineDispatch and defeating its storm cap. The pool pass
   // therefore DEFERS any task whose previous owner is still bound to it (see
-  // `hasBoundOwner` below): a live owner is woken via the wake paste, a departed
+  // `boundTaskIds` below): a live owner is woken via the wake paste, a departed
   // owner is respawned by the revival pass — the single throttled authority.
   // Both routes call spawnAutoRunCandidate, which resumes the retained
   // conversation, so owner affinity is preserved.
@@ -1994,20 +1995,15 @@ export function pickNextAutoRuns(
   // are NOT task-scoped — one planner drives the whole sprint, so its id is
   // reused across sequential planning tasks instead of minting `<planner>-N`.
   // The task-scoped mint above would hand each planning task a fresh id, so
-  // planning roles route here instead. Reuse an eligible seated planning id
+  // planning roles route here instead: reuse an eligible seated planning id
   // regardless of its retained lastOwnedTaskId, else target the deterministic
   // bare `<role>` persistent planning id (the id creation seeds for the
-  // architect) so the supervisor spawns it. If an agent of the role already
-  // exists we do NOT mint: a busy one will free up, and a departed one is
-  // revived through the retry-limited revival path — no second spawn racing it.
-  const findPlanningRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] | null => {
+  // architect). Never a seat: a busy planner is filtered by `addCandidate`'s
+  // running/in-flight/selected guards, not by role-wide "someone holds the
+  // role, so wait" bookkeeping (MC-1592 review: seat-like waits starve work).
+  const findPlanningRoleAgent = (role: SprintEngineRoleId): AutoRunCandidate['agentId'] => {
     const seated = roster.find((candidate) => isEligibleRoleAgent(candidate.id, candidate.role, role))
-    if (seated) return seated.id
-    const roleHasAgent = Object.values(sprintEngineState.sprintEngineAgents).some(
-      (candidate) => candidate.role === role
-    )
-    if (roleHasAgent) return null
-    return role
+    return seated?.id ?? role
   }
 
   const addCandidate = (
@@ -2018,10 +2014,9 @@ export function pickNextAutoRuns(
     if (candidates.length >= options.limit) return false
     const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
     if (runtimeAgent?.status === 'retired') return false
-    if (pendingTaskIds.has(task.id) || selectedTaskIds.has(task.id)) return false
+    if (selectedTaskIds.has(task.id)) return false
     if (
-      pendingAgentIds.has(agentId)
-      || selectedAgentIds.has(agentId)
+      selectedAgentIds.has(agentId)
       || options.runningAgentIds.has(agentId)
       || hasInFlightSpawn(agentId)
     ) {
@@ -2079,7 +2074,6 @@ export function pickNextAutoRuns(
     const reserveId = (id: string, role: SprintEngineRoleId) => {
       if (!phaseSessionAgents[id]) phaseSessionAgents[id] = { role } as SprintEngineRuntimeAgent
     }
-    for (const id of pendingAgentIds) reserveId(id, 'developer')
     for (const id of selectedAgentIds) reserveId(id, 'developer')
     for (const id of options.runningAgentIds) reserveId(id, 'developer')
     for (const spawnKey of options.inFlightSpawns) {
@@ -2089,7 +2083,10 @@ export function pickNextAutoRuns(
       if (candidates.length >= options.limit) break
       const awaiting = task.awaitingPhaseSession
       if (!awaiting) continue
-      if (pendingTaskIds.has(task.id) || selectedTaskIds.has(task.id)) continue
+      if (selectedTaskIds.has(task.id)) continue
+      // Per-task dedup (sanctioned: phase births carry their task): a booting
+      // session already birthed for this phase must not be doubled.
+      if (unboundLiveWorkers.some((worker) => worker.taskId === task.id)) continue
       const agentId = getNextSprintEngineAgentId(task.role, phaseSessionAgents)
       reserveId(agentId, task.role)
       candidates.push({
@@ -2115,112 +2112,127 @@ export function pickNextAutoRuns(
     }
   }
 
-  const readyTasks = sprintEngineState.tasks.filter((task) =>
-    isSprintEngineTaskLaunchable(task, sprintEngineState)
-  )
-  autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-tasks', {
+  // Desired-pool pass (MC-1592/MC-1615): ready, unowned, launchable work is
+  // grouped by the demand key and each group gets fresh sessions up to the
+  // remaining slots. Groups drain round-robin so a scarce slot budget covers
+  // every demand group before doubling up on one — the key function is
+  // load-bearing for spawning, not telemetry: re-keying demand (e.g. to
+  // (role, repo) for multi-repo sprints, MC-1610) changes which sessions are
+  // minted. A pool spawn is never pre-bound to a task — the session pulls its
+  // own work via `task.next`; the candidate's `taskId` is the group's oldest
+  // uncovered task, carried as the routing/attribution exemplar (cwd
+  // resolution, spawn diagnostics), not a claim. Dedup is by key-count (one
+  // spawn per uncovered task in the group), not per-task bookkeeping — the
+  // per-task exceptions (phase-session births above, bound-owner recovery,
+  // active-owner rescue) keep their task binding by design.
+  const demandKeyFn = options.demandKeyFn ?? sprintEngineDemandKey
+  const demandByKey = computeSprintEngineDemand(sprintEngineState, demandKeyFn)
+
+  // Per-key supply: each booting session (spawned, no runtime record yet)
+  // covers one unit of its group's demand until its first claim binds it —
+  // in-flight coverage lives in the session list itself, not in a persisted
+  // pending-spawn ledger. A worker keys through its routing exemplar when that
+  // task still exists, else through its recorded role (the default key).
+  const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
+  const suppliedByKey = new Map<string, number>()
+  for (const worker of unboundLiveWorkers) {
+    const exemplar = worker.taskId ? taskById.get(worker.taskId) : undefined
+    const workerKey = exemplar ? demandKeyFn(exemplar) : worker.role
+    suppliedByKey.set(workerKey, (suppliedByKey.get(workerKey) ?? 0) + 1)
+  }
+
+  autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-demand', {
     workspaceId: workspace.id,
     workspaceName: workspace.name,
-    readyTaskCount: readyTasks.length,
+    demandGroups: demandByKey.size,
+    demandByKey: Object.fromEntries([...demandByKey].map(([key, tasks]) => [key, tasks.length])),
+    suppliedByKey: Object.fromEntries(suppliedByKey),
   })
-  const continuationKeyForTask = (taskId: string) =>
-    [
-      workspace.id,
-      workspace.sprintEngineContext?.statePath ?? '',
-      taskId,
-    ].join(':')
-  const readyTaskKeys = new Set(readyTasks.map((task) => continuationKeyForTask(task.id)))
-  for (const taskKey of options.continuationGraceByTask.keys()) {
-    if (taskKey.startsWith(`${workspace.id}:`) && !readyTaskKeys.has(taskKey)) {
-      options.continuationGraceByTask.delete(taskKey)
-    }
-  }
-  const reservedContinuationByRole = new Map<SprintEngineRoleId, number>()
 
-  for (const task of readyTasks) {
-    if (candidates.length >= options.limit) break
-    const continuationCapacity = options.continuationCapacityByRole.get(task.role) ?? 0
-    const reservedForRole = reservedContinuationByRole.get(task.role) ?? 0
-    if (reservedForRole < continuationCapacity) {
-      const taskKey = continuationKeyForTask(task.id)
-      const grace = options.continuationGraceByTask.get(taskKey) ?? { startedAt: Date.now() }
-      options.continuationGraceByTask.set(taskKey, grace)
-      const elapsedMs = Date.now() - grace.startedAt
-      if (elapsedMs < AUTO_RUN_ROLE_CONTINUATION_GRACE_MS) {
-        reservedContinuationByRole.set(task.role, reservedForRole + 1)
-        autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-reserved-for-continuation', {
+  // Defer any task whose previous owner is still bound to it (retained
+  // lastOwnedTaskId). Owner respawn/resume has a single authority: a LIVE owner
+  // is woken via the wake paste this same supervise cycle; a DEPARTED (now
+  // idle, session-less) owner gets one resume attempt through the retry-limited
+  // revival pass in planSprintEngineDispatch, after which the engine's lease
+  // expiry returns the task to the queue for this pool pass. This is a
+  // bound-owner check, not a time-based reservation: an unbound ready task is
+  // spawnable immediately. Acting here instead would either double-dispatch the
+  // task (a cold fresh agent racing the warm owner) or, for a departed owner,
+  // respawn it every cycle with no cross-cycle retry cap — a crash-loop
+  // spawn-storm that defeats the revive ledger (review finding).
+  const boundTaskIds = new Set(
+    Object.values(sprintEngineState.sprintEngineAgents)
+      .map((runtime) => runtime.lastOwnedTaskId)
+      .filter((taskId): taskId is string => Boolean(taskId))
+  )
+  const groupQueues = [...demandByKey.entries()].map(([key, tasks]) => {
+    const uncovered = tasks.filter((task) => {
+      if (selectedTaskIds.has(task.id)) return false
+      if (boundTaskIds.has(task.id)) {
+        autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-deferred-to-bound-owner', {
           workspaceId: workspace.id,
           workspaceName: workspace.name,
           taskId: task.id,
           role: task.role,
-          elapsedMs,
-          graceMs: AUTO_RUN_ROLE_CONTINUATION_GRACE_MS,
         })
-        continue
+        return false
       }
-    }
-
-    autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      taskId: task.id,
-      role: task.role,
-      ownerAgentId: task.ownerAgentId ?? null,
-      dependsOnCount: task.dependsOn.length,
+      return true
     })
+    // Key-count dedup: drain the group's supplied units (booting sessions)
+    // before spawning more — never per-task bookkeeping for the pool.
+    const supplied = suppliedByKey.get(key) ?? 0
+    const covered = Math.min(supplied, uncovered.length)
+    if (covered > 0) {
+      autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-demand-covered-by-booting-workers', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        demandKey: key,
+        covered,
+        uncoveredTaskCount: uncovered.length,
+      })
+    }
+    return { key, tasks: uncovered.slice(covered) }
+  })
 
-    // Defer any task whose previous owner is still bound to it (retained
-    // lastOwnedTaskId). Owner respawn/resume has a single authority: a LIVE owner
-    // is woken via the wake paste this same supervise cycle; a DEPARTED (now
-    // idle, session-less) owner is respawned by the retry-limited revival pass in
-    // planSprintEngineDispatch. Acting here would either double-dispatch the task
-    // (a cold fresh agent racing the warm owner) or, for a departed owner,
-    // respawn it every cycle with no cross-cycle retry cap — a crash-loop
-    // spawn-storm that defeats the revive ledger (review finding).
-    const hasBoundOwner = Object.values(sprintEngineState.sprintEngineAgents).some(
-      (runtime) => runtime.lastOwnedTaskId === task.id
-    )
-    if (hasBoundOwner) {
-      autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-deferred-to-bound-owner', {
+  let poolProgressed = true
+  while (candidates.length < options.limit && poolProgressed) {
+    poolProgressed = false
+    for (const group of groupQueues) {
+      if (candidates.length >= options.limit) break
+      const task = group.tasks.shift()
+      if (!task) continue
+      poolProgressed = true
+
+      autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task', {
         workspaceId: workspace.id,
         workspaceName: workspace.name,
         taskId: task.id,
+        demandKey: group.key,
         role: task.role,
+        dependsOnCount: task.dependsOn.length,
       })
-      continue
+
+      // Planning roles keep a persistent identity — reuse the seated planner or
+      // the bare `<role>` seed so sequential planning tasks share one id and no
+      // `<planner>-N` is ever minted. Non-planning work is task-scoped: its
+      // worker id is minted here and the engine binds it at claim.
+      const agentId = isSprintEnginePlanningRole(task.role)
+        ? findPlanningRoleAgent(task.role)
+        : pickOrMintTaskAgent(task.role)
+      const agent = rosterById[agentId] ?? { id: agentId, label: agentId, role: task.role }
+
+      addCandidate(task, agent.id, agent.label)
+      autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-result', {
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        taskId: task.id,
+        demandKey: group.key,
+        selectedAgentId: agent.id,
+        selectedAgentRole: agent.role,
+        candidateCount: candidates.length,
+      })
     }
-
-    // Planning roles keep a persistent identity — reuse the seated planner or
-    // the bare `<role>` seed so sequential planning tasks share one id and no
-    // `<planner>-N` is ever minted. Non-planning work is task-scoped: its worker
-    // id is minted here and the engine binds it to the task at claim.
-    let reusableAgentId: AutoRunCandidate['agentId'] | null
-    if (isSprintEnginePlanningRole(task.role)) {
-      reusableAgentId = findPlanningRoleAgent(task.role)
-      if (!reusableAgentId) {
-        autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-waiting-for-planning-agent', {
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-          taskId: task.id,
-          role: task.role,
-        })
-        continue
-      }
-    } else {
-      reusableAgentId = pickOrMintTaskAgent(task.role)
-    }
-
-    const agent = rosterById[reusableAgentId] ?? { id: reusableAgentId, label: reusableAgentId, role: task.role }
-
-    addCandidate(task, agent.id, agent.label)
-    autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-ready-task-result', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      taskId: task.id,
-      selectedAgentId: agent.id,
-      selectedAgentRole: agent.role,
-      candidateCount: candidates.length,
-    })
   }
 
   autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-end', {

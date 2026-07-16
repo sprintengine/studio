@@ -65,7 +65,6 @@ import {
   sendDispatchPromptsToRunningAgents as cycleSendDispatchPromptsToRunningAgents,
   spawnAutoRunCandidate as cycleSpawnAutoRunCandidate,
   superviseRunnerActiveCycle as cycleSuperviseRunnerActiveCycle,
-  type RunningContinuationCapacity,
   type SprintEngineAutoRunCyclePorts,
   type SprintEngineAutoRunDormancyPorts,
   type SprintEngineDispatchExecution,
@@ -316,7 +315,7 @@ export async function respawnDeadSprintEngineClaimants(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
   runningAgentIds: ReadonlySet<string>,
-  continuationCapacity: RunningContinuationCapacity,
+  idleAgentIds: ReadonlySet<string>,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>,
   spawnDeps: {
     cliRuntimes: Record<AgentCli, CliRuntimeSettings>
@@ -330,7 +329,7 @@ export async function respawnDeadSprintEngineClaimants(
     workspace,
     sprintEngineState,
     runningAgentIds,
-    continuationCapacity,
+    idleAgentIds,
     sentContinuationMessages,
     spawnDeps,
   )
@@ -339,7 +338,7 @@ export async function respawnDeadSprintEngineClaimants(
 export async function sendContinuationPromptsToIdleAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  continuationCapacity: RunningContinuationCapacity,
+  idleAgentIds: ReadonlySet<string>,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<void> {
   return cycleSendContinuationPromptsToIdleAgents(
@@ -347,7 +346,7 @@ export async function sendContinuationPromptsToIdleAgents(
     cycleState,
     workspace,
     sprintEngineState,
-    continuationCapacity,
+    idleAgentIds,
     sentContinuationMessages,
   )
 }
@@ -355,7 +354,7 @@ export async function sendContinuationPromptsToIdleAgents(
 export async function escalateStalledLiveIdleAgents(
   workspace: Workspace,
   sprintEngineState: SprintEngineState,
-  continuationCapacity: RunningContinuationCapacity,
+  idleAgentIds: ReadonlySet<string>,
   sentContinuationMessages: MutableRefObject<Map<string, RoleContinuationMessage>>
 ): Promise<'restarted' | 'none'> {
   return cycleEscalateStalledLiveIdleAgents(
@@ -363,7 +362,7 @@ export async function escalateStalledLiveIdleAgents(
     cycleState,
     workspace,
     sprintEngineState,
-    continuationCapacity,
+    idleAgentIds,
     sentContinuationMessages,
   )
 }
@@ -391,7 +390,7 @@ export async function spawnAutoRunCandidate(
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
-  options: { trackPendingSpawn?: boolean; revealPolicy?: AgentTerminalRevealPolicy } = {}
+  options: { revealPolicy?: AgentTerminalRevealPolicy } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   return cycleSpawnAutoRunCandidate(
     rendererCyclePorts,

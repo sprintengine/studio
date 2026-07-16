@@ -123,7 +123,6 @@ async function main(): Promise<void> {
   assert.equal(registered.memoryRelativeRoot, workspace()?.memory?.relativeRoot ?? null)
   assert.equal(registered.cliPermissionPreset, workspace()?.sprintEngineAutoState?.cliPermissionPreset)
   assert.equal(registered.maxConcurrentAgents, 3)
-  assert.deepEqual(registered.pendingSpawns, [])
   assert.deepEqual(registered.deliveredAgentNotificationEventKeys, [])
   assert.deepEqual(registered.rosterSessions, {})
   assert.deepEqual(registered.agents, workspace()?.agents ?? {})
@@ -171,16 +170,6 @@ async function main(): Promise<void> {
     update: { cliOnboardingPromptSent: true },
   })
   assert.equal(workspace()?.agents['architect-1']?.cliOnboardingPromptSent, true)
-
-  fakeApi.broadcastOp({
-    kind: 'pending_spawns',
-    statePath,
-    pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 5 }],
-  })
-  assert.deepEqual(
-    workspace()?.sprintEngineAutoState?.pendingSpawns,
-    [{ taskId: 'T1', agentId: 'developer-1', startedAt: 5 }],
-  )
 
   // stop_reason: same transitions as a renderer stop, and NO push-back echo.
   useWorkspaceStore.getState().setSprintEngineAutomationMode(workspaceId, 'run_agents')

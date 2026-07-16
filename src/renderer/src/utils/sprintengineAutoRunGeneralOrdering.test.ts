@@ -79,12 +79,9 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
 function pickInput(): Parameters<typeof pickNextAutoRuns>[2] {
   return {
     limit: 3,
-    pendingSpawns: [],
     runningAgentIds: new Set<string>(),
     inFlightSpawns: new Set<string>(),
-    continuationCapacityByRole: new Map(),
-    continuationGraceByTask: new Map(),
-  } as Parameters<typeof pickNextAutoRuns>[2]
+  }
 }
 
 function bootstrapOptions(): Parameters<typeof pickSprintEngineBootstrapCandidate>[2] {

@@ -65,8 +65,6 @@ function createFakePorts(overrides: Overrides = {}): FakePorts {
     getWorkspace: overrides.getWorkspace ?? (() => undefined),
     setSprintEngineState: overrides.setSprintEngineState
       ?? ((workspaceId, state) => { record('setSprintEngineState', [workspaceId, state]) }),
-    setSprintEngineAutoPendingSpawns: overrides.setSprintEngineAutoPendingSpawns
-      ?? ((workspaceId, spawns) => { record('setSprintEngineAutoPendingSpawns', [workspaceId, spawns]) }),
     setSprintEngineAutomationMode: overrides.setSprintEngineAutomationMode
       ?? ((workspaceId, mode) => { record('setSprintEngineAutomationMode', [workspaceId, mode]) }),
     setFolderMissing: overrides.setFolderMissing
@@ -308,11 +306,6 @@ async function testRecordSpawnFailureResetsStoreAndPublishesDiagnostic(): Promis
     ].join('\n'),
   })
 
-  const pendingCall = findCall('setSprintEngineAutoPendingSpawns')
-  assert.ok(pendingCall)
-  assert.equal(pendingCall!.args[0], 'workspace-1')
-  assert.deepEqual(pendingCall!.args[1], [])
-
   const updateCall = findCall('updateAgent')
   assert.ok(updateCall)
   assert.equal(updateCall!.args[0], 'workspace-1')
@@ -358,12 +351,10 @@ async function testRecordSpawnFailureOrdersStoreUpdatesBeforeDiagnostic(): Promi
   })
   const order = calls.map((call) => call.method)
   const stopIdx = order.indexOf('applyAutomationStopReason')
-  const pendingIdx = order.indexOf('setSprintEngineAutoPendingSpawns')
   const agentIdx = order.indexOf('updateAgent')
   const diagnosticIdx = order.indexOf('publishDiagnostic')
   assert.ok(stopIdx >= 0)
-  assert.ok(pendingIdx > stopIdx)
-  assert.ok(agentIdx > pendingIdx)
+  assert.ok(agentIdx > stopIdx)
   assert.ok(diagnosticIdx > agentIdx, 'diagnostic must publish after store mutations settle')
 }
 

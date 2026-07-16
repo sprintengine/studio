@@ -48,9 +48,9 @@ const stopReasons = new Set<SprintEngineAutomationStopReason>([
 ])
 
 // The terminal runtime states: once reached, only explicit user intent
-// (re-selecting a mode) or lifecycle-neutral pending-spawn bookkeeping may leave
-// them. `canceled` joins `complete` here so the async terminal-close events from
-// its own teardown cannot demote it back to `paused` (see the guard below).
+// (re-selecting a mode) may leave them. `canceled` joins `complete` here so the
+// async terminal-close events from its own teardown cannot demote it back to
+// `paused` (see the guard below).
 const terminalRuntimeStates = new Set<SprintEngineAutomationRuntimeState>([
   'complete',
   'canceled',
@@ -154,13 +154,8 @@ export function transitionSprintEngineAutomation(
   // after the terminal transition — as `runner_paused{ reason: terminal_closed }`.
   // Without this guard they would demote a finished/canceled run back to `paused`
   // (the "An agent terminal was closed" pill). Only explicit user intent
-  // (re-selecting an automation mode) leaves a terminal state; lifecycle-neutral
-  // pending-spawn bookkeeping still passes through.
-  if (
-    terminalRuntimeStates.has(runtimeState) &&
-    event.type !== 'user_set_mode' &&
-    event.type !== 'pending_spawns_changed'
-  ) {
+  // (re-selecting an automation mode) leaves a terminal state.
+  if (terminalRuntimeStates.has(runtimeState) && event.type !== 'user_set_mode') {
     return base
   }
 
@@ -183,7 +178,6 @@ export function transitionSprintEngineAutomation(
         reasonTaskId: undefined,
         reasonAgentId: undefined,
         changedAt: now,
-        pendingSpawns: enabled ? base.pendingSpawns : [],
       }
     }
 
@@ -204,7 +198,6 @@ export function transitionSprintEngineAutomation(
         reasonTaskId: event.taskId,
         reasonAgentId: event.agentId,
         changedAt: now,
-        pendingSpawns: [],
       }
 
     case 'runner_blocked':
@@ -216,7 +209,6 @@ export function transitionSprintEngineAutomation(
         reasonTaskId: event.taskId,
         reasonAgentId: event.agentId,
         changedAt: now,
-        pendingSpawns: [],
       }
 
     case 'runner_failed':
@@ -228,7 +220,6 @@ export function transitionSprintEngineAutomation(
         reasonTaskId: event.taskId,
         reasonAgentId: event.agentId,
         changedAt: now,
-        pendingSpawns: [],
       }
 
     case 'runner_complete':
@@ -240,7 +231,6 @@ export function transitionSprintEngineAutomation(
         reasonTaskId: undefined,
         reasonAgentId: undefined,
         changedAt: now,
-        pendingSpawns: [],
       }
 
     case 'runner_canceled':
@@ -252,13 +242,6 @@ export function transitionSprintEngineAutomation(
         reasonTaskId: undefined,
         reasonAgentId: undefined,
         changedAt: now,
-        pendingSpawns: [],
-      }
-
-    case 'pending_spawns_changed':
-      return {
-        ...base,
-        pendingSpawns: event.pendingSpawns,
       }
   }
 }
