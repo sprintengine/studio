@@ -35,6 +35,9 @@ def _repos_vcs() -> dict:
             "baseRef": "main",
             "status": "committed",
             "lastCommitSha": "abc1234",
+            "pullRequestUrl": "https://github.com/acme/multicode/pull/1",
+            "pullRequestState": "open",
+            "pullRequestError": None,
         },
         {
             "id": "mobile",
@@ -44,6 +47,9 @@ def _repos_vcs() -> dict:
             "baseRef": "main",
             "status": "ready",
             "lastCommitSha": None,
+            "pullRequestUrl": None,
+            "pullRequestState": None,
+            "pullRequestError": None,
         },
     ]
     return vcs
@@ -63,6 +69,9 @@ def test_flat_vcs_reads_back_as_a_one_entry_repo_list() -> None:
             "baseRef": "main",
             "status": "committed",
             "lastCommitSha": "abc1234",
+            "pullRequestUrl": None,
+            "pullRequestState": None,
+            "pullRequestError": None,
         }
     ]
 
@@ -111,6 +120,21 @@ def test_status_writes_reach_both_shapes() -> None:
     # A sibling repo is not the primary and must not be touched by either writer.
     assert vcs["repos"][1]["status"] == "ready"
     assert vcs["repos"][1]["lastCommitSha"] is None
+
+
+def test_pull_request_writes_reach_both_shapes_and_only_their_own_repo() -> None:
+    # A run spanning projects has one pull request per project. The primary's is also
+    # the flat block the app reads; a sibling's belongs to the sibling alone.
+    vcs = _repos_vcs()
+
+    shell.set_repo_pull_request(vcs, "mobile", url="https://github.com/acme/multicode-mobile/pull/9", state="open", error=None)
+    shell.set_repo_pull_request(vcs, "primary", url=None, state=None, error="gh: could not authenticate")
+
+    assert vcs["repos"][1]["pullRequestUrl"] == "https://github.com/acme/multicode-mobile/pull/9"
+    assert vcs["repos"][1]["pullRequestState"] == "open"
+    # The sibling's pull request is not the run's: the flat block stays the primary's.
+    assert vcs["pullRequestUrl"] == vcs["repos"][0]["pullRequestUrl"] is None
+    assert vcs["pullRequestError"] == vcs["repos"][0]["pullRequestError"] == "gh: could not authenticate"
 
 
 def test_status_writes_on_a_flat_only_store_stay_flat() -> None:

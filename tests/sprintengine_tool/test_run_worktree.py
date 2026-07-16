@@ -440,7 +440,9 @@ def test_finalize_completed_run_is_idempotent_when_pr_exists(tmp_path, monkeypat
     monkeypatch.setattr(shell_mod, "create_run_pull_request", boom)
 
     state = read_state(fixture.state_path)
-    state["sprintengine"]["vcs"]["pullRequestUrl"] = "https://github.com/acme/multicode/pull/3"
+    shell_mod.set_repo_pull_request(
+        state["sprintengine"]["vcs"], "primary", url="https://github.com/acme/multicode/pull/3", state="open", error=None
+    )
     result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
 
     assert result["blocked"] is False
@@ -513,26 +515,28 @@ def test_build_run_pull_request_body_lists_delivered_tasks(tmp_path) -> None:
 
 
 def test_cleanup_merged_worktree_removes_clean_worktree(tmp_path) -> None:
-    from sprintengine_core.tool.shell import cleanup_merged_worktree
+    from sprintengine_core.tool.shell import cleanup_merged_worktree, set_repo_pull_request
 
     workspace = tmp_path / "ws"
     fixture, worktree = _completed_worktree_run(workspace)
     assert worktree.exists()
 
     state = read_state(fixture.state_path)
+    set_repo_pull_request(state["sprintengine"]["vcs"], "primary", url=None, state="merged", error=None)
     result = cleanup_merged_worktree(state, fixture.state_path)
     assert result["removed"] is True
     assert not worktree.exists()
 
 
 def test_cleanup_merged_worktree_keeps_dirty_worktree(tmp_path) -> None:
-    from sprintengine_core.tool.shell import cleanup_merged_worktree
+    from sprintengine_core.tool.shell import cleanup_merged_worktree, set_repo_pull_request
 
     workspace = tmp_path / "ws"
     fixture, worktree = _completed_worktree_run(workspace)
     (worktree / "uncommitted.txt").write_text("wip\n", encoding="utf-8")
 
     state = read_state(fixture.state_path)
+    set_repo_pull_request(state["sprintengine"]["vcs"], "primary", url=None, state="merged", error=None)
     result = cleanup_merged_worktree(state, fixture.state_path)
     assert result["removed"] is False
     assert result["reason"] == "dirty"

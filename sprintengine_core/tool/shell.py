@@ -100,6 +100,18 @@ SIBLING_REPO_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 # no `repos` key whatsoever and is derived from the flat block instead.
 _REQUIRED_REPO_KEYS = ("id", "root", "worktreePath", "branchName")
 
+# Merge states one repo's pull request can be in. `open` until GitHub says the PR
+# merged or closed, or the branch lands in its base; the other two are terminal.
+VALID_PULL_REQUEST_STATES = {"open", "merged", "closed"}
+
+# The per-repo fields the primary repo also stores flat on `vcs`, because the app,
+# the mobile snapshot, and the PR surfaces still read them there.
+_PRIMARY_MIRRORED_KEYS = ("status", "lastCommitSha", "pullRequestUrl", "pullRequestState", "pullRequestError")
+
+
+def _optional_str(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) and value.strip() else None
+
 
 def _repo_entry(
     *,
@@ -110,8 +122,15 @@ def _repo_entry(
     base_ref: Optional[str],
     status: Optional[str],
     last_commit_sha: Optional[str],
+    pull_request_url: Optional[str] = None,
+    pull_request_state: Optional[str] = None,
+    pull_request_error: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """One declared repo. The single site that spells the entry shape."""
+    """One declared repo. The single site that spells the entry shape.
+
+    A run spanning two projects opens one pull request per project, so the PR fields
+    belong to the repo that owns the branch they describe (MC-1612), not to the run.
+    """
     return {
         "id": repo_id,
         "root": root,
@@ -120,6 +139,9 @@ def _repo_entry(
         "baseRef": base_ref,
         "status": status if status in VALID_VCS_STATUSES else "not_created",
         "lastCommitSha": last_commit_sha if isinstance(last_commit_sha, str) else None,
+        "pullRequestUrl": _optional_str(pull_request_url),
+        "pullRequestState": pull_request_state if pull_request_state in VALID_PULL_REQUEST_STATES else None,
+        "pullRequestError": _optional_str(pull_request_error),
     }
 
 
@@ -141,6 +163,9 @@ def _normalized_repo_entry(raw: Any, index: int) -> Dict[str, Any]:
         base_ref=base_ref or None,
         status=raw.get("status"),
         last_commit_sha=raw.get("lastCommitSha"),
+        pull_request_url=raw.get("pullRequestUrl"),
+        pull_request_state=raw.get("pullRequestState"),
+        pull_request_error=raw.get("pullRequestError"),
     )
 
 
@@ -155,6 +180,9 @@ def _primary_repo_entry_from_flat(vcs: Dict[str, Any]) -> Dict[str, Any]:
         base_ref=base_ref or None,
         status=vcs.get("status"),
         last_commit_sha=vcs.get("lastCommitSha"),
+        pull_request_url=vcs.get("pullRequestUrl"),
+        pull_request_state=vcs.get("pullRequestState"),
+        pull_request_error=vcs.get("pullRequestError"),
     )
 
 
@@ -194,51 +222,62 @@ def _stored_repo(vcs: Dict[str, Any], repo_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def set_vcs_status(vcs: Dict[str, Any], status: str) -> None:
-    """Record the primary repo's worktree status on both shapes that store it.
+def _set_repo_field(vcs: Dict[str, Any], repo_id: str, key: str, value: Any) -> None:
+    """Write one field of one declared repo, on every shape that stores it.
 
-    The flat block is still what the app, mobile snapshot, and PR paths read; entry
-    zero of `repos` is the same repo in the shape the multi-repo work reads. Writing
-    through one setter is what keeps the two from drifting while both exist.
+    The primary's fields are also the run's flat `vcs.*` fields — what the app, the
+    mobile snapshot, and the PR surfaces still read — so a primary write lands on the
+    flat block and on entry zero of `repos`, and the two cannot drift while both
+    exist. A sibling's fields are its own entry alone, so work in one project never
+    reports itself as what the primary tree is doing.
     """
-    vcs["status"] = status
-    primary = _stored_primary_repo(vcs)
-    if primary is not None:
-        primary["status"] = status
+    if repo_id == PRIMARY_REPO_ID:
+        if key in _PRIMARY_MIRRORED_KEYS:
+            vcs[key] = value
+        repo = _stored_primary_repo(vcs)
+    else:
+        repo = _stored_repo(vcs, repo_id)
+    if repo is not None:
+        repo[key] = value
+
+
+def set_vcs_status(vcs: Dict[str, Any], status: str) -> None:
+    """Record the primary repo's worktree status on both shapes that store it."""
+    _set_repo_field(vcs, PRIMARY_REPO_ID, "status", status)
 
 
 def set_vcs_last_commit_sha(vcs: Dict[str, Any], sha: Optional[str]) -> None:
     """Record the primary repo's last commit on both shapes that store it."""
-    vcs["lastCommitSha"] = sha
-    primary = _stored_primary_repo(vcs)
-    if primary is not None:
-        primary["lastCommitSha"] = sha
+    _set_repo_field(vcs, PRIMARY_REPO_ID, "lastCommitSha", sha)
 
 
 def set_repo_status(vcs: Dict[str, Any], repo_id: str, status: str) -> None:
-    """Record one declared repo's worktree status.
-
-    The primary's status is also the run's flat `vcs.status` — what the app, the
-    mobile snapshot, and the PR paths read. A sibling's status is its own entry
-    alone, so committing in one project never reports itself as what the primary
-    tree is doing.
-    """
-    if repo_id == PRIMARY_REPO_ID:
-        set_vcs_status(vcs, status)
-        return
-    repo = _stored_repo(vcs, repo_id)
-    if repo is not None:
-        repo["status"] = status
+    """Record one declared repo's worktree status."""
+    _set_repo_field(vcs, repo_id, "status", status)
 
 
 def set_repo_last_commit_sha(vcs: Dict[str, Any], repo_id: str, sha: Optional[str]) -> None:
-    """Record one declared repo's last commit, on the primary's two shapes or the sibling's entry."""
-    if repo_id == PRIMARY_REPO_ID:
-        set_vcs_last_commit_sha(vcs, sha)
-        return
-    repo = _stored_repo(vcs, repo_id)
-    if repo is not None:
-        repo["lastCommitSha"] = sha
+    """Record one declared repo's last commit."""
+    _set_repo_field(vcs, repo_id, "lastCommitSha", sha)
+
+
+def set_repo_pull_request(
+    vcs: Dict[str, Any],
+    repo_id: str,
+    *,
+    url: Optional[str],
+    state: Optional[str],
+    error: Optional[str],
+) -> None:
+    """Record one repo's pull-request outcome: its url, merge state, and last failure.
+
+    Written together because they are one fact — a repo has a pull request, or it has
+    a reason it has none — and writing them apart is how a store ends up claiming an
+    open pull request and a stale failure at the same time.
+    """
+    _set_repo_field(vcs, repo_id, "pullRequestUrl", url)
+    _set_repo_field(vcs, repo_id, "pullRequestState", state)
+    _set_repo_field(vcs, repo_id, "pullRequestError", error)
 
 
 def parse_repo_declaration(value: str) -> Dict[str, str]:
@@ -394,6 +433,9 @@ def ensure_run_worktree(
         base_ref=base,
         status=vcs.get("status"),
         last_commit_sha=vcs.get("lastCommitSha"),
+        pull_request_url=vcs.get("pullRequestUrl"),
+        pull_request_state=vcs.get("pullRequestState"),
+        pull_request_error=vcs.get("pullRequestError"),
     )
     # The flat fields and entry zero are the same repo in two shapes. The list is what
     # the multi-repo work reads; the flat block stays because it is what every shipped
@@ -412,7 +454,9 @@ def ensure_run_worktree(
         "branchName": primary["branchName"],
         "baseRef": primary["baseRef"],
         "status": primary["status"],
-        "pullRequestUrl": vcs.get("pullRequestUrl") if isinstance(vcs.get("pullRequestUrl"), str) else None,
+        "pullRequestUrl": primary["pullRequestUrl"],
+        "pullRequestState": primary["pullRequestState"],
+        "pullRequestError": primary["pullRequestError"],
         "lastCommitSha": primary["lastCommitSha"],
         "repos": [primary, *siblings],
     })
@@ -777,16 +821,27 @@ def workspace_is_git_repository(state_path: Path) -> bool:
     return result.returncode == 0
 
 
-def build_run_pull_request_body(state: Dict[str, Any], branch: str) -> str:
-    """Default PR description: the run goal plus the tasks it delivered.
+def build_run_pull_request_body(state: Dict[str, Any], branch: str, *, repo_id: str = PRIMARY_REPO_ID) -> str:
+    """Default PR description: the run goal plus the tasks it delivered in THIS repo.
 
     A reviewer opening the PR sees what shipped and why, not just the branch name.
+    The task table is scoped to the repo the pull request is for: a run spanning two
+    projects opens one pull request per project, and a reviewer of the mobile PR is
+    not reviewing — and cannot merge — the desktop tasks. A single-repo run's tasks
+    all target the primary repo, so its body is what it always was.
+
     A caller-supplied ``--body`` overrides this entirely.
     """
+    from sprintengine_core import store as folder_store
+
     sprintengine = state.get("sprintengine", {})
     goal = str(sprintengine.get("goal") or "").strip()
     lines = [f"Sprint Engine run delivery for branch `{branch}`.", "", f"**Goal:** {goal or '_(not set)_'}"]
-    done = [t for t in (state.get("tasks") or []) if isinstance(t, dict) and t.get("status") == "done"]
+    done = [
+        t
+        for t in (state.get("tasks") or [])
+        if isinstance(t, dict) and t.get("status") == "done" and folder_store.task_repo(t) == repo_id
+    ]
     if done:
         lines += ["", f"## Tasks delivered ({len(done)})"]
         for task in done:
@@ -800,6 +855,270 @@ def build_run_pull_request_body(state: Dict[str, Any], branch: str) -> str:
     return "\n".join(lines)
 
 
+def _repo_display_name(workspace_root: Path, repo: Dict[str, Any]) -> str:
+    """What a person calls this project: its directory name, never its store id."""
+    root = str(repo.get("root") or "")
+    name = workspace_root.resolve().name if root == PRIMARY_REPO_ROOT else Path(root).name
+    return name or str(repo.get("id") or "project")
+
+
+def _cross_repo_merge_edges(state: Dict[str, Any]) -> List[List[str]]:
+    """``[producer, consumer]`` repo pairs implied by cross-repo task dependencies.
+
+    A task in one project depending on a task in another says the other project's
+    pull request must land first — otherwise the consumer merges against work that is
+    not on its base yet. Dependencies inside one project say nothing about merge
+    order: a single pull request carries both ends.
+    """
+    from sprintengine_core import store as folder_store
+
+    tasks = [task for task in (state.get("tasks") or []) if isinstance(task, dict)]
+    repo_by_task = {str(task.get("id") or ""): folder_store.task_repo(task) for task in tasks}
+    edges: List[List[str]] = []
+    for task in tasks:
+        consumer = folder_store.task_repo(task)
+        for dependency in task.get("dependsOn") or []:
+            producer = repo_by_task.get(str(dependency))
+            if producer and producer != consumer and [producer, consumer] not in edges:
+                edges.append([producer, consumer])
+    return edges
+
+
+def repo_merge_order(state: Dict[str, Any], repo_ids: List[str]) -> List[str]:
+    """The given repos in the order their pull requests must merge.
+
+    Producers before consumers, declaration order breaking every tie so the same run
+    always states the same order. Repo-level dependency cycles are rejected at plan
+    time; if one reaches here anyway, the repos it traps keep their declaration order
+    rather than being dropped — an order a reviewer can question beats a body that
+    silently omits a pull request.
+    """
+    edges = [edge for edge in _cross_repo_merge_edges(state) if edge[0] in repo_ids and edge[1] in repo_ids]
+    remaining = list(repo_ids)
+    ordered: List[str] = []
+    while remaining:
+        free = [
+            repo_id
+            for repo_id in remaining
+            if not any(consumer == repo_id and producer in remaining for producer, consumer in edges)
+        ]
+        if not free:
+            ordered.extend(remaining)
+            break
+        ordered.append(free[0])
+        remaining.remove(free[0])
+    return ordered
+
+
+def _companion_pull_request_lines(
+    state: Dict[str, Any],
+    workspace_root: Path,
+    repos: List[Dict[str, Any]],
+    urls: Dict[str, str],
+    repo_id: str,
+) -> List[str]:
+    """One repo's "Companion pull requests" block, or ``[]`` when it has no companion.
+
+    A run spanning projects ships as several pull requests that only mean anything
+    together, and a reviewer landing on one has no way to find the rest. Every body
+    therefore names all of them and says which must merge first and why. A repo whose
+    pull request does not exist (no commits, or an open that failed) is not listed:
+    the bodies state what is true now, and re-running ``vcs pr`` re-syncs them once it
+    does exist. A single-repo run has no companions and gets no section at all.
+    """
+    by_id = {repo["id"]: repo for repo in repos}
+    listed = [repo_id_ for repo_id_ in repo_merge_order(state, [repo["id"] for repo in repos]) if repo_id_ in urls]
+    if len(listed) < 2 or repo_id not in urls:
+        return []
+    name_of = {listed_id: _repo_display_name(workspace_root, by_id[listed_id]) for listed_id in listed}
+    ordering = [edge for edge in _cross_repo_merge_edges(state) if edge[0] in urls and edge[1] in urls]
+    lines = ["", "## Companion pull requests", ""]
+    if ordering:
+        lines += [f"This sprint spans {len(listed)} projects. Merge these pull requests in this order:", ""]
+        for position, listed_id in enumerate(listed, start=1):
+            here = " — this pull request" if listed_id == repo_id else ""
+            lines.append(f"{position}. **{name_of[listed_id]}** — {urls[listed_id]}{here}")
+        lines.append("")
+        lines += [
+            f"- Work in **{name_of[consumer]}** builds on work in **{name_of[producer]}**, "
+            f"so **{name_of[producer]}** has to merge first."
+            for producer, consumer in ordering
+        ]
+    else:
+        lines += [
+            f"This sprint spans {len(listed)} projects. Nothing in either project depends on the other, "
+            "so these pull requests can merge in any order:",
+            "",
+        ]
+        for listed_id in listed:
+            here = " — this pull request" if listed_id == repo_id else ""
+            lines.append(f"- **{name_of[listed_id]}** — {urls[listed_id]}{here}")
+    return lines
+
+
+def _repo_pull_request_body(
+    state: Dict[str, Any],
+    workspace_root: Path,
+    repos: List[Dict[str, Any]],
+    urls: Dict[str, str],
+    repo: Dict[str, Any],
+    *,
+    body_override: Optional[str],
+) -> str:
+    """One repo's full body: its description, plus the links to its companions.
+
+    A ``--body`` override replaces the generated description, not the companion
+    links: which pull requests must merge together is a fact about the run, not a
+    description a caller is choosing to word differently.
+    """
+    override = _optional_str(body_override)
+    base_body = override or build_run_pull_request_body(state, repo["branchName"], repo_id=repo["id"])
+    companions = _companion_pull_request_lines(state, workspace_root, repos, urls, repo["id"])
+    return "\n".join([base_body, *companions]) if companions else base_body
+
+
+def _repo_has_run_commits(worktree: Path, base_ref: str) -> bool:
+    """Whether this repo's run branch carries a commit its base does not.
+
+    A project the run declared but never changed gets no pull request: an empty one is
+    noise a reviewer has to close. Asked of git rather than of the stored
+    ``lastCommitSha`` so a commit made in the tree by any route counts. When the base
+    cannot be resolved the answer is unknown, and unknown must not silently skip a
+    project — it reads as "has commits", and any real problem surfaces from ``gh``
+    with its own reason attached.
+    """
+    if not base_ref:
+        return True
+    counted = run_git_checked(worktree, ["rev-list", "--count", f"{base_ref}..HEAD"], allow_failure=True)
+    if counted.returncode != 0:
+        return True
+    return (counted.stdout.strip() or "0") != "0"
+
+
+def _open_repo_pull_request(
+    state: Dict[str, Any],
+    vcs: Dict[str, Any],
+    worktree: Path,
+    repo: Dict[str, Any],
+    *,
+    base: Optional[str],
+    title: Optional[str],
+    body: str,
+    draft: bool,
+    push: bool,
+    remote: str,
+) -> Dict[str, Any]:
+    """Push one repo's run branch and open its pull request. Never raises.
+
+    Failure is recorded on THIS repo (``status: failed`` + ``pullRequestError``) and
+    returned; the caller carries on with the other projects, because one project's
+    unreachable remote is no reason to withhold the pull requests the rest are ready
+    for. Idempotent on the repo's stored url: a re-run pushes any new commits and
+    keeps the pull request it already has.
+    """
+    from sprintengine_core.tool.state import append_event
+
+    repo_id = repo["id"]
+    branch = repo["branchName"] or current_git_branch(worktree)
+    base_branch = (base or "").strip() or str(repo.get("baseRef") or "").strip() or default_base_ref(worktree)
+    result = {"repo": repo_id, "branch": branch, "base": base_branch}
+
+    def failed(error: str) -> Dict[str, Any]:
+        set_repo_status(vcs, repo_id, "failed")
+        set_repo_pull_request(vcs, repo_id, url=repo.get("pullRequestUrl"), state=repo.get("pullRequestState"), error=error)
+        return {**result, "ok": False, "error": error}
+
+    if push:
+        pushed = run_git_checked(worktree, ["push", "-u", remote, branch], allow_failure=True)
+        if pushed.returncode != 0:
+            return failed(pushed.stderr.strip() or pushed.stdout.strip() or "git push failed")
+        set_repo_status(vcs, repo_id, "pushed")
+
+    def opened(url: Optional[str], *, already_exists: bool) -> Dict[str, Any]:
+        set_repo_status(vcs, repo_id, "pr_opened")
+        # A pull request that already merged or closed keeps the state it reached:
+        # `vcs pr-status` owns merge state, and adopting an existing pull request must
+        # never report it back open.
+        stored_state = repo.get("pullRequestState")
+        reached = stored_state if already_exists and stored_state in VALID_PULL_REQUEST_STATES else "open"
+        set_repo_pull_request(vcs, repo_id, url=url, state=reached, error=None)
+        return {**result, "ok": True, "pullRequestUrl": url, **({"alreadyExists": True} if already_exists else {})}
+
+    stored_url = _optional_str(repo.get("pullRequestUrl"))
+    if stored_url:
+        return opened(stored_url, already_exists=True)
+
+    pr_title = (title or "").strip() or compact_commit_subject(
+        f"SprintEngine: {str(state.get('sprintengine', {}).get('goal') or '').strip() or branch}"
+    )
+    try:
+        pr = run_gh_checked(
+            worktree,
+            ["pr", "create", "--base", base_branch, "--head", branch, "--title", pr_title, "--body", body, *(["--draft"] if draft else [])],
+            allow_failure=True,
+        )
+    except SystemExit as exc:
+        # gh is not installed. Record it as a failure with the reason rather than
+        # aborting the whole command, so the summary shows it and offers Retry.
+        return failed(str(exc))
+    if pr.returncode != 0:
+        stderr = pr.stderr.strip()
+        existing = parse_url_from_output(stderr) or parse_url_from_output(pr.stdout)
+        if existing:
+            return opened(existing, already_exists=True)
+        # Push succeeded but the PR could not be opened (gh not authed, no remote,
+        # API error). Record it as failed with the reason so the summary can show
+        # the real error and a Retry, instead of a silent "pending" forever.
+        return failed(stderr or pr.stdout.strip() or "gh pr create failed")
+
+    url = parse_url_from_output(pr.stdout) or parse_url_from_output(pr.stderr)
+    append_event(state, "run_pull_request_opened", "sprintengine", f"Opened pull request for {branch}: {url or '(url unavailable)'}.")
+    return opened(url, already_exists=False)
+
+
+def _sync_companion_bodies(
+    state: Dict[str, Any],
+    workspace_root: Path,
+    repos: List[Dict[str, Any]],
+    urls: Dict[str, str],
+    worktrees: Dict[str, Path],
+    *,
+    body_override: Optional[str],
+) -> List[Dict[str, str]]:
+    """Second pass: rewrite every open body so each names its companions.
+
+    Two passes are not a style choice. The first pull request opened cannot link a
+    companion that does not exist yet, so the links can only be written once every
+    pull request in the run has a url. Each body is rewritten whole from the run's
+    current state, which is what makes a re-run re-sync (a repo that failed last time
+    appears in every body this time) without ever stacking a second companion section.
+
+    Returns one record per repo whose body could not be rewritten.
+    """
+    failures: List[Dict[str, str]] = []
+    if len(urls) < 2:
+        # Nothing to cross-link: a single-repo run's body is complete after pass one,
+        # and rewriting it would only be a second `gh` call that changes nothing.
+        return failures
+    for repo in repos:
+        url = urls.get(repo["id"])
+        worktree = worktrees.get(repo["id"])
+        # No url: no pull request to rewrite. No tree: the only way a pull request has
+        # none is that it merged and its worktree was cleaned up, and a merged body is
+        # history — the companions a reviewer still has to merge all say so themselves.
+        if not url or not worktree:
+            continue
+        body = _repo_pull_request_body(state, workspace_root, repos, urls, repo, body_override=body_override)
+        try:
+            edited = run_gh_checked(worktree, ["pr", "edit", url, "--body", body], allow_failure=True)
+        except SystemExit as exc:
+            failures.append({"repo": repo["id"], "error": str(exc)})
+            continue
+        if edited.returncode != 0:
+            failures.append({"repo": repo["id"], "error": edited.stderr.strip() or edited.stdout.strip() or "gh pr edit failed"})
+    return failures
+
+
 def create_run_pull_request(
     state: Dict[str, Any],
     state_path: Path,
@@ -811,102 +1130,115 @@ def create_run_pull_request(
     push: bool = True,
     remote: str = "origin",
 ) -> Dict[str, Any]:
-    """Push the run worktree branch and open a pull request via the GitHub CLI.
+    """Open one pull request per project the run changed, cross-linked to each other.
 
-    Best-effort: network/remote failures are surfaced in the result rather than
-    raising, so a completed run is never lost just because a push or PR creation
-    could not reach the remote.
+    One project, one git tree, one pull request: a run spanning two projects delivers
+    two branches to two remotes, and no single pull request can carry both. Projects
+    the run never committed to are skipped — an empty pull request is noise. Projects
+    that fail are recorded on their own entry and never roll back the pull requests
+    the others already have; re-running the command retries exactly those.
+
+    Bodies are written in two passes (see :func:`_sync_companion_bodies`). The result
+    keeps the primary repo's fields at the top level, where every shipped surface
+    still reads them, and reports every project under ``repos``.
+
+    Best-effort throughout: network and remote failures are surfaced in the result
+    rather than raised, so a completed run is never lost to an unreachable remote.
     """
-    from sprintengine_core.tool.state import append_event
-
     vcs = get_run_vcs(state)
-    worktree = primary_run_worktree(state, state_path)
-    if not vcs or not worktree:
+    if not vcs:
         return {"ok": False, "error": "Sprint Engine run is not in worktree mode; no branch to open a pull request from."}
-    if not worktree.exists():
-        return {"ok": False, "error": f"Sprint Engine worktree is missing: {worktree}"}
 
-    branch = str(vcs.get("branchName") or current_git_branch(worktree))
-    base_branch = (base or "").strip() or str(vcs.get("baseRef") or "").strip() or default_base_ref(worktree)
-    sprintengine = state.get("sprintengine", {})
-    goal = str(sprintengine.get("goal") or "").strip()
-    pr_title = (title or "").strip() or compact_commit_subject(f"SprintEngine: {goal or branch}")
-    pr_body = body if isinstance(body, str) and body.strip() else build_run_pull_request_body(state, branch)
+    workspace_root = workspace_root_for_state_path(state_path)
+    repos = vcs_repos(vcs)
+    worktrees: Dict[str, Path] = {}
+    for repo in repos:
+        worktree = _repo_worktree(state_path, repo)
+        if worktree and worktree.exists():
+            worktrees[repo["id"]] = worktree
 
-    if push:
-        pushed = run_git_checked(worktree, ["push", "-u", remote, branch], allow_failure=True)
-        if pushed.returncode != 0:
-            error = pushed.stderr.strip() or pushed.stdout.strip() or "git push failed"
-            set_vcs_status(vcs, "failed")
-            vcs["pullRequestError"] = error
-            return {"ok": False, "error": error, "branch": branch}
-        set_vcs_status(vcs, "pushed")
-
-    try:
-        pr = run_gh_checked(
+    # Pass one: open (or adopt) every pull request. Bodies carry no companion links
+    # yet — the companions do not all have urls until this loop finishes.
+    results: List[Dict[str, Any]] = []
+    urls: Dict[str, str] = {}
+    for repo in repos:
+        worktree = worktrees.get(repo["id"])
+        if not worktree:
+            # The tree is only removed after its pull request merges, so a merged repo
+            # is simply already delivered. Any other missing tree is a real fault and
+            # is reported as this repo's failure, never as the run's.
+            if repo.get("pullRequestState") == "merged":
+                results.append({"repo": repo["id"], "ok": True, "skipped": "merged", "pullRequestUrl": repo.get("pullRequestUrl")})
+                url = _optional_str(repo.get("pullRequestUrl"))
+                if url:
+                    urls[repo["id"]] = url
+            else:
+                results.append({"repo": repo["id"], "ok": False, "error": f"Sprint Engine worktree is missing: {repo['worktreePath']}"})
+            continue
+        if not _repo_has_run_commits(worktree, str(repo.get("baseRef") or "").strip()):
+            results.append({"repo": repo["id"], "ok": True, "skipped": "no_commits", "branch": repo["branchName"]})
+            continue
+        opened = _open_repo_pull_request(
+            state,
+            vcs,
             worktree,
-            ["pr", "create", "--base", base_branch, "--head", branch, "--title", pr_title, "--body", pr_body, *(["--draft"] if draft else [])],
-            allow_failure=True,
+            repo,
+            base=base,
+            title=title,
+            body=_repo_pull_request_body(state, workspace_root, repos, {}, repo, body_override=body),
+            draft=draft,
+            push=push,
+            remote=remote,
         )
-    except SystemExit as exc:
-        # gh is not installed. Record it as a failure with the reason rather than
-        # aborting the whole command, so the summary shows it and offers Retry.
-        error = str(exc)
-        set_vcs_status(vcs, "failed")
-        vcs["pullRequestError"] = error
-        return {"ok": False, "error": error, "branch": branch}
-    if pr.returncode != 0:
-        stderr = pr.stderr.strip()
-        existing = parse_url_from_output(stderr) or parse_url_from_output(pr.stdout)
-        if existing:
-            vcs["pullRequestUrl"] = existing
-            set_vcs_status(vcs, "pr_opened")
-            vcs["pullRequestState"] = "open"
-            vcs.pop("pullRequestError", None)
-            return {"ok": True, "branch": branch, "base": base_branch, "pullRequestUrl": existing, "alreadyExists": True}
-        # Push succeeded but the PR could not be opened (gh not authed, no remote,
-        # API error). Record it as failed with the reason so the summary can show
-        # the real error and a Retry, instead of a silent "pending" forever.
-        error = stderr or pr.stdout.strip() or "gh pr create failed"
-        set_vcs_status(vcs, "failed")
-        vcs["pullRequestError"] = error
-        return {"ok": False, "error": error, "branch": branch}
+        results.append(opened)
+        url = _optional_str(opened.get("pullRequestUrl"))
+        if url:
+            urls[repo["id"]] = url
 
-    url = parse_url_from_output(pr.stdout) or parse_url_from_output(pr.stderr)
-    vcs["pullRequestUrl"] = url
-    set_vcs_status(vcs, "pr_opened")
-    vcs["pullRequestState"] = "open"
-    vcs.pop("pullRequestError", None)
-    append_event(state, "run_pull_request_opened", "sprintengine", f"Opened pull request for {branch}: {url or '(url unavailable)'}.")
-    return {"ok": True, "branch": branch, "base": base_branch, "pullRequestUrl": url}
+    # Pass two: now that every url exists, give each body its companion links.
+    body_failures = _sync_companion_bodies(state, workspace_root, repos, urls, worktrees, body_override=body)
+
+    primary = next((result for result in results if result["repo"] == PRIMARY_REPO_ID), {})
+    failures = [result for result in results if not result.get("ok")]
+    error = failures[0].get("error") if failures else None
+    if not error and body_failures:
+        error = (
+            f"Opened every pull request, but could not add the companion links to {body_failures[0]['repo']}: "
+            f"{body_failures[0]['error']}. Re-run to sync the bodies."
+        )
+    return {
+        "ok": not failures and not body_failures,
+        **{key: value for key, value in primary.items() if key in ("branch", "base", "pullRequestUrl", "alreadyExists", "skipped")},
+        **({"error": error} if error else {}),
+        "repos": results,
+        **({"bodySyncFailures": body_failures} if body_failures else {}),
+    }
 
 
-def refresh_run_pull_request_state(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
-    """Resolve and persist whether the run's branch has merged.
+def _refresh_repo_pull_request_state(state_path: Path, repo: Dict[str, Any]) -> str:
+    """Resolve whether one repo's run branch has merged. Never raises.
 
     Merged if EITHER signal says so: the GitHub PR reports ``MERGED`` (authoritative,
     also covers squash/rebase done through the PR), OR the branch tip is an ancestor
     of its base ref (catches a branch merged into main manually, without the PR merge
     button — and a branch merged with no PR at all). A squash/rebase merge performed
     outside a PR rewrites history and is not detectable here; through a PR, ``gh``
-    reports it. All git/gh calls are best-effort and never raise.
+    reports it. All git/gh calls are best-effort.
     """
-    vcs = get_run_vcs(state)
-    if not vcs:
-        return {"ok": True, "enabled": False, "pullRequestState": None}
-
-    worktree = primary_run_worktree(state, state_path)
-    repo = worktree if (worktree and worktree.exists()) else workspace_root_for_state_path(state_path)
-    branch = str(vcs.get("branchName") or "").strip()
-    base = str(vcs.get("baseRef") or "").strip()
-    url = str(vcs.get("pullRequestUrl") or "").strip()
+    workspace_root = workspace_root_for_state_path(state_path)
+    worktree = _repo_worktree(state_path, repo)
+    # Once a merged worktree is cleaned up, the repo's own root still answers for it.
+    cwd = worktree if (worktree and worktree.exists()) else resolve_vcs_path(workspace_root, repo["root"])
+    branch = repo["branchName"]
+    base = str(repo.get("baseRef") or "").strip()
+    url = _optional_str(repo.get("pullRequestUrl"))
 
     pr_state = "open"
 
     # 1. Authoritative: the GitHub PR's own state.
     if url:
         try:
-            viewed = run_gh_checked(repo, ["pr", "view", url, "--json", "state"], allow_failure=True)
+            viewed = run_gh_checked(cwd, ["pr", "view", url, "--json", "state"], allow_failure=True)
         except SystemExit:
             viewed = None  # gh not installed; fall through to the git signal
         if viewed is not None and viewed.returncode == 0:
@@ -920,46 +1252,93 @@ def refresh_run_pull_request_state(state: Dict[str, Any], state_path: Path) -> D
                 pr_state = "closed"
 
     # 2. Branch ancestry — catches a manual merge into the base (and a no-PR merge).
-    #    Only meaningful once the run has committed work: an empty branch whose tip
-    #    still equals base would otherwise read as a spurious "merged" (a commit is
-    #    its own ancestor). `lastCommitSha` is set exactly when the run committed.
-    has_commits = bool(str(vcs.get("lastCommitSha") or "").strip())
+    #    Only meaningful once the run has committed work in THIS repo: an empty branch
+    #    whose tip still equals base would otherwise read as a spurious "merged" (a
+    #    commit is its own ancestor). `lastCommitSha` is set exactly when the repo
+    #    committed, so a project the run never touched never reports itself merged.
+    has_commits = bool(_optional_str(repo.get("lastCommitSha")))
     if pr_state == "open" and has_commits and branch and base:
-        run_git_checked(repo, ["fetch", "origin", base], allow_failure=True)
-        tip = run_git_checked(repo, ["rev-parse", branch], allow_failure=True)
+        run_git_checked(cwd, ["fetch", "origin", base], allow_failure=True)
+        tip = run_git_checked(cwd, ["rev-parse", branch], allow_failure=True)
         branch_tip = tip.stdout.strip() if tip.returncode == 0 else ""
         if branch_tip:
             for candidate in (base, f"origin/{base}"):
-                ancestor = run_git_checked(repo, ["merge-base", "--is-ancestor", branch_tip, candidate], allow_failure=True)
+                ancestor = run_git_checked(cwd, ["merge-base", "--is-ancestor", branch_tip, candidate], allow_failure=True)
                 if ancestor.returncode == 0:
                     pr_state = "merged"
                     break
 
-    vcs["pullRequestState"] = pr_state
-    return {"ok": True, "enabled": True, "pullRequestState": pr_state, "vcs": vcs}
+    return pr_state
+
+
+def refresh_run_pull_request_state(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
+    """Resolve and persist whether each project's run branch has merged.
+
+    Every project merges on its own schedule — that is the whole point of one pull
+    request per project — so each repo's state is resolved against its own branch,
+    base, and pull request. The primary's state stays at the top level, where the
+    summary chip and the poll supervisor read it; ``repos`` carries all of them.
+    """
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return {"ok": True, "enabled": False, "pullRequestState": None}
+
+    repos: List[Dict[str, str]] = []
+    for repo in vcs_repos(vcs):
+        pr_state = _refresh_repo_pull_request_state(state_path, repo)
+        _set_repo_field(vcs, repo["id"], "pullRequestState", pr_state)
+        repos.append({"repo": repo["id"], "pullRequestState": pr_state})
+    return {
+        "ok": True,
+        "enabled": True,
+        "pullRequestState": vcs.get("pullRequestState"),
+        "repos": repos,
+        "vcs": vcs,
+    }
 
 
 def cleanup_merged_worktree(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
-    """Remove the run worktree once the branch has merged, if it is clean.
+    """Remove each project's run worktree once ITS branch has merged, if it is clean.
 
-    Only runs after a merge is confirmed. A worktree with uncommitted changes is
-    left in place (the work would be lost) — never force-removed. The branch is not
-    deleted. The run record lives outside the worktree dir, so the summary survives.
+    A project's tree goes when that project's pull request lands, independently of
+    every other project's: a merged desktop PR should not keep its checkout around
+    waiting on the mobile one. Only ever after a merge is confirmed, and never for a
+    tree with uncommitted changes (the work would be lost) — no force-remove, and the
+    branch is not deleted. The run directory outlives them all: it holds the run
+    record and the sibling trees, so the summary survives the last removal.
+
+    The primary's outcome stays at the top level for the callers that only ever knew
+    one worktree; ``repos`` carries every project's.
     """
     from sprintengine_core.tool.state import append_event
 
     vcs = get_run_vcs(state)
     if not vcs:
         return {"removed": False, "reason": "not_worktree_mode"}
-    worktree = primary_run_worktree(state, state_path)
+
+    workspace_root = workspace_root_for_state_path(state_path)
+    outcomes: Dict[str, Dict[str, Any]] = {}
+    for repo in vcs_repos(vcs):
+        outcome = _cleanup_repo_worktree(state_path, workspace_root, repo)
+        outcomes[repo["id"]] = outcome
+        if outcome["removed"]:
+            append_event(
+                state, "run_worktree_removed", "sprintengine", f"Removed merged run worktree {repo['worktreePath']}."
+            )
+    primary = outcomes.get(PRIMARY_REPO_ID, {"removed": False, "reason": "missing"})
+    return {**primary, "repos": [{"repo": repo_id, **outcome} for repo_id, outcome in outcomes.items()]}
+
+
+def _cleanup_repo_worktree(state_path: Path, workspace_root: Path, repo: Dict[str, Any]) -> Dict[str, Any]:
+    if repo.get("pullRequestState") != "merged":
+        return {"removed": False, "reason": "not_merged"}
+    worktree = _repo_worktree(state_path, repo)
     if not worktree or not worktree.exists():
         return {"removed": False, "reason": "missing"}
     if git_status_short(worktree).strip():
         return {"removed": False, "reason": "dirty"}
-
-    workspace_root = workspace_root_for_state_path(state_path)
-    removed = run_git_checked(workspace_root, ["worktree", "remove", str(worktree)], allow_failure=True)
+    repo_root = resolve_vcs_path(workspace_root, repo["root"])
+    removed = run_git_checked(repo_root, ["worktree", "remove", str(worktree)], allow_failure=True)
     if removed.returncode != 0:
         return {"removed": False, "reason": (removed.stderr.strip() or removed.stdout.strip() or "git worktree remove failed")}
-    append_event(state, "run_worktree_removed", "sprintengine", f"Removed merged run worktree {vcs.get('worktreePath')}.")
     return {"removed": True}

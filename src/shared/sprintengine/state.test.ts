@@ -120,6 +120,9 @@ function testVcsReposRoundTripWithoutFieldLoss(): void {
       baseRef: 'main',
       status: 'ready',
       lastCommitSha: 'abc1234',
+      pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
+      pullRequestError: null,
+      pullRequestState: 'open' as const,
     },
     {
       id: 'mobile',
@@ -129,6 +132,10 @@ function testVcsReposRoundTripWithoutFieldLoss(): void {
       baseRef: 'main',
       status: 'committed',
       lastCommitSha: 'def5678',
+      // Each project carries its own pull request and its own merge state.
+      pullRequestUrl: 'https://github.com/acme/multicode-mobile/pull/9',
+      pullRequestError: null,
+      pullRequestState: 'merged' as const,
     },
   ]
   const projection = v3Projection({
@@ -183,10 +190,69 @@ function testVcsFlatBlockReadsBackAsOneEntryRepoList(): void {
         baseRef: 'main',
         status: 'ready',
         lastCommitSha: 'abc1234',
+        pullRequestUrl: null,
+        pullRequestError: null,
+        pullRequestState: null,
       },
     ],
     'flat block reads back as the primary repo, values identical',
   )
+}
+
+function testVcsPrimaryPullRequestReadsBackOnBothShapes(): void {
+  // The primary's pull request is stored twice: flat, where every surface that
+  // predates `repos` reads it, and on entry zero. Both must carry it, or a chip
+  // reads one shape and finds nothing.
+  const projection = v3Projection({
+    run: {
+      name: 'Work Queue',
+      goal: 'ship it',
+      status: 'planning',
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/wt/app',
+        branchName: 'run/main',
+        pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
+        pullRequestState: 'merged',
+        pullRequestError: 'stale',
+      },
+    },
+  })
+  const state = normalizeSprintEngineProjection(projection)
+  assert.ok(state?.vcs)
+  assert.equal(state.vcs.pullRequestUrl, 'https://github.com/acme/multicode/pull/1')
+  assert.equal(state.vcs.pullRequestState, 'merged')
+  assert.equal(state.vcs.pullRequestError, 'stale')
+  assert.equal(state.vcs.repos[0].pullRequestUrl, 'https://github.com/acme/multicode/pull/1')
+  assert.equal(state.vcs.repos[0].pullRequestState, 'merged')
+  assert.equal(state.vcs.repos[0].pullRequestError, 'stale')
+}
+
+function testVcsPullRequestStateOfAnUnknownValueIsNull(): void {
+  const projection = v3Projection({
+    run: {
+      name: 'Work Queue',
+      goal: 'ship it',
+      status: 'planning',
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/wt/app',
+        branchName: 'run/main',
+        repos: [
+          {
+            id: 'primary',
+            root: '.',
+            worktreePath: '.multi-code/wt/app',
+            branchName: 'run/main',
+            pullRequestState: 'draft',
+          },
+        ],
+      },
+    },
+  })
+  const state = normalizeSprintEngineProjection(projection)
+  assert.ok(state?.vcs)
+  assert.equal(state.vcs.repos[0].pullRequestState, null, 'an unknown merge state is not invented')
 }
 
 function testVcsReposUnresolvableEntriesDropped(): void {
@@ -220,5 +286,7 @@ testBoardConsumersRenderUnchangedFromV3()
 testWorkersOrphanRolelessEntriesDropped()
 testVcsReposRoundTripWithoutFieldLoss()
 testVcsFlatBlockReadsBackAsOneEntryRepoList()
+testVcsPrimaryPullRequestReadsBackOnBothShapes()
+testVcsPullRequestStateOfAnUnknownValueIsNull()
 testVcsReposUnresolvableEntriesDropped()
 console.log('sprintengine state tests passed')

@@ -888,11 +888,21 @@ export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | nu
 export type SprintEngineRoleRuntimes = Partial<Record<SprintEngineRoleId, SprintEngineRoleRuntime>>
 
 /**
+ * Merge state of one branch's pull request: 'open' until the PR merges or the branch
+ * lands in its base; 'merged' and 'closed' are terminal, and polling stops there.
+ */
+export type SprintEnginePullRequestState = 'open' | 'merged' | 'closed' | null
+
+/**
  * One repo a run works in (MC-1611). Mirrors the entry shape the engine writes to
  * `sprintengine.vcs.repos` in run.yaml. `root` is workspace-relative — `.` for the
  * primary repo, a sibling project's directory for the rest — and `worktreePath` is
- * that repo's own run worktree. Pull-request fields are not here yet; they stay on
- * the run's flat `vcs` block until per-repo pull requests land (MC-1612).
+ * that repo's own run worktree.
+ *
+ * A run spanning projects delivers one branch per project, so each repo carries its
+ * own pull request and its own merge state (MC-1612): one project's PR merges, and
+ * only that project's worktree goes. The primary's copies of these fields are also
+ * the flat `vcs.*` fields, which is what every surface that predates the list reads.
  */
 export type SprintEngineVcsRepo = {
   id: string
@@ -903,6 +913,11 @@ export type SprintEngineVcsRepo = {
   baseRef?: string | null
   status?: string
   lastCommitSha?: string | null
+  pullRequestUrl?: string | null
+  /** Reason this repo's last pull-request open failed, surfaced with Retry. */
+  pullRequestError?: string | null
+  /** Merge state of THIS repo's branch; 'merged'/'closed' are terminal. */
+  pullRequestState?: SprintEnginePullRequestState
 }
 
 export type SprintEngineVcs = {
@@ -917,7 +932,7 @@ export type SprintEngineVcs = {
   pullRequestError?: string | null
   /** Merge state of the run branch: 'open' until the PR merges or the branch lands
    *  in its base; 'merged'/'closed' are terminal (polling stops). */
-  pullRequestState?: 'open' | 'merged' | 'closed' | null
+  pullRequestState?: SprintEnginePullRequestState
   lastCommitSha?: string | null
   /**
    * Every repo the run works in, entry zero first (the primary repo, `root: '.'`).

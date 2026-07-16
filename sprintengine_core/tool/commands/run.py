@@ -1072,16 +1072,18 @@ def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import cleanup_merged_worktree, refresh_run_pull_request_state
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        from sprintengine_core.tool.shell import get_run_vcs
+        from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
 
-        prior = (get_run_vcs(state) or {}).get("pullRequestState")
+        vcs = get_run_vcs(state)
+        prior = {repo["id"]: repo.get("pullRequestState") for repo in vcs_repos(vcs)} if vcs else {}
         result = refresh_run_pull_request_state(state, args.state)
-        changed = result.get("pullRequestState") != prior
-        # Auto-remove the worktree once the branch has merged (clean only).
-        if result.get("pullRequestState") == "merged":
+        after = {entry["repo"]: entry["pullRequestState"] for entry in result.get("repos") or []}
+        changed = after != prior
+        # Auto-remove each project's worktree once ITS branch has merged (clean only).
+        if any(pr_state == "merged" for pr_state in after.values()):
             cleanup = cleanup_merged_worktree(state, args.state)
             result["worktreeCleanup"] = cleanup
-            if cleanup.get("removed"):
+            if any(entry.get("removed") for entry in cleanup.get("repos") or []):
                 changed = True
         # Avoid rewriting the projection (and re-rendering) when nothing changed —
         # this command polls every 30s while the summary is open.
@@ -1124,6 +1126,7 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
         commit_task_changes_if_needed,
         get_run_vcs,
         run_orphaned_dirty_paths,
+        vcs_repos,
     )
 
     missing_sweeps = missing_required_sweeps(state)
@@ -1164,19 +1167,26 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
             ),
         }
 
-    existing_url = str(vcs.get("pullRequestUrl") or "").strip()
-    if existing_url:
+    # A run spanning projects is PR-ready when every project it changed has a pull
+    # request — the projects it never committed to deliver nothing and need none.
+    # `lastCommitSha` is set exactly when a repo committed.
+    changed_repos = [repo for repo in vcs_repos(vcs) if str(repo.get("lastCommitSha") or "").strip()]
+    opened = [repo for repo in changed_repos if str(repo.get("pullRequestUrl") or "").strip()]
+    if opened and len(opened) == len(changed_repos):
+        urls = ", ".join(f"{repo['id']}: {repo['pullRequestUrl']}" for repo in opened)
         return {
             "blocked": False,
-            "pullRequestUrl": existing_url,
+            "pullRequestUrl": str(vcs.get("pullRequestUrl") or "").strip() or None,
+            "pullRequestUrls": [{"repo": repo["id"], "pullRequestUrl": repo["pullRequestUrl"]} for repo in opened],
             "alreadyExists": True,
-            "message": f"All tasks are done. Pull request already open: {existing_url}. Stop now.",
+            "message": f"All tasks are done. Pull request{'s' if len(opened) > 1 else ''} already open — {urls}. Stop now.",
         }
 
     return {
         "blocked": False,
         "message": (
-            "All Sprint Engine tasks are done and committed to the run worktree. "
+            "All Sprint Engine tasks are done and committed to the run worktree"
+            f"{'s' if len(changed_repos) > 1 else ''}. "
             "Open a pull request from the run summary when ready. Stop now."
         ),
     }

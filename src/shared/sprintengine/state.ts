@@ -28,6 +28,7 @@ import type {
   SprintEngineProjectionLockWarning,
   SprintEngineProjectionLocks,
   SprintEngineProjectionSource,
+  SprintEnginePullRequestState,
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
@@ -1231,6 +1232,10 @@ function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPo
 const primaryRepoId = 'primary'
 const primaryRepoRoot = '.'
 
+function normalizeSprintEnginePullRequestState(value: unknown): SprintEnginePullRequestState {
+  return value === 'open' || value === 'merged' || value === 'closed' ? value : null
+}
+
 function normalizeSprintEngineVcsRepo(input: unknown): SprintEngineVcsRepo | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
@@ -1249,6 +1254,9 @@ function normalizeSprintEngineVcsRepo(input: unknown): SprintEngineVcsRepo | und
     ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
     ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
     lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+    pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
+    pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
+    pullRequestState: normalizeSprintEnginePullRequestState(record.pullRequestState),
   }
 }
 
@@ -1283,14 +1291,9 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
     branchName: primary.branchName,
     ...(primary.baseRef ? { baseRef: primary.baseRef } : {}),
     ...(primary.status ? { status: primary.status } : {}),
-    pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
-    pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
-    pullRequestState:
-      record.pullRequestState === 'open' ||
-      record.pullRequestState === 'merged' ||
-      record.pullRequestState === 'closed'
-        ? record.pullRequestState
-        : null,
+    pullRequestUrl: primary.pullRequestUrl ?? null,
+    pullRequestError: primary.pullRequestError ?? null,
+    pullRequestState: primary.pullRequestState ?? null,
     lastCommitSha: primary.lastCommitSha,
     repos: normalizeSprintEngineVcsRepos(record, primary),
   }
