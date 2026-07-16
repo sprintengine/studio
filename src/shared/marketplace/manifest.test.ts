@@ -284,6 +284,71 @@ function testBundledSkillsValidateAndSurvive(): void {
   )
 }
 
+function testBundledSkillContentDigestsValidateAndSurvive(): void {
+  const digest = 'a'.repeat(64)
+  const files = [
+    { path: 'SKILL.md', sha256: digest, size: 42 },
+    { path: 'scripts/run.py', sha256: 'b'.repeat(64), size: 7 },
+  ]
+  const generated = {
+    id: 'anthropic-vercel',
+    name: 'vercel',
+    publisher: { name: 'Anthropic', verified: false },
+    summary: 'Vercel skills.',
+    category: 'development',
+    icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+    latest: 1,
+    provides: ['skills'],
+    source: 'https://github.com/vercel/skills.git',
+    skills: [{ name: 'vercel', description: 'Deploy.', path: 'skills/vercel', files, contentDigest: digest }],
+  }
+  // Content digests (MC-1644) ride through the rebuild — the offline install
+  // verifies bundled bytes against exactly these.
+  const result = validateMarketplaceIndex({ ...VALID_MARKETPLACE, plugins: [generated] })
+  assert.equal(result.ok, true, JSON.stringify(!result.ok && result.issues))
+  if (result.ok) {
+    assert.deepEqual(result.marketplace.plugins[0].skills?.[0].files, files)
+    assert.equal(result.marketplace.plugins[0].skills?.[0].contentDigest, digest)
+  }
+
+  const withSkill = (skill: Record<string, unknown>) => ({
+    ...VALID_MARKETPLACE,
+    plugins: [{ ...generated, skills: [skill] }],
+  })
+  const base = { name: 'vercel', description: 'Deploy.', path: 'skills/vercel' }
+  // files and contentDigest only come as a pair.
+  assertRejectsAt(withSkill({ ...base, files }), 'plugins[0].skills[0]', validateMarketplaceIndex)
+  assertRejectsAt(withSkill({ ...base, contentDigest: digest }), 'plugins[0].skills[0]', validateMarketplaceIndex)
+  // A digest-bearing skill needs the folder path used to locate the payload.
+  assertRejectsAt(
+    withSkill({ name: 'vercel', description: 'Deploy.', files, contentDigest: digest }),
+    'plugins[0].skills[0].path',
+    validateMarketplaceIndex
+  )
+  // Malformed digests, traversal paths, and duplicates all fail the index.
+  assertRejectsAt(
+    withSkill({ ...base, files: [{ path: 'SKILL.md', sha256: 'nope', size: 1 }], contentDigest: digest }),
+    'plugins[0].skills[0].files[0]',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    withSkill({ ...base, files: [{ path: '../escape.md', sha256: digest, size: 1 }], contentDigest: digest }),
+    'plugins[0].skills[0].files[0]',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(
+    withSkill({ ...base, files: [files[0], files[0]], contentDigest: digest }),
+    'plugins[0].skills[0].files[1].path',
+    validateMarketplaceIndex
+  )
+  assertRejectsAt(withSkill({ ...base, files: [], contentDigest: digest }), 'plugins[0].skills[0].files', validateMarketplaceIndex)
+  assertRejectsAt(
+    withSkill({ ...base, files, contentDigest: 'not-hex' }),
+    'plugins[0].skills[0].contentDigest',
+    validateMarketplaceIndex
+  )
+}
+
 function testEntryRejectsSourceAndMcpTogether(): void {
   const hybrid = { ...VALID_MARKETPLACE.plugins[0], mcp: VALID_INLINE_MCP_ENTRY.mcp }
   assertRejectsAt({ ...VALID_MARKETPLACE, plugins: [hybrid] }, 'plugins[0]', validateMarketplaceIndex)
@@ -385,6 +450,7 @@ testInlineMcpEntryValidates()
 testBundleEntryWithoutSignatureValidates()
 testGeneratedClaudePluginShapedEntryValidates()
 testBundledSkillsValidateAndSurvive()
+testBundledSkillContentDigestsValidateAndSurvive()
 testEntryRejectsSourceAndMcpTogether()
 testEntryRejectsNeitherSourceNorMcp()
 testInlineMcpRejectsNonMcpProvides()

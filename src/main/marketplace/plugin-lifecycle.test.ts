@@ -22,6 +22,7 @@ import { discoverUserModules } from '../modules/user-module-registry'
 import type { InstallPluginResult } from '../plugin-install'
 import type { SkillPackService } from '../skill-pack-service'
 import { createMarketplacePluginLifecycleService, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
+import { skillContentDigest } from './skill-content'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
 
 type BundleComponents = {
@@ -952,7 +953,20 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
 }
 
 
-// --- Claude Code plugin installs (MC-1561) ----------------------------------
+// --- Claude Code plugin installs (bundled snapshot content) -----------------
+
+const CLAUDE_SKILL_BODIES: Record<string, string> = {
+  alpha: '---\nname: alpha\ndescription: First.\n---\n',
+  beta: '---\nname: beta\ndescription: Second.\n---\n',
+}
+
+function claudeSkillDigest(body: string): { path: string; sha256: string; size: number } {
+  return {
+    path: 'SKILL.md',
+    sha256: createHash('sha256').update(body, 'utf8').digest('hex'),
+    size: Buffer.byteLength(body, 'utf8'),
+  }
+}
 
 const CLAUDE_LIFECYCLE_ENTRY: MarketplacePluginEntry = {
   id: 'acme-skills',
@@ -965,50 +979,39 @@ const CLAUDE_LIFECYCLE_ENTRY: MarketplacePluginEntry = {
   provides: ['skills'],
   tags: ['claude-plugin'],
   source: 'https://github.com/acme/skills',
+  skills: Object.entries(CLAUDE_SKILL_BODIES).map(([folder, body]) => {
+    const files = [claudeSkillDigest(body)]
+    return {
+      name: folder,
+      description: `The ${folder} skill.`,
+      path: `skills/${folder}`,
+      files,
+      contentDigest: skillContentDigest(files),
+    }
+  }),
 }
 
-// The GitHub contents shape of a Claude plugin repo (manifest + two skills).
+// Claude-plugin installs never touch the network — the whole flow reads the
+// bundled catalogue payload. A fetch is a regression, so it throws.
 function createClaudeLifecycleFetcher(): MarketplacePluginDownloadFetch {
-  const sha = 'f'.repeat(40)
-  const api = (path: string) => `https://api.github.com/repos/acme/skills/contents/${path}?ref=${sha}`
-  const raw = (path: string) => `https://raw.githubusercontent.com/acme/skills/${sha}/${path}`
-  const skillBodies: Record<string, string> = {
-    'skills/alpha/SKILL.md': '---\nname: alpha\ndescription: First.\n---\n',
-    'skills/beta/SKILL.md': '---\nname: beta\ndescription: Second.\n---\n',
+  return (url) => Promise.reject(new Error(`unexpected network request during bundled install: ${url}`))
+}
+
+// Writes the packaged payload dir the catalogue generator would emit and
+// returns the resolver the download resolves it through.
+async function installClaudePayload(temp: string): Promise<(relativePath: string) => string | null> {
+  const resourceDir = join(temp, 'packaged', 'skills', 'acme-skills')
+  for (const [folder, body] of Object.entries(CLAUDE_SKILL_BODIES)) {
+    await mkdir(join(resourceDir, folder), { recursive: true })
+    await writeFile(join(resourceDir, folder, 'SKILL.md'), body, 'utf8')
   }
-  return async (url) => {
-    if (url === 'https://api.github.com/repos/acme/skills/commits/HEAD') {
-      return new Response(JSON.stringify({ sha }))
-    }
-    if (url === api('.claude-plugin')) {
-      return new Response(JSON.stringify([
-        { type: 'file', path: '.claude-plugin/plugin.json', download_url: raw('.claude-plugin/plugin.json') },
-      ]))
-    }
-    if (url === api('skills')) {
-      return new Response(JSON.stringify([
-        { type: 'dir', path: 'skills/alpha', url: api('skills/alpha') },
-        { type: 'dir', path: 'skills/beta', url: api('skills/beta') },
-      ]))
-    }
-    if (url === api('skills/alpha')) {
-      return new Response(JSON.stringify([{ type: 'file', path: 'skills/alpha/SKILL.md', download_url: raw('skills/alpha/SKILL.md') }]))
-    }
-    if (url === api('skills/beta')) {
-      return new Response(JSON.stringify([{ type: 'file', path: 'skills/beta/SKILL.md', download_url: raw('skills/beta/SKILL.md') }]))
-    }
-    if (url === raw('.claude-plugin/plugin.json')) {
-      return new Response(JSON.stringify({ name: 'acme-skills', description: 'Skills for Acme.' }))
-    }
-    const rawMatch = url.match(new RegExp(`^https://raw\\.githubusercontent\\.com/acme/skills/${sha}/(.+)$`))
-    if (rawMatch && skillBodies[rawMatch[1]!] !== undefined) return new Response(skillBodies[rawMatch[1]!]!)
-    return new Response('not found', { status: 404 })
-  }
+  return (relativePath) => (relativePath === 'skills/acme-skills' ? resourceDir : null)
 }
 
 async function testClaudePluginRequiresTrustGrant(): Promise<void> {
   await withTempDir(async (temp) => {
     const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const result = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot })
     assert.equal(result.ok, false)
@@ -1027,6 +1030,7 @@ async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): P
       createClaudeLifecycleFetcher(),
       { trustedModules: new Map() }
     )
+    services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const result = await lifecycle.installFromRegistry({
       entry: CLAUDE_LIFECYCLE_ENTRY,
@@ -1071,6 +1075,7 @@ async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<voi
       createClaudeLifecycleFetcher(),
       { trustedModules: new Map() }
     )
+    services.packagedResourceResolver = await installClaudePayload(temp)
     // The wired resolver (installed CLIs with native skill support + agents)
     // drives the default target set; the caller passes no skillHarnesses.
     services.resolveSkillHarnesses = () => Promise.resolve(['claude', 'codex', 'agents'])
@@ -1108,6 +1113,7 @@ async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<voi
 async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void> {
   await withTempDir(async (temp) => {
     const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
     services.resolveSkillHarnesses = () => Promise.reject(new Error('probe blew up'))
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const result = await lifecycle.installFromRegistry({
@@ -1122,6 +1128,7 @@ async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void>
 
   await withTempDir(async (temp) => {
     const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
     // An empty resolved set must not install nowhere while claiming success.
     services.resolveSkillHarnesses = () => Promise.resolve([])
     const lifecycle = createMarketplacePluginLifecycleService(services)
@@ -1138,6 +1145,7 @@ async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void>
 async function testClaudePluginHarnessChangeRemovesOrphanedCopies(): Promise<void> {
   await withTempDir(async (temp) => {
     const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     // First install targets claude + agents.
     const first = await lifecycle.installFromRegistry({
@@ -1166,6 +1174,7 @@ async function testClaudePluginHarnessChangeRemovesOrphanedCopies(): Promise<voi
 async function testClaudePluginRefusesForeignSkillDirCollision(): Promise<void> {
   await withTempDir(async (temp) => {
     const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
     // A hand-dropped skill dir this plugin does not own.
     await mkdir(join(workspaceRoot, '.claude', 'skills', 'alpha'), { recursive: true })
     await writeFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'mine, not yours', 'utf8')

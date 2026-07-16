@@ -2,9 +2,12 @@
 //
 //   npm run catalogue:generate
 //
-// Emits two committed files (deterministic: stable id sort, 2-space JSON):
+// Emits two committed files (deterministic: stable id sort, 2-space JSON) and
+// one committed payload tree:
 //   resources/mcps/catalog.json            inline-MCP connectors (launch surface)
 //   resources/marketplace/marketplace.json signed bundles + plugin entries (install surface)
+//   resources/marketplace/skills/<id>/     bundled claude-plugin skill payloads
+//                                          (offline install source; digest-gated)
 //
 // App builds and CI never run this — it runs when bumping the snapshot, and
 // the outputs are reviewed like any other diff. Multicode-specific launch
@@ -18,13 +21,13 @@
 // fails the WHOLE index on any issue) would otherwise ship as a poisoned seed
 // with a green-looking diff.
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
-const { loadSnapshot, toMarketplaceIndex, toMulticodeId } = await import('@hotstack/catalogue-snapshot')
+const { loadSnapshot, skillPayloadDir, toMarketplaceIndex, toMulticodeId } = await import('@hotstack/catalogue-snapshot')
 
 const repoRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 
@@ -202,6 +205,43 @@ const projection = toMarketplaceIndex(bundlesAndPlugins, { inlineIcons: true })
 const marketplacePath = path.join(repoRoot, 'resources', 'marketplace', 'marketplace.json')
 writeFileSync(marketplacePath, `${JSON.stringify(projection.index, null, 2)}\n`, 'utf8')
 
+// --- resources/marketplace/skills/<id>/: bundled skill payloads -------------
+// Every digest-bearing skill in the projected index gets its payload copied
+// from the snapshot package, so claude-plugin installs run offline against
+// digest-verified local bytes (no GitHub contents walk). The tree is rebuilt
+// from scratch — stale payloads from delisted plugins must not linger. A
+// digest listing whose payload is missing from the package is a build error,
+// never a silent skip: it would ship an entry that claims offline
+// installability and then fails integrity at install time.
+const skillsRoot = path.join(repoRoot, 'resources', 'marketplace', 'skills')
+rmSync(skillsRoot, { recursive: true, force: true })
+let payloadPlugins = 0
+let payloadFiles = 0
+let payloadBytes = 0
+let metadataOnlySkills = 0
+for (const plugin of projection.index.plugins) {
+  const digestSkills = (plugin.skills ?? []).filter(
+    (skill) => skill.files !== undefined && skill.contentDigest !== undefined && skill.path
+  )
+  metadataOnlySkills += (plugin.skills ?? []).length - digestSkills.length
+  if (digestSkills.length === 0) continue
+  const packageDir = skillPayloadDir(plugin.id)
+  if (!packageDir) {
+    throw new Error(`plugin "${plugin.id}" carries content digests but has no payload key`)
+  }
+  for (const skill of digestSkills) {
+    const folder = skill.path.split('/').filter(Boolean).pop()
+    const src = fileURLToPath(new URL(`${folder}/`, packageDir))
+    if (!existsSync(src)) {
+      throw new Error(`plugin "${plugin.id}" skill "${skill.name}" records digests but the snapshot package ships no payload at ${src}`)
+    }
+    cpSync(src, path.join(skillsRoot, plugin.id, folder), { recursive: true })
+    payloadFiles += skill.files.length
+    payloadBytes += skill.files.reduce((total, file) => total + file.size, 0)
+  }
+  payloadPlugins += 1
+}
+
 // --- Report: what shipped and what was dropped (never silent) ---
 const dropped = snapshot.entries.length - picked.length
 console.log(
@@ -211,5 +251,6 @@ console.log(
     `dropped by policy: ${dropped} unlisted official-registry entries (full-index search stays a hosted-registry feature)`,
     `catalog.json: ${servers.length} servers (${servers.filter((s) => s.skill).length} with launch skills)`,
     `marketplace.json: ${projection.index.plugins.length} plugins (${projection.skipped.length} skipped: ${projection.skipped.map((s) => `${s.id} — ${s.reason}`).join('; ') || 'none'})`,
+    `skill payloads: ${payloadFiles} files, ${(payloadBytes / (1024 * 1024)).toFixed(1)} MB across ${payloadPlugins} plugins under resources/marketplace/skills (${metadataOnlySkills} skills metadata-only — no bundled content)`,
   ].join('\n')
 )

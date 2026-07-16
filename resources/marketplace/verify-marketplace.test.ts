@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { buildSync } from 'esbuild'
+
+import { skillContentDigest } from '../../src/main/marketplace/skill-content'
 
 const workDir = mkdtempSync(join(tmpdir(), 'multicode-marketplace-publish-'))
 const verifierBundle = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'marketplace-registry-verify-for-test.cjs')
@@ -169,6 +172,55 @@ function testEntrySourceOnAllowlistedNonCanonicalOwnerPasses(): void {
   assert.match(result.stdout, /marketplace registry verified/)
 }
 
+function testBundledSkillPayloadDigestsGateThePublish(): void {
+  const root = copySeedRegistry('skill-payload-registry')
+  const path = join(root, 'marketplace.json')
+  const marketplace = JSON.parse(readFileSync(path, 'utf8')) as { plugins: Array<Record<string, unknown>> }
+  const body = '---\nname: probe\n---\n'
+  const files = [
+    {
+      path: 'SKILL.md',
+      sha256: createHash('sha256').update(body, 'utf8').digest('hex'),
+      size: Buffer.byteLength(body, 'utf8'),
+    },
+  ]
+  marketplace.plugins.push({
+    id: 'digest-probe',
+    name: 'probe',
+    publisher: { name: 'Probe', verified: false },
+    summary: 'Digest gate probe.',
+    category: 'Development',
+    icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+    latest: 1,
+    provides: ['skills'],
+    tags: ['claude-plugin'],
+    source: 'https://github.com/acme/probe',
+    skills: [{ name: 'probe', description: 'Probe skill.', path: 'skills/probe', files, contentDigest: skillContentDigest(files) }],
+  })
+  writeFileSync(path, `${JSON.stringify(marketplace, null, 2)}\n`, 'utf8')
+  const payloadDir = join(root, 'skills', 'digest-probe', 'probe')
+  mkdirSync(payloadDir, { recursive: true })
+  writeFileSync(join(payloadDir, 'SKILL.md'), body, 'utf8')
+
+  // Digest-bearing entry + matching payload verifies.
+  const ok = runVerifier(root)
+  assert.equal(ok.status, 0, ok.stderr)
+
+  // Tampered payload bytes fail the publish.
+  writeFileSync(join(payloadDir, 'SKILL.md'), '---\nname: evil\n---\n', 'utf8')
+  const tampered = runVerifier(root)
+  assert.equal(tampered.status, 1)
+  assert.match(tampered.stderr, /skills\/digest-probe\/probe/)
+  assert.match(tampered.stderr, /digest verification/)
+
+  // A digest-bearing entry with no payload dir at all also fails.
+  rmSync(join(root, 'skills', 'digest-probe'), { recursive: true, force: true })
+  const missing = runVerifier(root)
+  assert.equal(missing.status, 1)
+  assert.match(missing.stderr, /skills\/digest-probe/)
+  assert.match(missing.stderr, /payload dir is missing/)
+}
+
 function testPublishScriptsTargetRegistryRoot(): void {
   const appPackage = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
     scripts?: Record<string, string>
@@ -194,6 +246,7 @@ try {
   testTamperedComponentFailsThroughCliVerify()
   testEntrySourceOnNonAllowlistedHostFails()
   testEntrySourceOnAllowlistedNonCanonicalOwnerPasses()
+  testBundledSkillPayloadDigestsGateThePublish()
   testPublishScriptsTargetRegistryRoot()
   console.log('marketplace publish validation tests passed')
 } finally {

@@ -11,8 +11,9 @@ import type {
 } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { AppServices } from '../app-services'
+import { writeDiagnosticLog } from '../diagnostics-service'
 import { createMarketplacePluginLifecycleService, defaultMarketplacePluginInstallStorePath } from '../marketplace/plugin-lifecycle'
-import { defaultMarketplacePluginStagingRoot } from '../marketplace/plugin-download'
+import { defaultMarketplacePluginStagingRoot, type MarketplaceInstallLog } from '../marketplace/plugin-download'
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
@@ -27,6 +28,20 @@ export function registerMarketplacePluginIpc(
     trustedModules: readTrustedModulesSync(app.getPath('userData')),
     trustedKeyFingerprints: readTrustedMarketplacePublisherFingerprintsSync(),
   })
+  // Verify/install failures used to be invisible (result objects only, no
+  // logging anywhere) — every pipeline event now lands in the diagnostics
+  // log and the main-process console.
+  const marketplaceLog: MarketplaceInstallLog = (event, detail) => {
+    const details = detail === undefined ? undefined : JSON.stringify(detail)
+    console.log(`[marketplace] ${event}${details ? ` ${details}` : ''}`)
+    void writeDiagnosticLog({
+      level: event.includes('fail') || event.includes('mismatch') ? 'error' : 'info',
+      source: 'marketplace',
+      title: 'Marketplace plugin pipeline',
+      message: event,
+      ...(details ? { details } : {}),
+    }).catch(() => undefined)
+  }
   const installPlugin = createMarketplacePluginInstaller({
     mcpConfigService: services.mcpConfigService,
     skillPackService: services.skillPackService,
@@ -35,6 +50,7 @@ export function registerMarketplacePluginIpc(
   const verifier = createMarketplacePluginVerifier({
     trustContext,
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
+    log: marketplaceLog,
   })
   const lifecycle = createMarketplacePluginLifecycleService({
     mcpConfigService: services.mcpConfigService,
@@ -43,6 +59,7 @@ export function registerMarketplacePluginIpc(
     receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
     resolveSkillHarnesses: () => resolveInstalledSkillHarnesses(),
+    log: marketplaceLog,
   })
 
   ipcMain.handle(

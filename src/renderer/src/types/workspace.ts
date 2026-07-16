@@ -928,6 +928,7 @@ export type DiagnosticSource =
   | 'automations'
   | 'filesystem'
   | 'git'
+  | 'marketplace'
   | 'sprintengine'
   | 'terminal'
   | 'update'

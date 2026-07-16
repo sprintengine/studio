@@ -9,13 +9,18 @@ import {
   defaultMarketplacePluginStagingRoot,
   downloadClaudeCodePluginSource,
   downloadMarketplacePluginBundle,
+  type MarketplaceInstallLog,
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
+import type { MarketplaceResourceResolver } from './resources'
 
 export type MarketplacePluginVerifierServices = {
   trustContext: () => ModuleTrustContext
   stagingRoot?: string
   fetcher?: MarketplacePluginDownloadFetch
+  /** Test seam for packaged resource resolution (bundled claude-plugin skills). */
+  packagedResourceResolver?: MarketplaceResourceResolver
+  log?: MarketplaceInstallLog
 }
 
 export function createMarketplacePluginVerifier(services: MarketplacePluginVerifierServices) {
@@ -41,15 +46,20 @@ export async function verifyMarketplacePlugin(
   }
 
   // Claude Code plugins are unsigned by nature (no Multicode manifest to
-  // verify); the pre-trust download exists to disclose the REAL skill file
-  // listing at the trust prompt — never a fabricated one.
+  // verify); the pre-trust staging exists to disclose the REAL skill file
+  // listing at the trust prompt — never a fabricated one. Content resolves
+  // from the bundled catalogue payload and is digest-checked, so this is
+  // local file reads: near-instant, zero network.
   if (isClaudeCodePluginEntry(registryEntry.entry)) {
+    services.log?.('claude-plugin:verify-start', { entryId: registryEntry.entry.id })
     const claude = await downloadClaudeCodePluginSource({
       entry: registryEntry.entry,
       stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(),
-      fetcher: services.fetcher,
+      packagedResourceResolver: services.packagedResourceResolver,
+      log: services.log,
     })
     if (!claude.ok) {
+      services.log?.('claude-plugin:verify-failed', { entryId: registryEntry.entry.id, message: claude.message })
       return {
         classification: 'invalid',
         permissions: [],
@@ -59,13 +69,15 @@ export async function verifyMarketplacePlugin(
       }
     }
     try {
+      services.log?.('claude-plugin:verify-ok', { entryId: registryEntry.entry.id, files: claude.skillDirs.length })
       return {
         classification: 'unsigned',
         permissions: [],
         sourceUrl: claude.sourceUrl,
         files: claude.skillDirs.map((dir) => `skills/${dir}`),
-        // The commit this listing came from; the install fetches exactly this
-        // ref so a mutable source cannot swap content after the trust grant.
+        // The bundled-content identity this listing came from; the install
+        // re-checks exactly this pin so a catalogue/app update cannot swap
+        // content between the trust grant and the install.
         pinnedRef: claude.resolvedRef,
       }
     } finally {

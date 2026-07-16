@@ -24,8 +24,10 @@ import {
   defaultMarketplacePluginStagingRoot,
   downloadClaudeCodePluginSource,
   downloadMarketplacePluginBundle,
+  type MarketplaceInstallLog,
   type MarketplacePluginDownloadFetch,
 } from './plugin-download'
+import type { MarketplaceResourceResolver } from './resources'
 
 export const MARKETPLACE_PLUGIN_INSTALLS_FILENAME = 'marketplace-plugin-installs.json'
 const RECEIPT_COMPONENT_KINDS = new Set(['mcp', 'skills', 'module', 'cli'])
@@ -66,6 +68,9 @@ export type MarketplacePluginLifecycleServices = MarketplacePluginInstallerServi
    * Absent, installs fall back to Claude-only.
    */
   resolveSkillHarnesses?: () => Promise<SkillPackHarness[]>
+  /** Test seam for packaged resource resolution (bundled claude-plugin skills). */
+  packagedResourceResolver?: MarketplaceResourceResolver
+  log?: MarketplaceInstallLog
 }
 
 export function defaultMarketplacePluginInstallStorePath(userDataDir: string): string {
@@ -496,15 +501,18 @@ async function installClaudeCodePluginEntry(
     return { ok: false, sourceUrl, classification: 'unsigned', updated, message: 'Workspace root is required to install Claude Code plugin skills.' }
   }
 
+  services.log?.('claude-plugin:install-start', { entryId: entry.id })
   const download = await downloadClaudeCodePluginSource({
     entry,
     stagingRoot: services.stagingRoot ?? defaultMarketplacePluginStagingRoot(dirname(services.receiptStorePath)),
-    fetcher: services.fetcher,
+    packagedResourceResolver: services.packagedResourceResolver,
+    log: services.log,
     // Install exactly what the trust prompt disclosed when the verify pin is
-    // present; otherwise the download resolves the source ref itself.
+    // present; otherwise the staging computes the content identity itself.
     ...(input.claudePluginRef ? { refOverride: input.claudePluginRef } : {}),
   })
   if (!download.ok) {
+    services.log?.('claude-plugin:install-failed', { entryId: entry.id, message: download.message })
     return {
       ok: false,
       sourceUrl: download.sourceUrl,
@@ -569,6 +577,7 @@ async function installClaudeCodePluginEntry(
           await cp(join(download.stagedPath, 'skills', dir), target, { recursive: true, force: true })
         }
       } catch (error) {
+        services.log?.('claude-plugin:copy-failed', { entryId: entry.id, skill: dir, message: formatError(error) })
         const partial: MarketplacePluginInstalledComponent = {
           kind: 'skills',
           id: dir,
@@ -670,6 +679,12 @@ async function installClaudeCodePluginEntry(
       }, rollback), restored)
     }
 
+    services.log?.('claude-plugin:install-ok', {
+      entryId: entry.id,
+      skills: receipt.components.length,
+      harnesses,
+      updated,
+    })
     return {
       ok: true,
       id: receipt.id,

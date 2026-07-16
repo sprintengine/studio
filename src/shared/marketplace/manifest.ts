@@ -62,14 +62,33 @@ export type MarketplaceInlineMcp = {
   servers: McpServerConfig[]
 }
 
+// Digest of one file inside a bundled skill payload (captured at
+// catalogue-snapshot build time; bytes ship under resources/marketplace/
+// skills/<entryId>/<skill folder>/).
+export type MarketplacePluginSkillFile = {
+  // Posix path relative to the skill folder, e.g. `SKILL.md`.
+  path: string
+  // Lowercase hex sha256 of the file bytes.
+  sha256: string
+  // File size in bytes.
+  size: number
+}
+
 // One Agent Skill a plugin bundles, enumerated from its source repo at
-// catalogue-snapshot build time (skills/<name>/SKILL.md frontmatter — names
-// and descriptions only, never bodies). Display metadata, not install state.
+// catalogue-snapshot build time. `files` + `contentDigest` are present when
+// the snapshot shipped the skill folder's content — the install verifies the
+// bundled bytes against them; without them the skill is display metadata only
+// and cannot be installed offline.
 export type MarketplacePluginSkill = {
   name: string
   description: string
   // Repo-relative path of the skill folder, e.g. `skills/hf-cli`.
   path?: string
+  // Complete per-file digests of the bundled payload (always with contentDigest).
+  files?: MarketplacePluginSkillFile[]
+  // Folder digest: sha256 over the sorted `<path>\0<sha256>` lines of `files`,
+  // joined with `\n` (the catalogue-snapshot skillContentDigest formula).
+  contentDigest?: string
 }
 
 // A registry entry is either a bundle entry (has `source`) or an inline-MCP
@@ -133,6 +152,59 @@ function pushSdkIssues(
   }
 }
 
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/
+
+// Payload file paths are joined under the skill folder at install time, so
+// they must be plain forward-slash relative paths — no traversal, no
+// absolute paths, no backslashes, no empty segments.
+function isSafeSkillFilePath(value: unknown): value is string {
+  if (!isNonEmptyString(value) || value.includes('\\')) return false
+  const path = value.trim()
+  if (path.startsWith('/')) return false
+  return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+}
+
+function validateSkillFiles(
+  value: unknown,
+  path: string,
+  issues: MarketplaceManifestIssue[]
+): MarketplacePluginSkillFile[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    issues.push({ path, message: 'skill files, when present, must be a non-empty array.' })
+    return undefined
+  }
+  const files: MarketplacePluginSkillFile[] = []
+  const seenPaths = new Set<string>()
+  let ok = true
+  value.forEach((file, index) => {
+    if (
+      !isObject(file) ||
+      !isSafeSkillFilePath(file.path) ||
+      typeof file.sha256 !== 'string' ||
+      !SHA256_HEX_PATTERN.test(file.sha256) ||
+      typeof file.size !== 'number' ||
+      !Number.isInteger(file.size) ||
+      file.size < 0
+    ) {
+      issues.push({
+        path: `${path}[${index}]`,
+        message: 'each skill file must carry a safe relative path, a lowercase 64-hex sha256, and a non-negative integer size.',
+      })
+      ok = false
+      return
+    }
+    const filePath = file.path.trim()
+    if (seenPaths.has(filePath)) {
+      issues.push({ path: `${path}[${index}].path`, message: 'skill file paths must be unique.' })
+      ok = false
+      return
+    }
+    seenPaths.add(filePath)
+    files.push({ path: filePath, sha256: file.sha256, size: file.size })
+  })
+  return ok ? files : undefined
+}
+
 function validateSkills(
   value: unknown,
   path: string,
@@ -155,10 +227,41 @@ function validateSkills(
       issues.push({ path: `${path}[${index}].path`, message: 'skill path, when present, must be a non-empty string.' })
       return
     }
+    // Payload digests come as a unit: files + contentDigest + the folder path
+    // needed to locate the bundled bytes. A digest listing that could not be
+    // fully validated must fail the index, never ship half-verified.
+    const hasFiles = skill.files !== undefined
+    const hasDigest = skill.contentDigest !== undefined
+    if (hasFiles !== hasDigest) {
+      issues.push({
+        path: `${path}[${index}]`,
+        message: 'skill files and contentDigest must be present together.',
+      })
+      return
+    }
+    let files: MarketplacePluginSkillFile[] | undefined
+    let contentDigest: string | undefined
+    if (hasFiles) {
+      if (!isNonEmptyString(skill.path)) {
+        issues.push({ path: `${path}[${index}].path`, message: 'a skill with bundled content digests requires a path.' })
+        return
+      }
+      if (typeof skill.contentDigest !== 'string' || !SHA256_HEX_PATTERN.test(skill.contentDigest)) {
+        issues.push({
+          path: `${path}[${index}].contentDigest`,
+          message: 'contentDigest must be a lowercase 64-hex sha256.',
+        })
+        return
+      }
+      files = validateSkillFiles(skill.files, `${path}[${index}].files`, issues)
+      if (files === undefined) return
+      contentDigest = skill.contentDigest
+    }
     skills.push({
       name: skill.name.trim(),
       description: skill.description.trim(),
       ...(isNonEmptyString(skill.path) ? { path: skill.path.trim() } : {}),
+      ...(files !== undefined && contentDigest !== undefined ? { files, contentDigest } : {}),
     })
   })
   return skills

@@ -1413,7 +1413,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'auth' | 'automations' | 'filesystem' | 'git' | 'marketplace' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);

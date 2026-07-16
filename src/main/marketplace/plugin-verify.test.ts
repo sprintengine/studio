@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +13,7 @@ import {
   signManifest,
 } from '../../../packages/module-sdk/src/signing'
 import { createMarketplacePluginVerifier } from './plugin-verify'
+import { skillContentDigest } from './skill-content'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
 
 const SOURCE_URL = 'https://raw.githubusercontent.com/preview/preview-plugin/main/'
@@ -264,34 +265,26 @@ async function testInvalidPreviewBlocksWithoutPermissions(): Promise<void> {
 
 
 async function testClaudePluginPreviewDisclosesSkillListing(): Promise<void> {
-  const stagingRoot = await mkdtemp(join(tmpdir(), 'mc-verify-claude-'))
+  const temp = await mkdtemp(join(tmpdir(), 'mc-verify-claude-'))
   try {
-    const sha = 'f'.repeat(40)
-    const api = (path: string) => `https://api.github.com/repos/acme/skills/contents/${path}?ref=${sha}`
-    const raw = (path: string) => `https://raw.githubusercontent.com/acme/skills/${sha}/${path}`
-    const fetcher: MarketplacePluginDownloadFetch = async (url) => {
-      if (url === 'https://api.github.com/repos/acme/skills/commits/HEAD') {
-        return new Response(JSON.stringify({ sha }))
-      }
-      if (url === api('.claude-plugin')) {
-        return new Response(JSON.stringify([
-          { type: 'file', path: '.claude-plugin/plugin.json', download_url: raw('.claude-plugin/plugin.json') },
-        ]))
-      }
-      if (url === api('skills')) {
-        return new Response(JSON.stringify([{ type: 'dir', path: 'skills/hf-cli', url: api('skills/hf-cli') }]))
-      }
-      if (url === api('skills/hf-cli')) {
-        return new Response(JSON.stringify([{ type: 'file', path: 'skills/hf-cli/SKILL.md', download_url: raw('skills/hf-cli/SKILL.md') }]))
-      }
-      if (url === raw('.claude-plugin/plugin.json')) return new Response(JSON.stringify({ name: 'acme-skills' }))
-      if (url === raw('skills/hf-cli/SKILL.md')) return new Response('---\nname: hf-cli\n---\n')
-      return new Response('not found', { status: 404 })
-    }
+    const stagingRoot = join(temp, 'staging')
+    // Bundled payload on disk + matching digests on the entry — verify reads
+    // local bytes only (no fetcher is even wired).
+    const doc = '---\nname: hf-cli\n---\n'
+    const resourceDir = join(temp, 'packaged', 'skills', 'acme-skills')
+    mkdirSync(join(resourceDir, 'hf-cli'), { recursive: true })
+    writeFileSync(join(resourceDir, 'hf-cli', 'SKILL.md'), doc, 'utf8')
+    const files = [
+      {
+        path: 'SKILL.md',
+        sha256: createHash('sha256').update(doc, 'utf8').digest('hex'),
+        size: Buffer.byteLength(doc, 'utf8'),
+      },
+    ]
     const verifier = createMarketplacePluginVerifier({
       trustContext: () => ({ trustedModules: new Map() }),
       stagingRoot,
-      fetcher,
+      packagedResourceResolver: (relativePath) => (relativePath === 'skills/acme-skills' ? resourceDir : null),
     })
     const result = await verifier.verify({
       id: 'acme-skills',
@@ -304,18 +297,28 @@ async function testClaudePluginPreviewDisclosesSkillListing(): Promise<void> {
       provides: ['skills'],
       tags: ['claude-plugin'],
       source: 'https://github.com/acme/skills',
+      skills: [
+        {
+          name: 'hf-cli',
+          description: 'Hub CLI.',
+          path: 'skills/hf-cli',
+          files,
+          contentDigest: skillContentDigest(files),
+        },
+      ],
     })
     // Claude plugins verify as unsigned (they carry no Multicode manifest) and
     // disclose the REAL skill listing the trust grant would install.
     assert.equal(result.classification, 'unsigned')
     assert.deepEqual(result.permissions, [])
     assert.deepEqual(result.files, ['skills/hf-cli'])
-    // The listing's commit rides the result so the install can pin to it.
-    assert.equal(result.pinnedRef, sha)
+    // The bundled-content identity rides the result so the install re-checks
+    // exactly what this listing disclosed.
+    assert.match(result.pinnedRef ?? '', /^bundled:[a-f0-9]{16}$/)
     // The pre-trust preview leaves no staged bytes behind.
     assert.deepEqual(await readdir(stagingRoot), [])
   } finally {
-    await rm(stagingRoot, { recursive: true, force: true })
+    await rm(temp, { recursive: true, force: true })
   }
 }
 

@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { buildSync } from 'esbuild'
 
 import { normalizeMcpServerConfig } from '../../src/main/mcp-config-service'
+import { verifyBundledSkillFolder } from '../../src/main/marketplace/skill-content'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   MARKETPLACE_EXTRA_HOSTS_ENV,
@@ -252,7 +253,58 @@ function assertNoOrphanPluginPayloads(
   }
 }
 
-function validateMarketplace(root: string, cliBundle: string): VerificationIssue[] {
+// Bundled skill payloads (MC-1644): every digest-bearing skill must have its
+// payload dir present and byte-identical to the recorded digests, and every
+// payload folder must be claimed by a digest-bearing entry — a skew in either
+// direction ships a broken or undisclosed offline install with a green diff.
+async function validateBundledSkillPayloads(
+  root: string,
+  marketplace: { plugins: Array<{ id: string; skills?: Array<{ name: string; path?: string; files?: Array<{ path: string; sha256: string; size: number }>; contentDigest?: string }> }> },
+  issues: VerificationIssue[]
+): Promise<void> {
+  const skillsRoot = join(root, 'skills')
+  const claimedDirs = new Map<string, Set<string>>()
+  for (const entry of marketplace.plugins) {
+    const digestSkills = (entry.skills ?? []).filter((skill) => skill.files !== undefined && skill.contentDigest !== undefined)
+    if (digestSkills.length === 0) continue
+    const payloadRoot = join(skillsRoot, entry.id)
+    if (!existsSync(payloadRoot)) {
+      issues.push(issue(`skills/${entry.id}`, 'entry records skill content digests but its payload dir is missing.'))
+      continue
+    }
+    const claimed = new Set<string>()
+    claimedDirs.set(entry.id, claimed)
+    for (const skill of digestSkills) {
+      const folder = (skill.path ?? '').split('/').filter(Boolean).pop() ?? ''
+      if (!folder) {
+        issues.push(issue(`skills/${entry.id}`, `skill "${skill.name}" has no usable folder path.`))
+        continue
+      }
+      claimed.add(folder)
+      const verification = await verifyBundledSkillFolder(join(payloadRoot, folder), skill.files ?? [], skill.contentDigest ?? '')
+      if (!verification.ok) {
+        issues.push(issue(`skills/${entry.id}/${folder}`, `bundled payload fails digest verification: ${verification.message}`))
+      }
+    }
+    for (const dirent of readdirSync(payloadRoot, { withFileTypes: true })) {
+      if (!dirent.isDirectory()) {
+        issues.push(issue(`skills/${entry.id}/${dirent.name}`, 'payload roots may contain only skill folders.'))
+        continue
+      }
+      if (!claimed.has(dirent.name)) {
+        issues.push(issue(`skills/${entry.id}/${dirent.name}`, 'payload folder is not claimed by any digest-bearing skill on its entry.'))
+      }
+    }
+  }
+  if (existsSync(skillsRoot)) {
+    for (const dirent of readdirSync(skillsRoot, { withFileTypes: true })) {
+      if (!dirent.isDirectory() || claimedDirs.has(dirent.name)) continue
+      issues.push(issue(`skills/${dirent.name}`, 'committed skill payload has no digest-bearing marketplace.json entry.'))
+    }
+  }
+}
+
+async function validateMarketplace(root: string, cliBundle: string): Promise<VerificationIssue[]> {
   const issues: VerificationIssue[] = []
   const marketplacePath = join(root, 'marketplace.json')
   const trustedPublishers = readTrustedPublishers(root, issues)
@@ -347,15 +399,16 @@ function validateMarketplace(root: string, cliBundle: string): VerificationIssue
   }
 
   assertNoOrphanPluginPayloads(root, signedIds, issues)
+  await validateBundledSkillPayloads(root, marketplace, issues)
   assertNoKeyMaterial(root, root, issues)
   return issues
 }
 
-function main(): void {
+async function main(): Promise<void> {
   try {
     const options = parseArgs(process.argv.slice(2))
     const cliBundle = ensureCliBundle(options.cli)
-    const issues = validateMarketplace(options.root, cliBundle)
+    const issues = await validateMarketplace(options.root, cliBundle)
     if (issues.length > 0) {
       console.error(`Marketplace registry validation failed for ${options.root}:`)
       for (const entry of issues) {
@@ -372,4 +425,7 @@ function main(): void {
   }
 }
 
-main()
+void main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+})
