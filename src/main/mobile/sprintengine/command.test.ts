@@ -1240,7 +1240,7 @@ async function assertTaskStartConsultsProjectionWhenRunYamlGraphMirrorIsStale():
       { id: 'T2', role: 'developer', status: 'ready', stateStatus: 'todo', dependsOn: ['T1'], ownerAgentId: null },
     ],
     artifacts: [],
-    roster: {},
+    workers: {},
   }), 'utf8')
 
   const starts: Parameters<MobileSprintEngineSessionOrchestrator['startTask']>[0][] = []
@@ -2169,7 +2169,9 @@ async function writeSprintEngineFixture(
     },
     tasks: runState.tasks,
     artifacts: runState.artifacts,
-    roster: runState.sprintEngineAgents,
+    // The canonical workers view (MC-1591/MC-1594) — command-level agent
+    // resolution must work from `workers`, not the deleted `roster` bridge.
+    workers: runState.sprintEngineAgents,
   }, null, 2)}\n`, 'utf8')
   await readSprintEngineSnapshot(statePath)
   return { workspaceRoot, statePath }

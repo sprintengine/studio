@@ -67,15 +67,13 @@ type DesktopMobileSprintEngineSessionOptions = {
   now?: () => Date
 }
 
-type RuntimeAgent = {
-  role: string
-  status: string
-  currentTaskId: string | null
-}
-
 type ProjectionState = {
   goal: string
-  sprintEngineAgents: Record<string, RuntimeAgent>
+  // Worker ids already spoken for in the run: keys of the projection's derived
+  // `workers` view (active leases + recent workers, MC-1591). Only the ids
+  // matter here — a mobile task start always mints a fresh display id, so the
+  // set exists to avoid collisions, never to pick a seat to reuse.
+  workerIds: string[]
 }
 
 // Bundled-role display labels used for the mobile startup prompt. This map is
@@ -128,10 +126,11 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
     }
 
     const state = await readMobileSprintEngineProjection(request.teamDirectory)
-    const agentId = chooseAgentId(state, request.role, processAliveSprintEngineSessions)
-    if (processAliveSprintEngineSessions.some((session) => session.agentId === agentId)) {
-      throw new MobileSprintEngineCommandError('task_not_ready', 'The selected sprint agent already has a live terminal.', false)
-    }
+    // Fresh worker id per task start (a display label — the engine binds it to
+    // the task at claim). Never reuse a recent worker's id: fresh-session-per-
+    // leased-task is the pool default and keeps per-task token attribution
+    // honest (MC-1592/MC-1594).
+    const agentId = mintWorkerId(state, request.role, processAliveSprintEngineSessions)
 
     const executionCwd = request.workspaceRoot
     const executionMode: MobileSprintEngineTaskStartResult['executionMode'] = 'current_workspace'
@@ -147,6 +146,7 @@ export class DesktopMobileSprintEngineSessionOrchestrator implements MobileSprin
       initialPrompt: buildStartupPrompt({
         role: request.role,
         agentId,
+        taskId: request.taskId,
         label: mobileSprintEngineRoleLabel(request.role),
         goal: state.goal,
         workspaceRoot: request.workspaceRoot,
@@ -241,8 +241,9 @@ function normalizeFollowUpTextForTerminal(value: string): string {
 
 async function readMobileSprintEngineProjection(teamDirectory: string): Promise<ProjectionState> {
   // Sprint Engine's canonical UI/MCP read is `projection.json`. The mobile
-  // startup prompt only needs the goal string and per-agent roster shape —
-  // anything richer flows through MCP, not run-store internals.
+  // startup prompt only needs the goal string plus the worker ids already in
+  // use (the `workers` view, MC-1591 — the pre-lease `roster` bridge is not
+  // consulted); anything richer flows through MCP, not run-store internals.
   const projectionPath = join(teamDirectory, 'projection.json')
   let projection: Record<string, unknown>
   try {
@@ -258,43 +259,26 @@ async function readMobileSprintEngineProjection(teamDirectory: string): Promise<
   const run = projection.run && typeof projection.run === 'object' && !Array.isArray(projection.run)
     ? projection.run as Record<string, unknown>
     : {}
-  const roster = projection.roster && typeof projection.roster === 'object' && !Array.isArray(projection.roster)
-    ? projection.roster as Record<string, unknown>
+  const workers = projection.workers && typeof projection.workers === 'object' && !Array.isArray(projection.workers)
+    ? projection.workers as Record<string, unknown>
     : {}
-  const sprintEngineAgents: Record<string, RuntimeAgent> = {}
-  for (const [agentId, raw] of Object.entries(roster)) {
-    if (!raw || typeof raw !== 'object') continue
-    const record = raw as Record<string, unknown>
-    sprintEngineAgents[agentId] = {
-      role: typeof record.role === 'string' ? record.role : '',
-      status: typeof record.status === 'string' ? record.status : '',
-      currentTaskId: typeof record.currentTaskId === 'string' ? record.currentTaskId : null,
-    }
-  }
 
   return {
     goal: typeof run.goal === 'string' ? run.goal : '',
-    sprintEngineAgents,
+    workerIds: Object.keys(workers),
   }
 }
 
-function chooseAgentId(
+function mintWorkerId(
   state: ProjectionState,
   role: string,
   processAliveSessions: TerminalSessionSnapshot[]
 ): string {
-  const processAliveAgentIds = new Set(processAliveSessions.flatMap((session) => session.agentId ? [session.agentId] : []))
-  const agents = state.sprintEngineAgents
-  const idleAgent = Object.entries(agents)
-    .sort(([first], [second]) => agentIdSortValue(first, role) - agentIdSortValue(second, role))
-    .find(([agentId, agent]) =>
-      agent.role === role
-      && agent.status !== 'done'
-      && !processAliveAgentIds.has(agentId)
-    )
-  if (idleAgent) return idleAgent[0]
-
-  return nextAgentId(role, Object.keys(agents))
+  const usedIds = [
+    ...state.workerIds,
+    ...processAliveSessions.flatMap((session) => session.agentId ? [session.agentId] : []),
+  ]
+  return nextAgentId(role, usedIds)
 }
 
 function nextAgentId(role: string, usedIds: string[]): string {
@@ -323,6 +307,7 @@ function agentIdSortValue(agentId: string, role: string): number {
 function buildStartupPrompt(input: {
   role: string
   agentId: string
+  taskId: string
   label: string
   goal: string
   workspaceRoot: string
@@ -333,7 +318,14 @@ function buildStartupPrompt(input: {
     role: input.role,
     agentId: input.agentId,
   }, null, 2)
+  // The phone started this session for one specific task, so the claim is
+  // hinted at it (`task.claim`) rather than pulling whatever is next; the
+  // queue pull stays as the fallback when the tapped task got claimed first.
   const claimPayload = JSON.stringify({
+    taskId: input.taskId,
+    id: input.agentId,
+  }, null, 2)
+  const fallbackClaimPayload = JSON.stringify({
     role: input.role,
     id: input.agentId,
   }, null, 2)
@@ -346,9 +338,11 @@ function buildStartupPrompt(input: {
     `You are assigned role: ${input.role}. Only claim and work sprint tasks whose role exactly matches ${input.role}, and own each one from claim to done. Sprint work runs through the managed Sprint Engine MCP server in this terminal.`,
     'Register this agent with `sprintengine.agent.join`:',
     ['```json', joinPayload, '```'].join('\n'),
-    'Then claim your work with `sprintengine.task.next`:',
+    `This session was started for task ${input.taskId}. Claim it with \`sprintengine.task.claim\`:`,
     ['```json', claimPayload, '```'].join('\n'),
-    'The claim returns your next ready task, or your active one to resume. Work what it returns. If it returns no claim, reply that no work was claimed and stop — the caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
+    'If that claim reports the task is not ready (someone claimed it first), fall back to `sprintengine.task.next`:',
+    ['```json', fallbackClaimPayload, '```'].join('\n'),
+    'The claim returns your task, or your active one to resume. Work what it returns. If it returns no claim, reply that no work was claimed and stop — the caller/runtime owns later continuation. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role.',
   ].join('\n\n')
 }
 

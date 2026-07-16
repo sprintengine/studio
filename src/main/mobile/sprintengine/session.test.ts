@@ -34,16 +34,23 @@ async function assertTaskStartUsesCurrentWorkspace(): Promise<void> {
   const result = await orchestrator.startTask(taskStartRequest(fixture))
 
   assert.equal(result.executionMode, 'current_workspace')
-  assert.equal(result.agentId, 'developer-1')
+  // A task start mints a FRESH display worker id (fresh session per leased
+  // task, MC-1594) — it never reuses `developer-1`, the recent worker already
+  // present in the projection's workers view.
+  assert.equal(result.agentId, 'developer-2')
   assert.equal(spawned.length, 1)
   assert.equal(spawned[0].executionMode, 'current_workspace')
   assert.equal(spawned[0].cwd, fixture.workspaceRoot)
   assert.match(spawned[0].initialPrompt, /managed Sprint Engine MCP server/u)
   assert.match(spawned[0].initialPrompt, /sprintengine\.agent\.join/u)
+  // The phone tapped a specific task: the claim is hinted at it via
+  // `task.claim`, with the queue pull (`task.next`) kept as the race fallback.
+  assert.match(spawned[0].initialPrompt, /sprintengine\.task\.claim/u)
+  assert.match(spawned[0].initialPrompt, /"taskId": "T2"/u)
   assert.match(spawned[0].initialPrompt, /sprintengine\.task\.next/u)
   assert.doesNotMatch(spawned[0].initialPrompt, /sprintengine\.agent\.next_directive/u)
   assert.match(spawned[0].initialPrompt, /"role": "developer"/u)
-  assert.match(spawned[0].initialPrompt, /"agentId": "developer-1"/u)
+  assert.match(spawned[0].initialPrompt, /"agentId": "developer-2"/u)
   assert.doesNotMatch(
     spawned[0].initialPrompt,
     /"statePath"|"workspaceRoot"/u,
@@ -205,8 +212,10 @@ async function writeFixture(sprintEngineId: string): Promise<{
         dependsOn: [],
       },
     ],
-    roster: {
-      'developer-1': { role: 'developer', status: 'idle', currentTaskId: null },
+    // The canonical workers view (MC-1591) — the pre-lease `roster` bridge is
+    // deliberately absent so a regression back to reading it fails loudly.
+    workers: {
+      'developer-1': { role: 'developer', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T1', ownedTaskIds: ['T1'] },
     },
   }, null, 2), 'utf8')
 
