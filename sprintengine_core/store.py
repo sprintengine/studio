@@ -61,9 +61,15 @@ LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
 RUN_LOCK_FILE = "runner/run.queue.lock"
 READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
 CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
-# Serializes the shared run-worktree git index across concurrent agents in
-# worktree mode: only one agent stages and commits at a time.
-GIT_COMMIT_LOCK_FILE = "runner/git.commit.lock"
+# Serializes one repo's shared run-worktree git index across concurrent agents in
+# worktree mode: only one agent stages and commits in a given project at a time.
+# Per repo, because each declared project has its own index and its own worktree —
+# a single run-wide lock would make an unrelated project's commit wait (MC-1611).
+GIT_COMMIT_LOCK_GLOB = "git.commit.*.lock"
+
+
+def git_commit_lock_file(repo_id: str) -> str:
+    return f"runner/git.commit.{repo_id}.lock"
 RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # Top-level run keys written once at init for "Architect picks the team" runs:
 # `rosterSource` ('user' | 'architect') and `allowedRuntimes` (the sprint's
@@ -1035,7 +1041,13 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
         "run": team_dir / RUN_LOCK_FILE,
         "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
-        "gitCommit": team_dir / GIT_COMMIT_LOCK_FILE,
+        # One commit lock per declared repo, discovered rather than enumerated: the
+        # lock files exist only while held (or stale, which is what this report is
+        # for), and the repo ids they are named for live in the run record.
+        **{
+            f"gitCommit:{path.name[len('git.commit.'):-len('.lock')]}": path
+            for path in sorted((team_dir / "runner").glob(GIT_COMMIT_LOCK_GLOB))
+        },
     }
     lock_reports = []
     warnings = []

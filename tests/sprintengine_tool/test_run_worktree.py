@@ -422,7 +422,7 @@ def test_finalize_completed_run_blocks_on_orphaned_changes(tmp_path, monkeypatch
     result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
 
     assert result["blocked"] is True
-    assert result["orphanedUncommittedPaths"] == ["src/orphan/extra.ts"]
+    assert result["orphanedByRepo"] == [{"repo": "primary", "path": "src/orphan/extra.ts"}]
     assert "src/orphan/extra.ts" in result["message"]
 
 

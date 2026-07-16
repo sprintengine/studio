@@ -882,7 +882,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     "releasedExpired": expired["released"],
                     "write": True,
                 }
-                for key in ("pullRequestUrl", "pullRequestError", "alreadyExists", "orphanedUncommittedPaths"):
+                for key in ("pullRequestUrl", "pullRequestError", "alreadyExists", "orphanedByRepo"):
                     if key in finalize:
                         completion[key] = finalize[key]
                 return completion
@@ -953,29 +953,51 @@ def cmd_merge_start(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import git_status_short, worktree_for_vcs
+    """Working-tree state, one block per project the run spans.
+
+    The top-level `worktreePath`/`clean`/`dirtyFiles` fields describe the primary
+    project, exactly as they always have; `repos` carries the same reading for every
+    declared project, so a single-repo run reports one block that says what the
+    top-level fields already said.
+    """
+    from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
+    from sprintengine_core.tool.shell import git_status_short, vcs_repos
 
     state = load_mutation_state(args.state)
     vcs = get_run_vcs(state)
     if not vcs:
         return {"ok": True, "enabled": False, "vcs": None, "message": "Sprint Engine run is not in worktree mode."}
-    worktree = worktree_for_vcs(state, args.state)
-    dirty = git_status_short(worktree) if worktree and worktree.exists() else ""
+    workspace_root = workspace_root_for_state_path(args.state)
+    repos: List[Dict[str, Any]] = []
+    for repo in vcs_repos(vcs):
+        worktree = resolve_vcs_path(workspace_root, repo["worktreePath"]) if repo["worktreePath"] else None
+        dirty = git_status_short(worktree) if worktree and worktree.exists() else ""
+        repos.append({
+            "id": repo["id"],
+            "worktreePath": repo["worktreePath"],
+            "branchName": repo["branchName"],
+            "status": repo["status"],
+            "clean": not dirty,
+            "dirtyFiles": [line.strip() for line in dirty.splitlines() if line.strip()],
+        })
+    primary = repos[0]
     return {
         "ok": True,
         "enabled": True,
         "vcs": vcs,
         "worktreePath": vcs.get("worktreePath"),
         "branchName": vcs.get("branchName"),
-        "clean": not dirty,
-        "dirtyFiles": [line.strip() for line in dirty.splitlines() if line.strip()],
+        "clean": primary["clean"],
+        "dirtyFiles": primary["dirtyFiles"],
+        "repos": repos,
     }
 
 
 def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import (
         commit_run_worktree_paths,
-        worktree_for_vcs,
+        repo_for_task,
+        worktree_for_task,
         worktree_orphaned_dirty_paths,
     )
 
@@ -989,12 +1011,15 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_evidence(task)["summary"] = args.summary
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
         sha = commit_run_worktree_paths(state, args.state, task, str(actor), explicit_paths=args.path or [])
-        worktree = worktree_for_vcs(state, args.state)
+        # Everything reported back describes the tree this task commits in — the
+        # project it targets — not whatever the primary tree happens to be doing.
+        repo = repo_for_task(state, task)
+        worktree = worktree_for_task(state, args.state, task)
         dirty = ""
         if worktree and worktree.exists():
             from sprintengine_core.tool.shell import git_status_short
             dirty = git_status_short(worktree)
-        orphaned = worktree_orphaned_dirty_paths(state, args.state)
+        orphaned = worktree_orphaned_dirty_paths(state, args.state, repo) if repo else []
         recompute_phase(state)
         base_message = (
             f"Committed task {args.task_id} changes as {sha}."
@@ -1011,10 +1036,11 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         return {
             "ok": True,
             "taskId": args.task_id,
+            "repo": repo["id"] if repo else folder_store.DEFAULT_TASK_REPO,
             "committed": bool(sha),
             "commitSha": sha,
-            "branchName": vcs.get("branchName"),
-            "worktreePath": vcs.get("worktreePath"),
+            "branchName": repo["branchName"] if repo else vcs.get("branchName"),
+            "worktreePath": repo["worktreePath"] if repo else vcs.get("worktreePath"),
             "clean": not dirty,
             "orphanedUncommittedPaths": orphaned,
             "message": base_message,
@@ -1089,13 +1115,14 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
     Pull requests are NOT opened automatically: the user opens one from the run
     summary (the "Create pull request" action) when ready. This backstop-commits any
     still-uncommitted task-scoped changes so the branch is PR-ready, then returns a
-    ``blocked`` flag and ``message``. If the worktree still has changes owned by no
-    task, the run is blocked rather than declared done over an incomplete tree.
+    ``blocked`` flag and ``message``. If any declared project's worktree still has
+    changes owned by no task, the run is blocked rather than declared done over an
+    incomplete tree.
     """
     from sprintengine_core.tool.shell import (
         commit_task_changes_if_needed,
         get_run_vcs,
-        worktree_orphaned_dirty_paths,
+        run_orphaned_dirty_paths,
     )
 
     missing_sweeps = missing_required_sweeps(state)
@@ -1120,15 +1147,19 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
         if isinstance(task, dict):
             commit_task_changes_if_needed(state, state_path, task, "sprintengine")
 
-    orphaned = worktree_orphaned_dirty_paths(state, state_path)
+    # Every declared project, not just the primary one: an orphan in any tree the run
+    # spans is work no task's commit will carry, and the operator needs to be told
+    # which project to look in.
+    orphaned = run_orphaned_dirty_paths(state, state_path)
     if orphaned:
         return {
             "blocked": True,
-            "orphanedUncommittedPaths": orphaned,
+            "orphanedByRepo": orphaned,
             "message": (
-                "All tasks are done but the run worktree has changes owned by no task and uncommitted: "
-                f"{', '.join(orphaned)}. These would be missing from a pull request. Add them to a task's "
-                "ownedPaths and commit (`sprintengine vcs commit`), or remove them, then complete again."
+                "All tasks are done but the run worktrees have changes owned by no task and uncommitted: "
+                f"{', '.join(f'{entry['repo']}: {entry['path']}' for entry in orphaned)}. These would be missing "
+                "from a pull request. Add them to a task's ownedPaths and commit (`sprintengine vcs commit`), "
+                "or remove them, then complete again."
             ),
         }
 

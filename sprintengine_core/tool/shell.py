@@ -182,6 +182,18 @@ def _stored_primary_repo(vcs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _stored_repo(vcs: Dict[str, Any], repo_id: str) -> Optional[Dict[str, Any]]:
+    """The mutable stored entry for one declared repo, by id.
+
+    :func:`vcs_repos` hands out normalized copies, so a writer that must persist
+    reaches for the stored dict here instead.
+    """
+    for repo in vcs.get("repos") or []:
+        if isinstance(repo, dict) and str(repo.get("id") or "").strip() == repo_id:
+            return repo
+    return None
+
+
 def set_vcs_status(vcs: Dict[str, Any], status: str) -> None:
     """Record the primary repo's worktree status on both shapes that store it.
 
@@ -201,6 +213,32 @@ def set_vcs_last_commit_sha(vcs: Dict[str, Any], sha: Optional[str]) -> None:
     primary = _stored_primary_repo(vcs)
     if primary is not None:
         primary["lastCommitSha"] = sha
+
+
+def set_repo_status(vcs: Dict[str, Any], repo_id: str, status: str) -> None:
+    """Record one declared repo's worktree status.
+
+    The primary's status is also the run's flat `vcs.status` — what the app, the
+    mobile snapshot, and the PR paths read. A sibling's status is its own entry
+    alone, so committing in one project never reports itself as what the primary
+    tree is doing.
+    """
+    if repo_id == PRIMARY_REPO_ID:
+        set_vcs_status(vcs, status)
+        return
+    repo = _stored_repo(vcs, repo_id)
+    if repo is not None:
+        repo["status"] = status
+
+
+def set_repo_last_commit_sha(vcs: Dict[str, Any], repo_id: str, sha: Optional[str]) -> None:
+    """Record one declared repo's last commit, on the primary's two shapes or the sibling's entry."""
+    if repo_id == PRIMARY_REPO_ID:
+        set_vcs_last_commit_sha(vcs, sha)
+        return
+    repo = _stored_repo(vcs, repo_id)
+    if repo is not None:
+        repo["lastCommitSha"] = sha
 
 
 def parse_repo_declaration(value: str) -> Dict[str, str]:
@@ -393,14 +431,61 @@ def ensure_run_worktree(
     return vcs
 
 
-def worktree_for_vcs(state: Dict[str, Any], state_path: Path) -> Optional[Path]:
-    vcs = get_run_vcs(state)
-    if not vcs:
-        return None
-    value = vcs.get("worktreePath")
+def _repo_worktree(state_path: Path, repo: Dict[str, Any]) -> Optional[Path]:
+    value = repo.get("worktreePath")
     if not isinstance(value, str) or not value.strip():
         return None
     return resolve_vcs_path(workspace_root_for_state_path(state_path), value)
+
+
+def primary_run_worktree(state: Dict[str, Any], state_path: Path) -> Optional[Path]:
+    """The primary repo's run worktree, or None outside worktree mode.
+
+    The run-level tree: the branch a pull request is opened from and the checkout
+    teardown removes. Work belonging to a task resolves through
+    :func:`worktree_for_task` instead — on a multi-repo run those are different
+    trees, and only the task knows which one its paths live in.
+    """
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return None
+    return _repo_worktree(state_path, vcs_repos(vcs)[0])
+
+
+def repo_for_task(state: Dict[str, Any], task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The declared repo entry a task's changes belong in, None outside worktree mode.
+
+    A task's repo is validated against the run's declared repos when it is created
+    and again when it is claimed (``ensure_task_repo_declared``), so a stored task
+    naming an undeclared repo means the run store and the declaration disagree.
+    That fails loudly here rather than falling back to the primary tree, which
+    would commit one project's paths into another.
+    """
+    from sprintengine_core import store as folder_store
+
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return None
+    repos = vcs_repos(vcs)
+    repo_id = folder_store.task_repo(task)
+    for repo in repos:
+        if repo["id"] == repo_id:
+            return repo
+    raise SystemExit(
+        f"Task {task.get('id')} targets project {repo_id!r}, which this sprint does not work in. "
+        f"This sprint's projects are: {', '.join(repo['id'] for repo in repos)}."
+    )
+
+
+def worktree_for_task(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> Optional[Path]:
+    """The run worktree a task's paths resolve against, or None outside worktree mode.
+
+    Every seam that reads or writes a task's changes — commits, diff evidence,
+    orphan scans — resolves its tree through here, so a task targeting a sibling
+    project never touches the primary checkout.
+    """
+    repo = repo_for_task(state, task)
+    return _repo_worktree(state_path, repo) if repo else None
 
 
 def git_status_short(worktree: Path) -> str:
@@ -474,21 +559,24 @@ def commit_run_worktree_paths(
     *,
     explicit_paths: Optional[List[str]] = None,
 ) -> Optional[str]:
-    """Stage and commit only the current task's paths in the shared run worktree.
+    """Stage and commit only the current task's paths in its repo's run worktree.
 
-    Serialized through ``runner/git.commit.lock`` so concurrent agents never race
-    the git index. Stages a pathspec built from the task's owned paths, logged
-    touched files, and any explicitly passed paths — never ``git add -A`` — and
-    tolerates files another agent already committed (those are simply clean and
-    contribute nothing to this commit). Returns the new short SHA, or ``None``
-    when worktree mode is off or there is nothing in scope to commit.
+    Serialized through that repo's ``runner/git.commit.<repoId>.lock`` so concurrent
+    agents never race a git index — and only agents working the same project ever
+    wait on each other, since each repo has its own index. Stages a pathspec built
+    from the task's owned paths, logged touched files, and any explicitly passed
+    paths — never ``git add -A`` — and tolerates files another agent already
+    committed (those are simply clean and contribute nothing to this commit).
+    Returns the new short SHA, or ``None`` when worktree mode is off or there is
+    nothing in scope to commit.
     """
     from sprintengine_core import store as folder_store
     from sprintengine_core.tool.state import append_event
     from sprintengine_core.tool.tasks import ensure_evidence, task_diff_declared_paths
 
-    worktree = worktree_for_vcs(state, state_path)
-    if not worktree:
+    repo = repo_for_task(state, task)
+    worktree = _repo_worktree(state_path, repo) if repo else None
+    if not repo or not worktree:
         return None
     if not worktree.exists():
         raise SystemExit(f"Sprint Engine worktree is missing: {worktree}")
@@ -498,13 +586,13 @@ def commit_run_worktree_paths(
     owned = [str(path) for path in task.get("ownedPaths", []) or []]
     pathspec = _normalize_commit_pathspec(worktree, [*declared, *owned])
 
-    lock = folder_store.FolderLock(state_path.parent / folder_store.GIT_COMMIT_LOCK_FILE)
+    lock = folder_store.FolderLock(state_path.parent / folder_store.git_commit_lock_file(repo["id"]))
     lock.acquire(recover_stale=True)
     try:
         status_out = run_git_checked(worktree, ["status", "--porcelain", "-z", "--untracked-files=all"]).stdout
         dirty = _parse_porcelain_z(status_out)
         if vcs is not None:
-            set_vcs_status(vcs, "dirty" if dirty else "ready")
+            set_repo_status(vcs, repo["id"], "dirty" if dirty else "ready")
         if not pathspec:
             return None
         in_scope = sorted({record["path"] for record in dirty if _path_in_scope(record["path"], pathspec)})
@@ -524,8 +612,8 @@ def commit_run_worktree_paths(
         lock.release()
 
     if vcs is not None:
-        set_vcs_status(vcs, "committed")
-        set_vcs_last_commit_sha(vcs, sha)
+        set_repo_status(vcs, repo["id"], "committed")
+        set_repo_last_commit_sha(vcs, repo["id"], sha)
     ensure_evidence(task).setdefault("commits", [])
     commits = task["evidence"].setdefault("commits", [])
     if isinstance(commits, list) and sha not in commits:
@@ -544,8 +632,8 @@ def commit_task_changes_if_needed(state: Dict[str, Any], state_path: Path, task:
     return commit_run_worktree_paths(state, state_path, task, actor)
 
 
-def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> List[str]:
-    """Dirty paths in the shared run worktree that fall inside no task's ownedPaths.
+def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path, repo: Dict[str, Any]) -> List[str]:
+    """Dirty paths in one repo's run worktree that fall inside no task's ownedPaths.
 
     Per-task commits stage only owned + declared paths (never ``git add -A``, which
     would sweep another agent's work into this commit). A change that lands inside
@@ -555,10 +643,16 @@ def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> Li
     published commit import files absent from HEAD). Dirty paths that fall inside
     some task's owned paths are expected concurrent work and are not returned here.
 
+    Ownership is read from the tasks targeting THIS repo only: owned paths are
+    repo-relative, so a primary task owning ``src/x.ts`` says nothing about the
+    mobile tree's ``src/x.ts`` and must not excuse it.
+
     Returns sorted project-relative posix paths. Advisory: read without the commit
-    lock, so it reflects a point-in-time view of the shared worktree.
+    lock, so it reflects a point-in-time view of a shared worktree.
     """
-    worktree = worktree_for_vcs(state, state_path)
+    from sprintengine_core import store as folder_store
+
+    worktree = _repo_worktree(state_path, repo)
     if not worktree or not worktree.exists():
         return []
     status_out = run_git_checked(
@@ -569,7 +663,7 @@ def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> Li
         return []
     all_owned: List[str] = []
     for task in state.get("tasks", []) or []:
-        if isinstance(task, dict):
+        if isinstance(task, dict) and folder_store.task_repo(task) == repo["id"]:
             all_owned.extend(str(path) for path in (task.get("ownedPaths") or []))
     owned_pathspec = _normalize_commit_pathspec(worktree, all_owned)
     return sorted(
@@ -579,6 +673,23 @@ def worktree_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> Li
             if record["path"] and not _path_in_scope(record["path"], owned_pathspec)
         }
     )
+
+
+def run_orphaned_dirty_paths(state: Dict[str, Any], state_path: Path) -> List[Dict[str, str]]:
+    """Orphaned dirty paths across EVERY declared repo, each tagged with its project.
+
+    The run-completion scan. A run spanning two projects is not deliverable because
+    the primary tree is clean: an orphan in any declared tree is work no commit will
+    carry, so completion blocks on all of them and names the project each is in.
+    """
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return []
+    return [
+        {"repo": repo["id"], "path": path}
+        for repo in vcs_repos(vcs)
+        for path in worktree_orphaned_dirty_paths(state, state_path, repo)
+    ]
 
 
 def _owned_path_parent_dirs(worktree: Path, task: Dict[str, Any]) -> List[str]:
@@ -603,11 +714,16 @@ def task_scoped_orphaned_dirty_paths(
     unowned ``a/b/Panel/helper.ts``). Incidental untracked files elsewhere in the
     shared worktree (scratch files, screenshots, another concern's noise) are not
     returned, so they warn at commit time but never block this task's publish.
+
+    Scans only the tree this task works in. A task cannot answer for a project it
+    does not touch, so an orphan in another declared repo is the run's problem to
+    block on (:func:`run_orphaned_dirty_paths`), never this publish's.
     """
-    worktree = worktree_for_vcs(state, state_path)
-    if not worktree or not worktree.exists():
+    repo = repo_for_task(state, task)
+    worktree = _repo_worktree(state_path, repo) if repo else None
+    if not repo or not worktree or not worktree.exists():
         return []
-    orphaned = worktree_orphaned_dirty_paths(state, state_path)
+    orphaned = worktree_orphaned_dirty_paths(state, state_path, repo)
     if not orphaned:
         return []
     parents = _owned_path_parent_dirs(worktree, task)
@@ -632,6 +748,11 @@ def task_scoped_dirty_paths(state: Dict[str, Any], state_path: Path, task: Dict[
 
     Returns ``[]`` when the workspace is not a git repository at all; the caller
     treats that as "cannot tell" and routes to review rather than skipping it.
+
+    The workspace IS the task's repo here: a run only spans more than one project
+    when each project gets its own worktree (``sprintengine init`` refuses ``--repo``
+    without ``--use-worktrees``), so every task on a non-worktree run targets the
+    primary repo, whose root is the workspace.
     """
     from sprintengine_core.tool.tasks import task_diff_declared_paths
 
@@ -699,7 +820,7 @@ def create_run_pull_request(
     from sprintengine_core.tool.state import append_event
 
     vcs = get_run_vcs(state)
-    worktree = worktree_for_vcs(state, state_path)
+    worktree = primary_run_worktree(state, state_path)
     if not vcs or not worktree:
         return {"ok": False, "error": "Sprint Engine run is not in worktree mode; no branch to open a pull request from."}
     if not worktree.exists():
@@ -774,7 +895,7 @@ def refresh_run_pull_request_state(state: Dict[str, Any], state_path: Path) -> D
     if not vcs:
         return {"ok": True, "enabled": False, "pullRequestState": None}
 
-    worktree = worktree_for_vcs(state, state_path)
+    worktree = primary_run_worktree(state, state_path)
     repo = worktree if (worktree and worktree.exists()) else workspace_root_for_state_path(state_path)
     branch = str(vcs.get("branchName") or "").strip()
     base = str(vcs.get("baseRef") or "").strip()
@@ -830,7 +951,7 @@ def cleanup_merged_worktree(state: Dict[str, Any], state_path: Path) -> Dict[str
     vcs = get_run_vcs(state)
     if not vcs:
         return {"removed": False, "reason": "not_worktree_mode"}
-    worktree = worktree_for_vcs(state, state_path)
+    worktree = primary_run_worktree(state, state_path)
     if not worktree or not worktree.exists():
         return {"removed": False, "reason": "missing"}
     if git_status_short(worktree).strip():

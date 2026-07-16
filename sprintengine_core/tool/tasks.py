@@ -12,7 +12,7 @@ from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.shell import worktree_for_vcs
+from sprintengine_core.tool.shell import worktree_for_task
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
 def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
@@ -357,8 +357,14 @@ def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
     ev.setdefault("scopeExpansions", [])
     return ev
 
-def task_diff_capture_cwd(state: Dict[str, Any], state_path: Path) -> Path:
-    return worktree_for_vcs(state, state_path) or workspace_root_for_state_path(state_path)
+def task_diff_capture_cwd(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> Path:
+    """The checkout a task's diff evidence is read from: the tree its paths live in.
+
+    Worktree mode: the task's own repo worktree, so review evidence for a sibling
+    task is the sibling project's diff and not an empty read against the primary
+    tree. Non-worktree mode: the workspace, which is the only repo such a run has.
+    """
+    return worktree_for_task(state, state_path, task) or workspace_root_for_state_path(state_path)
 
 def task_diff_declared_paths(task: Dict[str, Any], extra_paths: Optional[List[str]] = None) -> List[str]:
     evidence = ensure_evidence(task)
@@ -379,7 +385,7 @@ def refresh_task_diff_evidence(
 ) -> List[Dict[str, Any]]:
     paths = task_diff_declared_paths(task, extra_paths)
     diffs = capture_task_diff_evidence(
-        task_diff_capture_cwd(state, state_path),
+        task_diff_capture_cwd(state, state_path, task),
         paths,
         actor=actor,
         captured_at=now_iso(),
