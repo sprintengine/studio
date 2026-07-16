@@ -60,6 +60,12 @@ export type MarketplacePluginLifecycleServices = MarketplacePluginInstallerServi
   receiptStorePath: string
   stagingRoot?: string
   fetcher?: MarketplacePluginDownloadFetch
+  /**
+   * Harness dirs a Claude-plugin skill install fans out to when the caller
+   * passes no explicit `skillHarnesses` (see resolveInstalledSkillHarnesses).
+   * Absent, installs fall back to Claude-only.
+   */
+  resolveSkillHarnesses?: () => Promise<SkillPackHarness[]>
 }
 
 export function defaultMarketplacePluginInstallStorePath(userDataDir: string): string {
@@ -438,10 +444,31 @@ async function installInlineMcpEntry(
 // Claude Code plugins install by copying each staged `skills/<dir>` into the
 // workspace's harness skill dirs — the same surface the driving-skill install
 // uses, so the skills appear in the workspace inventory and skill pickers.
-// Claude-format content targets Claude Code sessions by default (scope D of
-// MC-1561); callers can widen via input.skillHarnesses. Commands/agents in the
-// plugin are not installed — skills are the one component Multicode delivers.
+// SKILL.md content is harness-portable, so the default target set is resolved
+// via services.resolveSkillHarnesses (shared `.agents` + every installed CLI
+// with native skill support); input.skillHarnesses overrides, and this
+// Claude-only constant is the last-resort fallback when no resolver is wired.
+// Commands/agents in the plugin are not installed — skills are the one
+// component Multicode delivers.
 const DEFAULT_CLAUDE_PLUGIN_HARNESSES: SkillPackHarness[] = ['claude']
+
+async function resolveInstallHarnesses(
+  input: MarketplacePluginRegistryInstallInput,
+  services: MarketplacePluginLifecycleServices
+): Promise<SkillPackHarness[]> {
+  if (input.skillHarnesses?.length) return input.skillHarnesses
+  if (services.resolveSkillHarnesses) {
+    // A resolver failure or empty set must not turn the install into a
+    // silent no-op writing nowhere — fall back to the Claude-only default.
+    try {
+      const resolved = await services.resolveSkillHarnesses()
+      if (resolved.length > 0) return resolved
+    } catch {
+      // fall through
+    }
+  }
+  return DEFAULT_CLAUDE_PLUGIN_HARNESSES
+}
 
 async function installClaudeCodePluginEntry(
   entry: MarketplacePluginEntry,
@@ -488,9 +515,7 @@ async function installClaudeCodePluginEntry(
     }
   }
 
-  const harnesses: SkillPackHarness[] = input.skillHarnesses?.length
-    ? input.skillHarnesses
-    : DEFAULT_CLAUDE_PLUGIN_HARNESSES
+  const harnesses = await resolveInstallHarnesses(input, services)
   // Ownership is per dir AND per harness: a previous install owning "foo" in
   // .claude says nothing about a hand-authored .agents/skills/foo.
   const previousHarnessesByDir = new Map<string, Set<SkillPackHarness>>()

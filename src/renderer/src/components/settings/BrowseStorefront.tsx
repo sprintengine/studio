@@ -278,8 +278,8 @@ export function PluginDetailPanel({
 
         {claudePlugin && installView.action?.kind === 'install' ? (
           <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
-            Installing adds this plugin’s skills to the workspace for Claude Code
-            sessions. Its slash commands stay Claude-native.
+            Installing adds this plugin’s skills to this workspace for your
+            installed agent CLIs. Its slash commands stay Claude-native.
           </p>
         ) : null}
 
@@ -382,7 +382,7 @@ function TrustPrompt({
       : files?.length
         ? {
             heading: 'Unsigned plugin skills — review before trusting',
-            body: 'Skills are instruction files your agents read and follow. This plugin isn’t signed, so its contents can’t be verified — trusting it copies the skills below into this workspace for Claude Code sessions.',
+            body: 'Skills are instruction files your agents read and follow. This plugin isn’t signed, so its contents can’t be verified — trusting it copies the skills below into this workspace for your installed agent CLIs.',
           }
         : tier === 'unsigned'
           ? {

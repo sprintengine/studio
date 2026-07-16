@@ -1036,8 +1036,8 @@ async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): P
     assert.equal(result.ok, true, JSON.stringify(result))
     if (!result.ok) return
     assert.equal(result.classification, 'unsigned')
-    // Skills land in the Claude harness dir by default (Claude-format content
-    // targets Claude Code sessions), not .agents.
+    // With no resolveSkillHarnesses wired (these services), installs fall
+    // back to the Claude harness dir only — never a silent no-op.
     assert.equal(
       await readFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf8'),
       '---\nname: alpha\ndescription: First.\n---\n'
@@ -1063,6 +1063,77 @@ async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): P
   })
 }
 
+
+async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot, receiptStorePath } = await createServices(
+      temp,
+      createClaudeLifecycleFetcher(),
+      { trustedModules: new Map() }
+    )
+    // The wired resolver (installed CLIs with native skill support + agents)
+    // drives the default target set; the caller passes no skillHarnesses.
+    services.resolveSkillHarnesses = () => Promise.resolve(['claude', 'codex', 'agents'])
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const result = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    for (const dir of ['.claude', '.codex', '.agents']) {
+      assert.equal(
+        existsSync(join(workspaceRoot, dir, 'skills', 'alpha', 'SKILL.md')),
+        true,
+        `alpha lands in ${dir}`
+      )
+    }
+    // No writes outside the resolved set.
+    assert.equal(existsSync(join(workspaceRoot, '.cursor', 'skills', 'alpha')), false)
+
+    const store = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
+      plugins: Record<string, { components: Array<{ harnesses?: string[] }> }>
+    }
+    assert.deepEqual(store.plugins['acme-skills']!.components[0]!.harnesses, ['claude', 'codex', 'agents'])
+
+    // Uninstall removes every harness copy the receipt recorded.
+    const removed = await lifecycle.uninstall({ pluginId: 'acme-skills', workspaceRoot })
+    assert.equal(removed.ok, true, JSON.stringify(removed))
+    for (const dir of ['.claude', '.codex', '.agents']) {
+      assert.equal(existsSync(join(workspaceRoot, dir, 'skills', 'alpha')), false, `alpha removed from ${dir}`)
+    }
+  })
+}
+
+async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.resolveSkillHarnesses = () => Promise.reject(new Error('probe blew up'))
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const result = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), true)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'alpha')), false)
+  })
+
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    // An empty resolved set must not install nowhere while claiming success.
+    services.resolveSkillHarnesses = () => Promise.resolve([])
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const result = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
+    assert.equal(result.ok, true, JSON.stringify(result))
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), true)
+  })
+}
 
 async function testClaudePluginHarnessChangeRemovesOrphanedCopies(): Promise<void> {
   await withTempDir(async (temp) => {
@@ -1127,6 +1198,8 @@ async function main(): Promise<void> {
   await testReceiptStoreValidationRejectsMalformedAndUnsafeState()
   await testClaudePluginRequiresTrustGrant()
   await testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls()
+  await testClaudePluginDefaultFanOutUsesResolvedHarnesses()
+  await testClaudePluginResolverFailureFallsBackToClaude()
   await testClaudePluginRefusesForeignSkillDirCollision()
   await testClaudePluginHarnessChangeRemovesOrphanedCopies()
   console.log('marketplace plugin lifecycle tests passed')

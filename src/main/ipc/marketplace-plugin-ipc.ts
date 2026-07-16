@@ -14,6 +14,7 @@ import type { AppServices } from '../app-services'
 import { createMarketplacePluginLifecycleService, defaultMarketplacePluginInstallStorePath } from '../marketplace/plugin-lifecycle'
 import { defaultMarketplacePluginStagingRoot } from '../marketplace/plugin-download'
 import { createMarketplacePluginVerifier } from '../marketplace/plugin-verify'
+import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
 import { readTrustedMarketplacePublisherFingerprintsSync } from '../marketplace/trusted-publishers'
 import { createMarketplacePluginInstaller } from '../modules/plugin-bundle-installer'
 import { readTrustedModulesSync } from '../modules/trust-store'
@@ -41,6 +42,7 @@ export function registerMarketplacePluginIpc(
     trustContext,
     receiptStorePath: defaultMarketplacePluginInstallStorePath(app.getPath('userData')),
     stagingRoot: defaultMarketplacePluginStagingRoot(app.getPath('userData')),
+    resolveSkillHarnesses: () => resolveInstalledSkillHarnesses(),
   })
 
   ipcMain.handle(
