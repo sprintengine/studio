@@ -85,6 +85,21 @@ async function main(): Promise<void> {
   assert.equal(completed.status, 'completed', 'all done tasks complete the execution link')
   assert.equal(completed.canOpen, true)
 
+  // A canceled run (stored flag, surfaced from run.status) reads as `canceled` —
+  // outranking the done/canceled task rollup, which would otherwise misread it.
+  const canceled = await resolveSprintEngineBacklogLink({
+    workspaceId: 'ws-backlog',
+    workspaceRoot,
+    item: { ...baseItem, links: [baseLink] },
+    link: baseLink,
+    readSprintEngineProjection: async () => ({
+      ok: true,
+      data: { ...(projection(['done', 'canceled']) as object), run: { name: 'Team', goal: 'Ship it', status: 'canceled' } },
+    }),
+  })
+  assert.equal(canceled.status, 'canceled', 'a canceled run reads as canceled, not completed')
+  assert.equal(canceled.canOpen, true)
+
   const active = await resolveSprintEngineBacklogLink({
     workspaceId: 'ws-backlog',
     workspaceRoot,
