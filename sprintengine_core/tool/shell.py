@@ -339,6 +339,20 @@ def _declared_sibling_root(workspace_root: Path, repo_id: str, raw_root: str) ->
             f"Project {repo_id!r} at {raw_root} is inside this project. A sprint spans separate projects; "
             "declare one that lives outside this one."
         )
+    try:
+        workspace_root.resolve().relative_to(root)
+    except ValueError:
+        pass
+    else:
+        # The mirror of the check above, and the one that widens the blast radius: a
+        # root holding the workspace pulls it and every neighbour beside it into the
+        # run's surface by inclusion. The MCP boundary already refuses to authorize
+        # such a root, but the engine's own git operations resolve repo roots from the
+        # store without consulting allowedRoots, so this is where it has to be refused.
+        raise SystemExit(
+            f"Project {repo_id!r} at {raw_root} contains this project. A sprint spans separate projects; "
+            "declare one that lives beside this one, not one that holds it."
+        )
     toplevel = run_git_checked(root, ["rev-parse", "--show-toplevel"], allow_failure=True)
     if toplevel.returncode != 0 or Path(toplevel.stdout.strip() or "/nonexistent").resolve() != root:
         raise SystemExit(f"Project {repo_id!r} at {raw_root} is not a git repository. A sprint can only span git projects.")

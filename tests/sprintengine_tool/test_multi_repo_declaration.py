@@ -266,6 +266,28 @@ def test_sibling_pointing_at_the_primary_project_aborts_init(tmp_path) -> None:
     assert "this project itself" in failure.stdout + failure.stderr
 
 
+def test_sibling_containing_the_primary_project_aborts_init(tmp_path) -> None:
+    # The mirror of the nested case, and the one that actually widens the blast
+    # radius: a repo that CONTAINS the workspace pulls the workspace and every
+    # neighbour beside it into the run's declared surface by inclusion. The MCP
+    # boundary already refuses to authorize such a root (sprintEngineDeclaredSiblingRepoRoots),
+    # but the engine's own git operations never consult allowedRoots — they use the
+    # store's roots directly — so init is the only place this can be refused.
+    workspace, _ = _two_project_workspace(tmp_path)
+    _init_git_repo(tmp_path)
+    fixture = _worktree_team(workspace, "alpha")
+
+    failure = fixture.cli.run_failure(
+        "init", "--goal", "Span two projects",
+        "--use-worktrees", "true",
+        "--repo", "parent=..",
+    )
+
+    assert "contains this project" in failure.stdout + failure.stderr
+    assert read_state(fixture.state_path)["sprintengine"].get("vcs") is None
+    assert not (fixture.team_dir / "worktree-parent").exists()
+
+
 def test_one_project_declared_under_two_names_aborts_init(tmp_path) -> None:
     workspace, _ = _two_project_workspace(tmp_path)
     fixture = _worktree_team(workspace, "alpha")
