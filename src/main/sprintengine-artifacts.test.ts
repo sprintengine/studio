@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -44,6 +44,7 @@ async function main(): Promise<void> {
   await testIpcRegistersReadOnlyBridgeChannels()
   await testDeclaredSiblingRepoRootsResolveEveryDeclaredProject()
   await testDeclaredSiblingRepoRootsRefuseAnythingNotDeclaredAsASibling()
+  await testDeclaredSiblingRepoRootsJudgeSymlinkedRootsByTheirRealTarget()
 
   console.log('sprintengine-artifacts tests passed')
 }
@@ -121,6 +122,45 @@ async function testDeclaredSiblingRepoRootsRefuseAnythingNotDeclaredAsASibling()
     assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(join(workspaceRoot, 'nope.yaml')), [])
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// A declared root is authorized by its REAL target, never by how it was spelled.
+// Both halves matter: follow the link and a symlink cannot smuggle in a root the
+// server would refuse; judge only after following it and a symlink cannot launder a
+// parent past the parent check by wearing a sibling's name.
+async function testDeclaredSiblingRepoRootsJudgeSymlinkedRootsByTheirRealTarget(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+  const realSibling = join(workspaceRoot, '..', `declared-sibling-${process.pid}`)
+  const linkToSibling = join(workspaceRoot, '..', `link-to-sibling-${process.pid}`)
+  const linkToParent = join(workspaceRoot, '..', `link-to-parent-${process.pid}`)
+
+  try {
+    await mkdir(realSibling, { recursive: true })
+    await symlink(realpathSync(realSibling), linkToSibling, 'dir')
+    // Points at the directory that CONTAINS the workspace.
+    await symlink(realpathSync(join(workspaceRoot, '..')), linkToParent, 'dir')
+
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      { id: 'mobile', root: `../link-to-sibling-${process.pid}`, worktreePath: 'w-mobile', branchName: 'b' },
+    ])
+    // The link's own path is never returned: the server resolves what it is handed,
+    // so authorizing the un-resolved spelling would authorize a path it never compares.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [realpathSync(realSibling)])
+
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      { id: 'sneaky', root: `../link-to-parent-${process.pid}`, worktreePath: 'w-sneaky', branchName: 'b' },
+    ])
+    // Resolves to a parent of the workspace, so the parent check must still catch it
+    // even though nothing in the declaration says `..`.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+    await rm(linkToSibling, { recursive: true, force: true })
+    await rm(linkToParent, { recursive: true, force: true })
+    await rm(realSibling, { recursive: true, force: true })
   }
 }
 
