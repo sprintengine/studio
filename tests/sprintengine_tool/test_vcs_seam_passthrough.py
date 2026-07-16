@@ -1,11 +1,11 @@
 """Multi-repo vcs seam: pass-through + single-source discipline (MC-1615).
 
-The seam lets a future schema-v4 multi-repo run carry an unknown `vcs.repos`
-array end-to-end without any surface stripping it. The TS normalizer
-(`normalizeSprintEngineVcs`) and the mobile snapshot (`buildVcsState`) preserve
-it verbatim (covered by their own TS tests); these tests pin the Python half —
-`build_projection` and the state round-trip through `sync` — and the phase-prompt
-worktree discipline being emitted from a single template site.
+The seam is what lets a multi-repo run carry `vcs.repos` end-to-end without any
+surface stripping it: `build_projection` hands the whole `vcs` dict through
+verbatim rather than rebuilding it from a fixed key list. MC-1611 filled the
+array in with a concrete shape, but the pass-through is what these tests pin —
+`build_projection` and the state round-trip through `sync` — along with the
+phase-prompt worktree discipline being emitted from a single template site.
 """
 from __future__ import annotations
 
@@ -15,18 +15,33 @@ from helpers import base_state, read_state, write_state
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool import phase_prompts
 
-# A representative multi-repo array the engine does not interpret yet: the seam
-# must carry it through unread, so the assertions compare it verbatim.
+# A representative declared repo list (MC-1611 shape). The seam must carry it
+# through untouched, so the assertions compare it verbatim.
 REPOS = [
-    {"repoRoot": "packages/api", "branchName": "sprintengine/checkout-api", "baseRef": "main"},
-    {"repoRoot": "packages/web", "branchName": "sprintengine/checkout-web", "baseRef": "main"},
+    {
+        "id": "primary",
+        "root": ".",
+        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "branchName": "sprintengine/alpha",
+        "baseRef": "main",
+        "status": "ready",
+        "lastCommitSha": None,
+    },
+    {
+        "id": "api",
+        "root": "packages/api",
+        "worktreePath": ".multi-code/sprintengine/alpha/worktree-api",
+        "branchName": "sprintengine/alpha",
+        "baseRef": "main",
+        "status": "ready",
+        "lastCommitSha": None,
+    },
 ]
 
 
 def _vcs_with_repos() -> dict:
     return {
         "mode": "run_worktree",
-        "repoRoot": ".",
         "worktreePath": ".multi-code/sprintengine/alpha/worktree",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",
@@ -124,3 +139,52 @@ def test_worktree_discipline_emitted_from_single_template_site() -> None:
     # The shared owned-paths rule is byte-identical in both — proof of one source.
     shared = "- Treat task-owned paths as the primary edit surface and collision boundary."
     assert shared in plan_block and shared in worktree_block
+
+
+def _worktree_block_for(vcs: dict) -> str:
+    state = base_state("alpha", [])
+    state["sprintengine"]["vcs"] = vcs
+    return phase_prompts.worker_execution_workspace_block(
+        state, Path("/tmp/ws/.multi-code/sprintengine/alpha/run.yaml")
+    )
+
+
+def test_worktree_prompt_states_the_no_cd_rule_per_repo(tmp_path) -> None:
+    """MC-1614: the location rule is per project, and `cd` stays forbidden.
+
+    The prompt used to hardcode "This run shares ONE git worktree <path>", which a
+    multi-repo agent would read as licence to do all its work in the primary tree.
+    It now names every declared project and scopes the rule to the task's own.
+    """
+    block = _worktree_block_for(_vcs_with_repos())
+
+    # Every declared project is named with the tree and branch it lives on.
+    for repo in REPOS:
+        assert f"`{repo['id']}` (`{repo['worktreePath']}` on branch `{repo['branchName']}`)" in block
+
+    # The task's project is the boundary; the no-cd rule survives, restated per repo.
+    assert "Every task names ONE project in its `repo` field" in block
+    assert "do not `cd` elsewhere and do not create another worktree" in block
+    assert "relative to THAT project's root" in block
+
+    # The retired singular-worktree contract must not come back in any form.
+    for retired in ("shares ONE git worktree", "the run's commit lock", "the shared branch"):
+        assert retired not in block, f"singular-worktree phrasing returned: {retired!r}"
+
+
+def test_single_repo_worktree_prompt_reads_as_one_project(tmp_path) -> None:
+    """A pre-multi-repo store (flat `vcs`, no `repos`) renders the same shape.
+
+    `vcs_repos` derives the one-entry primary, so the text never branches on repo
+    count: a single-repo run simply lists one project.
+    """
+    block = _worktree_block_for(
+        {
+            "mode": "run_worktree",
+            "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+            "branchName": "sprintengine/alpha",
+        }
+    )
+    assert "This run's projects are: `primary` (`.multi-code/sprintengine/alpha/worktree` on branch `sprintengine/alpha`)." in block
+    assert "`api`" not in block
+    assert "do not `cd` elsewhere" in block

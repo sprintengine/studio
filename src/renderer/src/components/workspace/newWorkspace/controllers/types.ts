@@ -143,6 +143,10 @@ export type SprintEngineNewTeamInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
+  // The other projects this run also changes (MC-1613), each `{id, root}` with a
+  // workspace-relative root. Forwarded verbatim to init as `--repo`. Requires
+  // useWorktrees; omitted for a run in a single project.
+  repos?: Array<{ id: string; root: string }>
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
   // "Architect picks the team" fields. When rosterSource is 'architect' the
@@ -191,6 +195,10 @@ export type SprintEnginePlanSourcedInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
+  // The other projects this run also changes (MC-1613), each `{id, root}` with a
+  // workspace-relative root. Forwarded verbatim to init as `--repo`. Requires
+  // useWorktrees; omitted for a run in a single project.
+  repos?: Array<{ id: string; root: string }>
   // "Workflow steps" + "Final sweeps" run-init keys (MC-1542 / MC-1543), same
   // contract as SprintEngineNewTeamInput: forwarded verbatim, each present ONLY
   // when it diverges from the engine default. The plan-sourced path historically

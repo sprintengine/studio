@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import type { SprintEngineVcs } from '../../../../shared/sprintengine/run-types'
 import type { Workspace } from '../../types/workspace'
 import { backoffDelayMs, type ExponentialBackoffOptions } from '../../utils/exponentialBackoff'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
@@ -46,6 +47,24 @@ export function isPullRequestWatchable(input: {
   return prState === 'open' || (prState === null && hasPrUrl)
 }
 
+// A run spanning projects has one pull request per project, each merging on its own
+// schedule (MC-1612). One probe covers the whole run — `vcs pr-status` refreshes
+// every project in one call — so the question here is only whether ANY project is
+// still worth probing. Watching the primary alone would stop polling the moment the
+// desktop PR merged, freezing every other project's state at whatever the last poll
+// happened to see. `vcs.repos` always carries the primary at entry zero, including
+// for runs stored before the list existed, so single-repo runs are unchanged.
+export function isRunPullRequestWatchable(vcs: SprintEngineVcs | null | undefined): boolean {
+  if (!vcs) return false
+  return (vcs.repos ?? []).some((repo) =>
+    isPullRequestWatchable({
+      hasVcs: true,
+      prState: repo.pullRequestState ?? null,
+      hasPrUrl: !!repo.pullRequestUrl,
+    }),
+  )
+}
+
 export type PullRequestPollTarget = {
   workspaceId: string
   statePath: string
@@ -63,14 +82,7 @@ export function collectWatchablePullRequestTargets(
     if (workspace.mode !== 'sprintengine' && !workspace.sprintEngineContext) continue
     const statePath = workspace.sprintEngineContext?.statePath
     if (!statePath) continue
-    const vcs = workspace.sprintEngineState?.vcs
-    if (
-      isPullRequestWatchable({
-        hasVcs: !!vcs,
-        prState: vcs?.pullRequestState ?? null,
-        hasPrUrl: !!vcs?.pullRequestUrl,
-      })
-    ) {
+    if (isRunPullRequestWatchable(workspace.sprintEngineState?.vcs)) {
       targets.push({ workspaceId: workspace.id, statePath })
     }
   }

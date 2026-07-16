@@ -43,6 +43,7 @@ from sprintengine_core.tool.state import (
     create_task_comment,
     end_lease,
     ensure_role_in_roster,
+    ensure_task_repo_declared,
     find_task,
     mint_lease,
     reconcile_worker,
@@ -170,6 +171,16 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             # auto-grabbed here: matching on role alone let a concurrent CHEAP
             # same-role session win the review and silently downgrade the paid-for
             # runtime. `task.next` therefore only serves ready work now.
+            # The repo this session works in (MC-1610), bound by the MCP server
+            # from the worktree the session was spawned into. A session can only
+            # claim work in its own tree: its cwd, its commit lock, and its
+            # task's repo-relative paths must all name one repo, and no session
+            # can move itself to another. Absent (single-repo runs, the CLI)
+            # means unbound — every ready task for the role is a candidate,
+            # exactly as before repos existed.
+            session_repo = str(getattr(args, "repo", None) or "").strip()
+            if session_repo:
+                session_repo = ensure_task_repo_declared(state, session_repo, context=f"Worker {args.id}")
             ready_ids = read_ready_task_ids(state)
             tasks_by_id = {
                 str(t.get("id")): t
@@ -180,6 +191,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
             for task_id in ready_ids:
                 t = tasks_by_id.get(task_id)
                 if not t or t.get("role") != args.role or not task_is_ready(state, t):
+                    continue
+                if session_repo and folder_store.task_repo(t) != session_repo:
                     continue
                 candidates.append(t)
             # Ready ids are already priority-ordered by the materialized ready
@@ -203,6 +216,9 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "write": runtime["dirty"] or phase_dirty or expired["dirty"],
                 }
             if selected:
+                ensure_task_repo_declared(
+                    state, folder_store.task_repo(selected), context=f"Task {selected.get('id')}"
+                )
                 model, cli = _resolve_execution_identity(args)
                 result = assign_task(state, selected, args.id, model=model, cli=cli)
                 recompute_phase(state)
@@ -210,7 +226,8 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 return {"ok": True, "claimed": True, "task": selected, "agent": result["agent"], "prompt": build_rework_prompt(args.state, selected), "event": event, "releasedExpired": expired["released"]}
 
             phase_dirty = recompute_phase(state)
-            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
+            scope = f" in {session_repo}" if session_repo else ""
+            return {"ok": True, "claimed": False, "reason": "no_ready_task", "message": f"No ready {args.role} tasks{scope}. Stop.", "releasedExpired": expired["released"], "write": runtime["dirty"] or phase_dirty or expired["dirty"]}
 
     return with_locked_state(args.state, run)
 
@@ -247,6 +264,9 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
                     "event": event,
                 }
             ensure_role_in_roster(state, str(task.get("role") or ""))
+            ensure_task_repo_declared(
+                state, folder_store.task_repo(task), context=f"Task {task.get('id')}"
+            )
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}

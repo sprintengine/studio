@@ -568,6 +568,9 @@ export type SprintEngineRuntimeAgent = {
 export type SprintEngineWorker = SprintEngineRuntimeAgent & {
   /** Session id recorded on the worker's active lease, when it holds one. */
   sessionId?: string
+  /** Repo id recorded on the worker's active lease (MC-1611): the tree the
+   *  worker is working in right now. Absent when it holds no active lease. */
+  repo?: string
   /** Every task id this worker has owned across the run (active lease +
    *  last-implemented), oldest-first. */
   ownedTaskIds?: string[]
@@ -675,11 +678,27 @@ export type SprintEngineSourceBundleStateItem = {
   capturedAt?: string
 }
 
+/**
+ * The repo a task targets when it names none: entry zero of the run's declared
+ * `vcs.repos`, its primary repo (MC-1611). MIRRORED from `DEFAULT_TASK_REPO` in
+ * sprintengine_core/store.py (and `PRIMARY_REPO_ID` in
+ * sprintengine_core/tool/shell.py); a contract test pins them together.
+ */
+export const DEFAULT_SPRINTENGINE_TASK_REPO = 'primary'
+
 export type SprintEngineTask = {
   id: string
   title: string
   description: string
   role: SprintEngineRoleId
+  /**
+   * Id of the declared repo this task works in — one task, one git tree, always.
+   * `ownedPaths` and every evidence path stay relative to THAT repo's root, so a
+   * sibling repo is only ever expressible as (repo id, relative path). The
+   * projection always sets it; a run declaring one repo reads
+   * {@link DEFAULT_SPRINTENGINE_TASK_REPO} on every task.
+   */
+  repo: string
   status: SprintEngineTaskStatus
   source?: SprintEngineTaskSource
   ownerAgentId: string | null
@@ -868,9 +887,41 @@ export type SprintEngineAllowedRuntime = { cli: AgentCli; model: string | null }
 export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }
 export type SprintEngineRoleRuntimes = Partial<Record<SprintEngineRoleId, SprintEngineRoleRuntime>>
 
+/**
+ * Merge state of one branch's pull request: 'open' until the PR merges or the branch
+ * lands in its base; 'merged' and 'closed' are terminal, and polling stops there.
+ */
+export type SprintEnginePullRequestState = 'open' | 'merged' | 'closed' | null
+
+/**
+ * One repo a run works in (MC-1611). Mirrors the entry shape the engine writes to
+ * `sprintengine.vcs.repos` in run.yaml. `root` is workspace-relative — `.` for the
+ * primary repo, a sibling project's directory for the rest — and `worktreePath` is
+ * that repo's own run worktree.
+ *
+ * A run spanning projects delivers one branch per project, so each repo carries its
+ * own pull request and its own merge state (MC-1612): one project's PR merges, and
+ * only that project's worktree goes. The primary's copies of these fields are also
+ * the flat `vcs.*` fields, which is what every surface that predates the list reads.
+ */
+export type SprintEngineVcsRepo = {
+  id: string
+  root: string
+  /** Project-root-relative path to this repo's run worktree directory. */
+  worktreePath: string
+  branchName: string
+  baseRef?: string | null
+  status?: string
+  lastCommitSha?: string | null
+  pullRequestUrl?: string | null
+  /** Reason this repo's last pull-request open failed, surfaced with Retry. */
+  pullRequestError?: string | null
+  /** Merge state of THIS repo's branch; 'merged'/'closed' are terminal. */
+  pullRequestState?: SprintEnginePullRequestState
+}
+
 export type SprintEngineVcs = {
   mode: 'run_worktree'
-  repoRoot?: string
   /** Project-root-relative path to the shared run worktree directory. */
   worktreePath: string
   branchName: string
@@ -881,17 +932,16 @@ export type SprintEngineVcs = {
   pullRequestError?: string | null
   /** Merge state of the run branch: 'open' until the PR merges or the branch lands
    *  in its base; 'merged'/'closed' are terminal (polling stops). */
-  pullRequestState?: 'open' | 'merged' | 'closed' | null
+  pullRequestState?: SprintEnginePullRequestState
   lastCommitSha?: string | null
   /**
-   * Multi-repo seam (MC-1615): a schema-v4 store may carry a per-repo vcs array
-   * alongside the single-worktree fields. Recognized as an optional pass-through
-   * today — no TS consumer reads it yet — so syncing a multi-repo projection
-   * never strips the field (normalizeResponse whitelist precedent). The concrete
-   * per-repo shape is owned by the multi-repo epic (MC-1610); this normalizer
-   * parses and re-emits the array verbatim.
+   * Every repo the run works in, entry zero first (the primary repo, `root: '.'`).
+   * Always populated: a run stored before this list existed describes its one repo
+   * with the flat fields above, and the normalizer reads that back as a one-entry
+   * list, so readers only ever handle the list. The flat fields remain the primary
+   * repo's live values until the surfaces that read them move onto `repos`.
    */
-  repos?: unknown[]
+  repos: SprintEngineVcsRepo[]
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>

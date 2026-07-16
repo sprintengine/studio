@@ -60,6 +60,7 @@ from sprintengine_core.tool.tasks import ensure_evidence, recompute_phase
 
 from .auth import MUTATING_TOOLS, ActorContext, AuthorizationError, authorize_tool
 from .capabilities import (
+    CALLER_REPO_PAYLOAD_TOOLS,
     CALLER_ROLE_PAYLOAD_TOOLS,
     allowed_tools_for_classification,
     classify_role,
@@ -84,6 +85,10 @@ class McpRequestContext:
     actor_id: str = ""
     agent_id: str = ""
     role: str = ""
+    # The declared repo this session works in (MC-1610), bound at registration
+    # from the cwd the session was spawned into. Empty for single-repo runs and
+    # operator sessions, which are bound to no repo and see every task.
+    repo: str = ""
     cli: str = ""
     # Whether the launching workspace has a Knowledge Graph root configured.
     # None = registration did not say (older caller / stdio): resolve from env.
@@ -173,6 +178,7 @@ class SprintEngineMcpServer:
             self._validate_request_workspace_root(payload)
             authorize_tool(tool_name, payload, actor_context, state_path)
             self._authorize_role_capability(tool_name, payload, actor_context, state_path)
+            payload = self._bind_session_repo(tool_name, payload)
             if tool_name == "sprintengine.health":
                 result = build_health_report(
                     state_path=state_path,
@@ -203,6 +209,22 @@ class SprintEngineMcpServer:
             return {"ok": False, "tool": tool_name, "error": mapped.to_dict()}
         finally:
             _REQUEST_CONTEXT.reset(context_token)
+
+    def _bind_session_repo(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Route a repo-bound session's claim to its own repo (MC-1610).
+
+        A session's repo comes from the cwd it was spawned into, not from what it
+        asks for, so the bound value is stamped onto the payload here rather than
+        trusted from it — an agent that omits `repo` still only sees its own
+        tree's work. A mismatched value was already refused upstream, and an
+        unbound session (single-repo run, operator) is left untouched and sees
+        every task, exactly as before repos existed.
+        """
+        context = self._request_context()
+        bound_repo = (context.repo if context else "") or ""
+        if not bound_repo or tool_name not in CALLER_REPO_PAYLOAD_TOOLS:
+            return payload
+        return {**payload, "repo": bound_repo}
 
     def _dispatch(
         self,
@@ -280,7 +302,7 @@ class SprintEngineMcpServer:
                 "After this help call, call sprintengine.agent.join, then claim work with sprintengine.task.next using {role, id}.",
                 "Work what the claim returns; it resumes your active task or claims the next ready one.",
                 "If the claim returns no work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.",
-                "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes under the git commit lock.",
+                "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes in your task's project worktree, under that project's commit lock.",
                 "If your task produced a diff, publish routes it into its review phase and returns your review directive INLINE in the publish response (`nextDirective`). Follow it, fix what you find, then close the phase with sprintengine.task.advance. If it produced no diff, publish lands the task in done.",
                 "After the task is done, stop. Multicode owns dispatch and continuation.",
                 "Headless CLI agents outside the managed runtime use sprintengine.agent.next_directive for routing instead.",
@@ -301,9 +323,9 @@ class SprintEngineMcpServer:
                 ),
                 "Read a task card: sprintengine.task.get with {taskId}. The card is slim by default; pass include: [\"activity\", \"comments\", \"evidence_log\", \"diffs\"] for deep history.",
                 "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
-                "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}; in worktree mode this also commits task-scoped changes under the git commit lock.",
+                "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}; in worktree mode this also commits task-scoped changes in the task's project worktree, under that project's commit lock.",
                 "Close a phase: sprintengine.task.advance with {taskId, id, phase, outcome, summary, findingJson?}.",
-                "Inspect or manually commit the shared run worktree only when needed: sprintengine.vcs.status and sprintengine.vcs.commit.",
+                "Inspect or manually commit your task's project worktree only when needed: sprintengine.vcs.status and sprintengine.vcs.commit.",
                 "Use sprintengine.task.status as a low-level repair/admin transition when a normal workflow tool cannot represent the correction.",
             ],
             "needs_input": [
@@ -878,6 +900,15 @@ class SprintEngineMcpServer:
                     "tool_not_permitted_for_role",
                     f"This session is bound to role {bound_role!r} and cannot call {tool_name} as role {payload_role!r}.",
                     {"role": bound_role, "payloadRole": payload_role},
+                )
+        bound_repo = (context.repo if context else "") or ""
+        if bound_repo and tool_name in CALLER_REPO_PAYLOAD_TOOLS:
+            payload_repo = str(payload.get("repo") or "").strip()
+            if payload_repo and payload_repo != bound_repo:
+                raise McpToolError(
+                    "tool_not_permitted_for_repo",
+                    f"This session works in project {bound_repo!r} and cannot call {tool_name} for project {payload_repo!r}.",
+                    {"repo": bound_repo, "payloadRepo": payload_repo},
                 )
         allowed = allowed_tools_for_classification(classification, TOOL_SCHEMAS)
         if tool_name in allowed:

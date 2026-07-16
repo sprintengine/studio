@@ -9,11 +9,11 @@ No other agent reviews your work. Implement, then publish with `sprintengine.tas
 - **A diff** — the task enters its review phase and the publish response carries your review directive (`nextDirective`). Follow it: read your own diff adversarially, fix everything you find, commit fixes scoped to the task, then close the phase with `sprintengine.task.advance`.
 - **No diff** — the task lands in `done`; analysis-only tasks and clean sweeps end here.
 
-In worktree-mode runs `task.publish` also commits your task-scoped changes under the run's commit lock before routing onward.
+In worktree-mode runs `task.publish` also commits your task-scoped changes in your task's project worktree, under that project's own commit lock.
 
 ## Owned Paths
 
-Task-owned paths are the primary edit surface and collision boundary, not an edit cage. Record each required edit outside `ownedPaths` as a `scopeExpansionJson` entry (`path`, `reason`, `risk`) on `sprintengine.task.log`. Move to `needs_input` before broad expansion, product scope changes, or likely overlap with another active task.
+Your task names ONE project (`repo`); its paths are relative to that project's root. Task-owned paths are the primary edit surface and collision boundary, not an edit cage. Record each required edit outside `ownedPaths` as a `scopeExpansionJson` entry (`path`, `reason`, `risk`) on `sprintengine.task.log`. Move to `needs_input` before broad expansion, product scope changes, or likely overlap with another active task.
 
 ## Escalate Only What You Must Not Invent
 
@@ -26,8 +26,6 @@ Compile errors, failing tests, review findings, and validation gaps are yours to
 ## Dispatch
 
 When Multicode names a claim tool (`sprintengine.task.next` or `sprintengine.triage.needs_input`), call it once and work what it returns; if there is no claim, say so and stop — Multicode re-engages this terminal when work is ready. If a directive payload names `nextMcpToolName`, invoke it once with `nextMcpArguments`. Once your task is `done`, stop; the runtime owns later dispatch.
-
-Role runtime skills may add planning, publishing, artifact, or difficulty guidance; follow what matches your work.
 
 ## Write For Agent Readers
 

@@ -62,6 +62,7 @@ import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
  formatSprintEngineLockAge,
+ deriveSprintEngineRepoMergeRollup,
  deriveSprintEngineRunGlyph,
  getNextSprintEngineAgentId,
  getSprintEngineBoardRunPhase,
@@ -116,6 +117,7 @@ import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
 import { RunCompletePullRequestAction, RunPullRequestViewChip, useRunPullRequestMergePoll } from './runPullRequest'
+import { isRunPullRequestWatchable } from '../workspace/SprintEnginePullRequestPollSupervisor'
 import { useSprintEngineBoardModel } from './sprintEngineBoard/useSprintEngineBoardModel'
 import {
   useSprintEngineBoardArtifactActions,
@@ -965,12 +967,18 @@ function SprintEngineBoardPanelContent({
  const totalTasks = sprintEngineState.tasks.length
  const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
  // Keep the header PR chip's merge state fresh while the run is open on any tab.
+ // Probe the RUN, not its primary project: one `vcs pr-status` refreshes every
+ // project, so the run is worth a probe while ANY project's pull request is still
+ // non-terminal — the same question the background supervisor asks. Reading the
+ // primary's state here stopped the on-open probe the moment the desktop pull
+ // request merged, so a sibling project's chip stayed stale until the supervisor's
+ // next backoff tick (up to 32 min) even though the user just opened the board.
  useRunPullRequestMergePoll({
    workspaceId,
    statePath: sprintEngineContext?.statePath ?? null,
    hasVcs: !!sprintEngineState.vcs,
-   prState: sprintEngineState.vcs?.pullRequestState ?? null,
-   shouldPoll: allTasksDone || !!sprintEngineState.vcs?.pullRequestUrl,
+   prState: isRunPullRequestWatchable(sprintEngineState.vcs) ? 'open' : 'merged',
+   shouldPoll: allTasksDone || (sprintEngineState.vcs?.repos ?? []).some((repo) => !!repo.pullRequestUrl),
  })
  // The run's lifecycle as the shared shape-coded glyph — the same rollup the
  // Backlog rows and workspace sidebar render, so the board hero speaks one
@@ -985,11 +993,15 @@ function SprintEngineBoardPanelContent({
  // The run-config chip's label tracks the run's real end-state once complete: a
  // merged worktree run reads "Merged", a done-but-unmerged one "Ready for review";
  // otherwise it shows the automation runtime state (Running / Paused / Complete…).
+ // A run spanning projects is "Merged" only once EVERY project's pull request has
+ // landed, so this reads the same rollup the run glyph does rather than the primary
+ // project's state alone.
+ const mergeRollup = deriveSprintEngineRepoMergeRollup(sprintEngineState.vcs)
  const runConfigLabel =
    automationRuntimeState === 'complete'
-     ? sprintEngineState.vcs?.pullRequestState === 'merged'
+     ? mergeRollup?.allMerged
        ? 'Merged'
-       : sprintEngineState.vcs
+       : mergeRollup
          ? 'Ready for review'
          : 'Complete'
      : sprintEngineAutomationRuntimeLabels[automationRuntimeState]
@@ -2109,7 +2121,7 @@ function SprintEngineBoardPanelContent({
   <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
   {doneCount}/{totalTasks}
   </span>
-  <RunPullRequestViewChip vcs={sprintEngineState.vcs} />
+  <RunPullRequestViewChip vcs={sprintEngineState.vcs} folderPath={folderPath} />
   <Popover
  open={settingsOpen}
  onOpenChange={setSettingsOpen}

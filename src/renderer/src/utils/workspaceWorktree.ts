@@ -1,4 +1,5 @@
-import { basename, isAbsoluteFilePath, joinFilePath, parentPath, pathJoin, samePath } from './paths'
+import { basename, isAbsoluteFilePath, joinFilePath, parentPath, pathJoin, pathSeparatorFor, samePath } from './paths'
+import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
 import type { AgentExecutionMode, McpServerConfig, McpSettings, Workspace } from '../types/workspace'
 
 export type ResolvedWorkspaceWorktree = {
@@ -6,43 +7,133 @@ export type ResolvedWorkspaceWorktree = {
   gitRoot: string
   /** Branch the worktree is checked out on, for display. */
   branch?: string
+  /**
+   * Declared repo this worktree belongs to (MC-1610), and the absolute root of
+   * that repo's own checkout — the tree the worktree was created FROM, which is
+   * where a spawn falls back to when the worktree is gone. Absent for a
+   * non-sprint worktree workspace, which has no declared repo set.
+   */
+  repoId?: string
+  repoRoot?: string
 }
 
 /**
- * Single source of truth for "is this workspace backed by a git worktree, and
- * if so what git root + branch should its Git view and terminal glyph use".
+ * Resolve a repo-declared path against the workspace folder. `.` is the
+ * workspace folder itself; an absolute value is used as-is (out of contract,
+ * but joinFilePath would corrupt it into a nested path).
  *
- * - Sprint runs in worktree mode: derived from the already-persisted
- *   `sprintEngineState.vcs` block. `folderPath` is the parent project root, so
- *   the git root is redirected to the run worktree (project-relative
- *   `worktreePath` joined onto `folderPath`). No new persisted data.
+ * `..` segments are collapsed because a declared sibling root legitimately
+ * carries them (`../multicode-mobile`) and this result is compared against real
+ * paths — `git worktree list` output, a session's cwd. A string join alone
+ * would leave `/proj/../mobile`, which no comparison would ever match.
+ * Task-owned paths are a different thing entirely and still reject `..`
+ * outright; only a run's own declared roots reach here.
+ */
+function resolveDeclaredPath(folderPath: string, value: string): string {
+  const trimmed = value.trim()
+  if (isAbsoluteFilePath(trimmed)) return trimmed
+  if (!trimmed || trimmed === '.') return folderPath
+  const joined = joinFilePath(folderPath, trimmed)
+  if (!joined.includes('..')) return joined
+  const separator = pathSeparatorFor(joined)
+  const leading = joined.startsWith(separator) ? separator : ''
+  const resolved: string[] = []
+  for (const segment of joined.split(/[\\/]+/)) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') resolved.pop()
+    else resolved.push(segment)
+  }
+  return leading + resolved.join(separator)
+}
+
+/**
+ * Every worktree this workspace is backed by, primary first (MC-1610).
+ *
+ * - Sprint runs in worktree mode: one entry per repo the run declared, derived
+ *   from the already-persisted `sprintEngineState.vcs` block. `folderPath` is
+ *   the parent project root, so each git root is that repo's project-relative
+ *   `worktreePath` joined onto it. A run declaring one repo yields exactly one
+ *   entry — the same root and branch the singular resolver always returned. A
+ *   pre-`repos` store still normalizes to a one-entry list, so this never falls
+ *   back to reading the flat fields itself.
  * - Normal worktree workspaces (opened via the Worktree manager): flagged by the
  *   explicit `workspace.worktree` marker. Their `folderPath` already *is* the
  *   worktree, so the git root stays `folderPath`; the marker only carries the
- *   branch and signals worktree-backed.
- * - Everything else: null (regular workspace, unchanged behavior).
+ *   branch and signals worktree-backed. Always a single entry.
+ * - Everything else: empty (regular workspace, unchanged behavior).
+ *
+ * The Git panel builds one scope per entry; the spawn path selects the entry
+ * matching a session's repo. Callers that want "the" worktree take the primary
+ * via {@link resolveWorkspaceWorktree}.
+ */
+export function resolveWorkspaceWorktrees(
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+): ResolvedWorkspaceWorktree[] {
+  const folderPath = workspace.folderPath
+  if (!folderPath) return []
+
+  const vcs = workspace.sprintEngineState?.vcs
+  if (vcs?.mode === 'run_worktree') {
+    const resolved = (vcs.repos ?? [])
+      .filter((repo) => Boolean(repo.worktreePath))
+      .map((repo) => ({
+        gitRoot: resolveDeclaredPath(folderPath, repo.worktreePath),
+        branch: repo.branchName || vcs.branchName,
+        repoId: repo.id,
+        repoRoot: resolveDeclaredPath(folderPath, repo.root || '.'),
+      }))
+    if (resolved.length > 0) return resolved
+    // A store whose `repos` list is empty or worktree-less still describes its
+    // one worktree with the flat fields; the primary repo of such a run is the
+    // workspace itself.
+    if (vcs.worktreePath) {
+      return [{
+        gitRoot: resolveDeclaredPath(folderPath, vcs.worktreePath),
+        branch: vcs.branchName,
+        repoId: DEFAULT_SPRINTENGINE_TASK_REPO,
+        repoRoot: folderPath,
+      }]
+    }
+    return []
+  }
+
+  if (workspace.worktree) {
+    return [{ gitRoot: folderPath, branch: workspace.worktree.branch }]
+  }
+
+  return []
+}
+
+/**
+ * The workspace's PRIMARY worktree — entry zero of {@link
+ * resolveWorkspaceWorktrees} — for the surfaces that show or spawn into exactly
+ * one: the workspace's Git view default, its terminal glyph, and any terminal
+ * not routed to a specific repo. Null for a regular workspace.
  */
 export function resolveWorkspaceWorktree(
   workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
 ): ResolvedWorkspaceWorktree | null {
-  const folderPath = workspace.folderPath
-  if (!folderPath) return null
+  return resolveWorkspaceWorktrees(workspace)[0] ?? null
+}
 
-  const vcs = workspace.sprintEngineState?.vcs
-  if (vcs?.mode === 'run_worktree' && vcs.worktreePath) {
-    // `worktreePath` is project-root-relative by contract; guard against an
-    // absolute value (which joinFilePath would corrupt into a nested path).
-    const gitRoot = isAbsoluteFilePath(vcs.worktreePath)
-      ? vcs.worktreePath
-      : joinFilePath(folderPath, vcs.worktreePath)
-    return { gitRoot, branch: vcs.branchName }
-  }
-
-  if (workspace.worktree) {
-    return { gitRoot: folderPath, branch: workspace.worktree.branch }
-  }
-
-  return null
+/**
+ * The root a spawn falls back to when `worktreeCwd` has been removed: the root
+ * of the repo THAT worktree belongs to, not the workspace folder (MC-1610). A
+ * pruned mobile worktree redirects into the mobile checkout, where the agent's
+ * repo-relative paths still mean what they say; redirecting it into the
+ * workspace root would silently point it at a different project's files.
+ *
+ * The workspace folder remains the answer for the primary repo (whose root IS
+ * the workspace) and for any cwd that matches no declared worktree.
+ */
+export function resolveWorktreeFallbackRoot(
+  workspace: Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>,
+  worktreeCwd: string | null | undefined
+): string | null {
+  const folderPath = workspace.folderPath ?? null
+  if (!worktreeCwd) return folderPath
+  const match = resolveWorkspaceWorktrees(workspace).find((entry) => samePath(entry.gitRoot, worktreeCwd))
+  return match?.repoRoot ?? folderPath
 }
 
 export type WorkspaceTerminalCwd =
@@ -86,19 +177,23 @@ export type WorktreeSpawnFallback = {
 /**
  * Guard a worktree-backed agent spawn against a removed run worktree.
  *
- * Sprint agents persist an absolute `execution.cwd` pointing into the shared run
- * worktree. That worktree can be removed out from under the persisted agent
+ * Sprint agents persist an absolute `execution.cwd` pointing into their repo's
+ * run worktree. That worktree can be removed out from under the persisted agent
  * (merge cleanup, the Worktree manager, or `git worktree prune`); spawning a
  * terminal into the vanished directory exits with code 1. When the worktree cwd
- * no longer exists, fall back to the workspace folder so the spawn succeeds and
+ * no longer exists, fall back to `fallbackRoot` so the spawn succeeds and
  * flag `fellBack` (callers use it only to redirect this launch and log — they do
  * not persist a change). Non-worktree agents and still-present worktrees pass
  * through unchanged.
+ *
+ * `fallbackRoot` is per-repo (MC-1610) — {@link resolveWorktreeFallbackRoot}
+ * derives it from the vanished worktree's own declared repo, so a pruned mobile
+ * worktree redirects into the mobile checkout rather than the workspace root.
  */
 export async function resolveWorktreeSpawnFallback(
   executionMode: AgentExecutionMode,
   worktreeCwd: string | undefined,
-  workspaceFolderPath: string | null,
+  fallbackRoot: string | null,
   pathExists: (path: string) => Promise<boolean>,
 ): Promise<WorktreeSpawnFallback> {
   if (executionMode !== 'worktree' || !worktreeCwd) {
@@ -107,7 +202,7 @@ export async function resolveWorktreeSpawnFallback(
   if (await pathExists(worktreeCwd)) {
     return { fellBack: false, cwd: worktreeCwd }
   }
-  return { fellBack: true, cwd: workspaceFolderPath ?? undefined }
+  return { fellBack: true, cwd: fallbackRoot ?? undefined }
 }
 
 /** Minimal shape of a Git panel scope option needed to pick the worktree scope. */

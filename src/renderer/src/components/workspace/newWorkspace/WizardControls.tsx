@@ -136,6 +136,81 @@ export function PathRadio({
   )
 }
 
+/** A project on disk, beside this one, that a run could also change. */
+export type WizardSiblingProject = {
+  /** Short handle the run declares this project under, e.g. `mobile`. */
+  id: string
+  /** Path to the project, relative to the workspace folder, e.g. `../multicode-mobile`. */
+  root: string
+  /** The project's own folder name — what the user calls it. */
+  name: string
+}
+
+// "Also changes these projects" (MC-1613): the other projects on disk this run may
+// touch. Each one it takes on gets its own worktree, branch, and pull request, and
+// every task names the single project it works in.
+//
+// Only appears in worktree mode, because that is the only way a run can span
+// projects at all — each project needs its own worktree, and the engine refuses the
+// combination otherwise. Rather than show a permanently dead control, the panel
+// stays out of the way until the worktree toggle above makes it real.
+//
+// Rendered by the sprint wizard's Review & start page (SprintEngineStartPanel),
+// directly under the worktree row that gates it. A bordered list that scrolls
+// inside itself, one toggle row per option, selection carried by the accent rail
+// rather than a badge — the same shape as the wizard's other "pick zero or more,
+// default none" controls.
+export function AlsoChangesProjectsPanel({
+  projects,
+  selectedProjectIds,
+  onToggleProject,
+  disabled,
+  useWorktrees,
+}: {
+  projects: readonly WizardSiblingProject[]
+  selectedProjectIds: readonly string[]
+  onToggleProject?: (id: string, on: boolean) => void
+  disabled?: boolean
+  useWorktrees: boolean
+}): JSX.Element | null {
+  if (!onToggleProject || !useWorktrees || projects.length === 0) return null
+  const selected = new Set(selectedProjectIds)
+  return (
+    <div className="border-t border-[color:var(--border-default)] px-3.5 py-3">
+      <span className="block text-[13px] font-semibold text-[color:var(--text-strong)]">Also changes these projects</span>
+      <p className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-muted)]">
+        {disabled
+          ? 'The projects a sprint changes are fixed when it is created and cannot be changed here.'
+          : 'Other projects next to this one. Each gets its own branch and pull request, and every task says which project it works in.'}
+      </p>
+      <div className="mt-2 max-h-[132px] divide-y divide-[color:var(--border-default)] overflow-y-auto rounded-md border border-[color:var(--border-default)]">
+        {projects.map((project) => {
+          const isOn = selected.has(project.id)
+          return (
+            <label
+              key={project.id}
+              className={`flex items-center gap-2.5 border-l-2 px-3 py-2 text-[12px] transition-colors ${
+                isOn
+                  ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                  : 'border-transparent hover:bg-[color:var(--bg-hover)]'
+              } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+            >
+              <input
+                type="checkbox"
+                checked={isOn}
+                disabled={disabled}
+                onChange={(event) => onToggleProject(project.id, event.target.checked)}
+                className="h-3.5 w-3.5 shrink-0 accent-[color:var(--accent-primary)]"
+              />
+              <span className="min-w-0 flex-1 truncate text-[color:var(--text-default)]">{project.name}</span>
+            </label>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // The roster + run-settings surface of the Guided Brief build handoff: size the
 // specialist roster, pick each role's runtime, and set how the run continues
 // after the workspace opens. Rendered as one column inside the handoff card.

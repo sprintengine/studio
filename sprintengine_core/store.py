@@ -43,6 +43,14 @@ ARTIFACT_STATUSES = (
     "changes_requested",
     "superseded",
 )
+# The repo a task targets when it names none: entry zero of `vcs.repos`, the run's
+# primary repo (MC-1611). Every task written before multi-repo runs targeted the one
+# repo the run had, which is that entry, so an absent `repo` reads as this and a
+# single-repo run behaves exactly as it did. MIRRORED as `PRIMARY_REPO_ID` in
+# sprintengine_core/tool/shell.py (which spells entry zero's id) and as
+# DEFAULT_SPRINTENGINE_TASK_REPO in src/shared/sprintengine/run-types.ts; a contract
+# test pins all three.
+DEFAULT_TASK_REPO = "primary"
 SUPPORT_DIRS = ("metrics", "plan-reviews", "reviews", "validation", "runner")
 RUN_FILE = "run.yaml"
 EVENTS_FILE = "events.jsonl"
@@ -53,9 +61,13 @@ LOCK_STATE_FILES = ("runner/run.lock.json", "runner/ready.lock.json")
 RUN_LOCK_FILE = "runner/run.queue.lock"
 READY_QUEUE_LOCK_FILE = "runner/ready.queue.lock"
 CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
-# Serializes the shared run-worktree git index across concurrent agents in
-# worktree mode: only one agent stages and commits at a time.
-GIT_COMMIT_LOCK_FILE = "runner/git.commit.lock"
+# Serializes one repo's shared run-worktree git index across concurrent agents in
+# worktree mode: only one agent stages and commits in a given project at a time.
+# Per repo, because each declared project has its own index and its own worktree —
+# a single run-wide lock would make an unrelated project's commit wait (MC-1611).
+# The name carries the repo id, so the file both locks a project and says which.
+GIT_COMMIT_LOCK_PREFIX = "git.commit."
+GIT_COMMIT_LOCK_SUFFIX = ".lock"
 RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # Top-level run keys written once at init for "Architect picks the team" runs:
 # `rosterSource` ('user' | 'architect') and `allowedRuntimes` (the sprint's
@@ -69,9 +81,11 @@ RUN_ROSTER_SOURCE_KEYS = ("rosterSource", "allowedRuntimes")
 # roles became routing + directive packs. v3 (MC-1591, leases replace the roster):
 # the persistent `agents` map is gone from run.yaml — assignment is a lease minted
 # on the task record and the projection derives its workers/roster view from tasks.
+# v4 (MC-1611, multi-repo runs): a run declares `sprintengine.vcs.repos` and every
+# task targets one entry of it; the dead `vcs.repoRoot` field is gone.
 # Pre-release clean break — an older store is REJECTED, never migrated
 # (`assert_store_is_current`); the remedy is deleting the team dir.
-RUN_SCHEMA_VERSION = 3
+RUN_SCHEMA_VERSION = 4
 
 # Post-implementation phase vocabulary. `review` is the only shipped phase; the
 # list shape is kept so a future phase slots in without a schema change.
@@ -154,6 +168,23 @@ def validate_artifact_status(value: str) -> str:
     return validate_status(value, ARTIFACT_STATUSES, "artifact")
 
 
+def task_repo(task: dict[str, Any]) -> str:
+    """The repo a task targets, defaulting to the run's primary repo.
+
+    The one accessor every reader shares, so no caller re-spells the default.
+    Membership in the run's declared repos is enforced at creation and at claim
+    (`ensure_task_repo_declared`), never here: this reads a task record that is
+    already stored, and a stored task must read back the same way whatever the
+    run declares today.
+    """
+    return str(task.get("repo") or "").strip() or DEFAULT_TASK_REPO
+
+
+def git_commit_lock_file(repo_id: str) -> str:
+    """The commit lock for one declared repo. The single site that spells the name."""
+    return f"runner/{GIT_COMMIT_LOCK_PREFIX}{repo_id}{GIT_COMMIT_LOCK_SUFFIX}"
+
+
 def validate_project_relative_path(value: str, *, field: str = "path") -> str:
     raw = str(value).strip()
     if not raw:
@@ -217,8 +248,9 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     are never migrated. The remedy is deleting the team folder. Raising here — in
     the one function both `state_from_folder_store` and `build_projection` call —
     means the board, wizard, backlog links, and CLI all get the same readable
-    message instead of a silent crash or a blank board. v3 (MC-1591) is the
-    current break: leases replaced the `agents` map, so a v2 store cannot be read.
+    message instead of a silent crash or a blank board. v4 (MC-1611) is the
+    current break: a run now declares a list of repos, so a v3 store — whose one
+    repo is described by fields this build no longer writes — cannot be read.
     """
     try:
         version = int(run.get("schemaVersion") or 1)
@@ -229,7 +261,8 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     raise RunStoreVersionError(
         f"Unsupported Sprint Engine run store (schemaVersion {version}, expected {RUN_SCHEMA_VERSION}). "
         "This pre-release store predates a breaking change (single-owner tasks, then "
-        "leases replacing the roster) and is never migrated. "
+        "leases replacing the roster, then sprints spanning more than one repository) "
+        "and is never migrated. "
         f"Delete `{team_dir}` and re-run the sprint."
     )
 
@@ -893,6 +926,7 @@ def _normalize_projection_task(task: dict[str, Any], *, board_column: str) -> di
     projected["boardColumn"] = board_column
     projected.setdefault("dependsOn", [])
     projected.setdefault("ownedPaths", [])
+    projected["repo"] = task_repo(task)
     projected.setdefault("acceptanceCriteria", [])
     projected.setdefault("implementationNotes", [])
     projected.setdefault("notes", [])
@@ -1010,7 +1044,13 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
         "run": team_dir / RUN_LOCK_FILE,
         "readyQueue": team_dir / READY_QUEUE_LOCK_FILE,
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
-        "gitCommit": team_dir / GIT_COMMIT_LOCK_FILE,
+        # One commit lock per declared repo, discovered rather than enumerated: the
+        # lock files exist only while held (or stale, which is what this report is
+        # for), and the repo id each one locks is in its name.
+        **{
+            f"gitCommit:{path.name[len(GIT_COMMIT_LOCK_PREFIX):-len(GIT_COMMIT_LOCK_SUFFIX)]}": path
+            for path in sorted((team_dir / "runner").glob(f"{GIT_COMMIT_LOCK_PREFIX}*{GIT_COMMIT_LOCK_SUFFIX}"))
+        },
     }
     lock_reports = []
     warnings = []
@@ -1152,6 +1192,10 @@ def derive_worker_views(
             entry["currentDispatch"] = _current_dispatch_from_ledger(
                 latest_dispatch.get((lease_worker, task_id))
             )
+            # The repo the worker is currently working in, from the lease the claim
+            # minted (MC-1611). A task predating the lease field falls back to the
+            # task's own repo, so (role, repo) routing reads the same either way.
+            entry["repo"] = str(lease.get("repo") or "").strip() or task_repo(task)
             session_id = str(lease.get("sessionId") or "").strip()
             if session_id:
                 entry["sessionId"] = session_id

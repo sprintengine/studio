@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,6 +11,7 @@ import {
   createSprintEngineArtifactHandlers,
   describeUnsupportedSprintEngineStore,
   getArtifactAutoApprovalBlocker,
+  sprintEngineDeclaredSiblingRepoRoots,
   SPRINT_ENGINE_RUN_SCHEMA_VERSION,
 } from './sprintengine-artifacts'
 
@@ -37,8 +39,12 @@ async function main(): Promise<void> {
   await testInitializeSprintEngineStateRecordsRoleRuntimes()
   await testInitializeSprintEngineStateRecordsConfiguredRoles()
   await testRunnerModeCliInvocationUsesSprintEngineTool()
+  await testMergePullRequestSurfacesTheEnginesRefusal()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
   await testIpcRegistersReadOnlyBridgeChannels()
+  await testDeclaredSiblingRepoRootsResolveEveryDeclaredProject()
+  await testDeclaredSiblingRepoRootsRefuseAnythingNotDeclaredAsASibling()
+  await testDeclaredSiblingRepoRootsJudgeSymlinkedRootsByTheirRealTarget()
 
   console.log('sprintengine-artifacts tests passed')
 }
@@ -63,6 +69,99 @@ async function createStateFixture(): Promise<{ workspaceRoot: string; teamDir: s
     'utf-8'
   )
   return { workspaceRoot, teamDir, statePath }
+}
+
+async function writeDeclaredRepos(teamDir: string, repos: unknown[]): Promise<void> {
+  await writeFile(
+    join(teamDir, 'projection.json'),
+    JSON.stringify({ run: { schemaVersion: SPRINT_ENGINE_RUN_SCHEMA_VERSION, vcs: { mode: 'run_worktree', repos } } }),
+    'utf-8'
+  )
+}
+
+async function testDeclaredSiblingRepoRootsResolveEveryDeclaredProject(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+  const sibling = join(workspaceRoot, '..', 'declared-sibling')
+  await mkdir(sibling, { recursive: true })
+
+  try {
+    // A run that declares nothing is every single-project run: no extra roots.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      { id: 'mobile', root: '../declared-sibling', worktreePath: 'w-mobile', branchName: 'b' },
+    ])
+    // realpath, not just resolve: the MCP server resolves the roots it is handed, so
+    // this must return the path the server will actually compare against.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [realpathSync(sibling)])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+    await rm(sibling, { recursive: true, force: true })
+  }
+}
+
+async function testDeclaredSiblingRepoRootsRefuseAnythingNotDeclaredAsASibling(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+
+  try {
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      // A parent of the workspace would authorize its every neighbour by inclusion.
+      { id: 'parent', root: '..', worktreePath: 'w-parent', branchName: 'b' },
+      // Declared but not on disk: nothing to authorize.
+      { id: 'gone', root: '../vanished-project', worktreePath: 'w-gone', branchName: 'b' },
+      { id: 'blank', root: '   ', worktreePath: 'w-blank', branchName: 'b' },
+      'not-an-entry',
+    ])
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+
+    // A store this build cannot read never widens the surface.
+    await writeFile(join(teamDir, 'projection.json'), '{ not json', 'utf-8')
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(join(workspaceRoot, 'nope.yaml')), [])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// A declared root is authorized by its REAL target, never by how it was spelled.
+// Both halves matter: follow the link and a symlink cannot smuggle in a root the
+// server would refuse; judge only after following it and a symlink cannot launder a
+// parent past the parent check by wearing a sibling's name.
+async function testDeclaredSiblingRepoRootsJudgeSymlinkedRootsByTheirRealTarget(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+  const realSibling = join(workspaceRoot, '..', `declared-sibling-${process.pid}`)
+  const linkToSibling = join(workspaceRoot, '..', `link-to-sibling-${process.pid}`)
+  const linkToParent = join(workspaceRoot, '..', `link-to-parent-${process.pid}`)
+
+  try {
+    await mkdir(realSibling, { recursive: true })
+    await symlink(realpathSync(realSibling), linkToSibling, 'dir')
+    // Points at the directory that CONTAINS the workspace.
+    await symlink(realpathSync(join(workspaceRoot, '..')), linkToParent, 'dir')
+
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      { id: 'mobile', root: `../link-to-sibling-${process.pid}`, worktreePath: 'w-mobile', branchName: 'b' },
+    ])
+    // The link's own path is never returned: the server resolves what it is handed,
+    // so authorizing the un-resolved spelling would authorize a path it never compares.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [realpathSync(realSibling)])
+
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      { id: 'sneaky', root: `../link-to-parent-${process.pid}`, worktreePath: 'w-sneaky', branchName: 'b' },
+    ])
+    // Resolves to a parent of the workspace, so the parent check must still catch it
+    // even though nothing in the declaration says `..`.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+    await rm(linkToSibling, { recursive: true, force: true })
+    await rm(linkToParent, { recursive: true, force: true })
+    await rm(realSibling, { recursive: true, force: true })
+  }
 }
 
 function createHandlers(runMcpTool: Parameters<typeof createSprintEngineArtifactHandlers>[0]['runMcpTool']) {
@@ -170,8 +269,9 @@ function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
   assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)
-  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'), null)
-  // v3 is current; v2 and v1 are rejected (MC-1591 / MC-1542: never migrate).
+  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 4 } }, '/team'), null)
+  // v4 is current; v3, v2 and v1 are rejected (MC-1611 / MC-1591 / MC-1542: never migrate).
+  assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 1 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: {} }, '/team'))
@@ -672,6 +772,38 @@ async function testRunnerModeCliInvocationUsesSprintEngineTool(): Promise<void> 
 
     const runYaml = await readFile(statePath, 'utf-8')
     assert.match(runYaml, /cliWatchPolling:\s+enabled/u)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// MC-1612: `vcs pr-merge` reports a REFUSAL (out of merge order, no pull request,
+// not a worktree run) as `ok: false` inside its result document and still exits 0 —
+// it did its job. The bridge must surface that refusal, because the alternative is a
+// Merge button that reports success while the pull request sits exactly where it was.
+// Drives the real engine: this is a contract between two processes, and a faked
+// stdout would pin the mock's shape rather than the CLI's.
+async function testMergePullRequestSurfacesTheEnginesRefusal(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-pr-merge-'))
+  const statePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'team', 'run.yaml')
+  const handlers = createHandlers(async () => {
+    throw new Error('pr-merge must use the Sprint Engine CLI bridge')
+  })
+
+  try {
+    const init = await handlers.initializeSprintEngineState({
+      statePath,
+      name: 'Merge bridge test',
+      goal: 'Verify pr-merge refusals reach the user',
+      agents: { architect: { role: 'architect' } },
+    })
+    assert.equal(init.ok, true, init.ok ? undefined : init.message)
+
+    // This run has no worktree, so it has no branch and no pull request to merge.
+    const result = await handlers.mergePullRequest({ statePath })
+
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.message, /worktree mode/u)
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

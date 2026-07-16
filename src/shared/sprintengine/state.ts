@@ -28,6 +28,7 @@ import type {
   SprintEngineProjectionLockWarning,
   SprintEngineProjectionLocks,
   SprintEngineProjectionSource,
+  SprintEnginePullRequestState,
   SprintEngineRecordedArtifact,
   SprintEngineRole,
   SprintEngineRoleCounts,
@@ -75,8 +76,10 @@ import type {
   SprintEngineTaskStatus,
   SprintEngineTaskTriage,
   SprintEngineVcs,
+  SprintEngineVcsRepo,
   SprintEngineWorker,
 } from './run-types'
+import { DEFAULT_SPRINTENGINE_TASK_REPO } from './run-types'
 import type { AgentState } from './agent-state'
 import type {
   SprintEngineAutoState,
@@ -264,6 +267,57 @@ export function willResumeRecordedRosterSession(input: {
 //   6. paused (rollup) — a started run (≥1 done) with nothing currently running.
 //   7. null — not started / no observable run; the surface keeps its own
 //      resting rendering (recency text, or the Backlog item's own status).
+/**
+ * How far a run's branches are through merging, counted across every repo it
+ * declared (MC-1613). A run spanning projects delivers one branch per project,
+ * so it is only merged when the last one lands — reading the flat
+ * `vcs.pullRequestState` would call the whole run merged the moment the primary
+ * project's pull request did, while a sibling's branch was still open.
+ *
+ * Null for a run with no branch to merge (no worktree), which is what separates
+ * "Complete" from "Ready for review". A single-repo run reports `total: 1` and
+ * rolls up to exactly what the flat field said.
+ */
+export type SprintEngineRepoMergeRollup = {
+  /** Repos the run declared; always ≥ 1 for a worktree run. */
+  total: number
+  /** Declared repos whose pull request has merged. */
+  merged: number
+  /** Declared repos still waiting to merge — `total - merged`. */
+  unmerged: number
+  /** True only when every declared repo's pull request has merged. */
+  allMerged: boolean
+}
+
+export function deriveSprintEngineRepoMergeRollup(
+  vcs: SprintEngineVcs | null | undefined,
+): SprintEngineRepoMergeRollup | null {
+  if (!vcs) return null
+  // The projection normalizes `repos` to a non-empty list, but this also reads a
+  // `vcs` restored from persisted workspace state, which can predate the list and
+  // carry only the flat fields until the next projection lands. That block IS the
+  // one repo such a run has, so it rolls up as a one-entry list rather than
+  // reporting "no branch to merge" and downgrading the glyph to plain Complete.
+  const repos = Array.isArray(vcs.repos) && vcs.repos.length > 0
+    ? vcs.repos
+    : [{ pullRequestState: vcs.pullRequestState ?? null }]
+  const merged = repos.filter((repo) => repo.pullRequestState === 'merged').length
+  return { total: repos.length, merged, unmerged: repos.length - merged, allMerged: merged === repos.length }
+}
+
+/**
+ * The completion label for a run whose branches have not all merged. A run in one
+ * project says only "Ready for review" — there is no second project to count, and
+ * a count there would be noise on every single-repo run. A run spanning projects
+ * names how many are still out, because "Ready for review" alone hides that some
+ * of its branches have already landed.
+ */
+function sprintEngineAwaitingMergeLabel(rollup: SprintEngineRepoMergeRollup): string {
+  if (rollup.total <= 1) return 'Ready for review'
+  const noun = rollup.unmerged === 1 ? 'project' : 'projects'
+  return `Ready for review · ${rollup.unmerged} ${noun} left to merge`
+}
+
 export function deriveSprintEngineRunGlyph(input: {
   sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs' | 'canceled'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
@@ -313,14 +367,17 @@ export function deriveSprintEngineRunGlyph(input: {
     // Vocabulary matches the run-summary verdict: a worktree run is "Ready for
     // review" until its PR merges, then "Complete"; a non-worktree run is
     // "Complete" the moment work is done.
-    const vcs = input.sprintEngineState?.vcs
-    if (vcs && vcs.pullRequestState !== 'merged') {
-      return { state: 'done_unmerged', live: false, label: 'Ready for review' }
+    //
+    // Every declared repo counts (MC-1613): a run spanning projects has one branch
+    // per project and stays "Ready for review" until the last one merges.
+    const rollup = deriveSprintEngineRepoMergeRollup(input.sprintEngineState?.vcs)
+    if (rollup && !rollup.allMerged) {
+      return { state: 'done_unmerged', live: false, label: sprintEngineAwaitingMergeLabel(rollup) }
     }
     // A merged worktree run gets the git-merge mark in merged-purple (GitHub's
     // merged-PR idiom). A non-worktree run has no branch to merge, so it stays
     // the plain green `done` check.
-    if (vcs && vcs.pullRequestState === 'merged') {
+    if (rollup) {
       return { state: 'done_merged', live: false, label: 'Merged' }
     }
     return { state: 'done', live: false, label: 'Complete' }
@@ -1224,33 +1281,75 @@ function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPo
   }
 }
 
+// Entry zero of `vcs.repos` is the primary repo: the workspace itself, hence `.`.
+// Mirrors PRIMARY_REPO_ID / PRIMARY_REPO_ROOT in sprintengine_core/tool/shell.py.
+const primaryRepoId = 'primary'
+const primaryRepoRoot = '.'
+
+function normalizeSprintEnginePullRequestState(value: unknown): SprintEnginePullRequestState {
+  return value === 'open' || value === 'merged' || value === 'closed' ? value : null
+}
+
+function normalizeSprintEngineVcsRepo(input: unknown): SprintEngineVcsRepo | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  const id = optionalTrimmedString(record.id)
+  const root = optionalTrimmedString(record.root)
+  const worktreePath = optionalTrimmedString(record.worktreePath)
+  const branchName = optionalTrimmedString(record.branchName)
+  // A repo the app cannot resolve a tree for is worse than no entry: its scope would
+  // silently point at the wrong worktree. Drop it and keep the repos it can resolve.
+  if (!id || !root || !worktreePath || !branchName) return undefined
+  return {
+    id,
+    root,
+    worktreePath,
+    branchName,
+    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
+    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
+    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+    pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
+    pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
+    pullRequestState: normalizeSprintEnginePullRequestState(record.pullRequestState),
+  }
+}
+
+/**
+ * The run's declared repos, from either shape the store may carry. `repos` is
+ * explicitly whitelisted here (and typed field-by-field) because sync drops what
+ * this normalizer does not name — the `normalizeResponse` precedent — so an
+ * unlisted field would vanish between the engine and the app.
+ */
+function normalizeSprintEngineVcsRepos(record: Record<string, unknown>, primary: SprintEngineVcsRepo): SprintEngineVcsRepo[] {
+  const declared = Array.isArray(record.repos)
+    ? record.repos.map(normalizeSprintEngineVcsRepo).filter((repo): repo is SprintEngineVcsRepo => Boolean(repo))
+    : []
+  // A run stored before `vcs.repos` existed (MC-1611) describes its one repo with
+  // the flat fields; it reads back as the one-entry list it always semantically was.
+  return declared.length > 0 ? declared : [primary]
+}
+
 function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
   if (record.mode !== 'run_worktree') return undefined
-  const worktreePath = optionalTrimmedString(record.worktreePath)
-  const branchName = optionalTrimmedString(record.branchName)
-  if (!worktreePath || !branchName) return undefined
+  // The flat block IS the primary repo in the other shape: same key names, same
+  // values, only `id`/`root` implied. Deriving entry zero from it means one field
+  // mapping serves both shapes and they cannot drift apart as the entry grows.
+  const primary = normalizeSprintEngineVcsRepo({ ...record, id: primaryRepoId, root: primaryRepoRoot })
+  // No worktree path or branch: not a run this app can resolve a tree for.
+  if (!primary) return undefined
   return {
     mode: 'run_worktree',
-    worktreePath,
-    branchName,
-    ...(optionalTrimmedString(record.repoRoot) ? { repoRoot: optionalTrimmedString(record.repoRoot) } : {}),
-    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
-    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
-    pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
-    pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
-    pullRequestState:
-      record.pullRequestState === 'open' ||
-      record.pullRequestState === 'merged' ||
-      record.pullRequestState === 'closed'
-        ? record.pullRequestState
-        : null,
-    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
-    // MC-1615 multi-repo seam: recognize `vcs.repos` as an optional pass-through
-    // so a schema-v4 store round-trips through parse without field loss. No TS
-    // consumer reads it yet; the array is preserved verbatim.
-    ...(Array.isArray(record.repos) ? { repos: record.repos } : {}),
+    worktreePath: primary.worktreePath,
+    branchName: primary.branchName,
+    ...(primary.baseRef ? { baseRef: primary.baseRef } : {}),
+    ...(primary.status ? { status: primary.status } : {}),
+    pullRequestUrl: primary.pullRequestUrl ?? null,
+    pullRequestError: primary.pullRequestError ?? null,
+    pullRequestState: primary.pullRequestState ?? null,
+    lastCommitSha: primary.lastCommitSha,
+    repos: normalizeSprintEngineVcsRepos(record, primary),
   }
 }
 
@@ -2348,6 +2447,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
       role: taskRole,
+      repo: optionalTrimmedString(task.repo) ?? DEFAULT_SPRINTENGINE_TASK_REPO,
       status,
       ...(semanticStatus ? { stateStatus: semanticStatus } : {}),
       ...(boardColumn ? { boardColumn } : {}),
@@ -2637,12 +2737,14 @@ function normalizeProjectionWorkers(value: unknown): Record<string, SprintEngine
     const base = normalizeRuntimeAgentRecord(record)
     if (!base) continue
     const sessionId = optionalTrimmedString(record.sessionId)
+    const repo = optionalTrimmedString(record.repo)
     const ownedTaskIds = Array.isArray(record.ownedTaskIds)
       ? record.ownedTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : []
     result[workerId] = {
       ...base,
       ...(sessionId ? { sessionId } : {}),
+      ...(repo ? { repo } : {}),
       ...(ownedTaskIds.length > 0 ? { ownedTaskIds } : {}),
     }
   }

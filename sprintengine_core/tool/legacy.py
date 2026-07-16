@@ -306,7 +306,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
+        help="Run this team in a git worktree + branch per declared project, so agents work in isolated checkouts and commit per task.",
     )
     p.add_argument("--force", action="store_true", help="Replace existing run-store/handover bootstrap files.")
     p.set_defaults(handler=run_commands.handover, uses_state=False)
@@ -458,7 +458,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
+        help="Run this team in a git worktree + branch per declared project, so agents work in isolated checkouts and commit per task.",
+    )
+    p.add_argument(
+        "--repo",
+        action="append",
+        default=[],
+        help=(
+            "Another project this sprint spans, as <name>=<path>, for example --repo mobile=../multicode-mobile. "
+            "Repeat per project; relative paths resolve against this project. Each must be a separate git project, "
+            "and each gets its own run worktree on the run branch. Requires --use-worktrees true. Fixed at run creation."
+        ),
     )
     p.add_argument(
         "--source-json",
@@ -709,8 +719,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True)
     p.add_argument("--description", default="", help="Concrete task brief for the worker: what changes, target behavior, boundary, non-goals.")
     p.add_argument("--role", required=True)
+    p.add_argument("--repo", help="Project this task works in, from the ones the sprint declares. Omit for the sprint's main project.")
     p.add_argument("--depends-on", action="append", default=[])
-    p.add_argument("--path", action="append", default=[], help="Owned path or directory.")
+    p.add_argument("--path", action="append", default=[], help="Owned path or directory, relative to the task's project root.")
     p.add_argument("--acceptance", action="append", default=[], help="Externally verifiable acceptance criterion; never a restatement of the description.")
     p.add_argument("--note", action="append", default=[], help="Repeatable non-obvious implementation detail the description does not already carry; omit when the description suffices.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
@@ -729,6 +740,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--description", help="Concrete task brief for the worker.")
     p.add_argument("--clear-description", action="store_true")
     p.add_argument("--role")
+    p.add_argument("--repo", help="Re-target this task at another project the sprint declares.")
     p.add_argument("--path", action="append", help="Replace owned paths with this repeatable list.")
     p.add_argument("--clear-paths", action="store_true")
     p.add_argument("--acceptance", action="append", help="Replace acceptance criteria with this repeatable list.")
@@ -850,7 +862,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = vcs_sub.add_parser("status", help="Report the run worktree branch, path, and dirty state.")
     p.set_defaults(handler=run_commands.vcs_status)
 
-    p = vcs_sub.add_parser("commit", help="Commit your task's changes to the shared run worktree (serialized by the commit lock).")
+    p = vcs_sub.add_parser("commit", help="Commit your task's changes in its project's run worktree (serialized by that project's commit lock).")
     p.add_argument("--task-id", required=True, help="Task whose changes you are committing.")
     p.add_argument("--id", required=True, help="Your agent id.")
     p.add_argument("--summary", help="Optional implementation summary to record on the task before committing.")
@@ -868,6 +880,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = vcs_sub.add_parser("pr-status", help="Resolve and persist whether the run branch has merged (PR state or branch ancestry).")
     p.set_defaults(handler=run_commands.vcs_pr_status)
+
+    p = vcs_sub.add_parser(
+        "pr-merge",
+        help="Merge one project's pull request via the GitHub CLI. Refuses while a project it depends on is unmerged.",
+    )
+    p.add_argument("--repo", default="primary", help="Declared project whose pull request to merge. Defaults to this project.")
+    p.add_argument("--method", default="merge", choices=["merge", "squash", "rebase"], help="How GitHub should land the branch.")
+    p.add_argument("--id", default="user", help="Actor id performing the merge.")
+    p.set_defaults(handler=run_commands.vcs_pr_merge)
 
     return parser
 

@@ -85,6 +85,7 @@ import {
   pickNextAutoRuns,
   pickSprintEngineBootstrapCandidate,
   resolveSprintEngineSessionCwd,
+  sprintEngineRepoIdForSessionCwd,
   sprintEngineAutoRunPerfLog as logPerfEvent,
   type AutoRunCandidate,
 } from './auto-run'
@@ -1606,10 +1607,12 @@ export async function spawnAutoRunCandidate(
 
     // MC-1615 single cwd choke point: every session cwd resolves through
     // resolveSprintEngineSessionCwd, so the spawn path never reads
-    // vcs.worktreePath directly. Worktree mode routes every agent terminal into
-    // the one shared run worktree so all agents work and commit in the same
-    // isolated checkout; multi-repo (MC-1610) swaps the resolver body, keyed by
-    // the task id, without touching this caller.
+    // vcs.worktreePath directly. Worktree mode routes the terminal into the run
+    // worktree of the repo its task targets (MC-1610), so every agent working a
+    // given repo shares that repo's isolated checkout and commits in it. The
+    // routing exemplar task id is the key; a bound owner's respawn carries its
+    // own task id here, which is what lands a resumed owner back in the tree it
+    // was working in.
     const sessionCwd = resolveSprintEngineSessionCwd(sprintEngineState, nextRun.taskId)
     const executionMode = sessionCwd.executionMode
     const executionCwd = sessionCwd.worktreeRelativePath
@@ -2410,7 +2413,7 @@ export async function superviseRunnerActiveCycle(
 
   // Desired-pool demand (MC-1592/MC-1615): the reconciler's model of what work
   // wants sessions — ready, unowned, launchable tasks grouped by the demand key
-  // (today role; the key function is the multi-repo seam). Occupied sessions and
+  // ((role, repo) since MC-1610). Occupied sessions and
   // the concurrency cap are subtracted below; the picker fills the remainder,
   // grouping by the same key. Occupied = active leases (task owners) +
   // in-flight spawns (in-memory only) + live sessions folded in via
@@ -2458,6 +2461,10 @@ export async function superviseRunnerActiveCycle(
       agentId: session.agentId,
       role: session.agentSession?.role ?? '',
       taskId: session.agentSession?.workId ?? null,
+      // The repo this session was spawned into (MC-1610), recovered from its
+      // worktree cwd. It keys the worker's group when its exemplar task is
+      // gone, so a sibling-repo session is never counted as primary supply.
+      repo: sprintEngineRepoIdForSessionCwd(sprintEngineState, workspace.folderPath, session.worktreePath),
     }))
 
   let nextRuns: AutoRunCandidate[] = []

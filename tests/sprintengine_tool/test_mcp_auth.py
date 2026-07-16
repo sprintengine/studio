@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from helpers import create_team, read_state, task, write_state
+from helpers import create_team, create_workspace_team, read_state, task, write_state
 from sprintengine_mcp import SprintEngineMcpServer
 
 
@@ -213,6 +213,50 @@ def test_allowed_roots_reject_out_of_scope_and_platform_confused_paths(tmp_path)
         assert "Windows and POSIX" in platform_confused["error"]["message"]
     assert out_of_scope_handover["ok"] is False
     assert out_of_scope_handover["error"]["code"] == "input_path_not_allowed"
+
+
+def test_allowed_roots_contain_traversal_symlink_and_prefix_collision_escapes(tmp_path) -> None:
+    """The three ways out of a declared root that are not a plain outside path.
+
+    MC-1611 widened allowedRoots past the workspace to declared sibling repos, which
+    makes this boundary the only thing standing between a confused agent and a tree
+    nobody declared. Every escape below points at a REAL run with a real state file:
+    if containment regressed, the call would answer with that run's summary rather
+    than fail, so a pass here cannot be an artifact of the path simply not existing.
+    """
+    inside = create_workspace_team(tmp_path, "allowed", "inside-run", [task("T1", "Inside", "developer")])
+    outside = create_workspace_team(tmp_path, "outside", "outside-run", [task("T1", "Outside", "developer")])
+    # `allowed-evil` is a string-prefix sibling of `allowed`: a containment check
+    # written as a startswith() on the root would authorize it.
+    prefix_collision = create_workspace_team(tmp_path, "allowed-evil", "evil-run", [task("T1", "Evil", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path / "allowed"])
+
+    def summary(state_path) -> dict[str, object]:
+        return server.call_tool("sprintengine.summary", {"statePath": str(state_path)}, actor("workspace-user", "user"))
+
+    # Baseline: the declared root itself resolves, so a denial below is containment
+    # talking and not a broken fixture.
+    assert summary(inside.state_path)["ok"] is True
+
+    traversal = summary(tmp_path / "allowed" / ".." / "outside" / ".multi-code" / "sprintengine" / "outside-run" / "run.yaml")
+    assert traversal["ok"] is False
+    assert traversal["error"]["code"] == "state_path_not_allowed"
+
+    collision = summary(prefix_collision.state_path)
+    assert collision["ok"] is False
+    assert collision["error"]["code"] == "state_path_not_allowed"
+
+    if os.name != "nt":
+        # A symlink planted inside the declared root pointing at a tree outside it.
+        # The boundary resolves links before judging, so the real target is what gets
+        # compared — following the link must not launder the escape.
+        link = tmp_path / "allowed" / "escape-hatch"
+        link.symlink_to(tmp_path / "outside", target_is_directory=True)
+        symlinked = summary(link / ".multi-code" / "sprintengine" / "outside-run" / "run.yaml")
+        assert symlinked["ok"] is False
+        assert symlinked["error"]["code"] == "state_path_not_allowed"
+        # The escape targeted a real run: prove it, so this can never pass vacuously.
+        assert outside.state_path.exists()
 
 
 def test_artifact_approval_is_operator_surface_with_payload_actor_independence(tmp_path) -> None:

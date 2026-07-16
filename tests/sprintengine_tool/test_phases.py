@@ -210,7 +210,7 @@ def test_missing_schema_version_reads_as_pre_1542(tmp_path: Path) -> None:
 def test_fresh_store_is_stamped_with_the_current_schema_version(tmp_path: Path) -> None:
     fixture = create_team(tmp_path, "fresh-store", [task("T1", "Work", "developer")])
     run = folder_store.load_run_yaml(fixture.team_dir)
-    assert run["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION == 3
+    assert run["schemaVersion"] == folder_store.RUN_SCHEMA_VERSION == 4
 
 
 def test_projection_carries_the_store_schema_version(tmp_path: Path) -> None:

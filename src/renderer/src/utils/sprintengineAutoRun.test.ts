@@ -129,6 +129,8 @@ async function main(): Promise<void> {
   testTaskScopedLifecycleExemptsPlanningRoles()
   testTaskScopedRetirementHonorsShortCooldown()
   testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot()
+  testALiveAgentOnlyCoversItsOwnReposWork()
+  testWakeOnlyOffersWorkTheSessionCanClaim()
   testPickNextAutoRunsDefersBoundOwnerReworkToRevival()
   testPickNextAutoRunsDoesNotRespawnDepartedOwnerWhileRevivalThrottles()
   await testSpawnAutoRunCandidateResumesPreviousOwnerConversation()
@@ -2175,6 +2177,136 @@ function testWindowDisposalMarksRetainResumeStateAndTerminalStateDoesNot(): void
   const plainPlan = taskScopedPlanInput({ workspace, state: neverOwnedState, now, idleAgentIds: ['developer-1'], paths: ['idle_retire'], idleClock: parkedClock })
   assert.equal(plainPlan.retirements.length, 1)
   assert.equal(plainPlan.retirements[0].retainResumeState, undefined)
+}
+
+function testALiveAgentOnlyCoversItsOwnReposWork(): void {
+  // MC-1610 starvation regression. The revival pass skips a role that has a live
+  // agent, on the reasoning that the live agent will claim the work. Once
+  // `task.next` filters by the session's repo that reasoning holds only WITHIN a
+  // repo: a live desktop developer can never claim a mobile task. With the
+  // picker deferring the mobile task to its bound owner and the revival pass
+  // suppressed by the unrelated desktop session, nothing would ever spawn for
+  // it — the task starves until the desktop session happens to die.
+  const mobileTask = task({
+    id: 'T-mobile',
+    role: 'developer',
+    repo: 'mobile',
+    status: 'todo',
+    boardColumn: 'ready',
+    ownerAgentId: null,
+  })
+  const state = sprintEngineStateFixture({
+    tasks: [
+      mobileTask,
+      task({ id: 'T-desktop', role: 'developer', repo: 'primary', status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'developer-1' }),
+    ],
+    sprintEngineAgents: {
+      // Live, working the desktop tree.
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-desktop', lastOwnedTaskId: 'T-desktop' }),
+      // Departed owner of the mobile task, still bound to it.
+      'developer-2': runtimeAgent('developer', { lastOwnedTaskId: 'T-mobile' }),
+    },
+    workers: {
+      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T-desktop', repo: 'primary' },
+    },
+  } as Partial<SprintEngineState>)
+
+  const picked = pickNextAutoRuns(workspaceFixture(), state, pickInput())
+  assert.ok(
+    !picked.some((candidate) => candidate.taskId === 'T-mobile'),
+    `the picker still defers the mobile task to its bound owner; picked=${JSON.stringify(picked)}`,
+  )
+
+  const plan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { 'developer-2': sprintAgent('developer-2', 'Mo') } }),
+    sprintEngineState: state,
+    now: Date.parse('2026-07-16T22:00:00Z'),
+    runningAgentIds: new Set(['developer-1']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(plan.respawns.length, 1, 'the live desktop session does not cover mobile work, so the mobile owner is revived')
+  assert.equal(plan.respawns[0].agentId, 'developer-2')
+  assert.equal(plan.respawns[0].taskId, 'T-mobile')
+
+  // A LIVE id is never a revival target, whatever repo its next work is in.
+  // Revival respawns a terminal; doing that to a live session would dispose the
+  // one it is working in. A planner is the sharp case: it is persistent, so it
+  // is revivable for the NEXT ready task of its role — which may be in another
+  // repo, i.e. a group its own session does not cover.
+  const livePlannerState = sprintEngineStateFixture({
+    tasks: [
+      task({ id: 'T-plan-mobile', role: 'architect', repo: 'mobile', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
+    ],
+    sprintEngineAgents: {
+      architect: runtimeAgent('architect', { status: 'running', currentTaskId: 'T-plan-desktop', lastOwnedTaskId: 'T-plan-desktop' }),
+    },
+    workers: { architect: { role: 'architect', status: 'running', currentTaskId: 'T-plan-desktop', repo: 'primary' } },
+  } as Partial<SprintEngineState>)
+  const livePlannerPlan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { architect: sprintAgent('architect', 'Archie') } }),
+    sprintEngineState: livePlannerState,
+    now: Date.parse('2026-07-16T22:00:00Z'),
+    runningAgentIds: new Set(['architect']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(
+    livePlannerPlan.respawns.length,
+    0,
+    'a live planner is never respawned, even for ready work in a repo its session does not cover',
+  )
+
+  // The control: a live agent IN THAT TREE does cover it, so no revival — the
+  // single-repo behavior, unchanged.
+  const coveredState = sprintEngineStateFixture({
+    tasks: [mobileTask],
+    sprintEngineAgents: {
+      'developer-1': runtimeAgent('developer', { status: 'running', currentTaskId: 'T-other', lastOwnedTaskId: 'T-other' }),
+      'developer-2': runtimeAgent('developer', { lastOwnedTaskId: 'T-mobile' }),
+    },
+    workers: {
+      'developer-1': { role: 'developer', status: 'running', currentTaskId: 'T-other', repo: 'mobile' },
+    },
+  } as Partial<SprintEngineState>)
+  const coveredPlan = planSprintEngineDispatch({
+    workspace: workspaceFixture({ agents: { 'developer-2': sprintAgent('developer-2', 'Mo') } }),
+    sprintEngineState: coveredState,
+    now: Date.parse('2026-07-16T22:00:00Z'),
+    runningAgentIds: new Set(['developer-1']),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn']),
+  })
+  assert.equal(coveredPlan.respawns.length, 0, 'a live agent in the same tree covers the work; no revival')
+}
+
+function testWakeOnlyOffersWorkTheSessionCanClaim(): void {
+  // A wake paste tells a LIVE session to call `task.next`, which serves only its
+  // own tree's work — so waking a desktop session for a mobile task produces an
+  // agent that reports "no ready tasks" while the board shows work.
+  const wakeTasks = [
+    task({ id: 'T-mobile', role: 'developer', repo: 'mobile', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
+    task({ id: 'T-desktop', role: 'developer', repo: 'primary', status: 'todo', boardColumn: 'ready', ownerAgentId: null }),
+  ]
+  assert.equal(
+    findSprintEngineWakeCandidateTaskForAgent(wakeTasks, 'developer', 'developer-1', new Set(), null, 'mobile')?.id,
+    'T-mobile',
+  )
+  assert.equal(
+    findSprintEngineWakeCandidateTaskForAgent(wakeTasks, 'developer', 'developer-1', new Set(), null, 'primary')?.id,
+    'T-desktop',
+  )
+  // A tree with no work for the role offers nothing, rather than another tree's task.
+  assert.equal(
+    findSprintEngineWakeCandidateTaskForAgent([wakeTasks[0]], 'developer', 'developer-1', new Set(), null, 'primary'),
+    undefined,
+  )
 }
 
 function testPickNextAutoRunsDefersBoundOwnerReworkToRevival(): void {

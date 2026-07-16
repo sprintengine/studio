@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
+import { sprintEngineRepoDisplayName } from '../../../../shared/backlog/sprintengine-links'
 import type { SprintEngineVcs } from '../../types/workspace'
 import { FOCUS_RING_CLASS, PrimaryButton, Tooltip } from '../ui'
 
@@ -133,25 +134,43 @@ export type RunPrState = 'open' | 'merged' | 'closed' | null
 // and project their own state onto these props.
 // ----------------------------------------------------------------------------
 
+// Ink for a chip that carries its PR's merge state (`tone="state"`): merged in the
+// merged-purple the run glyph already uses for a landed branch, closed dimmed to
+// muted (terminal, but nothing landed), still-open in the link accent. Only a
+// surface showing SEVERAL pull requests at once opts in — one chip has no sibling
+// to be distinguished from, and its state is already the run's own glyph.
+function runPullRequestChipInk(prState: RunPrState): string {
+  if (prState === 'merged') return 'text-[color:var(--tone-merged)]'
+  if (prState === 'closed') return 'text-[color:var(--text-muted)]'
+  return 'text-[color:var(--accent-primary)]'
+}
+
 // The calm "view" chip: links to an existing PR. Renders nothing until there is a
 // URL, so it never competes with the create CTA at the completion moment. Label
 // and aria-label are caller-supplied so each surface keeps its own wording
 // (SprintEngine: "View pull request"; automations: "Open PR").
+//
+// `tone` defaults to the flat link accent every single-PR surface has always
+// rendered; `"state"` colors the chip by merge state for the per-project row a
+// multi-project run shows (MC-1613).
 export function RunPullRequestLinkChip({
   url,
   prState,
   label,
   ariaLabel,
+  tone = 'accent',
 }: {
   url: string | null
   prState: RunPrState
   label: string
   ariaLabel: string
+  tone?: 'accent' | 'state'
 }): JSX.Element | null {
   if (!url) return null
+  const ink = tone === 'state' ? runPullRequestChipInk(prState) : 'text-[color:var(--accent-primary)]'
   return (
     <Tooltip content={prState === 'merged' ? 'Pull request merged — open it' : prState === 'closed' ? 'Pull request closed — open it' : url}>
-      <a href={url} target="_blank" rel="noreferrer" aria-label={ariaLabel} className={`${CHIP_CLASS} text-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}>
+      <a href={url} target="_blank" rel="noreferrer" aria-label={ariaLabel} className={`${CHIP_CLASS} ${ink} ${FOCUS_RING_CLASS}`}>
         {label}
       </a>
     </Tooltip>
@@ -209,16 +228,69 @@ export function RunPullRequestActionButton({
 // SprintEngine adapters (thin wrappers over the generic core above)
 // ----------------------------------------------------------------------------
 
+// A declared project whose pull request is not open (yet, or because opening it
+// failed). The project still gets a chip: dropping it would let a failed project
+// read as one that was never part of the sprint, and the row is the only place a
+// per-project failure is visible. Static, muted, and never a link — there is
+// nothing to open.
+function RunPullRequestPendingChip({ label, reason }: { label: string; reason: string }): JSX.Element {
+  return (
+    <Tooltip content={reason}>
+      <span className={`${CHIP_CLASS} text-[color:var(--text-disabled)]`} aria-label={`${label}: ${reason}`}>
+        {label}
+      </span>
+    </Tooltip>
+  )
+}
+
 // Once a PR exists, linking to it is routine — this calm chip carries that "View"
 // state in the board chrome, reachable across every tab.
-export function RunPullRequestViewChip({ vcs }: { vcs?: SprintEngineVcs | null }): JSX.Element | null {
+//
+// A run spanning projects (MC-1613) delivers one branch — and one pull request —
+// per project, so it shows one chip per project, each labelled with that project's
+// name and colored by its OWN merge state: one project's PR can be merged while
+// another's is still open. A run in a single project is unchanged: one chip,
+// reading "View pull request", in the link accent.
+export function RunPullRequestViewChip({
+  vcs,
+  folderPath,
+}: {
+  vcs?: SprintEngineVcs | null
+  folderPath?: string | null
+}): JSX.Element | null {
+  const repos = vcs?.repos ?? []
+  if (repos.length <= 1) {
+    return (
+      <RunPullRequestLinkChip
+        url={vcs?.pullRequestUrl ?? null}
+        prState={vcs?.pullRequestState ?? null}
+        label="View pull request"
+        ariaLabel="View the pull request for this sprint"
+      />
+    )
+  }
   return (
-    <RunPullRequestLinkChip
-      url={vcs?.pullRequestUrl ?? null}
-      prState={vcs?.pullRequestState ?? null}
-      label="View pull request"
-      ariaLabel="View the pull request for this sprint"
-    />
+    <span className="flex flex-wrap items-center gap-1">
+      {repos.map((repo) => {
+        const name = sprintEngineRepoDisplayName({ workspaceRoot: folderPath ?? '', root: repo.root })
+        return repo.pullRequestUrl ? (
+          <RunPullRequestLinkChip
+            key={repo.id}
+            url={repo.pullRequestUrl}
+            prState={repo.pullRequestState ?? null}
+            label={name}
+            ariaLabel={`View the ${name} pull request for this sprint`}
+            tone="state"
+          />
+        ) : (
+          <RunPullRequestPendingChip
+            key={repo.id}
+            label={name}
+            reason={repo.pullRequestError ?? 'No pull request opened for this project yet'}
+          />
+        )
+      })}
+    </span>
   )
 }
 
@@ -236,6 +308,35 @@ export function RunCompletePullRequestAction({
 }): JSX.Element | null {
   const { busy, actionError, createPullRequest } = useRunPullRequestAction({ workspaceId, statePath })
   if (!vcs) return null
+  const repos = vcs.repos ?? []
+  // A run spanning projects opens one pull request per project in a single call,
+  // per project, and failure is per project too: the desktop's can open while the
+  // phone's push fails. The action therefore has to survive a partial success —
+  // reading the primary's URL alone retired the button the moment ITS pull request
+  // existed, stranding a failed project with a visible error and no way to retry,
+  // even though re-running opens exactly the ones still missing.
+  if (repos.length > 1) {
+    const outstanding = repos.filter((repo) => !repo.pullRequestUrl && repo.pullRequestState !== 'merged')
+    if (outstanding.length === 0) return null
+    const firstFailure = repos.find((repo) => repo.pullRequestError)?.pullRequestError ?? null
+    const someOpened = repos.some((repo) => repo.pullRequestUrl)
+    return (
+      <RunPullRequestActionButton
+        pullRequestUrl={null}
+        pullRequestState={null}
+        busy={busy}
+        error={actionError ?? firstFailure}
+        disabled={!statePath}
+        onCreate={createPullRequest}
+        // Naming what is left is the honest label once some projects already have
+        // one: "Open pull request" would read as if none existed.
+        createLabel={someOpened ? 'Open remaining pull requests' : 'Open pull requests'}
+        retryLabel="Retry pull requests"
+        busyLabel="Opening…"
+        ariaLabel={`Open pull requests for the ${outstanding.length} remaining ${outstanding.length === 1 ? 'project' : 'projects'} in this sprint`}
+      />
+    )
+  }
   const failed = vcs.status === 'failed'
   const error = actionError ?? (failed ? vcs.pullRequestError ?? 'The last pull-request open failed.' : null)
   return (

@@ -7,7 +7,7 @@ import { isImageFile } from '../../utils/files'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { basename, samePath, trimPath } from '../../utils/paths'
-import { findHealthyWorktreeScope, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
+import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
@@ -174,6 +174,22 @@ function scopeId(kind: GitScopeKind, pathValue: string): string {
   return `${kind}:${trimPath(pathValue).toLowerCase()}`
 }
 
+/**
+ * Scope id for a project's own checkout. The workspace's OWN project keeps the bare
+ * `main` it has always had — that id is the panel's default and is persisted in
+ * every existing workspace's Git view state, so it must not be re-keyed — while
+ * another project a run declared gets a path-keyed id of its own. Without that, two
+ * projects' checkouts would share one id, and with it the per-scope commit draft: a
+ * message typed against one project's checkout would reappear in the other's.
+ *
+ * Keyed on which project it is, NOT on whether the root matches the workspace
+ * folder: a workspace opened at a subdirectory of its repo has a git root above
+ * that folder, and is still its own project.
+ */
+function mainScopeIdFor(repoRoot: string, isPrimaryProject: boolean): string {
+  return isPrimaryProject ? 'main' : scopeId('main', repoRoot)
+}
+
 function terminalIdPart(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'repo'
 }
@@ -280,14 +296,33 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // as a workspace) the Git view should resolve to the worktree's branch, not the
   // parent project. The worktree is a real `git worktree`, so it already shows up
   // as a scope below; this drives the *default* scope selection toward it.
-  const workspaceWorktree = useMemo(
-    () => (workspace ? resolveWorkspaceWorktree(workspace) : null),
+  //
+  // A sprint spanning projects (MC-1610) is backed by one worktree per project, so
+  // this is a list: the project picker chooses which entry the panel is looking at,
+  // and everything below — scopes, status, staging, commit — resolves through that
+  // one project exactly as it always did. A run in one project yields one entry and
+  // the picker never appears.
+  const workspaceWorktrees = useMemo(
+    () => (workspace ? resolveWorkspaceWorktrees(workspace) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [workspace?.folderPath, workspace?.worktree, workspace?.sprintEngineState?.vcs],
   )
-  const worktreeGitRoot = workspaceWorktree?.gitRoot ?? null
-  const worktreeBranch = workspaceWorktree?.branch ?? null
-  const mainGit = useGitStatus(folderPath)
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
+  // Entry zero is the primary project: the default view, and the answer whenever a
+  // selected project drops out of the run's declared list.
+  const activeRepoEntry =
+    workspaceWorktrees.find((entry) => entry.repoId === activeRepoId) ?? workspaceWorktrees[0] ?? null
+  // Whether the panel is looking at the workspace's own project — true for every
+  // workspace that is not a run spanning projects, which is what keeps their scope
+  // ids (and the commit drafts keyed by them) exactly as they were.
+  const activeRepoIsPrimary = !activeRepoEntry || activeRepoEntry === workspaceWorktrees[0]
+  const worktreeGitRoot = activeRepoEntry?.gitRoot ?? null
+  const worktreeBranch = activeRepoEntry?.branch ?? null
+  // The checkout whose worktrees are enumerated below: the selected project's own
+  // root. For the workspace's own project — and for every single-project run — that
+  // IS the workspace folder, so this resolves exactly what it always did.
+  const activeRepoRoot = activeRepoEntry?.repoRoot ?? folderPath
+  const mainGit = useGitStatus(activeRepoRoot)
   const mainRepoRoot = mainGit.repoRoot
   const setGitPanelState = useWorkspaceStore((s) => s.setGitPanelState)
   const setGitCommitDraft = useWorkspaceStore((s) => s.setGitCommitDraft)
@@ -344,7 +379,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
 
     const fallbackMainScope: GitScopeOption = {
-      id: 'main',
+      id: mainScopeIdFor(mainRepoRoot, activeRepoIsPrimary),
       kind: 'main',
       label: `Main checkout - ${basename(mainRepoRoot)}`,
       path: mainRepoRoot,
@@ -397,7 +432,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     } catch {
       setScopeOptions([fallbackMainScope])
     }
-  }, [mainRepoRoot])
+  }, [mainRepoRoot, activeRepoIsPrimary])
 
   useEffect(() => {
     // Seed worktree scopes from the per-repo cache for an instant render when
@@ -417,21 +452,27 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // the validity-reset effect below: a stale/prunable worktree resolves to null
     // and stays on main instead of being re-selected every tick.
     const desiredWorktreeScope = findHealthyWorktreeScope(scopeOptions, worktreeGitRoot, worktreeBranch)
+    // The selected project's own checkout — the fallback when its worktree is not
+    // usable. `scopeOptions` is always this project's, so entry zero is its main
+    // scope; naming it by id keeps a sibling project off the primary's bare `main`.
+    const mainScope = scopeOptions.find((scope) => scope.kind === 'main') ?? scopeOptions[0]
     if (scopeOptions.some((scope) => scope.id === activeScopeId)) {
-      // Auto-upgrade the initial 'main' default to the worktree once it appears
+      // Auto-upgrade the initial main default to the worktree once it appears
       // (the sprint's vcs can populate a tick after mount), but never override an
       // explicit user/persisted choice — main stays selectable.
       if (
         !userSelectedScopeRef.current
         && desiredWorktreeScope
-        && desiredWorktreeScope.id !== 'main'
-        && activeScopeId === 'main'
+        && desiredWorktreeScope.id !== mainScope?.id
+        && activeScopeId === mainScope?.id
       ) {
         setActiveScopeId(desiredWorktreeScope.id)
       }
       return
     }
-    setActiveScopeId(desiredWorktreeScope?.id ?? 'main')
+    // Switching projects lands here: the previous project's scope id is not in this
+    // project's list, so the panel re-defaults to this project's worktree.
+    setActiveScopeId(desiredWorktreeScope?.id ?? mainScope?.id ?? 'main')
   }, [activeScopeId, scopeOptions, worktreeGitRoot, worktreeBranch])
 
   useEffect(() => {
@@ -1437,6 +1478,30 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         }
       />
       <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
+          {/*
+           * A sprint spanning projects works one project at a time, in that
+           * project's own checkout — so the project comes first: it decides which
+           * branches, worktrees, changes, and commits the rest of the panel is
+           * even about. A sprint in a single project has nothing to choose
+           * between, so the row never appears and the panel is unchanged.
+           */}
+          {workspaceWorktrees.length > 1 ? (
+            <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2" title={activeRepoRoot ?? undefined}>
+              <span className="text-[11px] text-[color:var(--text-subtle)]">Project</span>
+              <Select<string>
+                ariaLabel="Active project"
+                items={workspaceWorktrees.map((entry) => ({
+                  value: entry.repoId ?? entry.gitRoot,
+                  label: basename(entry.repoRoot ?? entry.gitRoot),
+                }))}
+                value={activeRepoEntry?.repoId ?? activeRepoEntry?.gitRoot ?? ''}
+                onChange={(next) => setActiveRepoId(next)}
+                disabled={Boolean(busy)}
+                className="w-full"
+                triggerMinWidthClassName="min-w-0"
+              />
+            </div>
+          ) : null}
           <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
             <span className="text-[11px] text-[color:var(--text-subtle)]">Branch</span>
             <Select<string>

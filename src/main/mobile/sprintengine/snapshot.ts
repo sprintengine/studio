@@ -34,6 +34,7 @@ import type {
   MobileControlSprintEngineSnapshot as MobileSprintEngineSnapshot,
   MobileControlAutomationMode,
   MobileControlSprintEngineVcsState,
+  MobileControlSprintEngineRepo,
   MobileControlSprintEngineStartedFrom,
   MobileControlTaskSnapshot as MobileSprintEngineTaskSnapshot,
   MobileControlArtifactSnapshot as MobileSprintEngineArtifactSnapshot,
@@ -633,6 +634,26 @@ function buildAutomationMode(automationValue: unknown, runnerValue: unknown): Mo
 }
 
 /**
+ * One declared project from `run.vcs.repos`, in the phone's vocabulary (`branch`,
+ * not `branchName` — the same rename the block below applies to the primary repo).
+ * An entry the phone cannot name or place would render as a phantom project row,
+ * so it is dropped; the engine refuses to start a run whose entries lack these
+ * fields (`_normalized_repo_entry`, sprintengine_core/tool/shell.py).
+ */
+function buildRepoState(repoValue: unknown): MobileControlSprintEngineRepo | undefined {
+  const repo = recordObject(repoValue)
+  if (!repo) return undefined
+
+  const id = stringOrNull(repo.id)
+  const root = stringOrNull(repo.root)
+  const branch = stringOrNull(repo.branchName)
+  if (!id || !root || !branch) return undefined
+
+  const status = stringOrNull(repo.status)
+  return { id, root, branch, ...(status ? { status } : {}) }
+}
+
+/**
  * Worktree / PR state from the projected `run.vcs` block (mirrors
  * `SprintEngineVcs`). Absent for non-worktree runs (`run.vcs` null). Read
  * defensively so a shape change never breaks the snapshot.
@@ -647,6 +668,16 @@ function buildVcsState(vcsValue: unknown): MobileControlSprintEngineVcsState | u
   const pullRequestUrl = stringOrNull(vcs.pullRequestUrl)
   const pullRequestStatus = stringOrNull(vcs.pullRequestState) ?? stringOrNull(vcs.status)
   const pullRequestError = stringOrNull(vcs.pullRequestError)
+  // MC-1613: the run's projects ride ADDITIVELY beside the fields below, which keep
+  // describing the primary project. A phone that does not read the list renders a
+  // two-project run exactly as it renders a one-project run, and no relay scope
+  // changes — scopes freeze at pair time, so a new one would break paired phones.
+  // A single-repo run's list would only repeat the primary block, so it is omitted
+  // and its snapshot stays byte-identical to a pre-multi-repo one. The list is the
+  // only place a sibling project's branch and worktree state reach the phone.
+  const repos = (Array.isArray(vcs.repos) ? vcs.repos : [])
+    .map(buildRepoState)
+    .filter((repo): repo is MobileControlSprintEngineRepo => Boolean(repo))
 
   return {
     worktree: vcs.mode === 'run_worktree' || Boolean(stringOrNull(vcs.worktreePath)),
@@ -654,12 +685,7 @@ function buildVcsState(vcsValue: unknown): MobileControlSprintEngineVcsState | u
     ...(pullRequestUrl ? { pullRequestUrl } : {}),
     ...(pullRequestStatus ? { pullRequestStatus } : {}),
     ...(pullRequestError ? { pullRequestError } : {}),
-    // MC-1615 multi-repo seam: recognize `vcs.repos` as an optional pass-through
-    // so a schema-v4 store round-trips through the snapshot without field loss.
-    // No phone surface reads it yet; the array is preserved verbatim (its shape is
-    // owned by the engine), and the relay sanitize pass redacts any local paths in
-    // it as a backstop. Mirrors the TS normalizer pass-through in state.ts.
-    ...(Array.isArray(vcs.repos) ? { repos: vcs.repos } : {}),
+    ...(repos.length > 1 ? { repos } : {}),
   }
 }
 

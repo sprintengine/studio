@@ -20,6 +20,7 @@ import {
   pickNextAutoRuns,
   resolveSprintEngineSessionCwd,
   sprintEngineDemandKey,
+  sprintEngineRepoIdForSessionCwd,
 } from './auto-run'
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
@@ -28,6 +29,7 @@ function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
     title: 'A task',
     description: '',
     role: 'developer',
+    repo: 'primary',
     status: 'todo',
     ownerAgentId: null,
     dependsOn: [],
@@ -80,11 +82,29 @@ function pickOptions(overrides: Partial<Parameters<typeof pickNextAutoRuns>[2]> 
   }
 }
 
+/** A two-repo run: primary + a declared `mobile` sibling, each with its own worktree. */
+function twoRepoVcs(): SprintEngineState['vcs'] {
+  return {
+    mode: 'run_worktree',
+    worktreePath: '.multi-code/wt/run',
+    branchName: 'run/main',
+    repos: [
+      { id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' },
+      { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/run-mobile', branchName: 'run/main' },
+    ],
+  } as SprintEngineState['vcs']
+}
+
 // --- AC4: single cwd choke point -------------------------------------------
 
 function testResolveSessionCwdWorktreeMode(): void {
   const state = stateFixture({
-    vcs: { mode: 'run_worktree', worktreePath: '.multi-code/wt/run', branchName: 'run/main' },
+    vcs: {
+      mode: 'run_worktree',
+      worktreePath: '.multi-code/wt/run',
+      branchName: 'run/main',
+      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+    },
   })
   const cwd = resolveSprintEngineSessionCwd(state, 'T1')
   assert.equal(cwd.executionMode, 'worktree')
@@ -104,11 +124,47 @@ function testResolveSessionCwdCurrentWorkspaceWhenNoWorktree(): void {
   assert.equal(otherMode.executionMode, 'current_workspace')
 }
 
+// --- MC-1610: a session opens in the worktree of the repo its task targets ---
+
+function testResolveSessionCwdSelectsTheTasksRepoWorktree(): void {
+  const state = stateFixture({
+    vcs: twoRepoVcs(),
+    tasks: [task({ id: 'D1', repo: 'primary' }), task({ id: 'M1', repo: 'mobile' })],
+  })
+  assert.equal(resolveSprintEngineSessionCwd(state, 'D1').worktreeRelativePath, '.multi-code/wt/run')
+  assert.equal(
+    resolveSprintEngineSessionCwd(state, 'M1').worktreeRelativePath,
+    '.multi-code/wt/run-mobile',
+    'a task targeting the mobile repo spawns its session in the mobile worktree',
+  )
+  // A repo id routes directly, and an unknown key lands in the primary worktree
+  // rather than guessing a sibling.
+  assert.equal(resolveSprintEngineSessionCwd(state, 'mobile').worktreeRelativePath, '.multi-code/wt/run-mobile')
+  assert.equal(resolveSprintEngineSessionCwd(state, 'nope').worktreeRelativePath, '.multi-code/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.multi-code/wt/run')
+}
+
+function testResolveSessionRepoIdFromSessionCwd(): void {
+  const state = stateFixture({ vcs: twoRepoVcs() })
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj/.multi-code/wt/run-mobile'), 'mobile')
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj/.multi-code/wt/run'), 'primary')
+  // No repo evidence is null, never a guess at primary.
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', '/proj'), null)
+  assert.equal(sprintEngineRepoIdForSessionCwd(state, '/proj', undefined), null)
+  assert.equal(sprintEngineRepoIdForSessionCwd(stateFixture(), '/proj', '/proj/x'), null)
+}
+
 // --- AC5: demand grouping is a key function --------------------------------
 
-function testDemandKeyIsRoleToday(): void {
-  assert.equal(sprintEngineDemandKey(task({ role: 'developer' })), 'developer')
-  assert.equal(sprintEngineDemandKey(task({ role: 'architect' })), 'architect')
+function testDemandKeyIsRoleAndRepo(): void {
+  assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: 'mobile' })), 'developer@mobile')
+  assert.equal(sprintEngineDemandKey(task({ role: 'architect', repo: 'mobile' })), 'architect@mobile')
+  // The primary repo keys to the bare role, so a single-repo run's groups —
+  // and therefore its spawning — are exactly what they were before repo joined
+  // the key. An unset repo reads as primary for the same reason.
+  assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: 'primary' })), 'developer')
+  assert.equal(sprintEngineDemandKey(task({ role: 'developer', repo: '' })), 'developer')
+  assert.equal(sprintEngineDemandKey({ role: 'developer' } as SprintEngineTask), 'developer')
 }
 
 function testComputeDemandGroupsReadyUnownedWorkByKey(): void {
@@ -129,43 +185,89 @@ function testComputeDemandGroupsReadyUnownedWorkByKey(): void {
   assert.deepEqual(demand.get('architect')?.map((t) => t.id), ['A1'])
 }
 
-function testComputeDemandHonoursACustomKeyFunction(): void {
-  // The MC-1610 one-line change: swapping the key from role to (role,repo)
-  // regroups demand without touching the reconciler. Prove the seam by keying
-  // on a per-task attribute here.
+function testComputeDemandGroupsByRoleAndRepo(): void {
   const state = stateFixture({
+    vcs: twoRepoVcs(),
     tasks: [
-      task({ id: 'D1', role: 'developer', ownedPaths: ['repo-a/x'] }),
-      task({ id: 'D2', role: 'developer', ownedPaths: ['repo-b/y'] }),
+      task({ id: 'D1', role: 'developer', repo: 'primary' }),
+      task({ id: 'M1', role: 'developer', repo: 'mobile' }),
+      task({ id: 'M2', role: 'developer', repo: 'mobile' }),
     ],
   })
-  const byRepo = computeSprintEngineDemand(state, (t) => `${t.role}:${t.ownedPaths[0]?.split('/')[0] ?? 'root'}`)
-  assert.deepEqual([...byRepo.keys()].sort(), ['developer:repo-a', 'developer:repo-b'])
+  const demand = computeSprintEngineDemand(state)
+  assert.deepEqual([...demand.keys()].sort(), ['developer', 'developer@mobile'], 'same role in two repos is two demand groups')
+  assert.deepEqual(demand.get('developer@mobile')?.map((t) => t.id), ['M1', 'M2'])
 }
 
-function testCustomDemandKeyChangesSpawnGrouping(): void {
-  // The wiring proof (MC-1592 review): the demand key must change SPAWNING,
-  // not just telemetry. Three ready developer tasks across two repos with two
-  // slots: keyed by role they form one group and the two oldest tasks are
-  // covered; keyed by (role, repo) they form two groups drained round-robin,
-  // so each repo gets a session before repo-a doubles up.
+function testComputeDemandHonoursACustomKeyFunction(): void {
+  // The key stays injectable (MC-1615's seam): the reconciler groups by whatever
+  // key it is handed, and the default is the only thing that spells (role, repo).
   const state = stateFixture({
     tasks: [
-      task({ id: 'A1', role: 'developer', ownedPaths: ['repo-a/x'] }),
-      task({ id: 'A2', role: 'developer', ownedPaths: ['repo-a/y'] }),
-      task({ id: 'B1', role: 'developer', ownedPaths: ['repo-b/z'] }),
+      task({ id: 'D1', role: 'developer', repo: 'primary' }),
+      task({ id: 'D2', role: 'developer', repo: 'mobile' }),
+    ],
+  })
+  const oneGroup = computeSprintEngineDemand(state, (t) => t.role)
+  assert.deepEqual([...oneGroup.keys()], ['developer'], 'a role-only key collapses both repos into one group')
+}
+
+function testDemandKeyChangesSpawnGrouping(): void {
+  // The wiring proof (MC-1592 review): the demand key must change SPAWNING, not
+  // just telemetry. Three ready developer tasks across two repos with two slots.
+  // Keyed by (role, repo) — the default now — they form two groups drained
+  // round-robin, so the mobile repo gets a session before primary doubles up;
+  // a role-only key would cover the two oldest primary tasks and leave mobile
+  // with no session at all.
+  const state = stateFixture({
+    vcs: twoRepoVcs(),
+    tasks: [
+      task({ id: 'A1', role: 'developer', repo: 'primary' }),
+      task({ id: 'A2', role: 'developer', repo: 'primary' }),
+      task({ id: 'B1', role: 'developer', repo: 'mobile' }),
     ],
   })
 
-  const byRole = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2 }))
+  const byRole = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2, demandKeyFn: (t) => t.role }))
   assert.deepEqual(byRole.map((run) => run.taskId), ['A1', 'A2'], 'role key: one group, oldest two tasks covered')
 
-  const byRepo = pickNextAutoRuns(workspaceFixture(), state, pickOptions({
-    limit: 2,
-    demandKeyFn: (t) => `${t.role}:${t.ownedPaths[0]?.split('/')[0] ?? 'root'}`,
-  }))
-  assert.deepEqual(byRepo.map((run) => run.taskId), ['A1', 'B1'], '(role, repo) key: both repos get a session before repo-a doubles up')
+  const byRepo = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2 }))
+  assert.deepEqual(byRepo.map((run) => run.taskId), ['A1', 'B1'], '(role, repo) key: both repos get a session before primary doubles up')
   assert.equal(new Set(byRepo.map((run) => run.agentId)).size, 2, 'each pool spawn mints its own fresh worker id')
+}
+
+function testRepoIsAFilterNotAPerRepoBudget(): void {
+  // Concurrency stays GLOBAL: repo splits the queue, it never buys extra slots.
+  // Four ready tasks across two repos with two slots yields two sessions total,
+  // exactly as a single-repo run with two slots would.
+  const state = stateFixture({
+    vcs: twoRepoVcs(),
+    tasks: [
+      task({ id: 'A1', role: 'developer', repo: 'primary' }),
+      task({ id: 'A2', role: 'developer', repo: 'primary' }),
+      task({ id: 'B1', role: 'developer', repo: 'mobile' }),
+      task({ id: 'B2', role: 'developer', repo: 'mobile' }),
+    ],
+  })
+  assert.equal(pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 2 })).length, 2)
+  assert.equal(pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 1 })).length, 1)
+}
+
+function testBootingSiblingRepoSessionCoversOnlyItsOwnGroup(): void {
+  // A booting session is per-key supply. With its exemplar task gone, it keys
+  // through the repo it was SPAWNED into: a booting mobile session must not
+  // cover primary demand (which would leave the primary task unspawned), and
+  // must cover its own (which would otherwise be double-spawned).
+  const state = stateFixture({
+    vcs: twoRepoVcs(),
+    tasks: [
+      task({ id: 'A1', role: 'developer', repo: 'primary' }),
+      task({ id: 'B1', role: 'developer', repo: 'mobile' }),
+    ],
+  })
+  const booting = [{ agentId: 'developer-9', role: 'developer', taskId: null, repo: 'mobile' }]
+  const picked = pickNextAutoRuns(workspaceFixture(), state, pickOptions({ limit: 3, unboundLiveWorkers: booting }))
+  assert.deepEqual(picked.map((run) => run.taskId), ['A1'], 'the booting mobile session covers B1 only; A1 still needs one')
 }
 
 // --- AC3: the 2026-07-14 starvation projection, replayed -------------------
@@ -202,10 +304,15 @@ function testReconcilerSpawnsFromStarvationFixture(): void {
 function main(): void {
   testResolveSessionCwdWorktreeMode()
   testResolveSessionCwdCurrentWorkspaceWhenNoWorktree()
-  testDemandKeyIsRoleToday()
+  testResolveSessionCwdSelectsTheTasksRepoWorktree()
+  testResolveSessionRepoIdFromSessionCwd()
+  testDemandKeyIsRoleAndRepo()
   testComputeDemandGroupsReadyUnownedWorkByKey()
+  testComputeDemandGroupsByRoleAndRepo()
   testComputeDemandHonoursACustomKeyFunction()
-  testCustomDemandKeyChangesSpawnGrouping()
+  testDemandKeyChangesSpawnGrouping()
+  testRepoIsAFilterNotAPerRepoBudget()
+  testBootingSiblingRepoSessionCoversOnlyItsOwnGroup()
   testReconcilerSpawnsFromStarvationFixture()
   console.log('auto-run.test.ts: all tests passed')
 }

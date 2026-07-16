@@ -49,7 +49,13 @@ import type {
   SprintEngineModelTokenUsage,
   SprintEngineTokenUsageReport,
 } from '../../../../shared/sprintengine-token-usage'
-import { deriveSprintEngineRunGlyph, formatSprintEngineLockAge, getSprintEngineRoleLabel } from '../../utils/sprintengine'
+import {
+  deriveSprintEngineRepoMergeRollup,
+  deriveSprintEngineRunGlyph,
+  formatSprintEngineLockAge,
+  getSprintEngineRoleLabel,
+} from '../../utils/sprintengine'
+import { RunPullRequestViewChip } from './runPullRequest'
 import CliIcon from '../CliIcon'
 import type {
   AgentCli,
@@ -152,6 +158,11 @@ export default function SprintEngineRunSummaryPanel({
   )
   const autoState = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineAutoState ?? null
+  )
+  // Names the per-project pull-request chips: a declared repo's root is relative to
+  // the workspace folder, and the primary project's `.` IS this folder.
+  const folderPath = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
   )
   // The CLI each agent ran on lives on the workspace agent record. Select the
   // stable `agents` reference (Zustand v5 rejects fresh-object selectors) and
@@ -259,8 +270,10 @@ export default function SprintEngineRunSummaryPanel({
   // A worktree run that's done but not yet merged is "Ready for review", not
   // "Complete" — it only becomes Complete once its pull request merges. A
   // non-worktree run (no branch to review) is Complete the moment work is done.
-  const merged = sprintEngineState.vcs?.pullRequestState === 'merged'
-  const awaitingReview = !!sprintEngineState.vcs && !merged
+  // A run spanning projects is under review until the LAST project's pull request
+  // merges, so this counts every declared project rather than the primary alone.
+  const mergeRollup = deriveSprintEngineRepoMergeRollup(sprintEngineState.vcs)
+  const awaitingReview = !!mergeRollup && !mergeRollup.allMerged
   const phaseLabel =
     report.totalTasks === 0
       ? 'No tasks recorded'
@@ -311,6 +324,14 @@ export default function SprintEngineRunSummaryPanel({
             ) : null}
             {durationLabel ? <Crumb>{`ran ${durationLabel}`}</Crumb> : null}
           </span>
+        ) : null}
+        {/* A run spanning projects lands one branch per project, and the verdict
+            above rolls them into a single word — so the projects themselves, and
+            which of them have merged, are only readable here. A single-project run
+            already says all of this in the verdict and the board's own chip, so it
+            adds nothing here. */}
+        {mergeRollup && mergeRollup.total > 1 ? (
+          <RunPullRequestViewChip vcs={sprintEngineState.vcs} folderPath={folderPath} />
         ) : null}
       </div>
 

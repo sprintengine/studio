@@ -68,11 +68,12 @@ Each `sprintengine.plan.add_task` call must include:
 
 - `title`: a concise title
 - `description`: a concrete self-contained task brief
-- `role`: a configured Sprint Engine role id from the active roster/role registry. Use the canonical snake_case id returned by registry/tooling, not an invented label. The role must be enabled for the run (`run.configuredRoles`); on an `architect`-source run, configure it via `sprintengine.roster.configure` first (see "Roster Composition").
+- `role`: a configured Sprint Engine role id — the canonical snake_case id from the role registry, not an invented label. It must be enabled for the run (`run.configuredRoles`); on an `architect`-source run, configure it via `sprintengine.roster.configure` first (see "Roster Composition").
 - `acceptance`: array of repeatable verifiable conditions
 - `dependsOn`: array of repeatable task ids that must be done first
 - `path`: array of files or directories this task will touch
 - `note`: array of repeatable implementation details distilled from `plan.md` — omit it entirely when the description already carries everything the worker needs
+- `repo`: the declared project this task changes; omit for the run's own (`primary`). Paths are relative to it, so cross-project work is one task per project linked with `dependsOn`
 
 Tasks should be small enough for one agent to complete in a single session. Prefer more small tasks over fewer large ones. Attach `difficultyPct`/`difficultyReason` per the architect workflow skill when the scope supports an estimate.
 
@@ -100,7 +101,7 @@ A copy-only or docs-only run plans **zero** sweeps. Planning a sweep nothing wil
 
 ### Sweeps are chained, never concurrent
 
-Sweeps edit the tree. Plan them as a `dependsOn` chain so a later sweep reviews the tree the earlier one already fixed, and the shared run worktree never hosts two sweeps editing at once. **QA goes last**, so it validates the post-review state.
+Sweeps edit the tree. Plan them as a `dependsOn` chain so a later sweep reviews the tree the earlier one already fixed, and a project's worktree never hosts two sweeps editing at once. **QA goes last**, so it validates the post-review state.
 
 A typical tail: `refactoring → AI-slop → brand → security → QA → architect sign-off`.
 
@@ -140,10 +141,10 @@ When the run's sources are references (a backlog epic and its child design docum
 
 - A single referenced implementation plan follows the same contract as an epic: verify it against the current codebase, update stale or incomplete content **in that backlog file itself**, and keep `plan.md` a thin manifest. Run-scoped material (codebase index, roster adaptation, task-graph summary) goes in the manifest, not the backlog file.
 - Enumerate an epic's children with `grep -l "^epic: <slug>$" backlog/*.md`; read the epic and every child.
-- Verify each design against the current codebase. Where it has drifted, update the **backlog file in place** (the worktree copy in worktree mode, so the update rides the PR), not a copy.
+- Verify each design against the current codebase. Where it has drifted, update the **backlog file in place** (in worktree mode, its copy in that project's worktree, so the update rides that project's PR), not a copy.
 - Write `plan.md` as a manifest referencing paths, never quoting content: goal, a `## Source documents` list (one bullet per doc with a verification note, plus any design system/mockups/KG notes), codebase-verification notes, cross-cutting decisions and risks, and a task-graph summary.
 - Cover **every child item with at least one task** (task cards stay self-contained per the Task Card Quality Bar).
-- The final review task sets each child's frontmatter `status: completed` at completion (worktree copy in worktree mode). The epic derives completion from its children — never set a status on the epic file.
+- The final review task sets each child's frontmatter `status: completed` at completion (that project's worktree copy in worktree mode). The epic derives completion from its children — never set a status on the epic file.
 
 ## Plan Artifact Rules
 

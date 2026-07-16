@@ -91,6 +91,11 @@ export const sprintEngineApi = {
     statePath: string
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:vcs:pr-status', { statePath }),
+  mergeSprintEnginePullRequest: (
+    statePath: string,
+    repo?: string
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:vcs:pr-merge', { statePath, repo }),
   setSprintEngineRoleRuntime: (
     input: SprintEngineRosterRuntimeInput
   ): Promise<SprintEngineArtifactCommandResult> =>
@@ -204,6 +209,7 @@ export const sprintEngineApi = {
   | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
+  | 'mergeSprintEnginePullRequest'
   | 'setSprintEngineRoleRuntime'
   | 'enableSprintEngineRole'
   | 'readSprintEngineProjection'

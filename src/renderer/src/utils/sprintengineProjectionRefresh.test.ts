@@ -434,6 +434,165 @@ async function testCompletedProjectionRefreshesMatchingBacklogLink(): Promise<vo
   assert.equal(backlogMutations[0].link.status, 'completed')
 }
 
+// MC-1612: a run spanning projects opens one pull request per project, so the item
+// that started it carries one link each. Attaching only the primary's would leave the
+// other project's pull request unreachable from the work that asked for it.
+async function testCompletedMultiProjectRunLinksEveryPullRequest(): Promise<void> {
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const completedProjection = projection('done', '2026-06-07T15:00:00Z', 'complete') as {
+    run: Record<string, unknown>
+  }
+  completedProjection.run.vcs = {
+    mode: 'run_worktree',
+    worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+    branchName: 'sprintengine/unified-refresh',
+    pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
+    pullRequestState: 'open',
+    repos: [
+      {
+        id: 'primary',
+        root: '.',
+        worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+        branchName: 'sprintengine/unified-refresh',
+        pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
+        pullRequestState: 'open',
+      },
+      {
+        id: 'mobile',
+        root: '../multicode-mobile',
+        worktreePath: '.multi-code/sprintengine/unified-refresh/worktree-mobile',
+        branchName: 'sprintengine/unified-refresh',
+        pullRequestUrl: 'https://github.com/acme/multicode-mobile/pull/9',
+        pullRequestState: 'open',
+      },
+    ],
+  }
+
+  const result = await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: completedProjection,
+      applied: [],
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [{
+          id: 'backlog_refresh',
+          source: { type: 'file', relativePath: 'backlog/refresh.md' },
+          status: 'in_progress',
+          metadata: {},
+          links: [{
+            id: 'sprint-engine:unified-refresh',
+            moduleId: 'sprint-engine',
+            type: 'execution',
+            label: 'Sprint Engine run',
+            target: {
+              kind: 'sprintengine.run',
+              id: 'unified-refresh',
+              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+            },
+            status: 'active',
+          }],
+        }],
+      },
+    }),
+  })
+
+  assert.equal(result.status, 'changed')
+  // The run link, then one link per project — each naming its project, because with
+  // two of them "Pull request" alone says nothing about which is which.
+  assert.deepEqual(
+    backlogMutations.map((mutation) => [mutation.link.id, mutation.link.label, mutation.link.target.url]),
+    [
+      ['sprint-engine:unified-refresh', 'Sprint Engine run', undefined],
+      ['sprint-engine:pull-request', 'Pull request (workspace)', 'https://github.com/acme/multicode/pull/1'],
+      ['sprint-engine:pull-request:mobile', 'Pull request (multicode-mobile)', 'https://github.com/acme/multicode-mobile/pull/9'],
+    ],
+  )
+  // `external` is lifecycle-neutral: the PR links never move the item's status.
+  assert.deepEqual(
+    backlogMutations.slice(1).map((mutation) => [mutation.link.type, mutation.status]),
+    [['external', undefined], ['external', undefined]],
+  )
+}
+
+// The single-project control for the above: one project, one link — the same id and
+// the same unlabeled "Pull request" it carried before runs could span projects. A
+// project name in the label would be noise with nothing to tell it apart from.
+async function testCompletedSingleProjectRunLinksOneUnlabeledPullRequest(): Promise<void> {
+  const backlogMutations: Array<{
+    workspaceRoot: string
+    relativePath: string
+    link: BacklogItemLinkPayload
+    status?: 'completed'
+  }> = []
+  const completedProjection = projection('done', '2026-06-07T15:00:00Z', 'complete') as {
+    run: Record<string, unknown>
+  }
+  completedProjection.run.vcs = {
+    mode: 'run_worktree',
+    worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+    branchName: 'sprintengine/unified-refresh',
+    pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
+    pullRequestState: 'open',
+    repos: [{
+      id: 'primary',
+      root: '.',
+      worktreePath: '.multi-code/sprintengine/unified-refresh/worktree',
+      branchName: 'sprintengine/unified-refresh',
+      pullRequestUrl: 'https://github.com/acme/multicode/pull/1',
+      pullRequestState: 'open',
+    }],
+  }
+
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: workspace(),
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: completedProjection,
+      applied: [],
+      backlogMutations,
+      backlogStore: {
+        schemaVersion: 1,
+        items: [{
+          id: 'backlog_refresh',
+          source: { type: 'file', relativePath: 'backlog/refresh.md' },
+          status: 'in_progress',
+          metadata: {},
+          links: [{
+            id: 'sprint-engine:unified-refresh',
+            moduleId: 'sprint-engine',
+            type: 'execution',
+            label: 'Sprint Engine run',
+            target: {
+              kind: 'sprintengine.run',
+              id: 'unified-refresh',
+              path: '.multi-code/sprintengine/unified-refresh/run.yaml',
+            },
+            status: 'active',
+          }],
+        }],
+      },
+    }),
+  })
+
+  assert.deepEqual(
+    backlogMutations.map((mutation) => [mutation.link.id, mutation.link.label, mutation.link.target.url]),
+    [
+      ['sprint-engine:unified-refresh', 'Sprint Engine run', undefined],
+      ['sprint-engine:pull-request', 'Pull request', 'https://github.com/acme/multicode/pull/1'],
+    ],
+  )
+}
+
 // Cancellation (MC-1604b) recolors the run-link chip to `canceled` but — unlike
 // completion — never drives the Backlog item status: a canceled sprint is a
 // decision, not a finish, so the item stays whatever the user left it.
@@ -1011,6 +1170,8 @@ await testPermanentReadErrorSkipsBackgroundDiagnostic()
 await testPermanentReadErrorStillNotifiesManualRefresh()
 await testMissingContextSkip()
 await testCompletedProjectionRefreshesMatchingBacklogLink()
+await testCompletedMultiProjectRunLinksEveryPullRequest()
+await testCompletedSingleProjectRunLinksOneUnlabeledPullRequest()
 await testCanceledProjectionRecolorsBacklogLinkWithoutDrivingItem()
 await testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot()
 await testCompletedProjectionSparesEpicStatus()

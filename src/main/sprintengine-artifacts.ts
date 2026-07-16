@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, realpathSync } from 'fs'
 import { mkdir, readFile, stat } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
@@ -27,6 +27,7 @@ import type {
   SprintEngineArtifactReviewMode,
   SprintEngineArtifactReviewPayload,
   SprintEngineProjectionReadPayload,
+  SprintEngineVcsMergePayload,
   SprintEngineVcsPayload,
 } from './ipc/sprintengine-ipc'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
@@ -114,6 +115,8 @@ type SerializableSprintEngineStatePayload = {
   events: unknown[]
   artifacts: unknown[]
   useWorktrees: boolean
+  /** The other projects this run also changes; empty for a single-project run. */
+  repos: Array<{ id: string; root: string }>
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
   enabledRoles: string[]
   rosterSource: 'user' | 'architect' | null
@@ -362,8 +365,29 @@ async function buildSprintEngineMutationData(
   }
 }
 
+/**
+ * The result document `scripts/sprintengine_tool.py` printed, or null.
+ *
+ * The CLI prints ONE pretty-printed JSON document (`json.dumps(result, indent=2)`),
+ * so the whole of stdout is the result and its last line is a bare `}`. Parsing the
+ * last line alone therefore never parsed anything — it returned null for every
+ * command, silently. That mattered the moment a caller needed to read the engine's
+ * own verdict rather than just its exit code: `vcs pr-merge` reports a refusal as
+ * `ok: false` in this document and still exits 0 (it did its job), so a null here
+ * would read as "merged" and tell the user their pull request landed when it did not.
+ *
+ * The line fallback stays for any caller whose output is a stream of records rather
+ * than one document.
+ */
 function parseSprintEngineCliJsonOutput(stdout: string): unknown {
-  const responseLine = stdout.trim().split(/\r?\n/u).filter(Boolean).at(-1)
+  const trimmed = stdout.trim()
+  if (!trimmed) return null
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    // Not one document; fall back to the last complete line.
+  }
+  const responseLine = trimmed.split(/\r?\n/u).filter(Boolean).at(-1)
   if (!responseLine) return null
   try {
     return JSON.parse(responseLine) as unknown
@@ -381,6 +405,7 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     events: resolveArray(payload?.events, 'sprint events'),
     artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
+    repos: resolveInitRepos(payload?.repos),
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
     rosterSource: resolveRosterSource(payload?.rosterSource),
@@ -400,6 +425,23 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
 function resolveDefaultPhases(input: SprintEngineStateInitializeInput['defaultPhases']): string[] | null {
   if (!Array.isArray(input)) return null
   return input.filter((phase): phase is string => typeof phase === 'string' && phase.trim().length > 0)
+}
+
+// The other projects the run also changes (MC-1613). An empty list is the same as
+// absent — a run in one project — so the flag is only forwarded when non-empty.
+// Entries are passed through with only the shape check the CLI needs; the engine
+// owns every real rule (a usable id, `primary` reserved, no duplicate id, a real
+// git repo root outside this project) and rejects a bad one with a plain-language
+// reason rather than this silently correcting it.
+function resolveInitRepos(input: SprintEngineStateInitializeInput['repos']): Array<{ id: string; root: string }> {
+  if (!Array.isArray(input)) return []
+  const repos: Array<{ id: string; root: string }> = []
+  for (const entry of input) {
+    const id = typeof entry?.id === 'string' ? entry.id.trim() : ''
+    const root = typeof entry?.root === 'string' ? entry.root.trim() : ''
+    if (id && root) repos.push({ id, root })
+  }
+  return repos
 }
 
 // Mandated sweep roles. Unlike `defaultPhases`, an empty list is the same as absent
@@ -560,8 +602,9 @@ function validateWorkspaceRoot(input: unknown): string {
 // The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
 // in sprintengine_core/store.py. v2 (MC-1542, single-owner tasks) deleted quality
 // gates and the `changes_requested`/`testing`/`product` statuses; v3 (MC-1591,
-// leases replace the roster) removed the persistent `agents` map from run.yaml.
-export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 3
+// leases replace the roster) removed the persistent `agents` map from run.yaml;
+// v4 (MC-1611, multi-repo runs) made `vcs.repos` the run's declared repo list.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 4
 
 /**
  * Reject an out-of-date run store, returning a readable message (or null when the
@@ -589,9 +632,10 @@ export function describeUnsupportedSprintEngineStore(projection: unknown, teamDi
   if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
   return (
     `This sprint was created by an older version of Multicode (run store v${version}, ` +
-    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Leases replaced the roster ` +
-    `(and single-owner tasks replaced quality gates before that), so the run cannot be ` +
-    `opened. Delete "${teamDirectory}" and start the sprint again.`
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Sprints can now span more ` +
+    `than one project (and before that, leases replaced the roster and single-owner ` +
+    `tasks replaced quality gates), so the run cannot be opened. Delete ` +
+    `"${teamDirectory}" and start the sprint again.`
   )
 }
 
@@ -599,6 +643,11 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   const args = ['--state', state.statePath, 'init', '--name', payload.name, '--goal', payload.goal || payload.name]
   if (payload.useWorktrees) {
     args.push('--use-worktrees', 'true')
+  }
+  // One `--repo <id>=<root>` per other project the run changes. Declared only at
+  // init: the engine fixes the repo set here for the life of the run.
+  for (const repo of payload.repos) {
+    args.push('--repo', `${repo.id}=${repo.root}`)
   }
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
@@ -667,6 +716,114 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
   })
 }
 
+/**
+ * The other projects a run declares, as absolute roots (MC-1611).
+ *
+ * A Sprint Engine session may reach exactly the projects its run declared, and the
+ * primary one is already every caller's workspace root — so this returns only what a
+ * caller does not already hold: entries after entry zero. A single-project run
+ * declares none, so its allowed surface is unchanged from before runs could span
+ * projects.
+ *
+ * Read from `projection.json`, which carries the `vcs` block verbatim: it is the
+ * app's machine-readable view of the store, and a run's repo set is fixed at
+ * creation, so it cannot go stale under a reader. Anything unreadable, unresolvable,
+ * or reaching outside a real sibling directory yields nothing rather than a wider
+ * surface — the declaration is the only thing that widens it.
+ */
+export function sprintEngineDeclaredSiblingRepoRoots(statePath: string): string[] {
+  let state: ValidSprintEngineStatePath
+  try {
+    state = validateSprintEngineStatePath(statePath)
+  } catch {
+    return []
+  }
+  let repos: unknown
+  let workspaceRoot: string
+  try {
+    const projection = JSON.parse(readFileSync(join(state.teamDirectory, 'projection.json'), 'utf8'))
+    repos = (projection as { run?: { vcs?: { repos?: unknown } } })?.run?.vcs?.repos
+    workspaceRoot = realpathSync(state.workspaceRoot)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(repos)) return []
+  const roots: string[] = []
+  for (const entry of repos) {
+    if (!entry || typeof entry !== 'object') continue
+    const { id, root } = entry as { id?: unknown; root?: unknown }
+    if (typeof id !== 'string' || typeof root !== 'string' || !root.trim()) continue
+    if (id === 'primary' || root.trim() === '.') continue
+    // Resolve links before judging and before returning, because the MCP server
+    // resolves the roots it is handed the same way: judging a path the server will
+    // not compare would let a symlinked root pass this check and authorize its real
+    // target. A root that does not exist resolves to nothing and authorizes nothing.
+    let resolved: string
+    try {
+      resolved = realpathSync(resolve(workspaceRoot, root.trim()))
+    } catch {
+      continue
+    }
+    // A declared root that contains the workspace is a parent, not a sibling: it
+    // would authorize the workspace's neighbours by inclusion. The engine refuses to
+    // declare one; this refuses to honour one a hand-edited store carries.
+    if (isPathInsideOrEqual(resolved, workspaceRoot)) continue
+    if (!roots.includes(resolved)) roots.push(resolved)
+  }
+  return roots
+}
+
+/**
+ * The declared repo a session launching in `launchCwd` works in (MC-1610), or
+ * null when that cwd is not a declared repo's run worktree (a non-worktree run,
+ * a terminal in the main checkout, an unreadable projection).
+ *
+ * This is what binds a session's MCP token to one repo, so its `task.next` only
+ * offers work that lives in the tree it is actually sitting in. Derived from the
+ * launch cwd rather than passed down from the scheduler: the cwd is the thing
+ * that makes the binding true, and reading it here keeps the one authority in
+ * the same place the allowed roots are derived from. A single-repo run's
+ * worktree matches its primary entry, so its sessions bind to `primary` and see
+ * every task — the pre-multi-repo behavior.
+ */
+export function sprintEngineRepoIdForLaunchCwd(statePath: string, launchCwd: string): string | null {
+  let state: ValidSprintEngineStatePath
+  try {
+    state = validateSprintEngineStatePath(statePath)
+  } catch {
+    return null
+  }
+  let repos: unknown
+  let workspaceRoot: string
+  let cwd: string
+  try {
+    const projection = JSON.parse(readFileSync(join(state.teamDirectory, 'projection.json'), 'utf8'))
+    repos = (projection as { run?: { vcs?: { repos?: unknown } } })?.run?.vcs?.repos
+    workspaceRoot = realpathSync(state.workspaceRoot)
+    cwd = realpathSync(launchCwd)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(repos)) return null
+  for (const entry of repos) {
+    if (!entry || typeof entry !== 'object') continue
+    const { id, worktreePath } = entry as { id?: unknown; worktreePath?: unknown }
+    if (typeof id !== 'string' || typeof worktreePath !== 'string' || !worktreePath.trim()) continue
+    // Resolve links on both sides before comparing: the worktree lives under the
+    // run dir, which a symlinked project root would spell differently than the
+    // realpath'd launch cwd, and a missed match would silently unbind the
+    // session rather than misbind it.
+    let resolved: string
+    try {
+      resolved = realpathSync(resolve(workspaceRoot, worktreePath.trim()))
+    } catch {
+      continue
+    }
+    if (resolved === cwd) return id
+  }
+  return null
+}
+
 function runSprintEngineMcpToolProcess(
   context: SprintEngineMcpRunnerContext,
   tool: string,
@@ -674,7 +831,11 @@ function runSprintEngineMcpToolProcess(
   actor: SprintEngineMcpActorContext
 ): ReturnType<SprintEngineMcpToolRunner> {
   return new Promise((resolvePromise) => {
-    const allowedRoots = Array.from(new Set([context.workspaceRoot, ...(context.allowedRoots ?? [])]))
+    // A tool call carrying a statePath is a call against that run, so the run's
+    // declared projects are part of its allowed surface — otherwise an app-side read
+    // of a task in a sibling project is refused by the roots, not by the rules.
+    const declaredRoots = typeof payload.statePath === 'string' ? sprintEngineDeclaredSiblingRepoRoots(payload.statePath) : []
+    const allowedRoots = Array.from(new Set([context.workspaceRoot, ...(context.allowedRoots ?? []), ...declaredRoots]))
     const args = ['-m', 'sprintengine_mcp']
     for (const root of allowedRoots) {
       args.push('--allowed-root', root)
@@ -989,6 +1150,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   cancelRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  mergePullRequest(payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
@@ -1441,6 +1603,53 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           data: await buildSprintEngineMutationData(state, {
             action: 'vcs-pr',
             tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    // Merge ONE project's pull request (MC-1612). Always user-initiated — this is the
+    // run-summary Merge button, never an automatic policy. The engine owns the rules:
+    // it refuses while a project this one builds on is unmerged, and is idempotent on
+    // an already-merged pull request. `--repo` defaults to the run's own project, so a
+    // single-project run needs no repo at all.
+    async mergePullRequest(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const repo = typeof payload?.repo === 'string' ? payload.repo.trim() : ''
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'vcs',
+          'pr-merge',
+          ...(repo ? ['--repo', repo] : []),
+          '--id',
+          'ui',
+        ])
+        const parsed = parseSprintEngineCliJsonOutput(toolResult.stdout)
+        // The engine reports a refusal (out of order, no pull request, gh failed) as
+        // `ok: false` in its payload with the reason a person needs to read, and exits
+        // 0 — it did its job. Surface that reason rather than a generic failure.
+        const refusal =
+          typeof parsed === 'object' && parsed !== null && (parsed as { ok?: unknown }).ok === false
+            ? String((parsed as { error?: unknown }).error ?? '').trim()
+            : ''
+        if (toolResult.exitCode !== 0 || refusal) {
+          return {
+            ok: false,
+            message: refusal || toolResult.stderr.trim() || toolResult.stdout.trim() || 'Merging the pull request failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'vcs-pr-merge',
+            tool: parsed,
           }),
         }
       } catch (error) {

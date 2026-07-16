@@ -343,6 +343,97 @@ def test_role_bound_session_cannot_impersonate_another_role(tmp_path) -> None:
     assert matched["ok"] is True
 
 
+def _repo_bound_fixture(tmp_path, name: str):
+    """A two-repo run with one ready developer task in each tree."""
+    desktop = task("T-desktop", "Desktop work", "developer")
+    mobile = task("T-mobile", "Phone work", "developer")
+    mobile["repo"] = "mobile"
+    fixture = create_team(tmp_path, name, [desktop, mobile])
+    state = read_state(fixture.state_path)
+    state.setdefault("sprintengine", {})["vcs"] = {
+        "mode": "run_worktree",
+        "worktreePath": ".multi-code/sprintengine/x/worktree",
+        "branchName": "sprintengine/x",
+        "repos": [
+            {"id": "primary", "root": ".", "worktreePath": ".multi-code/sprintengine/x/worktree", "branchName": "sprintengine/x"},
+            {"id": "mobile", "root": "../mobile", "worktreePath": ".multi-code/sprintengine/x/worktree-mobile", "branchName": "sprintengine/x"},
+        ],
+    }
+    write_state(fixture.state_path, state)
+    return fixture
+
+
+def test_repo_bound_session_claims_its_own_repo_without_asking(tmp_path) -> None:
+    """MC-1613: the session's repo comes from the worktree it was spawned into,
+    so the server stamps it onto the claim. An agent that never mentions a repo —
+    every agent, since the startup prompt does not name one — still only gets its
+    own tree's work."""
+    clear_role_classification_cache()
+    fixture = _repo_bound_fixture(tmp_path, "cap-repo-bound")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    context = McpRequestContext(
+        actor=ActorContext(id="multicode-app", role="user"),
+        state_path=fixture.state_path,
+        workspace_root=tmp_path,
+        allowed_roots=(tmp_path,),
+        role="developer",
+        agent_id="developer-a",
+        repo="mobile",
+    )
+
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        context=context,
+    )
+    assert claimed["ok"] is True
+    assert claimed["result"]["task"]["id"] == "T-mobile", "the desktop task is first in the queue and must be skipped"
+
+
+def test_repo_bound_session_cannot_claim_into_another_repo(tmp_path) -> None:
+    """The repo mirror of role impersonation: a session cannot ask for another
+    tree's queue. Its cwd is fixed at spawn, so a claim in another repo could
+    only ever commit through the wrong index."""
+    clear_role_classification_cache()
+    fixture = _repo_bound_fixture(tmp_path, "cap-repo-impersonate")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    context = McpRequestContext(
+        actor=ActorContext(id="multicode-app", role="user"),
+        state_path=fixture.state_path,
+        workspace_root=tmp_path,
+        allowed_roots=(tmp_path,),
+        role="developer",
+        agent_id="developer-a",
+        repo="mobile",
+    )
+
+    mismatched = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a", "repo": "primary"},
+        context=context,
+    )
+    assert mismatched["ok"] is False
+    assert mismatched["error"]["code"] == "tool_not_permitted_for_repo"
+    assert mismatched["error"]["details"]["payloadRepo"] == "primary"
+    assert read_state(fixture.state_path)["tasks"][0]["status"] == "todo", "no task was claimed"
+
+
+def test_an_unbound_session_still_sees_every_repos_work(tmp_path) -> None:
+    """Single-repo runs and operator sessions bind no repo, so nothing is
+    filtered — the pre-multi-repo behavior, unchanged."""
+    clear_role_classification_cache()
+    fixture = _repo_bound_fixture(tmp_path, "cap-repo-unbound")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    claimed = server.call_tool(
+        "sprintengine.task.next",
+        {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
+        context=make_context(fixture, tmp_path, role="developer", agent_id="developer-a"),
+    )
+    assert claimed["ok"] is True
+    assert claimed["result"]["task"]["id"] == "T-desktop"
+
+
 def test_a_worker_closes_its_own_review_phase(tmp_path) -> None:
     """Regression, restated for MC-1542: the frontend worker used to claim and
     verdict its own `frontend_review` gate. Now it simply advances out of its own

@@ -40,7 +40,7 @@ from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
-from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
+from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs, parse_repo_declarations
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
@@ -291,6 +291,15 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     state_path = args.state
+    # The projects this run spans, fixed here at creation and immutable after — the
+    # same posture as the worktree toggle, and for the same reason: every task, lock,
+    # commit, and worktree is resolved through this list for the life of the run.
+    declared_repos = parse_repo_declarations(getattr(args, "repo", None) or [])
+    if declared_repos and not getattr(args, "use_worktrees", False):
+        raise SystemExit(
+            "A sprint can only span more than one project when each project gets its own run worktree. "
+            "Add --use-worktrees true, or drop --repo."
+        )
     requested_name = (getattr(args, "name", None) or "").strip()
     default_name = requested_name or default_swarm_name_for_state(state_path)
     initial_state: Optional[Dict[str, Any]] = None
@@ -351,7 +360,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # block is recorded into run state so every agent prompt routes work
         # into the same worktree and per-task commits land on the same branch.
         if getattr(args, "use_worktrees", False) and not get_run_vcs(state):
-            ensure_run_worktree(state, state_path)
+            ensure_run_worktree(state, state_path, repos=declared_repos)
         has_product_plan_source = state_has_source_kind(state, "product_plan")
         has_architect_plan_source = state_has_source_kind(state, "architect_plan")
         # An epic root source (reference-based backlog epic launch) is a plan
@@ -466,7 +475,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Task cards include real integration contracts and verification checks from the reviewed plan.",
             ]
             plan_task["implementationNotes"] = [
-                "In worktree-mode runs, edit the worktree's copy of the referenced plan so updates ride the run branch and its pull request.",
+                "In worktree-mode runs, edit the copy of the referenced plan in its own project's worktree so updates ride that project's run branch and pull request.",
                 "Do not copy valid plan prose into plan.md; the manifest references the plan and records verification, the codebase index, decisions, risks, and the task graph summary.",
                 "Run-scoped material (codebase index, roster adaptation, task graph summary) belongs in the plan.md manifest, not in the referenced plan file.",
                 "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the referenced plan.",
@@ -522,11 +531,11 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             ]
             plan_task["implementationNotes"] = [
                 "Enumerate the epic's children with `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem.",
-                "In worktree-mode runs, edit the worktree's copies of the backlog files so design updates ride the run branch and its pull request.",
+                "In worktree-mode runs, edit the copies of the backlog files in their own project's worktree so design updates ride that project's run branch and pull request.",
                 "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
                 "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
                 "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the design documents.",
-                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (editing the worktree copies in worktree mode so the flips ride the pull request).",
+                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (in worktree mode, editing the copies in their own project's worktree so the flips ride that project's pull request).",
                 *source_bundle_reference_notes(state),
             ]
             apply_source_context_to_task(plan_task, state, state_path)
@@ -873,7 +882,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                     "releasedExpired": expired["released"],
                     "write": True,
                 }
-                for key in ("pullRequestUrl", "pullRequestError", "alreadyExists", "orphanedUncommittedPaths"):
+                for key in ("pullRequestUrl", "pullRequestError", "alreadyExists", "orphanedByRepo"):
                     if key in finalize:
                         completion[key] = finalize[key]
                 return completion
@@ -944,29 +953,51 @@ def cmd_merge_start(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import git_status_short, worktree_for_vcs
+    """Working-tree state, one block per project the run spans.
+
+    The top-level `worktreePath`/`clean`/`dirtyFiles` fields describe the primary
+    project, exactly as they always have; `repos` carries the same reading for every
+    declared project, so a single-repo run reports one block that says what the
+    top-level fields already said.
+    """
+    from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
+    from sprintengine_core.tool.shell import git_status_short, vcs_repos
 
     state = load_mutation_state(args.state)
     vcs = get_run_vcs(state)
     if not vcs:
         return {"ok": True, "enabled": False, "vcs": None, "message": "Sprint Engine run is not in worktree mode."}
-    worktree = worktree_for_vcs(state, args.state)
-    dirty = git_status_short(worktree) if worktree and worktree.exists() else ""
+    workspace_root = workspace_root_for_state_path(args.state)
+    repos: List[Dict[str, Any]] = []
+    for repo in vcs_repos(vcs):
+        worktree = resolve_vcs_path(workspace_root, repo["worktreePath"]) if repo["worktreePath"] else None
+        dirty = git_status_short(worktree) if worktree and worktree.exists() else ""
+        repos.append({
+            "id": repo["id"],
+            "worktreePath": repo["worktreePath"],
+            "branchName": repo["branchName"],
+            "status": repo["status"],
+            "clean": not dirty,
+            "dirtyFiles": [line.strip() for line in dirty.splitlines() if line.strip()],
+        })
+    primary = repos[0]
     return {
         "ok": True,
         "enabled": True,
         "vcs": vcs,
         "worktreePath": vcs.get("worktreePath"),
         "branchName": vcs.get("branchName"),
-        "clean": not dirty,
-        "dirtyFiles": [line.strip() for line in dirty.splitlines() if line.strip()],
+        "clean": primary["clean"],
+        "dirtyFiles": primary["dirtyFiles"],
+        "repos": repos,
     }
 
 
 def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import (
         commit_run_worktree_paths,
-        worktree_for_vcs,
+        repo_for_task,
+        worktree_for_task,
         worktree_orphaned_dirty_paths,
     )
 
@@ -980,12 +1011,16 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_evidence(task)["summary"] = args.summary
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
         sha = commit_run_worktree_paths(state, args.state, task, str(actor), explicit_paths=args.path or [])
-        worktree = worktree_for_vcs(state, args.state)
+        # Everything reported back describes the tree this task commits in — the
+        # project it targets — not whatever the primary tree happens to be doing.
+        # Worktree mode is established above, so the task always resolves to a repo.
+        repo = repo_for_task(state, task)
+        worktree = worktree_for_task(state, args.state, task)
         dirty = ""
         if worktree and worktree.exists():
             from sprintengine_core.tool.shell import git_status_short
             dirty = git_status_short(worktree)
-        orphaned = worktree_orphaned_dirty_paths(state, args.state)
+        orphaned = worktree_orphaned_dirty_paths(state, args.state, repo)
         recompute_phase(state)
         base_message = (
             f"Committed task {args.task_id} changes as {sha}."
@@ -1002,10 +1037,11 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         return {
             "ok": True,
             "taskId": args.task_id,
+            "repo": repo["id"],
             "committed": bool(sha),
             "commitSha": sha,
-            "branchName": vcs.get("branchName"),
-            "worktreePath": vcs.get("worktreePath"),
+            "branchName": repo["branchName"],
+            "worktreePath": repo["worktreePath"],
             "clean": not dirty,
             "orphanedUncommittedPaths": orphaned,
             "message": base_message,
@@ -1032,20 +1068,38 @@ def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_vcs_pr_merge(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.shell import merge_repo_pull_request
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        result = merge_repo_pull_request(
+            state,
+            args.state,
+            repo_id=str(getattr(args, "repo", None) or "primary").strip() or "primary",
+            method=str(getattr(args, "method", None) or "merge"),
+            actor=str(getattr(args, "id", None) or "user"),
+        )
+        return {"action": "vcs_pr_merge", **result}
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import cleanup_merged_worktree, refresh_run_pull_request_state
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        from sprintengine_core.tool.shell import get_run_vcs
+        from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
 
-        prior = (get_run_vcs(state) or {}).get("pullRequestState")
+        vcs = get_run_vcs(state)
+        prior = {repo["id"]: repo.get("pullRequestState") for repo in vcs_repos(vcs)} if vcs else {}
         result = refresh_run_pull_request_state(state, args.state)
-        changed = result.get("pullRequestState") != prior
-        # Auto-remove the worktree once the branch has merged (clean only).
-        if result.get("pullRequestState") == "merged":
+        after = {entry["repo"]: entry["pullRequestState"] for entry in result.get("repos") or []}
+        changed = after != prior
+        # Auto-remove each project's worktree once ITS branch has merged (clean only).
+        if any(pr_state == "merged" for pr_state in after.values()):
             cleanup = cleanup_merged_worktree(state, args.state)
             result["worktreeCleanup"] = cleanup
-            if cleanup.get("removed"):
+            if any(entry.get("removed") for entry in cleanup.get("repos") or []):
                 changed = True
         # Avoid rewriting the projection (and re-rendering) when nothing changed —
         # this command polls every 30s while the summary is open.
@@ -1080,13 +1134,15 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
     Pull requests are NOT opened automatically: the user opens one from the run
     summary (the "Create pull request" action) when ready. This backstop-commits any
     still-uncommitted task-scoped changes so the branch is PR-ready, then returns a
-    ``blocked`` flag and ``message``. If the worktree still has changes owned by no
-    task, the run is blocked rather than declared done over an incomplete tree.
+    ``blocked`` flag and ``message``. If any declared project's worktree still has
+    changes owned by no task, the run is blocked rather than declared done over an
+    incomplete tree.
     """
     from sprintengine_core.tool.shell import (
         commit_task_changes_if_needed,
         get_run_vcs,
-        worktree_orphaned_dirty_paths,
+        run_orphaned_dirty_paths,
+        vcs_repos,
     )
 
     missing_sweeps = missing_required_sweeps(state)
@@ -1111,31 +1167,42 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
         if isinstance(task, dict):
             commit_task_changes_if_needed(state, state_path, task, "sprintengine")
 
-    orphaned = worktree_orphaned_dirty_paths(state, state_path)
+    # Every declared project, not just the primary one: an orphan in any tree the run
+    # spans is work no task's commit will carry, and the operator needs to be told
+    # which project to look in.
+    orphaned = run_orphaned_dirty_paths(state, state_path)
     if orphaned:
         return {
             "blocked": True,
-            "orphanedUncommittedPaths": orphaned,
+            "orphanedByRepo": orphaned,
             "message": (
-                "All tasks are done but the run worktree has changes owned by no task and uncommitted: "
-                f"{', '.join(orphaned)}. These would be missing from a pull request. Add them to a task's "
-                "ownedPaths and commit (`sprintengine vcs commit`), or remove them, then complete again."
+                "All tasks are done but the run worktrees have changes owned by no task and uncommitted: "
+                f"{', '.join(f'{entry['repo']}: {entry['path']}' for entry in orphaned)}. These would be missing "
+                "from a pull request. Add them to a task's ownedPaths and commit (`sprintengine vcs commit`), "
+                "or remove them, then complete again."
             ),
         }
 
-    existing_url = str(vcs.get("pullRequestUrl") or "").strip()
-    if existing_url:
+    # A run spanning projects is PR-ready when every project it changed has a pull
+    # request — the projects it never committed to deliver nothing and need none.
+    # `lastCommitSha` is set exactly when a repo committed.
+    changed_repos = [repo for repo in vcs_repos(vcs) if str(repo.get("lastCommitSha") or "").strip()]
+    opened = [repo for repo in changed_repos if str(repo.get("pullRequestUrl") or "").strip()]
+    if opened and len(opened) == len(changed_repos):
+        urls = ", ".join(f"{repo['id']}: {repo['pullRequestUrl']}" for repo in opened)
         return {
             "blocked": False,
-            "pullRequestUrl": existing_url,
+            "pullRequestUrl": str(vcs.get("pullRequestUrl") or "").strip() or None,
+            "pullRequestUrls": [{"repo": repo["id"], "pullRequestUrl": repo["pullRequestUrl"]} for repo in opened],
             "alreadyExists": True,
-            "message": f"All tasks are done. Pull request already open: {existing_url}. Stop now.",
+            "message": f"All tasks are done. Pull request{'s' if len(opened) > 1 else ''} already open — {urls}. Stop now.",
         }
 
     return {
         "blocked": False,
         "message": (
-            "All Sprint Engine tasks are done and committed to the run worktree. "
+            "All Sprint Engine tasks are done and committed to the run worktree"
+            f"{'s' if len(changed_repos) > 1 else ''}. "
             "Open a pull request from the run summary when ready. Stop now."
         ),
     }
@@ -1436,3 +1503,4 @@ vcs_status = cmd_vcs_status
 vcs_commit = cmd_vcs_commit
 vcs_pr = cmd_vcs_pr
 vcs_pr_status = cmd_vcs_pr_status
+vcs_pr_merge = cmd_vcs_pr_merge

@@ -14,7 +14,26 @@ export const SPRINT_ENGINE_PR_TARGET_KIND = 'sprintengine.pullRequest'
 // Fixed id so the PR link is idempotent per item: re-running a sprint replaces
 // the link rather than accumulating stale ones (mirrors the agent-runtime
 // `agent-runtime:working-agent` most-recent-wins convention).
+//
+// This is the PRIMARY project's id. A run spanning projects opens one pull
+// request per project (MC-1612) and the item carries one link per project, so a
+// sibling's id is suffixed with its repo id — see `sprintEnginePullRequestLinkId`.
+// The primary keeps the bare id it has always had, which is what makes a
+// single-repo run's one link identical to the one it wrote before this existed.
 export const SPRINT_ENGINE_PR_LINK_ID = 'sprint-engine:pull-request'
+
+// The primary repo's declared id. Mirrors `DEFAULT_SPRINTENGINE_TASK_REPO`
+// (src/shared/sprintengine/run-types.ts), re-spelled here to keep this module
+// node-free and dependency-free.
+const PRIMARY_REPO_ID = 'primary'
+
+// One link id per project. The primary's is the bare, unchanged id (a single-repo
+// run must keep writing exactly the link it always wrote); each sibling gets its
+// own, so its pull request replaces only itself on a re-run.
+export function sprintEnginePullRequestLinkId(repoId?: string): string {
+  const id = (repoId ?? '').trim()
+  return !id || id === PRIMARY_REPO_ID ? SPRINT_ENGINE_PR_LINK_ID : `${SPRINT_ENGINE_PR_LINK_ID}:${id}`
+}
 
 // Structural shapes of the built links; assignable to both the renderer's
 // BacklogItemLink and the main-process BacklogItemLinkPayload.
@@ -65,18 +84,25 @@ export function buildSprintEngineRunLink(input: {
   }
 }
 
-// Build the idempotent PR link for a completed sprint. `external` is
-// lifecycle-neutral, so attaching it never moves the item's status. The fixed
-// id makes re-runs replace the link instead of stacking duplicates.
+// Build the idempotent PR link for one project of a completed sprint. `external`
+// is lifecycle-neutral, so attaching it never moves the item's status. The
+// per-project id makes re-runs replace each link instead of stacking duplicates.
+//
+// `repoLabel` names the project in the link the person clicks, and is passed only
+// when the run spans more than one: a single-repo run has nothing to disambiguate
+// from, and "Pull request (multicode)" next to no other link is just noise.
 export function buildSprintEnginePullRequestLink(input: {
   pullRequestUrl: string
   updatedAt: string
+  repoId?: string
+  repoLabel?: string
 }): SprintEnginePullRequestBacklogLink {
+  const repoLabel = input.repoLabel?.trim()
   return {
-    id: SPRINT_ENGINE_PR_LINK_ID,
+    id: sprintEnginePullRequestLinkId(input.repoId),
     moduleId: SPRINT_ENGINE_MODULE_ID,
     type: 'external',
-    label: 'Pull request',
+    label: repoLabel ? `Pull request (${repoLabel})` : 'Pull request',
     target: {
       kind: SPRINT_ENGINE_PR_TARGET_KIND,
       id: input.pullRequestUrl,
@@ -85,6 +111,16 @@ export function buildSprintEnginePullRequestLink(input: {
     status: 'active',
     updatedAt: input.updatedAt,
   }
+}
+
+// The project a repo is named by wherever a person reads it: its directory name,
+// never its store id. `root` is workspace-relative (`.` for the primary), so the
+// primary is named by the workspace directory itself. Mirrors `_repo_display_name`
+// (sprintengine_core/tool/shell.py), which names the same projects in PR bodies.
+export function sprintEngineRepoDisplayName(input: { workspaceRoot: string; root?: string | null }): string {
+  const root = (input.root ?? '').trim()
+  const path = !root || root === '.' ? input.workspaceRoot : root
+  return path.replace(/\\/g, '/').replace(/\/+$/u, '').split('/').pop() || 'project'
 }
 
 // The canonical run-store layout: `<root>/.multi-code/sprintengine/<team>/run.yaml`.
@@ -145,6 +181,21 @@ export function sprintEngineRunLinkOf<Link extends StoredLink>(links: readonly L
   )
 }
 
+// Every pull request on the item, one per project the run delivered (MC-1612).
+// Primary first when it is there, because it is the project the run is anchored in.
+export function sprintEnginePullRequestLinksOf<Link extends StoredLink>(links: readonly Link[]): Link[] {
+  const matched = links.filter(
+    (link) => link.id === SPRINT_ENGINE_PR_LINK_ID || link.id.startsWith(`${SPRINT_ENGINE_PR_LINK_ID}:`),
+  )
+  return [
+    ...matched.filter((link) => link.id === SPRINT_ENGINE_PR_LINK_ID),
+    ...matched.filter((link) => link.id !== SPRINT_ENGINE_PR_LINK_ID),
+  ]
+}
+
+// The item's pull request when a caller can only show one — the primary project's,
+// falling back to whichever project has one. Callers that can show every project's
+// (the Backlog item's own link list) use `sprintEnginePullRequestLinksOf`.
 export function sprintEnginePullRequestLinkOf<Link extends StoredLink>(links: readonly Link[]): Link | null {
-  return links.find((link) => link.id === SPRINT_ENGINE_PR_LINK_ID) ?? null
+  return sprintEnginePullRequestLinksOf(links)[0] ?? null
 }

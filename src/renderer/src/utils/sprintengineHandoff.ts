@@ -41,7 +41,7 @@ function jsonBlock(payload: Record<string, unknown>): string {
 // added value is verification deltas plus the task graph — never re-authored prose.
 const referencedArchitectPlanGuidance = [
   'Source plan type: implementation plan, referenced in place. The referenced backlog file is the canonical plan — it is not copied, and `sprintengine.init` does not seed plan.md from it.',
-  'As the architect: read the referenced plan, verify it against the current codebase, and update stale or incomplete plan content in that backlog file itself (in worktree-mode runs, edit the worktree copy so updates ride the pull request).',
+  "As the architect: read the referenced plan, verify it against the current codebase, and update stale or incomplete plan content in that backlog file itself (in worktree-mode runs, edit the copy in its own project's worktree so updates ride that project's pull request).",
   'Then write `plan.md` as a thin manifest: the source plan referenced by project-root-relative path with a verification note, plus only run-scoped additions (current-codebase index, cross-cutting decisions, risks, role adaptation, task-graph summary). Do not re-author valid plan prose into plan.md. Then create the full task graph.',
 ].join('\n\n')
 
@@ -54,7 +54,7 @@ function sourceTypeGuidance(
   if (sourcePlanKind === 'epic') {
     return [
       'Source type: backlog epic. The epic and its child design documents (the source bundle) are the canonical plan — they are referenced in place, not copied.',
-      '`sprintengine.init` mints a plan task to review these designs against the current codebase. As the architect: read the epic and every child document, verify each against the current code, and update stale or incomplete design content in those backlog files themselves (in worktree-mode runs, edit the worktree copies so the updates ride the pull request).',
+      "`sprintengine.init` mints a plan task to review these designs against the current codebase. As the architect: read the epic and every child document, verify each against the current code, and update stale or incomplete design content in those backlog files themselves (in worktree-mode runs, edit the copies in their own project's worktree so the updates ride that project's pull request).",
       'Then write `plan.md` as a thin manifest that references each source document by project-root-relative path with a per-document verification note, and build the full task graph covering every child item. Do not re-author valid design prose into plan.md.',
     ].join('\n\n')
   }
@@ -158,8 +158,10 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   }
   if (rosterArgs.length > 0) initPayload.agent = rosterArgs
   // Worktree mode is decided at workspace creation. The architect's init call
-  // creates (or reuses) the one shared run worktree + branch, so dropping this
-  // flag here would silently disable worktree mode for plan-sourced runs.
+  // creates (or reuses) one run worktree per declared project, each on the run
+  // branch, so dropping this flag here would silently disable worktree mode for
+  // plan-sourced runs. Declared repos ride `SprintEngineStateInitializeInput.repos`
+  // from the wizard, not this prompt — the architect never declares them.
   if (useWorktrees) initPayload.useWorktrees = true
 
   const architectJoinPayload = {

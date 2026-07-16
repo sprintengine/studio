@@ -721,6 +721,10 @@ export type McpSyncInput = {
     workspaceId?: string
     agentId?: string
     role?: string
+    // Declared repo the session works in (MC-1610), derived from its launch
+    // cwd. Binds the session's claim queue to that repo's tree; absent for
+    // single-repo runs and launches outside a declared worktree.
+    repo?: string
     cli?: McpClientTarget
     // Workspace Knowledge Graph root ('' when unset); lets the MCP server gate
     // the workspace_knowledge prompt layer at compose time.
@@ -1701,6 +1705,18 @@ export type SprintEngineStateInitializeInput = {
   // When true, Sprint Engine creates one shared git worktree + branch for the
   // whole team before any task runs, and all agents work and commit there.
   useWorktrees?: boolean
+  // The OTHER projects this run also changes (MC-1613), beyond the workspace's own.
+  // Each entry becomes one `--repo <id>=<root>` at init: its own worktree, branch,
+  // commit lock, and pull request. `root` is relative to the workspace folder and
+  // must be a separate git repository outside it; `id` is the short handle tasks
+  // target ('primary' is reserved for the workspace's own project).
+  //
+  // Fixed at creation and immutable after, exactly like `useWorktrees` — every
+  // task, lock, commit, and worktree resolves through this list for the life of
+  // the run. Requires `useWorktrees`: a run can only span projects when each gets
+  // its own worktree, and the engine rejects the combination otherwise. Omitted
+  // (not `[]`) for a single-project run.
+  repos?: Array<{ id: string; root: string }>
   // The roster's per-role CLI model selection, recorded into run state at init
   // so each claimed task can be stamped with the model that worked it. A role
   // with no explicit model (CLI default) is omitted / left null.
@@ -2566,6 +2582,13 @@ export type ElectronApi = {
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
+  /**
+   * Merge ONE project's pull request (MC-1612). `repo` is the declared project id;
+   * omitted means the run's own project, which is all a single-project run has.
+   * Fails with the engine's plain-language reason when the project it builds on has
+   * not merged yet. Merging is always the user's call — nothing merges on its own.
+   */
+  mergeSprintEnginePullRequest: (statePath: string, repo?: string) => Promise<SprintEngineArtifactCommandResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>

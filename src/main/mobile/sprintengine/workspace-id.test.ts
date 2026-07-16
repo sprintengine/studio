@@ -49,6 +49,17 @@ function buildSnapshotFixture(root: string): MobileControlSnapshot {
         },
         tasks: [],
         artifacts: [],
+        vcs: {
+          worktree: true,
+          branch: 'sprintengine/team-1',
+          // MC-1613: a multi-repo run's projects. Their roots are workspace-RELATIVE,
+          // so the sanitizer must leave them intact — redacting `../multicode-mobile`
+          // would cost the phone the only field naming where a project lives.
+          repos: [
+            { id: 'primary', root: '.', branch: 'sprintengine/team-1', status: 'ready' },
+            { id: 'multicode-mobile', root: '../multicode-mobile', branch: 'sprintengine/team-1', status: 'ready' },
+          ],
+        },
       },
     ],
     workspaces: [
@@ -115,6 +126,14 @@ function assertSanitizerStripsLocalPaths(): void {
   assert.equal(safe.sprintEngines[0].workspacePath, 'projA', 'board name comes from the folder basename')
   assert.equal(isWorkspaceIdToken(safe.sprintEngines[0].statePath), true, 'statePath redacted to a non-empty relay-safe token')
   assert.equal(localPathProbe.test(safe.sprintEngines[0].statePath), false)
+
+  // MC-1613: the multi-repo projects reach the phone through the same pass, and the
+  // sanitizer must neither reshape nor redact them — their roots are relative, so
+  // there is nothing local to strip and every field is what the phone renders.
+  assert.deepEqual(safe.sprintEngines[0].vcs?.repos, [
+    { id: 'primary', root: '.', branch: 'sprintengine/team-1', status: 'ready' },
+    { id: 'multicode-mobile', root: '../multicode-mobile', branch: 'sprintengine/team-1', status: 'ready' },
+  ], 'declared projects survive the relay copy intact')
 
   // Backlog workspacePath round-trips for create/start, so it must be a
   // resolvable token, and resolve back to the original root.

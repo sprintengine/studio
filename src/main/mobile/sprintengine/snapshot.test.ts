@@ -42,6 +42,7 @@ async function main(): Promise<void> {
   await assertReviewProjectionSnapshotExposesReviewContext()
   await assertProjectionSnapshotPassesProtocolValidation()
   await assertProjectionSnapshotExposesProvenanceAndVcs()
+  await assertSingleRepoVcsSnapshotIsUnchangedByTheReposList()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
   await assertAutomationsJoinTheirSprintEngineOnProjectKey()
@@ -168,9 +169,28 @@ async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> 
           branchName: 'sprintengine/checkout',
           pullRequestUrl: 'https://github.com/acme/repo/pull/9',
           pullRequestState: 'open',
-          // MC-1615 multi-repo seam: an unknown per-repo array must ride through
-          // buildVcsState verbatim rather than being stripped.
-          repos: [{ repoRoot: 'packages/api', branchName: 'sprintengine/checkout-api' }],
+          // MC-1613: a two-project run. Entry zero is the primary project the flat
+          // fields above already describe; the sibling reaches the phone only here.
+          repos: [
+            {
+              id: 'primary',
+              root: '.',
+              worktreePath: '.worktrees/checkout',
+              branchName: 'sprintengine/checkout',
+              baseRef: 'main',
+              status: 'ready',
+              lastCommitSha: null,
+            },
+            {
+              id: 'multicode-mobile',
+              root: '../multicode-mobile',
+              worktreePath: '.worktrees/checkout-multicode-mobile',
+              branchName: 'sprintengine/checkout',
+              baseRef: 'main',
+              status: 'not_created',
+              lastCommitSha: null,
+            },
+          ],
         },
       },
       tasks: [{ id: 'T1', title: 'Done', role: 'developer', status: 'done', stateStatus: 'done', dependsOn: [] }],
@@ -188,8 +208,15 @@ async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> 
   assert.equal(snapshot.vcs?.branch, 'sprintengine/checkout')
   assert.equal(snapshot.vcs?.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
   assert.equal(snapshot.vcs?.pullRequestStatus, 'open')
-  // MC-1615: the multi-repo array is preserved verbatim (single-repo runs omit it).
-  assert.deepEqual(snapshot.vcs?.repos, [{ repoRoot: 'packages/api', branchName: 'sprintengine/checkout-api' }])
+  // MC-1613 AC2: the block a pre-MC-1613 phone reads is what a single-repo run put
+  // there — the primary project — so a two-project run renders unchanged on it.
+  assert.equal(snapshot.vcs?.branch, 'sprintengine/checkout', 'the legacy block still describes the primary project')
+  // MC-1613 AC1: the projects ride beside that block, primary first, in the phone's
+  // vocabulary — no desktop worktree paths, base refs or commit shas cross the relay.
+  assert.deepEqual(snapshot.vcs?.repos, [
+    { id: 'primary', root: '.', branch: 'sprintengine/checkout', status: 'ready' },
+    { id: 'multicode-mobile', root: '../multicode-mobile', branch: 'sprintengine/checkout', status: 'not_created' },
+  ])
 
   // A hand-started run with no source and no worktree exposes neither.
   const bareStatePath = await writeStateText('bare\n')
@@ -208,6 +235,57 @@ async function assertProjectionSnapshotExposesProvenanceAndVcs(): Promise<void> 
   const bare = await readSprintEngineSnapshot(bareStatePath)
   assert.equal(bare.startedFrom, undefined, 'a hand-started run shows no provenance')
   assert.equal(bare.vcs, undefined, 'a non-worktree run shows no vcs block')
+}
+
+async function assertSingleRepoVcsSnapshotIsUnchangedByTheReposList(): Promise<void> {
+  // MC-1613 AC4: a single-repo run's one-entry `vcs.repos` list says exactly what the
+  // legacy block says, so the snapshot must not grow by it — these ship to every
+  // paired phone on a 20s poll. The two stores below are the same single-repo run in
+  // the two shapes a store may carry (declared list · pre-MC-1611 flat fields); both
+  // must produce the same bytes a pre-multi-repo desktop produced.
+  const flatVcs = {
+    mode: 'run_worktree',
+    worktreePath: '.worktrees/solo',
+    branchName: 'sprintengine/solo',
+    pullRequestUrl: 'https://github.com/acme/repo/pull/4',
+    pullRequestState: 'open',
+  }
+  const withList = {
+    ...flatVcs,
+    repos: [{
+      id: 'primary',
+      root: '.',
+      worktreePath: '.worktrees/solo',
+      branchName: 'sprintengine/solo',
+      baseRef: 'main',
+      status: 'ready',
+      lastCommitSha: null,
+    }],
+  }
+
+  const vcsBlocks = await Promise.all([flatVcs, withList].map(async (vcs) => {
+    const statePath = await writeStateText('not-real-state\n')
+    await writeFile(
+      join(dirname(statePath), 'projection.json'),
+      JSON.stringify({
+        ok: true,
+        projectionVersion: 1,
+        updatedAt: generatedAt,
+        run: { id: 'solo', name: 'Solo', status: 'executing', updatedAt: generatedAt, vcs },
+        tasks: [],
+        artifacts: [],
+      }),
+      'utf8',
+    )
+    return (await readSprintEngineSnapshot(statePath)).vcs
+  }))
+
+  assert.equal(vcsBlocks[1]?.repos, undefined, 'a single-repo run omits the list its primary block already carries')
+  assert.equal(
+    JSON.stringify(vcsBlocks[1]),
+    JSON.stringify(vcsBlocks[0]),
+    'declaring the one-entry list changes nothing on the wire',
+  )
 }
 
 async function assertProjectionSnapshotPassesProtocolValidation(): Promise<void> {
