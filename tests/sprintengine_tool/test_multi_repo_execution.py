@@ -361,7 +361,6 @@ def test_task_trees_resolve_from_the_task_repo(tmp_path) -> None:
     assert shell.worktree_for_task(state, fixture.state_path, primary_task) == fixture.team_dir / "worktree"
     assert shell.worktree_for_task(state, fixture.state_path, mobile_task) == fixture.team_dir / "worktree-mobile"
     assert shell.worktree_for_task(state, fixture.state_path, defaulted_task) == fixture.team_dir / "worktree"
-    assert shell.primary_run_worktree(state, fixture.state_path) == fixture.team_dir / "worktree"
 
     try:
         shell.worktree_for_task(state, fixture.state_path, {"id": "T4", "repo": "relay"})

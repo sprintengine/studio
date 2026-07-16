@@ -482,20 +482,6 @@ def _repo_worktree(state_path: Path, repo: Dict[str, Any]) -> Optional[Path]:
     return resolve_vcs_path(workspace_root_for_state_path(state_path), value)
 
 
-def primary_run_worktree(state: Dict[str, Any], state_path: Path) -> Optional[Path]:
-    """The primary repo's run worktree, or None outside worktree mode.
-
-    The run-level tree: the branch a pull request is opened from and the checkout
-    teardown removes. Work belonging to a task resolves through
-    :func:`worktree_for_task` instead — on a multi-repo run those are different
-    trees, and only the task knows which one its paths live in.
-    """
-    vcs = get_run_vcs(state)
-    if not vcs:
-        return None
-    return _repo_worktree(state_path, vcs_repos(vcs)[0])
-
-
 def repo_for_task(state: Dict[str, Any], task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """The declared repo entry a task's changes belong in, None outside worktree mode.
 
