@@ -1270,24 +1270,18 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
   if (record.mode !== 'run_worktree') return undefined
-  const worktreePath = optionalTrimmedString(record.worktreePath)
-  const branchName = optionalTrimmedString(record.branchName)
-  if (!worktreePath || !branchName) return undefined
-  const primary: SprintEngineVcsRepo = {
-    id: primaryRepoId,
-    root: primaryRepoRoot,
-    worktreePath,
-    branchName,
-    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
-    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
-    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
-  }
+  // The flat block IS the primary repo in the other shape: same key names, same
+  // values, only `id`/`root` implied. Deriving entry zero from it means one field
+  // mapping serves both shapes and they cannot drift apart as the entry grows.
+  const primary = normalizeSprintEngineVcsRepo({ ...record, id: primaryRepoId, root: primaryRepoRoot })
+  // No worktree path or branch: not a run this app can resolve a tree for.
+  if (!primary) return undefined
   return {
     mode: 'run_worktree',
-    worktreePath,
-    branchName,
-    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
-    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
+    worktreePath: primary.worktreePath,
+    branchName: primary.branchName,
+    ...(primary.baseRef ? { baseRef: primary.baseRef } : {}),
+    ...(primary.status ? { status: primary.status } : {}),
     pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
     pullRequestError: typeof record.pullRequestError === 'string' ? record.pullRequestError : null,
     pullRequestState:
@@ -1296,7 +1290,7 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
       record.pullRequestState === 'closed'
         ? record.pullRequestState
         : null,
-    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+    lastCommitSha: primary.lastCommitSha,
     repos: normalizeSprintEngineVcsRepos(record, primary),
   }
 }
