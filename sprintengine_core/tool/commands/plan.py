@@ -25,6 +25,7 @@ from sprintengine_core.tool.plans import (
     safe_review_filename,
 )
 from sprintengine_core.tool.roles import require_configured_role
+from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle
 from sprintengine_core.tool.state import (
     append_event,
     ensure_role_in_roster,
@@ -132,10 +133,14 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             getattr(args, "difficulty_reason", "") or "",
         )
 
+        candidates = [candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)]
         try:
-            folder_store.validate_acyclic_task_graph([candidate for candidate in state.get("tasks", []) if isinstance(candidate, dict)])
+            folder_store.validate_acyclic_task_graph(candidates)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        # Re-targeting a task's project rewrites the repo graph under dependencies that
+        # were legal where the task used to live, so the loop check belongs here too.
+        assert_no_repo_dependency_cycle(candidates)
         recompute_phase(state)
         event = append_event(state, "task_updated", args.actor, f"{args.actor} updated {args.task_id}.")
         return {"ok": True, "task": task, "event": event}
@@ -205,6 +210,9 @@ def cmd_plan_add_dependency(args: argparse.Namespace) -> Dict[str, Any]:
             folder_store.validate_acyclic_task_graph(candidate_tasks)
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
+        # An orderable TASK graph can still be an unorderable REPO graph: the new edge
+        # may be the one that makes two projects each wait for the other to merge.
+        assert_no_repo_dependency_cycle(candidate_tasks)
         added = add_unique_values(task, "dependsOn", deps)
         recompute_phase(state)
         event = append_event(state, "task_dependencies_added", args.actor, f"{args.actor} added dependencies to {args.task_id}: {', '.join(added) or 'none'}.")

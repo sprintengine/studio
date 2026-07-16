@@ -86,6 +86,7 @@ export const sprintEngineModule: CapabilityModule = {
         return result
       },
       createPullRequest: artifacts.createPullRequest,
+      mergePullRequest: artifacts.mergePullRequest,
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
       setRoleRuntime: artifacts.setRoleRuntime,
       enableRole: artifacts.enableRole,

@@ -62,6 +62,7 @@ async function main(): Promise<void> {
   await assertBacklogStartLinksTheRunThroughASymlinkedWorkspaceRoot()
   await assertBacklogStartRollsBackTheRunStoreWhenInitFails()
   await assertOpenPullRequestLinksThePrToItsBacklogItem()
+  await assertOpenPullRequestReturnsAndLinksEveryProjectsPullRequest()
   await assertBacklogStartRejectsPathOutsideBacklogFolder()
   await assertBacklogCreateWritesFileAndRecord()
   await assertBacklogCreateRejectsEmptyTitle()
@@ -640,6 +641,72 @@ async function assertOpenPullRequestLinksThePrToItsBacklogItem(): Promise<void> 
   assert.equal(prLink?.type, 'external')
   const frontmatter = parseBacklogFrontmatter(await readFile(join(fixture.workspaceRoot, 'backlog', 'feature.md'), 'utf8'))
   assert.equal(frontmatter.fields.status, 'in_progress')
+}
+
+async function assertOpenPullRequestReturnsAndLinksEveryProjectsPullRequest(): Promise<void> {
+  // MC-1612: a run spanning projects opens one pull request per project. The phone
+  // must be told about all of them, and the item must link all of them — a single
+  // link would silently hide half of what the sprint delivered.
+  const fixture = await writeSprintEngineFixture('multi-pr-team', '.multi-code/sprintengine/multi-pr-team/documents/requirements.md')
+  await mkdir(join(fixture.workspaceRoot, 'backlog'), { recursive: true })
+  await writeFile(
+    join(fixture.workspaceRoot, 'backlog', 'feature.md'),
+    '---\ntype: feature\nstatus: in_progress\n---\n\n# Ship it\n\nBody.\n',
+    'utf8'
+  )
+  await addOrUpdateBacklogLink({
+    workspaceRoot: fixture.workspaceRoot,
+    relativePath: 'backlog/feature.md',
+    link: buildSprintEngineRunLink({
+      teamSlug: 'multi-pr-team',
+      runRelativePath: '.multi-code/sprintengine/multi-pr-team/run.yaml',
+    }),
+  })
+
+  const service = new MobileSprintEngineCommandService({
+    workspaceRoot: fixture.workspaceRoot,
+    statePaths: [fixture.statePath],
+    now: () => now,
+    // The real multi-project `vcs pr`: every project under `repos` (each naming
+    // itself the way a person says it), the primary's url still at the top level.
+    execute: async () => ({
+      exitCode: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        action: 'vcs_pr',
+        pullRequestUrl: 'https://github.com/acme/repo/pull/9',
+        repos: [
+          { repo: 'primary', ok: true, project: 'multicode', pullRequestUrl: 'https://github.com/acme/repo/pull/9' },
+          { repo: 'mobile', ok: true, project: 'multicode-mobile', pullRequestUrl: 'https://github.com/acme/mobile/pull/3' },
+        ],
+      }),
+      stderr: '',
+    }),
+  })
+
+  const result = await service.dispatch(command('sprintengine.openPullRequest', { sprintEngineId: 'multi-pr-team' }))
+  assert.equal(result.ok, true)
+
+  // Additive only: `pullRequests` rides beside the fields the phone already knows,
+  // so the protocol stays v2 and no new scope is needed.
+  const data = result.ok ? (result.data as { pullRequestUrl?: string; pullRequests?: unknown[] }) : {}
+  assert.equal(data.pullRequestUrl, 'https://github.com/acme/repo/pull/9')
+  assert.deepEqual(data.pullRequests, [
+    { repo: 'primary', url: 'https://github.com/acme/repo/pull/9', repoLabel: 'multicode' },
+    { repo: 'mobile', url: 'https://github.com/acme/mobile/pull/3', repoLabel: 'multicode-mobile' },
+  ])
+
+  const items = await readBacklogStoreItems(fixture.workspaceRoot)
+  const links = items.find((item) => item.source.relativePath === 'backlog/feature.md')?.links ?? []
+  // One link per project. The primary keeps the id it has always had, so a
+  // single-project run's link is untouched; the sibling gets its own.
+  const primaryLink = links.find((link) => link.id === 'sprint-engine:pull-request')
+  const mobileLink = links.find((link) => link.id === 'sprint-engine:pull-request:mobile')
+  assert.equal(primaryLink?.target.url, 'https://github.com/acme/repo/pull/9')
+  assert.equal(primaryLink?.label, 'Pull request (multicode)')
+  assert.equal(mobileLink?.target.url, 'https://github.com/acme/mobile/pull/3')
+  assert.equal(mobileLink?.label, 'Pull request (multicode-mobile)')
+  assert.equal(mobileLink?.type, 'external')
 }
 
 async function assertArtifactApproveInvokesSprintEngineTool(): Promise<void> {

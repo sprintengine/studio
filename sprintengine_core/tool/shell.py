@@ -848,17 +848,23 @@ def _repo_display_name(workspace_root: Path, repo: Dict[str, Any]) -> str:
     return name or str(repo.get("id") or "project")
 
 
-def _cross_repo_merge_edges(state: Dict[str, Any]) -> List[List[str]]:
+def _state_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [task for task in (state.get("tasks") or []) if isinstance(task, dict)]
+
+
+def cross_repo_merge_edges(tasks: List[Dict[str, Any]]) -> List[List[str]]:
     """``[producer, consumer]`` repo pairs implied by cross-repo task dependencies.
 
     A task in one project depending on a task in another says the other project's
     pull request must land first — otherwise the consumer merges against work that is
     not on its base yet. Dependencies inside one project say nothing about merge
     order: a single pull request carries both ends.
+
+    Takes the tasks rather than the run state so the planner can ask the same
+    question of a plan it is only considering.
     """
     from sprintengine_core import store as folder_store
 
-    tasks = [task for task in (state.get("tasks") or []) if isinstance(task, dict)]
     repo_by_task = {str(task.get("id") or ""): folder_store.task_repo(task) for task in tasks}
     edges: List[List[str]] = []
     for task in tasks:
@@ -870,6 +876,61 @@ def _cross_repo_merge_edges(state: Dict[str, Any]) -> List[List[str]]:
     return edges
 
 
+def repo_dependency_cycle(tasks: List[Dict[str, Any]]) -> List[str]:
+    """One loop in the repo merge order these tasks induce, or ``[]`` when there is none.
+
+    The task graph being acyclic does not make the REPO graph acyclic: a mobile task
+    waiting on a desktop task and a desktop task waiting on a different mobile task are
+    two perfectly orderable tasks whose projects each have to merge before the other.
+    No merge order exists for that run, and nothing downstream can invent one — so it
+    is refused where it is authored (:func:`assert_no_repo_dependency_cycle`).
+
+    Returned as the loop a person can read, first repo repeated at the end
+    (``["mobile", "primary", "mobile"]``).
+    """
+    successors: Dict[str, List[str]] = {}
+    for producer, consumer in cross_repo_merge_edges(tasks):
+        successors.setdefault(producer, []).append(consumer)
+
+    settled: set[str] = set()
+
+    def walk(repo_id: str, path: List[str]) -> List[str]:
+        if repo_id in path:
+            return [*path[path.index(repo_id) :], repo_id]
+        if repo_id in settled:
+            return []
+        for consumer in successors.get(repo_id, []):
+            found = walk(consumer, [*path, repo_id])
+            if found:
+                return found
+        settled.add(repo_id)
+        return []
+
+    for repo_id in successors:
+        cycle = walk(repo_id, [])
+        if cycle:
+            return cycle
+    return []
+
+
+def assert_no_repo_dependency_cycle(tasks: List[Dict[str, Any]]) -> None:
+    """Refuse a plan whose projects would each have to merge before the other.
+
+    Raises with the loop named, because "there is a cycle" is not something the author
+    can act on: they need to know which two pieces of work are pointing at each other.
+    """
+    cycle = repo_dependency_cycle(tasks)
+    if not cycle:
+        return
+    raise SystemExit(
+        "This would make the projects wait on each other: " + " → ".join(cycle) + ". "
+        "Each step is work in one project that builds on work in another, so that other project "
+        "has to merge first — and around this loop every project is waiting for the next one, so "
+        "none of them could ever merge. Depend on the work in one direction only, or move one of "
+        "the tasks into the project it depends on."
+    )
+
+
 def repo_merge_order(state: Dict[str, Any], repo_ids: List[str]) -> List[str]:
     """The given repos in the order their pull requests must merge.
 
@@ -879,7 +940,11 @@ def repo_merge_order(state: Dict[str, Any], repo_ids: List[str]) -> List[str]:
     rather than being dropped — an order a reviewer can question beats a body that
     silently omits a pull request.
     """
-    edges = [edge for edge in _cross_repo_merge_edges(state) if edge[0] in repo_ids and edge[1] in repo_ids]
+    edges = [
+        edge
+        for edge in cross_repo_merge_edges(_state_tasks(state))
+        if edge[0] in repo_ids and edge[1] in repo_ids
+    ]
     remaining = list(repo_ids)
     ordered: List[str] = []
     while remaining:
@@ -917,7 +982,9 @@ def _companion_pull_request_lines(
     if len(listed) < 2 or repo_id not in urls:
         return []
     name_of = {listed_id: _repo_display_name(workspace_root, by_id[listed_id]) for listed_id in listed}
-    ordering = [edge for edge in _cross_repo_merge_edges(state) if edge[0] in urls and edge[1] in urls]
+    ordering = [
+        edge for edge in cross_repo_merge_edges(_state_tasks(state)) if edge[0] in urls and edge[1] in urls
+    ]
     lines = ["", "## Companion pull requests", ""]
     if ordering:
         lines += [f"This sprint spans {len(listed)} projects. Merge these pull requests in this order:", ""]
@@ -1190,6 +1257,13 @@ def create_run_pull_request(
     # Pass two: now that every url exists, give each body its companion links.
     body_failures = _sync_companion_bodies(state, workspace_root, repos, urls, worktrees, body_override=body)
 
+    # Every project also reports the name a person calls it, so the surfaces that show
+    # these pull requests (the app, the phone, the Backlog item's links) label them the
+    # same way the pull request bodies do instead of each deriving it again.
+    names = {repo["id"]: _repo_display_name(workspace_root, repo) for repo in repos}
+    for entry in results:
+        entry["project"] = names.get(entry["repo"], entry["repo"])
+
     primary = next((result for result in results if result["repo"] == PRIMARY_REPO_ID), {})
     failures = [result for result in results if not result.get("ok")]
     error = failures[0].get("error") if failures else None
@@ -1319,6 +1393,176 @@ def cleanup_merged_worktree(state: Dict[str, Any], state_path: Path) -> Dict[str
             )
     primary = outcomes.get(PRIMARY_REPO_ID, {"removed": False, "reason": "missing"})
     return {**primary, "repos": [{"repo": repo_id, **outcome} for repo_id, outcome in outcomes.items()]}
+
+
+# How `gh` is asked to land a branch. A merge commit is the default because it is the
+# only method that leaves the branch tip an ancestor of its base, which is the signal
+# `_refresh_repo_pull_request_state` falls back on when GitHub cannot be reached.
+VALID_MERGE_METHODS = {"merge", "squash", "rebase"}
+
+
+def _repos_that_must_merge_first(state: Dict[str, Any], repos: List[Dict[str, Any]], repo_id: str) -> List[str]:
+    """Every project this one's pull request has to wait for, in merge order.
+
+    Transitive: mobile waiting on desktop waiting on shared means mobile waits for
+    shared too, even though no task of mobile's names one of shared's. A project that
+    delivered nothing (no pull request and no commits) is not in anyone's way.
+    """
+    known = {repo["id"] for repo in repos}
+    producers: Dict[str, List[str]] = {}
+    for producer, consumer in cross_repo_merge_edges(_state_tasks(state)):
+        if producer in known and consumer in known:
+            producers.setdefault(consumer, []).append(producer)
+
+    required: List[str] = []
+    pending = [repo_id]
+    while pending:
+        for producer in producers.get(pending.pop(), []):
+            if producer not in required:
+                required.append(producer)
+                pending.append(producer)
+
+    by_id = {repo["id"]: repo for repo in repos}
+    unmerged = [
+        candidate
+        for candidate in required
+        if by_id[candidate].get("pullRequestState") != "merged"
+        and (_optional_str(by_id[candidate].get("pullRequestUrl")) or _optional_str(by_id[candidate].get("lastCommitSha")))
+    ]
+    return [candidate for candidate in repo_merge_order(state, [repo["id"] for repo in repos]) if candidate in unmerged]
+
+
+def _merge_order_refusal(workspace_root: Path, repos: List[Dict[str, Any]], repo: Dict[str, Any], blockers: List[str]) -> str:
+    """Why this pull request cannot merge yet, in the words of the person merging it."""
+    by_id = {entry["id"]: entry for entry in repos}
+    name = _repo_display_name(workspace_root, repo)
+    lines = [f"{name} cannot merge yet, because the work in it builds on work in another project:"]
+    for blocker in blockers:
+        blocker_name = _repo_display_name(workspace_root, by_id[blocker])
+        waiting = (
+            "its pull request is still open"
+            if _optional_str(by_id[blocker].get("pullRequestUrl"))
+            else "it does not have a pull request open yet"
+        )
+        lines.append(f"- {blocker_name} has to merge first — {waiting}.")
+    lines.append(
+        f"Merging {name} now would put its branch on a base that is missing that work. "
+        "Merge the pull request(s) above first, then this one."
+    )
+    return "\n".join(lines)
+
+
+def merge_repo_pull_request(
+    state: Dict[str, Any],
+    state_path: Path,
+    *,
+    repo_id: str = PRIMARY_REPO_ID,
+    method: str = "merge",
+    actor: str = "user",
+) -> Dict[str, Any]:
+    """Merge ONE project's pull request, in the app, refusing an out-of-order merge.
+
+    Merging is a human decision and stays one: this only ever runs because a person
+    asked for this project, now. What it does own is the ORDER — a run spanning projects
+    delivers pull requests that build on each other, and merging the consumer first
+    lands it on a base without the work it needs. The pull request bodies say so for
+    anyone merging on GitHub directly (:func:`_companion_pull_request_lines`); here,
+    where the app owns the button, it is refused outright.
+
+    Idempotent: every project's merge state is re-probed first, so a pull request that
+    already merged (through this command, the GitHub UI, or a manual branch merge)
+    reports success without a second `gh` call, and the ordering check is decided on
+    what is true now rather than on what the store last heard.
+
+    Best-effort like the rest of the pull-request pipeline: a `gh` failure comes back as
+    ``ok: False`` with its reason, never as an exception.
+    """
+    from sprintengine_core.tool.state import append_event
+
+    if method not in VALID_MERGE_METHODS:
+        return {"ok": False, "error": f"Unknown merge method {method!r}; use one of: {', '.join(sorted(VALID_MERGE_METHODS))}."}
+
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return {"ok": False, "error": "Sprint Engine run is not in worktree mode; there is no pull request to merge."}
+
+    workspace_root = workspace_root_for_state_path(state_path)
+    repos = vcs_repos(vcs)
+    if not any(repo["id"] == repo_id for repo in repos):
+        return {
+            "ok": False,
+            "error": (
+                f"This sprint does not work in project {repo_id!r}. "
+                f"This sprint's projects are: {', '.join(repo['id'] for repo in repos)}."
+            ),
+        }
+
+    # Both decisions below — "is it already merged" and "may it merge yet" — are only as
+    # true as the states they read, so refresh every project first rather than trusting
+    # whatever the last poll happened to store.
+    for entry in repos:
+        entry["pullRequestState"] = _refresh_repo_pull_request_state(state_path, entry)
+        _set_repo_field(vcs, entry["id"], "pullRequestState", entry["pullRequestState"])
+    repo = next(entry for entry in repos if entry["id"] == repo_id)
+    result = {"repo": repo_id, "pullRequestUrl": _optional_str(repo.get("pullRequestUrl"))}
+
+    if repo["pullRequestState"] == "merged":
+        return {**result, "ok": True, "merged": True, "alreadyMerged": True, **_cleanup_after_merge(state, state_path, repo)}
+    if repo["pullRequestState"] == "closed":
+        return {**result, "ok": False, "error": f"The pull request for {_repo_display_name(workspace_root, repo)} was closed without merging."}
+    url = result["pullRequestUrl"]
+    if not url:
+        return {
+            **result,
+            "ok": False,
+            "error": f"{_repo_display_name(workspace_root, repo)} has no pull request to merge yet. Open one first.",
+        }
+
+    blockers = _repos_that_must_merge_first(state, repos, repo_id)
+    if blockers:
+        return {**result, "ok": False, "blockedBy": blockers, "error": _merge_order_refusal(workspace_root, repos, repo, blockers)}
+
+    worktree = _repo_worktree(state_path, repo)
+    cwd = worktree if (worktree and worktree.exists()) else resolve_vcs_path(workspace_root, repo["root"])
+    try:
+        merged = run_gh_checked(cwd, ["pr", "merge", url, f"--{method}"], allow_failure=True)
+    except SystemExit as exc:
+        return {**result, "ok": False, "error": str(exc)}
+    if merged.returncode != 0:
+        return {**result, "ok": False, "error": merged.stderr.strip() or merged.stdout.strip() or "gh pr merge failed"}
+
+    # Read the merge back from GitHub rather than assuming a zero exit means merged:
+    # the store's merge state drives worktree cleanup and the run's glyph, and both are
+    # worse wrong than late.
+    repo["pullRequestState"] = _refresh_repo_pull_request_state(state_path, repo)
+    _set_repo_field(vcs, repo_id, "pullRequestState", repo["pullRequestState"])
+    if repo["pullRequestState"] != "merged":
+        return {
+            **result,
+            "ok": False,
+            "pullRequestState": repo["pullRequestState"],
+            "error": (
+                f"GitHub accepted the merge for {_repo_display_name(workspace_root, repo)} but still reports the "
+                "pull request unmerged. Check it on GitHub before merging anything that depends on it."
+            ),
+        }
+    append_event(state, "run_pull_request_merged", actor, f"{actor} merged the pull request for {repo['branchName']} in {repo_id}: {url}.")
+    return {**result, "ok": True, "merged": True, "alreadyMerged": False, **_cleanup_after_merge(state, state_path, repo)}
+
+
+def _cleanup_after_merge(state: Dict[str, Any], state_path: Path, repo: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove this project's tree now that its branch landed, and report the outcome.
+
+    Only this project's: the other projects' trees are still live work
+    (:func:`cleanup_merged_worktree` is the same rule applied to all of them).
+    """
+    from sprintengine_core.tool.state import append_event
+
+    workspace_root = workspace_root_for_state_path(state_path)
+    outcome = _cleanup_repo_worktree(state_path, workspace_root, repo)
+    if outcome["removed"]:
+        append_event(state, "run_worktree_removed", "sprintengine", f"Removed merged run worktree {repo['worktreePath']}.")
+    return {"worktreeCleanup": outcome}
 
 
 def _cleanup_repo_worktree(state_path: Path, workspace_root: Path, repo: Dict[str, Any]) -> Dict[str, Any]:

@@ -15,8 +15,9 @@ import { isBacklogEpicPath } from './backlogEpics'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './sprintengine'
 import {
   buildSprintEnginePullRequestLink,
+  sprintEnginePullRequestLinksOf,
+  sprintEngineRepoDisplayName,
   sprintEngineStatePathForBacklogLink,
-  SPRINT_ENGINE_PR_LINK_ID,
 } from './sprintengineBacklogLinks'
 import { tearDownCompletedSprintRunAgents } from './sprintengineRunTeardown'
 
@@ -350,6 +351,32 @@ function normalizedPathKey(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
+/**
+ * The pull requests this run has, one per project it opened one for (MC-1612).
+ *
+ * A run spanning projects delivers one branch per project and therefore one pull
+ * request per project, so the Backlog item carries one link each. `vcs.repos` is
+ * always populated — a run stored before the list existed normalizes to a one-entry
+ * primary — so this reads the list alone and single-repo runs come out as the one
+ * unlabeled pull request they always were.
+ */
+function sprintEnginePullRequestsOf(
+  state: SprintEngineState,
+  workspaceRoot: string,
+): { repoId: string; url: string; repoLabel?: string }[] {
+  const repos = state.vcs?.repos ?? []
+  const multiProject = repos.length > 1
+  return repos.flatMap((repo) => {
+    const url = repo.pullRequestUrl?.trim()
+    if (!url) return []
+    return [{
+      repoId: repo.id,
+      url,
+      ...(multiProject ? { repoLabel: sprintEngineRepoDisplayName({ workspaceRoot, root: repo.root }) } : {}),
+    }]
+  })
+}
+
 async function refreshBacklogSprintEngineRunLinks(input: {
   workspace: Workspace
   state: SprintEngineState
@@ -381,7 +408,7 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   }
 
   const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
-  const pullRequestUrl = state.vcs?.pullRequestUrl?.trim() || null
+  const pullRequests = sprintEnginePullRequestsOf(state, workspace.folderPath)
   for (const record of storeResult.store.items) {
     // An epic carries the run's execution link too, but its lifecycle derives UP
     // from its children (see nextBacklogItemStatusFromLinks) — a finished run must
@@ -423,29 +450,36 @@ async function refreshBacklogSprintEngineRunLinks(input: {
       }
     }
 
-    // Attach the completed sprint's pull request to its originating item. Only
-    // when this record links to the current run and a PR exists; skipped when
-    // the same URL is already linked so the per-tick reconcile does not churn
-    // the store. `external` is lifecycle-neutral, so no item-status change.
-    if (matchedThisRun && pullRequestUrl) {
-      const existingPr = (record.links ?? []).find((link) => link.id === SPRINT_ENGINE_PR_LINK_ID)
-      if (existingPr?.target.url !== pullRequestUrl) {
-        const now = new Date(ports.now?.() ?? Date.now()).toISOString()
-        const prResult = await ports.addOrUpdateBacklogLink({
-          workspaceRoot: workspace.folderPath,
-          relativePath: record.source.relativePath,
-          link: buildSprintEnginePullRequestLink({ pullRequestUrl, updatedAt: now }),
+    // Attach the completed sprint's pull requests to its originating item — one per
+    // project it delivered (MC-1612). Only when this record links to the current run;
+    // a project whose URL is already linked is skipped so the per-tick reconcile does
+    // not churn the store. `external` is lifecycle-neutral, so no item-status change.
+    if (!matchedThisRun) continue
+    const existingByLinkId = new Map(
+      sprintEnginePullRequestLinksOf(record.links ?? []).map((link) => [link.id, link.target.url]),
+    )
+    for (const pullRequest of pullRequests) {
+      const link = buildSprintEnginePullRequestLink({
+        pullRequestUrl: pullRequest.url,
+        updatedAt: new Date(ports.now?.() ?? Date.now()).toISOString(),
+        repoId: pullRequest.repoId,
+        repoLabel: pullRequest.repoLabel,
+      })
+      if (existingByLinkId.get(link.id) === pullRequest.url) continue
+      const prResult = await ports.addOrUpdateBacklogLink({
+        workspaceRoot: workspace.folderPath,
+        relativePath: record.source.relativePath,
+        link,
+      })
+      if (!prResult.ok) {
+        await ports.publishDiagnostic?.({
+          level: 'warning',
+          source: 'sprintengine',
+          title: 'Backlog link refresh failed',
+          message: prResult.message,
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
         })
-        if (!prResult.ok) {
-          await ports.publishDiagnostic?.({
-            level: 'warning',
-            source: 'sprintengine',
-            title: 'Backlog link refresh failed',
-            message: prResult.message,
-            workspaceId: workspace.id,
-            workspaceName: workspace.name,
-          })
-        }
       }
     }
   }

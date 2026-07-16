@@ -12,7 +12,7 @@ from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.shell import worktree_for_task
+from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle, worktree_for_task
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
 def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
@@ -842,6 +842,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         folder_store.validate_acyclic_task_graph([*state.get("tasks", []), task])
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    assert_no_repo_dependency_cycle([*state.get("tasks", []), task])
     return task
 
 def task_ids(state: Dict[str, Any]) -> set:

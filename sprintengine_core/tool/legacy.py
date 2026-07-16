@@ -881,6 +881,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = vcs_sub.add_parser("pr-status", help="Resolve and persist whether the run branch has merged (PR state or branch ancestry).")
     p.set_defaults(handler=run_commands.vcs_pr_status)
 
+    p = vcs_sub.add_parser(
+        "pr-merge",
+        help="Merge one project's pull request via the GitHub CLI. Refuses while a project it depends on is unmerged.",
+    )
+    p.add_argument("--repo", default="primary", help="Declared project whose pull request to merge. Defaults to this project.")
+    p.add_argument("--method", default="merge", choices=["merge", "squash", "rebase"], help="How GitHub should land the branch.")
+    p.add_argument("--id", default="user", help="Actor id performing the merge.")
+    p.set_defaults(handler=run_commands.vcs_pr_merge)
+
     return parser
 
 

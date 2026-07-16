@@ -379,10 +379,56 @@ function statePathFromHandover(data: unknown): string | null {
 
 // `vcs pr` answers with the pull request it opened (or the one already open — it
 // is idempotent).
-function pullRequestUrlFromVcsPr(data: unknown): string | null {
-  if (typeof data !== 'object' || data === null) return null
-  const url = (data as { pullRequestUrl?: unknown }).pullRequestUrl
-  return typeof url === 'string' && url.trim().length > 0 ? url.trim() : null
+function trimmedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+// One project's pull request, as `vcs pr` reported it.
+export type MobileSprintEnginePullRequest = {
+  repo: string
+  url: string
+  /** The project's name as a person says it; absent on a single-project run. */
+  repoLabel?: string
+  error?: string
+}
+
+/**
+ * The pull requests `vcs pr` opened, one per project the run delivered (MC-1612).
+ *
+ * The engine reports every project under `repos` and keeps the primary's url at the
+ * top level, where every surface that predates the list still reads it. Read the list
+ * when it is there and fall back to the flat field, so a run whose store predates the
+ * list still yields its one pull request.
+ *
+ * Projects with no url (no commits, or an open that failed) are not pull requests and
+ * are not returned; a project that FAILED carries its reason so the phone can say why
+ * rather than silently showing one link where two were expected.
+ */
+export function pullRequestsFromVcsPr(data: unknown): MobileSprintEnginePullRequest[] {
+  if (typeof data !== 'object' || data === null) return []
+  const repos = (data as { repos?: unknown }).repos
+  if (!Array.isArray(repos)) {
+    const url = trimmedString((data as { pullRequestUrl?: unknown }).pullRequestUrl)
+    return url ? [{ repo: 'primary', url }] : []
+  }
+  const pullRequests: MobileSprintEnginePullRequest[] = []
+  for (const entry of repos) {
+    if (typeof entry !== 'object' || entry === null) continue
+    const repo = trimmedString((entry as { repo?: unknown }).repo)
+    const url = trimmedString((entry as { pullRequestUrl?: unknown }).pullRequestUrl)
+    if (!repo || !url) continue
+    const error = trimmedString((entry as { error?: unknown }).error)
+    pullRequests.push({
+      repo,
+      url,
+      // The project's name only means something next to another project's. On a
+      // single-project run there is nothing to tell apart, and the label it has
+      // always had is the right one.
+      ...(repos.length > 1 ? { repoLabel: trimmedString((entry as { project?: unknown }).project) ?? repo } : {}),
+      ...(error ? { error } : {}),
+    })
+  }
+  return pullRequests
 }
 
 export class MobileSprintEngineCommandService {
@@ -604,6 +650,12 @@ export class MobileSprintEngineCommandService {
   // refuses a run with no worktree branch, and records `pullRequestError` on
   // failure. `vcs pr` rebuilds the projection, so the follow-up snapshot carries
   // the new PR URL/status — no separate `pr-status` refresh is needed here.
+  //
+  // MC-1612: a run spanning projects opens ONE PULL REQUEST PER PROJECT, so the
+  // result carries the list. The added `pullRequests` field is additive and the
+  // legacy `pullRequestUrl` the engine keeps at the top level is untouched: relay
+  // scopes freeze at pair time, so the protocol stays v2 and a phone that only
+  // knows the single-PR shape keeps working against a multi-project run.
   private async executeOpenPullRequestCommand(
     command: Extract<MobileControlCommand, { type: 'sprintengine.openPullRequest' }>,
     scope: MobileSprintEngineCommandScope
@@ -620,25 +672,36 @@ export class MobileSprintEngineCommandService {
       return result
     }
 
-    // Attach the PR to the backlog item that started this run. The renderer does
-    // this on a projection tick, but that tick only runs with the desktop UI
-    // mounted on the workspace — and a phone-driven run has nobody at the desktop.
-    // Best-effort: the PR is already open, so a store hiccup must not fail the
-    // command (and `vcs pr` is idempotent, so a retry re-attaches).
-    const pullRequestUrl = pullRequestUrlFromVcsPr(result.data)
-    if (pullRequestUrl) {
+    // Attach every project's PR to the backlog item that started this run. The
+    // renderer does this on a projection tick, but that tick only runs with the
+    // desktop UI mounted on the workspace — and a phone-driven run has nobody at the
+    // desktop. Best-effort: the PRs are already open, so a store hiccup must not fail
+    // the command (and `vcs pr` is idempotent, so a retry re-attaches).
+    const pullRequests = pullRequestsFromVcsPr(result.data)
+    if (pullRequests.length) {
       const linked = await attachSprintEnginePullRequestLink({
         workspaceRoot: state.workspaceRoot,
         statePath: state.statePath,
-        pullRequestUrl,
+        pullRequests: pullRequests.map((pullRequest) => ({
+          repoId: pullRequest.repo,
+          url: pullRequest.url,
+          repoLabel: pullRequest.repoLabel,
+        })),
         now: this.now,
       })
       if (!linked.ok) {
-        console.warn(`[mobile] Opened pull request ${pullRequestUrl} but could not link it to its backlog item: ${linked.message}`)
+        const urls = pullRequests.map((pullRequest) => pullRequest.url).join(', ')
+        console.warn(`[mobile] Opened pull request(s) ${urls} but could not link them to their backlog item: ${linked.message}`)
       }
     }
 
-    return result
+    return {
+      ...result,
+      data:
+        typeof result.data === 'object' && result.data !== null
+          ? { ...(result.data as Record<string, unknown>), pullRequests }
+          : result.data,
+    }
   }
 
   // MC-1497: set the run's three-state automation mode. The authoritative mode

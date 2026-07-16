@@ -1068,6 +1068,22 @@ def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_vcs_pr_merge(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.shell import merge_repo_pull_request
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        result = merge_repo_pull_request(
+            state,
+            args.state,
+            repo_id=str(getattr(args, "repo", None) or "primary").strip() or "primary",
+            method=str(getattr(args, "method", None) or "merge"),
+            actor=str(getattr(args, "id", None) or "user"),
+        )
+        return {"action": "vcs_pr_merge", **result}
+
+    return with_locked_state(args.state, run)
+
+
 def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import cleanup_merged_worktree, refresh_run_pull_request_state
 
@@ -1487,3 +1503,4 @@ vcs_status = cmd_vcs_status
 vcs_commit = cmd_vcs_commit
 vcs_pr = cmd_vcs_pr
 vcs_pr_status = cmd_vcs_pr_status
+vcs_pr_merge = cmd_vcs_pr_merge

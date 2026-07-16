@@ -20,6 +20,9 @@ export {
   SPRINT_ENGINE_RUN_TARGET_KIND,
   buildSprintEnginePullRequestLink,
   buildSprintEngineRunLink,
+  sprintEnginePullRequestLinkId,
+  sprintEnginePullRequestLinksOf,
+  sprintEngineRepoDisplayName,
   sprintEngineRunLinkId,
 } from '../../../shared/backlog/sprintengine-links'
 

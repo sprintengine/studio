@@ -27,6 +27,7 @@ import type {
   SprintEngineArtifactReviewMode,
   SprintEngineArtifactReviewPayload,
   SprintEngineProjectionReadPayload,
+  SprintEngineVcsMergePayload,
   SprintEngineVcsPayload,
 } from './ipc/sprintengine-ipc'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
@@ -114,6 +115,8 @@ type SerializableSprintEngineStatePayload = {
   events: unknown[]
   artifacts: unknown[]
   useWorktrees: boolean
+  /** The other projects this run also changes; empty for a single-project run. */
+  repos: Array<{ id: string; root: string }>
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
   enabledRoles: string[]
   rosterSource: 'user' | 'architect' | null
@@ -381,6 +384,7 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     events: resolveArray(payload?.events, 'sprint events'),
     artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
+    repos: resolveInitRepos(payload?.repos),
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
     rosterSource: resolveRosterSource(payload?.rosterSource),
@@ -400,6 +404,23 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
 function resolveDefaultPhases(input: SprintEngineStateInitializeInput['defaultPhases']): string[] | null {
   if (!Array.isArray(input)) return null
   return input.filter((phase): phase is string => typeof phase === 'string' && phase.trim().length > 0)
+}
+
+// The other projects the run also changes (MC-1613). An empty list is the same as
+// absent — a run in one project — so the flag is only forwarded when non-empty.
+// Entries are passed through with only the shape check the CLI needs; the engine
+// owns every real rule (a usable id, `primary` reserved, no duplicate id, a real
+// git repo root outside this project) and rejects a bad one with a plain-language
+// reason rather than this silently correcting it.
+function resolveInitRepos(input: SprintEngineStateInitializeInput['repos']): Array<{ id: string; root: string }> {
+  if (!Array.isArray(input)) return []
+  const repos: Array<{ id: string; root: string }> = []
+  for (const entry of input) {
+    const id = typeof entry?.id === 'string' ? entry.id.trim() : ''
+    const root = typeof entry?.root === 'string' ? entry.root.trim() : ''
+    if (id && root) repos.push({ id, root })
+  }
+  return repos
 }
 
 // Mandated sweep roles. Unlike `defaultPhases`, an empty list is the same as absent
@@ -601,6 +622,11 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   const args = ['--state', state.statePath, 'init', '--name', payload.name, '--goal', payload.goal || payload.name]
   if (payload.useWorktrees) {
     args.push('--use-worktrees', 'true')
+  }
+  // One `--repo <id>=<root>` per other project the run changes. Declared only at
+  // init: the engine fixes the repo set here for the life of the run.
+  for (const repo of payload.repos) {
+    args.push('--repo', `${repo.id}=${repo.root}`)
   }
   for (const [agentId, agent] of Object.entries(payload.agents)) {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) continue
@@ -1103,6 +1129,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   cancelRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  mergePullRequest(payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
@@ -1555,6 +1582,53 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           data: await buildSprintEngineMutationData(state, {
             action: 'vcs-pr',
             tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    // Merge ONE project's pull request (MC-1612). Always user-initiated — this is the
+    // run-summary Merge button, never an automatic policy. The engine owns the rules:
+    // it refuses while a project this one builds on is unmerged, and is idempotent on
+    // an already-merged pull request. `--repo` defaults to the run's own project, so a
+    // single-project run needs no repo at all.
+    async mergePullRequest(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const repo = typeof payload?.repo === 'string' ? payload.repo.trim() : ''
+        const toolResult = await runSprintEngineCli(state, [
+          '--state',
+          state.statePath,
+          'vcs',
+          'pr-merge',
+          ...(repo ? ['--repo', repo] : []),
+          '--id',
+          'ui',
+        ])
+        const parsed = parseSprintEngineCliJsonOutput(toolResult.stdout)
+        // The engine reports a refusal (out of order, no pull request, gh failed) as
+        // `ok: false` in its payload with the reason a person needs to read, and exits
+        // 0 — it did its job. Surface that reason rather than a generic failure.
+        const refusal =
+          typeof parsed === 'object' && parsed !== null && (parsed as { ok?: unknown }).ok === false
+            ? String((parsed as { error?: unknown }).error ?? '').trim()
+            : ''
+        if (toolResult.exitCode !== 0 || refusal) {
+          return {
+            ok: false,
+            message: refusal || toolResult.stderr.trim() || toolResult.stdout.trim() || 'Merging the pull request failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'vcs-pr-merge',
+            tool: parsed,
           }),
         }
       } catch (error) {

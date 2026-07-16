@@ -4,9 +4,11 @@ import {
   collectWatchablePullRequestTargets,
   createPullRequestPollController,
   isPullRequestWatchable,
+  isRunPullRequestWatchable,
   PR_MERGE_POLL_BACKOFF,
   type PullRequestPollTarget,
 } from './SprintEnginePullRequestPollSupervisor'
+import type { SprintEngineVcsRepo } from '../../../../shared/sprintengine/run-types'
 import type { Workspace } from '../../types/workspace'
 
 // ---------------------------------------------------------------------------
@@ -24,6 +26,49 @@ assert.equal(isPullRequestWatchable({ hasVcs: true, prState: 'closed', hasPrUrl:
 assert.equal(isPullRequestWatchable({ hasVcs: false, prState: 'open', hasPrUrl: true }), false)
 
 // ---------------------------------------------------------------------------
+// isRunPullRequestWatchable — the run's projects, not just the primary (MC-1612)
+// ---------------------------------------------------------------------------
+function repo(id: string, overrides: Partial<SprintEngineVcsRepo> = {}): SprintEngineVcsRepo {
+  return {
+    id,
+    root: id === 'primary' ? '.' : `../${id}`,
+    worktreePath: `.multi-code/sprintengine/alpha/worktree${id === 'primary' ? '' : `-${id}`}`,
+    branchName: 'sprintengine/alpha',
+    pullRequestState: 'open',
+    pullRequestUrl: 'https://pr',
+    ...overrides,
+  }
+}
+
+// `normalizeSprintEngineVcs` always fills `repos` — a run stored before the list
+// existed reads back as its one-entry primary — so this only ever sees the list.
+function vcs(repos: SprintEngineVcsRepo[]): Workspace['sprintEngineState'] {
+  return { vcs: { mode: 'run_worktree', worktreePath: repos[0].worktreePath, branchName: repos[0].branchName, repos } } as Workspace['sprintEngineState']
+}
+
+assert.equal(isRunPullRequestWatchable(undefined), false)
+assert.equal(isRunPullRequestWatchable(vcs([repo('primary')])!.vcs), true)
+// Every project terminal → the whole run is settled.
+assert.equal(
+  isRunPullRequestWatchable(vcs([repo('primary', { pullRequestState: 'merged' }), repo('mobile', { pullRequestState: 'closed' })])!.vcs),
+  false,
+)
+// The failure this closes: the desktop PR merged, but the mobile one is still open.
+// Watching the primary alone would stop polling here and freeze mobile's state.
+assert.equal(
+  isRunPullRequestWatchable(vcs([repo('primary', { pullRequestState: 'merged' }), repo('mobile', { pullRequestState: 'open' })])!.vcs),
+  true,
+)
+// A project the run never delivered (no PR, no state) keeps nothing alive.
+assert.equal(
+  isRunPullRequestWatchable(vcs([
+    repo('primary', { pullRequestState: 'merged' }),
+    repo('mobile', { pullRequestState: null, pullRequestUrl: null }),
+  ])!.vcs),
+  false,
+)
+
+// ---------------------------------------------------------------------------
 // collectWatchablePullRequestTargets
 // ---------------------------------------------------------------------------
 function workspace(overrides: Partial<Workspace> & { id: string }): Workspace {
@@ -31,7 +76,7 @@ function workspace(overrides: Partial<Workspace> & { id: string }): Workspace {
     id: overrides.id,
     mode: 'sprintengine',
     sprintEngineContext: { statePath: `/runs/${overrides.id}.yaml` },
-    sprintEngineState: { vcs: { pullRequestState: 'open', pullRequestUrl: 'https://pr' } },
+    sprintEngineState: vcs([repo('primary')]),
     ...overrides,
   } as unknown as Workspace
 }
@@ -41,16 +86,25 @@ function workspace(overrides: Partial<Workspace> & { id: string }): Workspace {
     workspace({ id: 'a' }),
     workspace({
       id: 'b',
-      sprintEngineState: { vcs: { pullRequestState: 'merged', pullRequestUrl: 'https://pr' } },
+      sprintEngineState: vcs([repo('primary', { pullRequestState: 'merged' })]),
     } as Partial<Workspace> & { id: string }),
     workspace({ id: 'c', sprintEngineContext: undefined } as Partial<Workspace> & { id: string }),
     workspace({ id: 'not-in-window' }),
     { id: 'plain', mode: 'terminal' } as unknown as Workspace,
+    // A two-project run whose desktop PR has merged: still watchable, because the
+    // mobile PR has not.
+    workspace({
+      id: 'multi',
+      sprintEngineState: vcs([repo('primary', { pullRequestState: 'merged' }), repo('mobile')]),
+    } as Partial<Workspace> & { id: string }),
   ]
-  const targets = collectWatchablePullRequestTargets(workspaces, new Set(['a', 'b', 'c', 'plain']))
-  // Only 'a' qualifies: 'b' merged, 'c' has no statePath, 'not-in-window' excluded
-  // by id set, 'plain' is not a sprint workspace.
-  assert.deepEqual(targets, [{ workspaceId: 'a', statePath: '/runs/a.yaml' }])
+  const targets = collectWatchablePullRequestTargets(workspaces, new Set(['a', 'b', 'c', 'plain', 'multi']))
+  // 'a' and 'multi' qualify: 'b' merged, 'c' has no statePath, 'not-in-window'
+  // excluded by id set, 'plain' is not a sprint workspace.
+  assert.deepEqual(targets, [
+    { workspaceId: 'a', statePath: '/runs/a.yaml' },
+    { workspaceId: 'multi', statePath: '/runs/multi.yaml' },
+  ])
 }
 
 // ---------------------------------------------------------------------------

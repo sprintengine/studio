@@ -32,6 +32,15 @@ export type SprintEngineVcsPayload = {
   statePath: string
 }
 
+export type SprintEngineVcsMergePayload = {
+  statePath: string
+  /**
+   * The declared project whose pull request to merge (MC-1612). Omitted merges the
+   * run's own project, which is the only one a single-project run has.
+   */
+  repo?: string
+}
+
 export type SprintEngineProjectionReadPayload = {
   statePath: string
   // When provided, the reader returns an `unchanged` result without reading or
@@ -58,6 +67,7 @@ type SprintEngineIpcDependencies = {
   setRunnerMode(payload: SprintEngineRunnerSetInput): Promise<SprintEngineArtifactCommandResult>
   cancelRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  mergePullRequest(payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
   enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
@@ -126,6 +136,12 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:vcs:pr-status', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.refreshPullRequestStatus(payload)
+  })
+
+  // Merging is user-initiated and per project (MC-1612); the engine refuses an
+  // out-of-order merge. Nothing here decides WHEN to merge.
+  ipcMain.handle('sprintengine:vcs:pr-merge', async (_, payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.mergePullRequest(payload)
   })
 
   ipcMain.handle('sprintengine:roster:runtime', async (_, payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult> => {

@@ -85,6 +85,12 @@ class FakeGh:
         if command == ("pr", "view"):
             state = "MERGED" if args[2] in self.merged else "OPEN"
             return self._completed(0, stdout=f'{{"state": "{state}"}}')
+        if command == ("pr", "merge"):
+            url = args[2]
+            if url in self.merged:
+                return self._completed(1, stderr="gh: pull request is already merged")
+            self.merged.add(url)
+            return self._completed(0)
         raise AssertionError(f"unexpected gh call: {args}")
 
     @staticmethod
@@ -213,7 +219,15 @@ def test_project_with_no_commits_gets_no_pull_request(tmp_path, monkeypatch) -> 
     result = shell.create_run_pull_request(state, fixture.state_path)
 
     assert result["ok"] is True
-    assert result["repos"][1] == {"repo": "mobile", "ok": True, "skipped": "no_commits", "branch": "sprintengine/alpha"}
+    # `project` is on every entry: the surfaces that show these pull requests label
+    # them by the name a person says, and a skipped project still has one.
+    assert result["repos"][1] == {
+        "repo": "mobile",
+        "ok": True,
+        "skipped": "no_commits",
+        "branch": "sprintengine/alpha",
+        "project": "multicode-mobile",
+    }
     assert not any(call["cwd"] == fixture.team_dir / "worktree-mobile" for call in fake.calls)
     mobile = next(repo for repo in state["sprintengine"]["vcs"]["repos"] if repo["id"] == "mobile")
     assert mobile["pullRequestUrl"] is None
@@ -387,3 +401,221 @@ def test_single_project_run_opens_exactly_one_unchanged_pull_request(tmp_path, m
 def test_merge_order_follows_cross_project_dependencies(tasks, expected) -> None:
     state = {"tasks": [{"id": task_id, "repo": repo, "dependsOn": deps} for task_id, repo, deps in tasks]}
     assert shell.repo_merge_order(state, ["primary", "mobile"]) == expected
+
+
+# --- merging one project's pull request from the app ---------------------------
+
+
+def _merge(fixture: SwarmTeamFixture, repo: str, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return shell.merge_repo_pull_request(state if state is not None else read_state(fixture.state_path), fixture.state_path, repo_id=repo)
+
+
+def test_pr_merge_refuses_until_the_project_it_builds_on_has_merged(tmp_path, monkeypatch) -> None:
+    # AC2: the mobile work depends on the desktop work, so merging mobile first would
+    # land it on a base without what it needs. Refused, naming the project by the name
+    # a person calls it — and the refusal is not a merge that quietly happened anyway.
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    refused = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="mobile")
+
+    assert refused["ok"] is False
+    assert refused["blockedBy"] == ["primary"]
+    assert "ws has to merge first" in refused["error"]
+    assert "multicode-mobile cannot merge yet" in refused["error"]
+    assert not any(tuple(call["args"][:2]) == ("pr", "merge") for call in fake.calls)
+    assert "https://github.com/acme/multicode-mobile/pull/9" not in fake.merged
+
+    # With the desktop pull request merged, the mobile one is free to go.
+    assert shell.merge_repo_pull_request(state, fixture.state_path, repo_id="primary")["ok"] is True
+    allowed = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="mobile")
+    assert allowed["ok"] is True
+    assert fake.merged == {"https://github.com/acme/multicode/pull/1", "https://github.com/acme/multicode-mobile/pull/9"}
+
+
+def test_pr_merge_refusal_survives_a_transitive_dependency(tmp_path, monkeypatch) -> None:
+    # Waiting is transitive: no mobile task names the desktop task directly here, but
+    # mobile still cannot merge before the project its dependency's project depends on.
+    fixture = _two_project_run(tmp_path)
+    _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    state["tasks"].append({"id": "T3", "repo": "mobile", "dependsOn": ["T2"], "status": "done"})
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    refused = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="mobile")
+    assert refused["ok"] is False
+    assert refused["blockedBy"] == ["primary"]
+
+
+def test_pr_merge_is_idempotent_and_cleans_up_only_that_projects_worktree(tmp_path, monkeypatch) -> None:
+    # AC1: re-running the merge is a no-op that still reports success — the button is
+    # pressed twice, or the pull request was merged on GitHub in between. And a merge
+    # takes down its own project's tree only; the other project is still being worked.
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    merged = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="primary")
+    assert merged["ok"] is True
+    assert merged["alreadyMerged"] is False
+    assert merged["worktreeCleanup"] == {"removed": True}
+    assert not (fixture.team_dir / "worktree").exists()
+    assert (fixture.team_dir / "worktree-mobile").exists()
+
+    merge_calls = [call for call in fake.calls if tuple(call["args"][:2]) == ("pr", "merge")]
+    again = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="primary")
+    assert again["ok"] is True
+    assert again["alreadyMerged"] is True
+    # The second press must not reach `gh pr merge` at all: a merged pull request is a
+    # settled fact, and asking GitHub to merge it again is how a green button starts
+    # reporting the "already merged" error as a failure.
+    assert [call for call in fake.calls if tuple(call["args"][:2]) == ("pr", "merge")] == merge_calls
+    assert state["sprintengine"]["vcs"]["pullRequestState"] == "merged"
+
+
+def test_pr_merge_reports_a_project_the_sprint_does_not_work_in(tmp_path, monkeypatch) -> None:
+    fixture = _two_project_run(tmp_path)
+    _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+
+    result = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="multiauth")
+    assert result["ok"] is False
+    assert "does not work in project 'multiauth'" in result["error"]
+    assert "primary, mobile" in result["error"]
+
+
+def test_pr_merge_needs_a_pull_request_to_merge(tmp_path, monkeypatch) -> None:
+    fixture = _two_project_run(tmp_path, commit_in_mobile=False)
+    _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    result = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="mobile")
+    assert result["ok"] is False
+    assert "has no pull request to merge yet" in result["error"]
+
+
+def test_pr_merge_cli_merges_the_single_project_run(tmp_path, monkeypatch) -> None:
+    # AC6: one project, no companions, nothing to wait for — `--repo` defaults to it and
+    # the merge is the one `gh` call it has always been.
+    fixture = _single_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    result = shell.merge_repo_pull_request(state, fixture.state_path)
+
+    assert result["ok"] is True
+    assert result["pullRequestUrl"] == "https://github.com/acme/multicode/pull/1"
+    assert fake.merged == {"https://github.com/acme/multicode/pull/1"}
+    assert not (fixture.team_dir / "worktree").exists()
+
+
+def test_pr_merge_rejects_an_unknown_merge_method(tmp_path, monkeypatch) -> None:
+    fixture = _single_project_run(tmp_path)
+    _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+
+    result = shell.merge_repo_pull_request(state, fixture.state_path, method="yolo")
+    assert result["ok"] is False
+    assert "Unknown merge method" in result["error"]
+
+
+# --- repo cycles are refused where they are authored ---------------------------
+
+
+def _two_project_plan(tmp_path: Path) -> SwarmTeamFixture:
+    """A two-project run whose plan is one edge short of a repo loop.
+
+    T2 (mobile) waits on T1 (desktop), so the desktop pull request merges first. T3
+    (mobile) waits on nothing yet — pointing anything in desktop at it closes the loop.
+    """
+    workspace = tmp_path / "ws"
+    _init_git_repo(workspace, origin=tmp_path / "origin-ws.git")
+    _init_git_repo(tmp_path / "multicode-mobile", origin=tmp_path / "origin-mobile.git")
+    fixture = _team(workspace)
+    fixture.cli.run(
+        "init", "--goal", "Span two projects", "--use-worktrees", "true",
+        "--agent", "developer:developer-1", "--repo", "mobile=../multicode-mobile",
+    )
+    fixture.cli.run("plan", "add-task", "--title", "Desktop", "--role", "developer", "--task-id", "T1", "--repo", "primary")
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Mobile", "--role", "developer", "--task-id", "T2",
+        "--repo", "mobile", "--depends-on", "T1",
+    )
+    fixture.cli.run("plan", "add-task", "--title", "More mobile", "--role", "developer", "--task-id", "T3", "--repo", "mobile")
+    return fixture
+
+
+def test_plan_refuses_a_dependency_that_makes_two_projects_wait_on_each_other(tmp_path) -> None:
+    # AC3: a desktop task waiting on a mobile task, while a mobile task waits on a
+    # desktop task, is a perfectly orderable TASK graph — no task waits on itself. But
+    # each project's pull request would then have to merge before the other's, and no
+    # merge order exists at all. Refused where the edge is authored, naming the loop.
+    fixture = _two_project_plan(tmp_path)
+    fixture.cli.run("plan", "add-task", "--title", "Desktop again", "--role", "developer", "--task-id", "T4", "--repo", "primary")
+
+    failed = fixture.cli.run_failure("plan", "add-dependency", "--task-id", "T4", "--depends-on", "T3")
+
+    assert "wait on each other" in failed.stderr
+    assert "primary → mobile → primary" in failed.stderr
+    # Refused, not recorded: the plan is exactly what it was before the attempt.
+    tasks = {task["id"]: task for task in read_state(fixture.state_path)["tasks"]}
+    assert "T3" not in tasks["T4"]["dependsOn"]
+
+
+def test_plan_refuses_a_new_task_that_closes_a_repo_loop(tmp_path) -> None:
+    # The same loop, closed by adding a task rather than an edge to an existing one.
+    fixture = _two_project_plan(tmp_path)
+
+    failed = fixture.cli.run_failure(
+        "plan", "add-task", "--title", "Desktop again", "--role", "developer", "--task-id", "T4",
+        "--repo", "primary", "--depends-on", "T3",
+    )
+
+    assert "wait on each other" in failed.stderr
+    assert "T4" not in {task["id"] for task in read_state(fixture.state_path)["tasks"]}
+
+
+def test_plan_refuses_re_targeting_a_task_into_a_repo_loop(tmp_path) -> None:
+    # A task's project can be re-targeted after it is planned, which rewrites the repo
+    # graph under dependencies that were legal where the task used to live. T4 waiting
+    # on T3 is fine while both are mobile; moving T4 to desktop closes the loop.
+    fixture = _two_project_plan(tmp_path)
+    fixture.cli.run(
+        "plan", "add-task", "--title", "More mobile still", "--role", "developer", "--task-id", "T4",
+        "--repo", "mobile", "--depends-on", "T3",
+    )
+
+    failed = fixture.cli.run_failure("plan", "update-task", "--task-id", "T4", "--repo", "primary")
+
+    assert "wait on each other" in failed.stderr
+    tasks = {task["id"]: task for task in read_state(fixture.state_path)["tasks"]}
+    assert tasks["T4"]["repo"] == "mobile"
+
+
+def test_plan_allows_many_dependencies_in_one_direction(tmp_path) -> None:
+    # The control: cross-project work is the point. Only a LOOP is refused, and a
+    # same-project dependency is never one — a single pull request carries both ends.
+    tasks = [
+        {"id": "T1", "repo": "primary", "dependsOn": []},
+        {"id": "T2", "repo": "mobile", "dependsOn": ["T1"]},
+        {"id": "T3", "repo": "mobile", "dependsOn": ["T1", "T2"]},
+        {"id": "T4", "repo": "primary", "dependsOn": ["T1"]},
+    ]
+    assert shell.repo_dependency_cycle(tasks) == []
+    shell.assert_no_repo_dependency_cycle(tasks)
+
+
+def test_repo_dependency_cycle_names_the_loop_it_found() -> None:
+    tasks = [
+        {"id": "T1", "repo": "primary", "dependsOn": ["T3"]},
+        {"id": "T2", "repo": "mobile", "dependsOn": ["T1"]},
+        {"id": "T3", "repo": "auth", "dependsOn": ["T2"]},
+    ]
+    cycle = shell.repo_dependency_cycle(tasks)
+    assert cycle[0] == cycle[-1]
+    assert set(cycle) == {"primary", "mobile", "auth"}

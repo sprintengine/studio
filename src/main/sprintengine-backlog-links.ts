@@ -19,7 +19,7 @@ import {
   buildSprintEngineRunLink,
   runRelativePathForStatePath,
   safeProjectRelativeRunPath,
-  sprintEnginePullRequestLinkOf,
+  sprintEnginePullRequestLinksOf,
   teamSlugFromStatePath,
 } from '../shared/backlog/sprintengine-links'
 import type { BacklogItemStatusPayload } from '../shared/electron-api'
@@ -114,31 +114,43 @@ export async function recordSprintEngineExecutionLink(input: {
   return { ok: true }
 }
 
+/** One project's pull request, as the item should link it. */
+export type SprintEnginePullRequestLinkInput = {
+  /** Declared repo id; `primary` (or omitted) keeps the original bare link id. */
+  repoId?: string
+  url: string
+  /** Project name shown in the link label; omitted for a single-project run. */
+  repoLabel?: string
+}
+
 /**
- * Attach a run's pull request to the Backlog item that started it.
+ * Attach a run's pull requests to the Backlog item that started it — one link per
+ * project the run delivered (MC-1612).
  *
  * There is no reverse index from a run to its item, so the item is found the way
  * the renderer's projection tick finds it: scan the object store for a record
  * whose execution link resolves to this run's run.yaml. A no-op when nothing
  * links to the run (a run started outside the Backlog has no item to carry a PR)
- * and when the same URL is already attached, so repeat calls do not churn the
- * store.
+ * and when the same URL is already attached for that project, so repeat calls do
+ * not churn the store.
  *
- * The PR link is `external` and therefore lifecycle-neutral: attaching it never
- * moves the item's status. Completion is the run's business, not the PR's.
+ * The PR links are `external` and therefore lifecycle-neutral: attaching them
+ * never moves the item's status. Completion is the run's business, not the PR's.
  *
- * Every item linking this run gets the PR, not just the first. Normally that is
+ * Every item linking this run gets them, not just the first. Normally that is
  * exactly one item, but if two genuinely share a run they should both show its
- * pull request — silently stopping at the first would be the surprising choice.
+ * pull requests — silently stopping at the first would be the surprising choice.
  */
 export async function attachSprintEnginePullRequestLink(input: {
   workspaceRoot: string
   statePath: string
-  pullRequestUrl: string
+  pullRequests: readonly SprintEnginePullRequestLinkInput[]
   now?: () => Date
 }): Promise<SprintEngineLinkWriteResult> {
-  const pullRequestUrl = input.pullRequestUrl.trim()
-  if (!pullRequestUrl) return { ok: false, message: 'A pull request link needs a URL.' }
+  const pullRequests = input.pullRequests
+    .map((pullRequest) => ({ ...pullRequest, url: pullRequest.url.trim() }))
+    .filter((pullRequest) => pullRequest.url)
+  if (!pullRequests.length) return { ok: false, message: 'A pull request link needs a URL.' }
 
   const store = await readBacklogObjectStore(input.workspaceRoot)
   if (!store.ok) return store
@@ -159,15 +171,25 @@ export async function attachSprintEnginePullRequestLink(input: {
     })
     if (!matched) continue
 
-    // Same URL already attached: nothing to write.
-    if (sprintEnginePullRequestLinkOf(record.links ?? [])?.target.url === pullRequestUrl) continue
-
-    const result = await addOrUpdateBacklogLink({
-      workspaceRoot: input.workspaceRoot,
-      relativePath: record.source.relativePath,
-      link: buildSprintEnginePullRequestLink({ pullRequestUrl, updatedAt }),
-    })
-    if (!result.ok) return result
+    const existing = new Map(
+      sprintEnginePullRequestLinksOf(record.links ?? []).map((link) => [link.id, link.target.url]),
+    )
+    for (const pullRequest of pullRequests) {
+      const link = buildSprintEnginePullRequestLink({
+        pullRequestUrl: pullRequest.url,
+        updatedAt,
+        repoId: pullRequest.repoId,
+        repoLabel: pullRequest.repoLabel,
+      })
+      // Same URL already attached for this project: nothing to write.
+      if (existing.get(link.id) === pullRequest.url) continue
+      const result = await addOrUpdateBacklogLink({
+        workspaceRoot: input.workspaceRoot,
+        relativePath: record.source.relativePath,
+        link,
+      })
+      if (!result.ok) return result
+    }
   }
 
   return { ok: true }
