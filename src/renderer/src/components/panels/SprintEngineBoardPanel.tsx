@@ -117,6 +117,7 @@ import { SprintEngineInboxView } from './sprintEngineBoard/SprintEngineInboxView
 import { SprintEngineRosterView } from './sprintEngineBoard/SprintEngineRosterView'
 import { SprintEngineTasksKanbanView } from './sprintEngineBoard/SprintEngineTasksKanbanView'
 import { RunCompletePullRequestAction, RunPullRequestViewChip, useRunPullRequestMergePoll } from './runPullRequest'
+import { isRunPullRequestWatchable } from '../workspace/SprintEnginePullRequestPollSupervisor'
 import { useSprintEngineBoardModel } from './sprintEngineBoard/useSprintEngineBoardModel'
 import {
   useSprintEngineBoardArtifactActions,
@@ -966,12 +967,18 @@ function SprintEngineBoardPanelContent({
  const totalTasks = sprintEngineState.tasks.length
  const progressPct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0
  // Keep the header PR chip's merge state fresh while the run is open on any tab.
+ // Probe the RUN, not its primary project: one `vcs pr-status` refreshes every
+ // project, so the run is worth a probe while ANY project's pull request is still
+ // non-terminal — the same question the background supervisor asks. Reading the
+ // primary's state here stopped the on-open probe the moment the desktop pull
+ // request merged, so a sibling project's chip stayed stale until the supervisor's
+ // next backoff tick (up to 32 min) even though the user just opened the board.
  useRunPullRequestMergePoll({
    workspaceId,
    statePath: sprintEngineContext?.statePath ?? null,
    hasVcs: !!sprintEngineState.vcs,
-   prState: sprintEngineState.vcs?.pullRequestState ?? null,
-   shouldPoll: allTasksDone || !!sprintEngineState.vcs?.pullRequestUrl,
+   prState: isRunPullRequestWatchable(sprintEngineState.vcs) ? 'open' : 'merged',
+   shouldPoll: allTasksDone || (sprintEngineState.vcs?.repos ?? []).some((repo) => !!repo.pullRequestUrl),
  })
  // The run's lifecycle as the shared shape-coded glyph — the same rollup the
  // Backlog rows and workspace sidebar render, so the board hero speaks one

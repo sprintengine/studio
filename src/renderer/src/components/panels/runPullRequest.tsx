@@ -308,6 +308,35 @@ export function RunCompletePullRequestAction({
 }): JSX.Element | null {
   const { busy, actionError, createPullRequest } = useRunPullRequestAction({ workspaceId, statePath })
   if (!vcs) return null
+  const repos = vcs.repos ?? []
+  // A run spanning projects opens one pull request per project in a single call,
+  // per project, and failure is per project too: the desktop's can open while the
+  // phone's push fails. The action therefore has to survive a partial success —
+  // reading the primary's URL alone retired the button the moment ITS pull request
+  // existed, stranding a failed project with a visible error and no way to retry,
+  // even though re-running opens exactly the ones still missing.
+  if (repos.length > 1) {
+    const outstanding = repos.filter((repo) => !repo.pullRequestUrl && repo.pullRequestState !== 'merged')
+    if (outstanding.length === 0) return null
+    const firstFailure = repos.find((repo) => repo.pullRequestError)?.pullRequestError ?? null
+    const someOpened = repos.some((repo) => repo.pullRequestUrl)
+    return (
+      <RunPullRequestActionButton
+        pullRequestUrl={null}
+        pullRequestState={null}
+        busy={busy}
+        error={actionError ?? firstFailure}
+        disabled={!statePath}
+        onCreate={createPullRequest}
+        // Naming what is left is the honest label once some projects already have
+        // one: "Open pull request" would read as if none existed.
+        createLabel={someOpened ? 'Open remaining pull requests' : 'Open pull requests'}
+        retryLabel="Retry pull requests"
+        busyLabel="Opening…"
+        ariaLabel={`Open pull requests for the ${outstanding.length} remaining ${outstanding.length === 1 ? 'project' : 'projects'} in this sprint`}
+      />
+    )
+  }
   const failed = vcs.status === 'failed'
   const error = actionError ?? (failed ? vcs.pullRequestError ?? 'The last pull-request open failed.' : null)
   return (
