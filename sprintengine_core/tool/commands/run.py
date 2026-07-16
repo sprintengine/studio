@@ -1013,13 +1013,14 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         sha = commit_run_worktree_paths(state, args.state, task, str(actor), explicit_paths=args.path or [])
         # Everything reported back describes the tree this task commits in — the
         # project it targets — not whatever the primary tree happens to be doing.
+        # Worktree mode is established above, so the task always resolves to a repo.
         repo = repo_for_task(state, task)
         worktree = worktree_for_task(state, args.state, task)
         dirty = ""
         if worktree and worktree.exists():
             from sprintengine_core.tool.shell import git_status_short
             dirty = git_status_short(worktree)
-        orphaned = worktree_orphaned_dirty_paths(state, args.state, repo) if repo else []
+        orphaned = worktree_orphaned_dirty_paths(state, args.state, repo)
         recompute_phase(state)
         base_message = (
             f"Committed task {args.task_id} changes as {sha}."
@@ -1036,11 +1037,11 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         return {
             "ok": True,
             "taskId": args.task_id,
-            "repo": repo["id"] if repo else folder_store.DEFAULT_TASK_REPO,
+            "repo": repo["id"],
             "committed": bool(sha),
             "commitSha": sha,
-            "branchName": repo["branchName"] if repo else vcs.get("branchName"),
-            "worktreePath": repo["worktreePath"] if repo else vcs.get("worktreePath"),
+            "branchName": repo["branchName"],
+            "worktreePath": repo["worktreePath"],
             "clean": not dirty,
             "orphanedUncommittedPaths": orphaned,
             "message": base_message,

@@ -11,6 +11,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from helpers import SwarmCli, SwarmTeamFixture, base_state, read_state, write_state
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool import shell
@@ -239,53 +241,82 @@ def test_run_completion_blocks_on_an_orphan_in_any_declared_project(tmp_path) ->
 # --- lock isolation ---------------------------------------------------------
 
 
-def test_each_repo_commits_under_its_own_lock(tmp_path) -> None:
-    # AC4: per-repo locks, so two projects commit concurrently. Holding the primary
-    # project's commit lock must not stall a commit in the mobile project — one
-    # run-wide lock would serialize two unrelated indexes.
-    fixture, _, _ = _two_project_run(tmp_path)
+def _impatient_recording_locks(monkeypatch) -> list[Path]:
+    """Record every commit lock taken, and never wait 30s on a held one."""
+    taken: list[Path] = []
+    real = folder_store.FolderLock
+
+    class Recording(real):  # type: ignore[misc, valid-type]
+        def __init__(self, path: Path, **kwargs) -> None:
+            taken.append(path)
+            super().__init__(path, **{**kwargs, "timeout": 1.0})
+
+    monkeypatch.setattr(folder_store, "FolderLock", Recording)
+    return taken
+
+
+def _two_repo_tasks(fixture: SwarmTeamFixture) -> None:
     fixture.cli.run(
         "plan", "add-task", "--title", "Mobile screen", "--role", "developer",
         "--task-id", "T1", "--repo", "mobile", "--path", "app/screen.ts",
     )
-    _close_plan_gate(fixture)
-    _claim(fixture, "T1", "developer-1")
-    _write(fixture.team_dir / "worktree-mobile", "app/screen.ts", "export const screen = 1\n")
-
-    primary_lock = folder_store.FolderLock(
-        fixture.team_dir / folder_store.git_commit_lock_file("primary"), timeout=1.0
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Primary screen", "--role", "developer",
+        "--task-id", "T2", "--path", "src/screen.ts",
     )
+    _write(fixture.team_dir / "worktree-mobile", "app/screen.ts", "export const screen = 1\n")
+    _write(fixture.team_dir / "worktree", "src/screen.ts", "export const screen = 2\n")
+
+
+def test_each_repo_commits_under_its_own_lock(tmp_path, monkeypatch) -> None:
+    # AC4: the lock is per repo. One run-wide lock would serialize two unrelated
+    # git indexes, so which lock a commit takes IS the isolation contract.
+    fixture, _, _ = _two_project_run(tmp_path)
+    _two_repo_tasks(fixture)
+    taken = _impatient_recording_locks(monkeypatch)
+
+    state = read_state(fixture.state_path)
+    for task_id in ("T1", "T2"):
+        task = next(t for t in state["tasks"] if t["id"] == task_id)
+        assert shell.commit_run_worktree_paths(state, fixture.state_path, task, "developer-1")
+
+    assert [path.name for path in taken] == ["git.commit.mobile.lock", "git.commit.primary.lock"]
+    assert all(path.parent == fixture.team_dir / "runner" for path in taken)
+
+
+def test_a_commit_does_not_wait_on_another_repos_lock(tmp_path, monkeypatch) -> None:
+    # AC4 behaviourally: with the primary project's commit lock genuinely held, a
+    # mobile commit still goes through instead of queueing behind it.
+    fixture, _, _ = _two_project_run(tmp_path)
+    _two_repo_tasks(fixture)
+    primary_lock = folder_store.FolderLock(fixture.team_dir / folder_store.git_commit_lock_file("primary"))
     primary_lock.acquire()
+    _impatient_recording_locks(monkeypatch)
     try:
-        result = fixture.cli.run("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
+        state = read_state(fixture.state_path)
+        mobile_task = next(t for t in state["tasks"] if t["id"] == "T1")
+        sha = shell.commit_run_worktree_paths(state, fixture.state_path, mobile_task, "developer-1")
     finally:
         primary_lock.release()
 
-    assert result["committed"] is True
+    assert sha
 
 
-def test_a_second_commit_in_the_same_repo_still_waits(tmp_path) -> None:
-    # The other half of AC4: isolation is per repo, not per task. Two agents in the
-    # SAME project share one index and must still take turns.
+def test_a_commit_waits_on_its_own_repos_lock(tmp_path, monkeypatch) -> None:
+    # The other half of AC4: isolation is per repo, not per commit. Two agents in
+    # the SAME project share one index and must still take turns.
     fixture, _, _ = _two_project_run(tmp_path)
-    fixture.cli.run(
-        "plan", "add-task", "--title", "Mobile screen", "--role", "developer",
-        "--task-id", "T1", "--repo", "mobile", "--path", "app/screen.ts",
-    )
-    _close_plan_gate(fixture)
-    _claim(fixture, "T1", "developer-1")
-    _write(fixture.team_dir / "worktree-mobile", "app/screen.ts", "export const screen = 1\n")
-
-    mobile_lock = folder_store.FolderLock(
-        fixture.team_dir / folder_store.git_commit_lock_file("mobile"), timeout=1.0
-    )
+    _two_repo_tasks(fixture)
+    mobile_lock = folder_store.FolderLock(fixture.team_dir / folder_store.git_commit_lock_file("mobile"))
     mobile_lock.acquire()
+    _impatient_recording_locks(monkeypatch)
     try:
-        failure = fixture.cli.run_failure("vcs", "commit", "--task-id", "T1", "--id", "developer-1")
+        state = read_state(fixture.state_path)
+        mobile_task = next(t for t in state["tasks"] if t["id"] == "T1")
+        with pytest.raises(TimeoutError):
+            shell.commit_run_worktree_paths(state, fixture.state_path, mobile_task, "developer-1")
     finally:
         mobile_lock.release()
-
-    assert "lock" in (failure.stdout + failure.stderr).lower()
 
 
 # --- pathspec normalization and path containment, per declared root ---------

@@ -65,11 +65,9 @@ CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
 # worktree mode: only one agent stages and commits in a given project at a time.
 # Per repo, because each declared project has its own index and its own worktree —
 # a single run-wide lock would make an unrelated project's commit wait (MC-1611).
-GIT_COMMIT_LOCK_GLOB = "git.commit.*.lock"
-
-
-def git_commit_lock_file(repo_id: str) -> str:
-    return f"runner/git.commit.{repo_id}.lock"
+# The name carries the repo id, so the file both locks a project and says which.
+GIT_COMMIT_LOCK_PREFIX = "git.commit."
+GIT_COMMIT_LOCK_SUFFIX = ".lock"
 RUN_SOURCE_KEYS = ("source", "sourceBundle")
 # Top-level run keys written once at init for "Architect picks the team" runs:
 # `rosterSource` ('user' | 'architect') and `allowedRuntimes` (the sprint's
@@ -180,6 +178,11 @@ def task_repo(task: dict[str, Any]) -> str:
     run declares today.
     """
     return str(task.get("repo") or "").strip() or DEFAULT_TASK_REPO
+
+
+def git_commit_lock_file(repo_id: str) -> str:
+    """The commit lock for one declared repo. The single site that spells the name."""
+    return f"runner/{GIT_COMMIT_LOCK_PREFIX}{repo_id}{GIT_COMMIT_LOCK_SUFFIX}"
 
 
 def validate_project_relative_path(value: str, *, field: str = "path") -> str:
@@ -1043,10 +1046,10 @@ def _projection_locks(team_dir: Path, state_path: Path | None) -> dict[str, Any]
         "claimQueue": team_dir / CLAIM_QUEUE_LOCK_FILE,
         # One commit lock per declared repo, discovered rather than enumerated: the
         # lock files exist only while held (or stale, which is what this report is
-        # for), and the repo ids they are named for live in the run record.
+        # for), and the repo id each one locks is in its name.
         **{
-            f"gitCommit:{path.name[len('git.commit.'):-len('.lock')]}": path
-            for path in sorted((team_dir / "runner").glob(GIT_COMMIT_LOCK_GLOB))
+            f"gitCommit:{path.name[len(GIT_COMMIT_LOCK_PREFIX):-len(GIT_COMMIT_LOCK_SUFFIX)]}": path
+            for path in sorted((team_dir / "runner").glob(f"{GIT_COMMIT_LOCK_PREFIX}*{GIT_COMMIT_LOCK_SUFFIX}"))
         },
     }
     lock_reports = []
