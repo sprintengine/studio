@@ -193,10 +193,9 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
   sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
   sprintengine merge start --id architect --target main
 
-Roster commands:
-  sprintengine roster add --role security --id security
+Roster commands (run-config only; MC-1591 removed membership add/retire/replenish/list — leases replace the roster):
   sprintengine roster configure --id architect --roles-json '[{"role":"developer","cli":"claude-code","model":"claude-opus-4-8"}]'
-  sprintengine roster list
+  sprintengine roster runtime --role developer --cli claude-code --model claude-haiku-4-5 --actor ui
 
 Registry inspection commands:
   sprintengine roles list

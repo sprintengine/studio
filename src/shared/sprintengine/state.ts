@@ -1702,8 +1702,9 @@ export function getNextSprintEngineAgentId(
   // is `<role>-1`. MC-1542 removed the reviewer carve-out (a reserved bare
   // `<role>` id), but a bare id — the seeded architect, or a reviewer id from an
   // older run — still counts as index 1 so a mint never collides with it.
-  // Mirrors the Python allocator (next_replacement_agent_id: max matching index
-  // + 1) — TS/Python drift here has bitten before.
+  // The spawner is the sole id authority under MC-1591 leases: there is no Python
+  // allocator to mirror or drift against — the engine treats a minted id as an
+  // opaque actor label and binds it to a task only at claim.
   const usedIds = new Set(Object.keys(sprintEngineAgents))
 
   let nextIndex = 1
