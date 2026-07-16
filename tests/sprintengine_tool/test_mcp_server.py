@@ -297,7 +297,9 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "sprintengine.artifact.add" in result["markdown"]
     assert "sprintengine.task.advance" in result["markdown"]
     assert "You own your task from claim to done" in result["markdown"]
-    assert "commits task-scoped changes under the git commit lock" in result["markdown"]
+    # MC-1614: the commit an agent reads about is per project, not per run — the
+    # lock it names is the task's own project's.
+    assert "in your task's project worktree, under that project's commit lock" in result["markdown"]
     assert "sprintengine.vcs.commit" in result["markdown"]
     # MC-1542: the retired review protocol must not linger in the workflow an
     # agent reads on every join.

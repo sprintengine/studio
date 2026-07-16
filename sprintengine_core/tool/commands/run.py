@@ -475,7 +475,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Task cards include real integration contracts and verification checks from the reviewed plan.",
             ]
             plan_task["implementationNotes"] = [
-                "In worktree-mode runs, edit the worktree's copy of the referenced plan so updates ride the run branch and its pull request.",
+                "In worktree-mode runs, edit the copy of the referenced plan in its own project's worktree so updates ride that project's run branch and pull request.",
                 "Do not copy valid plan prose into plan.md; the manifest references the plan and records verification, the codebase index, decisions, risks, and the task graph summary.",
                 "Run-scoped material (codebase index, roster adaptation, task graph summary) belongs in the plan.md manifest, not in the referenced plan file.",
                 "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the referenced plan.",
@@ -531,11 +531,11 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             ]
             plan_task["implementationNotes"] = [
                 "Enumerate the epic's children with `grep -l \"^epic: <slug>$\" backlog/*.md`, where <slug> is the epic file stem.",
-                "In worktree-mode runs, edit the worktree's copies of the backlog files so design updates ride the run branch and its pull request.",
+                "In worktree-mode runs, edit the copies of the backlog files in their own project's worktree so design updates ride that project's run branch and pull request.",
                 "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
                 "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
                 "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the design documents.",
-                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (editing the worktree copies in worktree mode so the flips ride the pull request).",
+                "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (in worktree mode, editing the copies in their own project's worktree so the flips ride that project's pull request).",
                 *source_bundle_reference_notes(state),
             ]
             apply_source_context_to_task(plan_task, state, state_path)

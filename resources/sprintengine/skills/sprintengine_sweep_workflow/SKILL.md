@@ -25,7 +25,7 @@ Review the combined branch diff (or, for QA, exercise the finished behaviour), t
 
 ## Why you go last
 
-Sweeps edit the tree, so the architect chains them (`dependsOn`) rather than running them in parallel: a later sweep reviews the tree an earlier one already fixed, and the shared run worktree never hosts two sweeps editing at once. If your task depends on another sweep, that sweep's fixes are already in the diff you are reading — review the current tree, not the original work.
+Sweeps edit the tree, so the architect chains them (`dependsOn`) rather than running them in parallel: a later sweep reviews the tree an earlier one already fixed, and a project's worktree never hosts two sweeps editing at once. If your task depends on another sweep, that sweep's fixes are already in the diff you are reading — review the current tree, not the original work.
 
 ## The cost of escalating
 

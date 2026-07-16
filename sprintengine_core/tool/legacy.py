@@ -306,7 +306,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
+        help="Run this team in a git worktree + branch per declared project, so agents work in isolated checkouts and commit per task.",
     )
     p.add_argument("--force", action="store_true", help="Replace existing run-store/handover bootstrap files.")
     p.set_defaults(handler=run_commands.handover, uses_state=False)
@@ -458,7 +458,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--use-worktrees",
         type=parse_bool,
         default=False,
-        help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
+        help="Run this team in a git worktree + branch per declared project, so agents work in isolated checkouts and commit per task.",
     )
     p.add_argument(
         "--repo",
@@ -862,7 +862,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = vcs_sub.add_parser("status", help="Report the run worktree branch, path, and dirty state.")
     p.set_defaults(handler=run_commands.vcs_status)
 
-    p = vcs_sub.add_parser("commit", help="Commit your task's changes to the shared run worktree (serialized by the commit lock).")
+    p = vcs_sub.add_parser("commit", help="Commit your task's changes in its project's run worktree (serialized by that project's commit lock).")
     p.add_argument("--task-id", required=True, help="Task whose changes you are committing.")
     p.add_argument("--id", required=True, help="Your agent id.")
     p.add_argument("--summary", help="Optional implementation summary to record on the task before committing.")

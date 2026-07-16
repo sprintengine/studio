@@ -12,6 +12,10 @@ Drive every piece of work through the same loop, in order, before it is done:
 2. **Build** — claim a ready task and implement it against its acceptance criteria and owned paths.
 3. **Publish and self-review** — per the Sprint Engine workflow rules: publish, follow the inline review directive against your own diff, then advance with `pass` or `pass_with_fixes`.
 
+## One project per task
+
+**Every task names exactly one project — its `repo` field, defaulting to `primary`.** Planning: give each task the project it changes (`repo` on `sprintengine.plan.add_task`); work spanning two projects is two tasks linked with `dependsOn`, never one task reaching across trees. Building: work only in that project's worktree — your terminal already starts there — where publish commits your changes under that project's own commit lock, so a task in another project never waits on yours. Reviewing: your diff may be one project's half of the change. Its companion lands in a separate pull request, so read the companion task's diff before calling your own half broken or incomplete.
+
 ## Finish what you started before taking more
 
 **Carry each task through to `done` before claiming new ready work.** You own a task from claim to done — its review phase is yours, in the same session. A task sitting in `review` is not waiting for another General; it is waiting for you.

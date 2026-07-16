@@ -23,33 +23,13 @@ from sprintengine_core.role_registry import (
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import project_relative_path, workspace_root_for_state_path
 from sprintengine_core.tool.plans import plan_path_for_state, plan_prompt_path
-from sprintengine_core.tool.shell import get_run_vcs
+from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
 from sprintengine_core.tool.tasks import ensure_evidence
-
-def architect_worktree_preference_block(use_worktrees: bool) -> str:
-    if not use_worktrees:
-        return "\n".join([
-            "## Execution Workspace",
-            "Sprint Engine worktree orchestration is disabled for this run.",
-            "- Plan execution in the current workspace.",
-            "- Do not create Sprint Engine worktrees or add worktree setup tasks.",
-        ])
-    return "\n".join([
-        "## Execution Workspace",
-        "This run executes in one shared git worktree on a dedicated branch; Sprint Engine already created it.",
-        "- Do not add tasks to create, configure, or tear down the worktree — it exists before any task runs.",
-        "- Plan tasks with tight, non-overlapping `ownedPaths` so two workers rarely touch the same file; that is what keeps per-task commits clean.",
-        "- Workers commit their own changes to the shared branch after each task; you do not need committer tasks.",
-        "- When the run is complete, open a pull request from the run branch with `sprintengine vcs pr`.",
-    ])
-
-def architect_worktree_preference_block_for_state(state: Dict[str, Any]) -> str:
-    return architect_worktree_preference_block(get_run_vcs(state) is not None)
 
 # Worker execution-workspace discipline is emitted from ONE template site so the
 # shared plan-reading and owned-paths rules are written once (MC-1615 seam). The
-# no-worktree and shared-worktree prompts differ only in `location_lines` (where
-# the agent works) and `trailing_lines` (commit flow vs. do-not-push); everything
+# no-worktree and worktree prompts differ only in `location_lines` (where the
+# agent works) and `trailing_lines` (commit flow vs. do-not-push); everything
 # else — the header and the four owned-paths rules — comes from here verbatim.
 def _execution_workspace_discipline_block(location_lines: List[str], trailing_lines: List[str]) -> str:
     return "\n".join([
@@ -73,28 +53,40 @@ def worker_plan_worktree_block() -> str:
         trailing_lines=["- Do not merge or push."],
     )
 
+# A run declares one project per worktree, so the location rule is written per
+# project and never as "the" worktree: a task names its project in `repo`, and the
+# tree that project's paths resolve against is the tree the agent's terminal was
+# already launched into. `vcs_repos` yields the one-entry list for a single-repo
+# run, so this text is the same shape in both — one project listed instead of many.
+def _declared_project_labels(vcs: Dict[str, Any]) -> str:
+    return ", ".join(
+        f"`{repo['id']}` (`{repo.get('worktreePath') or ''}` on branch `{repo.get('branchName') or ''}`)"
+        for repo in vcs_repos(vcs)
+    )
+
+
 def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) -> str:
     vcs = get_run_vcs(state)
     if not vcs:
         return worker_plan_worktree_block()
-    worktree_path = str(vcs.get("worktreePath") or "")
-    branch = str(vcs.get("branchName") or "")
     run_file = project_relative_path(workspace_root_for_state_path(state_path), state_path)
     return _execution_workspace_discipline_block(
         location_lines=[
-            f"- This run shares ONE git worktree `{worktree_path}` on branch `{branch}`. You are already working inside it; do not `cd` elsewhere and do not create another worktree.",
+            f"- Every task names ONE project in its `repo` field. This run's projects are: {_declared_project_labels(vcs)}.",
+            "- Work ONLY inside your task's project worktree. Your terminal already starts there; do not `cd` elsewhere and do not create another worktree.",
+            "- Your task's paths — `ownedPaths`, evidence, commits — are relative to THAT project's root. Another project is reachable only as its own task, never as a path that walks out of your tree.",
             f"- Shared Sprint Engine run file is `{run_file}`; mutate the run store only through the Sprint Engine tool.",
         ],
         trailing_lines=[
             "## Committing Your Work",
-            "- After you finish a task's code changes, commit them to the shared branch with `sprintengine vcs commit --task-id <id> --id <your-agent-id>` (add `--path <file>` for any file outside your owned paths).",
-            "- That command takes the run's commit lock so only one agent stages the git index at a time, then stages and commits ONLY your task's files. It is safe to run while other agents work.",
+            "- After you finish a task's code changes, commit them to your project's run branch with `sprintengine vcs commit --task-id <id> --id <your-agent-id>` (add `--path <file>` for any file outside your owned paths).",
+            "- That command takes YOUR PROJECT's commit lock so only one agent stages that project's git index at a time, then stages and commits ONLY your task's files. It is safe to run while other agents work: agents in other projects commit at the same time, agents in yours wait their turn.",
             "- NEW files and directories are only committed if they fall inside your task's ownedPaths. If you create a file outside them — for example splitting a panel into a new sibling directory — add that path to your task's ownedPaths (`sprintengine plan update-task`) or pass it with `--path <file>`, or it will be silently left out of the commit and a clean checkout will fail to build.",
-            "- `vcs commit` warns when changed paths fall outside every task's owned paths, and `task publish` refuses to publish while such orphaned changes are uncommitted. Do not ignore that warning — a green local build does not mean the committed tree builds.",
+            "- `vcs commit` warns when changed paths fall outside every task's owned paths, and `task publish` refuses to publish while such orphaned changes are uncommitted in your task's OWN project tree. Do not ignore that warning — a green local build does not mean the committed tree builds.",
             "- Marking the task done also commits any still-uncommitted task-scoped changes as a backstop, so nothing is lost if you forget.",
-            "- Other agents commit their own whole files independently; their commits on the shared branch are expected. Do not revert, amend, or worry about commits you did not make.",
+            "- Other agents commit their own whole files independently; their commits on your project's branch are expected. Do not revert, amend, or worry about commits you did not make.",
             "- If git reports a conflict on a file you own, resolve it: stage the specific hunks you changed when that is clearly simple, otherwise commit the whole file. Then continue.",
-            "- Do not push or open a pull request yourself; the architect opens the pull request when the run is complete.",
+            "- Do not push or open a pull request yourself. Each project the run changed gets its own pull request, opened after the run completes.",
         ],
     )
 

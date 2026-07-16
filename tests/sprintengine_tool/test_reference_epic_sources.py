@@ -173,7 +173,9 @@ def test_referenced_plan_init_mints_review_in_place_task_without_seeding_plan(tm
     assert "not re-authored into plan.md" in joined_ac
     assert "plan.md is a manifest" in joined_ac
     notes = " ".join(plan_task["implementationNotes"])
-    assert "worktree's copy of the referenced plan" in notes
+    # MC-1614: the copy to edit is named per project, since a run has one worktree
+    # per declared project rather than a single run worktree.
+    assert "the copy of the referenced plan in its own project's worktree" in notes
 
 
 def test_text_handover_still_copies_into_run_store(tmp_path) -> None:

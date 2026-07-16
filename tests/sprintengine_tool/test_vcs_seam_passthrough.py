@@ -139,3 +139,52 @@ def test_worktree_discipline_emitted_from_single_template_site() -> None:
     # The shared owned-paths rule is byte-identical in both — proof of one source.
     shared = "- Treat task-owned paths as the primary edit surface and collision boundary."
     assert shared in plan_block and shared in worktree_block
+
+
+def _worktree_block_for(vcs: dict) -> str:
+    state = base_state("alpha", [])
+    state["sprintengine"]["vcs"] = vcs
+    return phase_prompts.worker_execution_workspace_block(
+        state, Path("/tmp/ws/.multi-code/sprintengine/alpha/run.yaml")
+    )
+
+
+def test_worktree_prompt_states_the_no_cd_rule_per_repo(tmp_path) -> None:
+    """MC-1614: the location rule is per project, and `cd` stays forbidden.
+
+    The prompt used to hardcode "This run shares ONE git worktree <path>", which a
+    multi-repo agent would read as licence to do all its work in the primary tree.
+    It now names every declared project and scopes the rule to the task's own.
+    """
+    block = _worktree_block_for(_vcs_with_repos())
+
+    # Every declared project is named with the tree and branch it lives on.
+    for repo in REPOS:
+        assert f"`{repo['id']}` (`{repo['worktreePath']}` on branch `{repo['branchName']}`)" in block
+
+    # The task's project is the boundary; the no-cd rule survives, restated per repo.
+    assert "Every task names ONE project in its `repo` field" in block
+    assert "do not `cd` elsewhere and do not create another worktree" in block
+    assert "relative to THAT project's root" in block
+
+    # The retired singular-worktree contract must not come back in any form.
+    for retired in ("shares ONE git worktree", "the run's commit lock", "the shared branch"):
+        assert retired not in block, f"singular-worktree phrasing returned: {retired!r}"
+
+
+def test_single_repo_worktree_prompt_reads_as_one_project(tmp_path) -> None:
+    """A pre-multi-repo store (flat `vcs`, no `repos`) renders the same shape.
+
+    `vcs_repos` derives the one-entry primary, so the text never branches on repo
+    count: a single-repo run simply lists one project.
+    """
+    block = _worktree_block_for(
+        {
+            "mode": "run_worktree",
+            "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+            "branchName": "sprintengine/alpha",
+        }
+    )
+    assert "This run's projects are: `primary` (`.multi-code/sprintengine/alpha/worktree` on branch `sprintengine/alpha`)." in block
+    assert "`api`" not in block
+    assert "do not `cd` elsewhere" in block
