@@ -647,6 +647,10 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         "title": title,
         "description": str(raw.get("description", "")).strip(),
         "role": role,
+        # Which of the run's declared repos this task works in. Shape only here —
+        # `normalize_task` has no state to check membership against, so the run's
+        # declared set is enforced at creation and claim by ensure_task_repo_declared.
+        "repo": folder_store.task_repo(raw),
         "status": status,
         "ownerAgentId": raw.get("ownerAgentId") or None,
         "dependsOn": [str(i).strip() for i in raw.get("dependsOn", []) if str(i).strip()],
@@ -787,6 +791,9 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "title": args.title,
         "description": getattr(args, "description", "") or "",
         "role": args.role,
+        "repo": ensure_task_repo_declared(
+            state, getattr(args, "repo", None), context=f"Task {task_id}"
+        ),
         "status": "todo",
         "ownerAgentId": None,
         "dependsOn": getattr(args, "depends_on", None) or [],

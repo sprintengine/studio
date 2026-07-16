@@ -43,6 +43,7 @@ from sprintengine_core.tool.state import (
     create_task_comment,
     end_lease,
     ensure_role_in_roster,
+    ensure_task_repo_declared,
     find_task,
     mint_lease,
     reconcile_worker,
@@ -203,6 +204,9 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "write": runtime["dirty"] or phase_dirty or expired["dirty"],
                 }
             if selected:
+                ensure_task_repo_declared(
+                    state, folder_store.task_repo(selected), context=f"Task {selected.get('id')}"
+                )
                 model, cli = _resolve_execution_identity(args)
                 result = assign_task(state, selected, args.id, model=model, cli=cli)
                 recompute_phase(state)
@@ -247,6 +251,9 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
                     "event": event,
                 }
             ensure_role_in_roster(state, str(task.get("role") or ""))
+            ensure_task_repo_declared(
+                state, folder_store.task_repo(task), context=f"Task {task.get('id')}"
+            )
             ready_ids = set(read_ready_task_ids(state))
             if args.task_id not in ready_ids or not task_is_ready(state, task):
                 return {"ok": False, "error": "Task is not ready.", "task": {"id": task.get("id"), "status": task.get("status")}, "write": False}

@@ -12,6 +12,7 @@ from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
+from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
 
 
 def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
@@ -361,6 +362,36 @@ def ensure_role_in_roster(state: Dict[str, Any], role: str) -> None:
         )
 
 
+def declared_repo_ids(state: Dict[str, Any]) -> List[str]:
+    """The repo ids this run declares, in declaration order (primary first).
+
+    A run with no worktree vcs block works in the workspace itself and so declares
+    exactly the primary repo: every run has at least one legal target, and the
+    `repo` boundary reads the same in both modes.
+    """
+    ids = [str(repo.get("id") or "").strip() for repo in vcs_repos(get_run_vcs(state))]
+    return [repo_id for repo_id in ids if repo_id] or [folder_store.DEFAULT_TASK_REPO]
+
+
+def ensure_task_repo_declared(state: Dict[str, Any], repo: Optional[str], *, context: str) -> str:
+    """Validate a task's target repo against the run's declared repos.
+
+    The repo mirror of `ensure_role_in_roster`, and enforced in the same two
+    places roles are: at creation, so a typo cannot be planned, and at claim, so a
+    task that named a repo the run does not declare fails loudly with the tree
+    named rather than silently resolving against the primary one. A blank/absent
+    repo is the primary repo, which every run declares.
+    """
+    clean = str(repo or "").strip() or folder_store.DEFAULT_TASK_REPO
+    declared = declared_repo_ids(state)
+    if clean not in declared:
+        raise SystemExit(
+            f"{context} targets project {clean!r}, which this sprint does not work in. "
+            f"This sprint's projects are: {', '.join(declared)}."
+        )
+    return clean
+
+
 def run_is_canceled(state: Dict[str, Any]) -> bool:
     """True when the run carries the stored cancel flag.
 
@@ -686,6 +717,10 @@ def mint_lease(task: Dict[str, Any], worker_id: str, role: Optional[str] = None)
     lease: Dict[str, Any] = {
         "workerId": clean_id,
         "role": str(role or existing.get("role") or task.get("role") or "").strip(),
+        # The tree this assignment works in (MC-1611). Taken from the task, never
+        # the caller, so the queue filter that selected the worker, the worktree the
+        # commit lands in, and the diff evidence captured from it all name one repo.
+        "repo": folder_store.task_repo(task),
         "heartbeatAt": now_iso(),
         "since": existing.get("since") if same_worker else now_iso(),
     }

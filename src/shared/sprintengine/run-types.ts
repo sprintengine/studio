@@ -568,6 +568,9 @@ export type SprintEngineRuntimeAgent = {
 export type SprintEngineWorker = SprintEngineRuntimeAgent & {
   /** Session id recorded on the worker's active lease, when it holds one. */
   sessionId?: string
+  /** Repo id recorded on the worker's active lease (MC-1611): the tree the
+   *  worker is working in right now. Absent when it holds no active lease. */
+  repo?: string
   /** Every task id this worker has owned across the run (active lease +
    *  last-implemented), oldest-first. */
   ownedTaskIds?: string[]
@@ -675,11 +678,27 @@ export type SprintEngineSourceBundleStateItem = {
   capturedAt?: string
 }
 
+/**
+ * The repo a task targets when it names none: entry zero of the run's declared
+ * `vcs.repos`, its primary repo (MC-1611). MIRRORED from `DEFAULT_TASK_REPO` in
+ * sprintengine_core/store.py (and `PRIMARY_REPO_ID` in
+ * sprintengine_core/tool/shell.py); a contract test pins them together.
+ */
+export const DEFAULT_SPRINTENGINE_TASK_REPO = 'primary'
+
 export type SprintEngineTask = {
   id: string
   title: string
   description: string
   role: SprintEngineRoleId
+  /**
+   * Id of the declared repo this task works in — one task, one git tree, always.
+   * `ownedPaths` and every evidence path stay relative to THAT repo's root, so a
+   * sibling repo is only ever expressible as (repo id, relative path). The
+   * projection always sets it; a run declaring one repo reads
+   * {@link DEFAULT_SPRINTENGINE_TASK_REPO} on every task.
+   */
+  repo: string
   status: SprintEngineTaskStatus
   source?: SprintEngineTaskSource
   ownerAgentId: string | null

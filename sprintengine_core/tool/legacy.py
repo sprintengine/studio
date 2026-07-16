@@ -461,6 +461,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run this team in one shared git worktree + branch so all agents work in the same isolated checkout and commit per task.",
     )
     p.add_argument(
+        "--repo",
+        action="append",
+        default=[],
+        help=(
+            "Another project this sprint spans, as <name>=<path>, for example --repo mobile=../multicode-mobile. "
+            "Repeat per project; relative paths resolve against this project. Each must be a separate git project, "
+            "and each gets its own run worktree on the run branch. Requires --use-worktrees true. Fixed at run creation."
+        ),
+    )
+    p.add_argument(
         "--source-json",
         dest="source_json",
         help="JSON object of the resolved root source metadata (kind/origin/path/planKind/capturedAt). App-created runs seed it into run.yaml so the Sprint Inbox shows the source before any agent runs handover.",
@@ -709,8 +719,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", required=True)
     p.add_argument("--description", default="", help="Concrete task brief for the worker: what changes, target behavior, boundary, non-goals.")
     p.add_argument("--role", required=True)
+    p.add_argument("--repo", help="Project this task works in, from the ones the sprint declares. Omit for the sprint's main project.")
     p.add_argument("--depends-on", action="append", default=[])
-    p.add_argument("--path", action="append", default=[], help="Owned path or directory.")
+    p.add_argument("--path", action="append", default=[], help="Owned path or directory, relative to the task's project root.")
     p.add_argument("--acceptance", action="append", default=[], help="Externally verifiable acceptance criterion; never a restatement of the description.")
     p.add_argument("--note", action="append", default=[], help="Repeatable non-obvious implementation detail the description does not already carry; omit when the description suffices.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
@@ -729,6 +740,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--description", help="Concrete task brief for the worker.")
     p.add_argument("--clear-description", action="store_true")
     p.add_argument("--role")
+    p.add_argument("--repo", help="Re-target this task at another project the sprint declares.")
     p.add_argument("--path", action="append", help="Replace owned paths with this repeatable list.")
     p.add_argument("--clear-paths", action="store_true")
     p.add_argument("--acceptance", action="append", help="Replace acceptance criteria with this repeatable list.")

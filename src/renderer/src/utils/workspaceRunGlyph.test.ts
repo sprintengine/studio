@@ -14,6 +14,7 @@ function task(overrides: Partial<SprintEngineTask>): SprintEngineTask {
     title: 'Task',
     description: '',
     role: 'developer',
+    repo: 'primary',
     status: 'done',
     ownerAgentId: null,
     dependsOn: [],

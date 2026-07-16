@@ -25,7 +25,14 @@ from sprintengine_core.tool.plans import (
     safe_review_filename,
 )
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.state import append_event, ensure_role_in_roster, find_task, load_mutation_state, with_locked_state
+from sprintengine_core.tool.state import (
+    append_event,
+    ensure_role_in_roster,
+    ensure_task_repo_declared,
+    find_task,
+    load_mutation_state,
+    with_locked_state,
+)
 from sprintengine_core.tool.tasks import (
     add_unique_values,
     assert_phases_within_run_ceiling,
@@ -73,6 +80,10 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
         if args.role is not None:
             ensure_role_in_roster(state, args.role)
             task["role"] = args.role
+        if getattr(args, "repo", None) is not None:
+            task["repo"] = ensure_task_repo_declared(
+                state, args.repo, context=f"Task {task.get('id') or args.task_id}"
+            )
 
         if args.clear_paths:
             task["ownedPaths"] = []

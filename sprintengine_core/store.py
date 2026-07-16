@@ -43,6 +43,14 @@ ARTIFACT_STATUSES = (
     "changes_requested",
     "superseded",
 )
+# The repo a task targets when it names none: entry zero of `vcs.repos`, the run's
+# primary repo (MC-1611). Every task written before multi-repo runs targeted the one
+# repo the run had, which is that entry, so an absent `repo` reads as this and a
+# single-repo run behaves exactly as it did. MIRRORED as `PRIMARY_REPO_ID` in
+# sprintengine_core/tool/shell.py (which spells entry zero's id) and as
+# DEFAULT_SPRINTENGINE_TASK_REPO in src/shared/sprintengine/run-types.ts; a contract
+# test pins all three.
+DEFAULT_TASK_REPO = "primary"
 SUPPORT_DIRS = ("metrics", "plan-reviews", "reviews", "validation", "runner")
 RUN_FILE = "run.yaml"
 EVENTS_FILE = "events.jsonl"
@@ -154,6 +162,20 @@ def validate_task_status(value: str) -> str:
 
 def validate_artifact_status(value: str) -> str:
     return validate_status(value, ARTIFACT_STATUSES, "artifact")
+
+
+def task_repo(task: dict[str, Any]) -> str:
+    """The repo a task targets, defaulting to the run's primary repo.
+
+    The one accessor every reader shares, so no caller re-spells the default.
+    Membership in the run's declared repos is enforced at creation and at claim
+    (`ensure_task_repo_declared`), never here: this reads a task record that is
+    already stored, and a stored task must read back the same way whatever the
+    run declares today.
+    """
+    if not isinstance(task, dict):
+        return DEFAULT_TASK_REPO
+    return str(task.get("repo") or "").strip() or DEFAULT_TASK_REPO
 
 
 def validate_project_relative_path(value: str, *, field: str = "path") -> str:
@@ -897,6 +919,7 @@ def _normalize_projection_task(task: dict[str, Any], *, board_column: str) -> di
     projected["boardColumn"] = board_column
     projected.setdefault("dependsOn", [])
     projected.setdefault("ownedPaths", [])
+    projected["repo"] = task_repo(task)
     projected.setdefault("acceptanceCriteria", [])
     projected.setdefault("implementationNotes", [])
     projected.setdefault("notes", [])
@@ -1156,6 +1179,10 @@ def derive_worker_views(
             entry["currentDispatch"] = _current_dispatch_from_ledger(
                 latest_dispatch.get((lease_worker, task_id))
             )
+            # The repo the worker is currently working in, from the lease the claim
+            # minted (MC-1611). A task predating the lease field falls back to the
+            # task's own repo, so (role, repo) routing reads the same either way.
+            entry["repo"] = str(lease.get("repo") or "").strip() or task_repo(task)
             session_id = str(lease.get("sessionId") or "").strip()
             if session_id:
                 entry["sessionId"] = session_id

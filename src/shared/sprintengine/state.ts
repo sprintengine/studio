@@ -78,6 +78,7 @@ import type {
   SprintEngineVcsRepo,
   SprintEngineWorker,
 } from './run-types'
+import { DEFAULT_SPRINTENGINE_TASK_REPO } from './run-types'
 import type { AgentState } from './agent-state'
 import type {
   SprintEngineAutoState,
@@ -2389,6 +2390,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
       role: taskRole,
+      repo: optionalTrimmedString(task.repo) ?? DEFAULT_SPRINTENGINE_TASK_REPO,
       status,
       ...(semanticStatus ? { stateStatus: semanticStatus } : {}),
       ...(boardColumn ? { boardColumn } : {}),
@@ -2678,12 +2680,14 @@ function normalizeProjectionWorkers(value: unknown): Record<string, SprintEngine
     const base = normalizeRuntimeAgentRecord(record)
     if (!base) continue
     const sessionId = optionalTrimmedString(record.sessionId)
+    const repo = optionalTrimmedString(record.repo)
     const ownedTaskIds = Array.isArray(record.ownedTaskIds)
       ? record.ownedTaskIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
       : []
     result[workerId] = {
       ...base,
       ...(sessionId ? { sessionId } : {}),
+      ...(repo ? { repo } : {}),
       ...(ownedTaskIds.length > 0 ? { ownedTaskIds } : {}),
     }
   }
