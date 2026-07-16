@@ -214,6 +214,15 @@ export async function createPlanSourcedSprintEngineWorkspace({
   const planner = buildSprintEngineAgentRosterForState(sprintEngineState).find((agent) => agent.role === plannerRole)
   if (!planner) throw new PlanSourcedSprintEngineWorkspaceError('missing-planner')
 
+  // The run's legal role set: forwarded to Python init as `configuredRoles`,
+  // told to the architect in the startup prompt, and seeded onto the local
+  // state so wake prompts built before the first projection refresh carry the
+  // same list (the projection then overwrites it with the identical canonical
+  // copy). Never derive this from roster seats — the lazy roster seats only
+  // the planner.
+  const enabledRoles = sprintEngineEnabledRoles(sprintEngineState.roleCounts, additionalEnabledRoles)
+  sprintEngineState.configuredRoles = enabledRoles
+
   // Reference-mode (backlog/plan-sourced) launches seed the source into run.yaml
   // at init, so the run carries its "Started from" seed at t=0 and the architect
   // startup prompt drops the (now redundant, and on a second call erroring)
@@ -234,7 +243,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
-      enabledRoles: sprintEngineEnabledRoles(sprintEngineState.roleCounts, additionalEnabledRoles),
+      enabledRoles,
       // "Workflow steps" + "Final sweeps" keys, present only when set — the
       // plan-sourced path used to drop these, so a mandated sweep never reached
       // run.yaml `requiredSweeps`.
@@ -276,6 +285,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
     sourceBundle,
     statePath: sprintEngineContext.statePath,
     rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
+    configuredRoles: enabledRoles,
     autoRunRequested: deriveSprintEngineAutomationDesiredMode(sprintEngineAutoState) !== 'manual',
     useWorktrees: useWorktrees === true,
     reference: sourceReference === true,

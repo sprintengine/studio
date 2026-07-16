@@ -39,15 +39,17 @@ for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   assert.ok(!(steps as string[]).includes('mode'), `${flowId} flow carries no retired mode pivot`)
 }
 
-// The novice critical paths stay short. The sprint's roster and run settings are
-// separate pages: both are fully defaulted, so paging them apart is what keeps
-// either one from becoming a scroll, and both sit behind "Skip the rest and
+// The novice critical paths stay short. The sprint's config pages (MC-1646) —
+// team roster, reviews, optional tools & skills, review & start — are each one
+// reading column, all fully defaulted, and all behind "Skip the rest and
 // create" once the team page's objective is answered.
 assert.deepEqual(STEPS_BY_MODE.sprintengine, [
   'workspace',
   'sprintengine-team',
   'sprintengine-roster',
-  'sprintengine-run',
+  'sprintengine-reviews',
+  'sprintengine-tools',
+  'sprintengine-start',
 ])
 assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 
@@ -57,7 +59,13 @@ assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 // ones that carry something the hub cannot default. Pin that: nothing may sit
 // after an intent step unless it is a known-defaulted refinement step.
 const INTENT_STEPS = ['multiloop-goal', 'guided-idea', 'sprintengine-team'] as const
-const DEFAULTED_REFINEMENT_STEPS = ['standard-layout', 'sprintengine-roster', 'sprintengine-run'] as const
+const DEFAULTED_REFINEMENT_STEPS = [
+  'standard-layout',
+  'sprintengine-roster',
+  'sprintengine-reviews',
+  'sprintengine-tools',
+  'sprintengine-start',
+] as const
 for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
   const intentIndex = steps.findIndex((step) => (INTENT_STEPS as readonly string[]).includes(step))
   if (intentIndex < 0) continue

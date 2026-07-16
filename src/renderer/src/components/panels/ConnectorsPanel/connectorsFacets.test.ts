@@ -5,7 +5,9 @@ import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/m
 import type { McpServerConfig } from '../../../../../shared/electron-api'
 import {
   buildConnectorEntries,
+  catalogServerAsComposerConnector,
   connectorCanLaunch,
+  connectorEntryAsComposerConnector,
   connectorFacet,
   deriveConnectorsView,
   facetCounts,
@@ -346,5 +348,31 @@ assert.equal(deriveConnectorsView(ready([]), ready([]), new Set(), '', 'All').st
 
 // No entries → no sections (the panel's empty/no-match states own that copy).
 assert.deepEqual(sectionConnectors([], 'All'), [])
+
+// "New chat" hands the host the connector itself, not a bare id: the composer's
+// attachment chip needs the display name at open, with no second catalog read.
+{
+  assert.deepEqual(catalogServerAsComposerConnector(server({ icon: 'railway.svg' })), {
+    id: 'railway',
+    name: 'Railway',
+    icon: 'railway.svg',
+  })
+
+  const [entry] = buildConnectorEntries([server({ icon: 'railway.svg' })], [], new Set())
+  assert.deepEqual(connectorEntryAsComposerConnector(entry), {
+    id: 'railway',
+    name: 'Railway',
+    icon: 'railway.svg',
+  })
+
+  // An installed-only connector has no catalog record, so it carries no icon —
+  // the chip falls back to the brand icon keyed off the id. It must still name
+  // the connector rather than dropping to the id.
+  const installed = installedServerAsCatalogEntry({ id: 'acme', name: 'Acme', enabled: true } as McpServerConfig)
+  const connector = catalogServerAsComposerConnector(installed)
+  assert.equal(connector.id, 'acme')
+  assert.equal(connector.name, 'Acme')
+  assert.equal(connector.icon, undefined)
+}
 
 console.log('connectors-facets guard passed')

@@ -161,6 +161,20 @@ def build_artifact_from_args(args: argparse.Namespace, state: Dict[str, Any], st
         "updatedAt": now,
     }
 
+def stamp_implementer_from_owner(task: Dict[str, Any]) -> None:
+    """Record the departing owner as the task's implementer before an owner clear.
+
+    The publish and advance done-writers stamp `lastImplementedByAgentId` from
+    their actor; the artifact-approval and input-resolution writers complete a
+    task on the USER's action, so the truthful implementer is the owner being
+    cleared. Without the stamp the projection's worker derivation (store.py)
+    forgets the worker entirely. No-op when the task was never claimed — an
+    ownerless done gate genuinely has no implementer.
+    """
+    owner = str(task.get("ownerAgentId") or "").strip()
+    if owner:
+        task["lastImplementedByAgentId"] = owner
+
 def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, Any], artifact: Optional[Dict[str, Any]] = None) -> None:
     task["status"] = "needs_input"
     task["completedAt"] = None
@@ -202,6 +216,13 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
     append_task_activity(task, "status_change", str(task.get("ownerAgentId") or task.get("role") or "agent"), f"Task {task.get('id')} completed after artifact approval.", {"status": "done"})
     # A done task holds no owner. One of five independent task->done writers; each
     # must clear it, because there is no single choke point to hook.
+    # Stamp the implementer BEFORE clearing: the projection derives done-task
+    # workers only from lastImplementedByAgentId (store.py), so dropping the
+    # owner unstamped erases the worker while its terminal may still be live.
+    # A live terminal with no worker record is a ghost seat: the supervisor can
+    # neither wake it (no runtime record) nor replace it (running id blocks the
+    # pool spawn) — for a planner that starves every later task of the role.
+    stamp_implementer_from_owner(task)
     task["ownerAgentId"] = None
     return True
 
@@ -357,7 +378,9 @@ def resolve_task_input(
         task["status"] = "done"
         task["completedAt"] = now
         supersede_stale_gate_placeholder_on_completion(state, task, actor)
-        # A done task holds no owner (see mark_task_done_if_artifacts_approved).
+        # A done task holds no owner (see mark_task_done_if_artifacts_approved,
+        # including why the implementer stamp must precede the clear).
+        stamp_implementer_from_owner(task)
         task["ownerAgentId"] = None
         return {"status": "done", "ownerAgentId": owner_id or None, "resumePhase": None}
 

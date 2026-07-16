@@ -30,6 +30,14 @@ export type WizardProgressProps = {
    * non-interactive status indicator. Upcoming and current steps stay inert.
    */
   onStepSelect?: (index: number) => void
+  /**
+   * Rendering variant. 'dashes' (default) is the anonymous hairline-dash strip.
+   * 'labeled' renders each step's name inline — done steps ticked (and
+   * clickable when `onStepSelect` is set), the current step marked with a dot —
+   * so a longer flow reads as named stations rather than a count. Requires
+   * `stepLabels`; falls back to dashes without them.
+   */
+  variant?: 'dashes' | 'labeled'
 }
 
 /**
@@ -45,6 +53,7 @@ export function WizardProgress({
   currentStepLabel,
   stepLabels,
   onStepSelect,
+  variant = 'dashes',
 }: WizardProgressProps) {
   const doneCount = done ?? active
   const step = Math.min(total, active + 1)
@@ -56,6 +65,61 @@ export function WizardProgress({
     const isCurrent = idx === active
     return { idx, isCurrent, isDone: idx < doneCount && !isCurrent }
   })
+
+  if (variant === 'labeled' && stepLabels?.length) {
+    return (
+      <nav aria-label={fullLabel} className="flex min-w-0 flex-1 items-center justify-center gap-4">
+        {stepStates.map(({ idx, isCurrent, isDone }) => {
+          const label = stepLabels[idx] ?? `Step ${idx + 1}`
+          const body = (
+            <>
+              {isDone ? (
+                <span aria-hidden="true" className="text-[10px] leading-none text-[color:var(--accent-primary)]">✓</span>
+              ) : null}
+              {isCurrent ? (
+                <span aria-hidden="true" className="h-[5px] w-[5px] rounded-full bg-[color:var(--accent-primary)]" />
+              ) : null}
+              {label}
+            </>
+          )
+          // Only completed steps are interactive (back-jump); the current and
+          // upcoming steps stay inert status text.
+          if (isDone && onStepSelect) {
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onStepSelect(idx)}
+                aria-label={`Go back to step ${idx + 1}: ${label}`}
+                className="
+                  inline-flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] font-medium text-[color:var(--text-muted)]
+                  transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                "
+              >
+                {body}
+              </button>
+            )
+          }
+          return (
+            <span
+              key={idx}
+              aria-current={isCurrent ? 'step' : undefined}
+              className={`inline-flex items-center gap-1.5 px-1 py-0.5 text-[11px] font-medium ${
+                isCurrent
+                  ? 'text-[color:var(--text-strong)]'
+                  : isDone
+                    ? 'text-[color:var(--text-muted)]'
+                    : 'text-[color:var(--text-subtle)]'
+              }`}
+            >
+              {body}
+            </span>
+          )
+        })}
+      </nav>
+    )
+  }
 
   const progressbar = (
     <div

@@ -80,7 +80,7 @@ import { MULTICODE_DISABLE_SPRINTENGINE_AUTORUN, MULTICODE_DISABLE_SPRINTENGINE_
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
-import { type AgentComposerConfirm, type AgentComposerSelection } from './agentComposer/AgentComposer'
+import { type AgentComposerConfirm, type AgentComposerConnector, type AgentComposerSelection } from './agentComposer/AgentComposer'
 import AgentComposerPopover from './agentComposer/AgentComposerPopover'
 import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
@@ -462,9 +462,14 @@ export default function WorkspaceManager() {
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
   // The pre-creation New Chat panel's scope. Present while the panel is open;
-  // folderPath is the project the chat lands in (null → inherit active), and
-  // folderLabel names it in the panel's scoping chip.
-  const [newChatPanelState, setNewChatPanelState] = useState<{ folderPath: string | null; folderLabel: string | null } | null>(null)
+  // folderPath is the project the chat lands in (null → inherit active),
+  // folderLabel names it in the panel's scoping chip, and connector is the
+  // connector the panel opened with attached (null for a plain New chat).
+  const [newChatPanelState, setNewChatPanelState] = useState<{
+    folderPath: string | null
+    folderLabel: string | null
+    connector: AgentComposerConnector | null
+  } | null>(null)
   const newChatPanelOpen = newChatPanelState !== null
   const [tipModalOpen, setTipModalOpen] = useState(false)
   const tipModalDecidedRef = useRef(false)
@@ -858,9 +863,10 @@ export default function WorkspaceManager() {
   // installs the skill and seeds its invocation; a plain MCP launches with a
   // kickoff prompt naming the attached server instead. Exactly one worktree per
   // connector chat — a new id (and so a new worktree) is minted on every
-  // invocation. This is the single connector runtime: Railway's Command Palette
-  // entry, the Connectors surface, connector automations, and the New-chat
-  // composer's "+ Connector" attachment all funnel through it.
+  // invocation. This is the single connector runtime, and it is reached only
+  // through the composer's confirm: Railway's Command Palette entry and every
+  // connector "New chat" now open the composer with the connector attached, so
+  // no surface spawns a connector chat without the user choosing an agent.
   const launchConnectorChat = useCallback(async (
     serverId: string,
     // Composer overrides (the "+ Connector" attachment): the panel's chosen
@@ -2052,11 +2058,19 @@ export default function WorkspaceManager() {
 
   // Open the pre-creation New Chat panel. `folderPath === undefined` inherits the
   // active workspace's folder (the plain New chat button); an explicit value
-  // scopes the chat to that project (folder/workspace-row menus). Nothing is
-  // created here — the panel's confirm does that.
-  const openNewChatPanel = useCallback((folderPath?: string | null) => {
+  // scopes the chat to that project (folder/workspace-row menus). `connector`
+  // opens the composer with that connector attached (the connector "New chat"
+  // entry points). Nothing is created here — the panel's confirm does that.
+  const openNewChatPanel = useCallback((
+    folderPath?: string | null,
+    connector?: AgentComposerConnector | null,
+  ) => {
     const resolved = folderPath === undefined ? activeWorkspace?.folderPath ?? null : folderPath
-    setNewChatPanelState({ folderPath: resolved, folderLabel: resolved ? newChatFolderLabel(resolved) : null })
+    setNewChatPanelState({
+      folderPath: resolved,
+      folderLabel: resolved ? newChatFolderLabel(resolved) : null,
+      connector: connector ?? null,
+    })
     // The New Chat panel renders only in the non-hub branch: leaving the
     // creation hub open would make this click a visible no-op and leave the
     // armed panel to pop up later (first-run keeps the hub pinned open).
@@ -2085,12 +2099,12 @@ export default function WorkspaceManager() {
     return options
   }, [workspaces])
   const selectNewChatProject = (path: string) => {
-    setNewChatPanelState((prev) => (prev ? { folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
+    setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: path, folderLabel: newChatFolderLabel(path) } : prev))
   }
   const browseNewChatProject = async () => {
     const dir = await window.api.openDir()
     if (!dir) return
-    setNewChatPanelState((prev) => (prev ? { folderPath: dir, folderLabel: newChatFolderLabel(dir) } : prev))
+    setNewChatPanelState((prev) => (prev ? { ...prev, folderPath: dir, folderLabel: newChatFolderLabel(dir) } : prev))
   }
   // Switching workspaces dismisses the pre-creation panel: the user has moved
   // on, and the panel would otherwise sit over the newly revealed workspace.
@@ -2986,6 +3000,12 @@ export default function WorkspaceManager() {
               {newChatPanelState ? (
                 <React.Suspense fallback={<SuspenseFallback label="Loading new chat" />}>
                   <NewChatPanel
+                    // The composer seeds its attachment from initialConnector on
+                    // mount, so opening a connector "New chat" over an already-open
+                    // panel must remount it — otherwise the connector silently
+                    // fails to attach. Keyed on identity, so removing the chip
+                    // (composer-local state) never remounts.
+                    key={newChatPanelState.connector?.id ?? 'plain'}
                     initialState={newChatPanelState}
                     projectOptions={newChatProjectOptions}
                     onSelectProject={selectNewChatProject}
@@ -3007,7 +3027,14 @@ export default function WorkspaceManager() {
         {connectorsSurfaceOpen ? (
           <React.Suspense fallback={null}>
             <ConnectorsSurface
-              onLaunchConnector={(serverId) => { void launchConnectorChat(serverId) }}
+              onLaunchConnector={(connector) => {
+                // "New chat" on a connector opens the composer with it already
+                // attached, rather than auto-spawning: the user still picks the
+                // agent, CLI, and model. The confirm routes back into
+                // launchConnectorChat with those choices.
+                closeConnectorsSurface()
+                openNewChatPanel(undefined, connector)
+              }}
               onUseSkillInNewAgent={(skill) => {
                 // "Use in agent → New agent…" on an installed skill row: a
                 // general agent on the General-engine default CLI, with the
@@ -3081,7 +3108,7 @@ export default function WorkspaceManager() {
           onClose={() => setShowPalette(false)}
           onNewWorkspace={openNewWorkspacePanel}
           onNewChat={() => createLauncherChat()}
-          onConnectRailway={() => { void launchConnectorChat('railway') }}
+          onConnectRailway={() => { openNewChatPanel(undefined, { id: 'railway', name: 'Railway' }) }}
           onSpawnSpecialist={handleSelectSpecialist}
           workspaceWindowId={workspaceWindowId}
           workspaces={visibleWorkspaces}

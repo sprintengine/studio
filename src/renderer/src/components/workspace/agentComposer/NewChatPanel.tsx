@@ -3,6 +3,7 @@ import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import { CreationBackdrop } from '../../backdrops/CreationBackdrop'
 import AgentComposer, {
   type AgentComposerConfirm,
+  type AgentComposerConnector,
   type AgentComposerSelection,
   type ComposerProjectOption,
 } from './AgentComposer'
@@ -12,6 +13,10 @@ export type NewChatPanelInitialState = {
   // folder at spawn time. `folderLabel` is the display name for the scoping chip.
   folderPath: string | null
   folderLabel: string | null
+  // Connector to open pre-attached; null opens with an empty connector slot.
+  // Set by the connector "New chat" entry points, which know the connector
+  // before the composer does.
+  connector: AgentComposerConnector | null
 }
 
 interface Props {
@@ -74,6 +79,7 @@ export default function NewChatPanel({
             onSelectProject={onSelectProject}
             onBrowseProject={onBrowseProject}
             initialSelection={initialSelection}
+            initialConnector={initialState.connector}
             permissionPreset={permissionPreset}
             onChangePermissionPreset={onChangePermissionPreset}
             debugMode={debugMode}

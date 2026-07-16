@@ -280,9 +280,13 @@ async function main(): Promise<void> {
       await panel.click(panel.button(SKIP))
     } else {
       await panel.click(panel.primary()) // team -> roster
-      assert.ok(panel.text().includes('Your AI team'), 'the sprint pages to its roster step')
-      await panel.click(panel.primary()) // roster -> run
-      assert.ok(panel.text().includes('How the sprint should run'), 'the roster and run halves are separate pages')
+      assert.ok(panel.text().includes('Who plans and builds this sprint.'), 'the sprint pages to its Team step')
+      await panel.click(panel.primary()) // roster -> reviews
+      assert.ok(panel.text().includes('What gets checked before the sprint finishes.'), 'the sprint pages to its Reviews step')
+      await panel.click(panel.primary()) // reviews -> tools
+      assert.ok(panel.text().includes('Tools & skills'), 'the sprint pages to its Tools step')
+      await panel.click(panel.primary()) // tools -> start
+      assert.ok(panel.text().includes('Review & start'), 'the sprint ends on the Review & start step')
       await panel.click(panel.primary()) // create
     }
 
@@ -299,7 +303,14 @@ async function main(): Promise<void> {
   // above all "a create is in flight" — are asserted directly against them.
   {
     const nav = await import('./newWorkspace/stepNavigation')
-    const steps = ['workspace', 'sprintengine-team', 'sprintengine-roster', 'sprintengine-run'] as const
+    const steps = [
+      'workspace',
+      'sprintengine-team',
+      'sprintengine-roster',
+      'sprintengine-reviews',
+      'sprintengine-tools',
+      'sprintengine-start',
+    ] as const
     const at = (step: (typeof steps)[number], busy = false) => ({ steps: [...steps], step, busy })
 
     assert.equal(
@@ -308,7 +319,7 @@ async function main(): Promise<void> {
       'Continue refuses to leave a page the user has not answered',
     )
     assert.equal(
-      nav.nextStepFrom({ ...at('sprintengine-run'), currentStepReady: true }),
+      nav.nextStepFrom({ ...at('sprintengine-start'), currentStepReady: true }),
       null,
       'the last page has no Continue — its primary is create',
     )

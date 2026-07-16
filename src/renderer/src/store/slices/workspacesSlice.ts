@@ -184,6 +184,7 @@ const GIT_PANEL_VIEW_VALUES = {
   changes: true,
   worktrees: true,
   log: true,
+  stashes: true,
   terminal: true,
 } satisfies Record<GitPanelView, true>
 

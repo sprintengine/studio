@@ -12,6 +12,11 @@ type PlanFileSprintEngineHandoffPromptArgs = {
   }>
   statePath: string
   rosterArgs?: string[]
+  // The run's enabled role set (init `configuredRoles`) — the roles the
+  // architect may plan tasks for. Distinct from `rosterArgs`: the lazy roster
+  // seeds only the planner seat, so seat strings must never stand in for the
+  // legal role set.
+  configuredRoles?: string[]
   autoRunRequested?: boolean
   useWorktrees?: boolean
   // When true, the markdown source and every bundle item are handed over as
@@ -98,15 +103,17 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   sourcePlanKind = 'unknown',
   sourceBundle = [],
   rosterArgs = [],
+  configuredRoles = [],
   autoRunRequested = false,
   useWorktrees = false,
   reference = false,
   seedAlreadyPersisted = false,
 }: PlanFileSprintEngineHandoffPromptArgs): string {
-  // Roles are user config now, not seat assignments. `rosterArgs` are `role:id`
-  // seat strings; the architect only needs the distinct role set (order-preserved)
-  // to know which roles this run staffs — never the seat ids.
-  const configuredRoles = [...new Set(rosterArgs.map((arg) => arg.split(':', 1)[0]).filter(Boolean))]
+  // Roles are user config, never seat-derived: the lazy roster seeds only the
+  // planner seat, so deriving the role set from `rosterArgs` collapses it to
+  // "architect" and the architect refuses to plan the other roles' work. The
+  // caller passes the same enabled-role list it forwards to init as
+  // `configuredRoles`.
   const hasExplicitSourceBundle = sourceBundle.length > 0
   const bundle = hasExplicitSourceBundle
     ? sourceBundle

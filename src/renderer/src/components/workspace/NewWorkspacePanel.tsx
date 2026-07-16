@@ -31,7 +31,6 @@ import type {
   SprintEngineSourcePlanKind,
   SprintEngineState,
   SprintEngineSavedRoster,
-  SprintEngineRosterTeam,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
   Workspace,
@@ -79,7 +78,10 @@ import AgentComposer, {
 } from './agentComposer/AgentComposer'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
-import { SprintEngineWorkflowPanels } from './newWorkspace/SprintEngineWorkflowPanels'
+import { SprintEngineTeamPanel, type SprintEngineTeamMode } from './newWorkspace/SprintEngineTeamPanel'
+import { SprintEngineReviewsPanel } from './newWorkspace/SprintEngineReviewsPanel'
+import { SprintEngineToolsPanel } from './newWorkspace/SprintEngineToolsPanel'
+import { SprintEngineStartPanel } from './newWorkspace/SprintEngineStartPanel'
 import {
   buildSprintEngineWorkflowInitKeys,
   type SprintEngineReviewRuntime,
@@ -90,6 +92,7 @@ import {
   sprintEngineRosterHasPlanningRole,
   sprintEngineRosterRoleFloor,
 } from '../../utils/sprintengineRoleOptions'
+import { mcpServerDisplayName } from '../../utils/mcpDisplayName'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
 import { useBacklogScan } from './newWorkspace/useBacklogScan'
 import { BacklogRowContent } from '../backlog/BacklogRow'
@@ -113,7 +116,7 @@ import {
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
-import { CliPermissionPresetRow, PathRadio, RosterAndRunSettings } from './newWorkspace/WizardControls'
+import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
 import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedTeams'
 import {
@@ -181,17 +184,44 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     subtitle: 'Start fresh, pick something from your backlog, or reopen a team.',
   },
   'sprintengine-roster': {
-    title: 'Your AI team',
-    subtitle: 'A balanced team is ready to go. Adjust it below if you like.',
+    title: 'Team',
+    subtitle: 'Who plans and builds this sprint.',
   },
-  'sprintengine-run': {
-    title: 'How the sprint should run',
-    subtitle: 'These are set sensibly already. Change them only if you want to.',
+  'sprintengine-reviews': {
+    title: 'Reviews',
+    subtitle: 'What gets checked before the sprint finishes.',
+  },
+  'sprintengine-tools': {
+    title: 'Tools & skills',
+    subtitle: 'Optional. Selected tools are added to this project — manage them anytime in Settings.',
+  },
+  'sprintengine-start': {
+    title: 'Review & start',
+    subtitle: 'The sprint runs with everything below. Change any line before starting.',
   },
   'guided-idea': {
     title: 'Tell us about your idea',
     subtitle: 'A sentence or two, in plain words. We’ll ask the rest.',
   },
+}
+
+// Short station names for the labeled progress header (MC-1646): the sprint
+// flow reads Where · What · Team · Reviews · Tools · Start instead of
+// anonymous dashes. Other flows keep the dash strip and label back-jumps with
+// the full STEP_HEADING title.
+const STEP_LABEL: Record<StepId, string> = {
+  workspace: 'Where',
+  'mcp-servers': 'Tools',
+  'skill-packs': 'Skills',
+  knowledge: 'Knowledge',
+  'standard-layout': 'Layout',
+  'multiloop-goal': 'What',
+  'sprintengine-team': 'What',
+  'sprintengine-roster': 'Team',
+  'sprintengine-reviews': 'Reviews',
+  'sprintengine-tools': 'Tools',
+  'sprintengine-start': 'Start',
+  'guided-idea': 'What',
 }
 
 const SOURCE_PLAN_KIND_LABELS: Record<SprintEngineSourcePlanKind, string> = {
@@ -589,10 +619,28 @@ export default function NewWorkspacePanel({
   // with no reseed race when the catalog/CLI availability loads. Guidance is
   // prompt-only (never persisted by the engine).
   const [seRosterSource, setSeRosterSource] = useState<SprintEngineRosterSource>('user')
-  // "Use specialist roles" disclosure (MC-1585). Off = plain agents (a pool of
-  // general agents sized by the concurrency cap). On = the specialist roster
-  // table, architect-picks-the-team mode, and Final sweeps.
+  // Specialist roles on/off (MC-1585). Off = plain agents (a pool of general
+  // agents sized by the concurrency cap). On = the specialist roster,
+  // architect-picks-the-team mode, and Final sweeps. Driven by the Team page's
+  // segmented control (MC-1646) through seTeamMode below.
   const [seUseSpecialistRoles, setSeUseSpecialistRoles] = useState(initialUseSpecialistRoles)
+  // The Team page's segmented control (MC-1646) is a projection of the two
+  // stored axes: specialist roles on/off (MC-1585) and who staffs the roster
+  // (user vs architect). 'pool' leaves the last rosterSource intact so
+  // switching back to a specialist segment restores the previous choice.
+  const seTeamMode: SprintEngineTeamMode = !seUseSpecialistRoles
+    ? 'pool'
+    : seRosterSource === 'architect'
+      ? 'architect'
+      : 'roles'
+  const setSeTeamMode = (mode: SprintEngineTeamMode) => {
+    if (mode === 'pool') {
+      setSeUseSpecialistRoles(false)
+      return
+    }
+    setSeUseSpecialistRoles(true)
+    setSeRosterSource(mode === 'architect' ? 'architect' : 'user')
+  }
   const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
   const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
   const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
@@ -742,6 +790,16 @@ export default function NewWorkspacePanel({
   }, [availableCatalogEntries, sprintEngineCliOptions])
   const seatDefaultedFromCatalog = availableCatalogEntries.length > 0 && seArchitectSeat === null
   const effectiveArchitectSeat = seArchitectSeat ?? defaultArchitectSeat
+  // "CLI · model" crumb for the Review & start summary's architect line.
+  const architectSeatLabel = useMemo(() => {
+    const option = sprintEngineCliOptions.find((candidate) => candidate.value === effectiveArchitectSeat.cli)
+    const cliLabel = option?.label ?? effectiveArchitectSeat.cli
+    if (!effectiveArchitectSeat.model) return cliLabel
+    const modelLabel =
+      option?.modelSelection?.options.find((entry) => entry.id === effectiveArchitectSeat.model)?.label
+      ?? effectiveArchitectSeat.model
+    return `${cliLabel} · ${modelLabel}`
+  }, [sprintEngineCliOptions, effectiveArchitectSeat])
   // Default ticks = offered-by-default available entries; the user's toggles
   // (seSprintModelSelection) override once they touch anything.
   const defaultSelectionKeys = useMemo<ReadonlySet<string>>(
@@ -1106,8 +1164,13 @@ export default function NewWorkspacePanel({
 
   const steps = useMemo(() => {
     const base = stepsForMode(mode)
-    return knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
-  }, [mode, knowledgeStepEligible])
+    const withKnowledge = knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
+    // An existing team's review workflow is already initialized in its run
+    // state, so the Reviews page would be an empty screen — it drops out of the
+    // flow the moment a team is loaded (mirroring the knowledge step's
+    // eligibility filter). Tools stay: project-level integrations still apply.
+    return seExistingTeam ? withKnowledge.filter((id) => id !== 'sprintengine-reviews') : withKnowledge
+  }, [mode, knowledgeStepEligible, seExistingTeam])
   // The hub pages a mode's flow: the name+folder fields ('workspace') first,
   // then each config step on its own page, in flow order.
   const configSteps = useMemo(
@@ -1116,11 +1179,16 @@ export default function NewWorkspacePanel({
   )
   const stepIndex = stepIndexIn(steps, step)
   const isLastStep = isLastStepIn(steps, step)
-  const stepLabels = useMemo(() => steps.map((id) => STEP_HEADING[id].title), [steps])
+  const stepLabels = useMemo(
+    () => steps.map((id) => (mode === 'sprintengine' ? STEP_LABEL[id] : STEP_HEADING[id].title)),
+    [steps, mode],
+  )
   // The optional Advanced setup disclosure rides the flow's final page, for any
   // flow with real config steps; the zero-config quick flows (chat, switchboard,
-  // automations) defer that configuration to Settings, exactly as before.
-  const showAdvancedSetup = configSteps.length > 0 && isLastStep
+  // automations) defer that configuration to Settings, exactly as before. The
+  // sprint flow is the exception (MC-1646): its Tools & skills page IS that
+  // configuration, so the accordion would offer the same choices twice.
+  const showAdvancedSetup = configSteps.length > 0 && isLastStep && mode !== 'sprintengine'
 
   // The rail's type list — shell-owned Chat + Workspace, then the enabled
   // registry-contributed types (see modeModels.ts for the ordering contract).
@@ -1344,6 +1412,9 @@ export default function NewWorkspacePanel({
   const sprintEngineRosterReady =
     sprintEngineAccess.allowed
     && (seExistingTeam != null
+      // A plain agent pool always stages its one general planner seat, so the
+      // Team page can never block create in pool mode.
+      || !seUseSpecialistRoles
       || (seRosterSource === 'architect'
         // Architect mode: the roster is the model palette — ready with the option
         // available and at least one model ticked (the architect is always seated).
@@ -1392,6 +1463,12 @@ export default function NewWorkspacePanel({
   // order, a ready name+folder page would claim "Ready to create." on a flow
   // whose intent step is still unanswered.
   const hintStep = !currentStepReady ? step : firstBlockedStepId ?? step
+  // The Tools page's footer hint states the live selection count (MC-1646):
+  // enabled MCP servers plus selected skill packs.
+  const selectedMcpServers = integrationsMcpCatalog.filter((server) =>
+    Boolean(mcpSettings?.servers[server.id]?.enabled),
+  )
+  const toolsSelectedCount = selectedMcpServers.length + selectedSkillPackIds.size
   const blockingMessage = getStepBlockingMessage({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
@@ -1404,6 +1481,8 @@ export default function NewWorkspacePanel({
     seTeamDetailsReady,
     totalAgents,
     seRosterSource,
+    sePlainAgents: !seUseSpecialistRoles,
+    toolsSelectedCount,
     architectModeAvailable,
     architectModeReady,
     architectModeDisabledHint,
@@ -2516,10 +2595,16 @@ export default function NewWorkspacePanel({
   const stepHeading = STEP_HEADING[step]
   const stepAnimationClass =
     direction === 'forward' ? 'wizard-step-in-forward' : 'wizard-step-in-backward'
-  // The sprint's config pages are the wide ones (backlog picker, roster tables,
-  // run settings); every other page — including the sprint's own name+folder
+  // The sprint's source page (backlog picker, team cards) is the one wide page;
+  // its rebuilt config pages are a single reading column of at most ~640px
+  // (MC-1646), and every other page — including the sprint's own name+folder
   // page — keeps the 560px measure the shared fields read at.
-  const wideStep = isSprintEngine && step !== 'workspace'
+  const wideStep = isSprintEngine && step === 'sprintengine-team'
+  const stepColumnClass = wideStep
+    ? ''
+    : isSprintEngine && step !== 'workspace'
+      ? 'max-w-[640px]'
+      : 'max-w-[560px]'
 
   const guidedFlowVisible = guidedRuntimeState != null && !viewingIdeaAfterCommit
 
@@ -2578,6 +2663,9 @@ export default function NewWorkspacePanel({
                 currentStepLabel={stepHeading.title}
                 stepLabels={stepLabels}
                 onStepSelect={jumpToStep}
+                // The sprint's six-page flow reads as named stations (MC-1646);
+                // the short two/three-page flows keep the quiet dash strip.
+                variant={isSprintEngine ? 'labeled' : 'dashes'}
               />
             ) : null}
             {allowClose ? (
@@ -2645,7 +2733,7 @@ export default function NewWorkspacePanel({
                         the page itself never scrolls. */}
                     <div
                       key={step}
-                      className={`flex w-full ${wideStep ? '' : 'max-w-[560px]'} ${step === 'workspace' || step === 'sprintengine-run' ? 'h-full' : ''} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
+                      className={`flex w-full ${stepColumnClass} ${step === 'workspace' ? 'h-full' : ''} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
                     >
                       {stepIndex > 0 ? (
                         <button
@@ -2699,6 +2787,12 @@ export default function NewWorkspacePanel({
               onSelectRecent={handleSelectRecentFolder}
               recentFolders={recentFolders}
               folderHints={folderHints}
+              // A hint matching the selected flow is decoration, not signal
+              // (MC-1646): in the sprint flow every candidate folder would wear
+              // the same gold "Sprint" pill. Hints for OTHER flows still show.
+              suppressedHint={
+                mode === 'sprintengine' ? 'sprintengine' : mode === 'multiloop' ? 'multiloop' : null
+              }
               inputRef={nameInputRef}
             />
                         </>
@@ -2842,77 +2936,169 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {/* The sprint's team settings and run settings are two pages of the
-              same component — RosterAndRunSettings renders either half through
-              its `sections` prop, so neither page is a fork of the other. */}
-          {step === 'sprintengine-roster' || step === 'sprintengine-run' ? (
-            <ConfigStepSection stepId={step} headingRef={headingRef}>
-            <SprintEngineRosterStep
-              sections={step === 'sprintengine-roster' ? 'roster' : 'run'}
-              access={sprintEngineAccess}
-              onSignIn={() => void startLogin()}
-              roleCounts={visibleSprintEngineRoleCounts}
-              roleCliDefaults={seRoleCliDefaults}
-              cliOptions={sprintEngineCliOptions}
-              registry={seRoleRegistry}
-              registryStatus={seRoleRegistryStatus}
-              disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
-              rosterDisabled={seExistingTeam != null}
-              onSetRoleCount={setRoleCount}
-              onSetRoleCli={setRoleCli}
-              roleModelOverrides={seRoleModelOverrides}
-              onSetRoleModel={setRoleModel}
-              automationMode={seAutomationMode}
-              onChangeAutomationMode={setSeAutomationMode}
-              cliPermissionPreset={cliPermissionPreset}
-              onChangeCliPermissionPreset={setCliPermissionPreset}
-              useWorktrees={seUseWorktrees}
-              onChangeUseWorktrees={setSeUseWorktrees}
-              worktreesDisabled={seExistingTeam != null}
-              maxParallelAgents={seMaxParallelAgents}
-              onChangeMaxParallelAgents={setSeMaxParallelAgents}
-              totalAgents={totalAgents}
-              hasExistingTeam={seExistingTeam != null}
-              existingTeamName={seExistingTeam?.displayName ?? null}
-              createError={sePlanError}
-              teams={sprintEngineTeams}
-              selectedTeamId={seSelectedTeamId}
-              selectedTeamDirty={selectedSprintEngineTeamDirty}
-              onSelectTeam={handleSelectSprintEngineTeam}
-              onSaveTeam={handleSaveSprintEngineTeam}
-              onUpdateTeam={handleUpdateSprintEngineTeam}
-              onRenameTeam={handleRenameSprintEngineTeam}
-              onDeleteTeam={handleDeleteSprintEngineTeam}
-              // The "Architect picks the team" choice is offered only for a fresh
-              // new team (an existing team's roster is fixed).
-              rosterSource={seExistingTeam != null ? undefined : seRosterSource}
-              onChangeRosterSource={seExistingTeam != null ? undefined : setSeRosterSource}
-              // "Use specialist roles" disclosure — fresh new team only; an
-              // existing team keeps its canonical roster presentation.
-              useSpecialistRoles={seExistingTeam != null ? undefined : seUseSpecialistRoles}
-              onChangeUseSpecialistRoles={seExistingTeam != null ? undefined : setSeUseSpecialistRoles}
-              architectModeAvailable={architectModeAvailable}
-              architectModeDisabledHint={architectModeDisabledHint}
-              selfReviewEnabled={seSelfReviewEnabled}
-              onChangeSelfReviewEnabled={setSeSelfReviewEnabled}
-              reviewRuntime={seReviewRuntime}
-              onChangeReviewRuntime={setSeReviewRuntime}
-              requiredSweeps={seRequiredSweeps}
-              onToggleRequiredSweep={toggleSprintEngineRequiredSweep}
-              architectCard={
-                <ArchitectTeamCard
-                  seat={effectiveArchitectSeat}
-                  seatDefaultedFromCatalog={seatDefaultedFromCatalog}
+          {/* The sprint's rebuilt config pages (MC-1646): Team, Reviews,
+              Tools & skills, and Review & start — one reading column each. */}
+          {step === 'sprintengine-roster' ? (
+            <ConfigStepSection stepId="sprintengine-roster" headingRef={headingRef}>
+            {!sprintEngineAccess.allowed ? (
+              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
+            ) : (
+              <>
+                {seExistingTeam != null ? (
+                  <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+                    Loading <span className="font-semibold">{seExistingTeam.displayName}</span> — team size is read-only; the agent for each role can still be changed before launch.
+                  </p>
+                ) : null}
+                {sePlanError ? (
+                  <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+                    {sePlanError}
+                  </div>
+                ) : null}
+                <SprintEngineTeamPanel
+                  teamMode={seExistingTeam != null ? 'roles' : seTeamMode}
+                  // An existing team's formation is fixed, so the segmented
+                  // control is withheld.
+                  onChangeTeamMode={seExistingTeam != null ? undefined : setSeTeamMode}
+                  architectModeAvailable={architectModeAvailable}
+                  architectModeDisabledHint={architectModeDisabledHint}
+                  roleCounts={visibleSprintEngineRoleCounts}
+                  roleCliDefaults={seRoleCliDefaults}
+                  roleModelOverrides={seRoleModelOverrides}
+                  onSetRoleCount={setRoleCount}
+                  onSetRoleCli={setRoleCli}
+                  onSetRoleModel={setRoleModel}
                   cliOptions={sprintEngineCliOptions}
-                  onChangeSeat={setSeArchitectSeat}
-                  availableEntries={availableCatalogEntries}
-                  selectedKeys={effectiveSelectionKeys}
-                  onToggleEntry={toggleSprintModel}
-                  guidance={seArchitectGuidance}
-                  onChangeGuidance={setSeArchitectGuidance}
+                  registry={seRoleRegistry}
+                  registryStatus={seRoleRegistryStatus}
+                  disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
+                  rosterDisabled={seExistingTeam != null}
+                  hasExistingTeam={seExistingTeam != null}
+                  teams={sprintEngineTeams}
+                  selectedTeamId={seSelectedTeamId}
+                  selectedTeamDirty={selectedSprintEngineTeamDirty}
+                  onSelectTeam={handleSelectSprintEngineTeam}
+                  onSaveTeam={handleSaveSprintEngineTeam}
+                  onUpdateTeam={handleUpdateSprintEngineTeam}
+                  onRenameTeam={handleRenameSprintEngineTeam}
+                  onDeleteTeam={handleDeleteSprintEngineTeam}
+                  poolAgentCount={seMaxParallelAgents}
+                  onChangePoolAgentCount={setSeMaxParallelAgents}
+                  architectCard={
+                    <ArchitectTeamCard
+                      seat={effectiveArchitectSeat}
+                      seatDefaultedFromCatalog={seatDefaultedFromCatalog}
+                      cliOptions={sprintEngineCliOptions}
+                      onChangeSeat={setSeArchitectSeat}
+                      availableEntries={availableCatalogEntries}
+                      selectedKeys={effectiveSelectionKeys}
+                      onToggleEntry={toggleSprintModel}
+                      guidance={seArchitectGuidance}
+                      onChangeGuidance={setSeArchitectGuidance}
+                    />
+                  }
                 />
-              }
-            />
+              </>
+            )}
+            </ConfigStepSection>
+          ) : null}
+
+          {step === 'sprintengine-reviews' ? (
+            <ConfigStepSection stepId="sprintengine-reviews" headingRef={headingRef}>
+            {!sprintEngineAccess.allowed ? (
+              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
+            ) : (
+              <SprintEngineReviewsPanel
+                cliOptions={sprintEngineCliOptions}
+                registry={seRoleRegistry}
+                disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
+                selfReviewEnabled={seSelfReviewEnabled}
+                onChangeSelfReviewEnabled={setSeSelfReviewEnabled}
+                reviewRuntime={seReviewRuntime}
+                onChangeReviewRuntime={setSeReviewRuntime}
+                requiredSweepRoleIds={seRequiredSweeps}
+                onToggleRequiredSweep={toggleSprintEngineRequiredSweep}
+                roleCliDefaults={seRoleCliDefaults}
+                roleModelOverrides={seRoleModelOverrides}
+                onSetRoleCli={setRoleCli}
+                onSetRoleModel={setRoleModel}
+                // Final sweeps are a specialist affordance (MC-1585): hidden
+                // while the run is a plain agent pool.
+                showFinalSweeps={seUseSpecialistRoles}
+              />
+            )}
+            </ConfigStepSection>
+          ) : null}
+
+          {step === 'sprintengine-tools' ? (
+            <ConfigStepSection stepId="sprintengine-tools" headingRef={headingRef}>
+            {!sprintEngineAccess.allowed ? (
+              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
+            ) : (
+              <SprintEngineToolsPanel
+                mcpCatalog={integrationsMcpCatalog}
+                mcpSettings={mcpSettings ?? null}
+                onToggleMcp={toggleMcpInWizard}
+                skillPackCatalog={integrationsSkillPackCatalog}
+                selectedSkillPackIds={selectedSkillPackIds}
+                onToggleSkillPack={toggleSkillPackInWizard}
+                message={integrationsMessage}
+                knowledgeProjectRoot={folderPath && knowledgeStepEligible ? folderPath : null}
+                committedKnowledgeRoot={committedKnowledgeRoot}
+                onCommitKnowledge={handleCommitKnowledgeRoot}
+                knowledgeAutoAppliedRef={knowledgeAutoAppliedRef}
+                designSystemAttachRoot={designSystemAttachEligible && folderPath ? folderPath : null}
+                designSystemAttachSelection={dsAttachSelection}
+                onSelectDesignSystemAttach={(source) => {
+                  setDsAttachSelection(source)
+                  setAdvancedSetupError(null)
+                }}
+              />
+            )}
+            </ConfigStepSection>
+          ) : null}
+
+          {step === 'sprintengine-start' ? (
+            <ConfigStepSection stepId="sprintengine-start" headingRef={headingRef}>
+            {!sprintEngineAccess.allowed ? (
+              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
+            ) : (
+              <SprintEngineStartPanel
+                workspaceName={name}
+                folderPath={folderPath}
+                objective={seGoal.trim()}
+                teamMode={seTeamMode}
+                hasExistingTeam={seExistingTeam != null}
+                existingTeamName={seExistingTeam?.displayName ?? null}
+                roleCounts={visibleSprintEngineRoleCounts}
+                registry={seRoleRegistry}
+                disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
+                cliOptions={sprintEngineCliOptions}
+                roleCliDefaults={seRoleCliDefaults}
+                roleModelOverrides={seRoleModelOverrides}
+                poolAgentCount={seMaxParallelAgents}
+                architectSeatLabel={architectSeatLabel}
+                showReviewsRow={seExistingTeam == null}
+                selfReviewEnabled={seSelfReviewEnabled}
+                reviewRuntime={seReviewRuntime}
+                requiredSweepRoleIds={new Set(sprintEngineEffectiveRequiredSweeps)}
+                selectedToolNames={selectedMcpServers.map(mcpServerDisplayName)}
+                selectedSkillPackCount={selectedSkillPackIds.size}
+                onEditStep={(target) => jumpToStep(steps.indexOf(target))}
+                cliPermissionPreset={cliPermissionPreset}
+                onChangeCliPermissionPreset={setCliPermissionPreset}
+                automationMode={seAutomationMode}
+                onChangeAutomationMode={setSeAutomationMode}
+                maxParallelAgents={seMaxParallelAgents}
+                onChangeMaxParallelAgents={setSeMaxParallelAgents}
+                // In pool mode the Team page's stepper owns this value; showing
+                // the same number twice would read as two controls.
+                showMaxParallelAgents={seExistingTeam != null || seUseSpecialistRoles}
+                useWorktrees={seUseWorktrees}
+                onChangeUseWorktrees={setSeUseWorktrees}
+                worktreesDisabled={seExistingTeam != null}
+                createError={sePlanError}
+              />
+            )}
             </ConfigStepSection>
           ) : null}
 
@@ -3033,6 +3219,7 @@ function WorkspaceStep({
   onSelectRecent,
   recentFolders,
   folderHints,
+  suppressedHint,
   inputRef,
 }: {
   name: string
@@ -3046,6 +3233,8 @@ function WorkspaceStep({
   onSelectRecent: (path: string) => void
   recentFolders: string[]
   folderHints: ReturnType<typeof useFolderHints>
+  /** Hint chip suppressed because it matches the selected flow (MC-1646). */
+  suppressedHint: 'sprintengine' | 'multiloop' | null
   inputRef: React.MutableRefObject<HTMLInputElement | null>
 }) {
   const trimmedPath = folderDraftPath.trim()
@@ -3131,8 +3320,8 @@ function WorkspaceStep({
             {recentFolders.map((recent) => {
               const hint = folderHints.get(recent)
               const hints: Array<'sprintengine' | 'multiloop'> = []
-              if (hint?.hasSprintEngineTeam) hints.push('sprintengine')
-              if (hint?.hasMultiloop) hints.push('multiloop')
+              if (hint?.hasSprintEngineTeam && suppressedHint !== 'sprintengine') hints.push('sprintengine')
+              if (hint?.hasMultiloop && suppressedHint !== 'multiloop') hints.push('multiloop')
               return (
                 <RecentFolderRow
                   key={recent}
@@ -4586,202 +4775,6 @@ function SprintEngineTeamStep(props: {
   )
 }
 
-function SprintEngineRosterStep(props: {
-  // Which half of RosterAndRunSettings this page shows: the sprint's team page
-  // ('roster') and its run page ('run') are the same component, split.
-  sections: 'roster' | 'run'
-  access: PremiumFeatureAccessState
-  onSignIn: () => void
-  roleCounts: SprintEngineRoleCounts
-  roleCliDefaults: Required<SprintEngineRoleCliDefaults>
-  // Full catalog options: modelSelection drives the per-role model sublists.
-  cliOptions: SprintEngineCliOption[]
-  registry: SprintEngineRoleRegistry | null
-  registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
-  disabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
-  rosterDisabled: boolean
-  onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
-  onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
-  roleModelOverrides: SprintEngineRoleModelOverrides
-  onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
-  automationMode: SprintEngineAutomationMode
-  onChangeAutomationMode: (mode: SprintEngineAutomationMode) => void
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  useWorktrees: boolean
-  onChangeUseWorktrees: (value: boolean) => void
-  worktreesDisabled: boolean
-  maxParallelAgents: number
-  onChangeMaxParallelAgents: (value: number) => void
-  totalAgents: number
-  hasExistingTeam: boolean
-  existingTeamName: string | null
-  createError: string | null
-  teams: SprintEngineRosterTeam[]
-  selectedTeamId: string | null
-  selectedTeamDirty: boolean
-  onSelectTeam: (id: string | null) => void
-  onSaveTeam: (name: string) => void
-  onUpdateTeam: (id: string, name: string) => void
-  onRenameTeam: (id: string, name: string) => void
-  onDeleteTeam: (id: string) => void
-  rosterSource?: SprintEngineRosterSource
-  onChangeRosterSource?: (source: SprintEngineRosterSource) => void
-  useSpecialistRoles?: boolean
-  onChangeUseSpecialistRoles?: (value: boolean) => void
-  architectModeAvailable: boolean
-  architectModeDisabledHint: string
-  // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Omitted for an
-  // existing team (its run is already initialized).
-  selfReviewEnabled: boolean
-  onChangeSelfReviewEnabled: (value: boolean) => void
-  reviewRuntime: SprintEngineReviewRuntime | null
-  onChangeReviewRuntime: (runtime: SprintEngineReviewRuntime | null) => void
-  requiredSweeps: ReadonlySet<SprintEngineRoleId>
-  onToggleRequiredSweep: (role: SprintEngineRoleId, next: boolean) => void
-  architectCard: React.ReactNode
-}) {
-  const {
-    sections,
-    access,
-    onSignIn,
-    roleCounts,
-    roleCliDefaults,
-    cliOptions,
-    registry,
-    registryStatus,
-    disabledRoleIds,
-    rosterDisabled,
-    onSetRoleCount,
-    onSetRoleCli,
-    roleModelOverrides,
-    onSetRoleModel,
-    automationMode,
-    onChangeAutomationMode,
-    cliPermissionPreset,
-    onChangeCliPermissionPreset,
-    useWorktrees,
-    onChangeUseWorktrees,
-    worktreesDisabled,
-    maxParallelAgents,
-    onChangeMaxParallelAgents,
-    totalAgents,
-    hasExistingTeam,
-    existingTeamName,
-    createError,
-    teams,
-    selectedTeamId,
-    selectedTeamDirty,
-    onSelectTeam,
-    onSaveTeam,
-    onUpdateTeam,
-    onRenameTeam,
-    onDeleteTeam,
-    rosterSource,
-    onChangeRosterSource,
-    useSpecialistRoles,
-    onChangeUseSpecialistRoles,
-    architectModeAvailable,
-    architectModeDisabledHint,
-    selfReviewEnabled,
-    onChangeSelfReviewEnabled,
-    reviewRuntime,
-    onChangeReviewRuntime,
-    requiredSweeps,
-    onToggleRequiredSweep,
-    architectCard,
-  } = props
-
-  if (!access.allowed) {
-    return <SprintEngineAccessNotice access={access} onSignIn={onSignIn} />
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-5">
-      {/* The read-only-roster notice belongs to the team page it explains; the
-          run page's settings stay editable for a loaded team. */}
-      {hasExistingTeam && sections === 'roster' ? (
-        <p className="rounded-md border border-[color:var(--tone-warn-soft)] bg-[color:var(--tone-warn-soft)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
-          Loading <span className="font-semibold">{existingTeamName}</span> — team size is read-only; the agent for each role can still be changed before launch.
-        </p>
-      ) : null}
-
-      {createError ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
-          {createError}
-        </div>
-      ) : null}
-
-      <RosterAndRunSettings
-        sections={sections}
-        roleCounts={roleCounts}
-        roleCliDefaults={roleCliDefaults}
-        cliOptions={cliOptions}
-        registry={registry}
-        disabledRoleIds={disabledRoleIds}
-        countDisabled={rosterDisabled}
-        cliDisabled={false}
-        onSetCount={onSetRoleCount}
-        onSetCli={onSetRoleCli}
-        roleModelOverrides={roleModelOverrides}
-        onSetModel={onSetRoleModel}
-        totalAgents={totalAgents}
-        rosterCountLabel={registryStatus === 'loading' ? 'Loading roles' : undefined}
-        teams={teams}
-        selectedTeamId={selectedTeamId}
-        selectedTeamDirty={selectedTeamDirty}
-        onSelectTeam={onSelectTeam}
-        onSaveTeam={onSaveTeam}
-        onUpdateTeam={onUpdateTeam}
-        onRenameTeam={onRenameTeam}
-        onDeleteTeam={onDeleteTeam}
-        automationMode={automationMode}
-        onChangeAutomationMode={onChangeAutomationMode}
-        cliPermissionPreset={cliPermissionPreset}
-        onChangeCliPermissionPreset={onChangeCliPermissionPreset}
-        useWorktrees={useWorktrees}
-        onChangeUseWorktrees={onChangeUseWorktrees}
-        worktreesDisabled={worktreesDisabled}
-        maxParallelAgents={maxParallelAgents}
-        onChangeMaxParallelAgents={onChangeMaxParallelAgents}
-        rosterSource={rosterSource}
-        onChangeRosterSource={onChangeRosterSource}
-        useSpecialistRoles={useSpecialistRoles}
-        onChangeUseSpecialistRoles={onChangeUseSpecialistRoles}
-        architectModeAvailable={architectModeAvailable}
-        architectModeDisabledHint={architectModeDisabledHint}
-        architectCard={architectCard}
-        // MC-1542 wizard reframe: a fresh run's role table is the "Work types &
-        // models" panel (sweep roles live in the "Final sweeps" panel below).
-        // An existing team's roster is fixed and keeps the classic presentation.
-        workTypes={!hasExistingTeam}
-        workflowSection={
-          !hasExistingTeam ? (
-            <SprintEngineWorkflowPanels
-              cliOptions={cliOptions}
-              registry={registry}
-              disabledRoleIds={disabledRoleIds}
-              selfReviewEnabled={selfReviewEnabled}
-              onChangeSelfReviewEnabled={onChangeSelfReviewEnabled}
-              reviewRuntime={reviewRuntime}
-              onChangeReviewRuntime={onChangeReviewRuntime}
-              requiredSweepRoleIds={requiredSweeps}
-              onToggleRequiredSweep={onToggleRequiredSweep}
-              roleCliDefaults={roleCliDefaults}
-              roleModelOverrides={roleModelOverrides}
-              onSetRoleCli={onSetRoleCli}
-              onSetRoleModel={onSetRoleModel}
-              // Final sweeps are a specialist affordance (MC-1585): hidden while
-              // the run is a pool of plain agents.
-              showFinalSweeps={useSpecialistRoles !== false}
-            />
-          ) : null
-        }
-      />
-    </div>
-  )
-}
-
 function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
   switch (error.code) {
     case 'missing-folder':
@@ -4897,10 +4890,17 @@ function isStepReady(
       return readiness.sprintEngineTeamReady
     case 'sprintengine-roster':
       return readiness.sprintEngineRosterReady
-    // Every control on the run page is already defaulted (automation, max
-    // parallel agents, worktrees, permissions, self-review, required sweeps), so
-    // it can never block create — it is a refinement page, not an intent one.
-    case 'sprintengine-run':
+    // The reviews, tools, and review-&-start pages are refinement pages, not
+    // intent ones: every control on them is already defaulted (self-review,
+    // required sweeps, integrations, automation, permissions, parallelism,
+    // worktrees), so none of them can ever block create. That is what keeps
+    // "Skip the rest and create" honest from the roster page on (the
+    // skip-to-create invariant in creationStepFlows).
+    case 'sprintengine-reviews':
+      return true
+    case 'sprintengine-tools':
+      return true
+    case 'sprintengine-start':
       return true
     case 'guided-idea':
       return readiness.guidedIdeaReady
@@ -4919,6 +4919,8 @@ function getStepBlockingMessage(args: {
   seTeamDetailsReady: boolean
   totalAgents: number
   seRosterSource: SprintEngineRosterSource
+  sePlainAgents: boolean
+  toolsSelectedCount: number
   architectModeAvailable: boolean
   architectModeReady: boolean
   architectModeDisabledHint: string
@@ -4940,6 +4942,8 @@ function getStepBlockingMessage(args: {
     seTeamDetailsReady,
     totalAgents,
     seRosterSource,
+    sePlainAgents,
+    toolsSelectedCount,
     architectModeAvailable,
     architectModeReady,
     architectModeDisabledHint,
@@ -4980,17 +4984,28 @@ function getStepBlockingMessage(args: {
     case 'sprintengine-roster':
       if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (seExistingTeam) return 'Ready to load team.'
+      // A plain agent pool always stages its general planner seat.
+      if (sePlainAgents) return 'Ready to create.'
       if (seRosterSource === 'architect') {
         if (!architectModeAvailable) return architectModeDisabledHint
         if (!architectModeReady) return 'Tick at least one model for this sprint.'
         return 'Ready to create.'
       }
-      if (totalAgents === 0) return 'Turn on at least one kind of work.'
+      if (totalAgents === 0) return 'Turn on at least one role.'
       return 'Ready to create.'
-    // The run page is the sprint's last step, so its hint is the one the footer
-    // shows once every step is ready — it has to carry the same terminal copy
-    // the roster step used to, back when the roster WAS the last step.
-    case 'sprintengine-run':
+    case 'sprintengine-reviews':
+      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
+      return 'Ready to create.'
+    // The tools page's hint reports the live selection instead of a readiness
+    // gate — the page is optional and can never block create.
+    case 'sprintengine-tools':
+      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
+      return toolsSelectedCount === 0
+        ? 'No tools selected — the sprint runs without integrations.'
+        : `${toolsSelectedCount} tool${toolsSelectedCount === 1 ? '' : 's'} selected.`
+    // The review-&-start page is the sprint's last step, so its hint is the one
+    // the footer shows next to the Start sprint action.
+    case 'sprintengine-start':
       if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (seExistingTeam) return 'Ready to load team.'
       return 'Ready to create.'

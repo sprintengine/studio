@@ -15,6 +15,7 @@
 //      still requires a catalog or installed-settings entry.
 
 import type { McpCatalogServer, McpServerConfig } from '../../../../../shared/electron-api'
+import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type {
   MarketplaceComponentKind,
   MarketplacePluginEntry,
@@ -133,6 +134,19 @@ export function launchableConnectors(
     result.push(catalogById.get(config.id) ?? installedServerAsCatalogEntry(config))
   }
   return result
+}
+
+// The connector "New chat" payload, from each shape the surface holds. Identity
+// plus the display bits the composer's attachment chip shows — the spawn still
+// resolves the server itself from the id. `icon` is optional: the chip falls back
+// to the brand icon keyed off the id, so an entry without a catalog record
+// (installed-only) still renders.
+export function catalogServerAsComposerConnector(server: McpCatalogServer): AgentComposerConnector {
+  return { id: server.id, name: server.name, icon: server.icon }
+}
+
+export function connectorEntryAsComposerConnector(entry: ConnectorEntry): AgentComposerConnector {
+  return { id: entry.id, name: entry.name, icon: entry.catalogServer?.icon }
 }
 
 export function connectorFacet(category: string): NamedFacet {

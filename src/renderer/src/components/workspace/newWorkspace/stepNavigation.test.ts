@@ -16,9 +16,16 @@ import {
 // footer and the progress bar make; the panel owns the `step` state, so a break
 // here is invisible to every other test in the tree.
 
-// The sprint flow is the long one — four pages — so it exercises every move.
+// The sprint flow is the long one — six pages — so it exercises every move.
 const SPRINT = STEPS_BY_MODE.sprintengine
-assert.deepEqual(SPRINT, ['workspace', 'sprintengine-team', 'sprintengine-roster', 'sprintengine-run'])
+assert.deepEqual(SPRINT, [
+  'workspace',
+  'sprintengine-team',
+  'sprintengine-roster',
+  'sprintengine-reviews',
+  'sprintengine-tools',
+  'sprintengine-start',
+])
 
 function ready(
   step: StepId,
@@ -46,9 +53,9 @@ function ready(
     step = next
   }
   assert.deepEqual(walked, [...SPRINT], 'Continue walks the whole sprint flow, in order')
-  assert.equal(nextStepFrom(ready('sprintengine-run')), null, 'the last page has no Continue')
-  assert.ok(isLastStepIn(SPRINT, 'sprintengine-run'), 'the run page is the last page')
-  assert.ok(!isLastStepIn(SPRINT, 'sprintengine-roster'), 'the roster page is not')
+  assert.equal(nextStepFrom(ready('sprintengine-start')), null, 'the last page has no Continue')
+  assert.ok(isLastStepIn(SPRINT, 'sprintengine-start'), 'the review-&-start page is the last page')
+  assert.ok(!isLastStepIn(SPRINT, 'sprintengine-tools'), 'the tools page is not')
 }
 
 // Continue is gated on the page you are ON — not on the whole flow. An unanswered
@@ -65,10 +72,10 @@ assert.equal(nextStepFrom(ready('workspace', { busy: true })), null, 'Continue i
 
 // --- Back returns ------------------------------------------------------------
 
-assert.equal(previousStepFrom(ready('sprintengine-run')), 'sprintengine-roster', 'Back returns one page')
+assert.equal(previousStepFrom(ready('sprintengine-start')), 'sprintengine-tools', 'Back returns one page')
 assert.equal(previousStepFrom(ready('sprintengine-team')), 'workspace', 'Back reaches the first page')
 assert.equal(previousStepFrom(ready('workspace')), null, 'the first page has no Back')
-assert.equal(previousStepFrom(ready('sprintengine-run', { busy: true })), null, 'Back is frozen mid-create')
+assert.equal(previousStepFrom(ready('sprintengine-start', { busy: true })), null, 'Back is frozen mid-create')
 
 // Back is never gated on readiness: a page you cannot answer is exactly the one
 // you need to retreat out of (e.g. to re-pick the folder its content depends on).
@@ -124,12 +131,12 @@ assert.equal(shouldShowSkipToCreate({ createReady: false, isLastStep: false }), 
 assert.equal(shouldShowSkipToCreate({ createReady: false, isLastStep: true }), false, 'withheld when blocked on the last page')
 
 // The affordance the item promises: with the sprint's intent page (the team)
-// answered, skip is on offer from the team page onward — but never on the run
-// page, which is where create lives.
+// answered, skip is on offer from the team page onward — but never on the
+// review-&-start page, which is where create lives.
 for (const step of SPRINT) {
   assert.equal(
     shouldShowSkipToCreate({ createReady: true, isLastStep: isLastStepIn(SPRINT, step) }),
-    step !== 'sprintengine-run',
+    step !== 'sprintengine-start',
     `skip-to-create on ${step}`,
   )
 }

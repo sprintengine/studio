@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, SkillPackEntry, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type {
   McpSettings,
   SkillPackCatalogEntry,
@@ -65,7 +66,7 @@ export function ConnectorsManage({
   // The MCP catalog (already loaded by the surface) — enriches installed rows
   // with real icons and marks skill-linked entries launchable.
   catalogServers?: McpCatalogServer[]
-  onLaunchConnector?: (serverId: string) => void
+  onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onUseSkillInNewAgent?: (skill: WorkspaceSkill) => void
 }) {

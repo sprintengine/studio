@@ -11,14 +11,17 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   resolveInitialSprintEngineRoster,
 } from './savedTeams'
-import { SprintEngineWorkflowPanels } from './SprintEngineWorkflowPanels'
+import { SprintEngineTeamPanel } from './SprintEngineTeamPanel'
+import { SprintEngineReviewsPanel } from './SprintEngineReviewsPanel'
+import { SprintEngineToolsPanel } from './SprintEngineToolsPanel'
+import { SprintEngineStartPanel } from './SprintEngineStartPanel'
 import { buildSprintEngineWorkflowInitKeys } from './sprintengineWorkflowConfig'
-import { RosterAndRunSettings } from './WizardControls'
 
 // "Skip the rest and create" leaves as soon as the sprint's intent page (the
-// team) is answered, so the roster and run pages may never be rendered. The
-// promise the footer makes is that this creates exactly what walking those pages
-// and changing nothing would have created.
+// team objective) is answered, so the roster, reviews, tools, and review-&-start
+// pages may never be rendered. The promise the footer makes is that this
+// creates exactly what walking those pages and changing nothing would have
+// created.
 //
 // That promise rests on two things, and this file asserts BOTH rather than
 // taking either on faith:
@@ -33,11 +36,15 @@ const PANEL_PATH = join(process.cwd(), 'src/renderer/src/components/workspace/Ne
 const HERE = join(process.cwd(), 'src/renderer/src/components/workspace/newWorkspace')
 const panelSource = readFileSync(PANEL_PATH, 'utf8')
 
-// The pages a skip from the team page skips over.
+// The pages a skip from the team page skips over (MC-1646 flow).
 const SKIPPED_PAGES = STEPS_BY_MODE.sprintengine.slice(
   STEPS_BY_MODE.sprintengine.indexOf('sprintengine-team') + 1,
 )
-assert.deepEqual(SKIPPED_PAGES, ['sprintengine-roster', 'sprintengine-run'], 'skip leaves the roster and run pages unseen')
+assert.deepEqual(
+  SKIPPED_PAGES,
+  ['sprintengine-roster', 'sprintengine-reviews', 'sprintengine-tools', 'sprintengine-start'],
+  'skip leaves the team, reviews, tools, and review-&-start pages unseen',
+)
 
 // ---------------------------------------------------------------------------
 // The untouched sprint state — the panel's own defaults, from the panel's own
@@ -78,8 +85,9 @@ const UNTOUCHED: SprintWizardState = {
   roleCounts: initialRoster.roleCounts,
   roleCliDefaults: initialRoster.roleCliDefaults,
   roleModelOverrides: initialRoster.roleModelOverrides,
-  // MC-1585: a fresh install opens on plain agents — the "Use specialist roles"
-  // disclosure is collapsed, and create stages exactly one `general` planner.
+  // MC-1585: a fresh install opens on plain agents — the Team page's segmented
+  // control sits on "Plain agent pool", and create stages exactly one `general`
+  // planner.
   useSpecialistRoles: false,
   effectiveCreateRoleCounts: { general: 1 },
   // Automation defaults ON (run agents + approve eligible artifacts): a
@@ -99,18 +107,18 @@ const UNTOUCHED: SprintWizardState = {
 }
 
 // MC-1585: the resolved initial roster still holds the balanced specialist team
-// behind the collapsed disclosure (so turning "Use specialist roles" on restores
-// it), but a fresh install opens on plain agents and creates a `general` run.
-assert.deepEqual(UNTOUCHED.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'the specialist roster held behind the disclosure is the default team')
+// behind the pool segment (so switching to "Pick roles yourself" restores it),
+// but a fresh install opens on plain agents and creates a `general` run.
+assert.deepEqual(UNTOUCHED.roleCounts, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, 'the specialist roster held behind the pool segment is the default team')
 assert.ok(UNTOUCHED.roleCounts.architect >= 1 && UNTOUCHED.roleCounts.developer >= 1, 'that specialist roster can plan and implement once revealed')
-assert.equal(UNTOUCHED.useSpecialistRoles, false, 'a fresh install opens on plain agents, disclosure collapsed')
+assert.equal(UNTOUCHED.useSpecialistRoles, false, 'a fresh install opens on the plain agent pool')
 assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, { general: 1 }, 'and stages exactly one general planner seat')
 
 // Source contracts: each default is established at mount, in the panel body.
 for (const [what, pattern] of [
   ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
-  ['the specialist-roles disclosure opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
-  ['a fresh install computes the disclosure closed unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedTeamId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
+  ['the specialist-roles axis opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
+  ['a fresh install computes the pool segment unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedTeamId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
   ['plain-agents create stages a lone general planner', /const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/],
   ['plain-agents create swaps in that lone seat', /sprintEnginePlainAgents\n\s*\? PLAIN_AGENT_ROLE_COUNTS\n\s*: sprintEngineCreateRoleCounts/],
   ['agents-at-start is on', /const \[seStartRunner, setSeStartRunner\] = useState\(true\)/],
@@ -126,22 +134,24 @@ for (const [what, pattern] of [
   assert.match(panelSource, pattern, `panel default: ${what}`)
 }
 
-// The run page can never block create — that is what lets skip appear the moment
-// the team page is answered, two pages early.
-assert.match(
-  panelSource,
-  /case 'sprintengine-run':\n\s*return true\n/,
-  'the run page is always ready: every control on it is defaulted',
-)
+// The refinement pages can never block create — that is what lets skip appear
+// the moment the team page is answered, four pages early.
+for (const page of ['sprintengine-reviews', 'sprintengine-tools', 'sprintengine-start']) {
+  assert.match(
+    panelSource,
+    new RegExp(`case '${page}':\\n\\s*return true\\n`),
+    `the ${page} page is always ready: every control on it is defaulted`,
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Walking the skipped pages changes nothing.
 // ---------------------------------------------------------------------------
 
-// Render the two skipped pages exactly as the wizard does — RosterAndRunSettings
-// split by `sections`, with the real workflow panels injected on the run page —
-// and wire EVERY callback to a spy. A page that seeds a default during render
-// (an onChange fired from the render body) records a mutation here.
+// Render the skipped pages exactly as the wizard does — the four
+// SprintEngine*Panel step bodies with the untouched defaults — and wire EVERY
+// callback to a spy. A page that seeds a default during render (an onChange
+// fired from the render body) records a mutation here.
 const mutations: string[] = []
 const spy = (name: string) => (...args: unknown[]) => {
   mutations.push(`${name}(${args.map((value) => JSON.stringify(value) ?? String(value)).join(', ')})`)
@@ -149,85 +159,157 @@ const spy = (name: string) => (...args: unknown[]) => {
 
 const cliOptions = [{ id: 'claude' as AgentCli, label: 'Claude' } as never]
 
-function renderPage(sections: 'roster' | 'run'): string {
-  return renderToStaticMarkup(
-    <RosterAndRunSettings
-      roleCounts={UNTOUCHED.roleCounts}
-      roleCliDefaults={UNTOUCHED.roleCliDefaults}
-      roleModelOverrides={UNTOUCHED.roleModelOverrides}
-      cliOptions={cliOptions}
-      registry={null}
-      countDisabled={false}
-      cliDisabled={false}
-      onSetCount={spy('onSetCount')}
-      onSetCli={spy('onSetCli')}
-      onSetModel={spy('onSetModel')}
-      totalAgents={2}
-      automationMode={'run_agents_and_approve_artifacts' as never}
-      onChangeAutomationMode={spy('onChangeAutomationMode')}
-      cliPermissionPreset={UNTOUCHED.cliPermissionPreset as never}
-      onChangeCliPermissionPreset={spy('onChangeCliPermissionPreset')}
-      maxParallelAgents={UNTOUCHED.maxParallelAgents}
-      onChangeMaxParallelAgents={spy('onChangeMaxParallelAgents')}
-      useWorktrees={UNTOUCHED.useWorktrees}
-      onChangeUseWorktrees={spy('onChangeUseWorktrees')}
-      sections={sections}
-      // The fresh-install experience: plain agents, disclosure collapsed. The
-      // roster page shows the agent stepper; the run page drops its own cap row
-      // (the stepper owns that value).
-      useSpecialistRoles={UNTOUCHED.useSpecialistRoles}
-      onChangeUseSpecialistRoles={spy('onChangeUseSpecialistRoles')}
-      workflowSection={
-        <SprintEngineWorkflowPanels
-          cliOptions={cliOptions}
-          registry={null}
-          selfReviewEnabled={UNTOUCHED.selfReviewEnabled}
-          onChangeSelfReviewEnabled={spy('onChangeSelfReviewEnabled')}
-          reviewRuntime={UNTOUCHED.reviewRuntime}
-          onChangeReviewRuntime={spy('onChangeReviewRuntime')}
-          requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
-          onToggleRequiredSweep={spy('onToggleRequiredSweep')}
-          roleCliDefaults={UNTOUCHED.roleCliDefaults}
-          roleModelOverrides={UNTOUCHED.roleModelOverrides}
-          onSetRoleCli={spy('onSetRoleCli')}
-          onSetRoleModel={spy('onSetRoleModel')}
-          showFinalSweeps={UNTOUCHED.useSpecialistRoles}
-        />
-      }
-    />,
-  )
-}
+const teamPage = renderToStaticMarkup(
+  <SprintEngineTeamPanel
+    // The fresh-install experience: the segmented control opens on the pool.
+    teamMode="pool"
+    onChangeTeamMode={spy('onChangeTeamMode')}
+    architectModeAvailable={false}
+    architectModeDisabledHint="Add at least one model to your catalog in Settings"
+    architectCard={null}
+    roleCounts={UNTOUCHED.roleCounts}
+    roleCliDefaults={UNTOUCHED.roleCliDefaults}
+    roleModelOverrides={UNTOUCHED.roleModelOverrides}
+    onSetRoleCount={spy('onSetRoleCount')}
+    onSetRoleCli={spy('onSetRoleCli')}
+    onSetRoleModel={spy('onSetRoleModel')}
+    cliOptions={cliOptions}
+    registry={null}
+    registryStatus="ready"
+    disabledRoleIds={null}
+    rosterDisabled={false}
+    hasExistingTeam={false}
+    teams={[]}
+    selectedTeamId={null}
+    selectedTeamDirty={false}
+    onSelectTeam={spy('onSelectTeam')}
+    onSaveTeam={spy('onSaveTeam')}
+    onUpdateTeam={spy('onUpdateTeam')}
+    onRenameTeam={spy('onRenameTeam')}
+    onDeleteTeam={spy('onDeleteTeam')}
+    poolAgentCount={UNTOUCHED.maxParallelAgents}
+    onChangePoolAgentCount={spy('onChangePoolAgentCount')}
+  />,
+)
 
-const rosterPage = renderPage('roster')
-const runPage = renderPage('run')
+const reviewsPage = renderToStaticMarkup(
+  <SprintEngineReviewsPanel
+    cliOptions={cliOptions}
+    registry={null}
+    selfReviewEnabled={UNTOUCHED.selfReviewEnabled}
+    onChangeSelfReviewEnabled={spy('onChangeSelfReviewEnabled')}
+    reviewRuntime={UNTOUCHED.reviewRuntime}
+    onChangeReviewRuntime={spy('onChangeReviewRuntime')}
+    requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
+    onToggleRequiredSweep={spy('onToggleRequiredSweep')}
+    roleCliDefaults={UNTOUCHED.roleCliDefaults}
+    roleModelOverrides={UNTOUCHED.roleModelOverrides}
+    onSetRoleCli={spy('onSetRoleCli')}
+    onSetRoleModel={spy('onSetRoleModel')}
+    // Pool mode hides the specialist sweeps (MC-1585).
+    showFinalSweeps={UNTOUCHED.useSpecialistRoles}
+  />,
+)
+
+const toolsPage = renderToStaticMarkup(
+  <SprintEngineToolsPanel
+    mcpCatalog={[]}
+    mcpSettings={null}
+    onToggleMcp={spy('onToggleMcp')}
+    skillPackCatalog={[]}
+    selectedSkillPackIds={new Set()}
+    onToggleSkillPack={spy('onToggleSkillPack')}
+    message={null}
+    knowledgeProjectRoot={null}
+    committedKnowledgeRoot={null}
+    onCommitKnowledge={spy('onCommitKnowledge')}
+    knowledgeAutoAppliedRef={{ current: new Set<string>() }}
+    designSystemAttachRoot={null}
+    designSystemAttachSelection={null}
+    onSelectDesignSystemAttach={spy('onSelectDesignSystemAttach')}
+  />,
+)
+
+const startPage = renderToStaticMarkup(
+  <SprintEngineStartPanel
+    workspaceName="Sprint Roster"
+    folderPath="/repo"
+    objective="Ship the thing"
+    teamMode="pool"
+    hasExistingTeam={false}
+    existingTeamName={null}
+    roleCounts={UNTOUCHED.roleCounts}
+    registry={null}
+    disabledRoleIds={null}
+    cliOptions={cliOptions}
+    roleCliDefaults={UNTOUCHED.roleCliDefaults}
+    roleModelOverrides={UNTOUCHED.roleModelOverrides}
+    poolAgentCount={UNTOUCHED.maxParallelAgents}
+    architectSeatLabel={null}
+    showReviewsRow
+    selfReviewEnabled={UNTOUCHED.selfReviewEnabled}
+    reviewRuntime={UNTOUCHED.reviewRuntime}
+    requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
+    selectedToolNames={[]}
+    selectedSkillPackCount={0}
+    onEditStep={spy('onEditStep')}
+    cliPermissionPreset={UNTOUCHED.cliPermissionPreset as never}
+    onChangeCliPermissionPreset={spy('onChangeCliPermissionPreset')}
+    automationMode={'run_agents_and_approve_artifacts' as never}
+    onChangeAutomationMode={spy('onChangeAutomationMode')}
+    maxParallelAgents={UNTOUCHED.maxParallelAgents}
+    onChangeMaxParallelAgents={spy('onChangeMaxParallelAgents')}
+    // Pool mode: the Team page's stepper owns this value.
+    showMaxParallelAgents={false}
+    useWorktrees={UNTOUCHED.useWorktrees}
+    onChangeUseWorktrees={spy('onChangeUseWorktrees')}
+    worktreesDisabled={false}
+    createError={null}
+  />,
+)
+
 assert.deepEqual(mutations, [], 'rendering the skipped pages changes no wizard state')
 
 // The pages render the defaults they were handed, so a user who DOES walk them
 // sees — and leaves — the same values a skip would have sent.
-assert.ok(runPage.includes('Run settings'), 'the run page renders the run settings')
-// The plain-agents roster page is the stepper + one agent picker, not the
-// specialist roster table.
-assert.ok(rosterPage.includes('How many agents'), 'the roster page opens on the plain agents stepper')
-assert.ok(rosterPage.includes('Use specialist roles'), 'and offers the specialist-roles disclosure')
+// The plain-agents team page is the stepper + one agent picker, not the
+// specialist roster list.
+assert.ok(teamPage.includes('How many agents'), 'the team page opens on the plain agents stepper')
+assert.ok(teamPage.includes('Plain agent pool'), 'and the segmented control names the pool segment')
 // The agent count the stepper shows IS the default create sends (the plain
 // stepper drives the concurrency cap), so a page showing something else would be
 // showing a value the skipped create never had.
 assert.ok(
-  rosterPage.includes(`>${UNTOUCHED.maxParallelAgents}<`),
+  teamPage.includes(`>${UNTOUCHED.maxParallelAgents}<`),
   'the stepper shows the default agent count',
 )
-// In plain mode the run page drops its own cap row — the stepper owns that value,
-// so it must not appear twice.
-assert.doesNotMatch(runPage, /id="sprintengine-max-parallel-agents"/, 'the run page shows no duplicate agent-cap input in plain mode')
-// The worktrees checkbox reflects the same default (off), unchecked in markup.
-assert.doesNotMatch(runPage, /type="checkbox"[^>]*checked=""[^>]*>[^<]*<span[^>]*>Run in an isolated git worktree/, 'worktrees start off')
+// Self-review renders on, reviewed by the same agent.
+assert.ok(reviewsPage.includes('Agents review their own work'), 'the reviews page renders self-review')
+assert.ok(reviewsPage.includes('Same agent'), 'reviewed-by defaults to the same agent')
+// The tools page is optional and renders its empty state without inventing state.
+assert.ok(toolsPage.includes('Search tools and skills'), 'the tools page renders its search field')
+// The review-&-start page renders the run settings; in pool mode it drops its
+// own cap row — the Team page's stepper owns that value, so it must not appear twice.
+assert.ok(startPage.includes('Run settings'), 'the start page renders the run settings')
+assert.doesNotMatch(startPage, /id="sprintengine-max-parallel-agents"/, 'the start page shows no duplicate agent-cap input in pool mode')
+// The worktrees switch reflects the same default (off).
+assert.doesNotMatch(startPage, /aria-label="Run in an isolated git worktree"[^>]*aria-checked="true"/, 'worktrees start off')
 
 // The other channel a default could sneak in through is a mount effect: it does
 // not run under static markup, and on a skip its page never mounts at all — so
 // any default it seeded would exist on the walked path and be missing on the
-// skipped one. Neither the split settings surface nor the workflow panels may
-// own one.
-for (const file of ['WizardControls.tsx', 'SprintEngineWorkflowPanels.tsx', 'SprintEngineRosterTable.tsx']) {
+// skipped one. None of the step-body panels may own one. (The tools page's
+// knowledge/design-system sub-steps keep their own guarded effects — they write
+// project-level settings, not run state, and are unchanged from the old
+// Advanced setup surface.)
+for (const file of [
+  'WizardControls.tsx',
+  'SprintEngineRosterTable.tsx',
+  'SprintEngineTeamPanel.tsx',
+  'SprintEngineReviewsPanel.tsx',
+  'SprintEngineToolsPanel.tsx',
+  'SprintEngineStartPanel.tsx',
+]) {
   const source = readFileSync(join(HERE, file), 'utf8')
   assert.doesNotMatch(
     source,
@@ -242,8 +324,8 @@ for (const file of ['WizardControls.tsx', 'SprintEngineWorkflowPanels.tsx', 'Spr
 
 // The panel's sprint create is a pure function of that state — it never reads the
 // page the user pressed the button on (asserted below), so "skip from the team
-// page" and "walk to the run page and create" differ only in the state each
-// carries. The renders above proved the walk carries the same state.
+// page" and "walk to the review-&-start page and create" differ only in the
+// state each carries. The renders above proved the walk carries the same state.
 const walked: SprintWizardState = { ...UNTOUCHED }
 
 function creationArgsFor(state: SprintWizardState) {
@@ -252,7 +334,7 @@ function creationArgsFor(state: SprintWizardState) {
     teamName: 'Sprint Roster',
     goal: 'Ship the thing',
     // Plain-agents default: create stages the effective general seat, not the
-    // specialist roster the disclosure holds collapsed.
+    // specialist roster the pool segment holds collapsed.
     roleCounts: state.effectiveCreateRoleCounts,
     visibleRoleCounts: state.effectiveCreateRoleCounts,
     maxParallelAgents: state.maxParallelAgents,

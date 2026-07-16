@@ -121,6 +121,10 @@ type UseAgentComposerOptions = {
   conversationAvailable: boolean
   // The remembered agent, preselected on open. Absent → first roster row.
   initialSelection: AgentComposerSelection
+  // Optional connector to open with already attached (the connector "New chat"
+  // entry points). Seeds the attachment only; it stays removable/replaceable
+  // like a hand-picked one.
+  initialConnector?: AgentComposerConnector | null
 }
 
 // Shared state + store-derived data for every AgentComposer surface (the New
@@ -134,6 +138,7 @@ export function useAgentComposer({
   showTerminal,
   conversationAvailable,
   initialSelection,
+  initialConnector,
 }: UseAgentComposerOptions) {
   const lastSelectedCli = useWorkspaceStore((s) => normalizeSelectedCli(s.appSettings.lastSelectedCli))
   const specialistCliDefaults = useWorkspaceStore(
@@ -209,7 +214,11 @@ export function useAgentComposer({
   // auto-name) means the spawn should create a worktree and run the agent there.
   const [worktreeName, setWorktreeName] = React.useState<string | null>(null)
   // Optional "+ Connector" attachment, carried onto the confirm like the skill.
-  const [connectorAttachment, setConnectorAttachment] = React.useState<AgentComposerConnector | null>(null)
+  // A surface that opened with a connector in hand (the connector "New chat"
+  // buttons) seeds it here; from then on it is ordinary attachment state.
+  const [connectorAttachment, setConnectorAttachment] = React.useState<AgentComposerConnector | null>(
+    initialConnector ?? null,
+  )
 
   const trimmedQuery = query.trim().toLowerCase()
   const visibleRows = React.useMemo(() => {

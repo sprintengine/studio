@@ -15,11 +15,12 @@ import {
   rowMatchesSelection,
   selectionForRow,
   type AgentComposerConfirm,
+  type AgentComposerConnector,
   type AgentComposerSelection,
   type ComposerRow,
 } from './useAgentComposer'
 
-export type { AgentComposerConfirm, AgentComposerSelection } from './useAgentComposer'
+export type { AgentComposerConfirm, AgentComposerConnector, AgentComposerSelection } from './useAgentComposer'
 
 // One choosable project scope: a folder some open workspace lives in.
 export type ComposerProjectOption = { path: string; label: string }
@@ -35,6 +36,9 @@ export type AgentComposerProps = {
   onBrowseProject: () => void
   // The remembered agent, preselected on open. Absent → first specialist.
   initialSelection: AgentComposerSelection
+  // Opens with this connector already in the "+ Connector" slot (the connector
+  // surface's "New chat"). The user can still swap or remove it before launch.
+  initialConnector?: AgentComposerConnector | null
   // Shared permission preset (owned by the host so spawn handlers read it at
   // spawn time). Debug mode is transient and defaulted off per spawn.
   permissionPreset: SprintEngineCliPermissionPreset
@@ -69,6 +73,7 @@ export default function AgentComposer({
   onSelectProject,
   onBrowseProject,
   initialSelection,
+  initialConnector,
   permissionPreset,
   onChangePermissionPreset,
   debugMode,
@@ -82,6 +87,7 @@ export default function AgentComposer({
     showTerminal: true,
     conversationAvailable: false,
     initialSelection,
+    initialConnector,
   })
   const { selection, visibleRows } = composer
   const searchRef = React.useRef<HTMLInputElement>(null)

@@ -1522,7 +1522,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-9 shrink-0 items-center gap-1 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3" role="tablist" aria-label="Git panel views">
+        {/*
+         * Scrolls horizontally: the strip already overflowed a narrow panel at
+         * four tabs (Terminal clipped past the right edge), and Stashes made it
+         * five. Tabs stay shrink-0 so they scroll rather than squeeze.
+         */}
+        <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3" role="tablist" aria-label="Git panel views">
           <GitPanelTab
             active={activeView === 'changes'}
             label="Changes"
@@ -1540,6 +1545,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             label="Log"
             count={totalCommitCount}
             onClick={() => setActiveView('log')}
+          />
+          <GitPanelTab
+            active={activeView === 'stashes'}
+            label="Stashes"
+            count={stashes.length}
+            onClick={() => setActiveView('stashes')}
           />
           <GitPanelTab
             active={activeView === 'terminal'}
@@ -1572,12 +1583,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   ))}
                 </>
               )}
-              <StashGroup
-                stashes={stashes}
-                busy={busy}
-                onApply={(entry, pop) => void handleStashApply(entry, pop)}
-                onDrop={(entry) => void handleStashDrop(entry)}
-              />
             </div>
 
             <CommitComposer
@@ -1615,6 +1620,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             onLoadMore={() => void handleLoadMoreGraph()}
             loadingMore={loadingMoreGraph}
           />
+        ) : activeView === 'stashes' ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            <StashList
+              stashes={stashes}
+              busy={busy}
+              onApply={(entry, pop) => void handleStashApply(entry, pop)}
+              onDrop={(entry) => void handleStashDrop(entry)}
+            />
+          </div>
         ) : (
           <GitTerminalView
             key={`${workspaceId}:${repoRoot}`}
@@ -1700,7 +1714,7 @@ function GitPanelTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] ${
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] ${
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -1804,8 +1818,9 @@ function ConflictGroup({
 
 // Parked work lives here, not in a hidden `git stash list`: apply/pop/drop are
 // one click, which is also the remedy the dirty-tree merge/rebase guards point
-// at. Only rendered when entries exist — a clean repo shows no empty section.
-function StashGroup({
+// at. Body of the Stashes tab, which supplies the heading and the count — hence
+// no section header here, and an empty state rather than rendering nothing.
+function StashList({
   stashes,
   busy,
   onApply,
@@ -1816,21 +1831,30 @@ function StashGroup({
   onApply: (entry: GitStashEntry, pop: boolean) => void
   onDrop: (entry: GitStashEntry) => void
 }) {
-  if (stashes.length === 0) return null
+  if (stashes.length === 0) {
+    return (
+      <div className="py-2 text-[12px] text-[color:var(--text-subtle)]">
+        No stashes — park the working tree with Stash on the Changes tab.
+      </div>
+    )
+  }
 
   return (
-    <section className="mb-4">
-      <div className="mb-1 flex h-6 items-center gap-2">
-        <div className="text-[12px] font-semibold text-[color:var(--text-strong)]">Stashes ({stashes.length})</div>
-      </div>
+    <section>
       <div className="space-y-1">
+        {/*
+         * Each row gives the message a full-width line of its own, with meta and
+         * actions sharing the line below. Actions alongside the message starved it
+         * down to a few characters ("spi...") at the panel's default width, which
+         * defeats the point of a tab you open to tell stashes apart.
+         */}
         {stashes.map((entry) => (
-          <div key={entry.ref} className="group/row flex items-center gap-1">
-            <div className="flex min-w-0 flex-1 flex-col py-1">
-              <span className="min-w-0 truncate text-[12px] text-[color:var(--text-default)]" title={entry.message}>
-                {entry.message || 'Stashed changes'}
-              </span>
-              <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
+          <div key={entry.ref} className="group/row flex flex-col py-1">
+            <span className="min-w-0 truncate text-[12px] text-[color:var(--text-default)]" title={entry.message}>
+              {entry.message || 'Stashed changes'}
+            </span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+              <span className="flex min-w-[7rem] flex-1 items-center gap-1.5 overflow-hidden text-[10px] text-[color:var(--text-disabled)]">
                 <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{entry.ref}</span>
                 {entry.branch ? (
                   <>
@@ -1839,41 +1863,41 @@ function StashGroup({
                   </>
                 ) : null}
               </span>
-            </div>
-            <div className="flex shrink-0 items-center gap-1 opacity-70 group-hover/row:opacity-100">
-              <Tooltip content={`Reapply ${entry.ref} and drop it`}>
-                <button
-                  type="button"
-                  onClick={() => onApply(entry, true)}
-                  disabled={Boolean(busy)}
-                  className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
-                  aria-label={`Pop ${entry.ref}`}
-                >
-                  Pop
-                </button>
-              </Tooltip>
-              <Tooltip content={`Reapply ${entry.ref} and keep it`}>
-                <button
-                  type="button"
-                  onClick={() => onApply(entry, false)}
-                  disabled={Boolean(busy)}
-                  className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
-                  aria-label={`Apply ${entry.ref}`}
-                >
-                  Apply
-                </button>
-              </Tooltip>
-              <Tooltip content={`Delete ${entry.ref}`}>
-                <button
-                  type="button"
-                  onClick={() => onDrop(entry)}
-                  disabled={Boolean(busy)}
-                  className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
-                  aria-label={`Drop ${entry.ref}`}
-                >
-                  Drop
-                </button>
-              </Tooltip>
+              <div className="ml-auto flex shrink-0 items-center gap-1 opacity-70 group-hover/row:opacity-100">
+                <Tooltip content={`Reapply ${entry.ref} and drop it`}>
+                  <button
+                    type="button"
+                    onClick={() => onApply(entry, true)}
+                    disabled={Boolean(busy)}
+                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                    aria-label={`Pop ${entry.ref}`}
+                  >
+                    Pop
+                  </button>
+                </Tooltip>
+                <Tooltip content={`Reapply ${entry.ref} and keep it`}>
+                  <button
+                    type="button"
+                    onClick={() => onApply(entry, false)}
+                    disabled={Boolean(busy)}
+                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-30"
+                    aria-label={`Apply ${entry.ref}`}
+                  >
+                    Apply
+                  </button>
+                </Tooltip>
+                <Tooltip content={`Delete ${entry.ref}`}>
+                  <button
+                    type="button"
+                    onClick={() => onDrop(entry)}
+                    disabled={Boolean(busy)}
+                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] disabled:opacity-30"
+                    aria-label={`Drop ${entry.ref}`}
+                  >
+                    Drop
+                  </button>
+                </Tooltip>
+              </div>
             </div>
           </div>
         ))}

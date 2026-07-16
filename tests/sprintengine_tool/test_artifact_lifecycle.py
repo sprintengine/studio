@@ -107,6 +107,18 @@ def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses
     assert notification["artifactId"] == "A1"
     assert notification["notificationKind"] == "task_completed_after_artifact_approval"
 
+    # Approval completion clears the owner but must stamp the implementer first:
+    # the projection derives done-task workers only from lastImplementedByAgentId,
+    # and a live terminal with no worker record is a ghost seat the supervisor can
+    # neither wake nor replace (multi-repo-sprints architect stall, 2026-07-16).
+    approved_task = get_task(approved_state, "T1")
+    assert approved_task["ownerAgentId"] is None
+    assert approved_task["lastImplementedByAgentId"] == "product-fixture"
+    projection = store.build_projection(fixture.state_path.parent, state_path=fixture.state_path)
+    worker = projection["workers"]["product-fixture"]
+    assert worker["status"] == "idle"
+    assert worker["lastOwnedTaskId"] == "T1"
+
     history_actions = [entry["action"] for entry in get_artifact(approved_state, "A1")["reviewHistory"]]
     assert history_actions == [
         "created",

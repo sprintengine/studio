@@ -336,16 +336,22 @@ assert.ok(
 {
   const progressbarIndex = wizardProgress.indexOf('role="progressbar"')
   const groupIndex = wizardProgress.indexOf('role="group"')
-  const firstButtonIndex = wizardProgress.indexOf('<button')
   assert.ok(
     progressbarIndex >= 0 && groupIndex > progressbarIndex,
     'WizardProgress declares the progressbar before the interactive back-jump group',
   )
   assert.ok(
-    firstButtonIndex > groupIndex,
+    !wizardProgress.slice(progressbarIndex, groupIndex).includes('<button'),
     'WizardProgress renders back-jump buttons only inside the group, never inside the progressbar element',
   )
 }
+// The labeled variant (the sprint wizard's named stations) is a nav whose only
+// interactive elements are the completed-step back-jumps; the current step is
+// announced via aria-current, not a control.
+expectIncludes(wizardProgress, "variant === 'labeled'", 'WizardProgress offers the labeled variant behind an explicit opt-in')
+expectIncludes(wizardProgress, '<nav aria-label={fullLabel}', 'the labeled variant is a nav announcing the current step name')
+expectIncludes(wizardProgress, "aria-current={isCurrent ? 'step' : undefined}", 'the labeled variant marks the current step with aria-current')
+expectIncludes(wizardProgress, 'isDone && onStepSelect', 'the labeled variant gates its jump buttons on the completed-step state')
 
 // KbdChord — purely presentational. Each key is a real <kbd> element wearing
 // the mono token; the wrapper is role="img" with an accessible name so screen

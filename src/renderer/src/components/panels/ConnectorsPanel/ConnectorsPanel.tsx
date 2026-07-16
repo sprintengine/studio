@@ -1,7 +1,7 @@
 // Connectors surface — the browse / install / launch page for connectors, opened
 // from the sidebar (T5) via the store `connectorsSurface` overlay. It is NOT a
-// Settings tab: it is a WorkspaceManager-rendered overlay so it can receive
-// `launchConnectorChat` (T1's single connector runtime) as a prop.
+// Settings tab: it is a WorkspaceManager-rendered overlay so it can receive the
+// host's connector "New chat" route as a prop.
 //
 // Two real sources feed one faceted grid — the MCP catalog
 // (`window.api.mcpListCatalog`, the launchable connectors) and the marketplace
@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import type { McpServerConfig, McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -42,6 +43,8 @@ import { ConnectorsManage } from './ConnectorsManage'
 import { ConnectorEntryRow, ConnectorSectionHeading } from './ConnectorRow'
 import {
   CONNECTOR_FACETS,
+  catalogServerAsComposerConnector,
+  connectorEntryAsComposerConnector,
   deriveConnectorsView,
   launchableConnectors,
   sectionConnectors,
@@ -71,9 +74,10 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export type ConnectorsSurfaceProps = {
-  // T1's connector runtime — spawns an isolated connector chat (worktree +
-  // connector-only MCP + skill) for a launchable catalog entry.
-  onLaunchConnector: (serverId: string) => void
+  // "New chat" on a launchable connector: hands the host the connector so it can
+  // open the new-chat composer with it attached. The host — not this surface —
+  // decides what that opens; nothing is spawned until the user confirms there.
+  onLaunchConnector: (connector: AgentComposerConnector) => void
   // Opens the automation-authoring flow seeded with this connector. The run
   // wiring lands in T8; this presents the route today.
   onUseInAutomation: (serverId: string) => void
@@ -420,7 +424,7 @@ export function ReadyConnectorsRail({
   onUseInAutomation,
 }: {
   connectors: McpCatalogServer[]
-  onLaunchConnector: (serverId: string) => void
+  onLaunchConnector: (connector: AgentComposerConnector) => void
   onUseInAutomation: (serverId: string) => void
 }) {
   if (connectors.length === 0) return null
@@ -449,7 +453,7 @@ export function ReadyConnectorsRail({
               <GhostButton size="sm" onClick={() => onUseInAutomation(server.id)}>
                 Use in automation
               </GhostButton>
-              <PrimaryButton size="sm" onClick={() => onLaunchConnector(server.id)}>
+              <PrimaryButton size="sm" onClick={() => onLaunchConnector(catalogServerAsComposerConnector(server))}>
                 New chat
               </PrimaryButton>
             </div>
@@ -519,7 +523,7 @@ export function ConnectorsBody({
   onSelect: (key: string) => void
   onCloseDetail: () => void
   onToggleCatalogServer: (server: McpCatalogServer) => void
-  onLaunchConnector: (serverId: string) => void
+  onLaunchConnector: (connector: AgentComposerConnector) => void
   onUseInAutomation: (serverId: string) => void
   onUpsertMcpServer: (server: McpServerConfig) => void
   onRegistryInstalled: () => void
@@ -576,7 +580,7 @@ export function ConnectorsBody({
           ? () => onToggleCatalogServer(entry.catalogServer!)
           : undefined
       }
-      onLaunch={entry.canLaunch ? () => onLaunchConnector(entry.id) : undefined}
+      onLaunch={entry.canLaunch ? () => onLaunchConnector(connectorEntryAsComposerConnector(entry)) : undefined}
     />
   )
   return (
@@ -598,7 +602,11 @@ export function ConnectorsBody({
           installed={selectedEntry.installed}
           onToggle={() => onToggleCatalogServer(selectedEntry.catalogServer!)}
           onClose={onCloseDetail}
-          onNewChat={selectedEntry.canLaunch ? () => onLaunchConnector(selectedEntry.id) : undefined}
+          onNewChat={
+            selectedEntry.canLaunch
+              ? () => onLaunchConnector(connectorEntryAsComposerConnector(selectedEntry))
+              : undefined
+          }
           onUseInAutomation={selectedEntry.canLaunch ? () => onUseInAutomation(selectedEntry.id) : undefined}
         />
       ) : selectedEntry && selectedEntry.plugin ? (

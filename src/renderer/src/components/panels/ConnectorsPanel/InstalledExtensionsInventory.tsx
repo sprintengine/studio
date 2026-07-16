@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import type { ModuleEnablementOverrides, ThirdPartyModuleListResult } from '../../../../../shared/modules/manifest'
 import type { McpCatalogServer, SkillPackEntry, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
 import type { PluginRegistryListEntry } from '../../../../../shared/plugin-manifest'
 import type { McpServerConfig } from '../../../types/workspace'
 import { GhostButton, InlineNotice, Popover, PrimaryButton, Spinner, StatusDot } from '../../ui'
@@ -39,7 +40,7 @@ type InventoryActions = {
   // Catalog entries enrich MCP rows: real icon, and skill-linked entries get the
   // launch affordances.
   catalogServers?: McpCatalogServer[]
-  onLaunchConnector?: (serverId: string) => void
+  onLaunchConnector?: (connector: AgentComposerConnector) => void
   onUseInAutomation?: (serverId: string) => void
   onRemoveMcpServer?: (serverId: string) => void
   // Keyed by the pack slug (the inventory row id for skill packs).
@@ -248,7 +249,11 @@ function InstalledRow({
     }
     if (launchable && actions.onLaunchConnector) {
       rowActions.push(
-        <PrimaryButton key="launch" size="sm" onClick={() => actions.onLaunchConnector!(item.id)}>
+        <PrimaryButton
+          key="launch"
+          size="sm"
+          onClick={() => actions.onLaunchConnector!({ id: item.id, name: item.name, icon: catalogEntry?.icon })}
+        >
           New chat
         </PrimaryButton>,
       )

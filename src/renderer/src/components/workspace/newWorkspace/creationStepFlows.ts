@@ -28,7 +28,9 @@ export type StepId =
   | 'multiloop-goal'
   | 'sprintengine-team'
   | 'sprintengine-roster'
-  | 'sprintengine-run'
+  | 'sprintengine-reviews'
+  | 'sprintengine-tools'
+  | 'sprintengine-start'
   | 'guided-idea'
 
 // The hub's flows are keyed by a closed set of flow ids. A registered workspace
@@ -56,11 +58,19 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   automations: ['workspace'],
   multiloop: ['workspace', 'multiloop-goal'],
   // The sprint's team page carries the only required intent (an objective, or a
-  // backlog item / plan file / existing team). Roster and run settings are both
-  // fully defaulted — a balanced team is seeded before the user touches
-  // anything — so they page separately and both sit behind "Skip the rest and
-  // create". Keeping them on one page is what made the roster step scroll.
-  sprintengine: ['workspace', 'sprintengine-team', 'sprintengine-roster', 'sprintengine-run'],
+  // backlog item / plan file / existing team). Everything after it — the team
+  // roster, the review passes, the optional tools & skills, and the final
+  // review-&-start summary — is fully defaulted, so each pages separately and
+  // all of them sit behind "Skip the rest and create" (MC-1646: one reading
+  // column per page, no settings dump).
+  sprintengine: [
+    'workspace',
+    'sprintengine-team',
+    'sprintengine-roster',
+    'sprintengine-reviews',
+    'sprintengine-tools',
+    'sprintengine-start',
+  ],
   // All three Design Wizard presets (full-brief, frontend-design,
   // design-system) share this flow: the preset is chosen inside the
   // 'guided-idea' step, not by a separate flow id, because presets live inside

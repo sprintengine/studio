@@ -408,7 +408,7 @@ export default function CommandPalette({
             {
               id: 'connector.railway.connect',
               label: 'Connect: Railway',
-              description: 'Open an isolated Railway connector chat in a new worktree',
+              description: 'Start a new chat with the Railway connector attached',
               group: 'actions' as const,
               run: () => {
                 onConnectRailway()

@@ -25,6 +25,7 @@ export function CliModelPickerButton({
   effectiveModelFor,
   disabled,
   quiet,
+  maxWidthClassName = 'max-w-[220px]',
   onSelectCli,
   onSelectModel,
 }: {
@@ -40,6 +41,12 @@ export function CliModelPickerButton({
    * bordered form-control trigger unchanged for existing hosts.
    */
   quiet?: boolean
+  /**
+   * Trigger width clamp override. The default `max-w-[220px]` keeps the chip
+   * compact in dense tables; pass `max-w-none` where the full "CLI · model"
+   * label must never truncate (the sprint wizard's roster rows).
+   */
+  maxWidthClassName?: string
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
 }) {
@@ -74,14 +81,14 @@ export function CliModelPickerButton({
             className={
               quiet
                 ? `
-                  interactive group/pill inline-flex h-6 max-w-[220px] items-center justify-between gap-1.5 rounded border border-transparent
+                  interactive group/pill inline-flex h-6 ${maxWidthClassName} items-center justify-between gap-1.5 rounded border border-transparent
                   px-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors
                   hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text-default)]
                   focus:outline-none focus-visible:border-[color:var(--border-default)] focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]
                   disabled:cursor-not-allowed disabled:opacity-45
                 `
                 : `
-                  interactive inline-flex h-7 min-w-[140px] max-w-[220px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
+                  interactive inline-flex h-7 min-w-[140px] ${maxWidthClassName} items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
                   bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] transition-colors
                   hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]

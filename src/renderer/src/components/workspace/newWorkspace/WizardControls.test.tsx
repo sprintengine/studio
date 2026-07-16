@@ -2,21 +2,20 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { AgentCli } from '../../../types/workspace'
-import { RosterAndRunSettings } from './WizardControls'
+import { RosterAndRunSettings, cliPermissionOptions } from './WizardControls'
 
-// RosterAndRunSettings has two consumers with different needs: the creation hub
-// pages the team and the run apart (sections='roster' / 'run'), while the Guided
-// Brief build handoff renders the whole surface and passes no `sections` at all.
-// The split must therefore be a partition of the existing render, not a rewrite —
-// these tests pin that, since a regression here silently changes Guided Brief.
+// RosterAndRunSettings is the Guided Brief build handoff's roster + run
+// surface (the sprint wizard's own pages moved to the SprintEngine*Panel
+// components in MC-1646). These tests pin the surface the handoff renders:
+// the roster table, an optional caller-injected workflow section between the
+// roster and the settings card, and the run-settings card — in that order —
+// so a wizard-side refactor cannot silently change Guided Brief.
 
-// The markers below are the three blocks the component composes: the roster
-// label, the caller-injected workflow panels, and the run-settings card.
 const ROSTER_MARK = 'Roster'
 const WORKFLOW_MARK = 'data-marker="workflow-section"'
 const RUN_MARK = 'Run settings'
 
-function render(sections?: 'all' | 'roster' | 'run'): string {
+function render(withWorkflow: boolean): string {
   return renderToStaticMarkup(
     <RosterAndRunSettings
       roleCounts={{ developer: 2, tester: 1 }}
@@ -32,48 +31,36 @@ function render(sections?: 'all' | 'roster' | 'run'): string {
       onChangeAutomationMode={() => {}}
       cliPermissionPreset={'default' as never}
       onChangeCliPermissionPreset={() => {}}
-      maxParallelAgents={3}
-      onChangeMaxParallelAgents={() => {}}
-      useWorktrees={false}
-      onChangeUseWorktrees={() => {}}
-      workflowSection={<div data-marker="workflow-section" />}
-      sections={sections}
+      workflowSection={withWorkflow ? <div data-marker="workflow-section" /> : undefined}
     />,
   )
 }
 
-// The Guided Brief handoff passes no `sections`. If the default ever stops being
-// a byte-for-byte no-op, that surface changes without anyone editing it — so this
-// is the regression canary, asserted on the markup rather than on the prop.
-assert.equal(
-  render(undefined),
-  render('all'),
-  "omitting `sections` renders exactly what sections='all' renders",
-)
-
-// 'all' keeps every block, in the order the wizard step reads: the team, then the
-// workflow panels, then how the run behaves.
-const all = render('all')
+// The full surface renders every block in the order the handoff reads: the
+// team, then the workflow panels, then how the run behaves.
+const all = render(true)
 for (const mark of [ROSTER_MARK, WORKFLOW_MARK, RUN_MARK]) {
-  assert.ok(all.includes(mark), `sections='all' renders ${mark}`)
+  assert.ok(all.includes(mark), `renders ${mark}`)
 }
 assert.ok(
   all.indexOf(ROSTER_MARK) < all.indexOf(WORKFLOW_MARK) && all.indexOf(WORKFLOW_MARK) < all.indexOf(RUN_MARK),
-  "sections='all' orders the blocks roster -> workflow -> run",
+  'orders the blocks roster -> workflow -> run',
 )
 
-// 'roster' is the team page: the roster only, with no run surface leaking onto it.
-const roster = render('roster')
-assert.ok(roster.includes(ROSTER_MARK), "sections='roster' renders the roster")
-assert.ok(!roster.includes(WORKFLOW_MARK), "sections='roster' withholds the workflow panels")
-assert.ok(!roster.includes(RUN_MARK), "sections='roster' withholds Run settings")
+// The workflow section is caller-owned and optional: the Guided Brief handoff
+// passes none today, and the roster and run settings still render around the gap.
+const withoutWorkflow = render(false)
+assert.ok(withoutWorkflow.includes(ROSTER_MARK), 'roster renders without a workflow section')
+assert.ok(withoutWorkflow.includes(RUN_MARK), 'run settings render without a workflow section')
+assert.ok(!withoutWorkflow.includes(WORKFLOW_MARK), 'no workflow markup is invented')
 
-// 'run' is the run page. workflowSection rides HERE, not with the roster: it
-// carries self-review, reviewer runtime, and required sweeps, which describe how
-// the run behaves rather than who is on the team.
-const run = render('run')
-assert.ok(run.includes(WORKFLOW_MARK), "sections='run' renders the workflow panels")
-assert.ok(run.includes(RUN_MARK), "sections='run' renders Run settings")
-assert.ok(!run.includes(ROSTER_MARK), "sections='run' withholds the roster")
+// The run-settings card carries the permission preset row (with its hint) and
+// the automation radiogroup — the two controls the handoff exposes.
+assert.ok(withoutWorkflow.includes('Agent permissions'), 'permission preset row renders')
+assert.ok(withoutWorkflow.includes('aria-label="Sprint automation mode"'), 'automation radiogroup renders')
+assert.ok(
+  withoutWorkflow.includes(cliPermissionOptions[0].hint),
+  'the selected permission preset explains itself',
+)
 
-console.log('WizardControls sections tests passed')
+console.log('WizardControls tests passed')

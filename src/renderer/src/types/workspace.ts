@@ -1048,7 +1048,7 @@ export type WorkspaceBacklogState = {
   search: string
 }
 
-export type GitPanelView = 'changes' | 'worktrees' | 'log' | 'terminal'
+export type GitPanelView = 'changes' | 'worktrees' | 'log' | 'stashes' | 'terminal'
 
 // The Git panel's per-workspace view state. Commit-message drafts are keyed by
 // scope id (per worktree/main checkout) so a half-written message can never

@@ -242,6 +242,41 @@ function testReferencedArchitectPlanGetsManifestGuidanceNotSeedGuidance(): void 
   assert.ok(!bundleReferenced.includes('should seed plan.md'), 'reference bundle launch drops the seed guidance')
 }
 
+function testRolesSentenceUsesConfiguredRolesNotSeats(): void {
+  const base = {
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow\nShip it.',
+    sourcePlanKind: 'product_plan' as const,
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  }
+
+  // Lease-era lazy roster: only the planner is seated, but the run's legal
+  // role set is wider. The prompt must state the configured roles, or the
+  // architect refuses to plan the other roles' work (the
+  // sprint-chaining-automations empty-graph regression).
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    ...base,
+    rosterArgs: ['architect:architect'],
+    configuredRoles: ['architect', 'developer', 'frontend'],
+  })
+  assert.ok(
+    prompt.includes("Your run's roles are: architect, developer, frontend."),
+    'roles sentence lists the configured roles, not the seated planner',
+  )
+  assert.ok(prompt.includes('"architect:architect"'), 'init payload still carries the seat specs verbatim')
+
+  const seatOnly = buildPlanFileSprintEngineHandoffPrompt({
+    ...base,
+    rosterArgs: ['architect:architect'],
+  })
+  assert.ok(
+    !seatOnly.includes("Your run's roles are:"),
+    'without configuredRoles the sentence is dropped — seats never stand in for the legal role set',
+  )
+}
+
 function testSeedAlreadyPersistedDropsHandoverStep(): void {
   const base = {
     teamSlug: 'checkout-flow',
@@ -268,6 +303,7 @@ function testSeedAlreadyPersistedDropsHandoverStep(): void {
 
 function main(): void {
   testPlanFileHandoffIsMcpNative()
+  testRolesSentenceUsesConfiguredRolesNotSeats()
   testSeedAlreadyPersistedDropsHandoverStep()
   testPlanFileHandoffBundleIssuesOneHandoverCallWithSourceBundle()
   testBacklogHandoffUsesBacklogPathsAndKeepsManagedMcpInvariants()
