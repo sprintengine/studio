@@ -3085,13 +3085,13 @@ export function getSprintEngineTaskImplementerTimeline(
 export function getSprintEngineKanbanEmptyMessage(column: SprintEngineTaskBoardColumn): string {
   switch (column) {
     case 'ready':
-      return 'No ready work. Waiting on dependencies or active workers.'
+      return 'No ready work. Waiting on dependencies or active agents.'
     case 'in_progress':
-      return 'No workers are actively claiming tasks.'
+      return 'No agents are actively claiming tasks.'
     case 'review':
       return 'No one is reviewing their own work right now.'
     case 'needs_input':
-      return 'No blocked tasks or worker questions.'
+      return 'No blocked tasks or agent questions.'
     case 'done':
       return 'Completed work will collect here.'
     case 'todo':
