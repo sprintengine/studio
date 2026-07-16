@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import Module from 'node:module'
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -2227,7 +2228,7 @@ async function assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runt
     const allowedRoots = syncInputs[0]?.managedSprintEngine?.allowedRoots ?? []
     assert.deepEqual(
       allowedRoots,
-      [workspaceRoot, declared],
+      [workspaceRoot, realpathSync(declared)],
       'allowed roots are exactly the projects the run declared: its own plus each declared sibling'
     )
     assert.ok(!allowedRoots.includes(undeclared), 'a project the run never declared is not authorized')

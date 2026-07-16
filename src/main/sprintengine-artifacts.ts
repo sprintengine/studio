@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, realpathSync } from 'fs'
 import { mkdir, readFile, stat } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
@@ -692,9 +692,11 @@ export function sprintEngineDeclaredSiblingRepoRoots(statePath: string): string[
     return []
   }
   let repos: unknown
+  let workspaceRoot: string
   try {
     const projection = JSON.parse(readFileSync(join(state.teamDirectory, 'projection.json'), 'utf8'))
     repos = (projection as { run?: { vcs?: { repos?: unknown } } })?.run?.vcs?.repos
+    workspaceRoot = realpathSync(state.workspaceRoot)
   } catch {
     return []
   }
@@ -705,12 +707,20 @@ export function sprintEngineDeclaredSiblingRepoRoots(statePath: string): string[
     const { id, root } = entry as { id?: unknown; root?: unknown }
     if (typeof id !== 'string' || typeof root !== 'string' || !root.trim()) continue
     if (id === 'primary' || root.trim() === '.') continue
-    const resolved = resolve(state.workspaceRoot, root.trim())
+    // Resolve links before judging and before returning, because the MCP server
+    // resolves the roots it is handed the same way: judging a path the server will
+    // not compare would let a symlinked root pass this check and authorize its real
+    // target. A root that does not exist resolves to nothing and authorizes nothing.
+    let resolved: string
+    try {
+      resolved = realpathSync(resolve(workspaceRoot, root.trim()))
+    } catch {
+      continue
+    }
     // A declared root that contains the workspace is a parent, not a sibling: it
     // would authorize the workspace's neighbours by inclusion. The engine refuses to
     // declare one; this refuses to honour one a hand-edited store carries.
-    if (isPathInsideOrEqual(resolved, state.workspaceRoot)) continue
-    if (!existsSync(resolved)) continue
+    if (isPathInsideOrEqual(resolved, workspaceRoot)) continue
     if (!roots.includes(resolved)) roots.push(resolved)
   }
   return roots

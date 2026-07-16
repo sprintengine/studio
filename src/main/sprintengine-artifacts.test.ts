@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
 import { createPluginRegistry } from './plugin-registry'
@@ -89,7 +90,9 @@ async function testDeclaredSiblingRepoRootsResolveEveryDeclaredProject(): Promis
       { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
       { id: 'mobile', root: '../declared-sibling', worktreePath: 'w-mobile', branchName: 'b' },
     ])
-    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [resolve(sibling)])
+    // realpath, not just resolve: the MCP server resolves the roots it is handed, so
+    // this must return the path the server will actually compare against.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [realpathSync(sibling)])
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
     await rm(sibling, { recursive: true, force: true })
