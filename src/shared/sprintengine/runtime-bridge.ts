@@ -141,8 +141,8 @@ export type SprintRuntimeOp =
   }
   | { kind: 'completion_teardown_at'; statePath: string; at: number | undefined }
   /**
-   * A user-facing cycle diagnostic (auto-approval skipped, roster
-   * replenishment failed, bootstrap stall…). Main already wrote the JSONL —
+   * A user-facing cycle diagnostic (auto-approval skipped, spawn failed,
+   * bootstrap stall…). Main already wrote the JSONL —
    * windows only surface the entry in the in-app notification store, matching
    * the retired renderer supervisor's `publishDiagnostic` behavior.
    */

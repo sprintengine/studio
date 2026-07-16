@@ -481,7 +481,7 @@ export const AUTO_RUN_IDLE_RETIREMENT_MS = 5 * 60_000
 /**
  * Per-agent cooldown after an idle terminal is retired. The retirement window
  * only counts uninterrupted idleness, which resets every time a parked role is
- * respawned (lazy spawn, roster replenishment, or a ready task that the agent
+ * respawned (lazy spawn, pool reconcile, or a ready task that the agent
  * then cannot progress). Without a cooldown that respawn idles straight back
  * into the window and is retired again every few minutes — an unbounded
  * kill/respawn storm that spawns a fresh CLI process each cycle. The cooldown is

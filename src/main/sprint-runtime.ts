@@ -91,8 +91,9 @@ import type { SprintPowerManager } from './sprint-power-manager'
 // app relaunch never races projection hydration into duplicate spawns.
 const SPRINT_RUNTIME_TICK_MS = 4000
 const SPRINT_RUNTIME_STARTUP_SPAWN_DELAY_MS = 10_000
-// Generous — engine CLI operations (replenish, approval) legitimately take
-// seconds; the watchdog exists for hung subprocesses, not slow ones.
+// Generous — engine CLI operations (projection reads, auto-approval)
+// legitimately take seconds; the watchdog exists for hung subprocesses, not
+// slow ones.
 const SPRINT_RUNTIME_TICK_WATCHDOG_MS = 120_000
 
 type MutableRef<T> = { current: T }
@@ -370,8 +371,8 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
 
       publishDiagnostic: async (input) => {
         const entry = await deps.logDiagnostic(input)
-        // Cycle diagnostics are user-facing (auto-approval skipped, roster
-        // replenishment failed, bootstrap stall…): mirror them into every
+        // Cycle diagnostics are user-facing (auto-approval skipped, spawn
+        // failed, bootstrap stall…): mirror them into every
         // window's notification store, matching the retired renderer
         // supervisor's publishDiagnostic. Routed by workspaceId; a diagnostic
         // without one is log-only.
@@ -898,7 +899,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           entry.tickInFlight = false
         })
         try {
-          // Watchdog: a hung engine subprocess (projection read, replenish,
+          // Watchdog: a hung engine subprocess (projection read,
           // auto-approve) must not wedge the app-lifetime loop for every run.
           // On timeout the loop moves on to the other runs; this run resumes
           // once the stalled work settles.
