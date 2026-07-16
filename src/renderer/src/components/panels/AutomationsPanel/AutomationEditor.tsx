@@ -22,8 +22,10 @@ import type {
 import {
   formatAtDatetime,
   EMPTY_REPO_EVENT_FORM,
+  EMPTY_SPRINT_LANDED_FORM,
   EMPTY_WEBHOOK_FORM,
   REPO_EVENT_TRIGGER_KIND,
+  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
   actionLabel,
   automationCliFieldError,
@@ -33,15 +35,20 @@ import {
   repoEventFormFromConfig,
   resolveSubmitTrigger,
   shouldSendWebhookTrigger,
+  sprintLandedFormFromConfig,
   triggersEquivalent,
   webhookFormFromConfig,
   webhookTriggerError,
   type EditorState,
   type RepoEventForm,
   type ScheduleCadenceForm,
+  type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
 import { TriggerFields, selectedFamilyUnavailableReason } from './TriggerFields'
+import { BacklogItemSearchPicker, type BacklogItemSearchOption } from '../../backlog/BacklogItemSearchPicker'
+import { useBacklogScan } from '../../workspace/newWorkspace/useBacklogScan'
+import type { SprintEngineRosterTeam } from '../../../types/workspace'
 
 // Composes ScheduleCadenceForm (the authoritative cadence sub-state shape in
 // automationsFormat.ts) so a new cadence field is declared exactly once.
@@ -52,12 +59,16 @@ type EditorFormState = ScheduleCadenceForm & {
   // Whether an agent-backed run executes in its own per-run worktree (isolation
   // from the user's checkout, and the prerequisite for opening a PR).
   runInWorktree: boolean
+  // Run once, then pause: after one triggered fire the automation pauses itself;
+  // re-enabling arms it again. Works for any trigger kind.
+  disableAfterRun: boolean
   actionKind: string
   // Discriminates the active trigger family. Each family is authored from its own
   // sub-state below; resolveSubmitTrigger builds the trigger from the active one.
   triggerKind: TriggerKind
   repoEvent: RepoEventForm
   webhook: WebhookForm
+  sprintLanded: SprintLandedForm
   config: Record<string, string>
 }
 
@@ -80,7 +91,13 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
   cli: 'CLI',
   name: 'Agent name',
   skill: 'Skill',
+  backlogItem: 'Backlog item',
+  sprintName: 'Sprint name',
+  team: 'Team',
 }
+
+// Stable empty fallback so the saved-teams selector doesn't churn refs per render.
+const EMPTY_SAVED_TEAMS: SprintEngineRosterTeam[] = []
 
 // One control box vocabulary shared by every text input and the Select trigger
 // (h-7, 5px radius, --border-default on --bg-surface-raised) so inputs and
@@ -136,9 +153,10 @@ type ConnectorLoad =
   | { status: 'ready'; connectors: McpCatalogServer[] }
 
 const EMPTY_FORM: EditorFormState = {
-  name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, actionKind: '', triggerKind: 'schedule',
+  name: '', enabled: true, autonomy: 'review_only', runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
   cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], atDatetime: '',
-  repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
+  repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM },
+  sprintLanded: { ...EMPTY_SPRINT_LANDED_FORM }, config: {},
 }
 
 function initialFormState(editor: EditorState, providers: AutomationsProviders): EditorFormState {
@@ -165,6 +183,7 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     autonomy: def.autonomyDefault,
     // Absent on existing definitions ⇒ true (they were always worktree runs).
     runInWorktree: def.runInWorktree ?? true,
+    disableAfterRun: def.disableAfterRun ?? false,
     actionKind: def.action.kind,
     triggerKind: def.trigger.kind,
     cadenceType: cadence?.type === 'daily' || cadence?.type === 'weekly' || cadence?.type === 'at' ? cadence.type : 'interval',
@@ -178,6 +197,9 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     webhook: def.trigger.kind === WEBHOOK_TRIGGER_KIND
       ? webhookFormFromConfig(def.trigger.config)
       : { ...EMPTY_WEBHOOK_FORM },
+    sprintLanded: def.trigger.kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
+      ? sprintLandedFormFromConfig(def.trigger.config)
+      : { ...EMPTY_SPRINT_LANDED_FORM },
     config,
   }
 }
@@ -306,6 +328,40 @@ export function AutomationEditor({
     })
   }, [])
 
+  // Sprint chaining action (sprint-engine-start): the backlog item and roster
+  // fields get dedicated pickers — the shared Backlog search picker and a plain
+  // Select over the saved teams — instead of the generic free-text inputs.
+  const isSprintStartAction = form.actionKind === 'sprint-engine-start'
+  const backlogScan = useBacklogScan(isSprintStartAction ? workspaceRoot : null)
+  const backlogOptions = useMemo((): BacklogItemSearchOption[] =>
+    backlogScan.result.items
+      // The action chains from leaf items (epic launches bundle children — a
+      // wizard flow), so epics are not offered.
+      .filter((item) => !item.relativePath.startsWith('backlog/epics/'))
+      .map((item) => ({
+        id: item.id,
+        value: item.relativePath,
+        title: item.title,
+        displayId: item.displayId,
+        searchText: item.relativePath,
+      })),
+  [backlogScan.result.items])
+  const sprintSavedTeams = useWorkspaceStore(
+    (s) => s.appSettings.sprintEngineRoleSettings?.savedTeams ?? EMPTY_SAVED_TEAMS,
+  )
+  const sprintTeamItems: SelectItem[] = useMemo(() => {
+    // The empty option resolves like the sprint wizard does (the last team you
+    // used there, else the built-in default) — the label must say so, not
+    // promise a fixed "default roster" the resolver doesn't deliver.
+    const items: SelectItem[] = [{ value: '', label: 'Last used team' }]
+    for (const team of sprintSavedTeams) items.push({ value: team.name, label: team.name })
+    const stored = form.config.team?.trim()
+    if (stored && !items.some((item) => item.value === stored)) {
+      items.push({ value: stored, label: `${stored} — missing`, tone: 'warn' })
+    }
+    return items
+  }, [sprintSavedTeams, form.config.team])
+
   // Plain-language read-back of the whole automation (altitude / friendliness):
   // shown only for the scheduled spawn-agent shape it describes.
   const scheduleReadback =
@@ -369,6 +425,9 @@ export function AutomationEditor({
       if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
       if (form.cadenceType === 'at' && !form.atDatetime.trim()) return 'Pick a date and time for a one-time schedule.'
     }
+    if (!triggerReadOnly && form.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND && !form.sprintLanded.team.trim()) {
+      return 'Pick the sprint team to watch.'
+    }
     if (configKeys.includes('cli')) {
       const cliError = automationCliFieldError(form.config.cli, cliCatalog)
       if (cliError) return cliError
@@ -408,6 +467,7 @@ export function AutomationEditor({
       status: form.enabled ? 'enabled' : 'paused',
       autonomyDefault: form.autonomy,
       runInWorktree: form.runInWorktree,
+      disableAfterRun: form.disableAfterRun,
       // Built from the active family (a read-only cron schedule round-trips verbatim).
       trigger: builtTrigger,
       action: { kind: form.actionKind, config },
@@ -422,6 +482,7 @@ export function AutomationEditor({
           status: draft.status,
           autonomyDefault: draft.autonomyDefault,
           runInWorktree: draft.runInWorktree,
+          disableAfterRun: draft.disableAfterRun,
           action: draft.action,
         }
         // Omit an unchanged trigger so the engine preserves the stored webhook
@@ -475,6 +536,7 @@ export function AutomationEditor({
       <TriggerFields
         editor={editor}
         providers={providers}
+        workspaceRoot={workspaceRoot}
         value={form}
         onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
       />
@@ -621,7 +683,57 @@ export function AutomationEditor({
               </div>
             ) : null}
 
-            {configKeys.filter((key) => key !== 'cli').map((key) => {
+            {/* Sprint chaining fields — dedicated pickers for the backlog item
+                and the saved-team roster; the generic loop below skips both keys. */}
+            {isSprintStartAction ? (
+              <>
+                <Field
+                  label="Start from backlog item"
+                  htmlFor="automation-sprint-start-backlog-item"
+                  required
+                  help="The chained sprint plans and works this item on the refreshed base branch."
+                >
+                  <div className="flex flex-col gap-1.5">
+                    {form.config.backlogItem ? (
+                      <div className="flex items-center gap-1.5">
+                        <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-muted)]">
+                          {form.config.backlogItem}
+                        </code>
+                        <GhostButton
+                          type="button"
+                          onClick={() => update('config', { ...form.config, backlogItem: '' })}
+                          className="h-6 shrink-0 px-2 text-[11px]"
+                        >
+                          Clear
+                        </GhostButton>
+                      </div>
+                    ) : null}
+                    <BacklogItemSearchPicker
+                      options={backlogOptions}
+                      selectedValues={form.config.backlogItem ? [form.config.backlogItem] : []}
+                      onSelect={(option) => update('config', { ...form.config, backlogItem: option.value })}
+                      ariaLabel="Backlog item to start the next sprint from"
+                      noOptionsMessage={backlogScan.isScanning ? 'Scanning the backlog…' : 'No backlog items found.'}
+                      resultRole="listbox"
+                    />
+                  </div>
+                </Field>
+                <Field
+                  label="Team"
+                  htmlFor="automation-sprint-start-team"
+                  help="Saved team that staffs the chained sprint. “Last used team” resolves like the sprint wizard: the team you last picked there, else the built-in default."
+                >
+                  <Select
+                    ariaLabel="Saved team for the chained sprint"
+                    value={form.config.team?.trim() || ''}
+                    onChange={(value) => update('config', { ...form.config, team: value })}
+                    items={sprintTeamItems}
+                  />
+                </Field>
+              </>
+            ) : null}
+
+            {configKeys.filter((key) => key !== 'cli' && !(isSprintStartAction && (key === 'backlogItem' || key === 'team'))).map((key) => {
               const required = requiredKeys.has(key)
               const label = CONFIG_FIELD_LABEL[key] ?? key
               const id = `automation-config-${key}`
@@ -675,6 +787,18 @@ export function AutomationEditor({
             />
             Run in worktree
             <span className="text-[11px] text-[color:var(--text-subtle)]">{form.runInWorktree ? '(isolated branch; can open a PR)' : '(runs in the workspace checkout; no PR)'}</span>
+          </label>
+          <label htmlFor="automation-run-once" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">
+            <Switch
+              id="automation-run-once"
+              checked={form.disableAfterRun}
+              onChange={(next) => update('disableAfterRun', next)}
+              ariaLabel="Run once, then pause this automation"
+            />
+            Run once, then pause
+            {form.disableAfterRun ? (
+              <span className="text-[11px] text-[color:var(--text-subtle)]">(pauses after its next run; re-enable to arm again)</span>
+            ) : null}
           </label>
         </div>
         <label htmlFor="automation-enabled" className="flex items-center gap-2 text-[12px] text-[color:var(--text-default)]">

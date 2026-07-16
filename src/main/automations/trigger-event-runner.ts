@@ -140,8 +140,15 @@ async function updateDefinitionAfterTriggerRun(
   const { definition, projectFolder, state, store } = input
   const workspaceRoot = projectFolder.folderPath
   const updatedAtIso = new Date(updatedAt).toISOString()
+  // Once-off consumption for the trigger-event path (webhook + polling both
+  // funnel through here): one launched run consumes the shot and pauses the
+  // definition — even a failed run, per the once-off contract. Blocked polls
+  // never reach this function (polling-trigger-runner records those through its
+  // own non-pausing copy), so a shot is only ever consumed by a launched run.
+  const pauseAfterRun = definition.disableAfterRun === true && definition.status === 'enabled'
   const updated = await store.updateDefinition({
     ...definition,
+    ...(pauseAfterRun ? { status: 'paused' as const } : {}),
     nextRunAt: null,
     lastRunAt: run.completedAt ?? updatedAtIso,
     lastRunId: run.id,

@@ -426,7 +426,9 @@ export class AutomationsEngine {
         finalRun,
         nextRunAt,
         completedAt,
-        result
+        result,
+        // Manual "Run now" does not consume a once-off's single triggered fire.
+        { consumeOnceOffShot: false }
       )
       if (!updated) {
         return {
@@ -1298,9 +1300,19 @@ export class AutomationsEngine {
     run: AutomationRun,
     nextRunAt: string | null,
     updatedAt: number,
-    result: AutomationsEngineEvaluationResult
+    result: AutomationsEngineEvaluationResult,
+    // `runNow` passes false: a once-off (`disableAfterRun`) pauses after one
+    // *triggered* fire — a manual run never consumes the shot.
+    options?: { consumeOnceOffShot?: boolean }
   ): Promise<boolean> {
-    if (!nextRunAt && !scheduleCadenceCanExhaust(config)) {
+    // Once-off consumption: pause instead of rescheduling. A skipped overdue run
+    // routes through here too, so a missed once-off records its `skipped` run and
+    // then pauses (the documented missed-run rule). A failed run also consumed
+    // the shot — the user re-enables to arm it again.
+    const pauseAfterRun = options?.consumeOnceOffShot !== false
+      && definition.disableAfterRun === true
+      && definition.status === 'enabled'
+    if (!pauseAfterRun && !nextRunAt && !scheduleCadenceCanExhaust(config)) {
       result.problems.push({
         workspaceRoot,
         automationId: definition.id,
@@ -1312,10 +1324,13 @@ export class AutomationsEngine {
 
     // A null nextRunAt here is a fired (or already-past) one-shot: persisting
     // the null — definition AND state cache — is exactly what makes it fire
-    // exactly once instead of staying due forever.
+    // exactly once instead of staying due forever. A paused once-off has no
+    // upcoming run either, whatever its cadence would have computed.
+    const persistedNextRunAt = pauseAfterRun ? null : nextRunAt
     const updated = await store.updateDefinition({
       ...definition,
-      nextRunAt,
+      ...(pauseAfterRun ? { status: 'paused' as const } : {}),
+      nextRunAt: persistedNextRunAt,
       lastRunAt: run.completedAt ?? new Date(updatedAt).toISOString(),
       lastRunId: run.id,
       updatedAt: new Date(updatedAt).toISOString(),
@@ -1325,13 +1340,13 @@ export class AutomationsEngine {
       return false
     }
 
-    state.nextRunAtByAutomationId[definition.id] = nextRunAt
+    state.nextRunAtByAutomationId[definition.id] = persistedNextRunAt
     const stateWrite = await store.writeState(state)
     if (!stateWrite.ok) {
       result.problems.push(storeProblem(workspaceRoot, stateWrite.error, definition.id))
       return false
     }
-    if (nextRunAt) result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt })
+    if (persistedNextRunAt) result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt: persistedNextRunAt })
     return true
   }
 

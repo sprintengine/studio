@@ -117,6 +117,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const providerRegistry = createBuiltInAutomationProviderRegistry({
         switchboard: switchboardFrontDoors,
         sprintEngine: sprintEngineFrontDoors,
+        delegateToRenderer: (request) => automationDelegate.request(request),
       })
       const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
       host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
@@ -298,5 +299,9 @@ function serviceBackedSprintEngineFrontDoors(
   return {
     setRunnerMode: async (input) =>
       resolve()?.setRunnerMode(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
+    readProjection: async (input) =>
+      resolve()?.readProjection(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
+    refreshPullRequestStatus: async (input) =>
+      resolve()?.refreshPullRequestStatus(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
   }
 }

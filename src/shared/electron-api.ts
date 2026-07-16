@@ -1717,6 +1717,12 @@ export type SprintEngineStateInitializeInput = {
   // its own worktree, and the engine rejects the combination otherwise. Omitted
   // (not `[]`) for a single-project run.
   repos?: Array<{ id: string; root: string }>
+  // Commit-ish the primary repo's run worktree branches FROM, for chained sprints
+  // whose local branch may be behind its remote (the chain action fetches first
+  // and passes e.g. `origin/main`). Start point only: the stored `vcs.baseRef` —
+  // and therefore the `gh pr create --base` value — stays the plain branch name.
+  // Only meaningful alongside `useWorktrees`.
+  baseStartPoint?: string
   // The roster's per-role CLI model selection, recorded into run state at init
   // so each claimed task can be stamped with the model that worked it. A role
   // with no explicit model (CLI default) is omitted / left null.

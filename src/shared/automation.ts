@@ -87,6 +87,26 @@ export type AutomationRendererRequest =
       startRunner?: boolean
       autoApproveArtifacts?: boolean
       useWorktrees?: boolean
+      /**
+       * Plan-sourced launch (sprint chaining, MC-1438): start the sprint from
+       * this project-relative backlog item through the shared plan-sourced
+       * creation path instead of the goal-sourced new-team path. `goal` may be
+       * empty — it derives from the item's first heading.
+       */
+      sourceRelativePath?: string
+      /** Saved team (roster) name to staff the run with; absent resolves like the wizard (last selected, else default). */
+      team?: string
+      /**
+       * Self-trigger loop guard (sprint chaining): refuse creation when the new
+       * run's team dir slug would equal this watched team dir.
+       */
+      refuseTeamSlug?: string
+      /**
+       * Worktree start point for chained runs on a refreshed base (e.g.
+       * `origin/main` after a fetch). Start point only — the run's PR base stays
+       * the plain branch name. Only meaningful alongside `useWorktrees`.
+       */
+      baseStartPoint?: string
     }
 
 export type AutomationRendererResponse =

@@ -31,6 +31,7 @@ import {
   type RegisteredAutomationProvider,
 } from './provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
+import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from './triggers/sprint-engine-run-landed'
 import { WEBHOOK_TRIGGER_KIND } from './triggers/webhook'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
@@ -247,6 +248,8 @@ function firstPartyActionProviders(calls: string[] = []): AutomationActionProvid
         calls.push(`sprint-mode:${input.statePath}:${input.cliWatchPolling}`)
         return { ok: true, data: {} }
       },
+      readProjection: async () => ({ ok: false, message: 'not used' }),
+      refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
     },
   })
 }
@@ -997,12 +1000,22 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
       setRunnerMode: async () => {
         throw new Error('not used')
       },
+      readProjection: async () => {
+        throw new Error('not used')
+      },
+      refreshPullRequestStatus: async () => {
+        throw new Error('not used')
+      },
     },
   })
   assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
   assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
   assert.equal(builtIns.getTriggerProvider(`automations.${WEBHOOK_TRIGGER_KIND}`)?.kind, WEBHOOK_TRIGGER_KIND)
   assert.equal(builtIns.getTriggerProvider(`switchboard.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
+  assert.equal(
+    builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND}`)?.kind,
+    SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+  )
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
   assert.equal(builtIns.getActionProvider(`switchboard.${SWITCHBOARD_RUNNER_TICK_ACTION_KIND}`)?.kind, SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
@@ -1013,6 +1026,7 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     'schedule',
     WEBHOOK_TRIGGER_KIND,
     REPO_EVENT_TRIGGER_KIND,
+    SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
   ])
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',
@@ -1020,7 +1034,7 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     SWITCHBOARD_RUNNER_TICK_ACTION_KIND,
     WATCHTOWER_REVIEW_ACTION_KIND,
     SPRINT_ENGINE_RUN_ACTION_KIND,
-  ])
+  ], 'sprint-engine-start is delegate-gated: absent without delegateToRenderer')
   assert.equal(WATCHTOWER_AUTOMATION_INTEGRATION_ID, 'module:watchtower')
   assert.equal(SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, 'module:sprint-engine')
 

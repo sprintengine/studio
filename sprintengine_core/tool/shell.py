@@ -394,12 +394,18 @@ def _declared_sibling_entries(
     return entries
 
 
-def _ensure_repo_worktree(workspace_root: Path, repo: Dict[str, Any]) -> None:
+def _ensure_repo_worktree(workspace_root: Path, repo: Dict[str, Any], *, start_point: Optional[str] = None) -> None:
     """Create (or adopt) one declared repo's run worktree and record it ready.
 
     Raises rather than recording a failed status: a run that cannot get a tree for
     every project it declares has no safe partial state to continue from, so init
     aborts and the operator fixes the declaration.
+
+    ``start_point`` overrides only the commit-ish the new branch is created FROM
+    (e.g. ``origin/main`` for a chained sprint on a refreshed base). It is never
+    stored: the repo's recorded ``baseRef`` stays the plain branch name, which is
+    what ``gh pr create --base`` receives, and a remote-tracking name there would
+    break PR creation.
     """
     repo_root = resolve_vcs_path(workspace_root, repo["root"])
     worktree_path = resolve_vcs_path(workspace_root, repo["worktreePath"])
@@ -410,7 +416,7 @@ def _ensure_repo_worktree(workspace_root: Path, repo: Dict[str, Any]) -> None:
         if git_branch_exists(repo_root, branch):
             run_git_checked(repo_root, ["worktree", "add", str(worktree_path), branch])
         else:
-            base = str(repo.get("baseRef") or "").strip() or default_base_ref(repo_root)
+            base = str(start_point or "").strip() or str(repo.get("baseRef") or "").strip() or default_base_ref(repo_root)
             run_git_checked(repo_root, ["worktree", "add", "-b", branch, str(worktree_path), base])
     if not worktree_path.exists():
         raise SystemExit(f"Sprint Engine worktree was not created: {repo['worktreePath']}")
@@ -427,6 +433,10 @@ def ensure_run_worktree(
     base_ref: Optional[str] = None,
     branch_name: Optional[str] = None,
     repos: Optional[List[Dict[str, str]]] = None,
+    # Commit-ish the PRIMARY repo's new branch starts from (chained sprints pass a
+    # freshly-fetched remote-tracking ref). Distinct from base_ref, which is also
+    # the stored PR base and must stay a plain branch name.
+    start_point: Optional[str] = None,
 ) -> Dict[str, Any]:
     from sprintengine_core.tool.plans import default_swarm_name_for_state
     from sprintengine_core.tool.state import append_event
@@ -480,7 +490,11 @@ def ensure_run_worktree(
     # able to reach the projects it declares would strand every task targeting the
     # rest of them.
     for repo in vcs["repos"]:
-        _ensure_repo_worktree(workspace_root, repo)
+        _ensure_repo_worktree(
+            workspace_root,
+            repo,
+            start_point=start_point if repo["id"] == PRIMARY_REPO_ID else None,
+        )
     set_vcs_status(vcs, "ready")
     ready_message = f"Sprint Engine run worktree is ready at {rel_worktree} on {branch}."
     if siblings:
@@ -1053,10 +1067,25 @@ def _repo_has_run_commits(worktree: Path, base_ref: str) -> bool:
     cannot be resolved the answer is unknown, and unknown must not silently skip a
     project — it reads as "has commits", and any real problem surfaces from ``gh``
     with its own reason attached.
+
+    The base's upstream is excluded too (when one exists): a chained run's branch
+    roots at the freshly-fetched remote-tracking ref (init ``--base-start-point``)
+    while the stored ``baseRef`` stays the possibly-stale local branch, so counting
+    ``base..HEAD`` alone would read the upstream commits the local base is missing
+    as run commits — and push an empty branch whose ``gh pr create`` then fails.
     """
     if not base_ref:
         return True
-    counted = run_git_checked(worktree, ["rev-list", "--count", f"{base_ref}..HEAD"], allow_failure=True)
+    rev_args = ["rev-list", "--count", "HEAD", f"^{base_ref}"]
+    upstream = run_git_checked(
+        worktree,
+        ["rev-parse", "--verify", "--quiet", "--abbrev-ref", f"{base_ref}@{{upstream}}"],
+        allow_failure=True,
+    )
+    upstream_ref = upstream.stdout.strip()
+    if upstream.returncode == 0 and upstream_ref:
+        rev_args.append(f"^{upstream_ref}")
+    counted = run_git_checked(worktree, rev_args, allow_failure=True)
     if counted.returncode != 0:
         return True
     return (counted.stdout.strip() or "0") != "0"

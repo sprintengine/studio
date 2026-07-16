@@ -38,9 +38,10 @@ import {
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
 } from '../../shared/automations/contracts'
-import { SPRINT_ENGINE_RUN_ACTION_KIND } from '../automations/actions/sprint-engine'
+import { SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND } from '../automations/actions/sprint-engine'
 import { SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND } from '../automations/actions/switchboard'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
+import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../automations/triggers/sprint-engine-run-landed'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
@@ -211,6 +212,8 @@ function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
     registerMain(host) {
       host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
         setRunnerMode: async () => ({ ok: true, data: {} }),
+        readProjection: async () => ({ ok: false as const, message: 'not used' }),
+        refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
       }))
     },
   }
@@ -733,7 +736,7 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   if (!providers.ok) return
   assert.deepEqual(
     providers.value.triggers.map((provider) => provider.kind),
-    ['schedule', WEBHOOK_TRIGGER_KIND, REPO_EVENT_TRIGGER_KIND]
+    ['schedule', WEBHOOK_TRIGGER_KIND, REPO_EVENT_TRIGGER_KIND, SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND]
   )
   assert.deepEqual(
     providers.value.triggers.flatMap((provider) => provider.missingIntegrations),
@@ -741,7 +744,7 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   )
   assert.deepEqual(
     providers.value.actions.map((provider) => provider.kind),
-    ['spawn-agent', 'run-skill-loop', SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND, SPRINT_ENGINE_RUN_ACTION_KIND]
+    ['spawn-agent', 'run-skill-loop', SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND, SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND]
   )
   assert.deepEqual(
     providers.value.actions.flatMap((provider) => provider.missingIntegrations),

@@ -21,6 +21,23 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   resolveInitialSprintEngineRoster,
 } from '../components/workspace/newWorkspace/savedTeams'
+import {
+  inferSourcePlanKind,
+  joinPath,
+  planBasename,
+  toTitleName,
+  workspaceRelativePath,
+} from '../components/workspace/newWorkspace/helpers'
+import {
+  PlanSourcedSprintEngineWorkspaceError,
+  buildPlanSourcedSprintEngineWorkspaceContext,
+  createPlanSourcedSprintEngineWorkspace,
+} from '../utils/sprintengineWorkspaceCreation'
+import { sprintEnginePlannerRole } from '../utils/sprintengine'
+import {
+  sprintEngineAutomationInitialStateForMode,
+  sprintEngineAutomationModeForRunOptions,
+} from '../utils/sprintengineAutomationLifecycle'
 import type { OnCreateArgs } from '../components/workspace/newWorkspace/controllers/types'
 import { createAutomationsTemplate } from '../modules/automations-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type SpecialistActionId, type WorkspaceWindowId } from '../types/workspace'
@@ -93,6 +110,11 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
 async function createSprint(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
 ): Promise<AutomationRendererResponse> {
+  // A source-carrying request (sprint chaining) creates through the shared
+  // plan-sourced path instead of the goal-sourced new-team controller.
+  if (request.sourceRelativePath?.trim()) {
+    return createPlanSourcedSprint(request, request.sourceRelativePath.trim())
+  }
   const store = useWorkspaceStore.getState()
   const roleSettings = store.appSettings.sprintEngineRoleSettings
   const roster = resolveInitialSprintEngineRoster({
@@ -167,6 +189,178 @@ async function createSprint(
     }
   }
   return { ok: true, workspaceId }
+}
+
+// Sprint chaining (MC-1438): create + start a sprint from a backlog item (or any
+// project-relative plan file) through the SAME plan-sourced creation path the
+// wizard's "Start from backlog" uses — createPlanSourcedSprintEngineWorkspace →
+// initializeSprintEngineState → addWorkspace — so the Backlog execution link and
+// item lifecycle are preserved. No bespoke sprint bootstrapping.
+async function createPlanSourcedSprint(
+  request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>,
+  sourceRelativePath: string
+): Promise<AutomationRendererResponse> {
+  const normalizedSourcePath = sourceRelativePath.replace(/\\/g, '/')
+  if (/^(?:\/|[A-Za-z]:)/.test(normalizedSourcePath) || normalizedSourcePath.split('/').includes('..')) {
+    return { ok: false, code: 'sprint_invalid_source', message: 'Sprint source must be a project-relative path.' }
+  }
+
+  const store = useWorkspaceStore.getState()
+  const roleSettings = store.appSettings.sprintEngineRoleSettings
+  const savedTeams = roleSettings?.savedTeams ?? []
+  // The automation config may name a saved team (roster). An unknown name is an
+  // explicit failure — silently falling back would staff the run with a roster
+  // the user never picked for this chain.
+  const requestedTeamName = request.team?.trim()
+  const namedTeam = requestedTeamName
+    ? savedTeams.find((team) => team.name.trim().toLowerCase() === requestedTeamName.toLowerCase()) ?? null
+    : null
+  if (requestedTeamName && !namedTeam) {
+    return { ok: false, code: 'sprint_unknown_team', message: `Saved team "${requestedTeamName}" was not found.` }
+  }
+  const roster = resolveInitialSprintEngineRoster({
+    savedTeams,
+    lastSelectedTeamId: namedTeam?.id ?? roleSettings?.lastSelectedTeamId ?? null,
+    savedRoster: roleSettings?.savedRoster ?? null,
+    defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+    defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+  })
+
+  const absoluteSourcePath = joinPath(request.folderPath, normalizedSourcePath)
+  if (!(await window.api.pathExists(absoluteSourcePath))) {
+    return { ok: false, code: 'sprint_source_missing', message: `Sprint source "${normalizedSourcePath}" does not exist.` }
+  }
+  let sourceContent: string
+  try {
+    sourceContent = await window.api.readfile(absoluteSourcePath)
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'sprint_source_unreadable',
+      message: error instanceof Error ? error.message : `Sprint source "${normalizedSourcePath}" could not be read.`,
+    }
+  }
+
+  // The derived name is deterministic (config sprint name, else the item's
+  // basename), and a team dir with that slug may already exist — a prior wizard
+  // launch from the same item, or an earlier fire of a recurring chain. A
+  // collision must not hard-fail the chain (the trigger event is dedupe-marked,
+  // so a failed fire never retries): number the team the way a user would until
+  // the slug is free.
+  const baseTeamName = request.name?.trim() || toTitleName(planBasename(normalizedSourcePath))
+  let teamName = baseTeamName
+  let context = buildPlanSourcedSprintEngineWorkspaceContext(request.folderPath, teamName)
+  for (let suffix = 2; await window.api.pathExists(context.statePath); suffix += 1) {
+    if (suffix > 100) {
+      return {
+        ok: false,
+        code: 'sprint_team_name_exhausted',
+        message: `Could not find a free team directory name for "${baseTeamName}" after 100 attempts.`,
+      }
+    }
+    teamName = `${baseTeamName} ${suffix}`
+    context = buildPlanSourcedSprintEngineWorkspaceContext(request.folderPath, teamName)
+  }
+  // Self-trigger loop guard: a chained sprint recreating the watched team dir
+  // would re-fire its own trigger forever.
+  if (request.refuseTeamSlug && context.teamSlug === request.refuseTeamSlug.trim()) {
+    return {
+      ok: false,
+      code: 'sprint_self_trigger',
+      message: `Chained sprint "${teamName}" would reuse the watched team directory "${context.teamSlug}"; give the chained sprint a different name.`,
+    }
+  }
+
+  const startRunner = request.startRunner === true
+  const automationMode = sprintEngineAutomationModeForRunOptions({
+    startRunner,
+    autoApproveArtifacts: request.autoApproveArtifacts === true,
+  })
+  let result
+  try {
+    result = await createPlanSourcedSprintEngineWorkspace({
+      rootPath: request.folderPath,
+      teamName,
+      goal: request.goal,
+      sourcePath: normalizedSourcePath,
+      sourceContent,
+      sourcePlanKind: inferSourcePlanKind(normalizedSourcePath, sourceContent),
+      roleCounts: roster.roleCounts,
+      roleCliDefaults: roster.roleCliDefaults,
+      roleModelOverrides: roster.roleModelOverrides,
+      initialSpawnRoles: startRunner ? [sprintEnginePlannerRole(roster.roleCounts)] : null,
+      sprintEngineAutoState: {
+        ...sprintEngineAutomationInitialStateForMode(automationMode),
+        // External creation never escalates CLI permissions (same as goal-sourced).
+        cliPermissionPreset: 'default',
+        maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+      },
+      workspaceWindowId: 'primary',
+      useWorktrees: request.useWorktrees === true,
+      ...(request.baseStartPoint?.trim() ? { baseStartPoint: request.baseStartPoint.trim() } : {}),
+      // Backlog/file sources are referenced in place, never copied.
+      sourceReference: true,
+      pathExists: window.api.pathExists,
+      initializeSprintEngineState: window.api.initializeSprintEngineState,
+    })
+  } catch (error) {
+    if (error instanceof PlanSourcedSprintEngineWorkspaceError) {
+      return {
+        ok: false,
+        code: `sprint_${error.code.replace(/-/g, '_')}`,
+        message: error.message === error.code
+          ? `Sprint run creation failed: ${error.code}.`
+          : error.message,
+      }
+    }
+    return {
+      ok: false,
+      code: 'sprint_creation_failed',
+      message: error instanceof Error ? error.message : 'Sprint run creation failed.',
+    }
+  }
+
+  // Record the Backlog execution link so the item shows the running sprint and
+  // its lifecycle flips to in_progress — the same link the wizard's backlog
+  // launch writes. Best-effort: the run exists on disk either way.
+  if (normalizedSourcePath.startsWith('backlog/')) {
+    try {
+      await window.api.addOrUpdateBacklogLink({
+        workspaceRoot: request.folderPath,
+        relativePath: normalizedSourcePath,
+        link: {
+          id: `sprint-engine:${result.sprintEngineContext.teamSlug}`,
+          moduleId: 'sprint-engine',
+          type: 'execution',
+          label: 'Sprint',
+          target: {
+            kind: 'sprintengine.run',
+            id: result.sprintEngineContext.teamSlug,
+            path: workspaceRelativePath(request.folderPath, result.sprintEngineContext.statePath)
+              ?? result.sprintEngineContext.statePath,
+          },
+          status: 'active',
+        },
+        status: 'in_progress',
+      })
+    } catch {
+      // Link write is bookkeeping; never fail the launch for it.
+    }
+  }
+
+  const state = useWorkspaceStore.getState()
+  if (state.activeWorkspaceId !== result.workspaceId) {
+    state.setActiveWorkspace(result.workspaceId)
+  }
+  const model = await waitForLayoutModel(result.workspaceId)
+  if (!model) {
+    return {
+      ok: false,
+      code: 'workspace_layout_unavailable',
+      message: `Sprint workspace "${result.workspaceId}" was created (run state is on disk) but its layout did not mount within ${LAYOUT_MODEL_WAIT_MS}ms, so the board could not start the run.`,
+    }
+  }
+  return { ok: true, workspaceId: result.workspaceId }
 }
 
 function createWorkspace(

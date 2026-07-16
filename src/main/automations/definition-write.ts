@@ -27,7 +27,7 @@ import { AutomationsStore, type AutomationStoreProblem } from './store'
 
 export type ParsedDefinitionPatch = Partial<Pick<
   AutomationDefinition,
-  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'autonomyDefault' | 'runInWorktree'
+  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'autonomyDefault' | 'runInWorktree' | 'disableAfterRun'
 >>
 
 const AUTOMATION_STATUSES = new Set(['enabled', 'paused', 'blocked'])
@@ -228,6 +228,7 @@ export function buildDefinitionForCreate(
     action: draft.action,
     autonomyDefault: draft.autonomyDefault,
     ...(draft.runInWorktree === undefined ? {} : { runInWorktree: draft.runInWorktree }),
+    ...(draft.disableAfterRun === undefined ? {} : { disableAfterRun: draft.disableAfterRun }),
     ...(draft.ownerModuleId === undefined ? {} : { ownerModuleId: draft.ownerModuleId }),
     nextRunAt: null,
     lastRunAt: null,
@@ -341,6 +342,10 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
   }
   const runInWorktree = input.runInWorktree as boolean | undefined
+  if (input.disableAfterRun !== undefined && typeof input.disableAfterRun !== 'boolean') {
+    return fail('invalid_input', 'Automation definition disableAfterRun must be a boolean.')
+  }
+  const disableAfterRun = input.disableAfterRun as boolean | undefined
   const id = trimmedString(input.id)
   return ok({
     ...(id ? { id } : {}),
@@ -354,6 +359,7 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     // stamped by the host (module service) or absent (user records) — a
     // caller-supplied owner is ignored, never trusted.
     ...(runInWorktree === undefined ? {} : { runInWorktree }),
+    ...(disableAfterRun === undefined ? {} : { disableAfterRun }),
   })
 }
 
@@ -398,6 +404,12 @@ export function parseDefinitionPatch(input: unknown): AutomationsResult<ParsedDe
       return fail('invalid_input', 'Automation definition runInWorktree must be a boolean.')
     }
     patch.runInWorktree = input.runInWorktree
+  }
+  if (input.disableAfterRun !== undefined) {
+    if (typeof input.disableAfterRun !== 'boolean') {
+      return fail('invalid_input', 'Automation definition disableAfterRun must be a boolean.')
+    }
+    patch.disableAfterRun = input.disableAfterRun
   }
   return ok(patch)
 }

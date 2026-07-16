@@ -7,6 +7,7 @@ import type {
 } from '../../../../../shared/automations/contracts'
 import {
   EMPTY_REPO_EVENT_FORM,
+  EMPTY_SPRINT_LANDED_FORM,
   EMPTY_WEBHOOK_FORM,
   buildRepoEventConfig,
   buildWebhookConfig,
@@ -31,6 +32,7 @@ function triggerForm(overrides: Partial<SubmitTriggerForm>): SubmitTriggerForm {
     atDatetime: '',
     repoEvent: { ...EMPTY_REPO_EVENT_FORM },
     webhook: { ...EMPTY_WEBHOOK_FORM },
+    sprintLanded: { ...EMPTY_SPRINT_LANDED_FORM },
     ...overrides,
   }
 }

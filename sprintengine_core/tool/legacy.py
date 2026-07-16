@@ -471,6 +471,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--base-start-point",
+        dest="base_start_point",
+        help=(
+            "Commit-ish the primary project's run worktree branches FROM (for example origin/main after a fetch), "
+            "for chained sprints whose local branch may be behind its remote. Start point only: the stored baseRef "
+            "(and the pull request base) stays the plain local branch name. Requires --use-worktrees true."
+        ),
+    )
+    p.add_argument(
         "--source-json",
         dest="source_json",
         help="JSON object of the resolved root source metadata (kind/origin/path/planKind/capturedAt). App-created runs seed it into run.yaml so the Sprint Inbox shows the source before any agent runs handover.",

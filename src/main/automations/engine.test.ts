@@ -42,6 +42,9 @@ async function main(): Promise<void> {
   assertAtCadenceValidationMatrix()
   await assertAtCadenceFiresExactlyOnceThroughTheEngine()
   await assertPastAtCadenceNeverFiresAndStaysQuiet()
+  await assertDisableAfterRunPausesScheduleAfterOneFire()
+  await assertManualRunNowDoesNotConsumeOnceOffShot()
+  await assertDisableAfterRunPausesTriggerEventAutomationAndBlocksSecondEvent()
   assertInvalidIntervalIsRejected()
   assertWorkspaceSnapshotFolderExtraction()
   await assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight()
@@ -382,6 +385,137 @@ async function assertPastAtCadenceNeverFiresAndStaysQuiet(): Promise<void> {
   const result = await engine.tick()
   assert.equal(runs, 0, 'a past-dated one-shot never fires')
   assert.deepEqual(result.problems, [], 'and its evaluation reports no problems')
+}
+
+// MC-1437: a `disableAfterRun` schedule automation fires once, then pauses
+// itself — the recurring cadence never produces a second run.
+async function assertDisableAfterRunPausesScheduleAfterOneFire(): Promise<void> {
+  const firstDue = Date.parse('2026-06-17T10:00:00.000Z')
+  let now = firstDue
+  const root = await createWorkspace()
+  const store = new AutomationsStore(root)
+  assert.equal((await store.createDefinition(definition({
+    disableAfterRun: true,
+    trigger: { kind: 'schedule', config: intervalConfig(5) },
+    nextRunAt: new Date(firstDue).toISOString(),
+  }))).ok, true)
+
+  let runs = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-once-schedule', folderPath: root }],
+    now: () => now,
+    createRunId: () => `run-once-${runs}`,
+    runAutomation: async () => {
+      runs += 1
+      return { status: 'completed', summary: 'Once-off completed.' }
+    },
+  })
+
+  const first = await engine.tick()
+  assert.equal(runs, 1, 'the once-off fires its one run')
+  assert.deepEqual(first.problems, [], 'the consuming fire reports no problems')
+  assert.deepEqual(first.scheduled, [], 'a paused once-off is not rescheduled')
+  const paused = await store.getDefinition('nightly-review')
+  assert.equal(paused.ok, true)
+  if (paused.ok) {
+    assert.equal(paused.value.status, 'paused', 'one triggered fire pauses the definition')
+    assert.equal(paused.value.nextRunAt, null, 'a paused once-off has no upcoming run')
+    assert.equal(paused.value.lastRunId, 'run-once-0', 'the consuming run is recorded on the definition')
+  }
+
+  now += 10 * 60_000
+  const second = await engine.tick()
+  assert.equal(runs, 1, 'a paused once-off never fires again')
+  assert.deepEqual(second.problems, [], 'and later ticks stay quiet')
+}
+
+// MC-1437: the once-off flag means "after one *triggered* fire" — a manual
+// "Run now" executes the action but never consumes the shot.
+async function assertManualRunNowDoesNotConsumeOnceOffShot(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const root = await createWorkspace()
+  const store = new AutomationsStore(root)
+  assert.equal((await store.createDefinition(definition({
+    disableAfterRun: true,
+    trigger: { kind: 'schedule', config: intervalConfig(60) },
+    nextRunAt: new Date(now + 60 * 60_000).toISOString(),
+  }))).ok, true)
+
+  let runs = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-once-manual', folderPath: root }],
+    now: () => now,
+    createRunId: () => 'run-once-manual',
+    runAutomation: async () => {
+      runs += 1
+      return { status: 'completed', summary: 'Manual run completed.' }
+    },
+  })
+
+  const manual = await engine.runNow({ workspaceRoot: root, automationId: 'nightly-review' })
+  assert.equal(manual.ok, true, 'the manual run itself succeeds')
+  assert.equal(runs, 1)
+  const after = await store.getDefinition('nightly-review')
+  assert.equal(after.ok, true)
+  if (after.ok) {
+    assert.equal(after.value.status, 'enabled', 'a manual run never consumes the once-off shot')
+    assert.notEqual(after.value.nextRunAt, null, 'the schedule stays armed for the triggered fire')
+  }
+}
+
+// MC-1437: the once-off pause covers the trigger-event path too — one delivered
+// event fires and pauses the automation, and a second matching event is refused
+// without enqueueing a run.
+async function assertDisableAfterRunPausesTriggerEventAutomationAndBlocksSecondEvent(): Promise<void> {
+  const now = Date.parse('2026-06-17T10:00:00.000Z')
+  const root = await createWorkspace()
+  const store = new AutomationsStore(root)
+  assert.equal((await store.createDefinition(definition({
+    disableAfterRun: true,
+    trigger: { kind: 'test-event', config: {} },
+    nextRunAt: null,
+  }))).ok, true)
+
+  let runs = 0
+  const engine = new AutomationsEngine({
+    getProjectFolders: () => [{ workspaceId: 'ws-once-event', folderPath: root }],
+    now: () => now,
+    createRunId: () => `run-once-event-${runs}`,
+    triggerProviders: [{
+      kind: 'test-event',
+      configSchema: {},
+      subscribe: () => () => undefined,
+    }],
+    runAutomation: async () => {
+      runs += 1
+      return { status: 'completed', summary: 'Event run completed.' }
+    },
+  })
+
+  const first = await engine.deliverTriggerEvent({
+    workspaceRoot: root,
+    automationId: 'nightly-review',
+    workspaceId: 'ws-once-event',
+    event: { id: 'event-1', occurredAt: new Date(now).toISOString(), payload: {} },
+  })
+  assert.equal(first.ok, true, 'the first event fires')
+  assert.equal(runs, 1)
+  const paused = await store.getDefinition('nightly-review')
+  assert.equal(paused.ok, true)
+  if (paused.ok) {
+    assert.equal(paused.value.status, 'paused', 'one triggered event pauses the definition')
+    assert.equal(paused.value.nextRunAt, null)
+  }
+
+  const second = await engine.deliverTriggerEvent({
+    workspaceRoot: root,
+    automationId: 'nightly-review',
+    workspaceId: 'ws-once-event',
+    event: { id: 'event-2', occurredAt: new Date(now + 60_000).toISOString(), payload: {} },
+  })
+  assert.equal(second.ok, false, 'a second matching event is refused')
+  assert.equal(second.ok ? '' : second.problem.code, 'automation_disabled')
+  assert.equal(runs, 1, 'and it never enqueues a run')
 }
 
 function assertInvalidIntervalIsRejected(): void {

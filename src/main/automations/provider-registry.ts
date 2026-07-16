@@ -1,11 +1,17 @@
+import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { AutomationActionProvider, AutomationTriggerProvider, JsonSchema } from '../../shared/automations/contracts'
 import { BUNDLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
 import { createSpawnAgentActionProvider } from './actions/spawn-agent'
-import { createSprintEngineRunActionProvider, type SprintEngineAutomationFrontDoors } from './actions/sprint-engine'
+import {
+  createSprintEngineRunActionProvider,
+  createSprintEngineStartActionProvider,
+  type SprintEngineAutomationFrontDoors,
+} from './actions/sprint-engine'
 import { createSwitchboardAutomationActionProviders, type SwitchboardAutomationFrontDoors } from './actions/switchboard'
 import { scheduleTriggerProvider } from './schedule'
 import { createRepoEventTriggerProvider } from './triggers/repo-event'
+import { createSprintEngineRunLandedTriggerProvider } from './triggers/sprint-engine-run-landed'
 import { createWebhookTriggerProvider } from './triggers/webhook'
 
 export const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
@@ -15,6 +21,12 @@ export const SPRINT_ENGINE_PROVIDER_MODULE_ID = 'sprint-engine'
 export type BuiltInAutomationProviderRegistryOptions = {
   switchboard?: SwitchboardAutomationFrontDoors
   sprintEngine?: SprintEngineAutomationFrontDoors
+  /**
+   * Renderer delegate for providers that create runs through the renderer
+   * (sprint-engine-start). Run creation still terminates in the renderer's
+   * workspace store, so the action is only registered when a delegate exists.
+   */
+  delegateToRenderer?: (request: AutomationRendererRequest) => Promise<AutomationRendererResponse>
 }
 
 type RegisteredProviderType = 'trigger' | 'action'
@@ -128,6 +140,16 @@ export function createBuiltInAutomationProviderRegistry(
       SPRINT_ENGINE_PROVIDER_MODULE_ID,
       createSprintEngineRunActionProvider(options.sprintEngine)
     )
+    registry.registerTriggerProvider(
+      SPRINT_ENGINE_PROVIDER_MODULE_ID,
+      createSprintEngineRunLandedTriggerProvider(options.sprintEngine)
+    )
+    if (options.delegateToRenderer) {
+      registry.registerActionProvider(
+        SPRINT_ENGINE_PROVIDER_MODULE_ID,
+        createSprintEngineStartActionProvider({ delegateToRenderer: options.delegateToRenderer })
+      )
+    }
   }
   return registry
 }

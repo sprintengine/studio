@@ -360,7 +360,12 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # block is recorded into run state so every agent prompt routes work
         # into the same worktree and per-task commits land on the same branch.
         if getattr(args, "use_worktrees", False) and not get_run_vcs(state):
-            ensure_run_worktree(state, state_path, repos=declared_repos)
+            ensure_run_worktree(
+                state,
+                state_path,
+                repos=declared_repos,
+                start_point=getattr(args, "base_start_point", None),
+            )
         has_product_plan_source = state_has_source_kind(state, "product_plan")
         has_architect_plan_source = state_has_source_kind(state, "architect_plan")
         # An epic root source (reference-based backlog epic launch) is a plan

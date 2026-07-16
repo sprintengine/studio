@@ -86,6 +86,73 @@ def test_init_creates_shared_run_worktree(tmp_path) -> None:
     assert branch == "sprintengine/alpha"
 
 
+def test_init_base_start_point_branches_from_it_but_keeps_plain_base_ref(tmp_path) -> None:
+    """Chained sprints (MC-1438): the worktree branches FROM the start point, while
+    the stored baseRef — the future `gh pr create --base` value — stays the plain
+    local branch name. A stale local checkout must not leak into the new run."""
+    workspace = tmp_path / "ws"
+    _init_git_repo(workspace)
+    # Simulate a refreshed remote-tracking ref that is ahead of the local branch:
+    # an extra commit on a side ref, while `main` stays at the seed commit.
+    _git(workspace, "checkout", "-qb", "refreshed")
+    (workspace / "merged-work.md").write_text("landed upstream\n", encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "merged upstream work")
+    refreshed_sha = _git(workspace, "rev-parse", "HEAD").stdout.strip()
+    _git(workspace, "checkout", "-q", "main")
+
+    fixture = _worktree_team(workspace, "chained")
+    payload = fixture.cli.run(
+        "init", "--goal", "Chained sprint", "--use-worktrees", "true", "--base-start-point", "refreshed"
+    )
+
+    vcs = payload["vcs"]
+    assert vcs["baseRef"] == "main", "the stored PR base stays the plain branch name"
+    worktree = _worktree_dir(fixture)
+    head = _git(worktree, "rev-parse", "HEAD").stdout.strip()
+    assert head == refreshed_sha, "the worktree branches from the start point, not the stale local base"
+    assert (worktree / "merged-work.md").exists()
+
+
+def test_repo_has_run_commits_ignores_upstream_commits_ahead_of_stale_base(tmp_path) -> None:
+    """The publish no-commits guard must not count the upstream commits a chained
+    run branched from (init --base-start-point) as run commits: the stored baseRef
+    stays the stale local branch, and counting base..HEAD alone would push an
+    empty branch whose `gh pr create` then fails instead of the clean skip."""
+    from sprintengine_core.tool.shell import _repo_has_run_commits
+
+    workspace = tmp_path / "ws"
+    _init_git_repo(workspace)
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    _git(workspace, "remote", "add", "origin", str(remote))
+    _git(workspace, "push", "-qu", "origin", "main")
+
+    # Advance origin/main past the local main (the merged previous sprint).
+    _git(workspace, "checkout", "-qb", "ahead")
+    (workspace / "merged-work.md").write_text("landed upstream\n", encoding="utf-8")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "merged upstream work")
+    _git(workspace, "push", "-q", "origin", "ahead:main")
+    _git(workspace, "checkout", "-q", "main")
+    _git(workspace, "fetch", "-q", "origin")
+
+    fixture = _worktree_team(workspace, "chained-guard")
+    fixture.cli.run(
+        "init", "--goal", "Chained sprint", "--use-worktrees", "true", "--base-start-point", "origin/main"
+    )
+    worktree = _worktree_dir(fixture)
+
+    assert _repo_has_run_commits(worktree, "main") is False, (
+        "upstream commits the stale local base is missing are not run commits"
+    )
+
+    (worktree / "run-work.md").write_text("made by the run\n", encoding="utf-8")
+    _git(worktree, "add", "-A")
+    _git(worktree, "commit", "-qm", "run work")
+    assert _repo_has_run_commits(worktree, "main") is True, "a real run commit still counts"
+
+
 def test_two_runs_get_independent_worktrees_and_branches(tmp_path) -> None:
     workspace = tmp_path / "ws"
     _init_git_repo(workspace)

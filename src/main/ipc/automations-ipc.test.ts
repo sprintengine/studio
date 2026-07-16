@@ -288,6 +288,12 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       setRunnerMode: async () => {
         throw new Error('not used')
       },
+      readProjection: async () => {
+        throw new Error('not used')
+      },
+      refreshPullRequestStatus: async () => {
+        throw new Error('not used')
+      },
     },
   })
 

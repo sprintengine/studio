@@ -61,6 +61,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   // The other projects this run also changes (MC-1613). Forwarded verbatim to
   // init as `--repo <id>=<root>`; only meaningful alongside useWorktrees.
   repos?: Array<{ id: string; root: string }>
+  // Worktree start point for chained runs on a refreshed base (MC-1438), e.g.
+  // `origin/main` after a fetch. Forwarded verbatim to init; the run's PR base
+  // stays the plain branch name. Only meaningful alongside useWorktrees.
+  baseStartPoint?: string
   // Record file-backed sources as project-root-relative references (no copy into
   // the run store). Set for backlog/file-sourced launches so the canonical design
   // docs stay authoritative and are reviewed/updated in place.
@@ -182,6 +186,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   workspaceWindowId,
   useWorktrees,
   repos,
+  baseStartPoint,
   sourceReference,
   pathExists,
   initializeSprintEngineState,
@@ -247,6 +252,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       artifacts: sprintEngineState.artifacts,
       useWorktrees: useWorktrees === true,
       ...(repos && repos.length > 0 ? { repos } : {}),
+      ...(useWorktrees === true && baseStartPoint?.trim() ? { baseStartPoint: baseStartPoint.trim() } : {}),
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
       enabledRoles,
       // "Workflow steps" + "Final sweeps" keys, present only when set — the

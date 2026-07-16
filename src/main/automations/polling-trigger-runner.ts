@@ -146,6 +146,9 @@ async function clearTriggerBlockedReason(input: PollingTriggerEvaluationInput): 
   if (!written.ok) result.problems.push(storeProblem(projectFolder.folderPath, written.error, definition.id))
 }
 
+// Deliberately does NOT honor `disableAfterRun`: this copy only records blocked
+// polls, where no run was launched, so the once-off shot is not consumed. The
+// pausing seam for launched trigger runs lives in trigger-event-runner.ts.
 async function updateDefinitionAfterTriggerRun(
   input: PollingTriggerEvaluationInput,
   run: AutomationRun,

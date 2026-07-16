@@ -117,6 +117,12 @@ type SerializableSprintEngineStatePayload = {
   useWorktrees: boolean
   /** The other projects this run also changes; empty for a single-project run. */
   repos: Array<{ id: string; root: string }>
+  /**
+   * Commit-ish the primary repo's run worktree branches FROM (chained sprints
+   * pass a freshly-fetched remote-tracking ref, e.g. `origin/main`). Start point
+   * only — the stored `vcs.baseRef` (and the PR base) stays the plain branch name.
+   */
+  baseStartPoint: string | null
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
   enabledRoles: string[]
   rosterSource: 'user' | 'architect' | null
@@ -406,6 +412,7 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     artifacts: resolveArray(payload?.artifacts, 'sprint artifacts'),
     useWorktrees: payload?.useWorktrees === true,
     repos: resolveInitRepos(payload?.repos),
+    baseStartPoint: resolveOptionalString(payload?.baseStartPoint, 'sprint base start point') ?? null,
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
     rosterSource: resolveRosterSource(payload?.rosterSource),
@@ -643,6 +650,10 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   const args = ['--state', state.statePath, 'init', '--name', payload.name, '--goal', payload.goal || payload.name]
   if (payload.useWorktrees) {
     args.push('--use-worktrees', 'true')
+  }
+  // Chained sprints: the worktree start point (never the stored PR base).
+  if (payload.baseStartPoint && payload.useWorktrees) {
+    args.push('--base-start-point', payload.baseStartPoint)
   }
   // One `--repo <id>=<root>` per other project the run changes. Declared only at
   // init: the engine fixes the repo set here for the life of the run.

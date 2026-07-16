@@ -57,6 +57,7 @@ export type AutomationsRunEvent = {
 export const SCHEDULE_TRIGGER_KIND = 'schedule'
 export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
 export const WEBHOOK_TRIGGER_KIND = 'webhook'
+export const SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
 
 export type TriggerKind = string
 
@@ -104,6 +105,14 @@ export type WebhookTriggerConfig = {
   secret?: string
   eventType?: string
   label?: string
+}
+
+// Sprint-landed trigger wire config (MC-1438). `team` is the watched run's team
+// directory name under `.multi-code/sprintengine/`. Shared so the main-process
+// provider and the renderer editor build/parse it typed.
+export type SprintEngineRunLandedTriggerConfig = {
+  kind: typeof SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
+  team: string
 }
 
 export type AutomationTriggerProvider = {
@@ -193,6 +202,15 @@ export type AutomationDefinition = {
    * automations keep running in a worktree.
    */
   runInWorktree?: boolean
+  /**
+   * Run once, then pause: after one triggered fire (schedule due-run, skipped
+   * overdue run, webhook or polling trigger event) the definition transitions to
+   * `status: 'paused'`; re-enabling arms it again. A manual "Run now" never
+   * consumes the shot — the flag means "after one *triggered* fire". Absent ⇒
+   * false. Works for any trigger kind; orthogonal to the `at` cadence's own
+   * natural exhaustion.
+   */
+  disableAfterRun?: boolean
   nextRunAt: string | null
   lastRunAt: string | null
   lastRunId: string | null
@@ -244,6 +262,7 @@ export type AutomationDefinitionDraft = {
   action: { kind: ActionKind; config: unknown }
   autonomyDefault: AutomationDefinition['autonomyDefault']
   runInWorktree?: boolean
+  disableAfterRun?: boolean
   /**
    * Owning module for drafts created through the SDK's scoped Automations
    * service. Optional echo of the creating module's own id — a draft claiming

@@ -40,6 +40,8 @@ export const sprintEngineModule: CapabilityModule = {
 
     host.provideService(SprintEngineAutomationFrontDoorsToken, () => ({
       setRunnerMode: artifacts.setRunnerMode,
+      readProjection: artifacts.readProjection,
+      refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
     }))
 
     mcpHub.claimOwnership({

@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Field, GhostButton, InlineNotice, Select, type SelectItem, Switch } from '../../ui'
 import type { AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
 import {
   REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
+  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
   TRIGGER_FAMILY_LABEL,
   WEBHOOK_ROUTE_PREFIX,
   WEBHOOK_SIGNATURE_HEADER,
@@ -20,12 +21,18 @@ import {
   type RepoEventType,
   type ScheduleCadenceForm,
   type ScheduleCadenceType,
+  type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
 
 // The trigger families the picker always offers, in priority order. Each is shown
 // even when unavailable (disabled + reason) so a control boundary is never hidden.
-const CANONICAL_FAMILIES: TriggerKind[] = [SCHEDULE_TRIGGER_KIND, REPO_EVENT_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND]
+const CANONICAL_FAMILIES: TriggerKind[] = [
+  SCHEDULE_TRIGGER_KIND,
+  REPO_EVENT_TRIGGER_KIND,
+  WEBHOOK_TRIGGER_KIND,
+  SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+]
 
 // The picker's family label is the one canonical TRIGGER_FAMILY_LABEL map (shared
 // with the list's supporting line, so the two can't drift), falling back to the
@@ -48,6 +55,7 @@ export type TriggerFieldsValue = ScheduleCadenceForm & {
   triggerKind: TriggerKind
   repoEvent: RepoEventForm
   webhook: WebhookForm
+  sprintLanded: SprintLandedForm
 }
 
 // Reason a trigger family cannot be authored. schedule/webhook are always
@@ -59,6 +67,7 @@ function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProvid
   const provider = providers.triggers.find((t) => t.kind === kind)
   if (!provider) {
     if (kind === REPO_EVENT_TRIGGER_KIND) return 'This trigger needs the Switchboard module, which is not enabled.'
+    if (kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND) return 'This trigger needs the Sprint Engine module, which is not enabled.'
     return null
   }
   return providerUnavailableReason(provider, 'trigger')
@@ -72,10 +81,12 @@ export function selectedFamilyUnavailableReason(
 }
 
 export function TriggerFields({
-  editor, providers, value, onChange,
+  editor, providers, workspaceRoot, value, onChange,
 }: {
   editor: EditorState
   providers: AutomationsProviders | null
+  /** Project root used to enumerate sprint team dirs for the sprint-landed family. */
+  workspaceRoot: string
   value: TriggerFieldsValue
   onChange: (patch: Partial<TriggerFieldsValue>) => void
 }) {
@@ -128,8 +139,69 @@ export function TriggerFields({
         <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
       ) : value.triggerKind === WEBHOOK_TRIGGER_KIND ? (
         <WebhookFields value={value.webhook} onChange={(webhook) => onChange({ webhook })} />
+      ) : value.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND ? (
+        <SprintLandedFields
+          workspaceRoot={workspaceRoot}
+          value={value.sprintLanded}
+          onChange={(sprintLanded) => onChange({ sprintLanded })}
+        />
       ) : null}
     </fieldset>
+  )
+}
+
+// Watched-team picker for the sprint-landed family: the sprint runs that exist
+// in this project, enumerated from `.multi-code/sprintengine/*`. A stored team
+// whose directory no longer exists stays visible (marked missing) rather than
+// being silently dropped.
+function SprintLandedFields({
+  workspaceRoot, value, onChange,
+}: {
+  workspaceRoot: string
+  value: SprintLandedForm
+  onChange: (next: SprintLandedForm) => void
+}) {
+  const [teams, setTeams] = useState<string[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const separator = workspaceRoot.includes('\\') ? '\\' : '/'
+    const teamsDir = [workspaceRoot.replace(/[\\/]+$/, ''), '.multi-code', 'sprintengine'].join(separator)
+    void window.api.readdir(teamsDir)
+      .then((entries) => {
+        if (cancelled) return
+        setTeams(entries.filter((entry) => entry.isDir).map((entry) => entry.name).sort())
+      })
+      .catch(() => {
+        if (!cancelled) setTeams([])
+      })
+    return () => { cancelled = true }
+  }, [workspaceRoot])
+
+  const items: SelectItem[] = (teams ?? []).map((team) => ({ value: team, label: team }))
+  if (value.team && !items.some((item) => item.value === value.team)) {
+    items.push({
+      value: value.team,
+      label: teams === null ? value.team : `${value.team} — missing`,
+      tone: teams === null ? undefined : 'warn',
+    })
+  }
+
+  return (
+    <>
+      <Field
+        label="Sprint team"
+        htmlFor="automation-sprint-landed-team"
+        help="Fires when this sprint’s work lands: its pull requests merge, or it completes when it has no branch."
+      >
+        <Select
+          ariaLabel="Watched sprint team"
+          value={value.team || null}
+          onChange={(team) => onChange({ team })}
+          items={items}
+          placeholder={teams === null ? 'Loading sprints…' : items.length === 0 ? 'No sprints in this project yet' : 'Pick a sprint…'}
+        />
+      </Field>
+    </>
   )
 }
 
