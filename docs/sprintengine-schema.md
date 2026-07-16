@@ -127,9 +127,9 @@ omitted when absent.
 `RUN_SCHEMA_VERSION` is `4` (v2 = MC-1542 single-owner; v3 = MC-1591 leases
 replace the roster; v4 = MC-1611 a run declares a list of repos). Any store
 below the current version is **rejected, never migrated**: its status enum, its
-per-task quality requirements, its role manifests, — pre-v3 — its persistent
-`agents` map, and — pre-v4 — its single repo described by fields this build no
-longer writes are all incompatible.
+per-task quality requirements, and its role manifests are all incompatible — as
+are, pre-v3, its persistent `agents` map, and pre-v4, its single repo described
+by fields this build no longer writes.
 
 `assert_store_is_current` (`sprintengine_core/store.py`) is the one function both
 `state_from_folder_store` and `build_projection` call; it raises
