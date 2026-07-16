@@ -40,7 +40,7 @@ from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
-from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs
+from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs, parse_repo_declarations
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
@@ -291,6 +291,15 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
     state_path = args.state
+    # The projects this run spans, fixed here at creation and immutable after — the
+    # same posture as the worktree toggle, and for the same reason: every task, lock,
+    # commit, and worktree is resolved through this list for the life of the run.
+    declared_repos = parse_repo_declarations(getattr(args, "repo", None) or [])
+    if declared_repos and not getattr(args, "use_worktrees", False):
+        raise SystemExit(
+            "A sprint can only span more than one project when each project gets its own run worktree. "
+            "Add --use-worktrees true, or drop --repo."
+        )
     requested_name = (getattr(args, "name", None) or "").strip()
     default_name = requested_name or default_swarm_name_for_state(state_path)
     initial_state: Optional[Dict[str, Any]] = None
@@ -351,7 +360,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # block is recorded into run state so every agent prompt routes work
         # into the same worktree and per-task commits land on the same branch.
         if getattr(args, "use_worktrees", False) and not get_run_vcs(state):
-            ensure_run_worktree(state, state_path)
+            ensure_run_worktree(state, state_path, repos=declared_repos)
         has_product_plan_source = state_has_source_kind(state, "product_plan")
         has_architect_plan_source = state_has_source_kind(state, "architect_plan")
         # An epic root source (reference-based backlog epic launch) is a plan

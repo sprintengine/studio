@@ -1,4 +1,4 @@
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { mkdir, readFile, stat } from 'fs/promises'
 import { spawn } from 'child_process'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
@@ -669,6 +669,53 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
   })
 }
 
+/**
+ * The other projects a run declares, as absolute roots (MC-1611).
+ *
+ * A Sprint Engine session may reach exactly the projects its run declared, and the
+ * primary one is already every caller's workspace root — so this returns only what a
+ * caller does not already hold: entries after entry zero. A single-project run
+ * declares none, so its allowed surface is unchanged from before runs could span
+ * projects.
+ *
+ * Read from `projection.json`, which carries the `vcs` block verbatim: it is the
+ * app's machine-readable view of the store, and a run's repo set is fixed at
+ * creation, so it cannot go stale under a reader. Anything unreadable, unresolvable,
+ * or reaching outside a real sibling directory yields nothing rather than a wider
+ * surface — the declaration is the only thing that widens it.
+ */
+export function sprintEngineDeclaredSiblingRepoRoots(statePath: string): string[] {
+  let state: ValidSprintEngineStatePath
+  try {
+    state = validateSprintEngineStatePath(statePath)
+  } catch {
+    return []
+  }
+  let repos: unknown
+  try {
+    const projection = JSON.parse(readFileSync(join(state.teamDirectory, 'projection.json'), 'utf8'))
+    repos = (projection as { run?: { vcs?: { repos?: unknown } } })?.run?.vcs?.repos
+  } catch {
+    return []
+  }
+  if (!Array.isArray(repos)) return []
+  const roots: string[] = []
+  for (const entry of repos) {
+    if (!entry || typeof entry !== 'object') continue
+    const { id, root } = entry as { id?: unknown; root?: unknown }
+    if (typeof id !== 'string' || typeof root !== 'string' || !root.trim()) continue
+    if (id === 'primary' || root.trim() === '.') continue
+    const resolved = resolve(state.workspaceRoot, root.trim())
+    // A declared root that contains the workspace is a parent, not a sibling: it
+    // would authorize the workspace's neighbours by inclusion. The engine refuses to
+    // declare one; this refuses to honour one a hand-edited store carries.
+    if (isPathInsideOrEqual(resolved, state.workspaceRoot)) continue
+    if (!existsSync(resolved)) continue
+    if (!roots.includes(resolved)) roots.push(resolved)
+  }
+  return roots
+}
+
 function runSprintEngineMcpToolProcess(
   context: SprintEngineMcpRunnerContext,
   tool: string,
@@ -676,7 +723,11 @@ function runSprintEngineMcpToolProcess(
   actor: SprintEngineMcpActorContext
 ): ReturnType<SprintEngineMcpToolRunner> {
   return new Promise((resolvePromise) => {
-    const allowedRoots = Array.from(new Set([context.workspaceRoot, ...(context.allowedRoots ?? [])]))
+    // A tool call carrying a statePath is a call against that run, so the run's
+    // declared projects are part of its allowed surface — otherwise an app-side read
+    // of a task in a sibling project is refused by the roots, not by the rules.
+    const declaredRoots = typeof payload.statePath === 'string' ? sprintEngineDeclaredSiblingRepoRoots(payload.statePath) : []
+    const allowedRoots = Array.from(new Set([context.workspaceRoot, ...(context.allowedRoots ?? []), ...declaredRoots]))
     const args = ['-m', 'sprintengine_mcp']
     for (const root of allowedRoots) {
       args.push('--allowed-root', root)

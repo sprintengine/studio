@@ -132,6 +132,11 @@ def _mcp_payload(args) -> tuple[str, dict]:
     group = args.group
     action = getattr(args, "action", None)
     if group == "init":
+        # `--repo` has no MCP contract field yet, and a run's repo set is fixed at
+        # creation: dropping it here would create a silently single-repo run whose
+        # tasks can never target the projects the caller asked for.
+        if getattr(args, "repo", None):
+            raise SystemExit("MCP backend does not support --repo; use --backend direct-core to create a multi-project run.")
         return "sprintengine.init", {
             **base,
             "goal": args.goal,

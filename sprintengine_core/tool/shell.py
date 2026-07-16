@@ -86,9 +86,14 @@ def get_run_vcs(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 # Entry zero of `vcs.repos` is the run's primary repo: the workspace itself, so its
-# root is the workspace-relative ".". Sibling repos (MC-1611 T2) are appended after it.
+# root is the workspace-relative ".". Sibling repos are appended after it.
 PRIMARY_REPO_ID = "primary"
 PRIMARY_REPO_ROOT = "."
+
+# A sibling repo id names a directory on disk (`worktree-<id>`) and is typed by
+# humans into task cards, so it stays to the characters a path and a task field can
+# both carry without quoting.
+SIBLING_REPO_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 # The repo-entry fields a store must carry for the engine to resolve a tree at all.
 # Absent or blank means a corrupt store, not a legacy one: the pre-`repos` shape has
@@ -198,7 +203,140 @@ def set_vcs_last_commit_sha(vcs: Dict[str, Any], sha: Optional[str]) -> None:
         primary["lastCommitSha"] = sha
 
 
-def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Optional[str] = None, branch_name: Optional[str] = None) -> Dict[str, Any]:
+def parse_repo_declaration(value: str) -> Dict[str, str]:
+    """One `--repo <id>=<path>` declaration, parsed but not yet resolved on disk.
+
+    Syntax only: whether the path is a real git repo is decided against the
+    workspace in :func:`_declared_sibling_entries`, which is the only place that
+    knows where the run lives.
+    """
+    raw = str(value or "").strip()
+    repo_id, separator, root = (part.strip() for part in raw.partition("="))
+    if not separator or not repo_id or not root:
+        raise SystemExit(
+            f"--repo must be <name>=<path>, for example --repo mobile=../multicode-mobile. Got: {raw or '(empty)'}"
+        )
+    if not SIBLING_REPO_ID_PATTERN.match(repo_id):
+        raise SystemExit(
+            f"--repo name {repo_id!r} is not usable: use lowercase letters, digits, dots, dashes, or underscores, "
+            "starting with a letter or digit, for example 'mobile'."
+        )
+    if repo_id == PRIMARY_REPO_ID:
+        raise SystemExit(
+            f"--repo name {PRIMARY_REPO_ID!r} is reserved for this project itself; give the other project a different name."
+        )
+    return {"id": repo_id, "root": root}
+
+
+def parse_repo_declarations(values: List[str]) -> List[Dict[str, str]]:
+    declared: List[Dict[str, str]] = []
+    for value in values or []:
+        repo = parse_repo_declaration(value)
+        if any(existing["id"] == repo["id"] for existing in declared):
+            raise SystemExit(f"--repo {repo['id']} was declared twice; each project needs its own name.")
+        declared.append(repo)
+    return declared
+
+
+def _declared_sibling_root(workspace_root: Path, repo_id: str, raw_root: str) -> Path:
+    """Resolve one declared sibling root, or abort with a plain-language reason.
+
+    A run may only span whole, separate git repositories: a path that is not a
+    repository root of its own would put this run's worktree — and every commit
+    scoped to it — in a tree nobody declared.
+    """
+    root = Path(raw_root).expanduser()
+    if not root.is_absolute():
+        root = workspace_root / root
+    root = root.resolve()
+    if not root.is_dir():
+        raise SystemExit(f"Project {repo_id!r} was declared as {raw_root}, but there is no directory at {root}.")
+    if root == workspace_root.resolve():
+        raise SystemExit(f"Project {repo_id!r} points at this project itself, which the sprint already includes.")
+    try:
+        root.relative_to(workspace_root.resolve())
+    except ValueError:
+        pass
+    else:
+        raise SystemExit(
+            f"Project {repo_id!r} at {raw_root} is inside this project. A sprint spans separate projects; "
+            "declare one that lives outside this one."
+        )
+    toplevel = run_git_checked(root, ["rev-parse", "--show-toplevel"], allow_failure=True)
+    if toplevel.returncode != 0 or Path(toplevel.stdout.strip() or "/nonexistent").resolve() != root:
+        raise SystemExit(f"Project {repo_id!r} at {raw_root} is not a git repository. A sprint can only span git projects.")
+    return root
+
+
+def _declared_sibling_entries(
+    workspace_root: Path,
+    state_path: Path,
+    declared: List[Dict[str, str]],
+    *,
+    branch: str,
+) -> List[Dict[str, Any]]:
+    """Repo entries for every declared sibling, validated against disk.
+
+    Each sibling's worktree lives under the PRIMARY run directory as
+    `worktree-<id>`, beside the primary's `worktree`, so run discovery and teardown
+    keep one anchor no matter how many projects a run spans. That directory is
+    inside the primary repo's tree, which ignores `.multi-code/sprintengine/*`, so
+    the sibling checkout is never visible to the primary repo's own status.
+    """
+    entries: List[Dict[str, Any]] = []
+    roots: Dict[str, str] = {}
+    for repo in declared:
+        repo_id = repo["id"]
+        root = _declared_sibling_root(workspace_root, repo_id, repo["root"])
+        if str(root) in roots:
+            raise SystemExit(f"Projects {roots[str(root)]!r} and {repo_id!r} both point at {root}; declare each project once.")
+        roots[str(root)] = repo_id
+        entries.append(_repo_entry(
+            repo_id=repo_id,
+            root=Path(os.path.relpath(root, workspace_root.resolve())).as_posix(),
+            worktree_path=project_relative_path(workspace_root, state_path.parent / f"worktree-{repo_id}"),
+            branch_name=branch,
+            base_ref=default_base_ref(root),
+            status=None,
+            last_commit_sha=None,
+        ))
+    return entries
+
+
+def _ensure_repo_worktree(workspace_root: Path, repo: Dict[str, Any]) -> None:
+    """Create (or adopt) one declared repo's run worktree and record it ready.
+
+    Raises rather than recording a failed status: a run that cannot get a tree for
+    every project it declares has no safe partial state to continue from, so init
+    aborts and the operator fixes the declaration.
+    """
+    repo_root = resolve_vcs_path(workspace_root, repo["root"])
+    worktree_path = resolve_vcs_path(workspace_root, repo["worktreePath"])
+    branch = repo["branchName"]
+    existing = run_git_checked(repo_root, ["worktree", "list", "--porcelain"])
+    if str(worktree_path.resolve()) not in existing.stdout:
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
+        if git_branch_exists(repo_root, branch):
+            run_git_checked(repo_root, ["worktree", "add", str(worktree_path), branch])
+        else:
+            base = str(repo.get("baseRef") or "").strip() or default_base_ref(repo_root)
+            run_git_checked(repo_root, ["worktree", "add", "-b", branch, str(worktree_path), base])
+    if not worktree_path.exists():
+        raise SystemExit(f"Sprint Engine worktree was not created: {repo['worktreePath']}")
+    actual_branch = current_git_branch(worktree_path)
+    if actual_branch != branch:
+        raise SystemExit(f"Sprint Engine worktree {repo['worktreePath']} is on {actual_branch}, expected {branch}.")
+    repo["status"] = "ready"
+
+
+def ensure_run_worktree(
+    state: Dict[str, Any],
+    state_path: Path,
+    *,
+    base_ref: Optional[str] = None,
+    branch_name: Optional[str] = None,
+    repos: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
     from sprintengine_core.tool.plans import default_swarm_name_for_state
     from sprintengine_core.tool.state import append_event
 
@@ -223,8 +361,13 @@ def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Op
     # the multi-repo work reads; the flat block stays because it is what every shipped
     # consumer (PR paths, the app, the mobile snapshot) still reads, so a single-repo
     # run keeps writing exactly the vcs semantics it wrote before this list existed.
-    # Sibling entries are appended after entry zero by repo declaration (T2).
-    siblings = vcs_repos(vcs)[1:]
+    # A run's repo set is fixed at creation, so a re-entry with no fresh declaration
+    # keeps the siblings already stored rather than dropping them.
+    siblings = (
+        _declared_sibling_entries(workspace_root, state_path, repos, branch=branch)
+        if repos
+        else vcs_repos(vcs)[1:]
+    )
     vcs.update({
         "mode": "run_worktree",
         "worktreePath": primary["worktreePath"],
@@ -236,20 +379,17 @@ def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Op
         "repos": [primary, *siblings],
     })
 
-    existing = run_git_checked(workspace_root, ["worktree", "list", "--porcelain"])
-    if str(worktree_path.resolve()) not in existing.stdout:
-        worktree_path.parent.mkdir(parents=True, exist_ok=True)
-        if git_branch_exists(workspace_root, branch):
-            run_git_checked(workspace_root, ["worktree", "add", str(worktree_path), branch])
-        else:
-            run_git_checked(workspace_root, ["worktree", "add", "-b", branch, str(worktree_path), base])
-    if not worktree_path.exists():
-        raise SystemExit(f"Sprint Engine worktree was not created: {rel_worktree}")
-    actual_branch = current_git_branch(worktree_path)
-    if actual_branch != branch:
-        raise SystemExit(f"Sprint Engine worktree is on {actual_branch}, expected {branch}.")
+    # Every declared repo gets its own tree on the same branch, and each records its
+    # own status as it lands. One repo's failure aborts the whole init: a run half
+    # able to reach the projects it declares would strand every task targeting the
+    # rest of them.
+    for repo in vcs["repos"]:
+        _ensure_repo_worktree(workspace_root, repo)
     set_vcs_status(vcs, "ready")
-    append_event(state, "run_worktree_ready", "sprintengine", f"Sprint Engine run worktree is ready at {rel_worktree} on {branch}.")
+    ready_message = f"Sprint Engine run worktree is ready at {rel_worktree} on {branch}."
+    if siblings:
+        ready_message += " Also: " + ", ".join(f"{repo['id']} at {repo['worktreePath']}" for repo in siblings) + "."
+    append_event(state, "run_worktree_ready", "sprintengine", ready_message)
     return vcs
 
 

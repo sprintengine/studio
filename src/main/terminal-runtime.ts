@@ -38,6 +38,7 @@ import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
 import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
+import { sprintEngineDeclaredSiblingRepoRoots } from './sprintengine-artifacts'
 import {
   appendTerminalOutput,
   clearAgentStallTimer,
@@ -330,7 +331,11 @@ export function buildManagedSprintEngineSyncInputForLaunch(
   return {
     statePath,
     workspaceRoot: registrationRoot,
-    allowedRoots: [registrationRoot],
+    // The run's own project plus the other projects it declared, and nothing else:
+    // an agent working a task in a sibling project must be able to reach that
+    // project's files, and a project the run never declared stays refused. A
+    // single-project run declares no siblings, so its surface is the root alone.
+    allowedRoots: Array.from(new Set([registrationRoot, ...sprintEngineDeclaredSiblingRepoRoots(statePath)])),
     registryRoots: sprintEngineRegistryRootsForLaunch(),
     userRoot: getPluginRegistryUserRoot(),
     actorId: 'multicode-app',

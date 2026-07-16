@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { registerSprintEngineIpc } from './ipc/sprintengine-ipc'
 import { createPluginRegistry } from './plugin-registry'
@@ -10,6 +10,7 @@ import {
   createSprintEngineArtifactHandlers,
   describeUnsupportedSprintEngineStore,
   getArtifactAutoApprovalBlocker,
+  sprintEngineDeclaredSiblingRepoRoots,
   SPRINT_ENGINE_RUN_SCHEMA_VERSION,
 } from './sprintengine-artifacts'
 
@@ -39,6 +40,8 @@ async function main(): Promise<void> {
   await testRunnerModeCliInvocationUsesSprintEngineTool()
   await testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads()
   await testIpcRegistersReadOnlyBridgeChannels()
+  await testDeclaredSiblingRepoRootsResolveEveryDeclaredProject()
+  await testDeclaredSiblingRepoRootsRefuseAnythingNotDeclaredAsASibling()
 
   console.log('sprintengine-artifacts tests passed')
 }
@@ -63,6 +66,58 @@ async function createStateFixture(): Promise<{ workspaceRoot: string; teamDir: s
     'utf-8'
   )
   return { workspaceRoot, teamDir, statePath }
+}
+
+async function writeDeclaredRepos(teamDir: string, repos: unknown[]): Promise<void> {
+  await writeFile(
+    join(teamDir, 'projection.json'),
+    JSON.stringify({ run: { schemaVersion: SPRINT_ENGINE_RUN_SCHEMA_VERSION, vcs: { mode: 'run_worktree', repos } } }),
+    'utf-8'
+  )
+}
+
+async function testDeclaredSiblingRepoRootsResolveEveryDeclaredProject(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+  const sibling = join(workspaceRoot, '..', 'declared-sibling')
+  await mkdir(sibling, { recursive: true })
+
+  try {
+    // A run that declares nothing is every single-project run: no extra roots.
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      { id: 'mobile', root: '../declared-sibling', worktreePath: 'w-mobile', branchName: 'b' },
+    ])
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [resolve(sibling)])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+    await rm(sibling, { recursive: true, force: true })
+  }
+}
+
+async function testDeclaredSiblingRepoRootsRefuseAnythingNotDeclaredAsASibling(): Promise<void> {
+  const { workspaceRoot, teamDir, statePath } = await createStateFixture()
+
+  try {
+    await writeDeclaredRepos(teamDir, [
+      { id: 'primary', root: '.', worktreePath: 'w', branchName: 'b' },
+      // A parent of the workspace would authorize its every neighbour by inclusion.
+      { id: 'parent', root: '..', worktreePath: 'w-parent', branchName: 'b' },
+      // Declared but not on disk: nothing to authorize.
+      { id: 'gone', root: '../vanished-project', worktreePath: 'w-gone', branchName: 'b' },
+      { id: 'blank', root: '   ', worktreePath: 'w-blank', branchName: 'b' },
+      'not-an-entry',
+    ])
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+
+    // A store this build cannot read never widens the surface.
+    await writeFile(join(teamDir, 'projection.json'), '{ not json', 'utf-8')
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(statePath), [])
+    assert.deepEqual(sprintEngineDeclaredSiblingRepoRoots(join(workspaceRoot, 'nope.yaml')), [])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 }
 
 function createHandlers(runMcpTool: Parameters<typeof createSprintEngineArtifactHandlers>[0]['runMcpTool']) {
