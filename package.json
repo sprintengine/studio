@@ -568,7 +568,7 @@
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^1.0.1",
-    "@hotstack/catalogue-snapshot": "^0.20260709.1",
+    "@hotstack/catalogue-snapshot": "0.20260716.3",
     "@remotion/cli": "^4.0.464",
     "@tailwindcss/vite": "^4.0.6",
     "@types/d3-force": "^3.0.10",

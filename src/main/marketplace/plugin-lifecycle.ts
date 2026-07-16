@@ -15,7 +15,7 @@ import type {
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import { isClaudeCodePluginEntry, validateMarketplaceIndex } from '../../shared/marketplace'
 import type { SkillPackHarness } from '../../shared/electron-api'
-import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
+import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { installMarketplacePlugin, type MarketplacePluginInstallerServices } from '../modules/plugin-bundle-installer'
 import { normalizeMcpClients, normalizeMcpServerConfig } from '../mcp-config-service'
 import { defaultUserModuleRoot, moduleInstallPath } from '../modules/user-module-registry'
@@ -457,22 +457,43 @@ async function installInlineMcpEntry(
 // component Multicode delivers.
 const DEFAULT_CLAUDE_PLUGIN_HARNESSES: SkillPackHarness[] = ['claude']
 
+function previousHarnesses(previous: MarketplacePluginInstallReceipt | undefined): SkillPackHarness[] {
+  const harnesses = new Set<SkillPackHarness>()
+  for (const component of previous?.components ?? []) {
+    if (component.kind !== 'skills') continue
+    for (const harness of component.harnesses ?? []) harnesses.add(harness)
+  }
+  return [...harnesses]
+}
+
 async function resolveInstallHarnesses(
   input: MarketplacePluginRegistryInstallInput,
-  services: MarketplacePluginLifecycleServices
+  services: MarketplacePluginLifecycleServices,
+  previous: MarketplacePluginInstallReceipt | undefined
 ): Promise<SkillPackHarness[]> {
+  // An explicit caller set is authoritative — a deliberate narrowing may
+  // legitimately drop harness copies (the stale sweep handles it).
   if (input.skillHarnesses?.length) return input.skillHarnesses
+
+  let resolved = DEFAULT_CLAUDE_PLUGIN_HARNESSES
   if (services.resolveSkillHarnesses) {
     // A resolver failure or empty set must not turn the install into a
     // silent no-op writing nowhere — fall back to the Claude-only default.
     try {
-      const resolved = await services.resolveSkillHarnesses()
-      if (resolved.length > 0) return resolved
+      const set = await services.resolveSkillHarnesses()
+      if (set.length > 0) resolved = set
     } catch {
-      // fall through
+      // fall through to the default
     }
   }
-  return DEFAULT_CLAUDE_PLUGIN_HARNESSES
+  // Auto-resolution must never REMOVE a harness a previous install owned: a
+  // transient CLI-probe hiccup (or resolver error) would otherwise narrow the
+  // set and make the stale sweep permanently delete still-wanted skill copies
+  // from CLIs that are actually still installed. Union with the prior set so
+  // an auto-resolved update is only ever additive; a genuinely-removed CLI
+  // keeps its harmless copy until an explicit skillHarnesses narrows it.
+  const union = new Set<SkillPackHarness>([...resolved, ...previousHarnesses(previous)])
+  return SKILL_PACK_HARNESSES.filter((harness) => union.has(harness))
 }
 
 async function installClaudeCodePluginEntry(
@@ -523,7 +544,7 @@ async function installClaudeCodePluginEntry(
     }
   }
 
-  const harnesses = await resolveInstallHarnesses(input, services)
+  const harnesses = await resolveInstallHarnesses(input, services, previous)
   // Ownership is per dir AND per harness: a previous install owning "foo" in
   // .claude says nothing about a hand-authored .agents/skills/foo.
   const previousHarnessesByDir = new Map<string, Set<SkillPackHarness>>()
@@ -685,6 +706,12 @@ async function installClaudeCodePluginEntry(
       harnesses,
       updated,
     })
+    const notices =
+      download.metadataOnlySkills.length > 0
+        ? [
+            `${download.metadataOnlySkills.length} skill${download.metadataOnlySkills.length === 1 ? '' : 's'} in this plugin (${download.metadataOnlySkills.join(', ')}) ${download.metadataOnlySkills.length === 1 ? 'ships' : 'ship'} without bundled content and ${download.metadataOnlySkills.length === 1 ? 'was' : 'were'} not installed.`,
+          ]
+        : []
     return {
       ok: true,
       id: receipt.id,
@@ -693,6 +720,7 @@ async function installClaudeCodePluginEntry(
       trust: 'unsigned',
       loadEligible: false,
       installed: receipt.components,
+      ...(notices.length > 0 ? { notices } : {}),
       sourceUrl,
       classification: 'unsigned',
       updated,

@@ -51,7 +51,7 @@ export type InstallFlowState =
   | { status: 'needs-trust'; permissions: CapabilityPermission[]; files?: string[]; pinnedRef?: string }
   // install-entry IPC in flight (verified direct, or community after trust).
   | { status: 'installing' }
-  | { status: 'installed'; updated: boolean }
+  | { status: 'installed'; updated: boolean; notices?: string[] }
   // Hard block (unsigned/invalid): no install affordance is offered.
   | { status: 'blocked'; classification: BlockedClassification; message: string; issues?: string[] }
   // Verify or install failed reachably (network / thrown / install ok:false) —
@@ -124,7 +124,7 @@ export function classifyVerification(
 // retryable `error` with the lifecycle's message + issue detail (never a fake
 // success).
 export function summarizeInstallResult(result: MarketplacePluginRegistryInstallResult): InstallFlowState {
-  if (result.ok) return { status: 'installed', updated: result.updated }
+  if (result.ok) return { status: 'installed', updated: result.updated, ...(result.notices?.length ? { notices: result.notices } : {}) }
   if (result.classification === 'unsigned' || result.classification === 'invalid') {
     return {
       status: 'blocked',
@@ -195,7 +195,12 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         permissions: null,
         files: null,
         pinnedRef: null,
-        notice: { tone: 'good', message: state.updated ? 'Updated to the latest version.' : 'Installed.' },
+        // A skill that shipped without bundled content installs nothing; the
+        // notice tone warns so the user sees which listed skills they did not
+        // get, rather than the flat "Installed." hiding the gap.
+        notice: state.notices?.length
+          ? { tone: 'warn', message: state.updated ? 'Updated to the latest version.' : 'Installed.', issues: state.notices }
+          : { tone: 'good', message: state.updated ? 'Updated to the latest version.' : 'Installed.' },
       }
     case 'blocked':
       // No install affordance (action: null). Invalid is an error tone; unsigned

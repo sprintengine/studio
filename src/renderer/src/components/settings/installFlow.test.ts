@@ -119,6 +119,14 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
 
   const updated: MarketplacePluginRegistryInstallResult = { ...ok, updated: true }
   assert.deepEqual(summarizeInstallResult(updated), { status: 'installed', updated: true })
+
+  // Skills that shipped without content ride through as notices.
+  const withNotices: MarketplacePluginRegistryInstallResult = { ...ok, notices: ['1 skill (capped) ships without bundled content and was not installed.'] }
+  assert.deepEqual(summarizeInstallResult(withNotices), {
+    status: 'installed',
+    updated: false,
+    notices: ['1 skill (capped) ships without bundled content and was not installed.'],
+  })
 }
 
 {
@@ -210,6 +218,11 @@ function verify(overrides: Partial<MarketplacePluginVerifyResult> = {}): Marketp
 
   const bumped = deriveInstallView({ status: 'installed', updated: true })
   assert.match(bumped.notice?.message ?? '', /Updated/)
+
+  // Metadata-only skills turn the success notice to a warn tone carrying the gap.
+  const partial = deriveInstallView({ status: 'installed', updated: false, notices: ['skill X was not installed.'] })
+  assert.equal(partial.notice?.tone, 'warn')
+  assert.deepEqual(partial.notice?.issues, ['skill X was not installed.'])
 }
 
 {

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import type {
@@ -452,6 +452,13 @@ export type ClaudeCodePluginDownloadResult =
     claudeName: string
     /** The commit actually fetched (mutable refs resolve to a sha up front). */
     resolvedRef: string
+    /**
+     * Names of skills the entry lists but that shipped metadata-only (no
+     * bundled content — a snapshot capture cap), so the install can tell the
+     * user which listed skills it did NOT install rather than silently
+     * dropping them.
+     */
+    metadataOnlySkills: string[]
   }
   | { ok: false; sourceUrl: string; message: string; statusCode?: number }
 
@@ -514,14 +521,22 @@ export async function downloadClaudeCodePluginSource(
     await mkdir(stagingRoot, { recursive: true })
     stage = await mkdtemp(join(stagingRoot, `${entry.id}-claude-`))
     const contentDigests: string[] = []
+    const resourceRoot = resolve(resourceDir)
+    const stageSkillsRoot = resolve(join(stage, 'skills'))
     for (const skill of bundledSkills) {
       // The payload folder is the basename of the skill's repo-relative path;
-      // the validator guarantees path is present on digest-bearing skills.
+      // the validator guarantees a safe path on digest-bearing skills, but
+      // re-derive and containment-check here so a mis-generated catalogue can
+      // never make cp read or write outside the payload/staging roots.
       const folder = (skill.path as string).split('/').filter((segment) => segment.length > 0).pop() ?? ''
-      if (folder === '' || folder === '.' || folder === '..') {
+      if (folder === '' || folder === '.' || folder === '..' || folder.includes('\\')) {
         return { ok: false, sourceUrl, message: `Skill “${skill.name}” has an unusable bundled folder path.` }
       }
-      const payloadDir = join(resourceDir, folder)
+      const payloadDir = resolve(resourceRoot, folder)
+      const stageDir = resolve(stageSkillsRoot, folder)
+      if (!payloadDir.startsWith(`${resourceRoot}${sep}`) || !stageDir.startsWith(`${stageSkillsRoot}${sep}`)) {
+        return { ok: false, sourceUrl, message: `Skill “${skill.name}” resolves outside its bundled payload directory.` }
+      }
       const verification = await verifyBundledSkillFolder(payloadDir, skill.files ?? [], skill.contentDigest ?? '')
       if (!verification.ok) {
         log('claude-plugin:integrity-failure', { entryId: entry.id, skill: folder, message: verification.message })
@@ -551,12 +566,24 @@ export async function downloadClaudeCodePluginSource(
       }
     }
 
+    // Skills the entry advertises but that shipped without content (a capture
+    // cap) install nothing — name them so the caller can disclose the gap
+    // instead of the storefront listing a skill the user never receives.
+    const bundledNames = new Set(bundledSkills.map((skill) => skill.name))
+    const metadataOnlySkills = (entry.skills ?? [])
+      .map((skill) => skill.name)
+      .filter((name) => !bundledNames.has(name))
+    if (metadataOnlySkills.length > 0) {
+      log('claude-plugin:metadata-only-skills', { entryId: entry.id, skills: metadataOnlySkills })
+    }
+
     log('claude-plugin:staged', { entryId: entry.id, skillDirs, resolvedRef })
     const result: ClaudeCodePluginDownloadResult = {
       ok: true,
       sourceUrl,
       stagedPath: stage,
       skillDirs,
+      metadataOnlySkills,
       claudeName: entry.name,
       resolvedRef,
     }

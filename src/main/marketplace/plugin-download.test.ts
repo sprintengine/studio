@@ -760,6 +760,50 @@ async function testClaudePluginWithoutBundledContentRefusedHonestly(): Promise<v
   })
 }
 
+async function testClaudePluginMetadataOnlySkillsSurfaced(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const fixture = createBundledSkillFixture(temp)
+    const stagingRoot = join(temp, 'staging')
+    // The entry lists a third skill that shipped without content (capture cap).
+    const entry: MarketplacePluginEntry = {
+      ...fixture.entry,
+      skills: [...(fixture.entry.skills ?? []), { name: 'capped', description: 'Too big to bundle.', path: 'skills/capped' }],
+    }
+    const download = await downloadClaudeCodePluginSource({
+      entry,
+      stagingRoot,
+      packagedResourceResolver: fixture.resolver,
+    })
+    assert.equal(download.ok, true, JSON.stringify(download))
+    if (!download.ok) return
+    try {
+      // The two bundled skills install; the metadata-only one is named, not dropped silently.
+      assert.deepEqual(download.skillDirs, ['alpha', 'beta'])
+      assert.deepEqual(download.metadataOnlySkills, ['capped'])
+    } finally {
+      await rm(download.stagedPath, { recursive: true, force: true })
+    }
+  })
+}
+
+async function testClaudePluginOversizePayloadFailsWithoutReadingWhole(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const fixture = createBundledSkillFixture(temp)
+    const stagingRoot = join(temp, 'staging')
+    // Grow a listed file far past its recorded size: verification must reject
+    // on the stat (size mismatch), never buffer the whole thing to hash it.
+    writeFileSync(join(fixture.resourceDir, 'beta', 'SKILL.md'), Buffer.alloc(4 * 1024 * 1024, 0x61))
+    const download = await downloadClaudeCodePluginSource({
+      entry: fixture.entry,
+      stagingRoot,
+      packagedResourceResolver: fixture.resolver,
+    })
+    assert.equal(download.ok, false)
+    if (!download.ok) assert.match(download.message, /size .* does not match|failed integrity/)
+    assert.deepEqual(await readdir(stagingRoot), [])
+  })
+}
+
 async function testClaudePluginTamperedPayloadRefused(): Promise<void> {
   await withTempDir(async (temp) => {
     const fixture = createBundledSkillFixture(temp)
@@ -847,6 +891,8 @@ async function main(): Promise<void> {
   testCliAndAppRejectSameTamperedModuleBytes()
   await testClaudePluginBundledContentStagesSkills()
   await testClaudePluginWithoutBundledContentRefusedHonestly()
+  await testClaudePluginMetadataOnlySkillsSurfaced()
+  await testClaudePluginOversizePayloadFailsWithoutReadingWhole()
   await testClaudePluginTamperedPayloadRefused()
   await testClaudePluginExtraPayloadFileRefused()
   await testClaudePluginRefOverridePinsBundledContent()

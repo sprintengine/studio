@@ -443,6 +443,10 @@ export type MarketplacePluginInstallResult =
       loadEligible: boolean
       installed: MarketplacePluginInstalledComponent[]
       mcpSettings?: McpSettings
+      // Non-fatal disclosures about a successful install, e.g. skills the
+      // entry lists that shipped without bundled content and so were not
+      // installed. Surfaced to the user; never hidden behind ok:true.
+      notices?: string[]
     }
   | {
       ok: false

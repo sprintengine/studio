@@ -282,6 +282,15 @@ function testBundledSkillsValidateAndSurvive(): void {
     'plugins[0].skills[0].path',
     validateMarketplaceIndex
   )
+  // A traversal or backslash path would escape the payload root when the
+  // install derives the folder — rejected even for metadata-only skills.
+  for (const evil of ['../escape', 'skills/..\\..\\evil', '/abs/skill', 'skills/./x']) {
+    assertRejectsAt(
+      { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [{ name: 'x', description: 'y', path: evil }] }] },
+      'plugins[0].skills[0].path',
+      validateMarketplaceIndex
+    )
+  }
 }
 
 function testBundledSkillContentDigestsValidateAndSurvive(): void {

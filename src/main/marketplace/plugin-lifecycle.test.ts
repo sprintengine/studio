@@ -1110,6 +1110,51 @@ async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<voi
   })
 }
 
+async function testClaudePluginAutoResolveUpdateNeverDeletesOnProbeHiccup(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
+    // First auto-resolved install lands claude+codex+agents.
+    services.resolveSkillHarnesses = () => Promise.resolve(['claude', 'codex', 'agents'])
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const first = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true })
+    assert.equal(first.ok, true, JSON.stringify(first))
+    for (const dir of ['.claude', '.codex', '.agents']) {
+      assert.equal(existsSync(join(workspaceRoot, dir, 'skills', 'alpha')), true, `alpha in ${dir} after first install`)
+    }
+
+    // Update while the codex probe transiently reports not-installed: the
+    // resolved set narrows to claude+agents. Auto-resolution must NOT delete
+    // the still-wanted .codex copies — union with the prior receipt keeps them.
+    services.resolveSkillHarnesses = () => Promise.resolve(['claude', 'agents'])
+    const update = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true })
+    assert.equal(update.ok, true, JSON.stringify(update))
+    for (const dir of ['.claude', '.codex', '.agents']) {
+      assert.equal(existsSync(join(workspaceRoot, dir, 'skills', 'alpha')), true, `alpha preserved in ${dir} after probe hiccup`)
+    }
+  })
+}
+
+async function testClaudePluginExplicitHarnessNarrowingStillRemoves(): Promise<void> {
+  await withTempDir(async (temp) => {
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    services.packagedResourceResolver = await installClaudePayload(temp)
+    const lifecycle = createMarketplacePluginLifecycleService(services)
+    const first = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true, skillHarnesses: ['claude', 'codex', 'agents'],
+    })
+    assert.equal(first.ok, true, JSON.stringify(first))
+    // An EXPLICIT narrowing is a deliberate intent — the .codex copies go.
+    const update = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true, skillHarnesses: ['claude'],
+    })
+    assert.equal(update.ok, true, JSON.stringify(update))
+    assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), true)
+    assert.equal(existsSync(join(workspaceRoot, '.codex', 'skills', 'alpha')), false)
+    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'alpha')), false)
+  })
+}
+
 async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void> {
   await withTempDir(async (temp) => {
     const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
@@ -1208,6 +1253,8 @@ async function main(): Promise<void> {
   await testClaudePluginRequiresTrustGrant()
   await testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls()
   await testClaudePluginDefaultFanOutUsesResolvedHarnesses()
+  await testClaudePluginAutoResolveUpdateNeverDeletesOnProbeHiccup()
+  await testClaudePluginExplicitHarnessNarrowingStillRemoves()
   await testClaudePluginResolverFailureFallsBackToClaude()
   await testClaudePluginRefusesForeignSkillDirCollision()
   await testClaudePluginHarnessChangeRemovesOrphanedCopies()

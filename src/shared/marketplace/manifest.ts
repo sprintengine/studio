@@ -154,9 +154,11 @@ function pushSdkIssues(
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/
 
-// Payload file paths are joined under the skill folder at install time, so
-// they must be plain forward-slash relative paths — no traversal, no
-// absolute paths, no backslashes, no empty segments.
+// Payload file paths (and the skill folder path used to locate the payload
+// dir) are joined into filesystem paths at install time, so they must be plain
+// forward-slash relative paths — no traversal, no absolute paths, no
+// backslashes (a backslash segment survives a '/'-only split and escapes on
+// Windows join()), no empty segments.
 function isSafeSkillFilePath(value: unknown): value is string {
   if (!isNonEmptyString(value) || value.includes('\\')) return false
   const path = value.trim()
@@ -225,6 +227,13 @@ function validateSkills(
     }
     if (skill.path !== undefined && !isNonEmptyString(skill.path)) {
       issues.push({ path: `${path}[${index}].path`, message: 'skill path, when present, must be a non-empty string.' })
+      return
+    }
+    // The path locates the bundled payload folder (its basename), so it must
+    // be a safe relative path even for metadata-only skills — a backslash or
+    // traversal segment would escape the payload root on the install side.
+    if (skill.path !== undefined && !isSafeSkillFilePath(skill.path)) {
+      issues.push({ path: `${path}[${index}].path`, message: 'skill path must be a safe relative path (no traversal, absolute, or backslash segments).' })
       return
     }
     // Payload digests come as a unit: files + contentDigest + the folder path
