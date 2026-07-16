@@ -170,8 +170,9 @@ function testDescribeUnsupportedStoreOnlyJudgesRealProjections(): void {
   assert.equal(describeUnsupportedSprintEngineStore(null, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ tasks: [] }, '/team'), null)
   assert.equal(describeUnsupportedSprintEngineStore({ run: [] }, '/team'), null)
-  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'), null)
-  // v3 is current; v2 and v1 are rejected (MC-1591 / MC-1542: never migrate).
+  assert.equal(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 4 } }, '/team'), null)
+  // v4 is current; v3, v2 and v1 are rejected (MC-1611 / MC-1591 / MC-1542: never migrate).
+  assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 3 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 2 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: { schemaVersion: 1 } }, '/team'))
   assert.ok(describeUnsupportedSprintEngineStore({ run: {} }, '/team'))

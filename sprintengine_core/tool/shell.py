@@ -85,6 +85,119 @@ def get_run_vcs(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return vcs if isinstance(vcs, dict) and vcs.get("mode") == "run_worktree" else None
 
 
+# Entry zero of `vcs.repos` is the run's primary repo: the workspace itself, so its
+# root is the workspace-relative ".". Sibling repos (MC-1611 T2) are appended after it.
+PRIMARY_REPO_ID = "primary"
+PRIMARY_REPO_ROOT = "."
+
+# The repo-entry fields a store must carry for the engine to resolve a tree at all.
+# Absent or blank means a corrupt store, not a legacy one: the pre-`repos` shape has
+# no `repos` key whatsoever and is derived from the flat block instead.
+_REQUIRED_REPO_KEYS = ("id", "root", "worktreePath", "branchName")
+
+
+def _repo_entry(
+    *,
+    repo_id: str,
+    root: str,
+    worktree_path: str,
+    branch_name: str,
+    base_ref: Optional[str],
+    status: Optional[str],
+    last_commit_sha: Optional[str],
+) -> Dict[str, Any]:
+    """One declared repo. The single site that spells the entry shape."""
+    return {
+        "id": repo_id,
+        "root": root,
+        "worktreePath": worktree_path,
+        "branchName": branch_name,
+        "baseRef": base_ref,
+        "status": status if status in VALID_VCS_STATUSES else "not_created",
+        "lastCommitSha": last_commit_sha if isinstance(last_commit_sha, str) else None,
+    }
+
+
+def _normalized_repo_entry(raw: Any, index: int) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SystemExit(f"Sprint Engine run store is corrupt: vcs.repos[{index}] is not a mapping.")
+    missing = [key for key in _REQUIRED_REPO_KEYS if not str(raw.get(key) or "").strip()]
+    if missing:
+        raise SystemExit(
+            f"Sprint Engine run store is corrupt: vcs.repos[{index}] is missing {', '.join(missing)}. "
+            "Delete the team folder and re-run the sprint."
+        )
+    base_ref = str(raw.get("baseRef") or "").strip()
+    return _repo_entry(
+        repo_id=str(raw["id"]).strip(),
+        root=str(raw["root"]).strip(),
+        worktree_path=str(raw["worktreePath"]).strip(),
+        branch_name=str(raw["branchName"]).strip(),
+        base_ref=base_ref or None,
+        status=raw.get("status"),
+        last_commit_sha=raw.get("lastCommitSha"),
+    )
+
+
+def _primary_repo_entry_from_flat(vcs: Dict[str, Any]) -> Dict[str, Any]:
+    """The primary repo entry a pre-`repos` store describes with its flat fields."""
+    base_ref = str(vcs.get("baseRef") or "").strip()
+    return _repo_entry(
+        repo_id=PRIMARY_REPO_ID,
+        root=PRIMARY_REPO_ROOT,
+        worktree_path=str(vcs.get("worktreePath") or "").strip(),
+        branch_name=str(vcs.get("branchName") or "").strip(),
+        base_ref=base_ref or None,
+        status=vcs.get("status"),
+        last_commit_sha=vcs.get("lastCommitSha"),
+    )
+
+
+def vcs_repos(vcs: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The repos a run declares, from either shape the store may carry.
+
+    A run created before `vcs.repos` (MC-1611) describes its one repo with the flat
+    `worktreePath`/`branchName`/... fields on `vcs`; it reads back here as the
+    one-entry list a single-repo run has always semantically been, so callers only
+    ever handle the list. Entry zero is always the primary repo.
+    """
+    if not isinstance(vcs, dict):
+        return []
+    raw_repos = vcs.get("repos")
+    if not isinstance(raw_repos, list) or not raw_repos:
+        return [_primary_repo_entry_from_flat(vcs)]
+    return [_normalized_repo_entry(raw, index) for index, raw in enumerate(raw_repos)]
+
+
+def _stored_primary_repo(vcs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The mutable stored entry zero, when the store carries the list shape."""
+    repos = vcs.get("repos")
+    if isinstance(repos, list) and repos and isinstance(repos[0], dict):
+        return repos[0]
+    return None
+
+
+def set_vcs_status(vcs: Dict[str, Any], status: str) -> None:
+    """Record the primary repo's worktree status on both shapes that store it.
+
+    The flat block is still what the app, mobile snapshot, and PR paths read; entry
+    zero of `repos` is the same repo in the shape the multi-repo work reads. Writing
+    through one setter is what keeps the two from drifting while both exist.
+    """
+    vcs["status"] = status
+    primary = _stored_primary_repo(vcs)
+    if primary is not None:
+        primary["status"] = status
+
+
+def set_vcs_last_commit_sha(vcs: Dict[str, Any], sha: Optional[str]) -> None:
+    """Record the primary repo's last commit on both shapes that store it."""
+    vcs["lastCommitSha"] = sha
+    primary = _stored_primary_repo(vcs)
+    if primary is not None:
+        primary["lastCommitSha"] = sha
+
+
 def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Optional[str] = None, branch_name: Optional[str] = None) -> Dict[str, Any]:
     from sprintengine_core.tool.plans import default_swarm_name_for_state
     from sprintengine_core.tool.state import append_event
@@ -97,15 +210,30 @@ def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Op
     worktree_path = state_path.parent / "worktree"
     rel_worktree = project_relative_path(workspace_root, worktree_path)
     vcs = sprintengine.setdefault("vcs", {})
+    primary = _repo_entry(
+        repo_id=PRIMARY_REPO_ID,
+        root=PRIMARY_REPO_ROOT,
+        worktree_path=rel_worktree,
+        branch_name=branch,
+        base_ref=base,
+        status=vcs.get("status"),
+        last_commit_sha=vcs.get("lastCommitSha"),
+    )
+    # The flat fields and entry zero are the same repo in two shapes. The list is what
+    # the multi-repo work reads; the flat block stays because it is what every shipped
+    # consumer (PR paths, the app, the mobile snapshot) still reads, so a single-repo
+    # run keeps writing exactly the vcs semantics it wrote before this list existed.
+    # Sibling entries are appended after entry zero by repo declaration (T2).
+    siblings = vcs_repos(vcs)[1:]
     vcs.update({
         "mode": "run_worktree",
-        "repoRoot": ".",
-        "worktreePath": rel_worktree,
-        "branchName": branch,
-        "baseRef": base,
-        "status": vcs.get("status") if vcs.get("status") in VALID_VCS_STATUSES else "not_created",
+        "worktreePath": primary["worktreePath"],
+        "branchName": primary["branchName"],
+        "baseRef": primary["baseRef"],
+        "status": primary["status"],
         "pullRequestUrl": vcs.get("pullRequestUrl") if isinstance(vcs.get("pullRequestUrl"), str) else None,
-        "lastCommitSha": vcs.get("lastCommitSha") if isinstance(vcs.get("lastCommitSha"), str) else None,
+        "lastCommitSha": primary["lastCommitSha"],
+        "repos": [primary, *siblings],
     })
 
     existing = run_git_checked(workspace_root, ["worktree", "list", "--porcelain"])
@@ -120,7 +248,7 @@ def ensure_run_worktree(state: Dict[str, Any], state_path: Path, *, base_ref: Op
     actual_branch = current_git_branch(worktree_path)
     if actual_branch != branch:
         raise SystemExit(f"Sprint Engine worktree is on {actual_branch}, expected {branch}.")
-    vcs["status"] = "ready"
+    set_vcs_status(vcs, "ready")
     append_event(state, "run_worktree_ready", "sprintengine", f"Sprint Engine run worktree is ready at {rel_worktree} on {branch}.")
     return vcs
 
@@ -236,7 +364,7 @@ def commit_run_worktree_paths(
         status_out = run_git_checked(worktree, ["status", "--porcelain", "-z", "--untracked-files=all"]).stdout
         dirty = _parse_porcelain_z(status_out)
         if vcs is not None:
-            vcs["status"] = "dirty" if dirty else "ready"
+            set_vcs_status(vcs, "dirty" if dirty else "ready")
         if not pathspec:
             return None
         in_scope = sorted({record["path"] for record in dirty if _path_in_scope(record["path"], pathspec)})
@@ -256,8 +384,8 @@ def commit_run_worktree_paths(
         lock.release()
 
     if vcs is not None:
-        vcs["status"] = "committed"
-        vcs["lastCommitSha"] = sha
+        set_vcs_status(vcs, "committed")
+        set_vcs_last_commit_sha(vcs, sha)
     ensure_evidence(task).setdefault("commits", [])
     commits = task["evidence"].setdefault("commits", [])
     if isinstance(commits, list) and sha not in commits:
@@ -448,10 +576,10 @@ def create_run_pull_request(
         pushed = run_git_checked(worktree, ["push", "-u", remote, branch], allow_failure=True)
         if pushed.returncode != 0:
             error = pushed.stderr.strip() or pushed.stdout.strip() or "git push failed"
-            vcs["status"] = "failed"
+            set_vcs_status(vcs, "failed")
             vcs["pullRequestError"] = error
             return {"ok": False, "error": error, "branch": branch}
-        vcs["status"] = "pushed"
+        set_vcs_status(vcs, "pushed")
 
     try:
         pr = run_gh_checked(
@@ -463,7 +591,7 @@ def create_run_pull_request(
         # gh is not installed. Record it as a failure with the reason rather than
         # aborting the whole command, so the summary shows it and offers Retry.
         error = str(exc)
-        vcs["status"] = "failed"
+        set_vcs_status(vcs, "failed")
         vcs["pullRequestError"] = error
         return {"ok": False, "error": error, "branch": branch}
     if pr.returncode != 0:
@@ -471,7 +599,7 @@ def create_run_pull_request(
         existing = parse_url_from_output(stderr) or parse_url_from_output(pr.stdout)
         if existing:
             vcs["pullRequestUrl"] = existing
-            vcs["status"] = "pr_opened"
+            set_vcs_status(vcs, "pr_opened")
             vcs["pullRequestState"] = "open"
             vcs.pop("pullRequestError", None)
             return {"ok": True, "branch": branch, "base": base_branch, "pullRequestUrl": existing, "alreadyExists": True}
@@ -479,13 +607,13 @@ def create_run_pull_request(
         # API error). Record it as failed with the reason so the summary can show
         # the real error and a Retry, instead of a silent "pending" forever.
         error = stderr or pr.stdout.strip() or "gh pr create failed"
-        vcs["status"] = "failed"
+        set_vcs_status(vcs, "failed")
         vcs["pullRequestError"] = error
         return {"ok": False, "error": error, "branch": branch}
 
     url = parse_url_from_output(pr.stdout) or parse_url_from_output(pr.stderr)
     vcs["pullRequestUrl"] = url
-    vcs["status"] = "pr_opened"
+    set_vcs_status(vcs, "pr_opened")
     vcs["pullRequestState"] = "open"
     vcs.pop("pullRequestError", None)
     append_event(state, "run_pull_request_opened", "sprintengine", f"Opened pull request for {branch}: {url or '(url unavailable)'}.")

@@ -868,9 +868,26 @@ export type SprintEngineAllowedRuntime = { cli: AgentCli; model: string | null }
 export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }
 export type SprintEngineRoleRuntimes = Partial<Record<SprintEngineRoleId, SprintEngineRoleRuntime>>
 
+/**
+ * One repo a run works in (MC-1611). Mirrors the entry shape the engine writes to
+ * `sprintengine.vcs.repos` in run.yaml. `root` is workspace-relative — `.` for the
+ * primary repo, a sibling project's directory for the rest — and `worktreePath` is
+ * that repo's own run worktree. Pull-request fields are not here yet; they stay on
+ * the run's flat `vcs` block until per-repo pull requests land (MC-1612).
+ */
+export type SprintEngineVcsRepo = {
+  id: string
+  root: string
+  /** Project-root-relative path to this repo's run worktree directory. */
+  worktreePath: string
+  branchName: string
+  baseRef?: string | null
+  status?: string
+  lastCommitSha?: string | null
+}
+
 export type SprintEngineVcs = {
   mode: 'run_worktree'
-  repoRoot?: string
   /** Project-root-relative path to the shared run worktree directory. */
   worktreePath: string
   branchName: string
@@ -884,14 +901,13 @@ export type SprintEngineVcs = {
   pullRequestState?: 'open' | 'merged' | 'closed' | null
   lastCommitSha?: string | null
   /**
-   * Multi-repo seam (MC-1615): a schema-v4 store may carry a per-repo vcs array
-   * alongside the single-worktree fields. Recognized as an optional pass-through
-   * today — no TS consumer reads it yet — so syncing a multi-repo projection
-   * never strips the field (normalizeResponse whitelist precedent). The concrete
-   * per-repo shape is owned by the multi-repo epic (MC-1610); this normalizer
-   * parses and re-emits the array verbatim.
+   * Every repo the run works in, entry zero first (the primary repo, `root: '.'`).
+   * Always populated: a run stored before this list existed describes its one repo
+   * with the flat fields above, and the normalizer reads that back as a one-entry
+   * list, so readers only ever handle the list. The flat fields remain the primary
+   * repo's live values until the surfaces that read them move onto `repos`.
    */
-  repos?: unknown[]
+  repos: SprintEngineVcsRepo[]
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>

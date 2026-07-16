@@ -1,11 +1,11 @@
 """Multi-repo vcs seam: pass-through + single-source discipline (MC-1615).
 
-The seam lets a future schema-v4 multi-repo run carry an unknown `vcs.repos`
-array end-to-end without any surface stripping it. The TS normalizer
-(`normalizeSprintEngineVcs`) and the mobile snapshot (`buildVcsState`) preserve
-it verbatim (covered by their own TS tests); these tests pin the Python half —
-`build_projection` and the state round-trip through `sync` — and the phase-prompt
-worktree discipline being emitted from a single template site.
+The seam is what lets a multi-repo run carry `vcs.repos` end-to-end without any
+surface stripping it: `build_projection` hands the whole `vcs` dict through
+verbatim rather than rebuilding it from a fixed key list. MC-1611 filled the
+array in with a concrete shape, but the pass-through is what these tests pin —
+`build_projection` and the state round-trip through `sync` — along with the
+phase-prompt worktree discipline being emitted from a single template site.
 """
 from __future__ import annotations
 
@@ -15,18 +15,33 @@ from helpers import base_state, read_state, write_state
 from sprintengine_core import store as folder_store
 from sprintengine_core.tool import phase_prompts
 
-# A representative multi-repo array the engine does not interpret yet: the seam
-# must carry it through unread, so the assertions compare it verbatim.
+# A representative declared repo list (MC-1611 shape). The seam must carry it
+# through untouched, so the assertions compare it verbatim.
 REPOS = [
-    {"repoRoot": "packages/api", "branchName": "sprintengine/checkout-api", "baseRef": "main"},
-    {"repoRoot": "packages/web", "branchName": "sprintengine/checkout-web", "baseRef": "main"},
+    {
+        "id": "primary",
+        "root": ".",
+        "worktreePath": ".multi-code/sprintengine/alpha/worktree",
+        "branchName": "sprintengine/alpha",
+        "baseRef": "main",
+        "status": "ready",
+        "lastCommitSha": None,
+    },
+    {
+        "id": "api",
+        "root": "packages/api",
+        "worktreePath": ".multi-code/sprintengine/alpha/worktree-api",
+        "branchName": "sprintengine/alpha",
+        "baseRef": "main",
+        "status": "ready",
+        "lastCommitSha": None,
+    },
 ]
 
 
 def _vcs_with_repos() -> dict:
     return {
         "mode": "run_worktree",
-        "repoRoot": ".",
         "worktreePath": ".multi-code/sprintengine/alpha/worktree",
         "branchName": "sprintengine/alpha",
         "baseRef": "main",

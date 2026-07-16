@@ -75,6 +75,7 @@ import type {
   SprintEngineTaskStatus,
   SprintEngineTaskTriage,
   SprintEngineVcs,
+  SprintEngineVcsRepo,
   SprintEngineWorker,
 } from './run-types'
 import type { AgentState } from './agent-state'
@@ -1224,6 +1225,47 @@ function normalizeSprintEngineRunnerPolicy(input: unknown): SprintEngineRunnerPo
   }
 }
 
+// Entry zero of `vcs.repos` is the primary repo: the workspace itself, hence `.`.
+// Mirrors PRIMARY_REPO_ID / PRIMARY_REPO_ROOT in sprintengine_core/tool/shell.py.
+const primaryRepoId = 'primary'
+const primaryRepoRoot = '.'
+
+function normalizeSprintEngineVcsRepo(input: unknown): SprintEngineVcsRepo | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const record = input as Record<string, unknown>
+  const id = optionalTrimmedString(record.id)
+  const root = optionalTrimmedString(record.root)
+  const worktreePath = optionalTrimmedString(record.worktreePath)
+  const branchName = optionalTrimmedString(record.branchName)
+  // A repo the app cannot resolve a tree for is worse than no entry: its scope would
+  // silently point at the wrong worktree. Drop it and keep the repos it can resolve.
+  if (!id || !root || !worktreePath || !branchName) return undefined
+  return {
+    id,
+    root,
+    worktreePath,
+    branchName,
+    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
+    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
+    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+  }
+}
+
+/**
+ * The run's declared repos, from either shape the store may carry. `repos` is
+ * explicitly whitelisted here (and typed field-by-field) because sync drops what
+ * this normalizer does not name — the `normalizeResponse` precedent — so an
+ * unlisted field would vanish between the engine and the app.
+ */
+function normalizeSprintEngineVcsRepos(record: Record<string, unknown>, primary: SprintEngineVcsRepo): SprintEngineVcsRepo[] {
+  const declared = Array.isArray(record.repos)
+    ? record.repos.map(normalizeSprintEngineVcsRepo).filter((repo): repo is SprintEngineVcsRepo => Boolean(repo))
+    : []
+  // A run stored before `vcs.repos` existed (MC-1611) describes its one repo with
+  // the flat fields; it reads back as the one-entry list it always semantically was.
+  return declared.length > 0 ? declared : [primary]
+}
+
 function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
@@ -1231,11 +1273,19 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
   const worktreePath = optionalTrimmedString(record.worktreePath)
   const branchName = optionalTrimmedString(record.branchName)
   if (!worktreePath || !branchName) return undefined
+  const primary: SprintEngineVcsRepo = {
+    id: primaryRepoId,
+    root: primaryRepoRoot,
+    worktreePath,
+    branchName,
+    ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
+    ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
+    lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
+  }
   return {
     mode: 'run_worktree',
     worktreePath,
     branchName,
-    ...(optionalTrimmedString(record.repoRoot) ? { repoRoot: optionalTrimmedString(record.repoRoot) } : {}),
     ...(optionalTrimmedString(record.baseRef) ? { baseRef: optionalTrimmedString(record.baseRef) } : {}),
     ...(optionalTrimmedString(record.status) ? { status: optionalTrimmedString(record.status) } : {}),
     pullRequestUrl: typeof record.pullRequestUrl === 'string' ? record.pullRequestUrl : null,
@@ -1247,10 +1297,7 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
         ? record.pullRequestState
         : null,
     lastCommitSha: typeof record.lastCommitSha === 'string' ? record.lastCommitSha : null,
-    // MC-1615 multi-repo seam: recognize `vcs.repos` as an optional pass-through
-    // so a schema-v4 store round-trips through parse without field loss. No TS
-    // consumer reads it yet; the array is preserved verbatim.
-    ...(Array.isArray(record.repos) ? { repos: record.repos } : {}),
+    repos: normalizeSprintEngineVcsRepos(record, primary),
   }
 }
 

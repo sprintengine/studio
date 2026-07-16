@@ -108,11 +108,28 @@ function testWorkersOrphanRolelessEntriesDropped(): void {
   assert.equal(state.workers['ghost-1'], undefined, 'roleless worker dropped')
 }
 
-function testVcsReposPassThroughPreserved(): void {
-  // AC3: an unknown `vcs.repos` array survives parse verbatim (MC-1615 seam).
+function testVcsReposRoundTripWithoutFieldLoss(): void {
+  // AC1: every field of a declared repo survives parse. `repos` is whitelisted
+  // field-by-field, so a missed field would silently vanish here.
   const repos = [
-    { id: 'app', worktreePath: '.multi-code/wt/app', branchName: 'run/app' },
-    { id: 'sdk', worktreePath: '.multi-code/wt/sdk', branchName: 'run/sdk' },
+    {
+      id: 'primary',
+      root: '.',
+      worktreePath: '.multi-code/wt/app',
+      branchName: 'run/main',
+      baseRef: 'main',
+      status: 'ready',
+      lastCommitSha: 'abc1234',
+    },
+    {
+      id: 'mobile',
+      root: '../multicode-mobile',
+      worktreePath: '.multi-code/wt/mobile',
+      branchName: 'run/main',
+      baseRef: 'main',
+      status: 'committed',
+      lastCommitSha: 'def5678',
+    },
   ]
   const projection = v3Projection({
     run: {
@@ -129,24 +146,71 @@ function testVcsReposPassThroughPreserved(): void {
   })
   const state = normalizeSprintEngineProjection(projection)
   assert.ok(state?.vcs, 'vcs parsed')
-  assert.deepEqual(state.vcs.repos, repos, 'repos preserved verbatim')
-  // Existing single-worktree fields still parse alongside the pass-through.
+  assert.deepEqual(state.vcs.repos, repos, 'declared repos round-trip with no field loss')
+  // The flat fields still parse alongside the list they duplicate.
   assert.equal(state.vcs.worktreePath, '.multi-code/wt/app')
   assert.equal(state.vcs.branchName, 'run/main')
 }
 
-function testVcsReposAbsentWhenNotProvided(): void {
+function testVcsFlatBlockReadsBackAsOneEntryRepoList(): void {
+  // AC2: a run stored before `vcs.repos` existed describes its one repo with the
+  // flat fields; readers only ever handle the list, so it derives entry zero.
   const projection = v3Projection({
     run: {
       name: 'Work Queue',
       goal: 'ship it',
       status: 'planning',
-      vcs: { mode: 'run_worktree', worktreePath: '.multi-code/wt/app', branchName: 'run/main' },
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/wt/app',
+        branchName: 'run/main',
+        baseRef: 'main',
+        status: 'ready',
+        lastCommitSha: 'abc1234',
+      },
     },
   })
   const state = normalizeSprintEngineProjection(projection)
   assert.ok(state?.vcs)
-  assert.equal(state.vcs.repos, undefined, 'no repos key synthesized when absent')
+  assert.deepEqual(
+    state.vcs.repos,
+    [
+      {
+        id: 'primary',
+        root: '.',
+        worktreePath: '.multi-code/wt/app',
+        branchName: 'run/main',
+        baseRef: 'main',
+        status: 'ready',
+        lastCommitSha: 'abc1234',
+      },
+    ],
+    'flat block reads back as the primary repo, values identical',
+  )
+}
+
+function testVcsReposUnresolvableEntriesDropped(): void {
+  // An entry with no tree to resolve would silently scope work to the wrong
+  // worktree; drop it and keep the repos that do resolve.
+  const projection = v3Projection({
+    run: {
+      name: 'Work Queue',
+      goal: 'ship it',
+      status: 'planning',
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/wt/app',
+        branchName: 'run/main',
+        repos: [
+          { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main' },
+          { id: 'broken', root: '../other', branchName: 'run/main' },
+        ],
+      },
+    },
+  })
+  const state = normalizeSprintEngineProjection(projection)
+  assert.ok(state?.vcs)
+  assert.deepEqual(state.vcs.repos.map((repo) => repo.id), ['primary'], 'entry with no worktreePath dropped')
 }
 
 testWorkersViewPopulatedFromProjectionWorkers()
@@ -154,6 +218,7 @@ testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()
 testBoardConsumersRenderUnchangedFromV3()
 testWorkersOrphanRolelessEntriesDropped()
-testVcsReposPassThroughPreserved()
-testVcsReposAbsentWhenNotProvided()
+testVcsReposRoundTripWithoutFieldLoss()
+testVcsFlatBlockReadsBackAsOneEntryRepoList()
+testVcsReposUnresolvableEntriesDropped()
 console.log('sprintengine state tests passed')

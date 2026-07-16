@@ -84,7 +84,12 @@ function pickOptions(overrides: Partial<Parameters<typeof pickNextAutoRuns>[2]> 
 
 function testResolveSessionCwdWorktreeMode(): void {
   const state = stateFixture({
-    vcs: { mode: 'run_worktree', worktreePath: '.multi-code/wt/run', branchName: 'run/main' },
+    vcs: {
+      mode: 'run_worktree',
+      worktreePath: '.multi-code/wt/run',
+      branchName: 'run/main',
+      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+    },
   })
   const cwd = resolveSprintEngineSessionCwd(state, 'T1')
   assert.equal(cwd.executionMode, 'worktree')

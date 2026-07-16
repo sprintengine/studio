@@ -560,8 +560,9 @@ function validateWorkspaceRoot(input: unknown): string {
 // The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
 // in sprintengine_core/store.py. v2 (MC-1542, single-owner tasks) deleted quality
 // gates and the `changes_requested`/`testing`/`product` statuses; v3 (MC-1591,
-// leases replace the roster) removed the persistent `agents` map from run.yaml.
-export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 3
+// leases replace the roster) removed the persistent `agents` map from run.yaml;
+// v4 (MC-1611, multi-repo runs) made `vcs.repos` the run's declared repo list.
+export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 4
 
 /**
  * Reject an out-of-date run store, returning a readable message (or null when the
@@ -589,9 +590,10 @@ export function describeUnsupportedSprintEngineStore(projection: unknown, teamDi
   if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
   return (
     `This sprint was created by an older version of Multicode (run store v${version}, ` +
-    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Leases replaced the roster ` +
-    `(and single-owner tasks replaced quality gates before that), so the run cannot be ` +
-    `opened. Delete "${teamDirectory}" and start the sprint again.`
+    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Sprints can now span more ` +
+    `than one project (and before that, leases replaced the roster and single-owner ` +
+    `tasks replaced quality gates), so the run cannot be opened. Delete ` +
+    `"${teamDirectory}" and start the sprint again.`
   )
 }
 

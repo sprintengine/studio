@@ -69,9 +69,11 @@ RUN_ROSTER_SOURCE_KEYS = ("rosterSource", "allowedRuntimes")
 # roles became routing + directive packs. v3 (MC-1591, leases replace the roster):
 # the persistent `agents` map is gone from run.yaml — assignment is a lease minted
 # on the task record and the projection derives its workers/roster view from tasks.
+# v4 (MC-1611, multi-repo runs): a run declares `sprintengine.vcs.repos` and every
+# task targets one entry of it; the dead `vcs.repoRoot` field is gone.
 # Pre-release clean break — an older store is REJECTED, never migrated
 # (`assert_store_is_current`); the remedy is deleting the team dir.
-RUN_SCHEMA_VERSION = 3
+RUN_SCHEMA_VERSION = 4
 
 # Post-implementation phase vocabulary. `review` is the only shipped phase; the
 # list shape is kept so a future phase slots in without a schema change.
@@ -217,8 +219,9 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     are never migrated. The remedy is deleting the team folder. Raising here — in
     the one function both `state_from_folder_store` and `build_projection` call —
     means the board, wizard, backlog links, and CLI all get the same readable
-    message instead of a silent crash or a blank board. v3 (MC-1591) is the
-    current break: leases replaced the `agents` map, so a v2 store cannot be read.
+    message instead of a silent crash or a blank board. v4 (MC-1611) is the
+    current break: a run now declares a list of repos, so a v3 store — whose one
+    repo is described by fields this build no longer writes — cannot be read.
     """
     try:
         version = int(run.get("schemaVersion") or 1)
@@ -229,7 +232,8 @@ def assert_store_is_current(run: dict[str, Any], team_dir: Path) -> None:
     raise RunStoreVersionError(
         f"Unsupported Sprint Engine run store (schemaVersion {version}, expected {RUN_SCHEMA_VERSION}). "
         "This pre-release store predates a breaking change (single-owner tasks, then "
-        "leases replacing the roster) and is never migrated. "
+        "leases replacing the roster, then sprints spanning more than one repository) "
+        "and is never migrated. "
         f"Delete `{team_dir}` and re-run the sprint."
     )
 
