@@ -370,9 +370,11 @@ export type SprintEngineSetAutomationModeCommand = MobileControlCommandBase<
  * `in_flight`). The desktop enforces that; the phone gates the affordance on the
  * same facts so it never draws a button guaranteed to fail.
  *
- * There is no cancel: no cancel primitive exists in the engine, and the nearest
- * thing (finalizing a run as failed) destroys the worktree and disposes the agent.
- * That is destruction, not cancellation, and it does not belong on a phone.
+ * There is no cancel for automation runs: no cancel primitive exists on that
+ * surface, and the nearest thing (finalizing a run as failed) destroys the
+ * worktree and disposes the agent — destruction, not cancellation. (Sprint runs
+ * gained a cancel op with MC-1604, but cancel is a desktop decision by design;
+ * the phone follows the snapshot.)
  */
 export type MobileControlAutomationAction = "enable" | "pause" | "runNow";
 

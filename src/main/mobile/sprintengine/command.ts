@@ -695,9 +695,11 @@ export class MobileSprintEngineCommandService {
   // the snapshot projection carries for exactly this purpose — but a phone acting
   // on a snapshot that has since gone stale must still be told the truth.
   //
-  // There is deliberately no cancel: no cancel primitive exists, and the nearest
-  // thing (finalizing a run as failed) tears down the worktree and disposes the
-  // agent. That is destruction, not cancellation, and it does not go on a phone.
+  // There is deliberately no cancel for AUTOMATION runs: no cancel primitive
+  // exists on that surface, and the nearest thing (finalizing a run as failed)
+  // tears down the worktree and disposes the agent — destruction, not
+  // cancellation. (Sprint runs DO have a cancel op since MC-1604, but that is a
+  // desktop decision by design; the phone follows the snapshot.)
   private async executeAutomationsControlCommand(
     command: Extract<MobileControlCommand, { type: 'automations.control' }>,
     scope: MobileSprintEngineCommandScope

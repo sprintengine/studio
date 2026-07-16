@@ -733,6 +733,13 @@ function toSprintEngineWorkspaceSnapshot(sprintEngine: MobileSprintEngineSnapsho
 }
 
 function sprintEngineWorkspaceStatus(sprintEngine: MobileSprintEngineSnapshot): MobileWorkspaceStatus {
+  // A canceled run must not read as `complete` (MC-1604: cancellation is a
+  // distinct terminal state and done-task residue is not completion). The v2
+  // wire's coarse status union has no `canceled` value and the wire stays v2
+  // by decision (MC-1594) — the run-level truth rides `runSummary.status`, so
+  // the card-level summary degrades to `unknown` rather than lying.
+  const runStatus = (sprintEngine.runSummary as Record<string, unknown> | undefined)?.status
+  if (runStatus === 'canceled') return 'unknown'
   if (sprintEngine.board.needsInput > 0) return 'needs_input'
   // A task in its `review` phase is still active work owned by its implementer
   // (MC-1542 single-owner tasks), so it counts as running alongside in-progress.
