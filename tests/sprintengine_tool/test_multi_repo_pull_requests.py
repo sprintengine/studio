@@ -271,6 +271,25 @@ def test_rerunning_pr_resyncs_bodies_without_duplicating_the_companion_section(t
         assert body.count("## Companion pull requests") == 1
 
 
+def test_a_merged_projects_pull_request_survives_a_resync(tmp_path, monkeypatch) -> None:
+    # Once a branch merges, its commits ARE its base — so the "no commits, no pull
+    # request" skip must not fire for a repo that already has one, or the companion
+    # it merged first would vanish from the body of the one still waiting to merge.
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    # The desktop branch really lands in its base, the way a merge leaves it.
+    _git(tmp_path / "ws", "merge", "--no-edit", "sprintengine/alpha")
+
+    resynced = shell.create_run_pull_request(state, fixture.state_path)
+
+    assert [entry.get("skipped") for entry in resynced["repos"]] == [None, None]
+    assert resynced["repos"][0]["alreadyExists"] is True
+    assert "https://github.com/acme/multicode/pull/1" in fake.bodies["https://github.com/acme/multicode-mobile/pull/9"]
+
+
 # --- merge state and cleanup, per project ------------------------------------
 
 

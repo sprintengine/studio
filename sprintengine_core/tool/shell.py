@@ -1161,7 +1161,13 @@ def create_run_pull_request(
             else:
                 results.append({"repo": repo["id"], "ok": False, "error": f"Sprint Engine worktree is missing: {repo['worktreePath']}"})
             continue
-        if not _repo_has_run_commits(worktree, str(repo.get("baseRef") or "").strip()):
+        # A repo that already has a pull request is never re-judged on its commits:
+        # once its branch merges, its commits ARE its base, and re-reading that as
+        # "nothing to deliver" would drop the pull request out of its companions'
+        # bodies on the next sync.
+        if not _optional_str(repo.get("pullRequestUrl")) and not _repo_has_run_commits(
+            worktree, str(repo.get("baseRef") or "").strip()
+        ):
             results.append({"repo": repo["id"], "ok": True, "skipped": "no_commits", "branch": repo["branchName"]})
             continue
         opened = _open_repo_pull_request(
