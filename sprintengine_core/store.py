@@ -173,8 +173,6 @@ def task_repo(task: dict[str, Any]) -> str:
     already stored, and a stored task must read back the same way whatever the
     run declares today.
     """
-    if not isinstance(task, dict):
-        return DEFAULT_TASK_REPO
     return str(task.get("repo") or "").strip() or DEFAULT_TASK_REPO
 
 

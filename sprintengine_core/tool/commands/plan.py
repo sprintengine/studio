@@ -31,6 +31,7 @@ from sprintengine_core.tool.state import (
     ensure_task_repo_declared,
     find_task,
     load_mutation_state,
+    task_lease,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -84,6 +85,14 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["repo"] = ensure_task_repo_declared(
                 state, args.repo, context=f"Task {task.get('id') or args.task_id}"
             )
+            lease = task_lease(task)
+            if lease is not None:
+                # A forced re-target of live work moves its lease too. The lease is
+                # what the owner's commit and diff evidence resolve through, so a
+                # lease left on the old tree would quietly keep sending the owner's
+                # work there. Only the repo moves: re-minting would refresh the
+                # heartbeat and hide a dead worker from the expiry sweep.
+                lease["repo"] = task["repo"]
 
         if args.clear_paths:
             task["ownedPaths"] = []
