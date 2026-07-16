@@ -383,13 +383,13 @@ export function sprintEngineInboxRowSupporting(
 
 export function sprintEngineInboxEmptyMessage(runPhase: string): string {
   if (runPhase === 'Running') {
-    return 'Run in flight. Artifacts will land here as workers finish tasks.'
+    return 'Run in flight. Artifacts will land here as agents finish tasks.'
   }
   if (runPhase === 'Complete') {
     return 'Run complete. No artifacts were produced.'
   }
   if (runPhase === 'Tasked') {
-    return 'Tasks queued. Handover and artifacts will appear once workers start.'
+    return 'Tasks queued. Handover and artifacts will appear once agents start.'
   }
-  return 'Inbox empty. The handover and any artifacts workers produce will appear here.'
+  return 'Inbox empty. The handover and any artifacts agents produce will appear here.'
 }

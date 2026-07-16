@@ -461,7 +461,7 @@ export function useSprintEngineBoardArtifactActions(
         await applyMutationResultProjection(result)
         setTaskInputAction(taskId, {
           status: 'success',
-          message: complete ? 'Resolved and marked complete.' : 'Response sent — worker resuming.',
+          message: complete ? 'Resolved and marked complete.' : 'Response sent — agent resuming.',
         })
         return true
       } catch (error) {

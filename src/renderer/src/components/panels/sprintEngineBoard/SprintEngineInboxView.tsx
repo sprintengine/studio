@@ -361,7 +361,7 @@ export function SprintEngineInboxView({
           message={
             inboxArtifacts.length > 0
               ? 'Pick an artifact on the left to review evidence, approve, or request changes.'
-              : 'Nothing is queued for review. New artifacts land here as workers finish and reviewers gate them.'
+              : 'Nothing is queued for review. New artifacts land here as agents finish and reviewers gate them.'
           }
         />
       )}

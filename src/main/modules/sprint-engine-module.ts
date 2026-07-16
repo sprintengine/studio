@@ -88,6 +88,7 @@ export const sprintEngineModule: CapabilityModule = {
       createPullRequest: artifacts.createPullRequest,
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
       setRoleRuntime: artifacts.setRoleRuntime,
+      enableRole: artifacts.enableRole,
       readProjection: artifacts.readProjection,
       readRegistryRoles: artifacts.readRegistryRoles,
       readRegistryRole: artifacts.readRegistryRole,

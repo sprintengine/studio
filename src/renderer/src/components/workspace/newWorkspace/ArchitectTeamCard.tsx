@@ -40,7 +40,7 @@ export function ArchitectTeamCard({
     <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)]">
       <ArchRow label="Architect runs on" hint={seatDefaultedFromCatalog ? 'defaulted from your catalog’s highest Intelligence score' : 'runs this planning session'}>
         <CliModelPickerButton
-          ariaLabel="Architect seat runtime"
+          ariaLabel="Architect runtime"
           options={cliOptions}
           cli={seat.cli}
           effectiveModelFor={(candidateCli) => (candidateCli === seat.cli ? seat.model ?? undefined : undefined)}

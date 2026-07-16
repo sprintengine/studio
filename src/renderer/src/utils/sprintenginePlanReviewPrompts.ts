@@ -42,40 +42,19 @@ export type SprintEngineRosterRevisionPromptInput = {
   registry?: SprintEngineRoleRegistry | null
 }
 
-export function buildSprintEngineRosterRevisionPrompt(
-  input: SprintEngineRosterRevisionPromptInput,
-): string {
-  const { role, agentId, teamSlug, registry } = input
-  const label = getSprintEngineRoleLabel(role, registry ?? null)
-  return [
-    'Revise this sprint plan for a newly added roster member.',
-    `Team: \`${teamSlug}\``,
-    `New roster member: ${label} (\`${role}\`) with agent id \`${agentId}\`.`,
-    '',
-    'First add the member to the canonical sprint roster:',
-    '',
-    '```shell',
-    `sprintengine roster add --role ${role} --id ${agentId} --actor architect`,
-    '```',
-    '',
-    'Then inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
-    '',
-    'Do not implement work yourself. Do not create tasks for unrelated roles. Do not edit sprint run-store files directly.',
-  ].join('\n')
-}
-
-// Variant for the app-owned add-member path: the operator spawned a new worker
-// on a board-minted id (MC-1591 leases), so the architect is asked only to
-// review whether the plan needs revision for the new specialist.
+// The app-owned add-agent path: the user enabled the role for the run (the
+// board wrote configuredRoles via `roster enable`) and spawned a worker on a
+// board-minted id (MC-1591 leases), so the architect is asked only to review
+// whether the plan needs revision for the new specialist.
 export function buildSprintEnginePlanRevisionForNewMemberPrompt(
   input: SprintEngineRosterRevisionPromptInput,
 ): string {
   const { role, agentId, teamSlug, registry } = input
   const label = getSprintEngineRoleLabel(role, registry ?? null)
   return [
-    'A new roster member was just added to this sprint run; review whether the plan needs revision for them.',
+    'The user just enabled a new role for this sprint run; review whether the plan needs revision for it.',
     `Team: \`${teamSlug}\``,
-    `New roster member: ${label} (\`${role}\`) with agent id \`${agentId}\` — already on the canonical roster; do not add them again.`,
+    `New role: ${label} (\`${role}\`), with agent id \`${agentId}\` starting now. The role is already enabled in the run's configuredRoles — nothing to configure.`,
     '',
     'Inspect the current plan, task graph, completed evidence, and open risks. If this new specialist should do work, add only the needed task cards with normal `Sprint Engine plan add-task` commands and correct dependencies. If no task is needed, record a concise rationale in the architect terminal and stop.',
     '',

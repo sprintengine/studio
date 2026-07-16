@@ -4987,7 +4987,8 @@ function testGeneralStartupPromptIsMcpNative(): void {
   assert.ok(/test/iu.test(prompt), 'general startup prompt drives testing')
   assert.ok(/publish/iu.test(prompt), 'general startup prompt drives publishing')
   assert.ok(prompt.includes('you are the planner'), 'general becomes the planner when the run has no task graph')
-  assert.ok(/never add roster members/iu.test(prompt), 'general startup prompt forbids growing the roster')
+  assert.ok(/roles are user config/iu.test(prompt), 'general startup prompt routes role wishes to needs_input, never self-service growth')
+  assert.ok(/needs_input/u.test(prompt), 'general startup prompt names the needs_input escalation path')
   // Same no-statePath/workspaceRoot routing invariant as every other startup prompt.
   assert.ok(!prompt.includes('"statePath"'), 'general startup prompt must not embed statePath in the MCP payload')
   assert.ok(!prompt.includes('"workspaceRoot"'), 'general startup prompt must not embed workspaceRoot in the MCP payload')

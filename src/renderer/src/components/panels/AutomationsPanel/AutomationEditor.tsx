@@ -589,7 +589,7 @@ export function AutomationEditor({
                     </div>
                   </div>
                 </div>
-                <span className="text-[11px] text-[color:var(--text-subtle)]">Same roster, runtimes, and permission presets as the spawn menu.</span>
+                <span className="text-[11px] text-[color:var(--text-subtle)]">Same team, runtimes, and permission presets as the spawn menu.</span>
               </div>
             ) : null}
 

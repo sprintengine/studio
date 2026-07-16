@@ -132,15 +132,15 @@ export function buildSprintEngineStartupPrompt(
   ].join('\n')
 
   // Belt-and-braces with the orchestration skill the General reads from the
-  // join response: reinforce the full loop and the no-roster-growth rule so the
-  // single agent drives plan → build → review → publish itself.
+  // join response: reinforce the full loop and the roles-are-user-config rule
+  // so the single agent drives plan → build → review → publish itself.
   const generalLoopBlock = isGeneral
     ? [
       '## General Orchestration',
       'You are a General: a plain agent in a pool that shares one task graph. With no architect and no specialists, the pool plans the work, implements it, reviews it, tests it, and publishes it. You take work by claiming tasks — no central coordinator assigns anything, and when several Generals run the same loop runs in parallel over the shared graph.',
       'Drive every piece of work through the same loop, in order: plan → build → publish → self-review → advance. You own a task from claim to done: carry each one through to done before claiming new ready work.',
       'When the run has no task graph yet, you are the planner: author the tasks, plan validation where testing is actually meaningful (one whole-flow task at the end, or one per milestone), self-approve the plan artifact, then implement. Multicode owns run initialization — you never initialize the run yourself.',
-      'Keep the team exactly the size the user set: never add roster members or specialists. Read your full role rules from the `sprintengine.agent.join` response.',
+      'The run\'s roles are user config: if work seems to need a role the run does not have, raise it with `needs_input` and let the user decide — never invent or enable roles yourself. Read your full role rules from the `sprintengine.agent.join` response.',
     ].join('\n')
     : null
 

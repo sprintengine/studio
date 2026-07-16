@@ -21,12 +21,12 @@ export const sprintEngineAutomationModeOptions: Array<{
   {
     value: 'run_agents',
     label: sprintEngineAutomationModeLabel('run_agents'),
-    hint: 'Spawn and monitor roster agents while artifact approvals stay manual.',
+    hint: 'Spawn and monitor sprint agents while artifact approvals stay manual.',
   },
   {
     value: 'run_agents_and_approve_artifacts',
     label: sprintEngineAutomationModeLabel('run_agents_and_approve_artifacts'),
-    hint: 'Run roster agents and approve eligible review artifacts automatically.',
+    hint: 'Run sprint agents and approve eligible review artifacts automatically.',
   },
 ]
 

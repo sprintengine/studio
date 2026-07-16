@@ -156,7 +156,7 @@ export default function GuidedBriefWorkspacePanel({ workspaceId }: Props) {
       })
     } catch (error) {
       if (error instanceof PlanSourcedSprintEngineWorkspaceError && error.code === 'team-exists') {
-        throw new Error('A sprint roster with this name already exists.')
+        throw new Error('A sprint with this name already exists.')
       }
       throw error instanceof Error ? error : new Error('Could not create the sprint workspace.')
     }

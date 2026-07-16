@@ -26,7 +26,7 @@ const expectedTemplates: Record<string, LayoutTemplate> = {
   sprintengine: {
     id: 'sprintengine-mode',
     name: 'Sprint',
-    description: 'Inbox, Roster, and Tasks together in one stable board.',
+    description: 'Inbox, Agents, and Tasks together in one stable board.',
     previewSlots: [
       { label: 'Sprint', x: 4, y: 4, w: 292, h: 102, type: 'editor' },
     ],
@@ -190,7 +190,7 @@ assert.deepEqual(
       id: 'sprintengine',
       moduleId: 'sprint-engine',
       label: 'Sprint',
-      description: 'Specialist roster, architect plan, kanban, and evidence trail.',
+      description: 'Specialist team, architect plan, kanban, and evidence trail.',
       accentToken: '--tool-sprintengine',
       creationStepsId: 'sprintengine',
     },

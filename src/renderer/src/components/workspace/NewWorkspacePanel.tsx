@@ -4795,7 +4795,7 @@ function planSourcedErrorMessage(error: SprintEnginePlanSourcedError): string {
     case 'plan-not-on-disk':
       return 'Selected source file is not available.'
     case 'team-exists':
-      return 'A sprint roster with this name already exists.'
+      return 'A sprint with this name already exists.'
     case 'unknown':
       return error.message && error.message !== error.code
         ? error.message
@@ -4808,7 +4808,7 @@ function newTeamCreationErrorMessage(error: SprintEngineNewTeamCreationError): s
     case 'missing-folder':
       return 'Pick a folder before creating the sprint workspace.'
     case 'team-exists':
-      return 'A sprint roster with this name already exists.'
+      return 'A sprint with this name already exists.'
     case 'init-failed':
       return error.message && error.message !== error.code
         ? error.message
@@ -4838,7 +4838,7 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
         ? error.message
         : 'Advanced setup could not be applied. No workspace was created.'
     case 'team-exists':
-      return 'A sprint roster with this name already exists.'
+      return 'A sprint with this name already exists.'
     case 'unknown':
       return error.message && error.message !== error.code
         ? error.message

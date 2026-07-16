@@ -218,9 +218,9 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
   },
   {
     id: 'sprintengine.roster-before-gates',
-    title: 'Check the roster before requesting gates',
+    title: 'Check the team before requesting gates',
     summary: 'A missing role can turn review or testing into an unclaimable queue.',
-    body: 'Open the Roster view before requesting plan reviews or adding quality gates. Sprint Engine preserves custom gate ids, but each required phase still needs a matching enabled role to claim the work.',
+    body: 'Open the Agents view before requesting plan reviews or adding quality gates. Sprint Engine preserves custom gate ids, but each required phase still needs a matching enabled role to claim the work.',
     category: 'sprintengine',
     difficulty: 'advanced',
     showWhen: [{ kind: 'workspace-mode', value: 'sprintengine' }],

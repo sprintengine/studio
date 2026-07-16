@@ -172,5 +172,52 @@ def cmd_roster_runtime(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_roster_enable(args: argparse.Namespace) -> Dict[str, Any]:
+    """Operator enables one more role for the run mid-flight (board "Add a role").
+
+    Like `roster runtime`, this is the app-owned, user-driven surface
+    (--actor ui): `configuredRoles` is user config, so the user's own board
+    action is the sanctioned writer — deliberately NOT exposed on the MCP
+    capability surface, and not subject to the architect-mode rosterSource /
+    plan-approval-lock / allowedRuntimes guards (the palette constrains the
+    architect, never the operator). Additive only: the union with the existing
+    set never drops a role (unlike roster.configure, whose payload REPLACES the
+    set). A run with no configuredRoles is legacy/unconstrained — every role is
+    already legal there, so no list is written (writing one would suddenly
+    constrain the run). Optional --cli/--model seed the role's runtime in the
+    same write so the pool supervisor can resolve spawns immediately.
+    """
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        role = require_configured_role(str(args.role or ""), context="roster enable")
+        configured = configured_role_set(state)
+        already_enabled = configured is None or role in configured
+        if not already_enabled:
+            union = [str(item) for item in (state.get("configuredRoles") or [])]
+            union.append(role)
+            apply_configured_roles(state, json.dumps(union))
+        cli = str(getattr(args, "cli", None) or "").strip()
+        raw_model = getattr(args, "model", None)
+        model: Optional[str] = str(raw_model).strip() or None if raw_model is not None else None
+        if cli:
+            apply_role_runtimes(state, json.dumps({role: {"cli": cli, "model": model}}))
+        actor = str(getattr(args, "actor", None) or "user").strip() or "user"
+        append_event(
+            state,
+            "role_enabled",
+            actor,
+            f"{actor} enabled the {role} role for this run.",
+            {"role": role, "alreadyEnabled": already_enabled, "cli": cli or None, "model": model},
+        )
+        return {
+            "ok": True,
+            "role": role,
+            "alreadyEnabled": already_enabled,
+            "configuredRoles": list(state.get("configuredRoles") or []),
+        }
+
+    return with_locked_state(args.state, run)
+
+
 configure = cmd_roster_configure
 runtime = cmd_roster_runtime
+enable = cmd_roster_enable

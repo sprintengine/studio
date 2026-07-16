@@ -14,6 +14,7 @@ import type {
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
+  SprintEngineRosterEnableInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -94,6 +95,10 @@ export const sprintEngineApi = {
     input: SprintEngineRosterRuntimeInput
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:roster:runtime', input),
+  enableSprintEngineRole: (
+    input: SprintEngineRosterEnableInput
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:roster:enable', input),
   readSprintEngineProjection: (
     statePath: string,
     knownToken?: string
@@ -200,6 +205,7 @@ export const sprintEngineApi = {
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
   | 'setSprintEngineRoleRuntime'
+  | 'enableSprintEngineRole'
   | 'readSprintEngineProjection'
   | 'readSprintEngineRegistryRoles'
   | 'readSprintEngineRegistryRole'

@@ -6,6 +6,7 @@ import type {
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
+  SprintEngineRosterEnableInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineTaskCommentInput,
@@ -59,6 +60,7 @@ type SprintEngineIpcDependencies = {
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
+  enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
@@ -128,6 +130,10 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:roster:runtime', async (_, payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult> => {
     return deps.setRoleRuntime(payload)
+  })
+
+  ipcMain.handle('sprintengine:roster:enable', async (_, payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.enableRole(payload)
   })
 
   ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {

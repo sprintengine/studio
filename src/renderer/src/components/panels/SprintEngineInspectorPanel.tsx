@@ -1103,7 +1103,7 @@ function TaskInputResponsePrompt({
       ) : null}
       <div className="mt-3">
         <label htmlFor={replyFieldId} className="sr-only">
-          Reply to the worker
+          Reply to the agent
         </label>
         <textarea
           id={replyFieldId}
@@ -1112,7 +1112,7 @@ function TaskInputResponsePrompt({
           onKeyDown={handleKeyDown}
           disabled={pending}
           rows={3}
-          placeholder="Reply to the worker… (Enter to send, Shift+Enter for a new line)"
+          placeholder="Reply to the agent… (Enter to send, Shift+Enter for a new line)"
           className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
         />
       </div>

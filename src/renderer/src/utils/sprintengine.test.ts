@@ -67,8 +67,8 @@ import {
 import {
   buildSprintEngineAddressPlanReviewsPrompt,
   buildSprintEnginePlanReviewStartupPrompt,
+  buildSprintEnginePlanRevisionForNewMemberPrompt,
   buildSprintEngineRecoveryAuditPrompt,
-  buildSprintEngineRosterRevisionPrompt,
 } from './sprintenginePlanReviewPrompts'
 import type { AgentCli, SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineRosterSession, SprintEngineState, SprintEngineTask } from '../types/workspace'
 
@@ -1741,19 +1741,19 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(prompt.includes('workspaceRoot'), false)
 }
 
-// Roster revision prompt: bundled label and registry label both flow.
+// Plan-revision prompt for a user-enabled role: bundled label and registry
+// label both flow, and no deleted roster-membership tool is ever named (the
+// role is enabled via the app-owned `roster enable` before the prompt fires).
 {
-  const bundled = buildSprintEngineRosterRevisionPrompt({
+  const bundled = buildSprintEnginePlanRevisionForNewMemberPrompt({
     role: 'frontend',
     agentId: 'frontend-1',
     teamSlug: 'team-x',
   })
   assert.ok(bundled.includes('Frontend Engineer'), 'bundled role label used')
   assert.ok(bundled.includes('team-x'), 'team slug interpolated')
-  assert.ok(
-    bundled.includes('sprintengine roster add --role frontend --id frontend-1 --actor architect'),
-    'roster-add command embeds role, id, architect actor',
-  )
+  assert.ok(bundled.includes('configuredRoles'), 'prompt states the role is already enabled')
+  assert.equal(bundled.includes('roster add'), false, 'deleted roster-membership tool never named')
   assert.equal(bundled.includes('statePath'), false)
   assert.equal(bundled.includes('workspaceRoot'), false)
 
@@ -1762,7 +1762,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
       { id: 'marketer', label: 'Brand Marketer', aliases: [], source: { layer: 'workspace' } },
     ],
   })
-  const custom = buildSprintEngineRosterRevisionPrompt({
+  const custom = buildSprintEnginePlanRevisionForNewMemberPrompt({
     role: 'marketer',
     agentId: 'marketer-1',
     teamSlug: 'team-y',

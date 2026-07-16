@@ -351,7 +351,7 @@ const agentBlockMarkup = renderToStaticMarkup(
 assert.match(agentBlockMarkup, /General agent/, 'the agent block defaults to General agent (no specialist) in the picker trigger')
 assert.match(agentBlockMarkup, /No soul/, 'the General trigger row carries its description')
 assert.match(agentBlockMarkup, /Runtime/, 'the runtime row reuses CliModelPickerButton')
-assert.match(agentBlockMarkup, /Same roster, runtimes, and permission presets/, 'help text names the reused picker')
+assert.match(agentBlockMarkup, /Same team, runtimes, and permission presets/, 'help text names the reused picker')
 // The runtime row carries the interactive Default/Auto/Bypass chip group (the
 // shared PermissionPresetChips), not a read-only summary — permissions must be
 // settable without opening the picker popover.

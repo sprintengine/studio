@@ -1806,6 +1806,16 @@ export type SprintEngineRosterRuntimeInput = {
   model?: string | null
 }
 
+export type SprintEngineRosterEnableInput = {
+  statePath: string
+  /** Registry role id; the CLI canonicalizes it and rejects unknown roles. */
+  role: string
+  /** Optional CLI id to seed the role's runtime in the same write. */
+  cli?: string | null
+  /** Model id; only meaningful with `cli`. */
+  model?: string | null
+}
+
 export type MultiloopInitInput = {
   workspaceRoot: string
   loopName: string
@@ -2554,6 +2564,7 @@ export type ElectronApi = {
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
+  enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>
   readSprintEngineProjection: (statePath: string, knownToken?: string) => Promise<SprintEngineProjectionReadResult>
   readSprintEngineRegistryRoles: (input: SprintEngineRegistryRolesReadInput) => Promise<SprintEngineMcpReadResult>
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>

@@ -240,6 +240,30 @@ sprintengine roster runtime --role developer --cli claude-code --model claude-ha
 - Applies to every future spawn and claim of the role; live sessions keep the
   runtime they launched with until they next start.
 
+### Operator role enablement (`roster enable`, MC-1593)
+
+The **operator** (never an agent) can enable one more role for the run at any
+point, including after plan approval — this is the app-owned path behind the
+board's "Add a role" control on the Agents tab:
+
+```bash
+sprintengine roster enable --role tester --cli claude-code --actor ui
+```
+
+- **Additive only**: the role is unioned into `configuredRoles`; unlike
+  `roster configure`, the existing set is never replaced or reduced.
+- Optional `--cli`/`--model` seed the role's runtime in the same locked write
+  (a plain `roleRuntimes` merge, same semantics as `roster runtime`).
+- Appends a `role_enabled` event; re-enabling an already-enabled role is a
+  no-op reported as `alreadyEnabled: true`.
+- A run with **no** `configuredRoles` (legacy/unconstrained) already admits
+  every role, so no list is written — writing one would suddenly constrain
+  the run.
+- Like `roster runtime`, deliberately **not** an MCP tool and **not** subject
+  to the architect-mode guards: roles are user config, so the user's own board
+  action is the sanctioned writer. Agents route roster wishes through
+  `needs_input(user)`.
+
 ## Run Phases (`--default-phases-json`)
 
 `sprintengine init --default-phases-json '<json>'` writes the run's top-level

@@ -1524,6 +1524,25 @@ function SprintEngineBoardPanelContent({
  setAddMemberBusy(true)
  setAddMemberError(null)
  try {
+ // A role the run does not yet configure must be enabled in the engine
+ // first: configuredRoles is the run's whole legal role set, and join /
+ // plan.add_task / roster runtime all hard-reject a non-configured role.
+ // The user's own board action is the sanctioned writer (`roster enable`,
+ // additive, --actor ui) — agents never grow the set themselves.
+ const configuredRoles = sprintEngineState.configuredRoles ?? []
+ const roleNeedsEnable = configuredRoles.length > 0 && !configuredRoles.includes(role)
+ if (roleNeedsEnable) {
+ const enabled = await window.api.enableSprintEngineRole({
+ statePath: sprintEngineContext.statePath,
+ role,
+ cli: memberCli,
+ model: addMemberModel ?? null,
+ })
+ if (!enabled.ok) {
+ setAddMemberError(enabled.message || `The ${role} role could not be enabled for this run.`)
+ return
+ }
+ }
  // MC-1591 leases: there is no roster to register into — the engine binds
  // the worker to its task at claim. Spawn on the minted id directly; the
  // pending-spawn effect starts the terminal without waiting for a

@@ -196,6 +196,7 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
 Roster commands (run-config only; MC-1591 removed membership add/retire/replenish/list — leases replace the roster):
   sprintengine roster configure --id architect --roles-json '[{"role":"developer","cli":"claude-code","model":"claude-opus-4-8"}]'
   sprintengine roster runtime --role developer --cli claude-code --model claude-haiku-4-5 --actor ui
+  sprintengine roster enable --role tester --cli claude-code --actor ui
 
 Registry inspection commands:
   sprintengine roles list
@@ -500,6 +501,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="Model id; omit for the CLI's default model (launches with no --model flag).")
     p.add_argument("--actor", default="user")
     p.set_defaults(handler=roster_commands.runtime)
+
+    p = roster_sub.add_parser("enable", help="Operator: enable one more role for the run mid-flight (additive union into configuredRoles). App-owned (--actor ui), not an agent tool; agents route roster wishes through needs_input(user).")
+    p.add_argument("--role", required=True)
+    p.add_argument("--cli", help="Optional CLI id to seed the role's runtime in the same write.")
+    p.add_argument("--model", help="Model id; only meaningful with --cli.")
+    p.add_argument("--actor", default="user")
+    p.set_defaults(handler=roster_commands.enable)
 
     # join
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")

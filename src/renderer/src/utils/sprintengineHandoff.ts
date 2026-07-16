@@ -37,7 +37,7 @@ function jsonBlock(payload: Record<string, unknown>): string {
 const referencedArchitectPlanGuidance = [
   'Source plan type: implementation plan, referenced in place. The referenced backlog file is the canonical plan — it is not copied, and `sprintengine.init` does not seed plan.md from it.',
   'As the architect: read the referenced plan, verify it against the current codebase, and update stale or incomplete plan content in that backlog file itself (in worktree-mode runs, edit the worktree copy so updates ride the pull request).',
-  'Then write `plan.md` as a thin manifest: the source plan referenced by project-root-relative path with a verification note, plus only run-scoped additions (current-codebase index, cross-cutting decisions, risks, roster adaptation, task-graph summary). Do not re-author valid plan prose into plan.md. Then create the full task graph.',
+  'Then write `plan.md` as a thin manifest: the source plan referenced by project-root-relative path with a verification note, plus only run-scoped additions (current-codebase index, cross-cutting decisions, risks, role adaptation, task-graph summary). Do not re-author valid plan prose into plan.md. Then create the full task graph.',
 ].join('\n\n')
 
 function sourceTypeGuidance(
@@ -61,7 +61,7 @@ function sourceTypeGuidance(
         return 'Source bundle type: HTML mockup. `sprintengine.init` should route the source to product and architect review as context. The reviewers should use it to clarify intent with the user, then create product requirements and an implementation plan before execution.'
       }
       if (kind === 'product_plan') {
-        return 'Source bundle type: product plan. `sprintengine.init` should seed product-requirements.md for review. A rostered product strategist should review and update it instead of recreating the same product plan.'
+        return 'Source bundle type: product plan. `sprintengine.init` should seed product-requirements.md for review. A product strategist enabled on the run should review and update it instead of recreating the same product plan.'
       }
       if (kind === 'architect_plan') {
         if (reference) return referencedArchitectPlanGuidance
@@ -75,13 +75,13 @@ function sourceTypeGuidance(
       }
     }
     if (kinds.includes('product_plan') || kinds.includes('architect_plan')) {
-      return 'Source bundle type: mixed sources. `sprintengine.init` should seed canonical files from product and implementation plan sources when present, preserve source edits on rerun, and route review work to rostered specialists before execution planning continues.'
+      return 'Source bundle type: mixed sources. `sprintengine.init` should seed canonical files from product and implementation plan sources when present, preserve source edits on rerun, and route review work to the enabled specialist roles before execution planning continues.'
     }
     return 'Source bundle type: mixed context sources. `sprintengine.init` should route the sources to product and architect review as mockup, design, and context input. Reviewers should clarify intent with the user before turning it into requirements, an implementation plan, and task cards.'
   }
 
   if (sourcePlanKind === 'product_plan') {
-    return 'Source plan type: product plan. `sprintengine.init` should seed product-requirements.md for review. A rostered product strategist should review and update it instead of recreating the same product plan.'
+    return 'Source plan type: product plan. `sprintengine.init` should seed product-requirements.md for review. A product strategist enabled on the run should review and update it instead of recreating the same product plan.'
   }
   if (sourcePlanKind === 'architect_plan') {
     if (reference) return referencedArchitectPlanGuidance

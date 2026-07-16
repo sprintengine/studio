@@ -9,6 +9,7 @@ import type {
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
+  SprintEngineRosterEnableInput,
   SprintEngineRunnerSetInput,
   SprintEngineStateInitializeInput,
   SprintEngineStateInitializeSource,
@@ -990,6 +991,7 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
   createPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   refreshPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   setRoleRuntime(payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult>
+  enableRole(payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult>
   readProjection(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult>
   readRegistryRoles(payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult>
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
@@ -1517,6 +1519,52 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
           ok: true,
           data: await buildSprintEngineMutationData(state, {
             action: 'roster-runtime',
+            role,
+            tool,
+          }),
+        }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
+    async enableRole(payload) {
+      try {
+        const state = validateSprintEngineStatePath(payload?.statePath)
+        const role = resolveSprintEngineRosterRole(payload?.role)
+        const args = [
+          '--state',
+          state.statePath,
+          'roster',
+          'enable',
+          '--role',
+          role,
+          '--actor',
+          'ui',
+        ]
+        const cli = typeof payload?.cli === 'string' ? payload.cli.trim() : ''
+        if (cli) {
+          args.push('--cli', cli)
+          const model = typeof payload?.model === 'string' ? payload.model.trim() : ''
+          if (model) {
+            args.push('--model', model)
+          }
+        }
+        const toolResult = await runSprintEngineCli(state, args)
+        if (toolResult.exitCode !== 0) {
+          return {
+            ok: false,
+            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'The sprintengine roster command failed.',
+            stdout: toolResult.stdout,
+            stderr: toolResult.stderr,
+            exitCode: toolResult.exitCode ?? 'unknown',
+          }
+        }
+        const tool = parseSprintEngineCliJsonOutput(toolResult.stdout)
+        return {
+          ok: true,
+          data: await buildSprintEngineMutationData(state, {
+            action: 'roster-enable',
             role,
             tool,
           }),

@@ -60,7 +60,7 @@ export function createSprintEngineTemplate(_config: SprintEngineMockConfig): Lay
   return {
     id: 'sprintengine-mode',
     name: 'Sprint',
-    description: 'Inbox, Roster, and Tasks together in one stable board.',
+    description: 'Inbox, Agents, and Tasks together in one stable board.',
     previewSlots: [
       editor('Sprint', 4, 4, 292, 102),
     ],
@@ -99,7 +99,7 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
   host.registerWorkspaceType({
     id: 'sprintengine',
     label: 'Sprint',
-    description: 'Specialist roster, architect plan, kanban, and evidence trail.',
+    description: 'Specialist team, architect plan, kanban, and evidence trail.',
     icon: SprintEngineWorkspaceTypeIcon,
     accentToken: '--tool-sprintengine',
     searchTerms: ['sprint engine', 'sprintengine', 'roster', 'kanban', 'evidence'],
