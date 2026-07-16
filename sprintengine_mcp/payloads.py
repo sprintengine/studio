@@ -43,7 +43,7 @@ def command_payload_to_namespace(
     elif tool_name == "sprintengine.triage.needs_input":
         base.update(id=payload["id"])
     elif tool_name == "sprintengine.task.next":
-        base.update(role=payload["role"], id=payload["id"])
+        base.update(role=payload["role"], id=payload["id"], repo=payload.get("repo"))
     elif tool_name == "sprintengine.task.claim":
         base.update(task_id=payload["taskId"], id=payload["id"])
     elif tool_name == "sprintengine.task.status":

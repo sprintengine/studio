@@ -14,6 +14,7 @@
  * objects remain assignable). Pure with respect to side effects: no
  * `window.api`, React, or store access may be added here.
  */
+import { DEFAULT_SPRINTENGINE_TASK_REPO } from './run-types'
 import type {
   AgentId,
   SprintEngineAllowedRuntime,
@@ -38,6 +39,7 @@ import {
   sprintEngineAutoApprovalBlockingSiblingsAllReviewable,
 } from './state'
 import { isSprintEnginePlanningRole } from './initial-spawns'
+import { pathJoin, samePath } from '../paths'
 
 /**
  * Injectable perf-log seam. This module is shared with the main process, so it
@@ -98,33 +100,123 @@ export type SprintEngineSessionCwd = {
 }
 
 /**
- * MC-1615 single cwd choke point. THE one reader of `vcs.worktreePath` in the
- * TS spawn path — every sprint session cwd resolves through here, so a caller
- * never dereferences the vcs seam directly. Today the run has one shared
- * worktree, so `_taskOrRepoId` is unused; it stays in the signature as the
- * routing key multi-repo sprints (MC-1610) key on to select a per-repo
- * worktree, swapping this body without touching a single caller.
+ * The repo a routing key names when nothing says otherwise: the run's primary
+ * repo. A single-repo run's every task reads this, so its keys and cwds are
+ * exactly what they were before repo joined the key (MC-1610).
  */
-export function resolveSprintEngineSessionCwd(
-  state: Pick<SprintEngineState, 'vcs'>,
-  _taskOrRepoId: string | null | undefined
-): SprintEngineSessionCwd {
-  const vcs = state.vcs
-  if (vcs?.mode === 'run_worktree' && vcs.worktreePath) {
-    return { executionMode: 'worktree', worktreeRelativePath: vcs.worktreePath }
-  }
-  return { executionMode: 'current_workspace' }
+export function sprintEngineSessionRepoId(repo: string | null | undefined): string {
+  return repo?.trim() || DEFAULT_SPRINTENGINE_TASK_REPO
 }
 
 /**
- * MC-1615 demand grouping key. The reconciler groups ready work by this key to
- * compute per-group session demand; today one key per role, so pooling is
- * per-role. Kept a function (not an inline `task.role`) so (role, repo) —
- * multi-repo sprints, MC-1610 — becomes a one-line body change rather than a
- * reconciler redesign.
+ * Which declared repo a routing key refers to. Accepts either a task id (what
+ * the spawn path carries) or a repo id directly; a task id wins, because a
+ * task's `repo` is the authority on the tree its session must work in. An
+ * unknown value resolves to the primary repo rather than guessing a sibling —
+ * landing a session in the wrong tree is worse than landing it in the default
+ * one, which is where every single-repo session already goes.
  */
-export function sprintEngineDemandKey(task: Pick<SprintEngineTask, 'role'>): string {
-  return task.role
+function repoIdForRouting(
+  state: Pick<SprintEngineState, 'vcs' | 'tasks'>,
+  taskOrRepoId: string | null | undefined
+): string {
+  const value = taskOrRepoId?.trim()
+  if (!value) return DEFAULT_SPRINTENGINE_TASK_REPO
+  const task = state.tasks?.find((candidate) => candidate.id === value)
+  if (task) return sprintEngineSessionRepoId(task.repo)
+  const declared = state.vcs?.repos?.some((repo) => repo.id === value)
+  return declared ? value : DEFAULT_SPRINTENGINE_TASK_REPO
+}
+
+/**
+ * MC-1615 single cwd choke point. THE one reader of the vcs worktree paths in
+ * the TS spawn path — every sprint session cwd resolves through here, so a
+ * caller never dereferences the vcs seam directly.
+ *
+ * Multi-repo (MC-1610): `taskOrRepoId` selects WHICH declared repo's worktree
+ * the session opens in, so a task targeting the mobile repo spawns its session
+ * in the mobile worktree. A run declaring one repo has a one-entry `repos` list
+ * whose worktree is the flat `worktreePath`, so its sessions resolve exactly
+ * where they did before. A declared repo missing its own worktree path falls
+ * back to the primary's — the run's worktree is the one tree we know exists.
+ */
+export function resolveSprintEngineSessionCwd(
+  state: Pick<SprintEngineState, 'vcs' | 'tasks'>,
+  taskOrRepoId: string | null | undefined
+): SprintEngineSessionCwd {
+  const vcs = state.vcs
+  if (vcs?.mode !== 'run_worktree') return { executionMode: 'current_workspace' }
+  const repoId = repoIdForRouting(state, taskOrRepoId)
+  const worktreePath = vcs.repos?.find((repo) => repo.id === repoId)?.worktreePath || vcs.worktreePath
+  if (!worktreePath) return { executionMode: 'current_workspace' }
+  return { executionMode: 'worktree', worktreeRelativePath: worktreePath }
+}
+
+/**
+ * The declared repo a live session is working in, recovered from the cwd it was
+ * spawned into (`resolveSprintEngineSessionCwd`, joined onto the workspace
+ * folder). The inverse of that resolver, and the only repo signal a booting
+ * session has: the engine binds no runtime record — and therefore no lease and
+ * no repo — until the session's first claim.
+ *
+ * Null when the session is not in any declared repo's worktree (a
+ * non-worktree run, or a terminal opened in the main checkout), which reads as
+ * "no repo evidence", never as the primary repo.
+ */
+export function sprintEngineRepoIdForSessionCwd(
+  state: Pick<SprintEngineState, 'vcs'>,
+  workspaceFolderPath: string | null | undefined,
+  sessionCwd: string | null | undefined
+): string | null {
+  const vcs = state.vcs
+  if (!vcs?.repos?.length || !sessionCwd || !workspaceFolderPath) return null
+  for (const repo of vcs.repos) {
+    if (!repo.worktreePath) continue
+    if (samePath(pathJoin(workspaceFolderPath, repo.worktreePath), sessionCwd)) return repo.id
+  }
+  return null
+}
+
+/**
+ * The declared repo a worker is working in (MC-1610) — the tree its live session
+ * sits in, and therefore the only tree it can claim from.
+ *
+ * Read from the lease the engine minted at claim; a worker between tasks holds
+ * no lease, so it falls back to the repo of the task it is on or last owned,
+ * which is what its session's cwd was resolved from. A worker that has never
+ * owned anything has no session yet either, so the primary default is only ever
+ * reached by a run with one repo — where it is the right answer.
+ */
+export function sprintEngineWorkerRepoId(
+  sprintEngineState: Pick<SprintEngineState, 'workers' | 'sprintEngineAgents' | 'tasks'>,
+  agentId: string
+): string {
+  const leaseRepo = sprintEngineState.workers?.[agentId]?.repo
+  if (leaseRepo) return sprintEngineSessionRepoId(leaseRepo)
+  const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+  const taskId = runtimeAgent?.currentTaskId || runtimeAgent?.lastOwnedTaskId
+  const task = taskId ? sprintEngineState.tasks.find((candidate) => candidate.id === taskId) : undefined
+  return sprintEngineSessionRepoId(task?.repo)
+}
+
+/**
+ * MC-1615 demand grouping key, now (role, repo) — multi-repo sprints, MC-1610.
+ * The reconciler groups ready work by this key to compute per-group session
+ * demand, and a session is spawned with its group's repo worktree as its cwd,
+ * so repo must be part of the key: a developer session sitting in the mobile
+ * worktree cannot work a task that lives in the desktop tree.
+ *
+ * Repo FILTERS which sessions exist, it is not a budget — the concurrency cap
+ * stays global and is applied across all groups by the picker. A single-repo
+ * run keys every task to the same `<role>` group it always did, so its
+ * grouping — and therefore its spawning — is unchanged.
+ */
+/** The task fields a demand key may read: the (role, repo) pair it groups by. */
+export type SprintEngineDemandKeyInput = Pick<SprintEngineTask, 'role' | 'repo'>
+
+export function sprintEngineDemandKey(task: SprintEngineDemandKeyInput): string {
+  const repo = sprintEngineSessionRepoId(task.repo)
+  return repo === DEFAULT_SPRINTENGINE_TASK_REPO ? task.role : `${task.role}@${repo}`
 }
 
 /**
@@ -135,7 +227,7 @@ export function sprintEngineDemandKey(task: Pick<SprintEngineTask, 'role'>): str
  */
 export function computeSprintEngineDemand(
   sprintEngineState: SprintEngineState,
-  keyFn: (task: SprintEngineTask) => string = sprintEngineDemandKey
+  keyFn: (task: SprintEngineDemandKeyInput) => string = sprintEngineDemandKey
 ): Map<string, SprintEngineTask[]> {
   const demand = new Map<string, SprintEngineTask[]>()
   for (const task of sprintEngineState.tasks) {
@@ -446,10 +538,17 @@ export function findSprintEngineWakeCandidateTaskForAgent(
   // Required (no default) so a call site can never silently drop the
   // task-scoped reuse guard: pass sprintEngineWakeRestrictionTaskId(agent),
   // or null for contexts with no runtime agent.
-  restrictToTaskId: string | null
+  restrictToTaskId: string | null,
+  // The repo the agent's live session sits in (MC-1610). Required for the same
+  // reason: a wake paste tells a LIVE session to claim, and `task.next` only
+  // offers that session its own tree's work — so waking it for another repo's
+  // task produces an agent that reports "no ready tasks" while the board shows
+  // work. Pass sprintEngineWorkerRepoId(state, agentId).
+  repoId: string
 ): SprintEngineTask | undefined {
   return wakeTasks.find((candidate) =>
     candidate.role === role
+    && sprintEngineSessionRepoId(candidate.repo) === repoId
     && !reservedTaskIds.has(candidate.id)
     // An owned task is never wake-able by another agent: single-owner tasks stay
     // with their owner until `done`, and the owner is re-engaged by the dispatch,
@@ -1107,7 +1206,8 @@ export function planSprintEngineDispatch(input: {
         runtimeAgent.role,
         agentId,
         reservedWakeCandidateTaskIds,
-        sprintEngineWakeRestrictionTaskId(runtimeAgent)
+        sprintEngineWakeRestrictionTaskId(runtimeAgent),
+        sprintEngineWorkerRepoId(sprintEngineState, agentId)
       )
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
@@ -1259,7 +1359,8 @@ export function planSprintEngineDispatch(input: {
         runtimeAgent.role,
         agentId,
         new Set(),
-        sprintEngineWakeRestrictionTaskId(runtimeAgent)
+        sprintEngineWakeRestrictionTaskId(runtimeAgent),
+        sprintEngineWorkerRepoId(sprintEngineState, agentId)
       )
       if (!task) continue
       // Any engagement planned this pass (wake, dispatch, notification) supersedes
@@ -1385,10 +1486,22 @@ export function planSprintEngineDispatch(input: {
     // (the unified recovery cap). Scoped to roles with NO live agent: a role whose
     // agent is merely busy/stalled is a capacity/restart concern handled by other
     // paths, not a revival.
-    const liveRoles = new Set<SprintEngineRoleId>()
+    // Covered groups, keyed like demand ((role, repo) — MC-1610). A live agent
+    // only covers work in ITS OWN tree: since `task.next` filters by the
+    // session's repo, a live desktop developer can never claim a mobile task, so
+    // treating the role alone as covered would leave a departed mobile owner
+    // unrevived while the pool pass defers its task to it — starving the task
+    // until the unrelated desktop session happens to die. A single-repo run has
+    // one key per role, exactly as before.
+    const liveDemandKeys = new Set<string>()
     for (const liveId of liveAgentIds) {
       const liveRole = sprintEngineState.sprintEngineAgents[liveId]?.role
-      if (liveRole) liveRoles.add(liveRole)
+      if (liveRole) {
+        liveDemandKeys.add(sprintEngineDemandKey({
+          role: liveRole,
+          repo: sprintEngineWorkerRepoId(sprintEngineState, liveId),
+        }))
+      }
     }
     const claimableWakeTaskIds = new Set<string>()
     for (const task of sprintEngineState.tasks) {
@@ -1413,10 +1526,11 @@ export function planSprintEngineDispatch(input: {
     // pass (once the first is live). Collected first so the sweep below knows
     // which revival keys are active.
     const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
-    const plannedRevivalRoles = new Set<SprintEngineRoleId>()
+    // One revival per demand group per pass, not per role: a mobile revival must
+    // not consume the pass's only slot for a departed desktop owner, since
+    // neither can ever claim the other's work.
+    const plannedRevivalKeys = new Set<string>()
     for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
-      if (liveRoles.has(runtimeAgent.role)) continue // a live agent of this role will claim it
-      if (plannedRevivalRoles.has(runtimeAgent.role)) continue // one revival per role per pass
       if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
       if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
       // Owner affinity: revive the id for its own retained task when that task is
@@ -1432,12 +1546,28 @@ export function planSprintEngineDispatch(input: {
       // (MC-1454). Keeps the id stable across sequential planning tasks so no
       // architect-N is minted while it is away.
       if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
-        reviveTaskId = sprintEngineState.tasks.find(
-          (candidate) => candidate.role === runtimeAgent.role && claimableWakeTaskIds.has(candidate.id)
+        // Skip work whose group already has a live agent: a planner following its
+        // role across repos (MC-1610) must be revived for a tree that has nobody
+        // in it, not for one another planning session is already serving.
+        reviveTaskId = sprintEngineState.tasks.find((candidate) =>
+          candidate.role === runtimeAgent.role
+          && claimableWakeTaskIds.has(candidate.id)
+          && !liveDemandKeys.has(sprintEngineDemandKey(candidate))
         )?.id ?? null
       }
       if (!reviveTaskId) continue
-      plannedRevivalRoles.add(runtimeAgent.role)
+      // Liveness is judged against the group the revived session would actually
+      // work in — the repo of the task it is being revived FOR — because that is
+      // the queue a live agent would have to share to make this revival
+      // redundant.
+      const reviveTask = taskById.get(reviveTaskId)
+      const reviveKey = sprintEngineDemandKey({
+        role: runtimeAgent.role,
+        repo: sprintEngineSessionRepoId(reviveTask?.repo),
+      })
+      if (liveDemandKeys.has(reviveKey)) continue // a live agent in that tree will claim it
+      if (plannedRevivalKeys.has(reviveKey)) continue // one revival per group per pass
+      plannedRevivalKeys.add(reviveKey)
       revivalTargets.push({ role: runtimeAgent.role, work: { taskId: reviveTaskId }, agentId })
     }
 
@@ -1531,7 +1661,17 @@ export function planSprintEngineDispatch(input: {
       // — a completed worker retires even while its role has a full queue; fresh
       // sessions take the queue.
       const restrictToTaskId = sprintEngineWakeRestrictionTaskId(runtimeAgent)
-      if (findSprintEngineWakeCandidateTaskForAgent(wakeTasks, runtimeAgent.role, agentId, new Set(), restrictToTaskId)) continue
+      // Scoped to the agent's own repo (MC-1610): work it cannot claim is not
+      // work it is waiting for, so a session whose tree is drained retires even
+      // while another repo's queue is full — fresh sessions take that queue.
+      if (findSprintEngineWakeCandidateTaskForAgent(
+        wakeTasks,
+        runtimeAgent.role,
+        agentId,
+        new Set(),
+        restrictToTaskId,
+        sprintEngineWorkerRepoId(sprintEngineState, agentId)
+      )) continue
       const idleClockKey = sprintEngineIdleClockKey(workspace, agentId)
       // Task-scoped terminal state: the worker's own task is finished, so its
       // session has nothing left to return for. Retires without the 5-minute
@@ -1882,11 +2022,10 @@ export type PickNextAutoRunsOptions = {
   inFlightSpawns: ReadonlySet<string>
   /**
    * Demand grouping key for the pool pass; defaults to `sprintEngineDemandKey`
-   * (per-role). The key function is load-bearing for spawning: re-keying to
-   * (role, repo) — multi-repo sprints, MC-1610 — changes which groups get
-   * sessions, not just telemetry.
+   * ((role, repo) — MC-1610). The key function is load-bearing for spawning,
+   * not telemetry: it decides which groups get sessions.
    */
-  demandKeyFn?: (task: SprintEngineTask) => string
+  demandKeyFn?: (task: SprintEngineDemandKeyInput) => string
   /**
    * Live sprint sessions whose worker id has no runtime record yet — spawned,
    * still booting toward their first claim (the engine binds the id at claim).
@@ -1896,8 +2035,18 @@ export type PickNextAutoRunsOptions = {
    * (`agentSession.workId`) used to key the worker through the demand key
    * function; phase-session births dedup on it directly (their task binding is
    * a sanctioned exception).
+   *
+   * `repo` is the declared repo the session was spawned into (MC-1610). It
+   * keys the worker when its exemplar task is gone — without it a sibling-repo
+   * session would fall back to its bare role and count as supply for the
+   * PRIMARY group, leaving its own group looking uncovered and double-spawned.
    */
-  unboundLiveWorkers?: ReadonlyArray<{ agentId: string; role: string; taskId?: string | null }>
+  unboundLiveWorkers?: ReadonlyArray<{
+    agentId: string
+    role: string
+    taskId?: string | null
+    repo?: string | null
+  }>
   /** Read-only access to existing agent name overrides; defaults to label fallback when absent. */
   agentLabelById?: (agentId: string) => string | undefined
 }
@@ -2113,12 +2262,12 @@ export function pickNextAutoRuns(
   }
 
   // Desired-pool pass (MC-1592/MC-1615): ready, unowned, launchable work is
-  // grouped by the demand key and each group gets fresh sessions up to the
-  // remaining slots. Groups drain round-robin so a scarce slot budget covers
-  // every demand group before doubling up on one — the key function is
-  // load-bearing for spawning, not telemetry: re-keying demand (e.g. to
-  // (role, repo) for multi-repo sprints, MC-1610) changes which sessions are
-  // minted. A pool spawn is never pre-bound to a task — the session pulls its
+  // grouped by the demand key — (role, repo) since MC-1610 — and each group
+  // gets fresh sessions up to the remaining slots. Groups drain round-robin so
+  // a scarce slot budget covers every demand group before doubling up on one:
+  // that, and nothing per-repo here, is why repo filters selection without
+  // becoming a per-repo budget — `options.limit` is the run's one global cap
+  // and every group competes for it. A pool spawn is never pre-bound to a task — the session pulls its
   // own work via `task.next`; the candidate's `taskId` is the group's oldest
   // uncovered task, carried as the routing/attribution exemplar (cwd
   // resolution, spawn diagnostics), not a claim. Dedup is by key-count (one
@@ -2132,12 +2281,15 @@ export function pickNextAutoRuns(
   // covers one unit of its group's demand until its first claim binds it —
   // in-flight coverage lives in the session list itself, not in a persisted
   // pending-spawn ledger. A worker keys through its routing exemplar when that
-  // task still exists, else through its recorded role (the default key).
+  // task still exists, else through its recorded (role, repo) — the pair the
+  // session was actually spawned on, which is what its group is keyed by.
   const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
   const suppliedByKey = new Map<string, number>()
   for (const worker of unboundLiveWorkers) {
     const exemplar = worker.taskId ? taskById.get(worker.taskId) : undefined
-    const workerKey = exemplar ? demandKeyFn(exemplar) : worker.role
+    const workerKey = exemplar
+      ? demandKeyFn(exemplar)
+      : demandKeyFn({ role: worker.role as SprintEngineRoleId, repo: sprintEngineSessionRepoId(worker.repo) })
     suppliedByKey.set(workerKey, (suppliedByKey.get(workerKey) ?? 0) + 1)
   }
 

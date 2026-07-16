@@ -40,7 +40,12 @@ import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
 import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
-import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree, resolveWorktreeSpawnFallback } from '../../utils/workspaceWorktree'
+import {
+  resolveWorkspaceTerminalCwd,
+  resolveWorkspaceWorktree,
+  resolveWorktreeFallbackRoot,
+  resolveWorktreeSpawnFallback,
+} from '../../utils/workspaceWorktree'
 import {
   hasLiveAgentLaunchIntent,
   markAgentSessionMinted,
@@ -933,10 +938,20 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // mid-spawn. The guard re-checks (one `pathExists`) on every launch and
       // self-corrects if the worktree reappears; completion teardown removes the
       // agent entirely, so a stale execution is short-lived either way.
+      // Per-repo fallback (MC-1610): a vanished worktree redirects into the root
+      // of the repo it belonged to, so a sibling-repo agent lands in that
+      // project rather than in the workspace root, where its repo-relative
+      // paths would resolve against the wrong tree. The primary repo's root is
+      // the workspace folder, so single-repo runs redirect exactly as before.
+      // Read imperatively (not via a selector) so the launch effect does not
+      // re-run on every `sprintEngineState` re-projection.
+      const fallbackWorkspace = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)
       const worktreeFallback = await resolveWorktreeSpawnFallback(
         executionRoot.mode,
         executionRoot.cwd,
-        folderReadyPath,
+        fallbackWorkspace
+          ? resolveWorktreeFallbackRoot(fallbackWorkspace, executionRoot.cwd)
+          : folderReadyPath,
         window.api.pathExists,
       )
       if (disposed) return

@@ -717,6 +717,10 @@ export type McpSyncInput = {
     workspaceId?: string
     agentId?: string
     role?: string
+    // Declared repo the session works in (MC-1610), derived from its launch
+    // cwd. Binds the session's claim queue to that repo's tree; absent for
+    // single-repo runs and launches outside a declared worktree.
+    repo?: string
     cli?: McpClientTarget
     // Workspace Knowledge Graph root ('' when unset); lets the MCP server gate
     // the workspace_knowledge prompt layer at compose time.

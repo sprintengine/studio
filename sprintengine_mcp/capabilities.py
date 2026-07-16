@@ -123,6 +123,15 @@ CALLER_ROLE_PAYLOAD_TOOLS: frozenset[str] = frozenset({
     "sprintengine.task.next",
 })
 
+# Tools whose payload carries the caller's repo (MC-1610). For a repo-bound
+# session the server stamps its bound repo onto these payloads and refuses a
+# conflicting one, so work selection follows the tree the session actually sits
+# in. Only claim selection belongs here: a task's own `repo` — set at creation
+# and validated against the run's declared repos — governs every other tool.
+CALLER_REPO_PAYLOAD_TOOLS: frozenset[str] = frozenset({
+    "sprintengine.task.next",
+})
+
 # Suggested alternatives surfaced in tool_not_permitted_for_role errors for
 # the calls agents most plausibly reach for.
 PERMITTED_ALTERNATIVES: dict[str, str] = {
