@@ -1678,7 +1678,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (missing) return missing
       const created = await backends.createSprintPullRequest({ statePath: resolvedRun.statePath })
       if (!created.ok) return sprintCommandResultFailure('sprint_pr_failed', created)
-      return success({ pr: { slug: resolvedRun.slug }, vcs: sprintVcsFromCommandResult(created.data) })
+      return success({ slug: resolvedRun.slug, vcs: sprintVcsFromCommandResult(created.data) })
     },
   }
 

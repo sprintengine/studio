@@ -1725,7 +1725,7 @@ async function testSprintVcsAndUsageToolsReadViaMainServices(): Promise<void> {
   // vcs block parsed from the command result's re-read projection.
   const created = await tool(tools, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
   assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
-  assert.deepEqual(created.structuredContent, { pr: { slug: 'checkout-flow' }, vcs: vcsBlock })
+  assert.deepEqual(created.structuredContent, { slug: 'checkout-flow', vcs: vcsBlock })
   assert.deepEqual(prCreateCalls, [statePath])
 
   // pr.status refreshes then returns the merge state from the re-read projection.
