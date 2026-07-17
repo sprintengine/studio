@@ -6,7 +6,6 @@ import { createRendererHost, type BacklogLinkProvider } from '../modules/rendere
 import type { BacklogItem, BacklogItemLink, BacklogResolvedLink } from './backlog'
 import {
   backlogLinkControlModel,
-  isActiveBacklogStatus,
   nextBacklogItemStatusFromLinks,
   openBacklogLink,
   providerForBacklogLink,
@@ -179,15 +178,8 @@ async function main(): Promise<void> {
     'link refresh does not unarchive items',
   )
 
-  // isActiveBacklogStatus: the working states are active; the terminal states are not.
-  assert.equal(isActiveBacklogStatus('idea'), true)
-  assert.equal(isActiveBacklogStatus('ready'), true)
-  assert.equal(isActiveBacklogStatus('in_progress'), true)
-  assert.equal(isActiveBacklogStatus('needs_input'), true)
-  assert.equal(isActiveBacklogStatus('completed'), false)
-  assert.equal(isActiveBacklogStatus('archived'), false)
-
-  // Epic derivation: completion flows UP from children, not from the epic's own
+  // Epic derivation: the status is the highest-precedence status a child holds
+  // (needs_input > in_progress > ready > idea > completed), never the epic's own
   // run link. The live incident — a completed run link on an epic with open
   // children — reads in_progress, healing the wrongly-completed epic.
   const completedRun = { ...sprintRunLink, status: 'completed' as const }
@@ -206,15 +198,48 @@ async function main(): Promise<void> {
     'in_progress',
     "the epic's own still-active run keeps it in_progress even with all children done",
   )
+  // Corrected precedence (MC-1617): an untouched epic whose children are all `ready`
+  // reflects `ready`, NOT `in_progress` — no work has started. The pre-correction
+  // rule treated `ready`/`idea` as "active" and wrongly promoted it.
+  assert.equal(
+    nextBacklogItemStatusFromLinks('idea', [], ['ready', 'ready']),
+    'ready',
+    'an untouched epic with all-ready children reflects ready, not in_progress',
+  )
+  assert.equal(
+    nextBacklogItemStatusFromLinks('idea', [], ['idea', 'idea']),
+    'idea',
+    'an epic whose children are all idea reflects idea',
+  )
+  assert.equal(
+    nextBacklogItemStatusFromLinks('idea', [], ['idea', 'completed', 'ready']),
+    'ready',
+    'the highest-precedence working child wins over lower ones and completed',
+  )
+  assert.equal(
+    nextBacklogItemStatusFromLinks('idea', [], ['completed', 'needs_input', 'in_progress']),
+    'needs_input',
+    'a child blocked on a human (needs_input) outranks active work',
+  )
+  assert.equal(
+    nextBacklogItemStatusFromLinks('idea', [], ['completed', 'archived', 'idea']),
+    'idea',
+    'archived children do not block the roll-up, but a still-open child keeps it open',
+  )
   assert.equal(
     nextBacklogItemStatusFromLinks('idea', [], ['ready']),
-    'in_progress',
-    'a grouping epic with no links still reads in_progress from an active child',
+    'ready',
+    'a grouping epic with no links reflects its single ready child',
   )
   assert.equal(
     nextBacklogItemStatusFromLinks('idea', [], ['completed', 'completed']),
     'completed',
     'a grouping epic with no links completes when all children are completed',
+  )
+  assert.equal(
+    nextBacklogItemStatusFromLinks('idea', [], ['completed', 'archived']),
+    'completed',
+    'an epic auto-completes when every child is completed or archived',
   )
   assert.equal(
     nextBacklogItemStatusFromLinks('archived', [], ['ready', 'in_progress']),
@@ -317,9 +342,11 @@ async function main(): Promise<void> {
   })
   assert.match(failSync.persistError ?? '', /disk full/, 'persist failures surface to the caller')
 
-  // syncBacklogItemLinks for an epic: a completed run link plus an open child heals
-  // the wrongly-completed epic to in_progress, and the derived status rides the
-  // epic's own (completed) execution link so it persists in one write.
+  // syncBacklogItemLinks for an epic: the derived status is RETURNED for read-time
+  // display (in_progress, healing the wrongly-completed epic) but is never written
+  // back to frontmatter — an epic's stored status is derived at read time, so the
+  // sync tick refreshes the link chip only. Here the stored link is already
+  // `completed`, so nothing persists at all.
   const epicHealHost = createRendererHost()
   epicHealHost.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'completed'))
   const persistedEpic: Array<{ status?: string; linkStatus?: string }> = []
@@ -340,11 +367,35 @@ async function main(): Promise<void> {
       return { ok: true }
     },
   })
-  assert.equal(epicSync.itemStatus, 'in_progress', 'an epic with an open child heals off a completed run link')
+  assert.equal(epicSync.itemStatus, 'in_progress', 'an epic with an open child derives in_progress off a completed run link')
+  assert.deepEqual(persistedEpic, [], 'an epic status is never written back to frontmatter by the sync tick')
+
+  // An epic whose run-link chip is stale still refreshes the chip (link status
+  // changes) but persists NO item status — the write carries `status: undefined`.
+  const epicChipHost = createRendererHost()
+  epicChipHost.hostFor('sprint-engine').registerBacklogLinkProvider(provider('sprint-engine', ['sprintengine.run'], 'completed'))
+  const persistedEpicChip: Array<{ status?: string; linkStatus?: string }> = []
+  await syncBacklogItemLinks({
+    workspaceId: 'ws',
+    workspaceRoot: '/repo',
+    item: {
+      ...baseItem,
+      isEpic: true,
+      relativePath: 'backlog/epics/relay.md',
+      status: 'in_progress',
+      links: [{ ...sprintRunLink, status: 'active' }],
+    },
+    epicChildStatuses: ['completed', 'completed'],
+    providers: epicChipHost.getBacklogLinkProviders(() => true),
+    persistLink: async (args) => {
+      persistedEpicChip.push({ status: args.status, linkStatus: args.link.status })
+      return { ok: true }
+    },
+  })
   assert.deepEqual(
-    persistedEpic,
-    [{ status: 'in_progress', linkStatus: 'completed' }],
-    'the healed status rides the epic own execution link in one persist',
+    persistedEpicChip,
+    [{ status: undefined, linkStatus: 'completed' }],
+    'a stale epic link chip refreshes to the run status without carrying an item status',
   )
 
   runSourceContracts()
@@ -361,8 +412,18 @@ function runSourceContracts(): void {
   )
   assert.match(
     backlogLinksSource,
-    /const anyChildActive = epicChildStatuses\.some\(isActiveBacklogStatus\)/,
-    'the epic branch rolls completion up from the children through the active predicate',
+    /const EPIC_STATUS_PRECEDENCE: Record<BacklogItemStatus, number> = \{/,
+    'the epic roll-up ranks child statuses by an explicit precedence table',
+  )
+  assert.match(
+    backlogLinksSource,
+    /if \(votes\.every\(\(status\) => status === 'completed' \|\| status === 'archived'\)\) return 'completed'/,
+    'an epic auto-completes only when every vote (children + own run) is terminal',
+  )
+  assert.match(
+    backlogLinksSource,
+    /const statusChanged = !input\.item\.isEpic && itemStatus !== input\.item\.status/,
+    'the sync tick never carries an epic status back to frontmatter',
   )
 
   const panelSource = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/BacklogPanel.tsx'), 'utf8')
@@ -375,6 +436,11 @@ function runSourceContracts(): void {
     panelSource,
     /epicChildStatuses=\{isEpic \? epicChildren\.map\(\(child\) => child\.status\) : undefined\}/,
     'the epic children reach the links section so its sync tick can derive up',
+  )
+  assert.match(
+    panelSource,
+    /const derived = nextBacklogItemStatusFromLinks\(\s*item\.status,\s*item\.links,\s*childStatusesBySlug\.get\(epicSlug\(item\)\) \?\? \[\],\s*\)/,
+    'the panel derives every epic status at read time over the full scan',
   )
 
   const projectionSource = readFileSync(join(process.cwd(), 'src/renderer/src/utils/sprintengineProjectionRefresh.ts'), 'utf8')
