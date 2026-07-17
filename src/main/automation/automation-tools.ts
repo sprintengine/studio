@@ -1,6 +1,6 @@
 import { isAbsolute } from 'path'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type { SprintEngineProjectionReadResult, TerminalSessionSnapshot } from '../../shared/electron-api'
+import type { SprintEngineCliPermissionPreset, SprintEngineProjectionReadResult, TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -43,6 +43,10 @@ const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
 
+// External callers get only these two presets; `bypass_all` is refused at the
+// tool boundary everywhere (epic decision 4, same policy as automation.create).
+const LAUNCH_PERMISSION_PRESETS = ['default', 'auto_workspace'] as const
+
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
   listTerminalSessions(): TerminalSessionSnapshot[]
@@ -68,6 +72,19 @@ export type AutomationBackends = {
   listSprintRunStatePaths(workspaceRoot: string): Promise<string[]>
   /** One run's projection.json via the sprint-engine artifact reader (main-owned). */
   readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
+  /**
+   * Create a git worktree for a widened agent.launch (model/preset/specialist
+   * launches that request isolation, and every connector launch). Worktree
+   * creation is renderer-adjacent but git-bound, so it happens in main before
+   * delegating — the automations executor precedent. Returns the created
+   * absolute path + branch, or `{ error }` (non-git folder, name collision,
+   * git failure) which the tool surfaces as `worktree_unavailable`. Injected as
+   * a backend so tests fake it.
+   */
+  createAgentWorktree(input: {
+    workspaceRoot: string
+    name: string
+  }): Promise<{ worktreePath: string; branch: string } | { error: string }>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
 }
@@ -240,8 +257,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const agentLaunch: McpToolRegistration = {
     name: 'agent.launch',
     description:
-      'Add an agent to a workspace and start its CLI through the same renderer flow the UI uses. '
-      + 'Success is confirmed by the agent terminal session registering with the main process.',
+      'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. '
+      + 'Optionally selects the model, permission preset, specialist, and connector, and isolates the agent in a '
+      + 'git worktree. Success is confirmed by the agent terminal session registering with the main process.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -249,6 +267,25 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
         name: { type: 'string', description: 'Agent display name.' },
         prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
+        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
+          description: 'CLI permission preset. Only "default" or "auto_workspace"; "bypass_all" is refused on this surface.',
+        },
+        specialistId: { type: 'string', description: 'Launch as this specialist rather than a general agent; the renderer resolves it and fails if unknown.' },
+        connectorId: {
+          type: 'string',
+          description:
+            'Catalog connector id (e.g. "railway"). Attaches the connector\'s single-server MCP and driving skill and '
+            + 'forces worktree isolation (the connector .mcp.json never lands in the checkout), even without "worktree".',
+        },
+        worktree: {
+          type: 'object',
+          properties: { name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' } },
+          additionalProperties: false,
+          description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
+        },
       },
       required: ['workspaceId'],
       additionalProperties: false,
@@ -256,17 +293,82 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
-      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt'])
+      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'specialistId', 'connectorId'])
       if (invalid) return invalid
+
+      // Permission preset: `bypass_all` is a distinct refusal (epic decision 4),
+      // not a generic vocabulary error; any other non-allowed value is invalid.
+      if (args.permissionPreset !== undefined) {
+        if (typeof args.permissionPreset !== 'string') {
+          return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
+        }
+        if (args.permissionPreset === 'bypass_all') {
+          return failure(
+            'permission_preset_not_allowed',
+            'Agents launched over the automation surface may not use permissionPreset "bypass_all". '
+              + 'A person can set that preset in the app if it is genuinely needed.'
+          )
+        }
+        if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
+          return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
+        }
+      }
+
+      // `worktree` is an object with an optional name — never a bare string or
+      // an arbitrary cwd; a raw path is not an acceptable external surface.
+      let worktreeRequested = false
+      let worktreeName: string | undefined
+      if (args.worktree !== undefined) {
+        if (typeof args.worktree !== 'object' || args.worktree === null || Array.isArray(args.worktree)) {
+          return failure('invalid_arguments', '"worktree" must be an object with an optional "name".')
+        }
+        const rawName = (args.worktree as { name?: unknown }).name
+        if (rawName !== undefined && typeof rawName !== 'string') {
+          return failure('invalid_arguments', '"worktree.name" must be a string when provided.')
+        }
+        worktreeRequested = true
+        worktreeName = optionalString(rawName)
+      }
+
       if (!findWorkspace(workspaceId)) {
         return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
       }
+
+      const connectorId = optionalString(args.connectorId)
+      const permissionPreset = optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined
+
+      // A connector launch forces a worktree even when none was requested — the
+      // connector .mcp.json must never land in the user's checkout (the
+      // executor's connector-isolation invariant, epic point 3). Worktree
+      // creation runs in main before delegating, and a failure here is fatal:
+      // the caller asked for isolation, so we never silently fall back.
+      let worktreePath: string | undefined
+      if (worktreeRequested || connectorId) {
+        const resolved = resolveWorkspaceRoot(workspaceId)
+        if (!('root' in resolved)) return resolved
+        const derivedName =
+          worktreeName || optionalString(args.name) || connectorId || `agent-${now().toString(36)}`
+        const created = await backends.createAgentWorktree({ workspaceRoot: resolved.root, name: derivedName })
+        if ('error' in created) {
+          return failure(
+            'worktree_unavailable',
+            `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`
+          )
+        }
+        worktreePath = created.worktreePath
+      }
+
       const delegated = await backends.delegateToRenderer({
         kind: 'agent.launch',
         workspaceId,
         cli: optionalString(args.cli),
         name: optionalString(args.name),
         prompt: optionalString(args.prompt),
+        cliModel: optionalString(args.cliModel),
+        permissionPreset,
+        specialistId: optionalString(args.specialistId),
+        connectorId,
+        worktreePath,
       })
       if (!delegated.ok) return failure(delegated.code, delegated.message)
       const agentId = delegated.agentId
@@ -284,7 +386,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           `Agent "${agentId}" was added to workspace "${workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
         )
       }
-      return success({ agent: agentProjection(confirmed, agentId) })
+      return success({ agent: agentProjection(confirmed, agentId), ...(worktreePath ? { worktreePath } : {}) })
     },
   }
 

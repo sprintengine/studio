@@ -82,6 +82,7 @@ type BackendsOverrides = {
   getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
   listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
   readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
+  createAgentWorktree?: AutomationBackends['createAgentWorktree']
 }
 
 function unexpectedCall(name: string): () => never {
@@ -116,6 +117,12 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     listSprintRunStatePaths: overrides.listSprintRunStatePaths ?? (async () => []),
     readSprintEngineProjection:
       overrides.readSprintEngineProjection ?? (async () => ({ ok: false, message: 'no projection in test' })),
+    createAgentWorktree:
+      overrides.createAgentWorktree
+      ?? (async ({ workspaceRoot, name }) => ({
+        worktreePath: `${workspaceRoot}/.multicode-worktrees/${name}`,
+        branch: `agent/${name}`,
+      })),
     // Confirmation polling is exercised against static snapshots; collapse the
     // wait so timeout paths run instantly.
     sleep: async () => {},
@@ -246,6 +253,137 @@ async function testInvalidRequestsReturnExplicitErrors(): Promise<void> {
   const launchUnknownWorkspace = await tool(tools, 'agent.launch').handler({ workspaceId: 'missing' })
   assert.equal(launchUnknownWorkspace.isError, true)
   assert.match(JSON.stringify(launchUnknownWorkspace.structuredContent), /unknown_workspace/)
+}
+
+// Wires a workspace + delegate that simulate a confirmed launch: the delegate
+// records the request, inserts the agent into the (mutated) workspace, and
+// registers a live terminal session so the handler's bus-confirmation probe
+// passes. Returns the request log and the worktree-creation call log.
+function launchHarness(overrides: BackendsOverrides = {}): {
+  tools: ReturnType<typeof createAutomationTools>
+  requests: AutomationRendererRequest[]
+  worktreeCalls: Array<{ workspaceRoot: string; name: string }>
+} {
+  const workspace = testWorkspace('ws-1', { folderPath: '/tmp/project-a' })
+  const sessions: TerminalSessionSnapshot[] = []
+  const requests: AutomationRendererRequest[] = []
+  const worktreeCalls: Array<{ workspaceRoot: string; name: string }> = []
+  const backends: AutomationBackends = {
+    ...backendsOf({ workspaces: [workspace], sessions, ...overrides }),
+    getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
+    listTerminalSessions: () => sessions,
+    createAgentWorktree:
+      overrides.createAgentWorktree
+      ?? (async (input) => {
+        worktreeCalls.push(input)
+        return { worktreePath: `${input.workspaceRoot}/.multicode-worktrees/${input.name}`, branch: `agent/${input.name}` }
+      }),
+    delegateToRenderer:
+      overrides.delegate
+      ?? (async (request) => {
+        requests.push(request)
+        const agentId = 'agent-claude-abc'
+        workspace.agents[agentId] = { id: agentId, name: 'Scout', cli: 'claude-code', cliSessionId: 'sess-1' } as never
+        sessions.push({
+          sessionId: 'sess-1',
+          kind: 'agent',
+          workspaceId: 'ws-1',
+          agentId,
+          processAlive: true,
+          startedAt: 1,
+          lastOutputAt: 1,
+        } as never)
+        return { ok: true, workspaceId: (request as { workspaceId: string }).workspaceId, agentId }
+      }),
+  }
+  return { tools: createAutomationTools(backends), requests, worktreeCalls }
+}
+
+async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
+  // bypass_all is refused at the boundary with its own code — never delegated.
+  const bypass = launchHarness()
+  const refused = await tool(bypass.tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    permissionPreset: 'bypass_all',
+  })
+  assert.equal(refused.isError, true)
+  assert.equal(
+    (refused.structuredContent as { error: { code: string } }).error.code,
+    'permission_preset_not_allowed'
+  )
+  assert.equal(bypass.requests.length, 0, 'a refused preset never reaches the renderer')
+
+  // An out-of-vocabulary preset is a plain invalid_arguments failure.
+  const badPreset = await tool(launchHarness().tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    permissionPreset: 'root',
+  })
+  assert.equal((badPreset.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  // The full config is forwarded verbatim; no worktree requested ⇒ no creation.
+  const configured = launchHarness()
+  const okConfig = await tool(configured.tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    cli: 'claude-code',
+    name: 'Scout',
+    prompt: 'go',
+    cliModel: 'opus',
+    permissionPreset: 'auto_workspace',
+    specialistId: 'security-reviewer',
+  })
+  assert.equal(okConfig.isError, undefined, JSON.stringify(okConfig.structuredContent))
+  assert.equal(configured.worktreeCalls.length, 0, 'no worktree requested ⇒ createAgentWorktree not called')
+  const req = configured.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(req.cliModel, 'opus')
+  assert.equal(req.permissionPreset, 'auto_workspace')
+  assert.equal(req.specialistId, 'security-reviewer')
+  assert.equal(req.worktreePath, undefined)
+  assert.equal((okConfig.structuredContent as { worktreePath?: string }).worktreePath, undefined)
+
+  // worktree:{} creates an agent/<name> worktree and threads its path through the
+  // delegate request and the success payload.
+  const isolated = launchHarness()
+  const okWorktree = await tool(isolated.tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    name: 'Scout',
+    worktree: {},
+  })
+  assert.equal(okWorktree.isError, undefined, JSON.stringify(okWorktree.structuredContent))
+  assert.deepEqual(isolated.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'Scout' }])
+  const worktreeReq = isolated.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(worktreeReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
+  assert.equal(
+    (okWorktree.structuredContent as { worktreePath?: string }).worktreePath,
+    '/tmp/project-a/.multicode-worktrees/Scout'
+  )
+
+  // A connector forces a worktree even without an explicit worktree request.
+  const connector = launchHarness()
+  const okConnector = await tool(connector.tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    name: 'Scout',
+    connectorId: 'railway',
+  })
+  assert.equal(okConnector.isError, undefined, JSON.stringify(okConnector.structuredContent))
+  assert.deepEqual(connector.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'Scout' }])
+  const connectorReq = connector.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(connectorReq.connectorId, 'railway')
+  assert.equal(connectorReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
+
+  // A worktree-creation failure is fatal isolation — worktree_unavailable, and
+  // the launch is never delegated.
+  const failed = launchHarness({ createAgentWorktree: async () => ({ error: 'not a git repository' }) })
+  const denied = await tool(failed.tools, 'agent.launch').handler({ workspaceId: 'ws-1', worktree: { name: 'x' } })
+  assert.equal(denied.isError, true)
+  assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'worktree_unavailable')
+  assert.equal(failed.requests.length, 0, 'a failed worktree never reaches the renderer')
+
+  // A bare-string worktree (not an object) is rejected — no raw cwd surface.
+  const badWorktree = await tool(launchHarness().tools, 'agent.launch').handler({
+    workspaceId: 'ws-1',
+    worktree: '/etc',
+  })
+  assert.equal((badWorktree.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
 async function testCreateDelegatesAndConfirmsOnTheBus(): Promise<void> {
@@ -998,6 +1136,7 @@ const tests = [
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,
+  testAgentLaunchWidensConfigAndIsolation,
   testInvalidRequestsReturnExplicitErrors,
   testCreateDelegatesAndConfirmsOnTheBus,
   testCreateNeverFakesSuccessWithoutBusConfirmation,

@@ -40,7 +40,8 @@ import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-aut
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
-import { excludeMcpConfigFromWorktree } from './git'
+import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
+import { agentWorktreePaths } from '../shared/worktree-paths'
 import { cliResumeCapabilities, createTerminalRuntime } from './terminal-runtime'
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
@@ -380,6 +381,25 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
       listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
       readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
+      // Agent-at-launch worktrees (agent.launch isolation + every connector
+      // launch): derive the `agent/<slug>` branch and container the Worktree
+      // manager uses, then create through the shared git helper. Mirrors
+      // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
+      // the repo's worktree-include set into the isolated tree).
+      createAgentWorktree: async ({ workspaceRoot, name }) => {
+        const paths = agentWorktreePaths(workspaceRoot, name)
+        if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+        const created = await createGitWorktree({
+          repoRoot: workspaceRoot,
+          containerPath: paths.containerPath,
+          destinationPath: paths.destinationPath,
+          branchName: paths.branchName,
+          baseRef: 'HEAD',
+          copyIncludedFiles: true,
+        })
+        if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
+        return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
+      },
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
