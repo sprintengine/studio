@@ -117,6 +117,9 @@ export async function runLocalAutomationAction(
       definition: input.definition,
       runId: input.run.id,
       workspaceRoot: input.workspaceRoot,
+      // Opt-in trigger context: spawn-agent/run-skill-loop surface this payload in
+      // the launch prompt only when their config sets includeTriggerContext.
+      triggerPayload: input.triggerPayload,
       // Launch target precedence: an explicit config workspaceId (legacy/MCP
       // path) wins and launches into that named workspace; otherwise the default
       // automation route resolves-or-creates the per-project hidden

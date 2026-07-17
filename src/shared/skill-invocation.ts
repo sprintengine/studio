@@ -1,5 +1,19 @@
 import type { PluginSkillInvocation, PluginSkillSupport } from './plugin-manifest'
 
+// Renders a plugin's declared skill-invocation template. Shared by the terminal
+// file-drop path ({{path}} templates), the skill picker (explicit templates
+// without a path), and the automation backlog.work handoff (main-process). Kept
+// node-free so main and renderer resolve invocations through one contract.
+export function renderSkillInvocationTemplate(
+  template: string,
+  values: { skillId: string; skillName: string; path?: string },
+): string {
+  return template
+    .replace(/\{\{\s*skillId\s*\}\}/g, values.skillId)
+    .replace(/\{\{\s*skillName\s*\}\}/g, values.skillName)
+    .replace(/\{\{\s*path\s*\}\}/g, values.path ?? '')
+}
+
 /**
  * The CLI-native explicit invocation for a skill (e.g. `/debug` / `/use-railway`
  * for Claude, `Use $debug.` / `Use $use-railway.` for Codex), read from a

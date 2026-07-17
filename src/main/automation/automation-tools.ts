@@ -1,6 +1,29 @@
 import { isAbsolute } from 'path'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type { SprintEngineProjectionReadResult, TerminalSessionSnapshot } from '../../shared/electron-api'
+import type {
+  SprintEngineArtifactCommandResult,
+  SprintEngineAutomationReadResult,
+  SprintEngineAutomationWriteResult,
+  SprintEngineCliPermissionPreset,
+  SprintEngineMutationRefreshData,
+  SprintEngineProjectionReadResult,
+  SprintEngineTaskCommentInput,
+  SprintEngineTaskCreateInput,
+  SprintEngineTaskMutationRole,
+  SprintEngineTaskResolveInput,
+  SprintEngineTaskStatusSetInput,
+  SprintEngineTaskUpdateInput,
+  TerminalSessionSnapshot,
+} from '../../shared/electron-api'
+import type { SprintEngineAutomationMode } from '../../shared/sprintengine/automation-types'
+import type { SprintEngineTaskStatus, SprintEngineVcs } from '../../shared/sprintengine/run-types'
+import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
+import type { SetSprintEngineAutomationModeInput } from '../sprintengine-automation-service'
+import type {
+  SprintEngineArtifactReviewAction,
+  SprintEngineArtifactReviewPayload,
+  SprintEngineVcsPayload,
+} from '../ipc/sprintengine-ipc'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -22,8 +45,10 @@ import type {
 import type { BacklogCreateInput, BacklogCreateResult, BacklogListItemsResult, BacklogReadItemResult } from '../backlog-service'
 import type { AutomationStoreListResult } from '../automations/store'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
+import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
 import { isValidBacklogSlug } from '../../shared/backlog/frontmatter'
+import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
 import type { McpToolRegistration, McpToolResult } from './mcp-socket-server'
 import { createWorkspaceConfirmed } from '../workspace-create'
 
@@ -42,6 +67,15 @@ const ROUTING_PLACEHOLDER_TEMPLATE_ID = 'workspace-sync-routing-placeholder'
 
 const LAUNCH_CONFIRM_TIMEOUT_MS = 20_000
 const CONFIRM_POLL_INTERVAL_MS = 150
+
+// External callers get only these two presets; `bypass_all` is refused at the
+// tool boundary everywhere (epic decision 4, same policy as automation.create).
+const LAUNCH_PERMISSION_PRESETS = ['default', 'auto_workspace'] as const
+
+// The built-in Backlog skill id backlog.work installs and invokes; the skill
+// contract (agent edits `status:` itself) owns item lifecycle, so the tool only
+// records links (epic decision 7).
+const BACKLOG_SKILL_ID = 'backlog'
 
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
@@ -68,6 +102,86 @@ export type AutomationBackends = {
   listSprintRunStatePaths(workspaceRoot: string): Promise<string[]>
   /** One run's projection.json via the sprint-engine artifact reader (main-owned). */
   readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
+  /**
+   * Read a run's main-owned automation mode intent (`automation.json` beside
+   * run.yaml). Injected so sprint.status can disclose the mode an orchestrator
+   * cannot otherwise see. A `record` of null means no sidecar exists yet, which
+   * the board treats as `manual`.
+   */
+  readSprintAutomationMode(input: { statePath: string }): Promise<SprintEngineAutomationReadResult>
+  /**
+   * Write a run's automation mode through the main-owned intent service (the
+   * `sprint.status`/mobile-relay write path, not the renderer delegate — the
+   * two-lane rule). Same-mode writes return `changed: false`.
+   */
+  setSprintAutomationMode(input: SetSprintEngineAutomationModeInput): Promise<SprintEngineAutomationWriteResult>
+  /**
+   * Re-arm a stopped scheduler for the run's current mode (the board's Resume).
+   * Fire-and-forget: returns void and no-ops on a run the scheduler does not
+   * hold; callers verify via sprint.status.
+   */
+  resumeSprintRun(statePath: string): void
+  /**
+   * Cancel a run: the composed operation the IPC channel uses — the engine
+   * cancel op, then (on success) scheduler teardown so a paused/manual run with
+   * live agents is also torn down. Composed at the wiring site.
+   */
+  cancelSprintRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  /**
+   * Sprint steering (MC-1654), all main-owned `sprintEngineArtifacts` writes —
+   * the two-lane rule, never the renderer delegate. Each returns a result
+   * object and never throws; a `{ ok: false }` is surfaced as the tool's own
+   * `_failed` code. Review mode is pinned `'user'` at the wiring site: external
+   * callers are a human-proxy surface, never the auto-runner's `'auto-run'`.
+   */
+  reviewSprintArtifact(
+    payload: SprintEngineArtifactReviewPayload,
+    action: SprintEngineArtifactReviewAction
+  ): Promise<SprintEngineArtifactCommandResult>
+  commentSprintTask(payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult>
+  resolveSprintTaskInput(payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult>
+  setSprintTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
+  createSprintTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
+  updateSprintTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
+  /**
+   * Sprint VCS + usage reads (MC-1655), main-owned like the steering block. PR
+   * create/refresh run the engine's own `vcs` CLI (idempotent per the command)
+   * and re-read the projection into the result `data`; a `{ ok: false }` carries
+   * the CLI stdout/stderr the caller needs. `readSprintTokenUsage` computes the
+   * report directly — it never throws, degrading to an empty/unmeasured report.
+   */
+  createSprintPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  refreshSprintPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  readSprintTokenUsage(statePath: string): Promise<SprintEngineTokenUsageReport>
+  /**
+   * Create a git worktree for a widened agent.launch (model/preset/specialist
+   * launches that request isolation, and every connector launch). Worktree
+   * creation is renderer-adjacent but git-bound, so it happens in main before
+   * delegating — the automations executor precedent. Returns the created
+   * absolute path + branch, or `{ error }` (non-git folder, name collision,
+   * git failure) which the tool surfaces as `worktree_unavailable`. Injected as
+   * a backend so tests fake it.
+   */
+  createAgentWorktree(input: {
+    workspaceRoot: string
+    name: string
+  }): Promise<{ worktreePath: string; branch: string } | { error: string }>
+  /**
+   * Loaded CLI plugin manifests (`getPluginRegistry().loaded()`). backlog.work
+   * composes the target CLI's native skill invocation from the matching
+   * plugin's `skillIntegration.invocation.fileDropTemplate`; injected as a
+   * backend so tests fake manifests.
+   */
+  listPlugins(): LoadedPlugin[]
+  /**
+   * Make a built-in skill present in the workspace's native harness dirs before
+   * a launch reads its invocation (getStatus → install; the
+   * `ensureBuiltinSkillInstalled` seam in app-services). Returns whether the
+   * skill is now installed. A false result is non-fatal for backlog.work — the
+   * response records `skillEnsured: false` and the composed prompt still states
+   * the lifecycle contract.
+   */
+  ensureBuiltinSkillInstalled(workspaceRoot: string, skillId: string): Promise<boolean>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
 }
@@ -165,6 +279,116 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     }
   }
 
+  // The launch-config fields agent.launch and backlog.work both accept:
+  // `permissionPreset` (`bypass_all` refused with its own code, epic decision 4)
+  // and `worktree` (an object with an optional name — never a bare cwd). Returns
+  // the resolved options or a failure McpToolResult.
+  function resolveLaunchOptions(
+    args: Record<string, unknown>
+  ): { permissionPreset?: SprintEngineCliPermissionPreset; worktreeRequested: boolean; worktreeName?: string } | McpToolResult {
+    if (args.permissionPreset !== undefined) {
+      if (typeof args.permissionPreset !== 'string') {
+        return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
+      }
+      if (args.permissionPreset === 'bypass_all') {
+        return failure(
+          'permission_preset_not_allowed',
+          'Agents launched over the automation surface may not use permissionPreset "bypass_all". '
+            + 'A person can set that preset in the app if it is genuinely needed.'
+        )
+      }
+      if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
+        return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
+      }
+    }
+    let worktreeRequested = false
+    let worktreeName: string | undefined
+    if (args.worktree !== undefined) {
+      if (typeof args.worktree !== 'object' || args.worktree === null || Array.isArray(args.worktree)) {
+        return failure('invalid_arguments', '"worktree" must be an object with an optional "name".')
+      }
+      const rawName = (args.worktree as { name?: unknown }).name
+      if (rawName !== undefined && typeof rawName !== 'string') {
+        return failure('invalid_arguments', '"worktree.name" must be a string when provided.')
+      }
+      worktreeRequested = true
+      worktreeName = optionalString(rawName)
+    }
+    return {
+      permissionPreset: optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined,
+      worktreeRequested,
+      worktreeName,
+    }
+  }
+
+  // Create the isolation worktree (when requested or forced by a connector),
+  // delegate agent.launch to the renderer, and confirm the launch by a live
+  // terminal session — the shared execution path for agent.launch and
+  // backlog.work. Returns the confirmed workspace + agent id (and worktree
+  // path), or a failure McpToolResult. The caller is expected to have validated
+  // args and confirmed the workspace exists.
+  async function launchConfiguredAgent(plan: {
+    workspaceId: string
+    cli?: string
+    name?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: SprintEngineCliPermissionPreset
+    specialistId?: string
+    connectorId?: string
+    worktreeRequested: boolean
+    worktreeName?: string
+  }): Promise<{ workspace: Workspace; agentId: string; worktreePath?: string } | McpToolResult> {
+    // A connector launch forces a worktree even when none was requested — the
+    // connector .mcp.json must never land in the user's checkout. Worktree
+    // creation runs in main before delegating, and a failure here is fatal: the
+    // caller asked for isolation, so we never silently fall back.
+    let worktreePath: string | undefined
+    if (plan.worktreeRequested || plan.connectorId) {
+      const resolved = resolveWorkspaceRoot(plan.workspaceId)
+      if (!('root' in resolved)) return resolved
+      const derivedName = plan.worktreeName || plan.name || plan.connectorId || `agent-${now().toString(36)}`
+      const created = await backends.createAgentWorktree({ workspaceRoot: resolved.root, name: derivedName })
+      if ('error' in created) {
+        return failure(
+          'worktree_unavailable',
+          `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`
+        )
+      }
+      worktreePath = created.worktreePath
+    }
+
+    const delegated = await backends.delegateToRenderer({
+      kind: 'agent.launch',
+      workspaceId: plan.workspaceId,
+      cli: plan.cli,
+      name: plan.name,
+      prompt: plan.prompt,
+      cliModel: plan.cliModel,
+      permissionPreset: plan.permissionPreset,
+      specialistId: plan.specialistId,
+      connectorId: plan.connectorId,
+      worktreePath,
+    })
+    if (!delegated.ok) return failure(delegated.code, delegated.message)
+    const agentId = delegated.agentId
+    if (!agentId) return failure('renderer_protocol_error', 'The renderer accepted the launch but returned no agent id.')
+    const confirmed = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => {
+      const workspace = findWorkspace(plan.workspaceId)
+      if (!workspace) return null
+      const agent = workspace.agents[agentId]
+      const session = agentTerminalSession(plan.workspaceId, agentId, agent?.cliSessionId)
+      return session?.processAlive ? workspace : null
+    })
+    if (!confirmed) {
+      return failure(
+        'launch_confirmation_timeout',
+        `Agent "${agentId}" was added to workspace "${plan.workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
+      )
+    }
+    return { workspace: confirmed, agentId, ...(worktreePath ? { worktreePath } : {}) }
+  }
+
   const workspaceList: McpToolRegistration = {
     name: 'workspace.list',
     description:
@@ -240,8 +464,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const agentLaunch: McpToolRegistration = {
     name: 'agent.launch',
     description:
-      'Add an agent to a workspace and start its CLI through the same renderer flow the UI uses. '
-      + 'Success is confirmed by the agent terminal session registering with the main process.',
+      'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. '
+      + 'Optionally selects the model, permission preset, specialist, and connector, and isolates the agent in a '
+      + 'git worktree. Success is confirmed by the agent terminal session registering with the main process.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -249,6 +474,25 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
         name: { type: 'string', description: 'Agent display name.' },
         prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
+        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
+          description: 'CLI permission preset. Only "default" or "auto_workspace"; "bypass_all" is refused on this surface.',
+        },
+        specialistId: { type: 'string', description: 'Launch as this specialist rather than a general agent; the renderer resolves it and fails if unknown.' },
+        connectorId: {
+          type: 'string',
+          description:
+            'Catalog connector id (e.g. "railway"). Attaches the connector\'s single-server MCP and driving skill and '
+            + 'forces worktree isolation (the connector .mcp.json never lands in the checkout), even without "worktree".',
+        },
+        worktree: {
+          type: 'object',
+          properties: { name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' } },
+          additionalProperties: false,
+          description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
+        },
       },
       required: ['workspaceId'],
       additionalProperties: false,
@@ -256,35 +500,33 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
-      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt'])
+      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'specialistId', 'connectorId'])
       if (invalid) return invalid
+
+      const options = resolveLaunchOptions(args)
+      if ('content' in options) return options
+
       if (!findWorkspace(workspaceId)) {
         return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
       }
-      const delegated = await backends.delegateToRenderer({
-        kind: 'agent.launch',
+
+      const launched = await launchConfiguredAgent({
         workspaceId,
         cli: optionalString(args.cli),
         name: optionalString(args.name),
         prompt: optionalString(args.prompt),
+        cliModel: optionalString(args.cliModel),
+        permissionPreset: options.permissionPreset,
+        specialistId: optionalString(args.specialistId),
+        connectorId: optionalString(args.connectorId),
+        worktreeRequested: options.worktreeRequested,
+        worktreeName: options.worktreeName,
       })
-      if (!delegated.ok) return failure(delegated.code, delegated.message)
-      const agentId = delegated.agentId
-      if (!agentId) return failure('renderer_protocol_error', 'The renderer accepted the launch but returned no agent id.')
-      const confirmed = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => {
-        const workspace = findWorkspace(workspaceId)
-        if (!workspace) return null
-        const agent = workspace.agents[agentId]
-        const session = agentTerminalSession(workspaceId, agentId, agent?.cliSessionId)
-        return session?.processAlive ? workspace : null
+      if (!('agentId' in launched)) return launched
+      return success({
+        agent: agentProjection(launched.workspace, launched.agentId),
+        ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
       })
-      if (!confirmed) {
-        return failure(
-          'launch_confirmation_timeout',
-          `Agent "${agentId}" was added to workspace "${workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
-        )
-      }
-      return success({ agent: agentProjection(confirmed, agentId) })
     },
   }
 
@@ -608,6 +850,136 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  // Compose the startup prompt for a backlog.work handoff: the target CLI's
+  // native skill invocation (e.g. `/backlog backlog/foo.md` for Claude) when the
+  // plugin declares a file-drop template, otherwise a plain-language block that
+  // names the path and restates the built-in skill's lifecycle contract so any
+  // agent can follow it. The invocation is what gets sent; the fallback is
+  // CLI-agnostic, so it also covers an unspecified or unknown `cli`.
+  function renderBacklogSkillInvocation(cli: string | undefined, relativePath: string): string {
+    const plugin = cli ? backends.listPlugins().find((candidate) => candidate.manifest.id === cli) : undefined
+    const template = plugin?.manifest.skillIntegration?.invocation?.fileDropTemplate
+    if (template) {
+      return renderSkillInvocationTemplate(template, { skillId: BACKLOG_SKILL_ID, skillName: 'Backlog', path: relativePath })
+    }
+    return (
+      `Work the Backlog item at ${relativePath}. `
+      + 'Track its lifecycle by editing the frontmatter `status:` line: set `in_progress` when you start, '
+      + '`needs_input` (and state the blocking question) if you stop for input, and `completed` only after the '
+      + 'work is real and verified. Leave the body and every other field untouched.'
+    )
+  }
+
+  const backlogWork: McpToolRegistration = {
+    name: 'backlog.work',
+    description:
+      'Hand a Backlog item to a freshly launched agent in one call: launches a configured agent whose first input '
+      + "is the target CLI's Backlog skill invocation (e.g. \"/backlog <path>\" for Claude, a plain-language "
+      + 'lifecycle block for CLIs without skill integration), then records the working-agent link. Never changes '
+      + 'item status — the Backlog skill contract owns lifecycle, exactly like dragging the item onto a terminal. '
+      + 'Refuses completed or archived items. Same launch fields as agent.launch (bypass_all refused), minus '
+      + 'specialist/connector.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        path: { type: 'string', description: 'Item path relative to the workspace root, e.g. "backlog/example.md".' },
+        cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
+        name: { type: 'string', description: 'Agent display name.' },
+        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
+          description: 'CLI permission preset. Only "default" or "auto_workspace"; "bypass_all" is refused on this surface.',
+        },
+        worktree: {
+          type: 'object',
+          properties: { name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' } },
+          additionalProperties: false,
+          description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
+        },
+        instructions: { type: 'string', description: 'Extra context appended after the skill invocation in the startup prompt.' },
+      },
+      required: ['workspaceId', 'path'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const workspaceId = requireString(args, 'workspaceId')
+      if (typeof workspaceId !== 'string') return workspaceId
+      const path = requireString(args, 'path')
+      if (typeof path !== 'string') return path
+      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'cliModel', 'instructions'])
+      if (invalid) return invalid
+      const options = resolveLaunchOptions(args)
+      if ('content' in options) return options
+      const resolved = resolveWorkspaceRoot(workspaceId)
+      if (!('root' in resolved)) return resolved
+
+      // Read the item and gate on workability: a missing/invalid path is
+      // not_found; a completed item or anything under backlog/archived/ is a
+      // finished record that must not be re-handed. Every other status
+      // (including in_progress — a re-handoff is legitimate) is workable.
+      const read = await backends.readBacklogItem(resolved.root, path)
+      if (!read.ok) return failure('backlog_item_not_found', read.message)
+      if (read.item.status === 'completed' || isArchivedBacklogPath(read.item.relativePath)) {
+        const reason = read.item.status === 'completed' ? 'completed' : 'archived'
+        return failure(
+          'backlog_item_not_workable',
+          `Backlog item ${read.item.relativePath} is ${reason} and cannot be handed to an agent.`
+        )
+      }
+
+      const cli = optionalString(args.cli)
+      const instructions = optionalString(args.instructions)
+      const invocation = renderBacklogSkillInvocation(cli, read.item.relativePath)
+      const prompt = instructions ? `${invocation}\n\n${instructions}` : invocation
+
+      // Install the Backlog skill into the CLI's native dir before launch so the
+      // invocation resolves. Non-fatal: a false result rides `skillEnsured` and
+      // the prompt still states the lifecycle contract.
+      const skillEnsured = await backends.ensureBuiltinSkillInstalled(resolved.root, BACKLOG_SKILL_ID)
+
+      const launched = await launchConfiguredAgent({
+        workspaceId,
+        cli,
+        name: optionalString(args.name),
+        prompt,
+        cliModel: optionalString(args.cliModel),
+        permissionPreset: options.permissionPreset,
+        worktreeRequested: options.worktreeRequested,
+        worktreeName: options.worktreeName,
+      })
+      if (!('agentId' in launched)) return launched
+
+      // Record the working-agent link after a confirmed launch. A link failure
+      // here is NOT overall failure — the agent is already running, so faking
+      // failure would invite a duplicate launch. Report assigned:false + warning.
+      const agent = launched.workspace.agents[launched.agentId]
+      const link = buildAgentBacklogLink({
+        workspaceId,
+        agentId: launched.agentId,
+        agentName: agent?.name || launched.agentId,
+      })
+      const written = await backends.backlogWrite.addOrUpdateLink({
+        workspaceRoot: resolved.root,
+        relativePath: read.item.relativePath,
+        link,
+      })
+      return success({
+        worked: {
+          relativePath: read.item.relativePath,
+          workspaceId,
+          agentId: launched.agentId,
+          invocation,
+          skillEnsured,
+          assigned: written.ok,
+          ...(written.ok ? {} : { warning: `Agent launched but the working-agent link was not recorded: ${written.message}` }),
+          ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
+        },
+      })
+    },
+  }
+
   function automationsFrontDoorOrFailure(): AutomationsAppFrontDoor | McpToolResult {
     const frontDoor = backends.getAutomationsFrontDoor()
     if (!frontDoor) {
@@ -697,8 +1069,68 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
   const SPRINT_SLUG_RE = /^[A-Za-z0-9._-]+$/
 
+  // The three real automation modes; `paused` is not one of them — pause is
+  // `manual`, matching the board (epic decision, no `paused` pseudo-mode).
+  const SPRINT_AUTOMATION_MODES: readonly SprintEngineAutomationMode[] = [
+    'manual',
+    'run_agents',
+    'run_agents_and_approve_artifacts',
+  ]
+
+  // The task-status vocabulary sprint.task.set_status validates against, mirrored
+  // from SprintEngineTaskStatus (run-types.ts) — the `readonly [...]` typing fails
+  // the build if any listed value leaves the union. The engine still rejects
+  // illegal transitions; this only fails fast on a value that is not a status.
+  const SPRINT_TASK_STATUSES: readonly SprintEngineTaskStatus[] = [
+    'todo',
+    'in_progress',
+    'review',
+    'needs_input',
+    'done',
+    'canceled',
+  ]
+
+  // The 9 roles sprint.task.create/update may assign, mirrored from
+  // SprintEngineTaskMutationRole (electron-api.ts). Same build-time guard as the
+  // statuses above: a value outside the union fails to compile here.
+  const SPRINT_TASK_MUTATION_ROLES: readonly SprintEngineTaskMutationRole[] = [
+    'architect',
+    'product',
+    'developer',
+    'frontend',
+    'tester',
+    'security',
+    'performance',
+    'production_readiness_reviewer',
+    'cross_platform',
+  ]
+
   function sprintStatePath(root: string, slug: string): string {
     return [root, '.multi-code', 'sprintengine', slug, 'run.yaml'].join('/')
+  }
+
+  // Every sprint tool is keyed workspaceId + slug and NEVER accepts a caller
+  // statePath: resolve the workspace root through the sync snapshot, validate
+  // the slug against SPRINT_SLUG_RE, and reconstruct the statePath ourselves.
+  function resolveSprintStatePath(args: Record<string, unknown>): { statePath: string; slug: string } | McpToolResult {
+    const workspaceId = requireString(args, 'workspaceId')
+    if (typeof workspaceId !== 'string') return workspaceId
+    const slug = requireString(args, 'slug')
+    if (typeof slug !== 'string') return slug
+    if (!SPRINT_SLUG_RE.test(slug) || slug === '.' || slug === '..') {
+      return failure('invalid_arguments', '"slug" must be a plain run slug from sprint.list.')
+    }
+    const resolved = resolveWorkspaceRoot(workspaceId)
+    if (!('root' in resolved)) return resolved
+    return { statePath: sprintStatePath(resolved.root, slug), slug }
+  }
+
+  // The mutation tools gate on the run actually existing on disk before writing:
+  // a projection read that fails is an unknown run, not a mode/cancel failure.
+  async function ensureSprintRunExists(statePath: string): Promise<McpToolResult | null> {
+    const projection = await backends.readSprintEngineProjection(statePath)
+    if (!projection.ok) return failure('sprint_not_found', projection.message)
+    return null
   }
 
   const sprintList: McpToolRegistration = {
@@ -735,9 +1167,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const sprintStatus: McpToolRegistration = {
     name: 'sprint.status',
     description:
-      "One Sprint Engine run's current projection (goal, tasks, artifacts, roster, completion) read from disk. "
-      + 'The auto-runner mode (manual/running/paused) lives only in the renderer and is NOT part of this '
-      + 'projection — do not infer it from this result.',
+      "One Sprint Engine run's current projection (goal, tasks, artifacts, roster, completion) read from disk, "
+      + 'plus its main-owned automation mode (manual/run_agents/run_agents_and_approve_artifacts). automationMode '
+      + 'is null only when the mode has never been set for this run (the board treats that as manual). Steer the '
+      + 'mode with sprint.set_mode.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -748,18 +1181,117 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       additionalProperties: false,
     },
     handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const slug = requireString(args, 'slug')
-      if (typeof slug !== 'string') return slug
-      if (!SPRINT_SLUG_RE.test(slug) || slug === '.' || slug === '..') {
-        return failure('invalid_arguments', '"slug" must be a plain run slug from sprint.list.')
-      }
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const projection = await backends.readSprintEngineProjection(sprintStatePath(resolved.root, slug))
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const projection = await backends.readSprintEngineProjection(resolvedRun.statePath)
       if (!projection.ok) return failure('sprint_status_failed', projection.message)
-      return success({ slug, projection: projection.data, changeToken: projection.token ?? null })
+      // Automation mode is supplementary: a read failure discloses null rather
+      // than failing the whole status read (the projection is the primary
+      // payload). No sidecar record → manual, matching the board.
+      const mode = await backends.readSprintAutomationMode({ statePath: resolvedRun.statePath })
+      const automationMode: SprintEngineAutomationMode | null = mode.ok ? mode.record?.desiredMode ?? 'manual' : null
+      return success({
+        slug: resolvedRun.slug,
+        projection: projection.data,
+        changeToken: projection.token ?? null,
+        automationMode,
+      })
+    },
+  }
+
+  const sprintSetMode: McpToolRegistration = {
+    name: 'sprint.set_mode',
+    description:
+      "Set a Sprint Engine run's automation mode through the main-owned intent service. \"manual\" pauses the "
+      + 'auto-runner (there is no separate paused state — pause is manual); "run_agents" runs agents; '
+      + '"run_agents_and_approve_artifacts" also auto-approves review artifacts. Idempotent: setting the mode '
+      + 'the run already has returns changed:false. Verify the live effect with sprint.status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        mode: {
+          type: 'string',
+          enum: [...SPRINT_AUTOMATION_MODES],
+          description: 'Target automation mode.',
+        },
+      },
+      required: ['workspaceId', 'slug', 'mode'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const mode = requireString(args, 'mode')
+      if (typeof mode !== 'string') return mode
+      if (!SPRINT_AUTOMATION_MODES.includes(mode as SprintEngineAutomationMode)) {
+        return failure('invalid_arguments', `"mode" must be one of: ${SPRINT_AUTOMATION_MODES.join(', ')}.`)
+      }
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const written = await backends.setSprintAutomationMode({
+        statePath: resolvedRun.statePath,
+        mode: mode as SprintEngineAutomationMode,
+        actor: 'automation',
+        reason: 'automation-server',
+      })
+      if (!written.ok) return failure('sprint_mode_failed', written.message)
+      return success({ mode: written.record.desiredMode, changed: written.changed })
+    },
+  }
+
+  const sprintResume: McpToolRegistration = {
+    name: 'sprint.resume',
+    description:
+      "Re-arm a stopped Sprint Engine run's scheduler for its current mode (the board's Resume). Fire-and-forget: "
+      + 'this requests a resume and gives no confirmation of the run reaching a running state — verify with '
+      + 'sprint.status. Has no effect on a run the scheduler is not holding.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      backends.resumeSprintRun(resolvedRun.statePath)
+      return success({ resumed: { slug: resolvedRun.slug, requested: true } })
+    },
+  }
+
+  const sprintCancel: McpToolRegistration = {
+    name: 'sprint.cancel',
+    description:
+      'Cancel a Sprint Engine run: writes run/task status through the engine cancel op, then tears down the '
+      + "scheduler so a paused or manual run's live agents are also stopped. Terminal — a canceled run cannot be "
+      + 'resumed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const canceled = await backends.cancelSprintRun({ statePath: resolvedRun.statePath })
+      if (!canceled.ok) {
+        const detail = [canceled.stdout, canceled.stderr].filter((part) => Boolean(part && part.trim())).join('\n')
+        return failure('sprint_cancel_failed', detail ? `${canceled.message}\n${detail}` : canceled.message)
+      }
+      return success({ canceled: { slug: resolvedRun.slug } })
     },
   }
 
@@ -844,6 +1376,367 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  const sprintArtifactApprove: McpToolRegistration = {
+    name: 'sprint.artifact.approve',
+    description:
+      "Approve a Sprint Engine run's review artifact (plan, spec review, etc.), the human-proxy approval the board "
+      + 'offers. Direct-main, keyed workspaceId + slug; review mode is pinned to a human approval, never the '
+      + "auto-runner's policy approval. Optional feedback rides the approval. Verify the effect with sprint.status.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        artifactId: { type: 'string', description: 'Artifact id from the run projection (sprint.status).' },
+        feedback: { type: 'string', description: 'Optional note recorded with the approval.' },
+      },
+      required: ['workspaceId', 'slug', 'artifactId'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const artifactId = requireString(args, 'artifactId')
+      if (typeof artifactId !== 'string') return artifactId
+      const invalid = firstInvalidOptionalString(args, ['feedback'])
+      if (invalid) return invalid
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const reviewed = await backends.reviewSprintArtifact(
+        { statePath: resolvedRun.statePath, artifactId, ...(optionalString(args.feedback) ? { feedback: optionalString(args.feedback) } : {}) },
+        'approve'
+      )
+      if (!reviewed.ok) return sprintCommandResultFailure('sprint_artifact_approve_failed', reviewed)
+      return success({ approved: { slug: resolvedRun.slug, artifactId } })
+    },
+  }
+
+  const sprintArtifactRequestChanges: McpToolRegistration = {
+    name: 'sprint.artifact.request_changes',
+    description:
+      "Request changes on a Sprint Engine run's review artifact, returning it to its author with required feedback. "
+      + 'Direct-main, keyed workspaceId + slug. Feedback is required and non-empty at the tool boundary (the engine '
+      + 'also enforces it). Verify the effect with sprint.status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        artifactId: { type: 'string', description: 'Artifact id from the run projection (sprint.status).' },
+        feedback: { type: 'string', description: 'Required note describing the changes to make.' },
+      },
+      required: ['workspaceId', 'slug', 'artifactId', 'feedback'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const artifactId = requireString(args, 'artifactId')
+      if (typeof artifactId !== 'string') return artifactId
+      const feedback = requireString(args, 'feedback')
+      if (typeof feedback !== 'string') return feedback
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const reviewed = await backends.reviewSprintArtifact(
+        { statePath: resolvedRun.statePath, artifactId, feedback },
+        'request-changes'
+      )
+      if (!reviewed.ok) return sprintCommandResultFailure('sprint_artifact_request_changes_failed', reviewed)
+      return success({ requestedChanges: { slug: resolvedRun.slug, artifactId } })
+    },
+  }
+
+  const sprintTaskComment: McpToolRegistration = {
+    name: 'sprint.task.comment',
+    description:
+      "Add a comment to a Sprint Engine task — the same board comment an operator leaves. Direct-main, keyed "
+      + 'workspaceId + slug; the comment is visible to the task owner.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        taskId: { type: 'string', description: 'Task id from the run projection (sprint.status).' },
+        body: { type: 'string', description: 'Comment body.' },
+      },
+      required: ['workspaceId', 'slug', 'taskId', 'body'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const taskId = requireString(args, 'taskId')
+      if (typeof taskId !== 'string') return taskId
+      const body = requireString(args, 'body')
+      if (typeof body !== 'string') return body
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const commented = await backends.commentSprintTask({ statePath: resolvedRun.statePath, taskId, body })
+      if (!commented.ok) return sprintCommandResultFailure('sprint_task_comment_failed', commented)
+      return success({ commented: { slug: resolvedRun.slug, taskId } })
+    },
+  }
+
+  const sprintTaskResolveInput: McpToolRegistration = {
+    name: 'sprint.task.resolve_input',
+    description:
+      "Answer a Sprint Engine task's needs_input question so its owner can resume. Direct-main, keyed workspaceId + "
+      + 'slug. `resolution` is the answer; optional `complete` closes the task instead of returning it to work. '
+      + 'Pairs with the run-needs-input trigger, whose payload carries the taskId + question.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        taskId: { type: 'string', description: 'Task id from the run projection (sprint.status).' },
+        resolution: { type: 'string', description: 'The answer to the task\'s needs_input question.' },
+        complete: { type: 'boolean', description: 'Close the task on resolution instead of returning it to work.' },
+      },
+      required: ['workspaceId', 'slug', 'taskId', 'resolution'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const taskId = requireString(args, 'taskId')
+      if (typeof taskId !== 'string') return taskId
+      const resolution = requireString(args, 'resolution')
+      if (typeof resolution !== 'string') return resolution
+      if (args.complete !== undefined && typeof args.complete !== 'boolean') {
+        return failure('invalid_arguments', '"complete" must be a boolean when provided.')
+      }
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const resolved = await backends.resolveSprintTaskInput({
+        statePath: resolvedRun.statePath,
+        taskId,
+        resolution,
+        ...(args.complete === true ? { complete: true } : {}),
+      })
+      if (!resolved.ok) return sprintCommandResultFailure('sprint_task_resolve_input_failed', resolved)
+      return success({ resolved: { slug: resolvedRun.slug, taskId, complete: args.complete === true } })
+    },
+  }
+
+  const sprintTaskSetStatus: McpToolRegistration = {
+    name: 'sprint.task.set_status',
+    description:
+      "Set a Sprint Engine task's status (todo, in_progress, review, needs_input, done, canceled). Direct-main, "
+      + 'keyed workspaceId + slug. The engine rejects illegal transitions; the common use is reopening a reviewed '
+      + 'or done task with "in_progress" for rework under its original owner.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        taskId: { type: 'string', description: 'Task id from the run projection (sprint.status).' },
+        status: { type: 'string', enum: [...SPRINT_TASK_STATUSES], description: 'Target task status.' },
+      },
+      required: ['workspaceId', 'slug', 'taskId', 'status'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const taskId = requireString(args, 'taskId')
+      if (typeof taskId !== 'string') return taskId
+      const status = requireString(args, 'status')
+      if (typeof status !== 'string') return status
+      if (!SPRINT_TASK_STATUSES.includes(status as SprintEngineTaskStatus)) {
+        return failure('invalid_arguments', `"status" must be one of: ${SPRINT_TASK_STATUSES.join(', ')}.`)
+      }
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const set = await backends.setSprintTaskStatus({ statePath: resolvedRun.statePath, taskId, status })
+      if (!set.ok) return sprintCommandResultFailure('sprint_task_set_status_failed', set)
+      return success({ statusSet: { slug: resolvedRun.slug, taskId, status } })
+    },
+  }
+
+  const sprintTaskCreate: McpToolRegistration = {
+    name: 'sprint.task.create',
+    description:
+      'Add a task to a Sprint Engine run mid-flight. Direct-main, keyed workspaceId + slug. `role` must be an '
+      + 'assignable Sprint Engine role. acceptanceCriteria / implementationNotes / notes are arrays of non-empty '
+      + 'strings (a bare string is rejected). Verify the added task with sprint.status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        title: { type: 'string', description: 'Task title.' },
+        role: { type: 'string', enum: [...SPRINT_TASK_MUTATION_ROLES], description: 'Assigned role.' },
+        description: { type: 'string', description: 'Task description / body.' },
+        acceptanceCriteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria bullets.' },
+        implementationNotes: { type: 'array', items: { type: 'string' }, description: 'Implementation hints.' },
+        notes: { type: 'array', items: { type: 'string' }, description: 'Freeform notes.' },
+      },
+      required: ['workspaceId', 'slug', 'title', 'role'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const title = requireString(args, 'title')
+      if (typeof title !== 'string') return title
+      const role = requireString(args, 'role')
+      if (typeof role !== 'string') return role
+      if (!SPRINT_TASK_MUTATION_ROLES.includes(role as SprintEngineTaskMutationRole)) {
+        return failure('invalid_arguments', `"role" must be one of: ${SPRINT_TASK_MUTATION_ROLES.join(', ')}.`)
+      }
+      const invalid = firstInvalidOptionalString(args, ['description'])
+      if (invalid) return invalid
+      const badArray = firstInvalidStringArray(args, ['acceptanceCriteria', 'implementationNotes', 'notes'])
+      if (badArray) return badArray
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const created = await backends.createSprintTask({
+        statePath: resolvedRun.statePath,
+        title,
+        role: role as SprintEngineTaskMutationRole,
+        ...(optionalString(args.description) ? { description: optionalString(args.description) } : {}),
+        ...(optionalStringArray(args.acceptanceCriteria) ? { acceptanceCriteria: optionalStringArray(args.acceptanceCriteria) } : {}),
+        ...(optionalStringArray(args.implementationNotes) ? { implementationNotes: optionalStringArray(args.implementationNotes) } : {}),
+        ...(optionalStringArray(args.notes) ? { notes: optionalStringArray(args.notes) } : {}),
+      })
+      if (!created.ok) return sprintCommandResultFailure('sprint_task_create_failed', created)
+      return success({ created: { slug: resolvedRun.slug, title, role } })
+    },
+  }
+
+  const sprintTaskUpdate: McpToolRegistration = {
+    name: 'sprint.task.update',
+    description:
+      "Update an existing Sprint Engine task's fields (title, description, role, acceptanceCriteria, "
+      + 'implementationNotes, notes). Direct-main, keyed workspaceId + slug. Only supplied fields change; array '
+      + 'fields are arrays of non-empty strings (a bare string is rejected). Verify with sprint.status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        taskId: { type: 'string', description: 'Task id from the run projection (sprint.status).' },
+        title: { type: 'string', description: 'New task title.' },
+        role: { type: 'string', enum: [...SPRINT_TASK_MUTATION_ROLES], description: 'Reassigned role.' },
+        description: { type: 'string', description: 'New task description / body.' },
+        acceptanceCriteria: { type: 'array', items: { type: 'string' }, description: 'Acceptance criteria bullets.' },
+        implementationNotes: { type: 'array', items: { type: 'string' }, description: 'Implementation hints.' },
+        notes: { type: 'array', items: { type: 'string' }, description: 'Freeform notes.' },
+      },
+      required: ['workspaceId', 'slug', 'taskId'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const taskId = requireString(args, 'taskId')
+      if (typeof taskId !== 'string') return taskId
+      const invalid = firstInvalidOptionalString(args, ['title', 'description'])
+      if (invalid) return invalid
+      if (args.role !== undefined && !SPRINT_TASK_MUTATION_ROLES.includes(args.role as SprintEngineTaskMutationRole)) {
+        return failure('invalid_arguments', `"role" must be one of: ${SPRINT_TASK_MUTATION_ROLES.join(', ')}.`)
+      }
+      const badArray = firstInvalidStringArray(args, ['acceptanceCriteria', 'implementationNotes', 'notes'])
+      if (badArray) return badArray
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const updated = await backends.updateSprintTask({
+        statePath: resolvedRun.statePath,
+        taskId,
+        ...(optionalString(args.title) ? { title: optionalString(args.title) } : {}),
+        ...(args.role !== undefined ? { role: args.role as SprintEngineTaskMutationRole } : {}),
+        ...(optionalString(args.description) ? { description: optionalString(args.description) } : {}),
+        ...(optionalStringArray(args.acceptanceCriteria) ? { acceptanceCriteria: optionalStringArray(args.acceptanceCriteria) } : {}),
+        ...(optionalStringArray(args.implementationNotes) ? { implementationNotes: optionalStringArray(args.implementationNotes) } : {}),
+        ...(optionalStringArray(args.notes) ? { notes: optionalStringArray(args.notes) } : {}),
+      })
+      if (!updated.ok) return sprintCommandResultFailure('sprint_task_update_failed', updated)
+      return success({ updated: { slug: resolvedRun.slug, taskId } })
+    },
+  }
+
+  const sprintPrCreate: McpToolRegistration = {
+    name: 'sprint.pr.create',
+    description:
+      "Open a Sprint Engine run's pull request through the engine's own VCS command. Direct-main, keyed workspaceId "
+      + '+ slug; idempotent per the underlying command (re-opening an existing PR is safe). On success the run\'s '
+      + 'refreshed vcs block (pull-request URL, branch, merge state) rides the payload so no second sprint.status is '
+      + 'needed. A non-worktree run surfaces the engine\'s own refusal — the tool does not pre-empt it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const created = await backends.createSprintPullRequest({ statePath: resolvedRun.statePath })
+      if (!created.ok) return sprintCommandResultFailure('sprint_pr_failed', created)
+      return success({ slug: resolvedRun.slug, vcs: sprintVcsFromCommandResult(created.data) })
+    },
+  }
+
+  const sprintPrStatus: McpToolRegistration = {
+    name: 'sprint.pr.status',
+    description:
+      "Refresh and read a Sprint Engine run's pull-request merge state. Direct-main, keyed workspaceId + slug; runs "
+      + 'the engine pr-status probe (read-only, no working-tree mutation) then returns the refreshed vcs block. Read '
+      + 'vcs.pullRequestState (open | merged | closed | null) from the payload — this is the precondition a landed-run '
+      + 'trigger polls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const refreshed = await backends.refreshSprintPullRequestStatus({ statePath: resolvedRun.statePath })
+      if (!refreshed.ok) return sprintCommandResultFailure('sprint_pr_status_failed', refreshed)
+      return success({ slug: resolvedRun.slug, vcs: sprintVcsFromCommandResult(refreshed.data) })
+    },
+  }
+
+  const sprintTokenUsage: McpToolRegistration = {
+    name: 'sprint.token_usage',
+    description:
+      "A Sprint Engine run's token accounting report (per-run totals, per-agent and per-task breakdowns, measurement "
+      + 'coverage), computed from the run ledger and CLI transcripts. Direct-main, keyed workspaceId + slug. For '
+      + 'budget-aware orchestration; unmeasured agents are reported as such, never as zero.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      // Gate on the run existing so a bad slug returns sprint_not_found rather
+      // than the compute's truthful-but-misleading empty report for a run that
+      // is not there (fallback discipline — no invented empty data).
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const tokenUsage = await backends.readSprintTokenUsage(resolvedRun.statePath)
+      return success({ slug: resolvedRun.slug, tokenUsage })
+    },
+  }
+
   return [
     workspaceCreate,
     workspaceList,
@@ -855,6 +1748,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     backlogCreate,
     backlogUpdate,
     backlogAssign,
+    backlogWork,
     automationList,
     automationRuns,
     automationCreate,
@@ -862,6 +1756,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     sprintList,
     sprintStatus,
     sprintCreate,
+    sprintSetMode,
+    sprintResume,
+    sprintCancel,
+    sprintArtifactApprove,
+    sprintArtifactRequestChanges,
+    sprintTaskComment,
+    sprintTaskResolveInput,
+    sprintTaskSetStatus,
+    sprintTaskCreate,
+    sprintTaskUpdate,
+    sprintPrCreate,
+    sprintPrStatus,
+    sprintTokenUsage,
   ]
 }
 
@@ -875,6 +1782,13 @@ function actionPermissionPreset(definition: object): string | null {
   if (typeof config !== 'object' || config === null) return null
   const preset = (config as { permissionPreset?: unknown }).permissionPreset
   return typeof preset === 'string' ? preset : null
+}
+
+// Archived items live under backlog/archived/ (path-derived, matching the
+// renderer's isArchivedBacklogPath); readBacklogItem normalizes the path but is
+// case-preserving, so lowercase before the prefix check.
+function isArchivedBacklogPath(relativePath: string): boolean {
+  return relativePath.replace(/\\/g, '/').toLowerCase().startsWith('backlog/archived/')
 }
 
 function success(structured: Record<string, unknown>): McpToolResult {
@@ -899,6 +1813,52 @@ function requireString(args: Record<string, unknown>, key: string): string | Mcp
     return failure('invalid_arguments', `"${key}" must be a non-empty string.`)
   }
   return value.trim()
+}
+
+// A sprint steering backend returns a SprintEngineArtifactCommandResult; on
+// failure, surface the tool's own `_failed` code carrying the engine message
+// plus any stdout/stderr (the sprint.cancel precedent), so a CLI-level failure
+// is not flattened to a bare message.
+function sprintCommandResultFailure(
+  code: string,
+  result: { message: string; stdout?: string; stderr?: string }
+): McpToolResult {
+  const detail = [result.stdout, result.stderr].filter((part) => Boolean(part && part.trim())).join('\n')
+  return failure(code, detail ? `${result.message}\n${detail}` : result.message)
+}
+
+// A VCS command result re-reads the run projection into `data.projectionContent`
+// (a JSON string). Pull the `vcs` block out of it so pr.create/pr.status callers
+// read the pull-request URL and merge state without a second sprint.status. A
+// non-worktree run has no `vcs` (null), and a malformed/absent projection reads
+// back as null rather than throwing at this read-only boundary.
+function sprintVcsFromCommandResult(data: SprintEngineMutationRefreshData): SprintEngineVcs | null {
+  if (typeof data.projectionContent !== 'string') return null
+  try {
+    const parsed = JSON.parse(data.projectionContent) as { vcs?: SprintEngineVcs | null }
+    return parsed.vcs ?? null
+  } catch {
+    return null
+  }
+}
+
+// Array-field validation is load-bearing at this boundary: the Python engine has
+// a history of spreading a bare string char-by-char, so acceptanceCriteria /
+// implementationNotes / notes must each be an array of non-empty strings or the
+// call is rejected here — never passed through. Returns the first offender.
+function firstInvalidStringArray(args: Record<string, unknown>, keys: string[]): McpToolResult | null {
+  for (const key of keys) {
+    const value = args[key]
+    if (value === undefined) continue
+    if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.trim().length === 0)) {
+      return failure('invalid_arguments', `"${key}" must be an array of non-empty strings.`)
+    }
+  }
+  return null
+}
+
+function optionalStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? (value as string[]) : undefined
 }
 
 function optionalString(value: unknown): string | undefined {

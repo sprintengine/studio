@@ -58,6 +58,8 @@ export const SCHEDULE_TRIGGER_KIND = 'schedule'
 export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
 export const WEBHOOK_TRIGGER_KIND = 'webhook'
 export const SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
+export const SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND = 'sprint-engine.run-needs-input'
+export const SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND = 'sprint-engine.run-completed'
 
 export type TriggerKind = string
 
@@ -113,6 +115,24 @@ export type WebhookTriggerConfig = {
 export type SprintEngineRunLandedTriggerConfig = {
   kind: typeof SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
   team: string
+}
+
+// Run-event trigger wire configs (MC-1656). Both watch one team's `projection.
+// json` and fire on a run-state predicate — `run-needs-input` per blocked task,
+// `run-completed` once per finished run. `team` is the watched run's team
+// directory name under `.multi-code/sprintengine/`; `label` is an optional
+// display note. Shared so the main-process providers and the renderer editor
+// build/parse them typed.
+export type SprintEngineRunNeedsInputTriggerConfig = {
+  kind: typeof SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND
+  team: string
+  label?: string
+}
+
+export type SprintEngineRunCompletedTriggerConfig = {
+  kind: typeof SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND
+  team: string
+  label?: string
 }
 
 export type AutomationTriggerProvider = {

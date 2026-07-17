@@ -20,12 +20,16 @@ export type SpawnAgentConfig = {
   prompt: string
   requiredIntegrations?: string[]
   connectorId?: string
+  includeTriggerContext?: boolean
 }
 
 export type SpawnAgentRuntime = {
   definition: AutomationDefinition
   runId: string
   workspaceRoot: string
+  // The run's triggering event payload (manual/schedule/trigger). Surfaced in the
+  // launch prompt only when the action opts in via includeTriggerContext.
+  triggerPayload?: Record<string, unknown>
   resolveSpawnAgentTarget(input: { workspaceId?: string; folderPath: string }): Promise<SpawnAgentResolvedTarget>
   spawnAgent(input: {
     workspaceId?: string
@@ -64,6 +68,7 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
         connectorId: { type: 'string', minLength: 1 },
+        includeTriggerContext: { type: 'boolean' },
         requiredIntegrations: {
           type: 'array',
           items: { type: 'string', minLength: 1 },
@@ -95,6 +100,8 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     autonomy,
     automationId: runtime.definition.id,
     runId: runtime.runId,
+    includeTriggerContext: parsed.includeTriggerContext,
+    triggerPayload: runtime.triggerPayload,
   })
   const launched = await runtime.spawnAgent({
     workspaceId: target.workspaceId,
@@ -142,6 +149,11 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     throw new Error(`spawn-agent permissionPreset must be one of: ${PERMISSION_PRESETS.join(', ')}.`)
   }
 
+  const includeTriggerContext = config.includeTriggerContext
+  if (includeTriggerContext !== undefined && typeof includeTriggerContext !== 'boolean') {
+    throw new Error('spawn-agent includeTriggerContext must be a boolean.')
+  }
+
   return {
     folderPath: optionalString(config.folderPath),
     workspaceId: optionalString(config.workspaceId),
@@ -152,17 +164,28 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     name: optionalString(config.name),
     prompt,
     connectorId: optionalString(config.connectorId),
+    includeTriggerContext: typeof includeTriggerContext === 'boolean' ? includeTriggerContext : undefined,
     requiredIntegrations: Array.isArray(requiredIntegrations)
       ? requiredIntegrations.map((entry) => entry.trim())
       : undefined,
   }
 }
 
+// Producer-controlled payloads must not blow up the prompt, so the serialized
+// JSON is capped. 8 KB is generous for the run-event payloads that motivate this
+// (taskId/question/…) while still bounding a pathological producer.
+const TRIGGER_CONTEXT_MAX_BYTES = 8192
+
 export function composeSpawnAgentPrompt(input: {
   userPrompt: string
   autonomy: AutomationDefinition['autonomyDefault']
   automationId: string
   runId: string
+  // Opt-in (default off): when true and a non-empty payload exists, the launch
+  // prompt carries a fenced JSON block of the triggering event so the agent knows
+  // which task/question woke it. Absent flag ⇒ byte-identical prompt as before.
+  includeTriggerContext?: boolean
+  triggerPayload?: Record<string, unknown>
 }): string {
   const policy = input.autonomy === 'allow_changes'
     ? [
@@ -191,9 +214,35 @@ export function composeSpawnAgentPrompt(input: {
     ...policy,
     '',
     input.userPrompt.trim(),
+    ...triggerContextBlock(input.includeTriggerContext, input.triggerPayload),
     '',
     ...nonInteractive,
   ].join('\n')
+}
+
+// Empty (no lines) unless opted in with a non-empty payload — keeping the
+// composed prompt byte-identical for every existing automation. When present it
+// sits between the user task and the non-interactive directive.
+function triggerContextBlock(
+  includeTriggerContext: boolean | undefined,
+  triggerPayload: Record<string, unknown> | undefined
+): string[] {
+  if (includeTriggerContext !== true) return []
+  if (!triggerPayload || Object.keys(triggerPayload).length === 0) return []
+  return [
+    '',
+    '## Trigger event',
+    'This run was fired by an automation trigger. Event payload:',
+    '```json',
+    cappedTriggerJson(triggerPayload),
+    '```',
+  ]
+}
+
+function cappedTriggerJson(payload: Record<string, unknown>): string {
+  const json = JSON.stringify(payload, null, 2)
+  if (Buffer.byteLength(json, 'utf8') <= TRIGGER_CONTEXT_MAX_BYTES) return json
+  return `${json.slice(0, TRIGGER_CONTEXT_MAX_BYTES)}\n[truncated]`
 }
 
 export function fingerprintPrompt(prompt: string): string {
