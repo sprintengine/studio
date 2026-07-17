@@ -16,6 +16,7 @@ export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   todo: 'To do',
   idea: 'Idea',
   ready: 'Ready',
+  blocked: 'Blocked',
   in_progress: 'In progress',
   paused: 'Paused',
   review: 'In review',
@@ -36,6 +37,10 @@ const TONE: Record<LifecycleState, string> = {
   todo: 'text-[color:var(--text-subtle)]',
   idea: 'text-[color:var(--text-disabled)]',
   ready: 'text-[color:var(--accent-primary)]',
+  // Blocked is held work, not live work: neutral ink so a gated item never
+  // borrows the accent that means "startable right now", and never the error
+  // red — waiting on a prerequisite is calm, not a defect.
+  blocked: 'text-[color:var(--text-subtle)]',
   in_progress: 'text-[color:var(--accent-primary)]',
   // Paused is a held run, not a live one: neutral ink, never the accent that
   // signals "happening right now".
@@ -190,6 +195,12 @@ export function LifecycleGlyph({
             <path d="M6.5 5.9v4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             <path d="M9.5 5.9v4.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </>
+        ) : null}
+        {state === 'blocked' ? (
+          // A horizontal bar across the ring: the "held at the gate" mark,
+          // distinct by shape from paused (two vertical bars) and archived
+          // (diagonal slash).
+          <path d="M5.6 8h4.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
         ) : null}
         {state === 'archived' ? (
           <path d="M4.7 11.3l6.6-6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />

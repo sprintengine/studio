@@ -66,8 +66,22 @@ updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
   identifier `epic:` uses). Read trims, dedupes, and drops the item's own slug, so
   an item can never depend on itself. Like `epic`, dependencies are **stored up,
   derived down**: only the dependent stores the edge; the reverse "blocks" edges
-  and the derived "waiting" signal (an active item with an unresolved
-  prerequisite) are recomputed on every scan and never persisted to `items.json`.
+  and the derived signals below are recomputed on every scan and never persisted
+  to `items.json`.
+  - **Derived blocked** (effective readiness): a stored `status: ready` with ≥1
+    unresolved prerequisite (target not completed/archived, or a dangling slug)
+    **presents as Blocked instead of Ready** everywhere — the readiness claim is
+    falsified until the prerequisites resolve. `blocked` is never a frontmatter
+    status; the file keeps `ready` and the presentation flips back on its own
+    when the last prerequisite completes. The status and best sorts demote
+    blocked items below actionable work.
+  - **Derived waiting**: any other active item (`idea`, `in_progress`,
+    `needs_input`) with an unresolved prerequisite keeps its status and gains a
+    softer "Waiting" badge — those states make no can-start-now claim.
+  - **Epic rollup** (granular, one blocked child never freezes the container):
+    an epic surfaces `N blocked` of its remaining (non-terminal) children beside
+    its progress meter, and reads Blocked itself only when **every** remaining
+    child is blocked (or its own `dependsOn` is unresolved while `ready`).
 - **updated**: optional ISO-8601 timestamp powering the "recently updated" sort.
 
 Set an axis only when the current context supports a grounded estimate; leave it

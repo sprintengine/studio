@@ -420,8 +420,23 @@ async function readJsonIfExists<T>(path: string): Promise<T | null> {
   }
 }
 
+// Reporter entries are recognized primarily by the `_multicode` tag, but other
+// writers round-trip settings.local.json through schemas that drop unknown keys
+// (Claude Code does this when it records e.g. enabledMcpjsonServers), stripping
+// the tag. An untagged entry is unremovable by tag alone, and once the workspace
+// root moves its absolute script path dangles, firing MODULE_NOT_FOUND on every
+// event forever. So also claim untagged entries whose command has the exact
+// shape buildAgentStateReporterCommand emits: the script path is always
+// forward-slashed and ends in this suffix, immediately followed by `--socket`.
+const AGENT_STATE_COMMAND_SIGNATURE = '/.multicode/hooks/agent-state.mjs" --socket "'
+
 function isAgentStateEntry(entry: ClaudeHookEntry): boolean {
-  return entry?._multicode === AGENT_STATE_HOOK_TAG
+  if (entry?._multicode === AGENT_STATE_HOOK_TAG) return true
+  return (
+    typeof entry?.command === 'string' &&
+    entry.command.startsWith('node "') &&
+    entry.command.includes(AGENT_STATE_COMMAND_SIGNATURE)
+  )
 }
 
 function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string | undefined): ClaudeMatcherBlock {

@@ -1046,6 +1046,10 @@ export type LifecycleState =
   | 'todo'
   | 'idea'
   | 'ready'
+  // Gated by unresolved prerequisites — would be ready, but a dependency is
+  // still in flight. A held state (ring with a horizontal bar), calm neutral
+  // ink: waiting on other work, never an error.
+  | 'blocked'
   | 'in_progress'
   | 'paused'
   | 'review'

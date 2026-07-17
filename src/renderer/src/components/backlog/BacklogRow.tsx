@@ -10,6 +10,7 @@ import type {
   BacklogItemStatus,
 } from '../../utils/backlog'
 import type { BacklogEpicGroup, BacklogEpicMeta, BacklogEpicProgress } from '../../utils/backlogEpics'
+import type { BacklogDependencyState, BacklogEpicBlockedRollup } from '../../utils/backlogDependencies'
 import { getHighlightSwatch } from '../../utils/highlight'
 import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
@@ -50,6 +51,11 @@ export const BACKLOG_STATUS_LABEL: Record<BacklogItemStatus, string> = {
   completed: 'Completed',
   archived: 'Archived',
 }
+
+// The derived-blocked presentation word. Not a BacklogItemStatus — nothing is
+// persisted; a stored `ready` gated by unresolved prerequisites *presents* as
+// this instead of Ready (see backlogDependencies.isBlocked).
+export const BACKLOG_BLOCKED_LABEL = 'Blocked'
 
 // A live-run override for the readiness glyph: when a Backlog item is linked to
 // a Sprint Engine run we can observe, the row's glyph reflects the *runner*'s
@@ -119,12 +125,18 @@ export function BacklogRowHoverCard({
   item,
   runGlyph,
   epicProgress,
+  dependencyState,
 }: {
   item: BacklogItem
   runGlyph?: BacklogRunGlyph
   epicProgress?: BacklogEpicProgress
+  /** Derived dependency marker (see backlogDependencies): 'blocked' replaces
+   *  the status word so the card never claims Ready for a gated item. */
+  dependencyState?: BacklogDependencyState | null
 }): JSX.Element {
-  const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
+  const statusLabel =
+    runGlyph?.label
+    ?? (dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
   return (
     <span className="flex max-w-[300px] flex-col gap-0.5 py-0.5">
       <span className="whitespace-normal text-[11.5px] font-medium leading-snug text-[color:var(--text-strong)]">
@@ -146,7 +158,8 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   item,
   now,
   runGlyph,
-  isWaiting = false,
+  dependencyState = null,
+  epicBlocked,
   epicMeta,
   epicProgress,
   plainTitle = false,
@@ -156,10 +169,18 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   /** Live Sprint Engine run state, when this item is linked to an observable
    *  run. Overrides the item-status glyph so the row reflects the runner. */
   runGlyph?: BacklogRunGlyph
-  /** Derived (never persisted): the item is active and has ≥1 unresolved
-   *  prerequisite, so it earns the "Waiting" badge. Off for done/non-blocked
-   *  items and for the source picker, which passes no dependency graph. */
-  isWaiting?: boolean
+  /** Derived dependency marker (never persisted; see backlogDependencies).
+   *  'blocked' replaces the Ready presentation — glyph, label, and a "Blocked"
+   *  badge — because unresolved prerequisites falsify the readiness claim.
+   *  'waiting' keeps the status glyph and adds the softer "Waiting" badge.
+   *  Absent for done/dependency-free items and for the source picker, which
+   *  passes no dependency graph. */
+  dependencyState?: BacklogDependencyState | null
+  /** An epic row's granular dependency rollup: how many remaining children are
+   *  blocked. Rendered as an "N blocked" count beside the progress meter — one
+   *  gated child never freezes the container (that is dependencyState's job,
+   *  set only when EVERY remaining child is blocked). */
+  epicBlocked?: BacklogEpicBlockedRollup
   /** The epic identity (title/colour/id) this row renders with. For a member
    *  it is the PARENT epic, passed only in the flat (ungrouped) list so the
    *  member surfaces it as a small coloured pill (the grouped list omits it —
@@ -174,8 +195,15 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  never stacks two tooltips. */
   plainTitle?: boolean
 }): JSX.Element {
-  const lifecycle = runGlyph?.state ?? backlogStatusToLifecycle(item.status)
-  const statusLabel = runGlyph?.label ?? BACKLOG_STATUS_LABEL[item.status]
+  // Blocked overrides the item's own status presentation — the stored `ready`
+  // must never read as Ready while prerequisites are unresolved — but a live
+  // run glyph still wins over both: the runner's observed state is the ground
+  // truth, and blocked-with-a-running-agent degrades to the softer Waiting
+  // badge below rather than contradicting it.
+  const blocked = !runGlyph && dependencyState === 'blocked'
+  const lifecycle = runGlyph?.state ?? (blocked ? 'blocked' : backlogStatusToLifecycle(item.status))
+  const statusLabel =
+    runGlyph?.label ?? (blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
   // The spinner means "an agent is actively working on this": only a live run
   // glyph earns the animation. A bare in_progress status (no observable run)
   // renders the same quarter arc, static — per the glyph-system rule that
@@ -230,7 +258,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
             />
           ) : null}
         </span>
-        {isWaiting ? <WaitingBadge /> : null}
+        {blocked ? <BlockedBadge /> : dependencyState != null ? <WaitingBadge /> : null}
       </div>
       {/* Supporting line: the triage metadata the title displaced — id, size,
           priority — flows from the left, and how long ago the item was touched
@@ -245,7 +273,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           </span>
         ) : null}
         {item.isEpic ? (
-          epicProgress ? <EpicProgressMeter progress={epicProgress} color={epicMeta?.color ?? null} /> : null
+          <>
+            {epicProgress ? <EpicProgressMeter progress={epicProgress} color={epicMeta?.color ?? null} /> : null}
+            {epicBlocked && epicBlocked.blocked > 0 ? <EpicBlockedCount rollup={epicBlocked} /> : null}
+          </>
         ) : (
           <>
             <DifficultyIndicator difficulty={item.difficulty} />
@@ -317,6 +348,48 @@ export function EpicProgressMeter({
 // than a bare icon. Calm muted tone, no tinted pill: it is metadata beside the
 // size/priority tokens, not a second status dot competing with the lifecycle
 // glyph. Rendered only on waiting rows (earned, like the star).
+// Derived "blocked" marker beside the title: this ready item's prerequisites
+// are unresolved, so it presents as gated rather than startable. The word
+// carries the meaning (never color alone) and the mini ring-with-bar echoes the
+// row's Blocked lifecycle glyph; one accessible name so a screen reader reads
+// the sentence, not a bare icon. Same calm muted tone as Waiting — a gate is
+// ordinary sequencing, not a defect. Rendered only on blocked rows (earned).
+function BlockedBadge(): JSX.Element {
+  return (
+    <span
+      role="img"
+      aria-label="Blocked by prerequisites"
+      className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[color:var(--text-muted)]"
+    >
+      <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+        <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M5.6 8h4.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+      Blocked
+    </span>
+  )
+}
+
+// An epic's granular dependency readout: `N blocked` of the remaining children.
+// A count, deliberately not a status flip — partial blockage never freezes the
+// container. Sits beside the progress meter in the same muted metadata tone;
+// the accessible name spells out the fraction the visible token abbreviates.
+function EpicBlockedCount({ rollup }: { rollup: BacklogEpicBlockedRollup }): JSX.Element {
+  return (
+    <span
+      role="img"
+      aria-label={`${rollup.blocked} of ${rollup.remaining} remaining ${rollup.remaining === 1 ? 'item' : 'items'} blocked by prerequisites`}
+      className="inline-flex shrink-0 items-center gap-1 text-[11px] text-[color:var(--text-muted)]"
+    >
+      <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+        <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M5.6 8h4.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+      <span aria-hidden="true" className="tabular-nums">{rollup.blocked} blocked</span>
+    </span>
+  )
+}
+
 function WaitingBadge(): JSX.Element {
   return (
     <span
@@ -473,6 +546,8 @@ export function BacklogEpicHeaderContent({
   collapsed,
   onToggleCollapse,
   progress,
+  dependencyState,
+  blockedRollup,
 }: {
   group: BacklogEpicGroup
   collapsed: boolean
@@ -480,8 +555,15 @@ export function BacklogEpicHeaderContent({
   /** True full-scan completion for this group's slug; falls back to the
    *  view-relative group rollup when absent (the no-epic bucket). */
   progress?: BacklogEpicProgress
+  /** The epic's derived dependency marker: 'blocked' (every remaining child
+   *  gated, or the epic's own prerequisites unresolved) overrides its status
+   *  glyph, exactly as on the flat epic row. */
+  dependencyState?: BacklogDependencyState | null
+  /** The granular children rollup for the "N blocked" count beside the meter. */
+  blockedRollup?: BacklogEpicBlockedRollup
 }): JSX.Element {
   const { done, total } = progress ?? group.progress
+  const blocked = dependencyState === 'blocked'
   return (
     <div className="flex items-center gap-1.5">
       <button
@@ -502,8 +584,13 @@ export function BacklogEpicHeaderContent({
         <DisclosureChevron expanded={!collapsed} />
       </button>
       {group.kind === 'epic' && group.epic ? (
-        <Tooltip content={BACKLOG_STATUS_LABEL[group.epic.status]} placement="top">
-          <LifecycleGlyph state={backlogStatusToLifecycle(group.epic.status)} />
+        <Tooltip
+          content={blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[group.epic.status]}
+          placement="top"
+        >
+          <LifecycleGlyph
+            state={blocked ? 'blocked' : backlogStatusToLifecycle(group.epic.status)}
+          />
         </Tooltip>
       ) : null}
       <TruncatedText
@@ -519,7 +606,8 @@ export function BacklogEpicHeaderContent({
         />
       ) : null}
       {group.kind === 'epic' ? (
-        <span className="shrink-0 text-[11px]">
+        <span className="flex shrink-0 items-center gap-2 text-[11px]">
+          {blockedRollup && blockedRollup.blocked > 0 ? <EpicBlockedCount rollup={blockedRollup} /> : null}
           <EpicProgressMeter progress={{ done, total }} color={group.color} />
         </span>
       ) : (

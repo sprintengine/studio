@@ -375,7 +375,14 @@ async function run(): Promise<void> {
     settingsPath,
     JSON.stringify({ hooks: {
       // The user's own hook — must survive install + uninstall untouched.
-      PostToolUse: [{ matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] }],
+      PostToolUse: [
+        { matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] },
+        // An untagged stale reporter: an external writer (e.g. Claude Code
+        // rewriting settings.local.json) stripped the `_multicode` tag, then the
+        // workspace root moved so the absolute path dangles. Install must claim
+        // it by command shape and migrate it away, not strand it.
+        { matcher: '*', hooks: [{ type: 'command', command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' }] },
+      ],
       // A stale Multicode-tagged hook from a prior release that registered the
       // now-dropped PreToolUse event. Install must migrate it away (and uninstall
       // must also clean it), not strand it.
@@ -403,6 +410,12 @@ async function run(): Promise<void> {
   const userEntry = settings.hooks?.PostToolUse?.find((b) => b.matcher === 'Read')
   assert.ok(userEntry, 'user PostToolUse block dropped')
   assert.equal(userEntry?.hooks?.[0]?.command, 'echo user')
+  // The untagged stale reporter is claimed by command shape and replaced — its
+  // dead absolute path must not survive install (nor duplicate our '*' entry).
+  const postToolCommands = (settings.hooks?.PostToolUse ?? []).flatMap((b) => (b.hooks ?? []).map((h) => h.command))
+  assert.ok(!postToolCommands.some((c) => c.includes('/old/root/')), 'untagged stale reporter survived install')
+  const starBlock = settings.hooks?.PostToolUse?.find((b) => b.matcher === '*')
+  assert.equal(starBlock?.hooks?.length, 1, 'expected exactly one reporter entry in the * block')
 
   // Our command references the reporter by ABSOLUTE path (the copied destination),
   // not a workspace-relative path: hook cwd is not guaranteed, so a relative path

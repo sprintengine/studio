@@ -94,7 +94,9 @@ run('star and color never affect list order — comparator ignores highlight for
 // ---- Waiting badge + detail dependencies (T4) ------------------------------
 
 run('a waiting row renders the non-color-only "Waiting" badge with one accessible name', () => {
-  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} isWaiting />)
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent item={itemWith()} now={NOW} dependencyState="waiting" />,
+  )
   // The word — not color — carries the meaning, and the whole token reads as one
   // accessible name (so a screen reader announces it, not a bare glyph).
   assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the badge carries one accessible name')
@@ -103,7 +105,71 @@ run('a waiting row renders the non-color-only "Waiting" badge with one accessibl
 
 run('a non-waiting row renders no Waiting badge — the marker is earned', () => {
   const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
-  assert.ok(!markup.includes('Waiting on prerequisites'), 'no badge when isWaiting is unset')
+  assert.ok(!markup.includes('Waiting on prerequisites'), 'no badge when dependencyState is unset')
+  assert.ok(!markup.includes('Blocked by prerequisites'), 'no blocked badge either')
+})
+
+run('a blocked row presents as Blocked, never Ready: glyph, tooltip word, and badge', () => {
+  // A stored `ready` gated by unresolved prerequisites: the readiness claim is
+  // falsified, so nothing on the row may say Ready.
+  const ready = createBacklogItem({
+    path: '/repo/backlog/gated.md',
+    relativePath: 'backlog/gated.md',
+    sourceContent: '---\nstatus: ready\ndependsOn: other\n---\n# Gated item',
+    stats: { modifiedAtMs: 1_000, sizeBytes: 64 },
+  })
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent item={ready} now={NOW} dependencyState="blocked" />,
+  )
+  assert.match(markup, /aria-label="Blocked by prerequisites"/, 'the badge carries one accessible name')
+  assert.match(markup, /Blocked/, 'the visible word "Blocked" is present')
+  assert.ok(!markup.includes('>Ready<'), 'the status tooltip no longer claims Ready')
+  assert.ok(!markup.includes('Waiting on prerequisites'), 'blocked replaces the softer waiting badge')
+  // The hover card agrees with the row.
+  const card = renderToStaticMarkup(<BacklogRowHoverCard item={ready} dependencyState="blocked" />)
+  assert.match(card, /Blocked/, 'the hover card shows Blocked')
+  assert.ok(!card.includes('Ready'), 'the hover card never claims Ready')
+})
+
+run('a live run glyph outranks blocked — the runner state wins, waiting badge degrades in', () => {
+  const ready = itemWith(undefined, 'backlog/gated.md')
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent
+      item={ready}
+      now={NOW}
+      dependencyState="blocked"
+      runGlyph={{ state: 'in_progress', live: true, label: 'Running' }}
+    />,
+  )
+  // The runner's spinner glyph renders (its label lives in the lazy tooltip);
+  // the blocked presentation must not fight the observed run state.
+  assert.match(markup, /lifecycle-spin/, 'the live runner glyph renders, not the blocked ring')
+  assert.ok(!markup.includes('Blocked by prerequisites'), 'no blocked badge against a live run')
+  assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the softer waiting badge remains')
+})
+
+run('an epic with a partial blocked rollup shows the granular count, not a blocked status', () => {
+  const epic = createBacklogItem({
+    path: '/repo/backlog/epics/auth.md',
+    relativePath: 'backlog/epics/auth.md',
+    sourceContent: '---\ntype: epic\nstatus: ready\n---\n# Auth revamp',
+    stats: { modifiedAtMs: 1_000, sizeBytes: 64 },
+  })
+  const markup = renderToStaticMarkup(
+    <BacklogRowContent
+      item={epic}
+      now={NOW}
+      epicProgress={{ done: 1, total: 4 }}
+      epicBlocked={{ remaining: 3, blocked: 2 }}
+    />,
+  )
+  assert.match(markup, /2 blocked/, 'the visible count token renders')
+  assert.match(
+    markup,
+    /aria-label="2 of 3 remaining items blocked by prerequisites"/,
+    'the count spells out the fraction accessibly',
+  )
+  assert.ok(!markup.includes('>Blocked<'), 'a partially blocked epic does not read Blocked')
 })
 
 // ---- Parent-epic pill (flat-list member badge) -----------------------------
@@ -409,7 +475,7 @@ run('epic completion derives from the FULL scan and threads to rows + group head
 })
 
 run('panel rows wrap in the hover card and suppress the clipped-title tooltip', () => {
-  assert.match(backlogPanelSource, /<BacklogRowHoverCard item=\{item\}/, 'each list row carries the hover card')
+  assert.match(backlogPanelSource, /<BacklogRowHoverCard\s+item=\{item\}/, 'each list row carries the hover card')
   assert.match(backlogPanelSource, /plainTitle/, 'the row content skips its own clipped-title tooltip (no stacked popovers)')
   assert.ok(!backlogPanelSource.includes('title={item.relativePath}'), 'the native path title attribute is retired for rows')
 })
@@ -598,11 +664,27 @@ run('detail cross-navigation widens the lens so a filtered-out target never dead
   assert.ok(!backlogPanelSource.includes('onSelectItem'), 'the detail pane has no plain-select escape hatch; all its cross-navigation widens')
 })
 
-run('the row waiting badge is derived (never persisted) and wired through the list', () => {
-  assert.match(backlogPanelSource, /node\.isWaiting/, 'the waiting map reads the derived isWaiting flag')
-  assert.match(backlogPanelSource, /isWaiting=\{waitingById\?\.get\(item\.id\)\}/, 'rows receive their derived waiting state')
+run('the row dependency markers are derived (never persisted) and wired through the list', () => {
+  assert.match(backlogPanelSource, /backlogDependencyState\(/, 'the marker map reads the shared derivation helper')
+  assert.match(
+    backlogPanelSource,
+    /dependencyState=\{dependencyStateById\?\.get\(item\.id\) \?\? null\}/,
+    'rows receive their derived dependency state',
+  )
+  assert.match(
+    backlogPanelSource,
+    /epicBlocked=\{item\.isEpic \? epicBlockedBySlug\?\.get\(epicSlug\(item\)\) : undefined\}/,
+    'epic rows receive the granular blocked rollup',
+  )
+  // The status/best sorts demote blocked items via the derived signal.
+  assert.match(
+    backlogPanelSource,
+    /compareBacklogItems\(a, b, sort, \(entry\) => blockedPaths\.has\(entry\.relativePath\)\)/,
+    'the comparator receives the blocked accessor',
+  )
   // Never a frontmatter/object field — purely derived, like runGlyphById.
   assert.ok(!/updateBacklog\w*[Ww]aiting/.test(backlogPanelSource), 'waiting is never persisted')
+  assert.ok(!/updateBacklog\w*[Bb]locked/.test(backlogPanelSource), 'blocked is never persisted')
 })
 
 run('prerequisites persist only through the dependsOn frontmatter IPC, never items.json', () => {

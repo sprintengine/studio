@@ -75,6 +75,12 @@ const STATUS_RANK: Record<BacklogItemStatus, number> = {
   archived: 5,
 }
 
+// Derived-blocked items (a stored `ready` gated by unresolved prerequisites —
+// see backlogDependencies) band below every actionable status but above the
+// terminal states: nothing can be done on them yet, but they are still open
+// work, not finished work.
+const BLOCKED_STATUS_RANK = 3.5
+
 const SMALL: ReadonlySet<BacklogDifficulty> = new Set<BacklogDifficulty>(['xs', 's'])
 const LARGE: ReadonlySet<BacklogDifficulty> = new Set<BacklogDifficulty>(['l', 'xl'])
 const URGENT: ReadonlySet<BacklogCriticality> = new Set<BacklogCriticality>(['high', 'critical'])
@@ -123,14 +129,27 @@ export function matchesBacklogView(item: Triageable, view: BacklogView): boolean
   }
 }
 
-export function compareBacklogItems(a: Triageable, b: Triageable, sort: BacklogSort): number {
+// `isBlocked` is the optional dependency-derived signal (the Backlog panel
+// passes it from its graph; graph-less surfaces like the source picker omit it):
+// true for an item whose readiness is gated by unresolved prerequisites. It
+// demotes under the two "what should I act on" sorts — status and best — and is
+// deliberately ignored everywhere else (recency/size orderings are not about
+// actionability).
+export function compareBacklogItems(
+  a: Triageable,
+  b: Triageable,
+  sort: BacklogSort,
+  isBlocked?: (item: Triageable) => boolean,
+): number {
   switch (sort) {
     case 'status': {
-      // needs_input → in_progress → ready → idea → completed → archived, with
-      // newest-first inside each band so the freshest of two in-progress items
-      // leads.
-      const sa = STATUS_RANK[a.status]
-      const sb = STATUS_RANK[b.status]
+      // needs_input → in_progress → ready → idea → blocked → completed →
+      // archived, with newest-first inside each band so the freshest of two
+      // in-progress items leads. A derived-blocked item leaves its stored
+      // status band for the blocked band: it must never interleave with
+      // genuinely ready work.
+      const sa = isBlocked?.(a) ? BLOCKED_STATUS_RANK : STATUS_RANK[a.status]
+      const sb = isBlocked?.(b) ? BLOCKED_STATUS_RANK : STATUS_RANK[b.status]
       if (sa !== sb) return sa - sb
       return b.modifiedAt - a.modifiedAt
     }
@@ -165,6 +184,11 @@ export function compareBacklogItems(a: Triageable, b: Triageable, sort: BacklogS
       // sooner). A missing axis sinks below estimated peers *within its tier*,
       // never masquerading as the best value. The final tiebreak is the stable
       // path order so the list is deterministic across scans (not recency).
+      // A dependency-blocked item cannot be picked up at all, so it sinks below
+      // every unblocked item first, keeping the composite order within each half.
+      const blockedA = isBlocked?.(a) ? 1 : 0
+      const blockedB = isBlocked?.(b) ? 1 : 0
+      if (blockedA !== blockedB) return blockedA - blockedB
       const ca = a.criticality ? CRITICALITY_RANK[a.criticality] : -1
       const cb = b.criticality ? CRITICALITY_RANK[b.criticality] : -1
       if (ca !== cb) return cb - ca

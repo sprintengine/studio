@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 
 import { createBacklogItem, type BacklogItem } from './backlog'
 import {
+  backlogDependencyState,
   deriveBacklogDependencies,
+  epicBlockedRollupBySlug,
+  isEpicFullyBlocked,
   orderItemsByDependencies,
   type BacklogDependencyNode,
 } from './backlogDependencies'
@@ -30,6 +33,24 @@ function mk(
     path: `/repo/${relativePath}`,
     relativePath,
     sourceContent: `${front}# ${relativePath}`,
+    stats: { modifiedAtMs: opts.modifiedAtMs ?? 1, sizeBytes: 1 },
+  })
+}
+
+// A leaf item pointing up at an epic slug via `epic:` frontmatter, for the
+// granular rollup tests.
+function mkChild(
+  relativePath: string,
+  epic: string,
+  opts: { status?: string; dependsOn?: string[]; modifiedAtMs?: number } = {},
+): BacklogItem {
+  const lines: string[] = [`epic: ${epic}`]
+  if (opts.status) lines.push(`status: ${opts.status}`)
+  if (opts.dependsOn && opts.dependsOn.length) lines.push(`dependsOn: ${opts.dependsOn.join(', ')}`)
+  return createBacklogItem({
+    path: `/repo/${relativePath}`,
+    relativePath,
+    sourceContent: `---\n${lines.join('\n')}\n---\n# ${relativePath}`,
     stats: { modifiedAtMs: opts.modifiedAtMs ?? 1, sizeBytes: 1 },
   })
 }
@@ -215,6 +236,111 @@ run('a self-reference (dropped upstream) yields no prerequisite and no cycle', (
   assert.equal(graph.nodes[0].isWaiting, false)
   assert.equal(graph.hasCycle, false)
   assert.deepEqual(paths(graph.order), ['backlog/a.md'])
+})
+
+// ---- Derived blocked (effective readiness) ---------------------------------
+
+run('isBlocked: only a stored `ready` with an unresolved prerequisite flips', () => {
+  const items = [
+    mk('backlog/a.md', { status: 'in_progress' }),
+    mk('backlog/done.md', { status: 'completed' }),
+    mk('backlog/gated.md', { status: 'ready', dependsOn: ['a'] }),
+    mk('backlog/free.md', { status: 'ready', dependsOn: ['done'] }),
+    mk('backlog/rough.md', { status: 'idea', dependsOn: ['a'] }),
+    mk('backlog/working.md', { status: 'in_progress', dependsOn: ['a'] }),
+  ]
+  // Ready + unresolved prerequisite: the readiness claim is falsified.
+  assert.equal(node(items, 'backlog/gated.md').isBlocked, true)
+  // Ready with every prerequisite resolved stays ready.
+  assert.equal(node(items, 'backlog/free.md').isBlocked, false)
+  // An idea makes no readiness claim — waiting, never blocked.
+  assert.equal(node(items, 'backlog/rough.md').isBlocked, false)
+  assert.equal(node(items, 'backlog/rough.md').isWaiting, true)
+  // Work already underway is not "blocked" either.
+  assert.equal(node(items, 'backlog/working.md').isBlocked, false)
+})
+
+run('isBlocked: a dangling prerequisite gates a ready item (never silently satisfied)', () => {
+  const items = [mk('backlog/gated.md', { status: 'ready', dependsOn: ['missing'] })]
+  assert.equal(node(items, 'backlog/gated.md').isBlocked, true)
+})
+
+run('backlogDependencyState: blocked beats waiting; resolved items carry no marker', () => {
+  const items = [
+    mk('backlog/a.md', { status: 'in_progress' }),
+    mk('backlog/gated.md', { status: 'ready', dependsOn: ['a'] }),
+    mk('backlog/rough.md', { status: 'idea', dependsOn: ['a'] }),
+    mk('backlog/free.md', { status: 'ready' }),
+  ]
+  assert.equal(backlogDependencyState(node(items, 'backlog/gated.md')), 'blocked')
+  assert.equal(backlogDependencyState(node(items, 'backlog/rough.md')), 'waiting')
+  assert.equal(backlogDependencyState(node(items, 'backlog/free.md')), null)
+})
+
+// ---- Epic granular rollup ---------------------------------------------------
+
+run('epic rollup counts blocked among remaining children; terminal children drop out', () => {
+  const items = [
+    mk('backlog/epics/auth.md', { type: 'epic', status: 'ready' }),
+    mk('backlog/other.md', { status: 'in_progress' }),
+    // 2 remaining children, 1 blocked; the completed child is out of `remaining`.
+    mkChild('backlog/c1.md', 'auth', { status: 'ready', dependsOn: ['other'] }),
+    mkChild('backlog/c2.md', 'auth', { status: 'ready' }),
+    mkChild('backlog/c3.md', 'auth', { status: 'completed' }),
+  ]
+  const rollup = epicBlockedRollupBySlug(deriveBacklogDependencies(items)).get('auth')
+  assert.deepEqual(rollup, { remaining: 2, blocked: 1 })
+  // Partially blocked: the container is NOT fully blocked and carries no marker.
+  assert.equal(isEpicFullyBlocked(rollup), false)
+  assert.equal(backlogDependencyState(node(items, 'backlog/epics/auth.md'), rollup), null)
+})
+
+run('an epic reads blocked only when every remaining child is blocked', () => {
+  const items = [
+    mk('backlog/epics/auth.md', { type: 'epic', status: 'ready' }),
+    mk('backlog/other.md', { status: 'in_progress' }),
+    mkChild('backlog/c1.md', 'auth', { status: 'ready', dependsOn: ['other'] }),
+    mkChild('backlog/c2.md', 'auth', { status: 'ready', dependsOn: ['other'] }),
+    mkChild('backlog/c3.md', 'auth', { status: 'completed' }),
+  ]
+  const rollup = epicBlockedRollupBySlug(deriveBacklogDependencies(items)).get('auth')
+  assert.deepEqual(rollup, { remaining: 2, blocked: 2 })
+  assert.equal(isEpicFullyBlocked(rollup), true)
+  assert.equal(backlogDependencyState(node(items, 'backlog/epics/auth.md'), rollup), 'blocked')
+})
+
+run('a childless or fully-completed epic is never blocked (0/0 rollup)', () => {
+  const items = [
+    mk('backlog/epics/empty.md', { type: 'epic', status: 'ready' }),
+    mk('backlog/epics/shipped.md', { type: 'epic', status: 'ready' }),
+    mkChild('backlog/done.md', 'shipped', { status: 'completed' }),
+  ]
+  const rollups = epicBlockedRollupBySlug(deriveBacklogDependencies(items))
+  assert.deepEqual(rollups.get('empty'), { remaining: 0, blocked: 0 })
+  assert.deepEqual(rollups.get('shipped'), { remaining: 0, blocked: 0 })
+  assert.equal(isEpicFullyBlocked(rollups.get('empty')), false)
+  assert.equal(backlogDependencyState(node(items, 'backlog/epics/empty.md'), rollups.get('empty')), null)
+})
+
+run('a completed epic never reads blocked, even over a fully gated remainder', () => {
+  const items = [
+    mk('backlog/epics/auth.md', { type: 'epic', status: 'completed' }),
+    mk('backlog/other.md', { status: 'in_progress' }),
+    mkChild('backlog/c1.md', 'auth', { status: 'ready', dependsOn: ['other'] }),
+  ]
+  const rollup = epicBlockedRollupBySlug(deriveBacklogDependencies(items)).get('auth')
+  assert.equal(isEpicFullyBlocked(rollup), true)
+  // The container's own terminal status wins: no marker on finished work.
+  assert.equal(backlogDependencyState(node(items, 'backlog/epics/auth.md'), rollup), null)
+})
+
+run('dangling epic slugs roll up too, so an Unknown-epic header stays accurate', () => {
+  const items = [
+    mk('backlog/other.md', { status: 'in_progress' }),
+    mkChild('backlog/c1.md', 'ghost', { status: 'ready', dependsOn: ['other'] }),
+  ]
+  const rollup = epicBlockedRollupBySlug(deriveBacklogDependencies(items)).get('ghost')
+  assert.deepEqual(rollup, { remaining: 1, blocked: 1 })
 })
 
 run('orderItemsByDependencies matches the graph order', () => {

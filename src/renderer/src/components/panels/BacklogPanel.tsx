@@ -85,7 +85,14 @@ import {
   type BacklogEpicProgress,
   type BacklogGroupedRow,
 } from '../../utils/backlogEpics'
-import { deriveBacklogDependencies, type BacklogDependencyNode } from '../../utils/backlogDependencies'
+import {
+  backlogDependencyState,
+  deriveBacklogDependencies,
+  epicBlockedRollupBySlug,
+  type BacklogDependencyNode,
+  type BacklogDependencyState,
+  type BacklogEpicBlockedRollup,
+} from '../../utils/backlogDependencies'
 import {
   AgentTargetMenuItems,
   BacklogItemContextMenu,
@@ -103,6 +110,7 @@ import {
   BacklogEpicHeaderContent,
   BacklogRowContent,
   BacklogRowHoverCard,
+  BACKLOG_BLOCKED_LABEL,
   BACKLOG_STATUS_LABEL,
   backlogStatusToLifecycle,
   CriticalityIndicator,
@@ -331,11 +339,28 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // like runGlyphById. Feeds the waiting badges, the detail Prerequisites/Blocks
   // section, and the "Dependency order" sort.
   const dependencyGraph = useMemo(() => deriveBacklogDependencies(items), [items])
-  const waitingById = useMemo(() => {
-    const map = new Map<string, true>()
-    for (const node of dependencyGraph.nodes) if (node.isWaiting) map.set(node.item.id, true)
-    return map
-  }, [dependencyGraph])
+  // slug -> granular blocked rollup for epics ("N of remaining children
+  // blocked"), and item id -> the derived dependency marker every rendering
+  // surface shares: 'blocked' replaces the Ready presentation (a stored `ready`
+  // with unresolved prerequisites — or an epic whose EVERY remaining child is
+  // blocked); 'waiting' is the softer badge for other gated active items.
+  // Derived per scan, never persisted. `blockedPaths` mirrors the blocked ids
+  // by relativePath for the comparator, whose Triageable view carries no id.
+  const epicBlockedBySlug = useMemo(() => epicBlockedRollupBySlug(dependencyGraph), [dependencyGraph])
+  const { dependencyStateById, blockedPaths } = useMemo(() => {
+    const stateById = new Map<string, BacklogDependencyState>()
+    const blocked = new Set<string>()
+    for (const node of dependencyGraph.nodes) {
+      const state = backlogDependencyState(
+        node,
+        node.item.isEpic ? epicBlockedBySlug.get(node.slug) : undefined,
+      )
+      if (!state) continue
+      stateById.set(node.item.id, state)
+      if (state === 'blocked') blocked.add(node.item.relativePath)
+    }
+    return { dependencyStateById: stateById, blockedPaths: blocked }
+  }, [dependencyGraph, epicBlockedBySlug])
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -355,8 +380,13 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       const visible = new Set(matched.map((item) => item.id))
       return dependencyGraph.order.filter((item) => visible.has(item.id))
     }
-    return matched.sort((a, b) => compareBacklogItems(a, b, sort))
-  }, [items, search, view, sort, dependencyGraph])
+    // The status and best sorts demote derived-blocked items (they cannot be
+    // acted on); the accessor keys off relativePath, the one identity field the
+    // comparator's Triageable view carries.
+    return matched.sort((a, b) =>
+      compareBacklogItems(a, b, sort, (entry) => blockedPaths.has(entry.relativePath)),
+    )
+  }, [items, search, view, sort, dependencyGraph, blockedPaths])
 
   // Epic grouping is an orthogonal axis layered over the filtered+sorted list.
   // `none` keeps the flat list untouched (groupedRows stays null → the panel
@@ -1425,7 +1455,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       runGlyphById={runGlyphById}
       epicMetaBySlug={epicMeta}
       epicProgressBySlug={epicProgress}
-      waitingById={waitingById}
+      dependencyStateById={dependencyStateById}
+      epicBlockedBySlug={epicBlockedBySlug}
     />
   )
 
@@ -1449,6 +1480,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       items={items}
       epicMetaBySlug={epicMeta}
       dependencyNode={selected ? dependencyGraph.byItemId.get(selected.id) ?? null : null}
+      dependencyState={selected ? dependencyStateById.get(selected.id) ?? null : null}
+      dependencyStateById={dependencyStateById}
+      epicBlockedRollup={
+        selected?.isEpic ? epicBlockedBySlug.get(epicSlug(selected)) : undefined
+      }
       dependencyChoices={dependencyChoices}
       onNavigate={navigateToBacklogItem}
       agentTargets={agentTargets}
@@ -1654,7 +1690,8 @@ function BacklogList({
   runGlyphById,
   epicMetaBySlug,
   epicProgressBySlug,
-  waitingById,
+  dependencyStateById,
+  epicBlockedBySlug,
 }: {
   items: BacklogItem[]
   // Non-null when grouping by epic: the flattened header+child render order.
@@ -1675,9 +1712,13 @@ function BacklogList({
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
   // slug -> true full-scan completion, for epic rows and group headers.
   epicProgressBySlug: ReadonlyMap<string, BacklogEpicProgress>
-  // Derived "waiting" rows (active + ≥1 unresolved prerequisite). Absent entry =
-  // not waiting; the source picker passes none.
-  waitingById?: ReadonlyMap<string, true>
+  // Derived dependency markers per item id (see backlogDependencies): 'blocked'
+  // rows present as gated instead of Ready, 'waiting' rows keep their status
+  // and gain the softer badge. Absent entry = dependency-free.
+  dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>
+  // slug -> granular epic blocked rollup, for the "N blocked" count on epic
+  // rows and group headers.
+  epicBlockedBySlug?: ReadonlyMap<string, BacklogEpicBlockedRollup>
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
 
@@ -1729,6 +1770,8 @@ function BacklogList({
                 onItemDragStart={onItemDragStart}
                 onItemContextMenu={onItemContextMenu}
                 progress={row.group.slug ? epicProgressBySlug.get(row.group.slug) : undefined}
+                dependencyState={row.group.epic ? dependencyStateById?.get(row.group.epic.id) : undefined}
+                blockedRollup={row.group.slug ? epicBlockedBySlug?.get(row.group.slug) : undefined}
               />
             ) : (
               <BacklogOptionRow
@@ -1743,7 +1786,7 @@ function BacklogList({
                 now={now}
                 runGlyph={runGlyphById?.get(row.item.id)}
                 epicMeta={row.item.epic ? epicMetaBySlug.get(row.item.epic) : undefined}
-                isWaiting={waitingById?.get(row.item.id)}
+                dependencyState={dependencyStateById?.get(row.item.id) ?? null}
               />
             ),
           )
@@ -1769,7 +1812,8 @@ function BacklogList({
                     : undefined
               }
               epicProgress={item.isEpic ? epicProgressBySlug.get(epicSlug(item)) : undefined}
-              isWaiting={waitingById?.get(item.id)}
+              dependencyState={dependencyStateById?.get(item.id) ?? null}
+              epicBlocked={item.isEpic ? epicBlockedBySlug?.get(epicSlug(item)) : undefined}
             />
           ))}
     </ul>
@@ -1796,7 +1840,8 @@ function BacklogOptionRow({
   runGlyph,
   epicMeta,
   epicProgress,
-  isWaiting,
+  dependencyState,
+  epicBlocked,
 }: {
   item: BacklogItem
   optionIndex: number
@@ -1813,7 +1858,10 @@ function BacklogOptionRow({
   epicMeta?: BacklogEpicMeta
   // An epic row's true completion rollup (full scan), for the progress meter.
   epicProgress?: BacklogEpicProgress
-  isWaiting?: boolean
+  // Derived dependency marker ('blocked' presents in place of Ready; 'waiting'
+  // is the softer badge) and, for an epic row, the granular blocked count.
+  dependencyState?: BacklogDependencyState | null
+  epicBlocked?: BacklogEpicBlockedRollup
 }): JSX.Element {
   const archived = item.status === 'archived'
   // Option C: the epic identity colour fills the whole member row (below a
@@ -1841,7 +1889,14 @@ function BacklogOptionRow({
           keeps the clipped-title tooltip from stacking a second popover. The
           wrapper is presentational so the listbox's option semantics hold. */}
       <Tooltip
-        content={<BacklogRowHoverCard item={item} runGlyph={runGlyph} epicProgress={epicProgress} />}
+        content={
+          <BacklogRowHoverCard
+            item={item}
+            runGlyph={runGlyph}
+            epicProgress={epicProgress}
+            dependencyState={dependencyState}
+          />
+        }
         placement="top"
         openDelayMs={600}
         wrapperClassName="block"
@@ -1852,7 +1907,8 @@ function BacklogOptionRow({
             item={item}
             now={now}
             runGlyph={runGlyph}
-            isWaiting={isWaiting}
+            dependencyState={dependencyState}
+            epicBlocked={epicBlocked}
             epicMeta={indented ? undefined : epicMeta}
             epicProgress={epicProgress}
             plainTitle
@@ -1878,6 +1934,8 @@ function BacklogGroupHeaderRow({
   onItemDragStart,
   onItemContextMenu,
   progress,
+  dependencyState,
+  blockedRollup,
 }: {
   row: Extract<BacklogGroupedRow, { kind: 'header' }>
   optionIndex: number
@@ -1889,6 +1947,10 @@ function BacklogGroupHeaderRow({
   // True full-scan completion for this group's slug (epic and dangling-slug
   // groups); the no-epic bucket has no slug and keeps the group's own rollup.
   progress?: BacklogEpicProgress
+  // The epic's derived dependency marker + granular blocked-children rollup,
+  // mirrored from the flat epic row so the two presentations can't drift.
+  dependencyState?: BacklogDependencyState | null
+  blockedRollup?: BacklogEpicBlockedRollup
 }): JSX.Element {
   const { group } = row
   const epic = group.kind === 'epic' ? group.epic : null
@@ -1916,6 +1978,8 @@ function BacklogGroupHeaderRow({
         collapsed={row.collapsed}
         onToggleCollapse={() => onToggleCollapse(group)}
         progress={progress}
+        dependencyState={dependencyState}
+        blockedRollup={blockedRollup}
       />
     </li>
   )
@@ -1942,6 +2006,9 @@ function BacklogDetail({
   items,
   epicMetaBySlug,
   dependencyNode,
+  dependencyState,
+  dependencyStateById,
+  epicBlockedRollup,
   dependencyChoices,
   onNavigate,
   agentTargets,
@@ -1973,6 +2040,14 @@ function BacklogDetail({
   // The selected item's derived dependency record (T2), or null for an epic /
   // no selection. Drives the Prerequisites/Blocks section + cycle warning.
   dependencyNode: BacklogDependencyNode | null
+  // The selected item's derived dependency marker: 'blocked' overrides the
+  // header's status glyph and word, exactly as on its list row.
+  dependencyState?: BacklogDependencyState | null
+  // Markers for every item, so an epic's children roll-up shows each member's
+  // blocked state the same way the list does.
+  dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>
+  // A selected epic's granular blocked rollup for the roll-up readout.
+  epicBlockedRollup?: BacklogEpicBlockedRollup
   dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
   // All detail cross-navigation (epic -> child, child -> epic crumb,
   // prerequisite/blocked links): the target may sit outside the active
@@ -2057,6 +2132,9 @@ function BacklogDetail({
   //    navigate up (null for epics and for orphan/dangling-slug items);
   //  - epicChildren: an epic's members, for the roll-up that navigates down;
   //  - currentEpicColor: the epic's `color:` for the picker's selected swatch.
+  // The derived-blocked presentation: like the list row, a live run glyph wins,
+  // otherwise a blocked marker replaces the Ready glyph and word.
+  const selectedBlocked = !selectedRunGlyph && dependencyState === 'blocked'
   const isEpic = selected.isEpic
   const parentEpic = !isEpic && selected.epic
     ? items.find((candidate) => candidate.isEpic && epicSlug(candidate) === selected.epic) ?? null
@@ -2093,12 +2171,18 @@ function BacklogDetail({
             </button>
           ) : null}
           <Tooltip
-            content={selectedRunGlyph?.label ?? BACKLOG_STATUS_LABEL[selected.status]}
+            content={
+              selectedRunGlyph?.label
+              ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status])
+            }
             placement="top"
             wrapperClassName="inline-flex shrink-0"
           >
             <LifecycleGlyph
-              state={selectedRunGlyph?.state ?? backlogStatusToLifecycle(selected.status)}
+              state={
+                selectedRunGlyph?.state
+                ?? (selectedBlocked ? 'blocked' : backlogStatusToLifecycle(selected.status))
+              }
               // Spin only for a genuinely live run — a bare in_progress status
               // has no agent working it, so the arc stays static.
               live={selectedRunGlyph?.live ?? false}
@@ -2112,10 +2196,11 @@ function BacklogDetail({
               <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}
-          {(selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]) ? (
+          {(selectedRunGlyph?.label ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : LIFECYCLE_LABEL[selected.status])) ? (
             <>
               <span className="shrink-0 whitespace-nowrap">
-                {selectedRunGlyph?.label ?? LIFECYCLE_LABEL[selected.status]}
+                {selectedRunGlyph?.label
+                  ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : LIFECYCLE_LABEL[selected.status])}
               </span>
               <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
             </>
@@ -2348,6 +2433,8 @@ function BacklogDetail({
             members={epicChildren}
             color={currentEpicColor}
             runGlyphById={runGlyphById}
+            dependencyStateById={dependencyStateById}
+            blockedRollup={epicBlockedRollup}
             onNavigate={onNavigate}
           />
         ) : null}
@@ -2369,6 +2456,7 @@ function BacklogDetail({
             item={selected}
             node={dependencyNode}
             dependencyChoices={dependencyChoices}
+            dependencyStateById={dependencyStateById}
             actions={actions}
             onNavigate={onNavigate}
           />
@@ -2468,11 +2556,19 @@ function BacklogEpicChildren({
   members,
   color,
   runGlyphById,
+  dependencyStateById,
+  blockedRollup,
   onNavigate,
 }: {
   members: BacklogItem[]
   color: BacklogHighlightColor | null
   runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
+  // Derived dependency markers per item, so a blocked member reads Blocked here
+  // exactly as it does in the list.
+  dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>
+  // The epic's granular blocked rollup for the "N blocked" readout beside the
+  // done fraction.
+  blockedRollup?: BacklogEpicBlockedRollup
   onNavigate: (id: string) => void
 }): JSX.Element {
   const total = members.length
@@ -2494,6 +2590,11 @@ function BacklogEpicChildren({
         <div className="px-3">
           <div className="mb-2 flex items-center justify-between text-[11px] text-[color:var(--text-muted)]">
             <span className="tabular-nums">{done} of {total} done</span>
+            {blockedRollup && blockedRollup.blocked > 0 ? (
+              <span className="tabular-nums">
+                {blockedRollup.blocked} of {blockedRollup.remaining} remaining blocked
+              </span>
+            ) : null}
           </div>
           <div className="mb-2.5 h-[3px] overflow-hidden rounded-full bg-[color:var(--bg-active)]" role="presentation">
             <span
@@ -2506,8 +2607,10 @@ function BacklogEpicChildren({
               // A member linked to a Sprint Engine run shows the runner's real
               // state here — the purple "Merged" branch once its PR lands — not
               // the coarse completed tick, matching how the same item reads in
-              // the list and the epic header.
+              // the list and the epic header. Without a run, a derived-blocked
+              // member reads Blocked, again matching its list row.
               const glyph = runGlyphById?.get(child.id)
+              const childBlocked = !glyph && dependencyStateById?.get(child.id) === 'blocked'
               return (
               <li key={child.id}>
                 <button
@@ -2516,9 +2619,18 @@ function BacklogEpicChildren({
                   title={child.relativePath}
                   className="interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
                 >
-                  <Tooltip content={glyph?.label ?? BACKLOG_STATUS_LABEL[child.status]} placement="top">
+                  <Tooltip
+                    content={
+                      glyph?.label
+                      ?? (childBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[child.status])
+                    }
+                    placement="top"
+                  >
                     <LifecycleGlyph
-                      state={glyph?.state ?? backlogStatusToLifecycle(child.status)}
+                      state={
+                        glyph?.state
+                        ?? (childBlocked ? 'blocked' : backlogStatusToLifecycle(child.status))
+                      }
                       // The spinner means "an agent is working on this right
                       // now": only a live run glyph earns it; a bare
                       // in_progress status renders the static quarter arc.

@@ -2,8 +2,12 @@ import { useState } from 'react'
 
 import { InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
 import type { BacklogItem } from '../../utils/backlog'
-import type { BacklogDependencyNode, BacklogPrerequisite } from '../../utils/backlogDependencies'
-import { BACKLOG_STATUS_LABEL } from './BacklogRow'
+import type {
+  BacklogDependencyNode,
+  BacklogDependencyState,
+  BacklogPrerequisite,
+} from '../../utils/backlogDependencies'
+import { BACKLOG_BLOCKED_LABEL, BACKLOG_STATUS_LABEL } from './BacklogRow'
 import {
   toggleDependencySlug,
   type BacklogActions,
@@ -23,17 +27,26 @@ import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
 // Epics never declare prerequisites (they are grouping containers), so the
 // section is absent for them — the panel passes a node only for leaf items.
 
-// The status word for a prerequisite: the target's lifecycle word, or "Unknown"
-// for a dangling slug (no matching item) so a stale reference reads as a defect
-// to clear, never as silently satisfied.
-function prerequisiteStatusWord(prerequisite: BacklogPrerequisite): string {
-  return prerequisite.status === 'unknown' ? 'Unknown' : BACKLOG_STATUS_LABEL[prerequisite.status]
+// The status word for a prerequisite: the target's lifecycle word — with the
+// derived Blocked presentation winning over a stored `ready`, exactly as on the
+// target's own row — or "Unknown" for a dangling slug (no matching item) so a
+// stale reference reads as a defect to clear, never as silently satisfied.
+function prerequisiteStatusWord(
+  prerequisite: BacklogPrerequisite,
+  dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>,
+): string {
+  if (prerequisite.status === 'unknown') return 'Unknown'
+  if (prerequisite.target && dependencyStateById?.get(prerequisite.target.id) === 'blocked') {
+    return BACKLOG_BLOCKED_LABEL
+  }
+  return BACKLOG_STATUS_LABEL[prerequisite.status]
 }
 
 export function BacklogDependenciesSection({
   item,
   node,
   dependencyChoices,
+  dependencyStateById,
   actions,
   onNavigate,
 }: {
@@ -43,6 +56,9 @@ export function BacklogDependenciesSection({
   node: BacklogDependencyNode | null
   // Every item this one may depend on (self filtered out below).
   dependencyChoices: ReadonlyArray<BacklogDependencyChoice>
+  // Derived dependency markers per item id, so a referenced item that is itself
+  // blocked reads "Blocked" here instead of a false "Ready".
+  dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>
   actions: BacklogActions
   // Select another item by id (prerequisite / blocked target navigation).
   onNavigate: (itemId: string) => void
@@ -82,6 +98,7 @@ export function BacklogDependenciesSection({
                 <PrerequisiteRow
                   key={prerequisite.slug}
                   prerequisite={prerequisite}
+                  dependencyStateById={dependencyStateById}
                   onNavigate={onNavigate}
                   onRemove={() => toggle(prerequisite.slug)}
                 />
@@ -101,7 +118,11 @@ export function BacklogDependenciesSection({
                     title={blocked.title}
                     onNavigate={() => onNavigate(blocked.id)}
                   />
-                  <StatusWord>{BACKLOG_STATUS_LABEL[blocked.status]}</StatusWord>
+                  <StatusWord>
+                    {dependencyStateById?.get(blocked.id) === 'blocked'
+                      ? BACKLOG_BLOCKED_LABEL
+                      : BACKLOG_STATUS_LABEL[blocked.status]}
+                  </StatusWord>
                 </li>
               ))}
             </ul>
@@ -135,15 +156,17 @@ function StatusWord({ children }: { children: React.ReactNode }): JSX.Element {
 // `dependsOn`.
 function PrerequisiteRow({
   prerequisite,
+  dependencyStateById,
   onNavigate,
   onRemove,
 }: {
   prerequisite: BacklogPrerequisite
+  dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>
   onNavigate: (itemId: string) => void
   onRemove: () => void
 }): JSX.Element {
   const target = prerequisite.target
-  const statusWord = prerequisiteStatusWord(prerequisite)
+  const statusWord = prerequisiteStatusWord(prerequisite, dependencyStateById)
   return (
     <li className="flex min-w-0 items-center gap-2">
       {target ? (

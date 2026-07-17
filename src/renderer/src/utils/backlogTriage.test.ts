@@ -227,6 +227,54 @@ run('best sort orders impact desc → risk asc → effort asc, unestimated last 
   ])
 })
 
+run('status sort demotes derived-blocked items below idea, above the terminal states', () => {
+  // Two stored-`ready` items, one gated by unresolved prerequisites: the
+  // blocked one leaves the ready band and lands after idea but before
+  // completed/archived — it is open work that cannot be started.
+  const blockedPath = 'backlog/gated.md'
+  const isBlocked = (item: { relativePath: string }): boolean => item.relativePath === blockedPath
+  const items = [
+    mk({ status: 'archived', modifiedAt: 9, relativePath: 'backlog/x.md' }),
+    mk({ status: 'completed', modifiedAt: 8, relativePath: 'backlog/y.md' }),
+    mk({ status: 'ready', modifiedAt: 7, relativePath: blockedPath }),
+    mk({ status: 'idea', modifiedAt: 6, relativePath: 'backlog/i.md' }),
+    mk({ status: 'ready', modifiedAt: 1, relativePath: 'backlog/r.md' }),
+  ]
+  const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'status', isBlocked))
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
+    'backlog/r.md', // genuinely ready
+    'backlog/i.md', // idea
+    'backlog/gated.md', // blocked: after every actionable band
+    'backlog/y.md', // completed
+    'backlog/x.md', // archived
+  ])
+  // Without the accessor the stored-status bands are unchanged (graph-less surfaces).
+  const plain = [...items].sort((a, b) => compareBacklogItems(a, b, 'status'))
+  assert.deepEqual(ids(plain, (item) => item.relativePath).slice(0, 2), [
+    'backlog/gated.md',
+    'backlog/r.md',
+  ])
+})
+
+run('best sort sinks derived-blocked items below every unblocked item', () => {
+  // The gated item is the best on the composite (critical/low/xs) but cannot be
+  // picked up, so it sorts after every actionable item; within the blocked half
+  // the composite still orders.
+  const isBlocked = (item: { relativePath: string }): boolean =>
+    item.relativePath.startsWith('backlog/blocked')
+  const bestButBlocked = mk({ criticality: 'critical', risk: 'low', difficulty: 'xs', status: 'ready', relativePath: 'backlog/blocked-a.md' })
+  const alsoBlocked = mk({ criticality: 'low', risk: 'low', difficulty: 'xs', status: 'ready', relativePath: 'backlog/blocked-b.md' })
+  const modest = mk({ criticality: 'normal', risk: 'normal', difficulty: 'l', status: 'ready', relativePath: 'backlog/free.md' })
+  const sorted = [alsoBlocked, bestButBlocked, modest].sort((a, b) =>
+    compareBacklogItems(a, b, 'best', isBlocked),
+  )
+  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
+    'backlog/free.md',
+    'backlog/blocked-a.md',
+    'backlog/blocked-b.md',
+  ])
+})
+
 run('best sort breaks exact ties by stable path order, not recency', () => {
   const later = mk({ criticality: 'high', risk: 'normal', difficulty: 'm', modifiedAt: 100, relativePath: 'backlog/z-late.md' })
   const earlier = mk({ criticality: 'high', risk: 'normal', difficulty: 'm', modifiedAt: 1, relativePath: 'backlog/a-early.md' })

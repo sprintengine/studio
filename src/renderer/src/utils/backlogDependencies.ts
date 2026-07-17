@@ -65,6 +65,12 @@ export type BacklogDependencyNode = {
   // Active item with >=1 unresolved prerequisite. Completed/archived items are
   // never waiting (plan D2).
   isWaiting: boolean
+  // Derived effective readiness (never persisted): the stored `ready` status
+  // claims "can start now", and an unresolved prerequisite falsifies that
+  // claim, so the item presents as Blocked instead of Ready. Only `ready`
+  // flips — an `idea` makes no readiness claim (it keeps the softer "waiting"
+  // marker), and in_progress / needs_input describe work already underway.
+  isBlocked: boolean
   // Member of at least one dependency cycle (author error). Items merely
   // downstream of a cycle are not flagged here (they are honestly "waiting").
   inCycle: boolean
@@ -165,6 +171,7 @@ export function deriveBacklogDependencies(items: BacklogItem[]): BacklogDependen
       prerequisites,
       blocks,
       isWaiting,
+      isBlocked: item.status === 'ready' && isWaiting,
       inCycle: cycleItemIds.has(item.id),
     }
   })
@@ -281,4 +288,77 @@ function detectCycleItemIds(items: BacklogItem[], blocksByItemId: Map<string, Ba
 // the panel can branch to it in place of `[...].sort(compareBacklogItems)`.
 export function orderItemsByDependencies(items: BacklogItem[]): BacklogItem[] {
   return deriveBacklogDependencies(items).order
+}
+
+// Granular epic dependency rollup, derived down like everything else here. An
+// epic's children carry the dependencies, so the container reflects them
+// proportionally: `blocked` of `remaining` (non-terminal) children are gated.
+// One blocked child must not freeze the whole epic — the container reads fully
+// blocked only when EVERY remaining child is (isEpicFullyBlocked); anything
+// less surfaces as a count beside the epic's progress meter.
+export type BacklogEpicBlockedRollup = {
+  // Children not yet completed/archived.
+  remaining: number
+  // Remaining children whose derived state is blocked (isBlocked).
+  blocked: number
+}
+
+// slug -> rollup for every epic slug in the graph, keyed like epicProgressBySlug
+// (an epic concept file's own slug, plus any dangling slug children point at, so
+// an Unknown-epic header stays accurate). Childless epics resolve to 0/0.
+export function epicBlockedRollupBySlug(
+  graph: BacklogDependencyGraph,
+): Map<string, BacklogEpicBlockedRollup> {
+  const map = new Map<string, BacklogEpicBlockedRollup>()
+  const entryFor = (slug: string): BacklogEpicBlockedRollup => {
+    const existing = map.get(slug)
+    if (existing) return existing
+    const created = { remaining: 0, blocked: 0 }
+    map.set(slug, created)
+    return created
+  }
+  for (const node of graph.nodes) {
+    if (node.item.isEpic) {
+      entryFor(node.slug)
+      continue
+    }
+    if (!node.item.epic) continue
+    const entry = entryFor(node.item.epic)
+    if (RESOLVED_STATUSES.has(node.item.status)) continue
+    entry.remaining += 1
+    if (node.isBlocked) entry.blocked += 1
+  }
+  return map
+}
+
+// A container is only as blocked as its least-blocked member: every remaining
+// child gated (and at least one child remaining) is the sole state in which the
+// epic itself has nothing startable and earns the Blocked presentation.
+export function isEpicFullyBlocked(rollup: BacklogEpicBlockedRollup | undefined): boolean {
+  return rollup != null && rollup.remaining > 0 && rollup.blocked === rollup.remaining
+}
+
+// The row-facing dependency marker for one item, shared by every surface that
+// renders it (list rows, group headers, hover card, detail) so they can't
+// disagree. 'blocked' replaces the Ready presentation outright; 'waiting' is
+// the softer badge beside an unchanged status glyph. For an epic the children's
+// rollup substitutes for own prerequisites: a fully gated membership blocks the
+// container (only while the epic itself is still active), a partial one only
+// surfaces the count.
+export type BacklogDependencyState = 'waiting' | 'blocked'
+
+export function backlogDependencyState(
+  node: BacklogDependencyNode,
+  epicRollup?: BacklogEpicBlockedRollup,
+): BacklogDependencyState | null {
+  if (node.isBlocked) return 'blocked'
+  if (
+    node.item.isEpic
+    && ACTIVE_STATUSES.has(node.item.status)
+    && isEpicFullyBlocked(epicRollup)
+  ) {
+    return 'blocked'
+  }
+  if (node.isWaiting) return 'waiting'
+  return null
 }
