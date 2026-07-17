@@ -1,6 +1,16 @@
 import { isAbsolute } from 'path'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type { SprintEngineCliPermissionPreset, SprintEngineProjectionReadResult, TerminalSessionSnapshot } from '../../shared/electron-api'
+import type {
+  SprintEngineArtifactCommandResult,
+  SprintEngineAutomationReadResult,
+  SprintEngineAutomationWriteResult,
+  SprintEngineCliPermissionPreset,
+  SprintEngineProjectionReadResult,
+  TerminalSessionSnapshot,
+} from '../../shared/electron-api'
+import type { SprintEngineAutomationMode } from '../../shared/sprintengine/automation-types'
+import type { SetSprintEngineAutomationModeInput } from '../sprintengine-automation-service'
+import type { SprintEngineVcsPayload } from '../ipc/sprintengine-ipc'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -79,6 +89,31 @@ export type AutomationBackends = {
   listSprintRunStatePaths(workspaceRoot: string): Promise<string[]>
   /** One run's projection.json via the sprint-engine artifact reader (main-owned). */
   readSprintEngineProjection(statePath: string): Promise<SprintEngineProjectionReadResult>
+  /**
+   * Read a run's main-owned automation mode intent (`automation.json` beside
+   * run.yaml). Injected so sprint.status can disclose the mode an orchestrator
+   * cannot otherwise see. A `record` of null means no sidecar exists yet, which
+   * the board treats as `manual`.
+   */
+  readSprintAutomationMode(input: { statePath: string }): Promise<SprintEngineAutomationReadResult>
+  /**
+   * Write a run's automation mode through the main-owned intent service (the
+   * `sprint.status`/mobile-relay write path, not the renderer delegate — the
+   * two-lane rule). Same-mode writes return `changed: false`.
+   */
+  setSprintAutomationMode(input: SetSprintEngineAutomationModeInput): Promise<SprintEngineAutomationWriteResult>
+  /**
+   * Re-arm a stopped scheduler for the run's current mode (the board's Resume).
+   * Fire-and-forget: returns void and no-ops on a run the scheduler does not
+   * hold; callers verify via sprint.status.
+   */
+  resumeSprintRun(statePath: string): void
+  /**
+   * Cancel a run: the composed operation the IPC channel uses — the engine
+   * cancel op, then (on success) scheduler teardown so a paused/manual run with
+   * live agents is also torn down. Composed at the wiring site.
+   */
+  cancelSprintRun(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
   /**
    * Create a git worktree for a widened agent.launch (model/preset/specialist
    * launches that request isolation, and every connector launch). Worktree
@@ -995,8 +1030,40 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
   const SPRINT_SLUG_RE = /^[A-Za-z0-9._-]+$/
 
+  // The three real automation modes; `paused` is not one of them — pause is
+  // `manual`, matching the board (epic decision, no `paused` pseudo-mode).
+  const SPRINT_AUTOMATION_MODES: readonly SprintEngineAutomationMode[] = [
+    'manual',
+    'run_agents',
+    'run_agents_and_approve_artifacts',
+  ]
+
   function sprintStatePath(root: string, slug: string): string {
     return [root, '.multi-code', 'sprintengine', slug, 'run.yaml'].join('/')
+  }
+
+  // Every sprint tool is keyed workspaceId + slug and NEVER accepts a caller
+  // statePath: resolve the workspace root through the sync snapshot, validate
+  // the slug against SPRINT_SLUG_RE, and reconstruct the statePath ourselves.
+  function resolveSprintStatePath(args: Record<string, unknown>): { statePath: string; slug: string } | McpToolResult {
+    const workspaceId = requireString(args, 'workspaceId')
+    if (typeof workspaceId !== 'string') return workspaceId
+    const slug = requireString(args, 'slug')
+    if (typeof slug !== 'string') return slug
+    if (!SPRINT_SLUG_RE.test(slug) || slug === '.' || slug === '..') {
+      return failure('invalid_arguments', '"slug" must be a plain run slug from sprint.list.')
+    }
+    const resolved = resolveWorkspaceRoot(workspaceId)
+    if (!('root' in resolved)) return resolved
+    return { statePath: sprintStatePath(resolved.root, slug), slug }
+  }
+
+  // The mutation tools gate on the run actually existing on disk before writing:
+  // a projection read that fails is an unknown run, not a mode/cancel failure.
+  async function ensureSprintRunExists(statePath: string): Promise<McpToolResult | null> {
+    const projection = await backends.readSprintEngineProjection(statePath)
+    if (!projection.ok) return failure('sprint_not_found', projection.message)
+    return null
   }
 
   const sprintList: McpToolRegistration = {
@@ -1033,9 +1100,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const sprintStatus: McpToolRegistration = {
     name: 'sprint.status',
     description:
-      "One Sprint Engine run's current projection (goal, tasks, artifacts, roster, completion) read from disk. "
-      + 'The auto-runner mode (manual/running/paused) lives only in the renderer and is NOT part of this '
-      + 'projection — do not infer it from this result.',
+      "One Sprint Engine run's current projection (goal, tasks, artifacts, roster, completion) read from disk, "
+      + 'plus its main-owned automation mode (manual/run_agents/run_agents_and_approve_artifacts). automationMode '
+      + 'is null only when the mode has never been set for this run (the board treats that as manual). Steer the '
+      + 'mode with sprint.set_mode.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1046,18 +1114,117 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       additionalProperties: false,
     },
     handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const slug = requireString(args, 'slug')
-      if (typeof slug !== 'string') return slug
-      if (!SPRINT_SLUG_RE.test(slug) || slug === '.' || slug === '..') {
-        return failure('invalid_arguments', '"slug" must be a plain run slug from sprint.list.')
-      }
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-      const projection = await backends.readSprintEngineProjection(sprintStatePath(resolved.root, slug))
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const projection = await backends.readSprintEngineProjection(resolvedRun.statePath)
       if (!projection.ok) return failure('sprint_status_failed', projection.message)
-      return success({ slug, projection: projection.data, changeToken: projection.token ?? null })
+      // Automation mode is supplementary: a read failure discloses null rather
+      // than failing the whole status read (the projection is the primary
+      // payload). No sidecar record → manual, matching the board.
+      const mode = await backends.readSprintAutomationMode({ statePath: resolvedRun.statePath })
+      const automationMode: SprintEngineAutomationMode | null = mode.ok ? mode.record?.desiredMode ?? 'manual' : null
+      return success({
+        slug: resolvedRun.slug,
+        projection: projection.data,
+        changeToken: projection.token ?? null,
+        automationMode,
+      })
+    },
+  }
+
+  const sprintSetMode: McpToolRegistration = {
+    name: 'sprint.set_mode',
+    description:
+      "Set a Sprint Engine run's automation mode through the main-owned intent service. \"manual\" pauses the "
+      + 'auto-runner (there is no separate paused state — pause is manual); "run_agents" runs agents; '
+      + '"run_agents_and_approve_artifacts" also auto-approves review artifacts. Idempotent: setting the mode '
+      + 'the run already has returns changed:false. Verify the live effect with sprint.status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+        mode: {
+          type: 'string',
+          enum: [...SPRINT_AUTOMATION_MODES],
+          description: 'Target automation mode.',
+        },
+      },
+      required: ['workspaceId', 'slug', 'mode'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const mode = requireString(args, 'mode')
+      if (typeof mode !== 'string') return mode
+      if (!SPRINT_AUTOMATION_MODES.includes(mode as SprintEngineAutomationMode)) {
+        return failure('invalid_arguments', `"mode" must be one of: ${SPRINT_AUTOMATION_MODES.join(', ')}.`)
+      }
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const written = await backends.setSprintAutomationMode({
+        statePath: resolvedRun.statePath,
+        mode: mode as SprintEngineAutomationMode,
+        actor: 'automation',
+        reason: 'automation-server',
+      })
+      if (!written.ok) return failure('sprint_mode_failed', written.message)
+      return success({ mode: written.record.desiredMode, changed: written.changed })
+    },
+  }
+
+  const sprintResume: McpToolRegistration = {
+    name: 'sprint.resume',
+    description:
+      "Re-arm a stopped Sprint Engine run's scheduler for its current mode (the board's Resume). Fire-and-forget: "
+      + 'this requests a resume and gives no confirmation of the run reaching a running state — verify with '
+      + 'sprint.status. Has no effect on a run the scheduler is not holding.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      backends.resumeSprintRun(resolvedRun.statePath)
+      return success({ resumed: { slug: resolvedRun.slug, requested: true } })
+    },
+  }
+
+  const sprintCancel: McpToolRegistration = {
+    name: 'sprint.cancel',
+    description:
+      'Cancel a Sprint Engine run: writes run/task status through the engine cancel op, then tears down the '
+      + "scheduler so a paused or manual run's live agents are also stopped. Terminal — a canceled run cannot be "
+      + 'resumed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const canceled = await backends.cancelSprintRun({ statePath: resolvedRun.statePath })
+      if (!canceled.ok) {
+        const detail = [canceled.stdout, canceled.stderr].filter((part) => Boolean(part && part.trim())).join('\n')
+        return failure('sprint_cancel_failed', detail ? `${canceled.message}\n${detail}` : canceled.message)
+      }
+      return success({ canceled: { slug: resolvedRun.slug } })
     },
   }
 
@@ -1161,6 +1328,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     sprintList,
     sprintStatus,
     sprintCreate,
+    sprintSetMode,
+    sprintResume,
+    sprintCancel,
   ]
 }
 

@@ -381,6 +381,19 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
       listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
       readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
+      // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
+      // intent service (same lane as the mobile relay/sprint.status), never the
+      // renderer delegate. Cancel is the composed op the IPC channel uses — the
+      // engine cancel write, then scheduler teardown on success — so a paused or
+      // manual run's live agents are also stopped (sprint-engine-module).
+      readSprintAutomationMode: (input) => sprintEngineAutomation.readAutomationMode(input),
+      setSprintAutomationMode: (input) => sprintEngineAutomation.setAutomationMode(input),
+      resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
+      cancelSprintRun: async (payload) => {
+        const result = await sprintEngineArtifacts.cancelRun(payload)
+        if (result.ok) sprintRuntime.cancelRun(payload.statePath)
+        return result
+      },
       // Agent-at-launch worktrees (agent.launch isolation + every connector
       // launch): derive the `agent/<slug>` branch and container the Worktree
       // manager uses, then create through the shared git helper. Mirrors

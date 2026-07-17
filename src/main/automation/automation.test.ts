@@ -83,6 +83,10 @@ type BackendsOverrides = {
   getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
   listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
   readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
+  readSprintAutomationMode?: AutomationBackends['readSprintAutomationMode']
+  setSprintAutomationMode?: AutomationBackends['setSprintAutomationMode']
+  resumeSprintRun?: AutomationBackends['resumeSprintRun']
+  cancelSprintRun?: AutomationBackends['cancelSprintRun']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
   listPlugins?: AutomationBackends['listPlugins']
   ensureBuiltinSkillInstalled?: AutomationBackends['ensureBuiltinSkillInstalled']
@@ -120,6 +124,22 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     listSprintRunStatePaths: overrides.listSprintRunStatePaths ?? (async () => []),
     readSprintEngineProjection:
       overrides.readSprintEngineProjection ?? (async () => ({ ok: false, message: 'no projection in test' })),
+    readSprintAutomationMode: overrides.readSprintAutomationMode ?? (async () => ({ ok: true, record: null })),
+    setSprintAutomationMode:
+      overrides.setSprintAutomationMode
+      ?? (async () => {
+        throw new Error('unexpected setSprintAutomationMode call')
+      }),
+    resumeSprintRun:
+      overrides.resumeSprintRun
+      ?? (() => {
+        throw new Error('unexpected resumeSprintRun call')
+      }),
+    cancelSprintRun:
+      overrides.cancelSprintRun
+      ?? (async () => {
+        throw new Error('unexpected cancelSprintRun call')
+      }),
     createAgentWorktree:
       overrides.createAgentWorktree
       ?? (async ({ workspaceRoot, name }) => ({
@@ -181,8 +201,11 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'backlog.read',
       'backlog.update',
       'backlog.work',
+      'sprint.cancel',
       'sprint.create',
       'sprint.list',
+      'sprint.resume',
+      'sprint.set_mode',
       'sprint.status',
       'workspace.create',
       'workspace.list',
@@ -1158,6 +1181,21 @@ async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
         statePath === '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
           ? { ok: true, data: { goal: 'Ship checkout', tasks: [] }, token: '123:456' }
           : { ok: false, message: `no projection at ${statePath}` },
+      // sprint.status now discloses the main-owned automation mode; a run with a
+      // sidecar record reports its desiredMode.
+      readSprintAutomationMode: async (input) =>
+        input.statePath === '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+          ? {
+              ok: true,
+              record: {
+                schemaVersion: 1,
+                revision: 3,
+                desiredMode: 'run_agents',
+                changedAt: 10,
+                lastWrite: { actor: 'automation', deviceId: null, at: '' },
+              },
+            }
+          : { ok: true, record: null },
     })
   )
 
@@ -1174,6 +1212,7 @@ async function testSprintReadToolsAnswerFromDisk(): Promise<void> {
     slug: 'checkout-flow',
     projection: { goal: 'Ship checkout', tasks: [] },
     changeToken: '123:456',
+    automationMode: 'run_agents',
   })
 
   const missing = await tool(tools, 'sprint.status').handler({ workspaceId: 'ws-1', slug: 'gone' })
@@ -1262,6 +1301,96 @@ async function testSprintCreateDelegatesAndConfirms(): Promise<void> {
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'sprint_team_exists')
 }
 
+async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
+  const statePath = '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+  const setModeInputs: Array<{ statePath: string; mode: string; actor: string; reason?: string }> = []
+  let resumed: string | null = null
+  const cancelPayloads: string[] = []
+  const projectionRuns = new Set([statePath])
+
+  function toolsFor(cancelResult: () => Promise<unknown>): McpToolRegistration[] {
+    return createAutomationTools(
+      backendsOf({
+        workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+        readSprintEngineProjection: async (path) =>
+          projectionRuns.has(path)
+            ? { ok: true, data: { goal: 'Ship checkout', tasks: [] }, token: '1:2' }
+            : { ok: false, message: `no run at ${path}` },
+        setSprintAutomationMode: async (input) => {
+          setModeInputs.push({ statePath: input.statePath, mode: input.mode, actor: input.actor, reason: input.reason })
+          // Model idempotence: manual on a manual run is unchanged.
+          const changed = input.mode !== 'manual'
+          return {
+            ok: true,
+            changed,
+            record: {
+              schemaVersion: 1,
+              revision: 2,
+              desiredMode: input.mode,
+              changedAt: 5,
+              lastWrite: { actor: input.actor, deviceId: null, at: '' },
+            },
+          } as never
+        },
+        resumeSprintRun: (path) => {
+          resumed = path
+        },
+        cancelSprintRun: async (payload) => {
+          cancelPayloads.push(payload.statePath)
+          return cancelResult() as never
+        },
+      })
+    )
+  }
+
+  const tools = toolsFor(async () => ({ ok: true, data: {} }))
+
+  // set_mode forwards the exact SetSprintEngineAutomationModeInput shape:
+  // reconstructed statePath, actor 'automation', reason, and never a caller path.
+  const set = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'checkout-flow', mode: 'run_agents' })
+  assert.equal(set.isError, undefined, JSON.stringify(set.structuredContent))
+  assert.deepEqual(set.structuredContent, { mode: 'run_agents', changed: true })
+  assert.deepEqual(setModeInputs, [{ statePath, mode: 'run_agents', actor: 'automation', reason: 'automation-server' }])
+
+  // Same-mode (manual) write is idempotent: changed:false echoed through.
+  const paused = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'checkout-flow', mode: 'manual' })
+  assert.deepEqual(paused.structuredContent, { mode: 'manual', changed: false })
+
+  // 'paused' is not a real mode — rejected before any backend call.
+  const badMode = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'checkout-flow', mode: 'paused' })
+  assert.equal(badMode.isError, true)
+  assert.equal((badMode.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  // Unknown run → sprint_not_found (projection read fails).
+  const unknown = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug: 'gone', mode: 'run_agents' })
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'sprint_not_found')
+
+  // Path-traversal slug rejected by SPRINT_SLUG_RE before resolution.
+  for (const slug of ['../evil', 'a/b', '..']) {
+    const denied = await tool(tools, 'sprint.set_mode').handler({ workspaceId: 'ws-1', slug, mode: 'manual' })
+    assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments', slug)
+  }
+
+  // resume is fire-and-forget: reports requested:true and re-arms the exact statePath.
+  const resume = await tool(tools, 'sprint.resume').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.deepEqual(resume.structuredContent, { resumed: { slug: 'checkout-flow', requested: true } })
+  assert.equal(resumed, statePath)
+
+  // cancel invokes the composed backend once and echoes the slug on success.
+  const canceled = await tool(tools, 'sprint.cancel').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.deepEqual(canceled.structuredContent, { canceled: { slug: 'checkout-flow' } })
+  assert.deepEqual(cancelPayloads, [statePath])
+
+  // A backend failure surfaces sprint_cancel_failed with the message plus stderr.
+  const failingTools = toolsFor(async () => ({ ok: false, message: 'cancel op failed', stderr: 'git: index locked' }))
+  const failedCancel = await tool(failingTools, 'sprint.cancel').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.equal(failedCancel.isError, true)
+  const cancelError = (failedCancel.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(cancelError.code, 'sprint_cancel_failed')
+  assert.match(cancelError.message, /cancel op failed/)
+  assert.match(cancelError.message, /index locked/)
+}
+
 async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
   const tools = createAutomationTools(
     backendsOf({
@@ -1307,6 +1436,7 @@ const tests = [
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,
+  testSprintLifecycleToolsMutateViaMainServices,
   testAgentLaunchWidensConfigAndIsolation,
   testInvalidRequestsReturnExplicitErrors,
   testCreateDelegatesAndConfirmsOnTheBus,
