@@ -11,7 +11,15 @@ import { createMcpSocketServer, type McpToolRegistration } from './mcp-socket-se
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createRendererAutomationDelegate } from './renderer-delegate'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type { TerminalSessionSnapshot } from '../../shared/electron-api'
+import type {
+  SprintEngineTaskCommentInput,
+  SprintEngineTaskCreateInput,
+  SprintEngineTaskResolveInput,
+  SprintEngineTaskStatusSetInput,
+  SprintEngineTaskUpdateInput,
+  TerminalSessionSnapshot,
+} from '../../shared/electron-api'
+import type { SprintEngineArtifactReviewPayload } from '../ipc/sprintengine-ipc'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type { Workspace } from '../../renderer/src/types/workspace'
@@ -87,6 +95,15 @@ type BackendsOverrides = {
   setSprintAutomationMode?: AutomationBackends['setSprintAutomationMode']
   resumeSprintRun?: AutomationBackends['resumeSprintRun']
   cancelSprintRun?: AutomationBackends['cancelSprintRun']
+  reviewSprintArtifact?: AutomationBackends['reviewSprintArtifact']
+  commentSprintTask?: AutomationBackends['commentSprintTask']
+  resolveSprintTaskInput?: AutomationBackends['resolveSprintTaskInput']
+  setSprintTaskStatus?: AutomationBackends['setSprintTaskStatus']
+  createSprintTask?: AutomationBackends['createSprintTask']
+  updateSprintTask?: AutomationBackends['updateSprintTask']
+  createSprintPullRequest?: AutomationBackends['createSprintPullRequest']
+  refreshSprintPullRequestStatus?: AutomationBackends['refreshSprintPullRequestStatus']
+  readSprintTokenUsage?: AutomationBackends['readSprintTokenUsage']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
   listPlugins?: AutomationBackends['listPlugins']
   ensureBuiltinSkillInstalled?: AutomationBackends['ensureBuiltinSkillInstalled']
@@ -139,6 +156,51 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
       overrides.cancelSprintRun
       ?? (async () => {
         throw new Error('unexpected cancelSprintRun call')
+      }),
+    reviewSprintArtifact:
+      overrides.reviewSprintArtifact
+      ?? (async () => {
+        throw new Error('unexpected reviewSprintArtifact call')
+      }),
+    commentSprintTask:
+      overrides.commentSprintTask
+      ?? (async () => {
+        throw new Error('unexpected commentSprintTask call')
+      }),
+    resolveSprintTaskInput:
+      overrides.resolveSprintTaskInput
+      ?? (async () => {
+        throw new Error('unexpected resolveSprintTaskInput call')
+      }),
+    setSprintTaskStatus:
+      overrides.setSprintTaskStatus
+      ?? (async () => {
+        throw new Error('unexpected setSprintTaskStatus call')
+      }),
+    createSprintTask:
+      overrides.createSprintTask
+      ?? (async () => {
+        throw new Error('unexpected createSprintTask call')
+      }),
+    updateSprintTask:
+      overrides.updateSprintTask
+      ?? (async () => {
+        throw new Error('unexpected updateSprintTask call')
+      }),
+    createSprintPullRequest:
+      overrides.createSprintPullRequest
+      ?? (async () => {
+        throw new Error('unexpected createSprintPullRequest call')
+      }),
+    refreshSprintPullRequestStatus:
+      overrides.refreshSprintPullRequestStatus
+      ?? (async () => {
+        throw new Error('unexpected refreshSprintPullRequestStatus call')
+      }),
+    readSprintTokenUsage:
+      overrides.readSprintTokenUsage
+      ?? (async () => {
+        throw new Error('unexpected readSprintTokenUsage call')
       }),
     createAgentWorktree:
       overrides.createAgentWorktree
@@ -201,12 +263,22 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'backlog.read',
       'backlog.update',
       'backlog.work',
+      'sprint.artifact.approve',
+      'sprint.artifact.request_changes',
       'sprint.cancel',
       'sprint.create',
       'sprint.list',
+      'sprint.pr.create',
+      'sprint.pr.status',
       'sprint.resume',
       'sprint.set_mode',
       'sprint.status',
+      'sprint.task.comment',
+      'sprint.task.create',
+      'sprint.task.resolve_input',
+      'sprint.task.set_status',
+      'sprint.task.update',
+      'sprint.token_usage',
       'workspace.create',
       'workspace.list',
       'workspace.status',
@@ -1391,6 +1463,314 @@ async function testSprintLifecycleToolsMutateViaMainServices(): Promise<void> {
   assert.match(cancelError.message, /index locked/)
 }
 
+async function testSprintSteeringToolsMutateViaMainServices(): Promise<void> {
+  const statePath = '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+  const reviewCalls: Array<{ payload: SprintEngineArtifactReviewPayload; action: string }> = []
+  const commentCalls: SprintEngineTaskCommentInput[] = []
+  const resolveCalls: SprintEngineTaskResolveInput[] = []
+  const statusCalls: SprintEngineTaskStatusSetInput[] = []
+  const createCalls: SprintEngineTaskCreateInput[] = []
+  const updateCalls: SprintEngineTaskUpdateInput[] = []
+  const okData = { ok: true as const, data: {} }
+
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      readSprintEngineProjection: async (path) =>
+        path === statePath
+          ? { ok: true, data: { goal: 'Ship', tasks: [] }, token: '1:2' }
+          : { ok: false, message: `no run at ${path}` },
+      reviewSprintArtifact: async (payload, action) => {
+        reviewCalls.push({ payload, action })
+        return okData
+      },
+      commentSprintTask: async (payload) => {
+        commentCalls.push(payload)
+        return okData
+      },
+      resolveSprintTaskInput: async (payload) => {
+        resolveCalls.push(payload)
+        return okData
+      },
+      setSprintTaskStatus: async (payload) => {
+        statusCalls.push(payload)
+        return okData
+      },
+      createSprintTask: async (payload) => {
+        createCalls.push(payload)
+        return okData
+      },
+      updateSprintTask: async (payload) => {
+        updateCalls.push(payload)
+        return okData
+      },
+    })
+  )
+
+  // approve forwards the reconstructed statePath + artifactId (+ optional
+  // feedback); the wiring pins mode 'user', so the tool passes only the payload.
+  const approved = await tool(tools, 'sprint.artifact.approve').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    artifactId: 'ART-1',
+    feedback: 'looks good',
+  })
+  assert.equal(approved.isError, undefined, JSON.stringify(approved.structuredContent))
+  assert.deepEqual(approved.structuredContent, { approved: { slug: 'checkout-flow', artifactId: 'ART-1' } })
+  assert.deepEqual(reviewCalls, [
+    { payload: { statePath, artifactId: 'ART-1', feedback: 'looks good' }, action: 'approve' },
+  ])
+
+  // request_changes requires non-empty feedback at the boundary — rejected
+  // before any mutation backend runs.
+  const noFeedback = await tool(tools, 'sprint.artifact.request_changes').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    artifactId: 'ART-1',
+  })
+  assert.equal((noFeedback.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(reviewCalls.length, 1, 'a missing-feedback request never reaches the backend')
+
+  const requested = await tool(tools, 'sprint.artifact.request_changes').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    artifactId: 'ART-1',
+    feedback: 'redo the plan',
+  })
+  assert.equal(requested.isError, undefined)
+  assert.deepEqual(reviewCalls[1], {
+    payload: { statePath, artifactId: 'ART-1', feedback: 'redo the plan' },
+    action: 'request-changes',
+  })
+
+  const commented = await tool(tools, 'sprint.task.comment').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    taskId: 'T2',
+    body: 'ping',
+  })
+  assert.equal(commented.isError, undefined)
+  assert.deepEqual(commentCalls, [{ statePath, taskId: 'T2', body: 'ping' }])
+
+  // resolve_input forwards complete only when the boolean is true.
+  const resolved = await tool(tools, 'sprint.task.resolve_input').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    taskId: 'T2',
+    resolution: 'use option B',
+    complete: true,
+  })
+  assert.equal(resolved.isError, undefined)
+  assert.deepEqual(resolveCalls, [{ statePath, taskId: 'T2', resolution: 'use option B', complete: true }])
+  const badComplete = await tool(tools, 'sprint.task.resolve_input').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    taskId: 'T2',
+    resolution: 'x',
+    complete: 'yes',
+  })
+  assert.equal((badComplete.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  // set_status validates against the task-status union.
+  const statusSet = await tool(tools, 'sprint.task.set_status').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    taskId: 'T2',
+    status: 'in_progress',
+  })
+  assert.equal(statusSet.isError, undefined)
+  assert.deepEqual(statusCalls, [{ statePath, taskId: 'T2', status: 'in_progress' }])
+  const badStatus = await tool(tools, 'sprint.task.set_status').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    taskId: 'T2',
+    status: 'archived',
+  })
+  assert.equal((badStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  // create forwards title + role + array fields verbatim.
+  const created = await tool(tools, 'sprint.task.create').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    title: 'New task',
+    role: 'developer',
+    description: 'do it',
+    acceptanceCriteria: ['passes tests'],
+    implementationNotes: ['touch the handler'],
+  })
+  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+  assert.deepEqual(createCalls, [
+    {
+      statePath,
+      title: 'New task',
+      role: 'developer',
+      description: 'do it',
+      acceptanceCriteria: ['passes tests'],
+      implementationNotes: ['touch the handler'],
+    },
+  ])
+
+  // A role outside the mutation-role union is rejected before the backend.
+  const badRole = await tool(tools, 'sprint.task.create').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    title: 'x',
+    role: 'reviewer',
+  })
+  assert.equal((badRole.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(createCalls.length, 1, 'a bad role never reaches the backend')
+
+  // A bare string where an array is required is rejected, never spread.
+  const bareArray = await tool(tools, 'sprint.task.create').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    title: 'x',
+    role: 'developer',
+    acceptanceCriteria: 'one string',
+  })
+  assert.equal((bareArray.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(createCalls.length, 1, 'a bare-string array field never reaches the backend')
+
+  const updated = await tool(tools, 'sprint.task.update').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    taskId: 'T2',
+    title: 'Renamed',
+    role: 'frontend',
+    notes: ['see thread'],
+  })
+  assert.equal(updated.isError, undefined)
+  assert.deepEqual(updateCalls, [{ statePath, taskId: 'T2', title: 'Renamed', role: 'frontend', notes: ['see thread'] }])
+
+  // Unknown run → sprint_not_found (projection read fails) before the mutation.
+  const unknownRun = await tool(tools, 'sprint.task.comment').handler({
+    workspaceId: 'ws-1',
+    slug: 'gone',
+    taskId: 'T2',
+    body: 'hi',
+  })
+  assert.equal((unknownRun.structuredContent as { error: { code: string } }).error.code, 'sprint_not_found')
+
+  // A backend {ok:false} surfaces the tool's _failed code with the message and
+  // any stderr intact.
+  const failing = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      readSprintEngineProjection: async () => ({ ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }),
+      reviewSprintArtifact: async () => ({ ok: false, message: 'artifact already approved', stderr: 'engine: conflict' }),
+    })
+  )
+  const failed = await tool(failing, 'sprint.artifact.approve').handler({
+    workspaceId: 'ws-1',
+    slug: 'checkout-flow',
+    artifactId: 'ART-1',
+  })
+  assert.equal(failed.isError, true)
+  const error = (failed.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(error.code, 'sprint_artifact_approve_failed')
+  assert.match(error.message, /already approved/)
+  assert.match(error.message, /engine: conflict/)
+}
+
+async function testSprintVcsAndUsageToolsReadViaMainServices(): Promise<void> {
+  const statePath = '/tmp/project-a/.multi-code/sprintengine/checkout-flow/run.yaml'
+  const prCreateCalls: string[] = []
+  const prStatusCalls: string[] = []
+  const usageCalls: string[] = []
+  const vcsBlock = {
+    mode: 'run_worktree',
+    worktreePath: '.multicode-worktrees/checkout-flow',
+    branchName: 'sprint/checkout-flow',
+    pullRequestUrl: 'https://github.com/x/y/pull/1',
+    pullRequestState: 'open',
+    repos: [],
+  }
+  const usageReport = {
+    run: {
+      perModel: [],
+      total: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0, split: true },
+      coverage: { measuredAgents: 1, unmeasuredAgents: 0, unmeasured: [] },
+    },
+    perAgent: [],
+    perTask: {},
+    computedAt: 'test-time',
+  }
+
+  const tools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      readSprintEngineProjection: async (path) =>
+        path === statePath
+          ? { ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }
+          : { ok: false, message: `no run at ${path}` },
+      createSprintPullRequest: async (payload) => {
+        prCreateCalls.push(payload.statePath)
+        return { ok: true, data: { projectionContent: JSON.stringify({ goal: 'g', vcs: vcsBlock }), projectionToken: '3:4' } }
+      },
+      refreshSprintPullRequestStatus: async (payload) => {
+        prStatusCalls.push(payload.statePath)
+        return {
+          ok: true,
+          data: { projectionContent: JSON.stringify({ vcs: { ...vcsBlock, pullRequestState: 'merged' } }), projectionToken: '5:6' },
+        }
+      },
+      readSprintTokenUsage: async (path) => {
+        usageCalls.push(path)
+        return usageReport
+      },
+    })
+  )
+
+  // pr.create forwards the reconstructed statePath and hands back the refreshed
+  // vcs block parsed from the command result's re-read projection.
+  const created = await tool(tools, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.equal(created.isError, undefined, JSON.stringify(created.structuredContent))
+  assert.deepEqual(created.structuredContent, { pr: { slug: 'checkout-flow' }, vcs: vcsBlock })
+  assert.deepEqual(prCreateCalls, [statePath])
+
+  // pr.status refreshes then returns the merge state from the re-read projection.
+  const status = await tool(tools, 'sprint.pr.status').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.equal(status.isError, undefined, JSON.stringify(status.structuredContent))
+  assert.equal((status.structuredContent as { vcs: { pullRequestState: string } }).vcs.pullRequestState, 'merged')
+  assert.deepEqual(prStatusCalls, [statePath])
+
+  // token_usage returns the report verbatim under tokenUsage.
+  const usage = await tool(tools, 'sprint.token_usage').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.equal(usage.isError, undefined, JSON.stringify(usage.structuredContent))
+  assert.deepEqual(usage.structuredContent, { slug: 'checkout-flow', tokenUsage: usageReport })
+  assert.deepEqual(usageCalls, [statePath])
+
+  // Unknown run → sprint_not_found before the usage compute (no invented empty report).
+  const unknown = await tool(tools, 'sprint.token_usage').handler({ workspaceId: 'ws-1', slug: 'gone' })
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'sprint_not_found')
+  assert.equal(usageCalls.length, 1, 'a missing run never reaches the usage compute')
+
+  // Path-traversal slug rejected by SPRINT_SLUG_RE before any resolution.
+  const denied = await tool(tools, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: '../evil' })
+  assert.equal((denied.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(prCreateCalls.length, 1, 'a bad slug never reaches the PR backend')
+
+  // A non-worktree run's refusal is the engine's ({ok:false}); the tool surfaces
+  // sprint_pr_failed with the message + stderr, never pre-empting it at the tool layer.
+  const refusing = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
+      readSprintEngineProjection: async () => ({ ok: true, data: { goal: 'g', tasks: [] }, token: '1:2' }),
+      createSprintPullRequest: async () => ({
+        ok: false,
+        message: 'This run has no worktree to open a pull request from.',
+        stderr: 'engine: no worktree',
+      }),
+    })
+  )
+  const refused = await tool(refusing, 'sprint.pr.create').handler({ workspaceId: 'ws-1', slug: 'checkout-flow' })
+  assert.equal(refused.isError, true)
+  const prError = (refused.structuredContent as { error: { code: string; message: string } }).error
+  assert.equal(prError.code, 'sprint_pr_failed')
+  assert.match(prError.message, /no worktree/)
+  assert.match(prError.message, /engine: no worktree/)
+}
+
 async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
   const tools = createAutomationTools(
     backendsOf({
@@ -1437,6 +1817,8 @@ const tests = [
   testSprintReadToolsAnswerFromDisk,
   testSprintCreateDelegatesAndConfirms,
   testSprintLifecycleToolsMutateViaMainServices,
+  testSprintSteeringToolsMutateViaMainServices,
+  testSprintVcsAndUsageToolsReadViaMainServices,
   testAgentLaunchWidensConfigAndIsolation,
   testInvalidRequestsReturnExplicitErrors,
   testCreateDelegatesAndConfirmsOnTheBus,

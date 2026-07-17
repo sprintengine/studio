@@ -33,6 +33,8 @@ import { createSprintEngineAutomationService } from './sprintengine-automation-s
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
+import { computeSprintEngineTokenUsageReport } from './sprintengine-token-usage'
+import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
 import { resolveMemoryRoot } from './memory-graph'
 import { listPluginRegistryEntries } from './plugin-registry-instance'
@@ -404,6 +406,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
       createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
       updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
+      // Sprint VCS + usage reads (MC-1655): PR open/refresh run the engine's own
+      // vcs CLI (main-owned, like the steering block); each re-reads the run
+      // projection so the tool can hand back the refreshed vcs block. Token usage
+      // computes straight off the ledger — the module's 15s render-storm cache
+      // (sprint-engine-module) is not needed at MCP call cadence, so this calls
+      // the underlying compute directly (it never throws, degrading to empty).
+      createSprintPullRequest: (payload) => sprintEngineArtifacts.createPullRequest(payload),
+      refreshSprintPullRequestStatus: (payload) => sprintEngineArtifacts.refreshPullRequestStatus(payload),
+      readSprintTokenUsage: (statePath) => computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps()),
       // Agent-at-launch worktrees (agent.launch isolation + every connector
       // launch): derive the `agent/<slug>` branch and container the Worktree
       // manager uses, then create through the shared git helper. Mirrors

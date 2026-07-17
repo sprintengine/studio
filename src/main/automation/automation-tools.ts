@@ -5,6 +5,7 @@ import type {
   SprintEngineAutomationReadResult,
   SprintEngineAutomationWriteResult,
   SprintEngineCliPermissionPreset,
+  SprintEngineMutationRefreshData,
   SprintEngineProjectionReadResult,
   SprintEngineTaskCommentInput,
   SprintEngineTaskCreateInput,
@@ -15,7 +16,8 @@ import type {
   TerminalSessionSnapshot,
 } from '../../shared/electron-api'
 import type { SprintEngineAutomationMode } from '../../shared/sprintengine/automation-types'
-import type { SprintEngineTaskStatus } from '../../shared/sprintengine/run-types'
+import type { SprintEngineTaskStatus, SprintEngineVcs } from '../../shared/sprintengine/run-types'
+import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import type { SetSprintEngineAutomationModeInput } from '../sprintengine-automation-service'
 import type {
   SprintEngineArtifactReviewAction,
@@ -141,6 +143,16 @@ export type AutomationBackends = {
   setSprintTaskStatus(payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult>
   createSprintTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
   updateSprintTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
+  /**
+   * Sprint VCS + usage reads (MC-1655), main-owned like the steering block. PR
+   * create/refresh run the engine's own `vcs` CLI (idempotent per the command)
+   * and re-read the projection into the result `data`; a `{ ok: false }` carries
+   * the CLI stdout/stderr the caller needs. `readSprintTokenUsage` computes the
+   * report directly — it never throws, degrading to an empty/unmeasured report.
+   */
+  createSprintPullRequest(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  refreshSprintPullRequestStatus(payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult>
+  readSprintTokenUsage(statePath: string): Promise<SprintEngineTokenUsageReport>
   /**
    * Create a git worktree for a widened agent.launch (model/preset/specialist
    * launches that request isolation, and every connector launch). Worktree
@@ -1643,6 +1655,88 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  const sprintPrCreate: McpToolRegistration = {
+    name: 'sprint.pr.create',
+    description:
+      "Open a Sprint Engine run's pull request through the engine's own VCS command. Direct-main, keyed workspaceId "
+      + '+ slug; idempotent per the underlying command (re-opening an existing PR is safe). On success the run\'s '
+      + 'refreshed vcs block (pull-request URL, branch, merge state) rides the payload so no second sprint.status is '
+      + 'needed. A non-worktree run surfaces the engine\'s own refusal — the tool does not pre-empt it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const created = await backends.createSprintPullRequest({ statePath: resolvedRun.statePath })
+      if (!created.ok) return sprintCommandResultFailure('sprint_pr_failed', created)
+      return success({ pr: { slug: resolvedRun.slug }, vcs: sprintVcsFromCommandResult(created.data) })
+    },
+  }
+
+  const sprintPrStatus: McpToolRegistration = {
+    name: 'sprint.pr.status',
+    description:
+      "Refresh and read a Sprint Engine run's pull-request merge state. Direct-main, keyed workspaceId + slug; runs "
+      + 'the engine pr-status probe (read-only, no working-tree mutation) then returns the refreshed vcs block. Read '
+      + 'vcs.pullRequestState (open | merged | closed | null) from the payload — this is the precondition a landed-run '
+      + 'trigger polls.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const refreshed = await backends.refreshSprintPullRequestStatus({ statePath: resolvedRun.statePath })
+      if (!refreshed.ok) return sprintCommandResultFailure('sprint_pr_status_failed', refreshed)
+      return success({ slug: resolvedRun.slug, vcs: sprintVcsFromCommandResult(refreshed.data) })
+    },
+  }
+
+  const sprintTokenUsage: McpToolRegistration = {
+    name: 'sprint.token_usage',
+    description:
+      "A Sprint Engine run's token accounting report (per-run totals, per-agent and per-task breakdowns, measurement "
+      + 'coverage), computed from the run ledger and CLI transcripts. Direct-main, keyed workspaceId + slug. For '
+      + 'budget-aware orchestration; unmeasured agents are reported as such, never as zero.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        slug: { type: 'string', description: 'Run slug from sprint.list.' },
+      },
+      required: ['workspaceId', 'slug'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const resolvedRun = resolveSprintStatePath(args)
+      if ('content' in resolvedRun) return resolvedRun
+      // Gate on the run existing so a bad slug returns sprint_not_found rather
+      // than the compute's truthful-but-misleading empty report for a run that
+      // is not there (fallback discipline — no invented empty data).
+      const missing = await ensureSprintRunExists(resolvedRun.statePath)
+      if (missing) return missing
+      const tokenUsage = await backends.readSprintTokenUsage(resolvedRun.statePath)
+      return success({ slug: resolvedRun.slug, tokenUsage })
+    },
+  }
+
   return [
     workspaceCreate,
     workspaceList,
@@ -1672,6 +1766,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     sprintTaskSetStatus,
     sprintTaskCreate,
     sprintTaskUpdate,
+    sprintPrCreate,
+    sprintPrStatus,
+    sprintTokenUsage,
   ]
 }
 
@@ -1728,6 +1825,21 @@ function sprintCommandResultFailure(
 ): McpToolResult {
   const detail = [result.stdout, result.stderr].filter((part) => Boolean(part && part.trim())).join('\n')
   return failure(code, detail ? `${result.message}\n${detail}` : result.message)
+}
+
+// A VCS command result re-reads the run projection into `data.projectionContent`
+// (a JSON string). Pull the `vcs` block out of it so pr.create/pr.status callers
+// read the pull-request URL and merge state without a second sprint.status. A
+// non-worktree run has no `vcs` (null), and a malformed/absent projection reads
+// back as null rather than throwing at this read-only boundary.
+function sprintVcsFromCommandResult(data: SprintEngineMutationRefreshData): SprintEngineVcs | null {
+  if (typeof data.projectionContent !== 'string') return null
+  try {
+    const parsed = JSON.parse(data.projectionContent) as { vcs?: SprintEngineVcs | null }
+    return parsed.vcs ?? null
+  } catch {
+    return null
+  }
 }
 
 // Array-field validation is load-bearing at this boundary: the Python engine has
