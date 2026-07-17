@@ -330,7 +330,35 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setShowDetailInSingle(false)
   }, [folderPath])
 
-  const items = scan?.items ?? []
+  // An epic's status is derived UP from its children at READ time, never read from
+  // its own frontmatter `status:` (which stays meaningful only for archival) and
+  // never written back by the link sync (MC-1617, backlog/2026-07-15-backlog-epic-
+  // status-derives-from-children.md). Deriving it here, once over the full scan,
+  // means every downstream surface — rows, detail, lens filtering, the dependency
+  // graph, sort order, and roadmap eligibility — reads the corrected status with no
+  // special-casing. Leaf items pass through untouched, so their behavior is
+  // byte-identical. A never-launched epic (zero links) still derives from its
+  // children; a childless epic falls back to the leaf link rule.
+  const items = useMemo(() => {
+    const raw = scan?.items ?? []
+    if (!raw.some((item) => item.isEpic)) return raw
+    const childStatusesBySlug = new Map<string, BacklogItemStatus[]>()
+    for (const item of raw) {
+      if (item.isEpic || !item.epic) continue
+      const bucket = childStatusesBySlug.get(item.epic)
+      if (bucket) bucket.push(item.status)
+      else childStatusesBySlug.set(item.epic, [item.status])
+    }
+    return raw.map((item) => {
+      if (!item.isEpic) return item
+      const derived = nextBacklogItemStatusFromLinks(
+        item.status,
+        item.links,
+        childStatusesBySlug.get(epicSlug(item)) ?? [],
+      )
+      return derived === item.status ? item : { ...item, status: derived }
+    })
+  }, [scan])
 
   // The dependency graph (T2) is derived once over the FULL item set — never the
   // filtered view — so prerequisite resolution and the waiting signal stay
