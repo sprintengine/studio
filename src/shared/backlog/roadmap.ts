@@ -174,12 +174,13 @@ export function parseRoadmap(content: string): Roadmap {
       const text = heading[2].trim()
       if (level === 1) {
         if (title === undefined) title = text
-        continue
+      } else if (level === 2) {
+        // Only `##` starts a lane. Deeper headings (`###` notes) are left as
+        // opaque body prose so a hand-authored subsection is not a spurious lane.
+        currentLane = { title: text, entries: [] }
+        currentEntry = null
+        lanes.push(currentLane)
       }
-      // Any `##`+ heading starts a new lane. The title (`#`) is captured above.
-      currentLane = { title: text, entries: [] }
-      currentEntry = null
-      lanes.push(currentLane)
       continue
     }
 

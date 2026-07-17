@@ -102,6 +102,16 @@ run('parse: policy, lanes, entries, epic children', () => {
   assert.deepEqual(frontend.entries[1].children, ['backlog/bill-setup.md'])
 })
 
+run('parse: a deeper subheading is not treated as a lane', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\n---\n## Backend\n- backlog/a.md\n### Notes\n- backlog/b.md\n',
+  )
+  assert.equal(roadmap.lanes.length, 1)
+  assert.equal(roadmap.lanes[0].title, 'Backend')
+  // Both entries stay in the single `##` lane; the `###` line is opaque prose.
+  assert.deepEqual(roadmap.lanes[0].entries.map((entry) => entry.ref), ['backlog/a.md', 'backlog/b.md'])
+})
+
 run('parse: policy defaults when frontmatter omits them', () => {
   const roadmap = parseRoadmap('---\ntype: roadmap\n---\n\n## Lane\n- backlog/a.md\n')
   assert.deepEqual(roadmap.policy, DEFAULT_ROADMAP_POLICY)
