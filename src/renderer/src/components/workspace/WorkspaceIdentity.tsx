@@ -73,25 +73,26 @@ export function WorkspaceIdentity({
 }) {
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
   const setWorkspaceHighlight = useWorkspaceStore((state) => state.setWorkspaceHighlight)
-  const gitBranch = useGitBranch(activeWorkspace?.folderPath ?? null)
-  const { status: gitFileStatus, repoState: gitRepoState } = useGitStatus(
-    activeWorkspace?.folderPath ?? null
-  )
   // For a worktree-backed workspace (a Sprint Engine run in worktree mode, or a
-  // worktree opened as a workspace) the branch label must reflect the worktree
-  // the work runs on — matching the Git panel, which also resolves the worktree.
-  // The live `useGitBranch` probe is keyed on the parent `folderPath` and reports
-  // its branch (e.g. "main"), so prefer the worktree's branch, which is available
-  // synchronously from workspace state and is symlink-independent. The folder-path
-  // segment stays on `folderPath` because it opens the file explorer, which is
-  // rooted there. Regular workspaces fall back to the live probe unchanged.
+  // worktree opened as a workspace) the branch label AND the change count must
+  // reflect the worktree the work runs on — matching the Git panel, which also
+  // resolves the worktree. A run_worktree workspace's `folderPath` points at the
+  // parent project checkout (e.g. `main`), so probing it reports that checkout's
+  // branch and its uncommitted files rather than the worktree's — which is why the
+  // count stayed stuck on main's dirty files across branch switches. Resolve the
+  // worktree first and probe its `gitRoot`; regular workspaces have no worktree and
+  // fall back to `folderPath` unchanged. The folder-path segment still opens the
+  // file explorer rooted at `folderPath` — only the git probes move to the worktree.
   const worktree = activeWorkspace ? resolveWorkspaceWorktree(activeWorkspace) : null
+  const gitProbePath = worktree?.gitRoot ?? activeWorkspace?.folderPath ?? null
+  const gitBranch = useGitBranch(gitProbePath)
+  const { status: gitFileStatus, repoState: gitRepoState } = useGitStatus(gitProbePath)
   const branchIsRepo = worktree ? true : gitBranch.isRepo
   const branchName = worktree ? worktree.branch ?? null : gitBranch.branch
   // The git change count that used to badge the (now-removed) Git panel switch
   // rides the branch chip instead — the branch is where "how much has changed"
-  // belongs. Same source as the old badge: files in the workspace folder's
-  // status, shown only once the repo has resolved and has uncommitted changes.
+  // belongs. Same source as the old badge: files in the worktree's status, shown
+  // only once the repo has resolved and has uncommitted changes.
   const gitChangeCount = Object.keys(gitFileStatus?.files ?? {}).length
   const gitHasChanges = gitRepoState === 'ready' && gitChangeCount > 0
   const gitChangeLabel = String(Math.min(gitChangeCount, 999))
