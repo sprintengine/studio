@@ -400,6 +400,26 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
         return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
       },
+      // backlog.work composes the target CLI's native skill invocation from the
+      // loaded plugin manifests.
+      listPlugins: () => getPluginRegistry().loaded(),
+      // backlog.work ensures the Backlog skill exists in the CLI's native dir
+      // before launch (same getStatus → install seam as Debug Mode). Reports
+      // whether the skill is now present; a false result is non-fatal.
+      ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
+        try {
+          const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
+          if (!status.ok) return false
+          if (status.status === 'missing' || status.status === 'update-available') {
+            const installed = await builtinSkillManager.install(workspaceRoot, skillId)
+            return installed.ok
+          }
+          // installed / local / modified: already present in the native dir.
+          return true
+        } catch {
+          return false
+        }
+      },
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })

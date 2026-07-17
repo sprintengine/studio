@@ -13,6 +13,7 @@ import { createRendererAutomationDelegate } from './renderer-delegate'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type { TerminalSessionSnapshot } from '../../shared/electron-api'
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../../shared/automation'
+import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import type { Workspace } from '../../renderer/src/types/workspace'
 
 function testWorkspace(id: string, overrides: Partial<Workspace> = {}): Workspace {
@@ -83,6 +84,8 @@ type BackendsOverrides = {
   listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
   readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
   createAgentWorktree?: AutomationBackends['createAgentWorktree']
+  listPlugins?: AutomationBackends['listPlugins']
+  ensureBuiltinSkillInstalled?: AutomationBackends['ensureBuiltinSkillInstalled']
 }
 
 function unexpectedCall(name: string): () => never {
@@ -123,6 +126,8 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
         worktreePath: `${workspaceRoot}/.multicode-worktrees/${name}`,
         branch: `agent/${name}`,
       })),
+    listPlugins: overrides.listPlugins ?? (() => []),
+    ensureBuiltinSkillInstalled: overrides.ensureBuiltinSkillInstalled ?? (async () => true),
     // Confirmation polling is exercised against static snapshots; collapse the
     // wait so timeout paths run instantly.
     sleep: async () => {},
@@ -175,6 +180,7 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'backlog.list',
       'backlog.read',
       'backlog.update',
+      'backlog.work',
       'sprint.create',
       'sprint.list',
       'sprint.status',
@@ -893,6 +899,168 @@ async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
   assert.equal((unknownAgent.structuredContent as { error: { code: string } }).error.code, 'unknown_agent')
 }
 
+// A minimal LoadedPlugin whose manifest carries just the id + optional
+// skillIntegration backlog.work reads. `template` undefined models a CLI with no
+// skill integration (the fallback path).
+function fakeCliPlugin(id: string, template?: string): LoadedPlugin {
+  return {
+    manifest: {
+      id,
+      ...(template
+        ? { skillIntegration: { support: 'native', harnessId: id, invocation: { fileDropTemplate: template } } }
+        : {}),
+    },
+    source: 'bundled',
+    manifestPath: `/plugins/${id}/plugin.json`,
+    pluginRoot: `/plugins/${id}`,
+  } as unknown as LoadedPlugin
+}
+
+async function testBacklogWorkHandsItemToAgent(): Promise<void> {
+  const links: Array<Record<string, unknown>> = []
+  const ensured: Array<{ workspaceRoot: string; skillId: string }> = []
+  const harness = launchHarness({
+    listPlugins: () => [fakeCliPlugin('claude-code', '/{{skillId}} {{path}}')],
+    readBacklogItem: async (_root, relativePath) => ({
+      ok: true,
+      item: { relativePath, title: 'Thing', isEpic: false, status: 'ready' },
+      body: 'body',
+    }),
+    ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
+      ensured.push({ workspaceRoot, skillId })
+      return true
+    },
+    backlogWrite: {
+      addOrUpdateLink: async (input) => {
+        links.push(input as unknown as Record<string, unknown>)
+        return { ok: true, store: { schemaVersion: 1, items: [] } }
+      },
+    },
+  })
+
+  const worked = await tool(harness.tools, 'backlog.work').handler({
+    workspaceId: 'ws-1',
+    path: 'backlog/example.md',
+    cli: 'claude-code',
+    name: 'Scout',
+    instructions: 'Focus on the failing test first.',
+  })
+  assert.equal(worked.isError, undefined, JSON.stringify(worked.structuredContent))
+  const result = (worked.structuredContent as {
+    worked: { invocation: string; skillEnsured: boolean; assigned: boolean; agentId: string; relativePath: string; warning?: string }
+  }).worked
+  assert.equal(result.invocation, '/backlog backlog/example.md', 'Claude plugin renders /backlog <path>')
+  assert.equal(result.skillEnsured, true)
+  assert.equal(result.assigned, true)
+  assert.equal(result.warning, undefined)
+  assert.equal(result.relativePath, 'backlog/example.md')
+  assert.equal(result.agentId, 'agent-claude-abc')
+
+  // The delegated startup prompt is the invocation with instructions appended.
+  const req = harness.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(req.prompt, '/backlog backlog/example.md\n\nFocus on the failing test first.')
+  assert.equal(req.cli, 'claude-code')
+
+  // The backlog skill is ensured before launch; the working-agent link is
+  // written to the item and never carries a status change.
+  assert.deepEqual(ensured, [{ workspaceRoot: '/tmp/project-a', skillId: 'backlog' }])
+  assert.equal(links.length, 1)
+  const link = links[0] as { relativePath: string; status?: unknown; link: { type: string; label: string } }
+  assert.equal(link.relativePath, 'backlog/example.md')
+  assert.equal(link.status, undefined, 'backlog.work never moves item status (skill contract owns lifecycle)')
+  assert.equal(link.link.type, 'agent')
+  assert.equal(link.link.label, 'Agent: Scout')
+}
+
+async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> {
+  // A CLI without skillIntegration ⇒ plain-language fallback naming the path and
+  // the lifecycle contract; with no instructions the prompt IS the fallback.
+  const fallback = launchHarness({
+    listPlugins: () => [fakeCliPlugin('mystery-cli')],
+    readBacklogItem: async (_root, relativePath) => ({
+      ok: true,
+      item: { relativePath, title: 'T', isEpic: false, status: 'in_progress' },
+      body: '',
+    }),
+    backlogWrite: { addOrUpdateLink: async () => ({ ok: true, store: { schemaVersion: 1, items: [] } }) },
+  })
+  const worked = await tool(fallback.tools, 'backlog.work').handler({
+    workspaceId: 'ws-1',
+    path: 'backlog/example.md',
+    cli: 'mystery-cli',
+  })
+  assert.equal(worked.isError, undefined, JSON.stringify(worked.structuredContent))
+  const invocation = (worked.structuredContent as { worked: { invocation: string } }).worked.invocation
+  assert.match(invocation, /Work the Backlog item at backlog\/example\.md/)
+  assert.match(invocation, /in_progress/)
+  assert.match(invocation, /completed/)
+  const req = fallback.requests[0] as Extract<AutomationRendererRequest, { kind: 'agent.launch' }>
+  assert.equal(req.prompt, invocation, 'no instructions ⇒ prompt is exactly the fallback invocation')
+
+  // completed and archived items are refused and never launched.
+  for (const [item, path] of [
+    [{ relativePath: 'backlog/done.md', title: 'D', isEpic: false, status: 'completed' as const }, 'backlog/done.md'],
+    [{ relativePath: 'backlog/archived/old.md', title: 'O', isEpic: false, status: 'ready' as const }, 'backlog/archived/old.md'],
+  ] as const) {
+    const refuse = launchHarness({ readBacklogItem: async () => ({ ok: true, item, body: '' }) })
+    const refused = await tool(refuse.tools, 'backlog.work').handler({ workspaceId: 'ws-1', path })
+    assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'backlog_item_not_workable')
+    assert.equal(refuse.requests.length, 0, 'a non-workable item is never launched')
+  }
+
+  // A missing/invalid path is not_found (and never launched).
+  const missing = launchHarness({ readBacklogItem: async () => ({ ok: false, message: 'no such item' }) })
+  const notFound = await tool(missing.tools, 'backlog.work').handler({ workspaceId: 'ws-1', path: 'backlog/gone.md' })
+  assert.equal((notFound.structuredContent as { error: { code: string } }).error.code, 'backlog_item_not_found')
+  assert.equal(missing.requests.length, 0)
+}
+
+async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<void> {
+  // bypass_all is refused at the boundary — before any read or launch.
+  const bypass = launchHarness({
+    readBacklogItem: async (_root, relativePath) => ({
+      ok: true,
+      item: { relativePath, title: 'T', isEpic: false, status: 'ready' },
+      body: '',
+    }),
+  })
+  const refused = await tool(bypass.tools, 'backlog.work').handler({
+    workspaceId: 'ws-1',
+    path: 'backlog/example.md',
+    permissionPreset: 'bypass_all',
+  })
+  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
+  assert.equal(bypass.requests.length, 0, 'a refused preset never launches')
+
+  // A link-write failure AFTER a confirmed launch is not overall failure: the
+  // agent is already running, so the tool returns ok + assigned:false + warning.
+  // A non-fatal skill-ensure failure rides skillEnsured:false in the same call.
+  const linkFail = launchHarness({
+    listPlugins: () => [fakeCliPlugin('claude-code', '/{{skillId}} {{path}}')],
+    ensureBuiltinSkillInstalled: async () => false,
+    readBacklogItem: async (_root, relativePath) => ({
+      ok: true,
+      item: { relativePath, title: 'T', isEpic: false, status: 'ready' },
+      body: '',
+    }),
+    backlogWrite: { addOrUpdateLink: async () => ({ ok: false, message: 'items.json is read-only' }) },
+  })
+  const worked = await tool(linkFail.tools, 'backlog.work').handler({
+    workspaceId: 'ws-1',
+    path: 'backlog/example.md',
+    cli: 'claude-code',
+  })
+  assert.equal(worked.isError, undefined, 'a post-launch link failure is not overall failure')
+  const result = (worked.structuredContent as {
+    worked: { assigned: boolean; warning?: string; skillEnsured: boolean; agentId: string }
+  }).worked
+  assert.equal(result.assigned, false)
+  assert.equal(result.skillEnsured, false, 'a non-fatal skill-ensure failure rides skillEnsured')
+  assert.match(result.warning ?? '', /read-only/)
+  assert.equal(result.agentId, 'agent-claude-abc', 'the launched agent id is still reported')
+  assert.equal(linkFail.requests.length, 1, 'the agent was launched exactly once')
+}
+
 async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void> {
   const created: unknown[] = []
   const ran: unknown[] = []
@@ -1132,6 +1300,9 @@ const tests = [
   testBacklogCreateRoutesItemsAndEpics,
   testBacklogUpdateAppliesInOrderAndStopsOnFailure,
   testBacklogAssignBuildsTheCanonicalLink,
+  testBacklogWorkHandsItemToAgent,
+  testBacklogWorkFallsBackAndRefusesFinishedItems,
+  testBacklogWorkPresetGuardAndPostLaunchLinkFailure,
   testAutomationMutationToolsGateOnPresetAndModule,
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,

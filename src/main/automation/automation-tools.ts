@@ -22,8 +22,10 @@ import type {
 import type { BacklogCreateInput, BacklogCreateResult, BacklogListItemsResult, BacklogReadItemResult } from '../backlog-service'
 import type { AutomationStoreListResult } from '../automations/store'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
+import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
 import { isValidBacklogSlug } from '../../shared/backlog/frontmatter'
+import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
 import type { McpToolRegistration, McpToolResult } from './mcp-socket-server'
 import { createWorkspaceConfirmed } from '../workspace-create'
 
@@ -46,6 +48,11 @@ const CONFIRM_POLL_INTERVAL_MS = 150
 // External callers get only these two presets; `bypass_all` is refused at the
 // tool boundary everywhere (epic decision 4, same policy as automation.create).
 const LAUNCH_PERMISSION_PRESETS = ['default', 'auto_workspace'] as const
+
+// The built-in Backlog skill id backlog.work installs and invokes; the skill
+// contract (agent edits `status:` itself) owns item lifecycle, so the tool only
+// records links (epic decision 7).
+const BACKLOG_SKILL_ID = 'backlog'
 
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
@@ -85,6 +92,22 @@ export type AutomationBackends = {
     workspaceRoot: string
     name: string
   }): Promise<{ worktreePath: string; branch: string } | { error: string }>
+  /**
+   * Loaded CLI plugin manifests (`getPluginRegistry().loaded()`). backlog.work
+   * composes the target CLI's native skill invocation from the matching
+   * plugin's `skillIntegration.invocation.fileDropTemplate`; injected as a
+   * backend so tests fake manifests.
+   */
+  listPlugins(): LoadedPlugin[]
+  /**
+   * Make a built-in skill present in the workspace's native harness dirs before
+   * a launch reads its invocation (getStatus → install; the
+   * `ensureBuiltinSkillInstalled` seam in app-services). Returns whether the
+   * skill is now installed. A false result is non-fatal for backlog.work — the
+   * response records `skillEnsured: false` and the composed prompt still states
+   * the lifecycle contract.
+   */
+  ensureBuiltinSkillInstalled(workspaceRoot: string, skillId: string): Promise<boolean>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
 }
@@ -180,6 +203,116 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           }
         : null,
     }
+  }
+
+  // The launch-config fields agent.launch and backlog.work both accept:
+  // `permissionPreset` (`bypass_all` refused with its own code, epic decision 4)
+  // and `worktree` (an object with an optional name — never a bare cwd). Returns
+  // the resolved options or a failure McpToolResult.
+  function resolveLaunchOptions(
+    args: Record<string, unknown>
+  ): { permissionPreset?: SprintEngineCliPermissionPreset; worktreeRequested: boolean; worktreeName?: string } | McpToolResult {
+    if (args.permissionPreset !== undefined) {
+      if (typeof args.permissionPreset !== 'string') {
+        return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
+      }
+      if (args.permissionPreset === 'bypass_all') {
+        return failure(
+          'permission_preset_not_allowed',
+          'Agents launched over the automation surface may not use permissionPreset "bypass_all". '
+            + 'A person can set that preset in the app if it is genuinely needed.'
+        )
+      }
+      if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
+        return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
+      }
+    }
+    let worktreeRequested = false
+    let worktreeName: string | undefined
+    if (args.worktree !== undefined) {
+      if (typeof args.worktree !== 'object' || args.worktree === null || Array.isArray(args.worktree)) {
+        return failure('invalid_arguments', '"worktree" must be an object with an optional "name".')
+      }
+      const rawName = (args.worktree as { name?: unknown }).name
+      if (rawName !== undefined && typeof rawName !== 'string') {
+        return failure('invalid_arguments', '"worktree.name" must be a string when provided.')
+      }
+      worktreeRequested = true
+      worktreeName = optionalString(rawName)
+    }
+    return {
+      permissionPreset: optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined,
+      worktreeRequested,
+      worktreeName,
+    }
+  }
+
+  // Create the isolation worktree (when requested or forced by a connector),
+  // delegate agent.launch to the renderer, and confirm the launch by a live
+  // terminal session — the shared execution path for agent.launch and
+  // backlog.work. Returns the confirmed workspace + agent id (and worktree
+  // path), or a failure McpToolResult. The caller is expected to have validated
+  // args and confirmed the workspace exists.
+  async function launchConfiguredAgent(plan: {
+    workspaceId: string
+    cli?: string
+    name?: string
+    prompt?: string
+    cliModel?: string
+    permissionPreset?: SprintEngineCliPermissionPreset
+    specialistId?: string
+    connectorId?: string
+    worktreeRequested: boolean
+    worktreeName?: string
+  }): Promise<{ workspace: Workspace; agentId: string; worktreePath?: string } | McpToolResult> {
+    // A connector launch forces a worktree even when none was requested — the
+    // connector .mcp.json must never land in the user's checkout. Worktree
+    // creation runs in main before delegating, and a failure here is fatal: the
+    // caller asked for isolation, so we never silently fall back.
+    let worktreePath: string | undefined
+    if (plan.worktreeRequested || plan.connectorId) {
+      const resolved = resolveWorkspaceRoot(plan.workspaceId)
+      if (!('root' in resolved)) return resolved
+      const derivedName = plan.worktreeName || plan.name || plan.connectorId || `agent-${now().toString(36)}`
+      const created = await backends.createAgentWorktree({ workspaceRoot: resolved.root, name: derivedName })
+      if ('error' in created) {
+        return failure(
+          'worktree_unavailable',
+          `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`
+        )
+      }
+      worktreePath = created.worktreePath
+    }
+
+    const delegated = await backends.delegateToRenderer({
+      kind: 'agent.launch',
+      workspaceId: plan.workspaceId,
+      cli: plan.cli,
+      name: plan.name,
+      prompt: plan.prompt,
+      cliModel: plan.cliModel,
+      permissionPreset: plan.permissionPreset,
+      specialistId: plan.specialistId,
+      connectorId: plan.connectorId,
+      worktreePath,
+    })
+    if (!delegated.ok) return failure(delegated.code, delegated.message)
+    const agentId = delegated.agentId
+    if (!agentId) return failure('renderer_protocol_error', 'The renderer accepted the launch but returned no agent id.')
+    const confirmed = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => {
+      const workspace = findWorkspace(plan.workspaceId)
+      if (!workspace) return null
+      const agent = workspace.agents[agentId]
+      const session = agentTerminalSession(plan.workspaceId, agentId, agent?.cliSessionId)
+      return session?.processAlive ? workspace : null
+    })
+    if (!confirmed) {
+      return failure(
+        'launch_confirmation_timeout',
+        `Agent "${agentId}" was added to workspace "${plan.workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
+      )
+    }
+    return { workspace: confirmed, agentId, ...(worktreePath ? { worktreePath } : {}) }
   }
 
   const workspaceList: McpToolRegistration = {
@@ -296,97 +429,30 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'specialistId', 'connectorId'])
       if (invalid) return invalid
 
-      // Permission preset: `bypass_all` is a distinct refusal (epic decision 4),
-      // not a generic vocabulary error; any other non-allowed value is invalid.
-      if (args.permissionPreset !== undefined) {
-        if (typeof args.permissionPreset !== 'string') {
-          return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
-        }
-        if (args.permissionPreset === 'bypass_all') {
-          return failure(
-            'permission_preset_not_allowed',
-            'Agents launched over the automation surface may not use permissionPreset "bypass_all". '
-              + 'A person can set that preset in the app if it is genuinely needed.'
-          )
-        }
-        if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
-          return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
-        }
-      }
-
-      // `worktree` is an object with an optional name — never a bare string or
-      // an arbitrary cwd; a raw path is not an acceptable external surface.
-      let worktreeRequested = false
-      let worktreeName: string | undefined
-      if (args.worktree !== undefined) {
-        if (typeof args.worktree !== 'object' || args.worktree === null || Array.isArray(args.worktree)) {
-          return failure('invalid_arguments', '"worktree" must be an object with an optional "name".')
-        }
-        const rawName = (args.worktree as { name?: unknown }).name
-        if (rawName !== undefined && typeof rawName !== 'string') {
-          return failure('invalid_arguments', '"worktree.name" must be a string when provided.')
-        }
-        worktreeRequested = true
-        worktreeName = optionalString(rawName)
-      }
+      const options = resolveLaunchOptions(args)
+      if ('content' in options) return options
 
       if (!findWorkspace(workspaceId)) {
         return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
       }
 
-      const connectorId = optionalString(args.connectorId)
-      const permissionPreset = optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined
-
-      // A connector launch forces a worktree even when none was requested — the
-      // connector .mcp.json must never land in the user's checkout (the
-      // executor's connector-isolation invariant, epic point 3). Worktree
-      // creation runs in main before delegating, and a failure here is fatal:
-      // the caller asked for isolation, so we never silently fall back.
-      let worktreePath: string | undefined
-      if (worktreeRequested || connectorId) {
-        const resolved = resolveWorkspaceRoot(workspaceId)
-        if (!('root' in resolved)) return resolved
-        const derivedName =
-          worktreeName || optionalString(args.name) || connectorId || `agent-${now().toString(36)}`
-        const created = await backends.createAgentWorktree({ workspaceRoot: resolved.root, name: derivedName })
-        if ('error' in created) {
-          return failure(
-            'worktree_unavailable',
-            `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`
-          )
-        }
-        worktreePath = created.worktreePath
-      }
-
-      const delegated = await backends.delegateToRenderer({
-        kind: 'agent.launch',
+      const launched = await launchConfiguredAgent({
         workspaceId,
         cli: optionalString(args.cli),
         name: optionalString(args.name),
         prompt: optionalString(args.prompt),
         cliModel: optionalString(args.cliModel),
-        permissionPreset,
+        permissionPreset: options.permissionPreset,
         specialistId: optionalString(args.specialistId),
-        connectorId,
-        worktreePath,
+        connectorId: optionalString(args.connectorId),
+        worktreeRequested: options.worktreeRequested,
+        worktreeName: options.worktreeName,
       })
-      if (!delegated.ok) return failure(delegated.code, delegated.message)
-      const agentId = delegated.agentId
-      if (!agentId) return failure('renderer_protocol_error', 'The renderer accepted the launch but returned no agent id.')
-      const confirmed = await waitFor(LAUNCH_CONFIRM_TIMEOUT_MS, () => {
-        const workspace = findWorkspace(workspaceId)
-        if (!workspace) return null
-        const agent = workspace.agents[agentId]
-        const session = agentTerminalSession(workspaceId, agentId, agent?.cliSessionId)
-        return session?.processAlive ? workspace : null
+      if (!('agentId' in launched)) return launched
+      return success({
+        agent: agentProjection(launched.workspace, launched.agentId),
+        ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
       })
-      if (!confirmed) {
-        return failure(
-          'launch_confirmation_timeout',
-          `Agent "${agentId}" was added to workspace "${workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
-        )
-      }
-      return success({ agent: agentProjection(confirmed, agentId), ...(worktreePath ? { worktreePath } : {}) })
     },
   }
 
@@ -710,6 +776,136 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  // Compose the startup prompt for a backlog.work handoff: the target CLI's
+  // native skill invocation (e.g. `/backlog backlog/foo.md` for Claude) when the
+  // plugin declares a file-drop template, otherwise a plain-language block that
+  // names the path and restates the built-in skill's lifecycle contract so any
+  // agent can follow it. The invocation is what gets sent; the fallback is
+  // CLI-agnostic, so it also covers an unspecified or unknown `cli`.
+  function renderBacklogSkillInvocation(cli: string | undefined, relativePath: string): string {
+    const plugin = cli ? backends.listPlugins().find((candidate) => candidate.manifest.id === cli) : undefined
+    const template = plugin?.manifest.skillIntegration?.invocation?.fileDropTemplate
+    if (template) {
+      return renderSkillInvocationTemplate(template, { skillId: BACKLOG_SKILL_ID, skillName: 'Backlog', path: relativePath })
+    }
+    return (
+      `Work the Backlog item at ${relativePath}. `
+      + 'Track its lifecycle by editing the frontmatter `status:` line: set `in_progress` when you start, '
+      + '`needs_input` (and state the blocking question) if you stop for input, and `completed` only after the '
+      + 'work is real and verified. Leave the body and every other field untouched.'
+    )
+  }
+
+  const backlogWork: McpToolRegistration = {
+    name: 'backlog.work',
+    description:
+      'Hand a Backlog item to a freshly launched agent in one call: launches a configured agent whose first input '
+      + "is the target CLI's Backlog skill invocation (e.g. \"/backlog <path>\" for Claude, a plain-language "
+      + 'lifecycle block for CLIs without skill integration), then records the working-agent link. Never changes '
+      + 'item status — the Backlog skill contract owns lifecycle, exactly like dragging the item onto a terminal. '
+      + 'Refuses completed or archived items. Same launch fields as agent.launch (bypass_all refused), minus '
+      + 'specialist/connector.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
+        path: { type: 'string', description: 'Item path relative to the workspace root, e.g. "backlog/example.md".' },
+        cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
+        name: { type: 'string', description: 'Agent display name.' },
+        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
+        permissionPreset: {
+          type: 'string',
+          enum: [...LAUNCH_PERMISSION_PRESETS],
+          description: 'CLI permission preset. Only "default" or "auto_workspace"; "bypass_all" is refused on this surface.',
+        },
+        worktree: {
+          type: 'object',
+          properties: { name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' } },
+          additionalProperties: false,
+          description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
+        },
+        instructions: { type: 'string', description: 'Extra context appended after the skill invocation in the startup prompt.' },
+      },
+      required: ['workspaceId', 'path'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const workspaceId = requireString(args, 'workspaceId')
+      if (typeof workspaceId !== 'string') return workspaceId
+      const path = requireString(args, 'path')
+      if (typeof path !== 'string') return path
+      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'cliModel', 'instructions'])
+      if (invalid) return invalid
+      const options = resolveLaunchOptions(args)
+      if ('content' in options) return options
+      const resolved = resolveWorkspaceRoot(workspaceId)
+      if (!('root' in resolved)) return resolved
+
+      // Read the item and gate on workability: a missing/invalid path is
+      // not_found; a completed item or anything under backlog/archived/ is a
+      // finished record that must not be re-handed. Every other status
+      // (including in_progress — a re-handoff is legitimate) is workable.
+      const read = await backends.readBacklogItem(resolved.root, path)
+      if (!read.ok) return failure('backlog_item_not_found', read.message)
+      if (read.item.status === 'completed' || isArchivedBacklogPath(read.item.relativePath)) {
+        const reason = read.item.status === 'completed' ? 'completed' : 'archived'
+        return failure(
+          'backlog_item_not_workable',
+          `Backlog item ${read.item.relativePath} is ${reason} and cannot be handed to an agent.`
+        )
+      }
+
+      const cli = optionalString(args.cli)
+      const instructions = optionalString(args.instructions)
+      const invocation = renderBacklogSkillInvocation(cli, read.item.relativePath)
+      const prompt = instructions ? `${invocation}\n\n${instructions}` : invocation
+
+      // Install the Backlog skill into the CLI's native dir before launch so the
+      // invocation resolves. Non-fatal: a false result rides `skillEnsured` and
+      // the prompt still states the lifecycle contract.
+      const skillEnsured = await backends.ensureBuiltinSkillInstalled(resolved.root, BACKLOG_SKILL_ID)
+
+      const launched = await launchConfiguredAgent({
+        workspaceId,
+        cli,
+        name: optionalString(args.name),
+        prompt,
+        cliModel: optionalString(args.cliModel),
+        permissionPreset: options.permissionPreset,
+        worktreeRequested: options.worktreeRequested,
+        worktreeName: options.worktreeName,
+      })
+      if (!('agentId' in launched)) return launched
+
+      // Record the working-agent link after a confirmed launch. A link failure
+      // here is NOT overall failure — the agent is already running, so faking
+      // failure would invite a duplicate launch. Report assigned:false + warning.
+      const agent = launched.workspace.agents[launched.agentId]
+      const link = buildAgentBacklogLink({
+        workspaceId,
+        agentId: launched.agentId,
+        agentName: agent?.name || launched.agentId,
+      })
+      const written = await backends.backlogWrite.addOrUpdateLink({
+        workspaceRoot: resolved.root,
+        relativePath: read.item.relativePath,
+        link,
+      })
+      return success({
+        worked: {
+          relativePath: read.item.relativePath,
+          workspaceId,
+          agentId: launched.agentId,
+          invocation,
+          skillEnsured,
+          assigned: written.ok,
+          ...(written.ok ? {} : { warning: `Agent launched but the working-agent link was not recorded: ${written.message}` }),
+          ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
+        },
+      })
+    },
+  }
+
   function automationsFrontDoorOrFailure(): AutomationsAppFrontDoor | McpToolResult {
     const frontDoor = backends.getAutomationsFrontDoor()
     if (!frontDoor) {
@@ -957,6 +1153,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     backlogCreate,
     backlogUpdate,
     backlogAssign,
+    backlogWork,
     automationList,
     automationRuns,
     automationCreate,
@@ -977,6 +1174,13 @@ function actionPermissionPreset(definition: object): string | null {
   if (typeof config !== 'object' || config === null) return null
   const preset = (config as { permissionPreset?: unknown }).permissionPreset
   return typeof preset === 'string' ? preset : null
+}
+
+// Archived items live under backlog/archived/ (path-derived, matching the
+// renderer's isArchivedBacklogPath); readBacklogItem normalizes the path but is
+// case-preserving, so lowercase before the prefix check.
+function isArchivedBacklogPath(relativePath: string): boolean {
+  return relativePath.replace(/\\/g, '/').toLowerCase().startsWith('backlog/archived/')
 }
 
 function success(structured: Record<string, unknown>): McpToolResult {

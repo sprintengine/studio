@@ -3,7 +3,12 @@ import type {
   WorkspaceSkill,
 } from '../../../shared/electron-api'
 import type { PluginSkillInvocation, PluginSkillSupport } from '../../../shared/plugin-manifest'
-import { resolveSkillInvocation } from '../../../shared/skill-invocation'
+import { renderSkillInvocationTemplate, resolveSkillInvocation } from '../../../shared/skill-invocation'
+
+// Re-exported from the node-free shared module (its home now that the automation
+// backlog.work handoff composes invocations in main); existing renderer callers
+// keep importing it from here.
+export { renderSkillInvocationTemplate }
 
 // The `{ support, harnessId, invocation }` shape common to PluginSkillCatalog
 // (renderer plugin list) and PluginSkillIntegration (main manifest).
@@ -11,19 +16,6 @@ export type SkillIntegrationLike = {
   support: PluginSkillSupport
   harnessId: string
   invocation?: PluginSkillInvocation
-}
-
-// Renders a plugin's declared skill-invocation template. Shared by the
-// terminal file-drop path ({{path}} templates) and the skill picker
-// (explicit templates without a path).
-export function renderSkillInvocationTemplate(
-  template: string,
-  values: { skillId: string; skillName: string; path?: string },
-): string {
-  return template
-    .replace(/\{\{\s*skillId\s*\}\}/g, values.skillId)
-    .replace(/\{\{\s*skillName\s*\}\}/g, values.skillName)
-    .replace(/\{\{\s*path\s*\}\}/g, values.path ?? '')
 }
 
 // The explicit invocation text to hand an agent for a skill: the CLI's native
