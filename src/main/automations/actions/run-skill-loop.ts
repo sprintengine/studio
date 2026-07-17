@@ -9,6 +9,7 @@ export type RunSkillLoopConfig = {
   prompt: string
   skill?: string
   requiredIntegrations?: string[]
+  includeTriggerContext?: boolean
 }
 
 export function createRunSkillLoopActionProvider(): AutomationActionProvider {
@@ -24,6 +25,7 @@ export function createRunSkillLoopActionProvider(): AutomationActionProvider {
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
         skill: { type: 'string', minLength: 1 },
+        includeTriggerContext: { type: 'boolean' },
         requiredIntegrations: {
           type: 'array',
           items: { type: 'string', minLength: 1 },
