@@ -17,6 +17,7 @@ import {
   parseBacklogNumericId,
   planBacklogIdAllocation,
 } from '../shared/backlog/item-id'
+import { isRoadmapContent } from '../shared/backlog/roadmap'
 import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
@@ -51,6 +52,7 @@ const STORE_PATH = ['.multi-code', 'backlog', 'items.json'] as const
 const CONFIG_PATH = ['.multi-code', 'backlog', 'config.json'] as const
 const BACKLOG_PREFIX = 'backlog/'
 const EPICS_PREFIX = 'backlog/epics/'
+const ROADMAPS_PREFIX = 'backlog/roadmaps/'
 
 type ValidWorkspace = {
   root: string
@@ -330,6 +332,10 @@ export type BacklogListedItem = {
   /** Frontmatter numeric id when assigned (display id = `<key>-<id>`). */
   id?: number
   isEpic: boolean
+  // True for a `backlog/roadmaps/<name>.md` ordered-execution plan (MC-1618).
+  // Surfaced as a flag rather than through the closed `type` union, which stays
+  // OKF-tolerant of the roadmap type (src/shared/backlog/roadmap.ts).
+  isRoadmap?: boolean
   status: BacklogObjectRecord['status']
   type?: BacklogObjectRecord['type']
   difficulty?: BacklogObjectRecord['difficulty']
@@ -348,6 +354,7 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
     const paths = [
       ...(await listMarkdownFiles(join(workspace.root, 'backlog'), BACKLOG_PREFIX)),
       ...(await listMarkdownFiles(join(workspace.root, 'backlog', 'epics'), EPICS_PREFIX)),
+      ...(await listMarkdownFiles(join(workspace.root, 'backlog', 'roadmaps'), ROADMAPS_PREFIX)),
     ]
     const items: BacklogListedItem[] = []
     for (const relativePath of paths) {
@@ -368,6 +375,7 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
         title: extractBacklogTitle(body, relativePath),
         ...(numericId !== undefined ? { id: numericId } : {}),
         isEpic: relativePath.startsWith(EPICS_PREFIX) || fields.type === 'epic',
+        ...(isRoadmapContent(relativePath, rawFields.type) ? { isRoadmap: true } : {}),
         status,
         ...(fields.type ? { type: fields.type } : {}),
         ...(fields.difficulty ? { difficulty: fields.difficulty } : {}),
@@ -410,6 +418,7 @@ export async function readBacklogItem(workspaceRoot: string, relativePath: strin
         title: extractBacklogTitle(body, normalized),
         ...(numericId !== undefined ? { id: numericId } : {}),
         isEpic: normalized.startsWith(EPICS_PREFIX) || fields.type === 'epic',
+        ...(isRoadmapContent(normalized, rawFields.type) ? { isRoadmap: true } : {}),
         status: fields.status ?? 'idea',
         ...(fields.type ? { type: fields.type } : {}),
         ...(fields.difficulty ? { difficulty: fields.difficulty } : {}),
