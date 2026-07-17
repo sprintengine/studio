@@ -394,6 +394,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         if (result.ok) sprintRuntime.cancelRun(payload.statePath)
         return result
       },
+      // Sprint steering (MC-1654): artifact review + task mutation, all through
+      // the main-owned sprintEngineArtifacts handlers (two-lane rule, not the
+      // renderer delegate). Review mode is pinned 'user' — the external caller is
+      // a human-proxy surface, never the auto-runner's 'auto-run' policy path.
+      reviewSprintArtifact: (payload, action) => sprintEngineArtifacts.reviewArtifact(payload, action, 'user'),
+      commentSprintTask: (payload) => sprintEngineArtifacts.commentTask(payload),
+      resolveSprintTaskInput: (payload) => sprintEngineArtifacts.resolveTaskInput(payload),
+      setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
+      createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
+      updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
       // Agent-at-launch worktrees (agent.launch isolation + every connector
       // launch): derive the `agent/<slug>` branch and container the Worktree
       // manager uses, then create through the shared git helper. Mirrors
