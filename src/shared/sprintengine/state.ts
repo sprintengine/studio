@@ -115,19 +115,30 @@ export function taskBoardColumnToLifecycle(column: SprintEngineTaskBoardColumn):
   }
 }
 
-// True when at least one incomplete task is waiting on a *human* — a needs_input
-// task whose kind is `user`. Architect-routed needs_input is excluded, because
-// Sprint Engine can route those through automatic architect triage, so
-// they are not the user's action. Used to surface the needs-input glyph on the
-// Backlog even while other tasks in the run keep progressing.
-export function sprintEngineRunAwaitsHumanInput(
+// The tasks in this run that are waiting on a *human* — a needs_input task whose
+// kind is `user`. Architect-routed needs_input is excluded, because Sprint Engine
+// can route those through automatic architect triage, so they are not the user's
+// action. Single source of truth for the per-task human-input rule, shared by the
+// needs-input glyph (`sprintEngineRunAwaitsHumanInput`) and the
+// `sprint-engine.run-needs-input` automation trigger, so both judge a blocked
+// task identically.
+export function sprintEngineHumanInputTasks(
   sprintEngineState: Pick<SprintEngineState, 'tasks'>,
-): boolean {
-  return sprintEngineState.tasks.some(
+): SprintEngineTask[] {
+  return sprintEngineState.tasks.filter(
     (task) =>
       task.status === 'needs_input'
       && task.needsInput?.kind === 'user',
   )
+}
+
+// True when at least one incomplete task is waiting on a *human*. Used to surface
+// the needs-input glyph on the Backlog even while other tasks in the run keep
+// progressing.
+export function sprintEngineRunAwaitsHumanInput(
+  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
+): boolean {
+  return sprintEngineHumanInputTasks(sprintEngineState).length > 0
 }
 
 // Run-level lifecycle rollup shared by every surface that renders a Sprint

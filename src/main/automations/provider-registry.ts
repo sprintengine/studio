@@ -11,6 +11,10 @@ import {
 import { createSwitchboardAutomationActionProviders, type SwitchboardAutomationFrontDoors } from './actions/switchboard'
 import { scheduleTriggerProvider } from './schedule'
 import { createRepoEventTriggerProvider } from './triggers/repo-event'
+import {
+  createSprintEngineRunCompletedTriggerProvider,
+  createSprintEngineRunNeedsInputTriggerProvider,
+} from './triggers/sprint-engine-run-events'
 import { createSprintEngineRunLandedTriggerProvider } from './triggers/sprint-engine-run-landed'
 import { createWebhookTriggerProvider } from './triggers/webhook'
 
@@ -143,6 +147,14 @@ export function createBuiltInAutomationProviderRegistry(
     registry.registerTriggerProvider(
       SPRINT_ENGINE_PROVIDER_MODULE_ID,
       createSprintEngineRunLandedTriggerProvider(options.sprintEngine)
+    )
+    registry.registerTriggerProvider(
+      SPRINT_ENGINE_PROVIDER_MODULE_ID,
+      createSprintEngineRunNeedsInputTriggerProvider(options.sprintEngine)
+    )
+    registry.registerTriggerProvider(
+      SPRINT_ENGINE_PROVIDER_MODULE_ID,
+      createSprintEngineRunCompletedTriggerProvider(options.sprintEngine)
     )
     if (options.delegateToRenderer) {
       registry.registerActionProvider(

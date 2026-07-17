@@ -1,6 +1,17 @@
-import { basename, isAbsoluteFilePath, joinFilePath, parentPath, pathJoin, pathSeparatorFor, samePath } from './paths'
+import { isAbsoluteFilePath, joinFilePath, pathJoin, pathSeparatorFor, samePath } from './paths'
+import {
+  agentWorktreePaths,
+  slugifyWorktreeName,
+  worktreeContainerPath,
+} from '../../../shared/worktree-paths'
 import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
 import type { AgentExecutionMode, McpServerConfig, McpSettings, Workspace } from '../types/workspace'
+
+// Pure worktree path/branch derivation now lives in the node-free shared module
+// so the main process can reuse it (agent-at-launch worktrees over the App
+// Automation MCP). Re-exported here so existing renderer import sites are
+// untouched.
+export { agentWorktreePaths, slugifyWorktreeName, worktreeContainerPath }
 
 export type ResolvedWorkspaceWorktree = {
   /** Absolute git root to use for this workspace's Git view. */
@@ -257,50 +268,9 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
 // pieces of that spawn; the async worktree/catalog IO around them lives in
 // WorkspaceManager.launchConnectorChat.
 
-/**
- * Container directory a repo's worktrees live under:
- * `<repo-parent>/.multicode-worktrees/<repo>`. Single source of truth for the
- * convention, shared by the Worktree manager, connector chats, and
- * agent-at-spawn worktrees.
- */
-export function worktreeContainerPath(repoRoot: string): string {
-  return pathJoin(parentPath(repoRoot), '.multicode-worktrees', basename(repoRoot))
-}
-
-/** Normalize a user-facing worktree name into a directory/branch-safe slug. */
-export function slugifyWorktreeName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._/-]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .replace(/^[-/]+|[-/]+$/g, '')
-}
-
 /** Registry id for a worktree, derived from its absolute path. */
 export function worktreeIdFromPath(pathValue: string): string {
   return `worktree-${slugifyWorktreeName(pathValue).replace(/[\\/.:]+/g, '-')}`
-}
-
-/**
- * Resolve the git worktree location for an agent spawned with "create a
- * worktree", placing it under the same container the Worktree manager and
- * connector chats use. Branch is `agent/<slug>` so agent worktrees group
- * together in branch listings.
- */
-export function agentWorktreePaths(
-  repoRoot: string,
-  name: string,
-): { containerPath: string; destinationPath: string; slug: string; branchName: string } | null {
-  const slug = slugifyWorktreeName(name)
-  if (!slug) return null
-  const containerPath = worktreeContainerPath(repoRoot)
-  return {
-    containerPath,
-    destinationPath: pathJoin(containerPath, slug),
-    slug,
-    branchName: `agent/${slug}`,
-  }
 }
 
 /** Branch a connector chat's worktree is created on: `connector/<id>-<uid>`. */

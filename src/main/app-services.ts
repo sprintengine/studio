@@ -33,6 +33,8 @@ import { createSprintEngineAutomationService } from './sprintengine-automation-s
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
+import { computeSprintEngineTokenUsageReport } from './sprintengine-token-usage'
+import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
 import { resolveMemoryRoot } from './memory-graph'
 import { listPluginRegistryEntries } from './plugin-registry-instance'
@@ -40,7 +42,8 @@ import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-aut
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
-import { excludeMcpConfigFromWorktree } from './git'
+import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
+import { agentWorktreePaths } from '../shared/worktree-paths'
 import { cliResumeCapabilities, createTerminalRuntime } from './terminal-runtime'
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
@@ -380,6 +383,77 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
       listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
       readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
+      // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
+      // intent service (same lane as the mobile relay/sprint.status), never the
+      // renderer delegate. Cancel is the composed op the IPC channel uses — the
+      // engine cancel write, then scheduler teardown on success — so a paused or
+      // manual run's live agents are also stopped (sprint-engine-module).
+      readSprintAutomationMode: (input) => sprintEngineAutomation.readAutomationMode(input),
+      setSprintAutomationMode: (input) => sprintEngineAutomation.setAutomationMode(input),
+      resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
+      cancelSprintRun: async (payload) => {
+        const result = await sprintEngineArtifacts.cancelRun(payload)
+        if (result.ok) sprintRuntime.cancelRun(payload.statePath)
+        return result
+      },
+      // Sprint steering (MC-1654): artifact review + task mutation, all through
+      // the main-owned sprintEngineArtifacts handlers (two-lane rule, not the
+      // renderer delegate). Review mode is pinned 'user' — the external caller is
+      // a human-proxy surface, never the auto-runner's 'auto-run' policy path.
+      reviewSprintArtifact: (payload, action) => sprintEngineArtifacts.reviewArtifact(payload, action, 'user'),
+      commentSprintTask: (payload) => sprintEngineArtifacts.commentTask(payload),
+      resolveSprintTaskInput: (payload) => sprintEngineArtifacts.resolveTaskInput(payload),
+      setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
+      createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
+      updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
+      // Sprint VCS + usage reads (MC-1655): PR open/refresh run the engine's own
+      // vcs CLI (main-owned, like the steering block); each re-reads the run
+      // projection so the tool can hand back the refreshed vcs block. Token usage
+      // computes straight off the ledger — the module's 15s render-storm cache
+      // (sprint-engine-module) is not needed at MCP call cadence, so this calls
+      // the underlying compute directly (it never throws, degrading to empty).
+      createSprintPullRequest: (payload) => sprintEngineArtifacts.createPullRequest(payload),
+      refreshSprintPullRequestStatus: (payload) => sprintEngineArtifacts.refreshPullRequestStatus(payload),
+      readSprintTokenUsage: (statePath) => computeSprintEngineTokenUsageReport(statePath, sprintTokenUsageDeps()),
+      // Agent-at-launch worktrees (agent.launch isolation + every connector
+      // launch): derive the `agent/<slug>` branch and container the Worktree
+      // manager uses, then create through the shared git helper. Mirrors
+      // WorkspaceManager's own worktree-agent spawn (copyIncludedFiles carries
+      // the repo's worktree-include set into the isolated tree).
+      createAgentWorktree: async ({ workspaceRoot, name }) => {
+        const paths = agentWorktreePaths(workspaceRoot, name)
+        if (!paths) return { error: `"${name}" does not reduce to a usable worktree name.` }
+        const created = await createGitWorktree({
+          repoRoot: workspaceRoot,
+          containerPath: paths.containerPath,
+          destinationPath: paths.destinationPath,
+          branchName: paths.branchName,
+          baseRef: 'HEAD',
+          copyIncludedFiles: true,
+        })
+        if (!created.ok) return { error: created.message ?? 'Git worktree creation failed.' }
+        return { worktreePath: created.data.path, branch: created.data.branch ?? paths.branchName }
+      },
+      // backlog.work composes the target CLI's native skill invocation from the
+      // loaded plugin manifests.
+      listPlugins: () => getPluginRegistry().loaded(),
+      // backlog.work ensures the Backlog skill exists in the CLI's native dir
+      // before launch (same getStatus → install seam as Debug Mode). Reports
+      // whether the skill is now present; a false result is non-fatal.
+      ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
+        try {
+          const status = await builtinSkillManager.getStatus(workspaceRoot, skillId)
+          if (!status.ok) return false
+          if (status.status === 'missing' || status.status === 'update-available') {
+            const installed = await builtinSkillManager.install(workspaceRoot, skillId)
+            return installed.ok
+          }
+          // installed / local / modified: already present in the native dir.
+          return true
+        } catch {
+          return false
+        }
+      },
     }),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })

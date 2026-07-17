@@ -17,7 +17,7 @@ import { isSprintEngineAutomationMode } from './automation-lifecycle'
 export const SPRINT_ENGINE_AUTOMATION_INTENT_FILE = 'automation.json'
 export const SPRINT_ENGINE_AUTOMATION_INTENT_SCHEMA_VERSION = 1
 
-export type SprintEngineAutomationIntentActor = 'ui' | 'mobile' | 'system'
+export type SprintEngineAutomationIntentActor = 'ui' | 'mobile' | 'system' | 'automation'
 
 export type SprintEngineAutomationIntentWrite = {
   actor: SprintEngineAutomationIntentActor
@@ -51,7 +51,7 @@ export type SprintEngineAutomationIntentRecord = {
   runtime?: SprintEngineAutomationRuntimeResidue
 }
 
-const intentActors = new Set<SprintEngineAutomationIntentActor>(['ui', 'mobile', 'system'])
+const intentActors = new Set<SprintEngineAutomationIntentActor>(['ui', 'mobile', 'system', 'automation'])
 
 export function isSprintEngineAutomationIntentActor(
   input: unknown,

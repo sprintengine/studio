@@ -42,6 +42,10 @@ import { SPRINT_ENGINE_RUN_ACTION_KIND, SPRINT_ENGINE_START_ACTION_KIND } from '
 import { SWITCHBOARD_RUNNER_TICK_ACTION_KIND, WATCHTOWER_REVIEW_ACTION_KIND } from '../automations/actions/switchboard'
 import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../automations/triggers/sprint-engine-run-landed'
+import {
+  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
+  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+} from '../automations/triggers/sprint-engine-run-events'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
@@ -736,7 +740,14 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   if (!providers.ok) return
   assert.deepEqual(
     providers.value.triggers.map((provider) => provider.kind),
-    ['schedule', WEBHOOK_TRIGGER_KIND, REPO_EVENT_TRIGGER_KIND, SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND]
+    [
+      'schedule',
+      WEBHOOK_TRIGGER_KIND,
+      REPO_EVENT_TRIGGER_KIND,
+      SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+      SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+      SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
+    ]
   )
   assert.deepEqual(
     providers.value.triggers.flatMap((provider) => provider.missingIntegrations),

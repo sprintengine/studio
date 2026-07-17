@@ -32,6 +32,10 @@ import {
 } from './provider-registry'
 import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
 import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from './triggers/sprint-engine-run-landed'
+import {
+  SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
+  SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+} from './triggers/sprint-engine-run-events'
 import { WEBHOOK_TRIGGER_KIND } from './triggers/webhook'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
@@ -1016,6 +1020,14 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND}`)?.kind,
     SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
   )
+  assert.equal(
+    builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND}`)?.kind,
+    SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+  )
+  assert.equal(
+    builtIns.getTriggerProvider(`sprint-engine.${SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND}`)?.kind,
+    SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
+  )
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
   assert.equal(builtIns.getActionProvider(`switchboard.${SWITCHBOARD_RUNNER_TICK_ACTION_KIND}`)?.kind, SWITCHBOARD_RUNNER_TICK_ACTION_KIND)
@@ -1027,6 +1039,8 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     WEBHOOK_TRIGGER_KIND,
     REPO_EVENT_TRIGGER_KIND,
     SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND,
+    SPRINT_ENGINE_RUN_NEEDS_INPUT_TRIGGER_KIND,
+    SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
   ])
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',
