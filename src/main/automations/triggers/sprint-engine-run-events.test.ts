@@ -8,6 +8,7 @@ import {
 } from '../../../shared/automations/contracts'
 import type { SprintEngineProjectionReadResult } from '../../../shared/electron-api'
 import {
+  COMPLETED_CONFIRMATION_MS,
   createSprintEngineRunCompletedTriggerProvider,
   createSprintEngineRunNeedsInputTriggerProvider,
   sprintEngineRunFingerprint,
@@ -21,6 +22,9 @@ import {
 const WORKSPACE_ROOT = '/repo'
 const TEAM = 'team-a'
 const STATE_PATH = join(WORKSPACE_ROOT, '.multi-code', 'sprintengine', TEAM, 'run.yaml')
+// One step past the completion confirmation window, to advance the clock between
+// the arming poll and the confirming poll.
+const CONFIRM_STEP_MS = COMPLETED_CONFIRMATION_MS + 1_000
 
 void main().catch((error) => {
   console.error(error)
@@ -31,6 +35,7 @@ async function main(): Promise<void> {
   assertConfigValidation()
   assertFingerprintBranches()
   await assertCompletedRunFiresOnceAndDedupes()
+  await assertTransientCompletionNeverFiresAndCannotBurnTheRealCompletion()
   await assertIncompleteRunNeverCompletes()
   await assertEmptyTaskGraphNeverCompletes()
   await assertCanceledRunNeverCompletes()
@@ -158,23 +163,64 @@ function assertFingerprintBranches(): void {
 }
 
 async function assertCompletedRunFiresOnceAndDedupes(): Promise<void> {
-  const now = () => Date.parse('2026-07-17T10:00:00Z')
+  let now = Date.parse('2026-07-17T10:00:00Z')
   const trigger = completedProvider(async () => ({ ok: true, data: projection({ createdAt: '2026-07-01T00:00:00Z' }) }))
-  const run = poll(trigger, SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND, now)
+  const run = poll(trigger, SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND, () => now)
 
+  const baseline = await run()
+  assert.equal(baseline.ok, true)
+  if (baseline.ok) assert.deepEqual(baseline.events, [], 'the first completed observation only arms the confirmation window')
+
+  now += CONFIRM_STEP_MS
   const first = await run()
   assert.equal(first.ok, true)
   if (!first.ok) return
-  assert.equal(first.events.length, 1, 'a finished run fires once')
+  assert.equal(first.events.length, 1, 'a completion that held across the window fires')
   const event = first.events[0]
   assert.match(event.id, new RegExp(`^sprint-completed:${TEAM}:[0-9a-f]{16}$`))
   assert.equal(event.payload.team, TEAM)
   assert.equal(event.payload.goal, 'Ship the thing')
   assert.equal(event.payload.taskCount, 2)
 
+  now += 60_000
   const again = await run()
   assert.equal(again.ok, true)
   if (again.ok) assert.equal(again.events[0]?.id, event.id, 'the same finished run keeps the same dedupe id')
+}
+
+// The transient all-done window (task 1 done before task 2 is added) must not
+// fire: a not-completed observation resets the window. And because the fire is
+// held until completion holds, a transient can never emit and therefore can never
+// burn the true completion's task-set-independent dedupe id.
+async function assertTransientCompletionNeverFiresAndCannotBurnTheRealCompletion(): Promise<void> {
+  let now = Date.parse('2026-07-17T10:00:00Z')
+  let tasks: TaskFixture[] = [{ status: 'done' }]
+  const trigger = completedProvider(async () => ({ ok: true, data: projection({ createdAt: '2026-07-01T00:00:00Z', tasks }) }))
+  const run = poll(trigger, SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND, () => now)
+
+  const transient = await run()
+  assert.equal(transient.ok, true)
+  if (transient.ok) assert.deepEqual(transient.events, [], 'a transient all-done graph only arms the window')
+
+  // The architect adds task 2 before the window elapses: completion resets.
+  now += 60_000
+  tasks = [{ status: 'done' }, { status: 'in_progress' }]
+  const reopened = await run()
+  assert.equal(reopened.ok, true)
+  if (reopened.ok) assert.deepEqual(reopened.events, [], 'an open task means not completed')
+
+  // The run truly finishes: new baseline, then a confirmed fire on the SAME
+  // fingerprint the transient would have used — proving the transient never
+  // burned it.
+  now += 60_000
+  tasks = [{ status: 'done' }, { status: 'done' }]
+  const rebaseline = await run()
+  assert.equal(rebaseline.ok, true)
+  if (rebaseline.ok) assert.deepEqual(rebaseline.events, [], 'the real completion re-arms the window')
+  now += CONFIRM_STEP_MS
+  const confirmed = await run()
+  assert.equal(confirmed.ok, true)
+  if (confirmed.ok) assert.equal(confirmed.events.length, 1, 'the real completion fires after holding')
 }
 
 async function assertIncompleteRunNeverCompletes(): Promise<void> {
@@ -208,13 +254,24 @@ async function assertCanceledRunNeverCompletes(): Promise<void> {
 // A deleted-and-recreated run gets a new createdAt, so its fingerprint — and its
 // dedupe id — differ, and completion fires for the new instance.
 async function assertRecreatedRunCompletesAgain(): Promise<void> {
+  let now = Date.parse('2026-07-17T10:00:00Z')
   let createdAt = '2026-07-01T00:00:00Z'
   const trigger = completedProvider(async () => ({ ok: true, data: projection({ createdAt }) }))
-  const run = poll(trigger, SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND, () => 0)
+  const run = poll(trigger, SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND, () => now)
 
+  await run() // arm
+  now += CONFIRM_STEP_MS
   const original = await run()
+
+  // Recreated store: a new createdAt re-arms the window, then yields a new id.
   createdAt = '2026-07-16T12:00:00Z'
+  now += 60_000
+  const recreatedBaseline = await run()
+  assert.equal(recreatedBaseline.ok, true)
+  if (recreatedBaseline.ok) assert.deepEqual(recreatedBaseline.events, [], 'a new run identity re-arms the window')
+  now += CONFIRM_STEP_MS
   const recreated = await run()
+
   assert.equal(original.ok, true)
   assert.equal(recreated.ok, true)
   if (original.ok && recreated.ok) {
