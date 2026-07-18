@@ -34,6 +34,7 @@ const PARK_REASONS: ReadonlySet<RoadmapParkReason> = new Set<RoadmapParkReason>(
   'merge_failed',
   'start_failed',
   'eligibility_contradiction',
+  'paused',
 ])
 
 // The sidecar path for a roadmap, keyed by its file-name stem so two roadmaps

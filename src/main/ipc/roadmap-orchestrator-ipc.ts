@@ -13,6 +13,7 @@ export const ROADMAP_STATES_READ_CHANNEL = 'roadmap:states:read'
 export const ROADMAP_LANE_APPROVE_CHANNEL = 'roadmap:lane:approve'
 export const ROADMAP_LANE_MERGE_CHANNEL = 'roadmap:lane:merge'
 export const ROADMAP_LANE_RESUME_CHANNEL = 'roadmap:lane:resume'
+export const ROADMAP_LANE_PAUSE_CHANNEL = 'roadmap:lane:pause'
 
 export type RoadmapStatesReadPayload = { workspaceRoot: string }
 export type RoadmapLaneCommandPayload = { workspaceRoot: string; roadmapRef: string; lane: string }
@@ -48,5 +49,11 @@ export function registerRoadmapOrchestratorIpc(ipcMain: IpcMain, orchestrator: R
     ROADMAP_LANE_RESUME_CHANNEL,
     async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
       orchestrator.resumeLane(payload.workspaceRoot, payload.roadmapRef, payload.lane),
+  )
+
+  ipcMain.handle(
+    ROADMAP_LANE_PAUSE_CHANNEL,
+    async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
+      orchestrator.pauseLane(payload.workspaceRoot, payload.roadmapRef, payload.lane),
   )
 }
