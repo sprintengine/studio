@@ -59,6 +59,7 @@ import type {
   MobileSnapshotCollection,
 } from '../../../shared/mobile-control/protocol'
 import { readMobileAutomationSnapshots } from './automations'
+import { readMobileRoadmapRiders } from './roadmapRider'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { readWorkspaceRoleCatalog, type RoleCatalogReader } from './role-catalog'
 import { deriveWorkspaceId } from './workspace-id'
@@ -303,6 +304,12 @@ export class MobileSprintEngineSnapshotService {
     const automations = collections.has('automations')
       ? (await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))).flat()
       : []
+    // Read-only roadmap progress riders (MC-1620). Additive and rides the existing
+    // `sprintEngines` scope — no new relay scope, so an old phone that never reads
+    // `roadmaps` is untouched (scopes freeze at pair time).
+    const roadmaps = collections.has('sprintEngines')
+      ? (await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileRoadmapRiders(workspaceRoot).catch(() => [])))).flat()
+      : []
 
     return {
       protocolVersion: mobileControlProtocolVersion,
@@ -319,6 +326,7 @@ export class MobileSprintEngineSnapshotService {
       workspaces,
       ...(backlog.length > 0 ? { backlog } : {}),
       ...(automations.length > 0 ? { automations } : {}),
+      ...(roadmaps.length > 0 ? { roadmaps } : {}),
     }
   }
 

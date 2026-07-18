@@ -27,6 +27,12 @@ const SprintEngineBoardPanel = React.lazy(
   () => import('../components/panels/SprintEngineBoardPanel')
 )
 
+// The roadmap steering board (MC-1620). Lazy so its bundle stays off the wire until
+// a roadmap workspace mounts.
+const RoadmapBoardPanel = React.lazy(
+  () => import('../components/panels/RoadmapBoardPanel')
+)
+
 const backlogRunMountCliDefaults: SprintEngineRoleCliDefaults = {
   architect: 'claude-code',
   product: 'claude-code',
@@ -141,6 +147,7 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    host.registerPanel('roadmap', RoadmapBoardPanel)
     registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,

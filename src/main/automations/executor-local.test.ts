@@ -254,6 +254,7 @@ function firstPartyActionProviders(calls: string[] = []): AutomationActionProvid
       },
       readProjection: async () => ({ ok: false, message: 'not used' }),
       refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
+      mergePullRequest: async () => ({ ok: true, data: {} }),
     },
   })
 }
@@ -1008,6 +1009,9 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
         throw new Error('not used')
       },
       refreshPullRequestStatus: async () => {
+        throw new Error('not used')
+      },
+      mergePullRequest: async () => {
         throw new Error('not used')
       },
     },

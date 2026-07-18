@@ -993,6 +993,30 @@ export interface MobileControlAutomationSnapshot {
   recentRuns?: MobileControlAutomationRunSummary[];
 }
 
+// Read-only roadmap progress rider (MC-1620 / T7). ADDITIVE: an old phone that does
+// not read `roadmaps` renders sprints exactly as before, and it carries NO new
+// relay scope — the phone never acts on a roadmap (approvals from the phone are out
+// of scope for v1). Per-lane it reports only what a progress view needs: how far the
+// lane is, the running step's title, and whether it is paused. No paths, no run
+// state, nothing the phone could steer with.
+export interface MobileControlRoadmapLaneRider {
+  name: string;
+  /** Steps whose backlog item is delivered (terminal), of `total`. */
+  done: number;
+  total: number;
+  /** Human title of the step whose sprint is running now, when one is. */
+  runningItem?: string;
+  /** True while the lane is paused/parked and waiting on the human. */
+  parked?: boolean;
+}
+
+export interface MobileControlRoadmapRider {
+  /** The roadmap file's stable slug (its file-name stem). */
+  roadmapId: string;
+  name: string;
+  lanes: MobileControlRoadmapLaneRider[];
+}
+
 export interface MobileControlSnapshot {
   protocolVersion: MobileControlProtocolVersion;
   generatedAt: string;
@@ -1011,6 +1035,9 @@ export interface MobileControlSnapshot {
   // `projectKey` the way `backlog` groups by repo. Capped by construction —
   // see `automationsPerProjectMax`.
   automations?: MobileControlAutomationSnapshot[];
+  // Read-only roadmap progress riders (MC-1620), one per active roadmap. Additive
+  // and omitted when there are none, so a phone that predates roadmaps is untouched.
+  roadmaps?: MobileControlRoadmapRider[];
   snapshotLimits?: {
     sprintEngines?: {
       included: number;
@@ -1366,6 +1393,15 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
         return invalidPayload(error);
       }
     }
+  }
+
+  const roadmapsError = validateOptionalArray(
+    snapshot.value.roadmaps,
+    "snapshot.roadmaps",
+    validateRoadmapRider,
+  );
+  if (roadmapsError) {
+    return invalidPayload(roadmapsError);
   }
 
   const automationsError = validateOptionalArray(
@@ -2319,6 +2355,36 @@ function validateMultiloopBlockerSummary(input: unknown, fieldName: string): str
     optionalString(blocker.value, "status") ??
     optionalIsoDate(blocker.value, "updatedAt")
   );
+}
+
+function validateRoadmapRider(input: unknown, fieldName: string): string | null {
+  const rider = validateObject(input, fieldName);
+  if (rider.ok === false) {
+    return rider.error;
+  }
+  const baseError =
+    requireString(rider.value, "roadmapId") ??
+    requireString(rider.value, "name") ??
+    requireArray(rider.value, "lanes");
+  if (baseError) {
+    return baseError;
+  }
+  for (const lane of rider.value.lanes as unknown[]) {
+    const laneObject = validateObject(lane, `${fieldName}.lanes[]`);
+    if (laneObject.ok === false) {
+      return laneObject.error;
+    }
+    const laneError =
+      requireString(laneObject.value, "name") ??
+      requireNonNegativeInteger(laneObject.value, "done") ??
+      requireNonNegativeInteger(laneObject.value, "total") ??
+      optionalString(laneObject.value, "runningItem") ??
+      optionalBoolean(laneObject.value, "parked");
+    if (laneError) {
+      return laneError;
+    }
+  }
+  return null;
 }
 
 function validateAutomationSnapshot(input: unknown, fieldName: string): string | null {

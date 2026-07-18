@@ -39,6 +39,12 @@ export type SprintEngineAutomationFrontDoors = {
    * detection does not depend on the renderer's PR sweeps. Read-only on the tree.
    */
   refreshPullRequestStatus(input: { statePath: string }): Promise<SprintEngineArtifactCommandResult>
+  /**
+   * Merge one project's delivered pull request (`vcs pr-merge`). The engine
+   * re-probes state, enforces merge order, and is idempotent. Used by the
+   * roadmap orchestrator's `merge: auto` advance (MC-1619).
+   */
+  mergePullRequest(input: { statePath: string; repo?: string }): Promise<SprintEngineArtifactCommandResult>
 }
 
 export function createSprintEngineRunActionProvider(
