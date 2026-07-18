@@ -45,6 +45,9 @@ import {
   type SwitchboardAutomationFrontDoors,
 } from '../automations/actions/switchboard'
 import { createAutomationWebhookReceiver } from '../automations/webhook-receiver'
+import { createRoadmapOrchestrator } from '../roadmap-orchestrator'
+import { createRoadmapOrchestratorPorts } from '../roadmap-orchestrator-ports'
+import { registerRoadmapOrchestratorIpc } from '../ipc/roadmap-orchestrator-ipc'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
@@ -139,12 +142,36 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       // are notified alongside it, filtered by automation ownership.
       let moduleAutomations: ReturnType<typeof createModuleAutomationsRegistry> | undefined
       const deliverRunEvent = options.deliverRunEvent ?? broadcastAutomationsRunEvent
+
+      // The roadmap orchestrator (MC-1619): a main-process reconciler one level up
+      // from the pool supervisor that walks each active roadmap lane. It owns no
+      // timer — it rides the automations engine's evaluation tick below
+      // (`onEvaluation`), so it extends this engine rather than standing up a new
+      // runtime, and consumes existing run/PR machinery through the shared front
+      // doors. Reconcile is single-flight and fail-soft, so a slow or throwing
+      // pass never blocks the engine tick that triggered it.
+      const roadmapOrchestrator = createRoadmapOrchestrator(
+        createRoadmapOrchestratorPorts({
+          frontDoors: sprintEngineFrontDoors,
+          delegateToRenderer: (request) => automationDelegate.request(request),
+          getWorkspaceRoots: () =>
+            projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()).map(
+              (folder) => folder.folderPath,
+            ),
+          notify: (input) => host.notify(input),
+        }),
+      )
+      registerRoadmapOrchestratorIpc(host.ipcMain, roadmapOrchestrator)
+
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
           getTriggerProviders,
           isIntegrationAvailable,
           runAutomation,
+          onEvaluation: () => {
+            void roadmapOrchestrator.reconcile().catch(() => undefined)
+          },
           onRunEvent: (event, definition) => {
             deliverRunEvent(event)
             moduleAutomations?.deliverRunEvent(event, definition)
@@ -303,5 +330,7 @@ function serviceBackedSprintEngineFrontDoors(
       resolve()?.readProjection(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
     refreshPullRequestStatus: async (input) =>
       resolve()?.refreshPullRequestStatus(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
+    mergePullRequest: async (input) =>
+      resolve()?.mergePullRequest(input) ?? { ok: false, message: 'Sprint Engine is unavailable.' },
   }
 }

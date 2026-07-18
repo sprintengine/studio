@@ -5,6 +5,7 @@ import {
   extractBacklogTitle,
   formatBacklogCsvList,
   isValidBacklogSlug,
+  parseBacklogCsvList,
   parseBacklogFrontmatter,
   serializeBacklogFrontmatterFields,
   stripBacklogFrontmatter,
@@ -307,10 +308,16 @@ export type BacklogFrontmatterFields = {
   criticality?: BacklogObjectRecord['criticality']
   risk?: BacklogObjectRecord['risk']
   epic?: string
+  // Prerequisite slugs from the `dependsOn:` CSV line, valid-slug filtered.
+  // Exposed for the roadmap orchestrator's eligibility (MC-1619), which needs
+  // the dependency axis the panel read model derives in the renderer; empty when
+  // the line is absent.
+  dependsOn?: string[]
 }
 
 export function readBacklogFrontmatterFields(content: string): BacklogFrontmatterFields {
   const { fields } = parseBacklogFrontmatter(content)
+  const dependsOn = parseBacklogCsvList(fields.dependsOn).filter(isValidBacklogSlug)
   return {
     status: isBacklogStatus(fields.status) ? fields.status : undefined,
     type: isBacklogType(fields.type) ? fields.type : undefined,
@@ -318,6 +325,7 @@ export function readBacklogFrontmatterFields(content: string): BacklogFrontmatte
     criticality: isBacklogCriticality(fields.criticality) ? fields.criticality : undefined,
     risk: isBacklogRisk(fields.risk) ? fields.risk : undefined,
     epic: isValidEpicSlug(fields.epic) ? fields.epic : undefined,
+    ...(dependsOn.length > 0 ? { dependsOn } : {}),
   }
 }
 
@@ -342,6 +350,9 @@ export type BacklogListedItem = {
   criticality?: BacklogObjectRecord['criticality']
   risk?: BacklogObjectRecord['risk']
   epic?: string
+  // Prerequisite slugs (`dependsOn:`), for the roadmap orchestrator's
+  // eligibility (MC-1619). Present only when the item declares dependencies.
+  dependsOn?: string[]
 }
 
 export type BacklogListItemsResult =
@@ -382,6 +393,7 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
         ...(fields.criticality ? { criticality: fields.criticality } : {}),
         ...(fields.risk ? { risk: fields.risk } : {}),
         ...(fields.epic ? { epic: fields.epic } : {}),
+        ...(fields.dependsOn ? { dependsOn: fields.dependsOn } : {}),
       })
     }
     items.sort((left, right) => left.relativePath.localeCompare(right.relativePath))

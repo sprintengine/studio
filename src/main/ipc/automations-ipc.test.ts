@@ -296,6 +296,9 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       refreshPullRequestStatus: async () => {
         throw new Error('not used')
       },
+      mergePullRequest: async () => {
+        throw new Error('not used')
+      },
     },
   })
 

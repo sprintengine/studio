@@ -218,6 +218,7 @@ function fakeSprintEngineAutomationFrontDoorModule(): CapabilityModule {
         setRunnerMode: async () => ({ ok: true, data: {} }),
         readProjection: async () => ({ ok: false as const, message: 'not used' }),
         refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
+        mergePullRequest: async () => ({ ok: true, data: {} }),
       }))
     },
   }
