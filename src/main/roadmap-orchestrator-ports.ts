@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
-import { listBacklogItems, readBacklogObjectStore } from './backlog-service'
+import { listBacklogItems, readBacklogObjectStore, removeBacklogLink, updateBacklogStatus } from './backlog-service'
 import { createRoadmapOrchestratorStore } from './roadmap-orchestrator-store'
 import type {
   RoadmapBacklogItem,
@@ -18,7 +18,11 @@ import type {
   RoadmapRunSnapshot,
 } from './roadmap-orchestrator'
 import type { SprintEngineAutomationFrontDoors } from './automations/actions/sprint-engine'
-import { sprintEngineRunLinkOf, teamSlugFromStatePath } from '../shared/backlog/sprintengine-links'
+import {
+  sprintEngineRunLinkId,
+  sprintEngineRunLinkOf,
+  teamSlugFromStatePath,
+} from '../shared/backlog/sprintengine-links'
 import {
   deriveSprintEngineRepoMergeRollup,
   isCanceledSprintEngineRun,
@@ -108,6 +112,20 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       return response.ok ? { ok: true } : { ok: false, message: response.message }
     },
 
+    abandonRun: async (workspaceRoot, itemRef, teamSlug) => {
+      // Remove the execution link so the reconcile cannot re-adopt the dead run.
+      // Prefer the lane's recorded team slug; fall back to the link on disk when
+      // the runtime never captured one (e.g. a start that failed before linking).
+      const slug = teamSlug ?? (await resolveTeamSlug(workspaceRoot, itemRef))
+      if (slug) {
+        await removeBacklogLink({ workspaceRoot, relativePath: itemRef, linkId: sprintEngineRunLinkId(slug) }).catch(
+          () => undefined,
+        )
+      }
+      // Reset the item so it is eligible to start a fresh sprint.
+      await updateBacklogStatus({ workspaceRoot, relativePath: itemRef, status: 'ready' }).catch(() => undefined)
+    },
+
     readLaneRuntime: (workspaceRoot, roadmapRef) => storeFor(workspaceRoot).read(roadmapRef),
     writeLaneRuntime: (workspaceRoot, roadmapRef, lanes) => storeFor(workspaceRoot).write(roadmapRef, lanes),
 
@@ -119,6 +137,18 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
     },
     now: () => new Date(),
   }
+}
+
+// The team slug on an item's execution link, read off the object store — the
+// fallback for abandoning a run whose lane runtime never captured its slug.
+async function resolveTeamSlug(workspaceRoot: string, itemRef: string): Promise<string | undefined> {
+  const store = await readBacklogObjectStore(workspaceRoot)
+  if (!store.ok) return undefined
+  const record = store.store.items.find(
+    (candidate) => candidate.source.relativePath.toLowerCase() === itemRef.toLowerCase(),
+  )
+  const link = record?.links ? sprintEngineRunLinkOf(record.links) : null
+  return link?.target.id
 }
 
 // Derive a run's coarse lifecycle + mode + PR/merge state from its projection.

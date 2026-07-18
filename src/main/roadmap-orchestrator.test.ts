@@ -70,6 +70,13 @@ function harness(initialRoadmap: string): Harness {
       if (item) items.set(itemRef, { ...item, status: 'in_progress' })
       return { ok: true }
     },
+    abandonRun: async (_root, itemRef) => {
+      // Mirror the real port: drop the execution link and reset the item so the
+      // lane re-plans a fresh sprint instead of re-adopting the dead run.
+      links.delete(itemRef)
+      const item = items.get(itemRef)
+      if (item) items.set(itemRef, { ...item, status: 'ready' })
+    },
     readLaneRuntime: async (_root, roadmapRef) => new Map(store.get(roadmapRef) ?? new Map()),
     writeLaneRuntime: async (_root, roadmapRef, lanes) => {
       store.set(roadmapRef, new Map([...lanes].map(([k, v]) => [k, { ...v }])))
@@ -167,11 +174,30 @@ test('run failure parks the lane with a notification; resume re-plans a NEW spri
   await orchestrator.reconcile()
   assert.equal(h.starts.length, startsBefore)
 
-  // Resume re-plans: clears the dead run + parked flag, so the next reconcile
-  // starts a fresh sprint from the same item (never unsticks the dead run).
-  h.items.set('backlog/a.md', { relativePath: 'backlog/a.md', status: 'ready' })
-  h.links.delete('backlog/a.md')
+  // Resume re-plans: abandonRun (real port) drops the dead run's link + resets
+  // the item, so the next reconcile starts a FRESH sprint from the same item and
+  // never re-adopts the dead run. No manual link/status surgery in the test.
   await orchestrator.resumeLane(ROOT, ROADMAP_REF, 'Backend')
+  assert.equal(lane(h)?.parked, undefined)
+  assert.equal(h.starts.length, startsBefore + 1)
+})
+
+test('resume re-plans a needs_input park instead of re-adopting the blocked run', async () => {
+  const h = harness(roadmapFile('auto', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  await orchestrator.reconcile() // starts a
+  const statePath = h.links.get('backlog/a.md')!.statePath
+  // The run blocks on the human — an ADOPTABLE lifecycle, unlike canceled.
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'needs_input_user', repoId: 'primary' })
+
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.parked?.reason, 'needs_input')
+  const startsBefore = h.starts.length
+
+  await orchestrator.resumeLane(ROOT, ROADMAP_REF, 'Backend')
+  // Without abandonRun, the adoption pass would re-adopt the still-blocked run
+  // and re-park. With it, the link is gone + item reset → a fresh start.
   assert.equal(lane(h)?.parked, undefined)
   assert.equal(h.starts.length, startsBefore + 1)
 })
