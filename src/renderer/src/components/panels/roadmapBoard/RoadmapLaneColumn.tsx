@@ -74,7 +74,7 @@ export function RoadmapLaneColumn({
       </header>
 
       {lane.parked ? (
-        <div className="flex flex-col gap-0.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-warn-subtle,transparent)] px-3 py-2">
+        <div className="flex flex-col gap-0.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--tone-warn-soft)] px-3 py-2">
           <span className="text-[11px] font-semibold text-[color:var(--tone-warn)]">Paused</span>
           <span className="text-[11px] leading-4 text-[color:var(--text-muted)]">
             {PARK_REASON_COPY[lane.parked.reason] ?? 'This track is paused.'}
