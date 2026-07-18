@@ -11,6 +11,9 @@ import type {
   SprintEngineAutomationWriteResult,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
+  RoadmapLaneCommandInput,
+  RoadmapLaneCommandResult,
+  RoadmapStatesReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
   SprintEngineRosterRuntimeInput,
@@ -178,6 +181,19 @@ export const sprintEngineApi = {
     input: { statePath: string }
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:run:cancel', input),
+  // Roadmap steering surface (MC-1620 / T7). Read + the four lane commands the
+  // orchestrator reconciles against — no imperative side-channel: each command
+  // writes orchestrator/roadmap state, then the reconcile tick acts on it.
+  readRoadmapStates: (workspaceRoot: string): Promise<RoadmapStatesReadResult> =>
+    ipcRenderer.invoke('roadmap:states:read', { workspaceRoot }),
+  approveRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:lane:approve', input),
+  mergeRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:lane:merge', input),
+  resumeRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:lane:resume', input),
+  pauseRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:lane:pause', input),
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
     const ch = SPRINT_RUNTIME_OP_CHANNEL
     const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
@@ -206,6 +222,11 @@ export const sprintEngineApi = {
   | 'pushSprintRuntimeStopReason'
   | 'resumeSprintRuntimeRun'
   | 'cancelSprintEngineRun'
+  | 'readRoadmapStates'
+  | 'approveRoadmapLane'
+  | 'mergeRoadmapLane'
+  | 'resumeRoadmapLane'
+  | 'pauseRoadmapLane'
   | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'

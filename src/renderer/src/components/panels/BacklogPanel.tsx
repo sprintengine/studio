@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   GhostButton,
-  IconButton,
   InboxSearchInput,
   InlineNotice,
   LifecycleGlyph,
@@ -61,6 +60,9 @@ import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
+import { RoadmapEditorPanel } from '../backlog/RoadmapEditorPanel'
+import { newRoadmapFileContent } from '../backlog/roadmapAuthoring'
+import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
   compareBacklogItems,
@@ -330,7 +332,35 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setShowDetailInSingle(false)
   }, [folderPath])
 
-  const items = scan?.items ?? []
+  // An epic's status is derived UP from its children at READ time, never read from
+  // its own frontmatter `status:` (which stays meaningful only for archival) and
+  // never written back by the link sync (MC-1617, backlog/2026-07-15-backlog-epic-
+  // status-derives-from-children.md). Deriving it here, once over the full scan,
+  // means every downstream surface — rows, detail, lens filtering, the dependency
+  // graph, sort order, and roadmap eligibility — reads the corrected status with no
+  // special-casing. Leaf items pass through untouched, so their behavior is
+  // byte-identical. A never-launched epic (zero links) still derives from its
+  // children; a childless epic falls back to the leaf link rule.
+  const items = useMemo(() => {
+    const raw = scan?.items ?? []
+    if (!raw.some((item) => item.isEpic)) return raw
+    const childStatusesBySlug = new Map<string, BacklogItemStatus[]>()
+    for (const item of raw) {
+      if (item.isEpic || !item.epic) continue
+      const bucket = childStatusesBySlug.get(item.epic)
+      if (bucket) bucket.push(item.status)
+      else childStatusesBySlug.set(item.epic, [item.status])
+    }
+    return raw.map((item) => {
+      if (!item.isEpic) return item
+      const derived = nextBacklogItemStatusFromLinks(
+        item.status,
+        item.links,
+        childStatusesBySlug.get(epicSlug(item)) ?? [],
+      )
+      return derived === item.status ? item : { ...item, status: derived }
+    })
+  }, [scan])
 
   // The dependency graph (T2) is derived once over the FULL item set — never the
   // filtered view — so prerequisite resolution and the waiting signal stay
@@ -815,6 +845,34 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, refreshAndSelect, scan],
   )
 
+  // Create a roadmap file under backlog/roadmaps/ and open it in the editor. A
+  // roadmap is discovered by the same scan as any backlog file (T3), so nothing
+  // else needs seeding — the id-allocation pass mints its id on first discovery.
+  const createRoadmap = useCallback(
+    () =>
+      runAction(async () => {
+        if (!folderPath) return
+        const name = (
+          await dialog.prompt({
+            title: 'New roadmap',
+            inputLabel: 'Roadmap name',
+            confirmLabel: 'Create',
+            required: true,
+          })
+        )?.trim()
+        if (!name) return
+        const fileName = uniquePlanFileName(
+          `${todayPrefix()}-${slugify(name)}`,
+          new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
+        )
+        const roadmapsDir = await window.api.ensureDir(backlogRootPath(folderPath), 'roadmaps')
+        const newPath = await window.api.createFile(roadmapsDir, fileName)
+        await window.api.writefile(newPath, newRoadmapFileContent(name))
+        await refreshAndSelect(normalizeRelativePath(`backlog/roadmaps/${fileName}`))
+      }),
+    [dialog, folderPath, refreshAndSelect, runAction, scan],
+  )
+
   const openInEditor = useCallback(
     (item: BacklogItem) =>
       runAction(async () => {
@@ -1194,12 +1252,14 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [epicMeta, folderPath, runAction, runScan],
   )
 
-  const refreshButton = (
-    <Tooltip content="Refresh backlog">
-      <IconButton aria-label="Refresh backlog" onClick={() => void runScan()} disabled={loading || !folderPath}>
-        <RefreshGlyph />
-      </IconButton>
-    </Tooltip>
+  const backlogOverflow = (
+    <OverflowMenu
+      ariaLabel="Backlog actions"
+      items={[
+        { id: 'new-roadmap', label: 'New roadmap', onSelect: () => createRoadmap(), disabled: !folderPath },
+        { id: 'refresh', label: 'Refresh backlog', onSelect: () => void runScan(), disabled: loading || !folderPath },
+      ]}
+    />
   )
 
   const newPlanButton = (
@@ -1491,6 +1551,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       agentSessions={agentSessions}
       onAgentFlyoutOpen={refreshAgentSessions}
       onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
+      onRoadmapSaved={() => void (selected && refreshAndSelect(selected.relativePath))}
     />
   )
 
@@ -1505,7 +1566,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         count={filtered.length}
         subtitle={headerScopeLabel}
         primaryAction={newPlanButton}
-        overflow={refreshButton}
+        overflow={backlogOverflow}
       />
 
       <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">
@@ -2015,6 +2076,7 @@ function BacklogDetail({
   agentSessions,
   onAgentFlyoutOpen,
   onSendToAgent,
+  onRoadmapSaved,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2060,6 +2122,8 @@ function BacklogDetail({
   agentSessions: TerminalSessionSnapshot[] | null
   onAgentFlyoutOpen: () => void
   onSendToAgent: (item: BacklogItem, sessionId: string) => void
+  // Re-scan + reselect this roadmap after the editor writes it to disk.
+  onRoadmapSaved: () => void
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2110,6 +2174,22 @@ function BacklogDetail({
   }
   if (!selected) {
     return <DetailState body="Select an item to preview." />
+  }
+
+  // A roadmap opens the authoring editor instead of the plain item preview: its
+  // body IS an ordered plan of tracks + steps, edited directly (MC-1618 / T4).
+  if (isRoadmapContent(selected.relativePath, selected.rawType)) {
+    return (
+      <RoadmapEditorPanel
+        roadmapItem={selected}
+        items={items}
+        onSaved={onRoadmapSaved}
+        onOpenInEditor={actions.openInEditor}
+        onNavigate={onNavigate}
+        showBack={showBack}
+        onBack={onBack}
+      />
+    )
   }
 
   // The first sprintengine.run execution link is the primary Open Sprint Engine
@@ -2890,17 +2970,3 @@ function listEmptyHint(
 // The backlog row interior and its type / size / criticality glyphs live in the
 // shared ../backlog/BacklogRow module so this panel list and the new-workspace
 // Sprint Engine source picker render the same row and can't drift.
-
-function RefreshGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-      <path
-        d="M13 8a5 5 0 1 1-1.46-3.54M13 3.5V6h-2.5"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}

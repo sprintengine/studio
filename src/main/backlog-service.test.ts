@@ -748,6 +748,13 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
     await writeFile(join(tempRoot, 'backlog', 'no-frontmatter.md'), '# Bare capture\n', 'utf-8')
     await writeFile(join(tempRoot, 'backlog', 'old.md'), '---\nstatus: archived\n---\n# Old\n', 'utf-8')
     await writeFile(join(tempRoot, 'backlog', 'epics', 'things.md'), '---\ntype: epic\n---\n# Things\n', 'utf-8')
+    // A roadmap (MC-1618) is discovered from backlog/roadmaps/ and tagged type: roadmap.
+    await mkdir(join(tempRoot, 'backlog', 'roadmaps'), { recursive: true })
+    await writeFile(
+      join(tempRoot, 'backlog', 'roadmaps', 'payments.md'),
+      '---\ntype: roadmap\nstatus: ready\n---\n# Payments roadmap\n\n## Backend\n- backlog/2026-07-08-ship-thing.md\n',
+      'utf-8'
+    )
 
     const listed = await listBacklogItems(tempRoot)
     assert.equal(listed.ok, true)
@@ -768,6 +775,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
       },
       { relativePath: 'backlog/epics/things.md', title: 'Things', isEpic: true, status: 'idea', type: 'epic' },
       { relativePath: 'backlog/no-frontmatter.md', title: 'Bare capture', isEpic: false, status: 'idea' },
+      { relativePath: 'backlog/roadmaps/payments.md', title: 'Payments roadmap', isEpic: false, isRoadmap: true, status: 'ready' },
     ])
     // Read-only means read-only: listing registers nothing and persists no key.
     await assert.rejects(() => stat(join(tempRoot, '.multi-code')), /ENOENT/, 'listing must not create .multi-code')

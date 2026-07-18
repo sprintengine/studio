@@ -2,6 +2,7 @@ import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './vo
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
+import type { RoadmapStateView } from './sprintengine/roadmap-surface'
 import type {
   SprintRuntimeOp,
   SprintRuntimeRunRegistration,
@@ -1589,6 +1590,18 @@ export type SprintEngineArtifactCommandResult =
   | { ok: true; data: SprintEngineMutationRefreshData }
   | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
+// Roadmap steering surface (MC-1620 / T7). The read returns the orchestrator's
+// per-lane state views; each command is a lane-scoped human action the orchestrator
+// reconciles against (approve the next start, merge a delivered lane, resume a
+// parked lane, pause a running lane). `RoadmapStateView` is defined once in shared
+// (`sprintengine/roadmap-surface.ts`) — imported type-only, so there is no runtime
+// import cycle with this module.
+export type RoadmapLaneCommandInput = { workspaceRoot: string; roadmapRef: string; lane: string }
+export type RoadmapLaneCommandResult = { ok: boolean; message?: string }
+export type RoadmapStatesReadResult =
+  | { ok: true; roadmaps: RoadmapStateView[] }
+  | { ok: false; message: string }
+
 export type SprintEngineProjectionReadResult =
   // `token` is a cheap file-change fingerprint (mtime:size) the caller can pass
   // back as `knownToken` to skip re-reading an unchanged projection. When the
@@ -2595,6 +2608,16 @@ export type ElectronApi = {
    * not merged yet. Merging is always the user's call — nothing merges on its own.
    */
   mergeSprintEnginePullRequest: (statePath: string, repo?: string) => Promise<SprintEngineArtifactCommandResult>
+  /** Read every roadmap's per-lane steering state for the roadmap board (MC-1620). */
+  readRoadmapStates: (workspaceRoot: string) => Promise<RoadmapStatesReadResult>
+  /** Approve the next start for a lane awaiting the human (advance: approve). */
+  approveRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
+  /** Merge a lane's delivered pull request through the orchestrator (merge: manual). */
+  mergeRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
+  /** Resume a parked lane: a failure re-plans a fresh sprint; a manual pause continues in place. */
+  resumeRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
+  /** Pause a lane: hold advancement/merge/start-next without stopping the running sprint. */
+  pauseRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>

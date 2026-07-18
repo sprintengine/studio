@@ -42,6 +42,7 @@ export const sprintEngineModule: CapabilityModule = {
       setRunnerMode: artifacts.setRunnerMode,
       readProjection: artifacts.readProjection,
       refreshPullRequestStatus: artifacts.refreshPullRequestStatus,
+      mergePullRequest: artifacts.mergePullRequest,
     }))
 
     mcpHub.claimOwnership({
