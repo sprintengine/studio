@@ -74,7 +74,17 @@ export const sprintEngineModule: CapabilityModule = {
       updateTask: artifacts.updateTask,
       createTask: artifacts.createTask,
       commentTask: artifacts.commentTask,
-      resolveTaskInput: artifacts.resolveTaskInput,
+      // A successful resolution lifts the external-input blocker, so wake the
+      // scheduler from `blocked` (paused/failed/terminal states untouched) —
+      // without this the run waits for a manual Resume the UI never asks for
+      // while its toast claims "agent resuming". Best-effort like cancel: the
+      // engine write is the user-facing truth even if the run was never
+      // registered with the scheduler.
+      resolveTaskInput: async (payload) => {
+        const result = await artifacts.resolveTaskInput(payload)
+        if (result.ok) sprintRuntime.resumeIfBlocked(payload.statePath)
+        return result
+      },
       setTaskStatus: artifacts.setTaskStatus,
       setRunnerMode: artifacts.setRunnerMode,
       // Cancel writes run/task status via the engine op, then parks the

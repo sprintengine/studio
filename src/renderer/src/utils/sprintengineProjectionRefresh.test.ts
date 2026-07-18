@@ -1130,6 +1130,24 @@ function testCanStopPollingCompletedProjection(): void {
     }),
     false,
   )
+  // Complete + torn down but the hydrated state is a STALE pre-completion
+  // snapshot (the scheduler flips complete milliseconds before the engine
+  // writes the final projection) → keep polling until the final write has been
+  // read, or the board freezes at N-1/N with a phantom in-progress task.
+  const staleState = {
+    ...state,
+    tasks: [
+      { id: 'T1', title: 'Done task', role: 'developer', status: 'done' },
+      { id: 'T2', title: 'Still running', role: 'developer', status: 'in_progress' },
+    ],
+  } as SprintEngineState
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('complete', 500),
+      sprintEngineState: staleState,
+    }),
+    false,
+  )
   // Finished but still stuck in `paused` → keep polling so the self-heal can
   // promote it to `complete` first.
   assert.equal(

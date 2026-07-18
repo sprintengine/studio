@@ -18,7 +18,15 @@ function pollRegistrations(): number {
   return getTimerRegistrations().filter((entry) => entry.label === POLL_LABEL).length
 }
 
-const HYDRATED_STATE = { name: 'Run', tasks: [], artifacts: [] } as unknown as SprintEngineState
+// Carries a done task: quiescence now requires the hydrated state to ITSELF
+// read complete (isCompletedSprintEngineRun), not merely be non-null — a stale
+// pre-completion snapshot froze the board at N-1/N (see
+// canStopPollingCompletedSprintEngineProjection condition 2).
+const HYDRATED_STATE = {
+  name: 'Run',
+  tasks: [{ id: 'T1', title: 'Done task', role: 'developer', status: 'done' }],
+  artifacts: [],
+} as unknown as SprintEngineState
 
 function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
   return {

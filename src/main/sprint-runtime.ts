@@ -842,12 +842,28 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       const spawnDelayElapsed = now() - startedAt >= SPRINT_RUNTIME_STARTUP_SPAWN_DELAY_MS
       for (const entry of [...runsByStatePath.values()]) {
         reconcilePower(entry)
-        if (!sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) continue
+        const shouldRun = sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)
+        // Paused/blocked/failed runs still get a session-only reconcile: the
+        // idle reaper disposes sprint PTYs regardless of automation state, and
+        // without this pass the launch flags it strands (cliStartRequested
+        // with no live session) keep every roster row on "Starting…" until
+        // the run resumes. No projection read, no supervise — spawning stays
+        // gated on shouldRun. Terminal states (complete/canceled) are skipped:
+        // their one-shot teardown already cleared the flags.
+        const idleRuntimeState = currentAutoState(entry).runtimeState
+        const reconcileOnly = !shouldRun
+          && (idleRuntimeState === 'paused' || idleRuntimeState === 'blocked' || idleRuntimeState === 'failed')
+        if (!shouldRun && !reconcileOnly) continue
         // A watchdog-abandoned pass may still be settling; never run a second
         // cycle over the same entry's ledgers concurrently.
         if (entry.tickInFlight) continue
         const ports = buildPorts()
         const entryWork = async (): Promise<void> => {
+          if (reconcileOnly) {
+            await reconcileWorkspaceSessions(ports, entry.cycleState, entry.view)
+            syncAgentSessionIdentity(entry)
+            return
+          }
           // Keep the view's projection fresh before deciding anything — main
           // has no renderer projection supervisor feeding it.
           await ports.refreshWorkspaceProjection({
@@ -1089,6 +1105,26 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       const entry = runsByStatePath.get(statePath)
       if (!entry) return
       applyAutomationEventToView(entry, { type: 'runner_started' })
+      if (sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) void tick()
+    },
+
+    /**
+     * Input-resolution recovery: a run the cycle parked on `blocked` re-enters
+     * `running` once a needs_input resolution lands (the engine mutation has
+     * already moved the task out of needs_input, so the next cycle only
+     * re-blocks if a DIFFERENT user blocker remains — the correct outcome).
+     * Deliberately narrower than applyResume: `paused` is a user gesture and
+     * `failed` needs attention — resolving an input must restart neither.
+     * Unlike applyResume (whose initiating window applies runner_started
+     * locally), this transition originates in main, so it broadcasts
+     * `automation_resumed` for every window to clear its Blocked pill.
+     */
+    resumeIfBlocked(statePath: string): void {
+      const entry = runsByStatePath.get(statePath)
+      if (!entry) return
+      if (currentAutoState(entry).runtimeState !== 'blocked') return
+      applyAutomationEventToView(entry, { type: 'runner_started' })
+      deps.broadcastOp({ kind: 'automation_resumed', statePath })
       if (sprintEngineAutomationShouldRun(entry.view.sprintEngineAutoState)) void tick()
     },
 

@@ -211,6 +211,15 @@ async function main(): Promise<void> {
   assert.equal(fakeApi.registerCalls[2].runtimeState, 'blocked', 'persisted lifecycle rides the registration')
   assert.equal(fakeApi.registerCalls[2].reasonTaskId, 'T1')
 
+  // automation_resumed: main resumed the blocked run itself (a needs_input
+  // resolution lifted the blocker) — the same runner_started transition as
+  // the board's Resume control, and (like stop_reason) never pushed back.
+  fakeApi.broadcastOp({ kind: 'automation_resumed', statePath })
+  assert.equal(workspace()?.sprintEngineAutoState?.runtimeState, 'running', 'the blocked run re-enters running')
+  assert.equal(workspace()?.sprintEngineAutoState?.reason, undefined, 'the block reason is cleared')
+  await settle()
+  assert.equal(fakeApi.stopReasonPushes.length, 0, 'a main-originated resume is never pushed back to main')
+
   // ── Agent configs: explicit tombstones + last-write-wins stamp. A
   // sprintengine agent registers with null tombstones for unset fields…
   useWorkspaceStore.getState().updateAgent(workspaceId, 'architect-1', { kind: 'sprintengine' })

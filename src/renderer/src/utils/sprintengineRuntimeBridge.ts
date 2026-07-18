@@ -177,6 +177,12 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
     case 'roster_session_recorded':
       store.upsertSprintEngineRosterSession(workspaceId, op.agentId, op.session)
       return
+    case 'automation_resumed':
+      // Main resumed a blocked run itself (a needs_input resolution lifted
+      // the blocker): apply the same runner_started transition the board's
+      // Resume control uses. Store action only — no push back to main.
+      store.applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
+      return
     case 'worker_retired':
       // Renderer-side completion of a main-side retirement: remove the
       // tab/agent record. Main already killed the PTY and RECORDED the roster

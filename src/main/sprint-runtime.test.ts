@@ -1008,6 +1008,109 @@ async function testRevealPolicyBroadcastOnSpawn(): Promise<void> {
   harness.runtime.shutdown()
 }
 
+// (20) resumeIfBlocked: resolving a needs_input blocker resumes ONLY a
+// `blocked` run — the transition broadcasts `automation_resumed` so every
+// window clears its Blocked pill, and scheduling proceeds. A paused run (a
+// user gesture) and an unknown statePath are strict no-ops.
+async function testResumeIfBlockedResumesOnlyBlockedRuns(): Promise<void> {
+  const harness = createHarness()
+  harness.runtime.registerRun(registration({
+    runtimeState: 'blocked',
+    reason: 'blocked_on_input',
+    reasonMessage: 'Waiting on T9.',
+    reasonTaskId: 'T9',
+  }))
+  await settle()
+  assert.equal(
+    harness.runtime.inspectRun(STATE_PATH)?.view.sprintEngineAutoState?.runtimeState,
+    'blocked',
+    'precondition: adoption preserved the blocked lifecycle',
+  )
+
+  harness.runtime.resumeIfBlocked(STATE_PATH)
+  const resumed = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(resumed?.view.sprintEngineAutoState?.runtimeState, 'running', 'a blocked run re-enters running')
+  assert.equal(resumed?.view.sprintEngineAutoState?.reason, undefined, 'the block reason is cleared')
+  assert.ok(
+    harness.ops.some((op) => op.kind === 'automation_resumed' && op.statePath === STATE_PATH),
+    'the resume is broadcast so every window clears its Blocked pill',
+  )
+  assert.ok(harness.powerActive.includes(STATE_PATH), 'resume re-acquires the power assertion')
+
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+  assert.equal(harness.spawnCalls.length, 1, 'the resumed run schedules again')
+
+  // A paused run is a user gesture — resolving an input must not restart it.
+  harness.runtime.applyStopReason({ statePath: STATE_PATH, reason: 'agent_terminal_closed' })
+  const opsBefore = harness.ops.filter((op) => op.kind === 'automation_resumed').length
+  harness.runtime.resumeIfBlocked(STATE_PATH)
+  assert.equal(
+    harness.runtime.inspectRun(STATE_PATH)?.view.sprintEngineAutoState?.runtimeState,
+    'paused',
+    'a paused run stays paused',
+  )
+  assert.equal(
+    harness.ops.filter((op) => op.kind === 'automation_resumed').length,
+    opsBefore,
+    'no resume broadcast for a paused run',
+  )
+
+  // Unknown statePath: silent no-op, never a throw.
+  harness.runtime.resumeIfBlocked('/nowhere/run.yaml')
+
+  harness.runtime.shutdown()
+}
+
+// (21) A blocked run still reconciles sessions: the idle reaper disposes
+// sprint PTYs regardless of automation state, and the stranded launch flags
+// (cliStartRequested with no live session) must clear — and broadcast — so the
+// roster does not show "Starting…" forever. The pass is session-only: no
+// projection read, no spawn.
+async function testBlockedRunStillReconcilesStaleLaunchFlags(): Promise<void> {
+  const harness = createHarness()
+  const reapedAgent: AgentState = {
+    id: 'architect-1',
+    name: 'Architect',
+    status: 'idle',
+    execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+    messages: [],
+    streamBuffer: '',
+    kind: 'sprintengine',
+    cli: 'claude',
+    cliSessionId: 'dead-sess',
+    cliStartRequested: true,
+    cliHasLaunched: true,
+  }
+  harness.runtime.registerRun(registration({
+    runtimeState: 'blocked',
+    reason: 'blocked_on_input',
+    agents: { 'architect-1': reapedAgent },
+  }))
+  await settle()
+  assert.equal(
+    harness.runtime.inspectRun(STATE_PATH)?.view.sprintEngineAutoState?.runtimeState,
+    'blocked',
+    'precondition: the run is blocked',
+  )
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  const agent = harness.runtime.inspectRun(STATE_PATH)?.view.agents['architect-1']
+  assert.equal(agent?.cliStartRequested, false, 'the stranded launch flag is cleared')
+  assert.equal(agent?.cliHasLaunched, false, 'the launch marker is cleared')
+  assert.equal(agent?.cliSessionId, undefined, 'the dead session id is dropped')
+  const launchOp = harness.ops.find((op) => op.kind === 'launch_state' && op.agentId === 'architect-1')
+  assert.ok(launchOp && launchOp.kind === 'launch_state', 'the clear is broadcast to windows')
+  assert.equal(launchOp.update.cliStartRequested, false)
+  assert.equal(harness.projectionReads.length, 0, 'the session-only pass never reads the projection')
+  assert.equal(harness.spawnCalls.length, 0, 'a blocked run still never spawns')
+
+  harness.runtime.shutdown()
+}
+
 async function main(): Promise<void> {
   await testRegistrationActivatesRun()
   await testStartupDelayThenBootstrapSpawn()
@@ -1030,6 +1133,8 @@ async function main(): Promise<void> {
   await testHydrationAdoptionActivatesFreshRun()
   await testSpawnFailureDiagnosticBroadcast()
   await testRevealPolicyBroadcastOnSpawn()
+  await testResumeIfBlockedResumesOnlyBlockedRuns()
+  await testBlockedRunStillReconcilesStaleLaunchFlags()
   console.log('sprint-runtime tests passed')
 }
 

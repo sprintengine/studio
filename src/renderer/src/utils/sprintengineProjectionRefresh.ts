@@ -325,12 +325,18 @@ function reconcileCompletedRunLifecycle(
 //   1. lifecycle `complete` (not raw task-completeness): a run that finished but
 //      is still stuck in `paused` must keep polling so `reconcileCompletedRun-
 //      Lifecycle` can self-heal it to `complete` first; the next tick skips it.
-//   2. `sprintEngineState` already hydrated: the projection is intentionally not
-//      persisted across sessions (`normalizeWorkspaceForPartialize` nulls it to
-//      avoid a localStorage write-storm), so a cold `complete` run after an app
-//      restart still needs one read to populate the board and run summary.
-//      Skipping before that read strands the board on "workspace data is
-//      missing". Re-selecting an automation mode leaves `complete` and re-arms.
+//   2. the hydrated `sprintEngineState` ITSELF reads complete: the projection is
+//      intentionally not persisted across sessions
+//      (`normalizeWorkspaceForPartialize` nulls it to avoid a localStorage
+//      write-storm), so a cold `complete` run after an app restart still needs
+//      one read to populate the board and run summary — and a merely non-null
+//      state is not enough. The scheduler flips `complete` + teardown
+//      milliseconds before the engine writes the final projection, so a
+//      non-null check quiesced the poll on the LAST PRE-COMPLETION snapshot,
+//      freezing the board at N-1/N with a phantom in-progress task until a
+//      cold restart. Requiring task-completeness on the state keeps polling
+//      until the final projection write has actually been read.
+//      Re-selecting an automation mode leaves `complete` and re-arms.
 //   3. completion teardown already ran (`completionTeardownAt` set): teardown
 //      runs inside the poll (`reconcileCompletedRunLifecycle`), and the auto-run
 //      supervisor can flip runtimeState to `complete` before the poller ever ran
@@ -342,8 +348,10 @@ function reconcileCompletedRunLifecycle(
 export function canStopPollingCompletedSprintEngineProjection(
   workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'>,
 ): boolean {
+  const state = workspace.sprintEngineState
+  if (!state) return false
   return workspace.sprintEngineAutoState?.runtimeState === 'complete'
-    && Boolean(workspace.sprintEngineState)
+    && isCompletedSprintEngineRun(state)
     && workspace.sprintEngineAutoState?.completionTeardownAt !== undefined
 }
 

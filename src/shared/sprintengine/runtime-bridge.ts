@@ -129,6 +129,13 @@ export type SprintRuntimeOp =
     context?: SprintRuntimeStopReasonPush['context']
   }
   | { kind: 'roster_session_recorded'; statePath: string; agentId: string; session: SprintEngineRosterSession }
+  /**
+   * Main resumed a `blocked` run on its own (a needs_input resolution lifted
+   * the blocker — see resumeIfBlocked). Windows apply the same
+   * `runner_started` transition the board's Resume control uses so the
+   * Blocked pill clears everywhere without a manual gesture.
+   */
+  | { kind: 'automation_resumed'; statePath: string }
   | {
     kind: 'worker_retired'
     statePath: string

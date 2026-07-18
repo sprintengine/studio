@@ -59,7 +59,15 @@ function autoState(overrides: Partial<SprintEngineAutoState> = {}): SprintEngine
   }
 }
 
-const HYDRATED_STATE = { name: 'Run', goal: '', tasks: [], artifacts: [] } as unknown as SprintEngineState
+// Carries a done task: poll quiescence requires the hydrated state to ITSELF
+// read complete (isCompletedSprintEngineRun), not merely be non-null — a stale
+// pre-completion snapshot froze the board at N-1/N.
+const HYDRATED_STATE = {
+  name: 'Run',
+  goal: '',
+  tasks: [{ id: 'T1', title: 'Done task', role: 'developer', status: 'done' }],
+  artifacts: [],
+} as unknown as SprintEngineState
 
 function sprintWorkspace(id: string, overrides: Partial<Workspace>): Workspace {
   return {

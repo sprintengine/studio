@@ -402,7 +402,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       // a human-proxy surface, never the auto-runner's 'auto-run' policy path.
       reviewSprintArtifact: (payload, action) => sprintEngineArtifacts.reviewArtifact(payload, action, 'user'),
       commentSprintTask: (payload) => sprintEngineArtifacts.commentTask(payload),
-      resolveSprintTaskInput: (payload) => sprintEngineArtifacts.resolveTaskInput(payload),
+      // Like the IPC front door: a successful resolution lifts the
+      // external-input blocker, so wake the scheduler from `blocked`
+      // (paused/failed/terminal states untouched).
+      resolveSprintTaskInput: async (payload) => {
+        const result = await sprintEngineArtifacts.resolveTaskInput(payload)
+        if (result.ok) sprintRuntime.resumeIfBlocked(payload.statePath)
+        return result
+      },
       setSprintTaskStatus: (payload) => sprintEngineArtifacts.setTaskStatus(payload),
       createSprintTask: (payload) => sprintEngineArtifacts.createTask(payload),
       updateSprintTask: (payload) => sprintEngineArtifacts.updateTask(payload),
