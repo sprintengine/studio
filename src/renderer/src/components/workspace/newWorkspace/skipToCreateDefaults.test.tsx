@@ -127,8 +127,9 @@ for (const [what, pattern] of [
   ['untouched automation follows the create path: manual only for an existing team', /: seExistingTeam\n\s*\? 'manual'\n\s*: 'run_agents_and_approve_artifacts'/],
   ['worktrees are off', /const \[seUseWorktrees, setSeUseWorktrees\] = useState\(false\)/],
   ['plain-agents runs default to 2 agents, specialist runs to 3', /const \[seMaxParallelAgents, setSeMaxParallelAgents\] = useState\(\(\) => \(initialUseSpecialistRoles \? 3 : 2\)\)/],
-  ['self-review is on', /const \[seSelfReviewEnabled, setSeSelfReviewEnabled\] = useState\(true\)/],
-  ['the reviewer is the same agent', /const \[seReviewRuntime, setSeReviewRuntime\] = useState<SprintEngineReviewRuntime \| null>\(null\)/],
+  // Self-review is no longer wizard state: it is fixed at the engine default
+  // (same agent, no phaseRuntimes) and create passes the literals directly.
+  ['self-review stays at the engine default (same agent)', /buildSprintEngineWorkflowInitKeys\(\{\n\s*selfReviewEnabled: true,\n\s*reviewRuntime: null,/],
   ['no sweeps are mandated', /const \[seRequiredSweeps, setSeRequiredSweeps\] = useState<ReadonlySet<SprintEngineRoleId>>\(\s*\(\) => new Set<SprintEngineRoleId>\(\)/],
 ] as const) {
   assert.match(panelSource, pattern, `panel default: ${what}`)
@@ -196,10 +197,6 @@ const reviewsPage = renderToStaticMarkup(
   <SprintEngineReviewsPanel
     cliOptions={cliOptions}
     registry={null}
-    selfReviewEnabled={UNTOUCHED.selfReviewEnabled}
-    onChangeSelfReviewEnabled={spy('onChangeSelfReviewEnabled')}
-    reviewRuntime={UNTOUCHED.reviewRuntime}
-    onChangeReviewRuntime={spy('onChangeReviewRuntime')}
     requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
     onToggleRequiredSweep={spy('onToggleRequiredSweep')}
     roleCliDefaults={UNTOUCHED.roleCliDefaults}
@@ -247,8 +244,6 @@ const startPage = renderToStaticMarkup(
     poolAgentCount={UNTOUCHED.maxParallelAgents}
     architectSeatLabel={null}
     showReviewsRow
-    selfReviewEnabled={UNTOUCHED.selfReviewEnabled}
-    reviewRuntime={UNTOUCHED.reviewRuntime}
     requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
     selectedToolNames={[]}
     selectedSkillPackCount={0}
@@ -283,9 +278,9 @@ assert.ok(
   teamPage.includes(`>${UNTOUCHED.maxParallelAgents}<`),
   'the stepper shows the default agent count',
 )
-// Self-review renders on, reviewed by the same agent.
-assert.ok(reviewsPage.includes('Agents review their own work'), 'the reviews page renders self-review')
-assert.ok(reviewsPage.includes('Same agent'), 'reviewed-by defaults to the same agent')
+// Self-review is fixed: the page states it is done by the same agent.
+assert.ok(reviewsPage.includes('Reviewed by the same agent'), 'the reviews page states self-review is by the same agent')
+assert.ok(reviewsPage.includes('looks over the work it just made'), 'and explains what self-review does')
 // The tools page is optional and renders its empty state without inventing state.
 assert.ok(toolsPage.includes('Search tools and skills'), 'the tools page renders its search field')
 // The review-&-start page renders the run settings; in pool mode it drops its

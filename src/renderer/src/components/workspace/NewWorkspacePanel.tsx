@@ -82,10 +82,7 @@ import { SprintEngineTeamPanel, type SprintEngineTeamMode } from './newWorkspace
 import { SprintEngineReviewsPanel } from './newWorkspace/SprintEngineReviewsPanel'
 import { SprintEngineToolsPanel } from './newWorkspace/SprintEngineToolsPanel'
 import { SprintEngineStartPanel } from './newWorkspace/SprintEngineStartPanel'
-import {
-  buildSprintEngineWorkflowInitKeys,
-  type SprintEngineReviewRuntime,
-} from './newWorkspace/sprintengineWorkflowConfig'
+import { buildSprintEngineWorkflowInitKeys } from './newWorkspace/sprintengineWorkflowConfig'
 import {
   listSprintEngineWizardSweepRoles,
   listSprintEngineWizardWorkRoles,
@@ -677,12 +674,11 @@ export default function NewWorkspacePanel({
   const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
   const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
   const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
-  // "Workflow steps" + "Final sweeps" panels (MC-1542 / MC-1543). Defaults
-  // match the engine defaults, so an untouched run omits all three init keys:
-  // self-review ON (defaultPhases absent), reviewer = same agent (no
-  // phaseRuntimes), no mandated sweeps (requiredSweeps absent).
-  const [seSelfReviewEnabled, setSeSelfReviewEnabled] = useState(true)
-  const [seReviewRuntime, setSeReviewRuntime] = useState<SprintEngineReviewRuntime | null>(null)
+  // "Reviews" + "Final sweeps" panels (MC-1542 / MC-1543). Self-review is a
+  // fixed part of every run — each agent reviews its own diff, on its own model,
+  // before finishing — so it is no longer a wizard control: the run always keeps
+  // the engine defaults (defaultPhases absent, no phaseRuntimes). Only mandated
+  // sweeps vary, and an untouched run still omits requiredSweeps.
   const [seRequiredSweeps, setSeRequiredSweeps] = useState<ReadonlySet<SprintEngineRoleId>>(
     () => new Set<SprintEngineRoleId>(),
   )
@@ -2343,9 +2339,11 @@ export default function NewWorkspacePanel({
               // the new-team path (each key present only when set), so a
               // mandated sweep actually reaches run.yaml `requiredSweeps` on
               // plan-sourced launches too.
+              // Self-review is fixed at the engine default (same agent, on its
+              // own model); only mandated sweeps vary from the wizard now.
               ...buildSprintEngineWorkflowInitKeys({
-                selfReviewEnabled: seSelfReviewEnabled,
-                reviewRuntime: seReviewRuntime,
+                selfReviewEnabled: true,
+                reviewRuntime: null,
                 requiredSweepRoleIds: sprintEngineEffectiveRequiredSweeps,
               }),
               startRunner: seAutomationMode !== 'manual',
@@ -2449,9 +2447,11 @@ export default function NewWorkspacePanel({
             rosterSource: architectMode ? 'architect' : 'user',
             // "Workflow steps" + "Final sweeps" panels. Each key is present only
             // when it diverges from the engine default, so a plain run sends none.
+            // Self-review is fixed at the engine default (same agent, on its own
+            // model); only mandated sweeps vary from the wizard now.
             ...buildSprintEngineWorkflowInitKeys({
-              selfReviewEnabled: seSelfReviewEnabled,
-              reviewRuntime: seReviewRuntime,
+              selfReviewEnabled: true,
+              reviewRuntime: null,
               requiredSweepRoleIds: sprintEngineEffectiveRequiredSweeps,
             }),
             ...(architectMode
@@ -3095,10 +3095,6 @@ export default function NewWorkspacePanel({
                 cliOptions={sprintEngineCliOptions}
                 registry={seRoleRegistry}
                 disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
-                selfReviewEnabled={seSelfReviewEnabled}
-                onChangeSelfReviewEnabled={setSeSelfReviewEnabled}
-                reviewRuntime={seReviewRuntime}
-                onChangeReviewRuntime={setSeReviewRuntime}
                 requiredSweepRoleIds={seRequiredSweeps}
                 onToggleRequiredSweep={toggleSprintEngineRequiredSweep}
                 roleCliDefaults={seRoleCliDefaults}
@@ -3162,8 +3158,6 @@ export default function NewWorkspacePanel({
                 poolAgentCount={seMaxParallelAgents}
                 architectSeatLabel={architectSeatLabel}
                 showReviewsRow={seExistingTeam == null}
-                selfReviewEnabled={seSelfReviewEnabled}
-                reviewRuntime={seReviewRuntime}
                 requiredSweepRoleIds={new Set(sprintEngineEffectiveRequiredSweeps)}
                 selectedToolNames={selectedMcpServers.map(mcpServerDisplayName)}
                 selectedSkillPackCount={selectedSkillPackIds.size}

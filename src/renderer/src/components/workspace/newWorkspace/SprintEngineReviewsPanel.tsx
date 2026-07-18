@@ -1,14 +1,14 @@
 // The sprint wizard's Reviews step (MC-1646, mockup §2): everything about
-// checking work on one screen, nothing else sharing it. Self-review is a
-// switch whose "reviewed by" choice renders only while it is on; final sweeps
-// are full-width toggle rows with complete, untruncated descriptions. Absorbs
-// the old SprintEngineWorkflowPanels ("Workflow steps" + "Final sweeps") — the
-// state contract (defaultPhases / phaseRuntimes / requiredSweeps via
-// sprintengineWorkflowConfig) is unchanged.
+// checking work on one screen, nothing else sharing it. Self-review is a fixed
+// part of every run — each agent reviews its own diff on its own model before
+// finishing — so it reads as a plain statement with a hover tooltip, not a
+// toggle. Final sweeps are full-width toggle rows with complete, untruncated
+// descriptions. The run always keeps the engine defaults for self-review
+// (defaultPhases: ['review'], no phaseRuntimes); only requiredSweeps varies.
 
 import React from 'react'
 
-import { CliModelPickerButton, SegmentedControl, Switch } from '../../ui'
+import { CliModelPickerButton, Switch, Tooltip } from '../../ui'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
@@ -21,7 +21,6 @@ import type {
   SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
-import type { SprintEngineReviewRuntime } from './sprintengineWorkflowConfig'
 import type { SprintEngineCliOption } from './SprintEngineRosterTable'
 
 // Effective launch model for a role/runtime override: explicit override
@@ -39,10 +38,6 @@ export function SprintEngineReviewsPanel({
   cliOptions,
   registry,
   disabledRoleIds,
-  selfReviewEnabled,
-  onChangeSelfReviewEnabled,
-  reviewRuntime,
-  onChangeReviewRuntime,
   requiredSweepRoleIds,
   onToggleRequiredSweep,
   roleCliDefaults,
@@ -54,13 +49,6 @@ export function SprintEngineReviewsPanel({
   cliOptions: SprintEngineCliOption[]
   registry?: SprintEngineRoleRegistry | null
   disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null
-  // "Agents review their own work" switch -> defaultPhases.
-  selfReviewEnabled: boolean
-  onChangeSelfReviewEnabled: (value: boolean) => void
-  // Reviewer runtime: null = "the same agent that wrote it"; a value binds a
-  // stronger model -> phaseRuntimes.review.
-  reviewRuntime: SprintEngineReviewRuntime | null
-  onChangeReviewRuntime: (runtime: SprintEngineReviewRuntime | null) => void
   // Operator-mandated sweeps -> requiredSweeps. Each sweep's model binding
   // reuses the roster's roleRuntimes state (roleCliDefaults/roleModelOverrides).
   requiredSweepRoleIds: ReadonlySet<SprintEngineRoleId>
@@ -80,56 +68,32 @@ export function SprintEngineReviewsPanel({
   return (
     <div className="flex flex-col">
       <div className="flex items-start gap-3 border-b border-[color:var(--border-subtle)] py-3">
-        <span className="mt-0.5">
-          <Switch
-            ariaLabel="Agents review their own work"
-            checked={selfReviewEnabled}
-            onChange={onChangeSelfReviewEnabled}
-          />
-        </span>
         <div className="min-w-0 flex-1">
-          <div
-            className={`text-[13px] ${
-              selfReviewEnabled
-                ? 'font-medium text-[color:var(--text-strong)]'
-                : 'text-[color:var(--text-muted)]'
-            }`}
-          >
-            Agents review their own work
+          <div className="flex items-center gap-1.5">
+            <span className="text-[13px] font-medium text-[color:var(--text-strong)]">
+              Reviewed by the same agent
+            </span>
+            <Tooltip
+              placement="top"
+              className="max-w-[260px] whitespace-normal"
+              content="Before it finishes a task, each agent looks back over the diff it just wrote and fixes any problems it finds — in the same session, on the same model. Nothing is handed to a separate reviewer."
+            >
+              <button
+                type="button"
+                aria-label="What reviewing by the same agent means"
+                className="interactive inline-flex h-4 w-4 items-center justify-center rounded-full text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+              >
+                <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.25" />
+                  <path d="M8 7.4v3.2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+                  <circle cx="8" cy="5.3" r="0.85" fill="currentColor" />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
           <div className="mt-0.5 text-[12px] leading-4 text-[color:var(--text-subtle)]">
             Each agent looks over the work it just made before finishing.
           </div>
-          {selfReviewEnabled ? (
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2">
-              <span className="text-[11px] font-semibold text-[color:var(--text-subtle)]">Reviewed by</span>
-              <SegmentedControl<'same' | 'stronger'>
-                ariaLabel="Who reviews the work"
-                items={[
-                  { value: 'same', label: 'Same agent' },
-                  { value: 'stronger', label: 'Stronger model' },
-                ]}
-                value={reviewRuntime === null ? 'same' : 'stronger'}
-                onChange={(choice) => {
-                  if (choice === 'same') onChangeReviewRuntime(null)
-                  else if (reviewRuntime === null) onChangeReviewRuntime({ cli: fallbackCli, model: null })
-                }}
-              />
-              {reviewRuntime !== null ? (
-                <CliModelPickerButton
-                  ariaLabel="Reviewer agent runtime"
-                  options={cliOptions}
-                  maxWidthClassName="max-w-none"
-                  cli={reviewRuntime.cli as AgentCli}
-                  effectiveModelFor={(candidateCli) =>
-                    candidateCli === reviewRuntime.cli ? reviewRuntime.model ?? undefined : undefined
-                  }
-                  onSelectCli={(nextCli) => onChangeReviewRuntime({ cli: nextCli, model: null })}
-                  onSelectModel={(nextCli, nextModel) => onChangeReviewRuntime({ cli: nextCli, model: nextModel })}
-                />
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
 

@@ -297,7 +297,7 @@ export function SprintEngineRosterView({
             ariaLabel="Add a role"
             popupRole="menu"
             placement="bottom-end"
-            surfaceClassName="w-[240px] p-1"
+            surfaceClassName="w-[240px] p-1 text-[12px]"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <button
                 ref={ref}
@@ -332,7 +332,7 @@ export function SprintEngineRosterView({
             ariaLabel="Add an agent"
             popupRole="menu"
             placement="bottom-end"
-            surfaceClassName="w-[240px] p-1"
+            surfaceClassName="w-[240px] p-1 text-[12px]"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
               <button
                 ref={ref}

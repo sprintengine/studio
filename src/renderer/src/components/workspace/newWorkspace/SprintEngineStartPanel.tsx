@@ -17,7 +17,6 @@ import type {
 } from '../../../types/workspace'
 import type { StepId } from './creationStepFlows'
 import type { SprintEngineCliOption } from './SprintEngineRosterTable'
-import type { SprintEngineReviewRuntime } from './sprintengineWorkflowConfig'
 import type { SprintEngineTeamMode } from './SprintEngineTeamPanel'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
@@ -55,8 +54,6 @@ export function SprintEngineStartPanel({
   poolAgentCount,
   architectSeatLabel,
   showReviewsRow,
-  selfReviewEnabled,
-  reviewRuntime,
   requiredSweepRoleIds,
   selectedToolNames,
   selectedSkillPackCount,
@@ -93,8 +90,6 @@ export function SprintEngineStartPanel({
   architectSeatLabel: string | null
   /** False for an existing team (its review workflow is already initialized). */
   showReviewsRow: boolean
-  selfReviewEnabled: boolean
-  reviewRuntime: SprintEngineReviewRuntime | null
   requiredSweepRoleIds: ReadonlySet<SprintEngineRoleId>
   selectedToolNames: string[]
   selectedSkillPackCount: number
@@ -148,11 +143,9 @@ export function SprintEngineStartPanel({
 
   const sweepLabels = [...requiredSweepRoleIds].map((role) => getSprintEngineRoleLabel(role, registry))
   const reviewsSummary = [
-    selfReviewEnabled
-      ? reviewRuntime
-        ? 'Self-review by a stronger model'
-        : 'Self-review by the same agent'
-      : 'No self-review',
+    // Self-review is fixed for every run now — the same agent reviews its own
+    // work before finishing (no toggle, no stronger-model option).
+    'Self-review by the same agent',
     sweepLabels.length > 0 ? `${sweepLabels.join(', ')} sweep${sweepLabels.length === 1 ? '' : 's'}` : 'no final sweeps',
   ].join(' · ')
 
