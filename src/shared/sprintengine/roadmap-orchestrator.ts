@@ -43,6 +43,11 @@ export type RoadmapParkReason =
   // The lane's frontier references a backlog item that no longer exists — an
   // authoring contradiction the orchestrator must not paper over.
   | 'eligibility_contradiction'
+  // A human paused the lane from the steering surface (MC-1620). Unlike every
+  // reason above this is not a failure: resume continues the lane in place (it does
+  // NOT abandon the running sprint or re-plan), so the reducer stops advancing the
+  // lane while it holds but the live run keeps running in its own workspace.
+  | 'paused'
 
 // The lifecycle of an orchestrated run, derived by the driver from the run
 // projection. Distinct from the raw task statuses: it is the coarse signal the

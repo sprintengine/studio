@@ -509,12 +509,15 @@ export type RoadmapLaneEligibility = {
   frontierRef: string | null
 }
 
-type LaneUnit = { ref: string; epic?: string }
+export type LaneUnit = { ref: string; epic?: string }
 
 // The runnable units of a lane: an item entry is one unit; an epic entry expands
 // to its snapshotted children in order (the epic derives from children, MC-1617);
 // an unknown entry still contributes its ref so a dangling frontier is visible.
-function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
+// Exported so the steering surface (MC-1620) renders and counts exactly the units
+// the orchestrator schedules — the board's "done vs up next" split is the frontier
+// index over this same flattening, never a parallel re-derivation.
+export function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
   const units: LaneUnit[] = []
   for (const entry of lane.entries) {
     if (entry.kind === 'epic') {

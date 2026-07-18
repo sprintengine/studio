@@ -136,8 +136,8 @@ const host = getRendererHost()
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'],
-  'bundled workspace types keep picker order (automations-host sorts by pickerOrder 35)',
+  ['switchboard', 'sprintengine', 'roadmap', 'multiloop', 'automations-host', 'guided-brief'],
+  'bundled workspace types keep picker order (roadmap sorts at pickerOrder 25, automations-host at 35)',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine').map((definition) => definition.id),
@@ -146,7 +146,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'multiloop', 'guided-brief'],
+  ['switchboard', 'sprintengine', 'roadmap', 'multiloop', 'guided-brief'],
   'disabling the automations module removes the automations-host workspace type from the picker',
 )
 assert.deepEqual(
@@ -158,6 +158,7 @@ assert.deepEqual(
 )
 
 assert.equal(host.getWorkspaceTypeModule('sprintengine'), 'sprint-engine')
+assert.equal(host.getWorkspaceTypeModule('roadmap'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('guided-brief'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('switchboard'), 'switchboard')
 assert.equal(host.getWorkspaceTypeModule('multiloop'), 'multiloop')
@@ -165,7 +166,7 @@ assert.equal(host.getWorkspaceTypeModule('automations-host'), 'automations', 'au
 assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id is 'automations-host', not 'automations'")
 
 assert.deepEqual(
-  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'].map((id) => {
+  ['switchboard', 'sprintengine', 'roadmap', 'multiloop', 'automations-host', 'guided-brief'].map((id) => {
     const definition = host.getWorkspaceType(id)
     assert.ok(definition, `expected ${id} registration`)
     return {
@@ -193,6 +194,14 @@ assert.deepEqual(
       description: 'Specialist team, architect plan, kanban, and evidence trail.',
       accentToken: '--tool-sprintengine',
       creationStepsId: 'sprintengine',
+    },
+    {
+      id: 'roadmap',
+      moduleId: 'sprint-engine',
+      label: 'Roadmap',
+      description: 'Steer a multi-week roadmap: progress, pull requests, and what is waiting on you.',
+      accentToken: '--tool-sprintengine',
+      creationStepsId: undefined,
     },
     {
       id: 'multiloop',
