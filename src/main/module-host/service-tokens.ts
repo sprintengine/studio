@@ -6,6 +6,7 @@ import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sp
 import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
+import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -68,3 +69,14 @@ export const SprintEngineAutomationFrontDoorsToken = createServiceToken<SprintEn
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the
 // token from @multicode/module-sdk resolves the instance the app provides here.
 export const WorkspaceServiceToken = createServiceToken<ModuleWorkspaceService>('core.workspace')
+// The app-internal companion-agent service (attach workspace-bound background
+// agents). Consumed by first-party surfaces via requireService.
+export const CompanionAgentServiceToken = createServiceToken<CompanionAgentService>(
+  'core.companion-agent-service'
+)
+// The moduleId-scoped companion registry with permission enforcement. Key
+// mirrors the private token behind the SDK's getCompanionAgentsService helper,
+// so a third-party module resolves the instance the app provides here.
+export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAgentsModuleRegistry>(
+  'companion-agents.module-service'
+)
