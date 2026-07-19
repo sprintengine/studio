@@ -539,11 +539,13 @@ def test_aggregate_by_agent_emits_sweep_activity() -> None:
 
 def test_aggregate_by_agent_emits_self_review_activity() -> None:
     """A phase advance is the owner reporting on its own diff (MC-1542): its findings
-    are the review signal gate verdicts used to supply."""
+    and defect counts are the review signal gate verdicts used to supply, kept
+    under selfReview provenance — never mixed into `measured`."""
     records = [
         {
             "source": "phase_advance_self_review", "agent_id": "developer-1", "role": "developer",
             "task_id": "T1", "phase": "review", "phase_outcome": "pass_with_fixes",
+            "counts": {"claims_checked": 6, "missed_requirements": 1},
             "findings": [
                 {"kind": "code_bug", "severity": "high", "area": "backend"},
                 {"kind": "test_gap", "severity": "low", "area": "testing"},
@@ -555,10 +557,26 @@ def test_aggregate_by_agent_emits_self_review_activity() -> None:
         },
     ]
     row = summarize_feedback_records(records)["aggregateByAgent"]["developer-1"]
-    assert row["selfReview"] == {"phasesClosed": 2, "passed": 1, "fixedForward": 1, "escalated": 0}
-    # The owner's own findings count as raised — and as found against its own work.
+    self_review = row["selfReview"]
+    assert self_review["phasesClosed"] == 2
+    assert self_review["passed"] == 1
+    assert self_review["fixedForward"] == 1
+    assert self_review["escalated"] == 0
+    # Self-attributed counts survive (they used to be silently dropped);
+    # claimsChecked stays run-level (rate denominator), not per-task detail.
+    assert self_review["counts"] == {"claimsChecked": 6, "missedRequirements": 1}
+    assert self_review["findingsReported"] == {"total": 2, "bySeverity": {"high": 1, "low": 1}}
+    assert self_review["taskCounts"]["T1"] == {
+        "reviewSampleCount": 1,
+        "counts": {"missedRequirements": 1},
+    }
+    assert self_review["taskCounts"]["T2"] == {"reviewSampleCount": 1, "counts": {}}
+    # The owner's own findings count as raised.
     assert row["findingsRaised"] == 2
-    # A self-review is a self-report, never a "measured" external assessment.
+    # A self-review is a self-report, never a "measured" external assessment —
+    # its findings and counts stay out of the measured block entirely.
     assert row["selfReported"]["sampleCount"] == 2
     assert row["measured"]["reviewSampleCount"] == 0
+    assert "findingsAgainst" not in row["measured"]
+    assert row["measured"]["counts"] == {}
     assert "sweep" not in row

@@ -99,15 +99,9 @@ def feedback_properties() -> dict[str, Any]:
     percent_schema = {"type": "integer", "minimum": 0, "maximum": 100}
     count_schema = {"type": "integer", "minimum": 0}
     text_schema = {"type": "string"}
-    json_list_schema = {
-        "type": "array",
-        "items": {
-            "anyOf": [
-                {"type": "object", "additionalProperties": True},
-                {"type": "string"},
-            ]
-        },
-    }
+    # Items may be JSON objects or JSON-encoded strings; the payload adapter
+    # accepts both, so a tighter anyOf here would only add tools/list bytes.
+    json_list_schema = {"type": "array"}
     # Schemas advertise camelCase only; the payload adapter still accepts the
     # snake_case spellings for compatibility (`add_feedback_defaults`).
     for _attr, camel, _ in FEEDBACK_SCORE_FIELDS:
@@ -118,9 +112,13 @@ def feedback_properties() -> dict[str, Any]:
         properties[camel] = text_schema
     properties.update(
         {
-            "reviewTargetTaskId": {"type": "string"},
+            # reviewTargetExecutionId (legacy override) is still accepted via
+            # additionalProperties; not advertised to keep tools/list lean.
+            "reviewTargetTaskId": {
+                "type": "string",
+                "description": "Audited task id; attributes feedback to its implementer.",
+            },
             "reviewTargetAgentId": {"type": "string"},
-            "reviewTargetExecutionId": {"type": "string"},
             "issueJson": json_list_schema,
             "findingJson": json_list_schema,
         }
@@ -129,6 +127,19 @@ def feedback_properties() -> dict[str, Any]:
 
 
 FEEDBACK_PROPERTIES = feedback_properties()
+
+# The slim assessment surface task.log advertises (a no-phase sweep's telemetry
+# channel): the review target + categorical findings + defect counts. The full
+# feedback arg set is still ACCEPTED (additionalProperties) — this keeps the
+# per-session tools/list cost down, not the capability.
+SWEEP_ASSESSMENT_PROPERTIES = {
+    camel: FEEDBACK_PROPERTIES[camel]
+    for camel in (
+        "reviewTargetTaskId",
+        "findingJson",
+        *[camel for _attr, camel, _ in FEEDBACK_COUNT_FIELDS],
+    )
+}
 
 
 # Schemas advertise camelCase only; the payload adapter still accepts the
@@ -273,7 +284,7 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.task.status": object_schema(["statePath", "taskId", "status", "id"], {"taskId": {"type": "string"}, "status": {"type": "string", "enum": sorted(VALID_TASK_STATUSES)}, "id": {"type": "string"}, "summary": {"type": "string"}, "needsInputKind": {"type": "string", "enum": NEEDS_INPUT_KIND_INPUT_CHOICES}, "needsInputReason": {"type": "string"}, "needsInputArtifactId": {"type": "string"}, "needsInputQuestion": {"type": "string"}, "needsInputSuggestedResolution": {"type": "string"}, **FEEDBACK_PROPERTIES}),
     "sprintengine.task.resolve_input": object_schema(["statePath", "taskId", "id", "resolution"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "resolution": {"type": "string"}, "complete": {"type": "boolean"}}),
     "sprintengine.task.release": object_schema(["statePath", "taskId", "id", "reason"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "reason": {"type": "string"}}),
-    "sprintengine.task.log": object_schema(["statePath", "taskId", "id"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "summary": {"type": "string"}, "file": {"type": "array"}, "command": {"type": "array"}, "result": {"type": "array"}, "scopeExpansionJson": {"type": "array"}}),
+    "sprintengine.task.log": object_schema(["statePath", "taskId", "id"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "summary": {"type": "string"}, "file": {"type": "array"}, "command": {"type": "array"}, "result": {"type": "array"}, "scopeExpansionJson": {"type": "array"}, **SWEEP_ASSESSMENT_PROPERTIES}),
     "sprintengine.task.note": object_schema(["statePath", "taskId", "id", "note"], {"taskId": {"type": "string"}, "id": {"type": "string"}, "note": {"type": "string"}}),
     "sprintengine.task.comment": object_schema(["statePath", "taskId", "id", "body"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "body": {"type": "string"}, "source": {"type": "string"}, "commentType": {"type": "string"}, "paths": {"type": "array", "items": {"type": "string"}}, "data": {"type": "object"}}),
     "sprintengine.task.comment.list": object_schema(["statePath", "taskId"], {"taskId": TASK_ID_PROPERTY, "limit": {"type": "integer", "minimum": 1, "description": "Maximum comments returned, newest last. Defaults to 20."}}),

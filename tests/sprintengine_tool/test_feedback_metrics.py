@@ -200,6 +200,115 @@ def test_done_status_records_reviewer_target_feedback_on_reviewed_task(tmp_path)
     assert "hallucination_pct" not in record
 
 
+def test_task_log_records_repeatable_sweep_assessments(tmp_path) -> None:
+    """A no-phase sweep never calls task.advance, so task.log is its telemetry
+    channel: one reviewer assessment per audited task via the review-target trio,
+    repeatable within the one sweep task."""
+    fixture = create_team(
+        tmp_path,
+        "sweep-log-feedback",
+        [
+            task("T1", "Implement feature", "developer", "done", owner="developer-fixture"),
+            task("T2", "Implement surface", "frontend", "done", owner="frontend-fixture"),
+            task("T3", "QA sweep", "tester", "in_progress", owner="tester-fixture"),
+        ],
+    )
+
+    first = fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T3",
+        "--id",
+        "tester-fixture",
+        "--command",
+        "npm test",
+        "--review-target-task-id",
+        "T1",
+        "--review-target-agent-id",
+        "developer-fixture",
+        "--review-target-execution-id",
+        "exec_developer_fixture",
+        "--claims-checked",
+        "5",
+        "--missed-requirements",
+        "1",
+        "--finding-json",
+        json.dumps({"kind": "code_bug", "severity": "medium", "area": "backend", "title": "off-by-one"}),
+    )
+    # Target task id alone suffices: the audited task's implementer resolves
+    # from its record (single-owner invariant).
+    second = fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T3",
+        "--id",
+        "tester-fixture",
+        "--review-target-task-id",
+        "T2",
+        "--claims-checked",
+        "4",
+    )
+
+    assert first["feedbackRecorded"] is True
+    assert second["feedbackRecorded"] is True
+
+    state = read_state(fixture.state_path)
+    # Evidence still logs alongside the assessment.
+    assert "npm test" in get_task(state, "T3")["evidence"]["commandsRan"]
+    # Each assessment lands on the AUDITED task, attributed to its implementer.
+    t1_assessment = get_task(state, "T1")["feedbackAssessments"][0]
+    assert t1_assessment["source"] == "reviewer_assessment"
+    assert t1_assessment["counts"]["missedRequirements"] == 1
+    assert t1_assessment["reviewTarget"]["agentId"] == "developer-fixture"
+    t2_assessment = get_task(state, "T2")["feedbackAssessments"][0]
+    assert t2_assessment["counts"]["claimsChecked"] == 4
+    # Implementer resolved from the audited task record, not passed explicitly.
+    assert t2_assessment["reviewTarget"]["agentId"] == "frontend-fixture"
+
+    records = read_feedback_records(fixture.team_dir)
+    assert len(records) == 2
+    assert {record["review_target_task_id"] for record in records} == {"T1", "T2"}
+    assert all(record["reviewer_task_id"] == "T3" for record in records)
+
+    # The analysis attributes the measured signals to each implementer.
+    from sprintengine_core.analysis import summarize_feedback_records
+
+    by_agent = summarize_feedback_records(records)["aggregateByAgent"]
+    dev = by_agent["developer-fixture"]
+    assert dev["measured"]["reviewSampleCount"] == 1
+    assert dev["measured"]["counts"]["missedRequirements"] == 1
+    assert dev["measured"]["findingsAgainst"]["total"] == 1
+    sweep_row = by_agent["tester-fixture"]["sweep"]
+    assert sweep_row["tasksAudited"] == 2
+    assert sweep_row["assessmentsRecorded"] == 2
+    # No phase outcome on a task.log assessment: classified from content —
+    # defects found reads as fixed-forward, a defect-free audit as clean.
+    assert sweep_row["fixedForward"] == 1
+    assert sweep_row["passed"] == 1
+
+
+def test_task_log_without_feedback_args_stays_a_plain_evidence_append(tmp_path) -> None:
+    fixture = create_team(
+        tmp_path,
+        "log-no-feedback",
+        [task("T1", "Implement feature", "developer", "in_progress", owner="developer-fixture")],
+    )
+    payload = fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T1",
+        "--id",
+        "developer-fixture",
+        "--result",
+        "tests passed",
+    )
+    assert "feedbackRecorded" not in payload
+    assert read_feedback_records(fixture.team_dir) == []
+
+
 def test_phase_advance_records_queryable_feedback_metrics(tmp_path) -> None:
     fixture = create_team(
         tmp_path,
@@ -348,7 +457,10 @@ def test_reviewer_target_feedback_rejects_missing_target_task(tmp_path) -> None:
     assert read_feedback_records(fixture.team_dir) == []
 
 
-def test_reviewer_target_feedback_requires_complete_target_metadata(tmp_path) -> None:
+def test_reviewer_target_feedback_requires_target_task_id(tmp_path) -> None:
+    # A target agent without a target task is ambiguous: an assessment must name
+    # the audited task. (Task id alone is fine — the implementer resolves from
+    # the task record.)
     fixture = create_team(
         tmp_path,
         "reviewer-target-partial",
@@ -373,7 +485,7 @@ def test_reviewer_target_feedback_requires_complete_target_metadata(tmp_path) ->
         "80",
     )
 
-    assert "Reviewer assessments require all review target fields" in rejected.stderr
+    assert "Reviewer assessments require --review-target-task-id" in rejected.stderr
     state = read_state(fixture.state_path)
     assert "feedbackAssessments" not in get_task(state, "T2")
     assert read_feedback_records(fixture.team_dir) == []

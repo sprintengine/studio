@@ -673,6 +673,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help='Repeatable JSON object for a justified touched file outside ownedPaths, e.g. {"path":"src/foo.test.ts","reason":"needed colocated regression test","risk":"low"}.',
     )
+    # Sweep assessment channel: a no-phase sweep records per-audited-task
+    # telemetry here (the --review-target-* trio + counts/findings), since it
+    # never enters a phase walk and publish carries no feedback fields.
+    add_feedback_arguments(p)
     p.set_defaults(handler=task_commands.log)
 
     p = task_sub.add_parser("publish", help="Publish the implementation summary; the engine routes the task into its phase walk (or straight to done when it produced no changes).")

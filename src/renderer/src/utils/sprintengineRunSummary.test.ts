@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   agentIssueCount,
+  agentIssueSignal,
   buildAgentRows,
   buildAgentTaskDetail,
   buildAgentTypeSummary,
@@ -430,6 +431,88 @@ function testIssueTotalsAndPerAgentCounts(): void {
   assert.equal(agentIssueCount(rows[2].metrics, 'bugs'), null)
 }
 
+function testSelfReviewFallbackWhenNoIndependentReview(): void {
+  // An agent whose work no reviewer measured, but which recorded self-review
+  // telemetry on task.advance (the single-owner engine's default shape).
+  const selfOnly: SprintEngineAgentRow = {
+    agentId: 'developer-1',
+    role: 'developer',
+    status: 'done',
+    tasksDone: 1,
+    metrics: {
+      role: 'developer',
+      selfReported: { sampleCount: 1, scores: {} },
+      measured: { reviewSampleCount: 0, scores: {}, counts: {} },
+      findingsRaised: 2,
+      selfReview: {
+        phasesClosed: 1,
+        passed: 0,
+        fixedForward: 1,
+        escalated: 0,
+        counts: { claimsChecked: 6, missedRequirements: 1 },
+        findingsReported: { total: 2, bySeverity: { high: 1, low: 1 } },
+        taskCounts: { T1: { reviewSampleCount: 1, counts: { missedRequirements: 1 } } },
+      },
+    },
+  }
+  const noSignals: SprintEngineAgentRow = {
+    agentId: 'ghost-1', role: 'developer', status: 'idle', tasksDone: 0, metrics: null,
+  }
+
+  // Per-agent signal: self-reported values, flagged as such; null without data.
+  assert.deepEqual(agentIssueSignal(selfOnly.metrics, 'bugs'), { count: 2, selfReported: true })
+  assert.deepEqual(agentIssueSignal(selfOnly.metrics, 'missedRequirements'), { count: 1, selfReported: true })
+  assert.deepEqual(agentIssueSignal(selfOnly.metrics, 'regressionCount'), { count: 0, selfReported: true })
+  assert.equal(agentIssueSignal(noSignals.metrics, 'bugs'), null)
+  // agentIssueCount stays measured-only (Delivery score never mixes self data).
+  assert.equal(agentIssueCount(selfOnly.metrics, 'bugs'), null)
+
+  // Run totals include the self-reported contribution and say so.
+  const totals = buildIssueTotals([selfOnly, noSignals])
+  assert.equal(totals.hasMeasured, false)
+  assert.equal(totals.includesSelfReported, true)
+  const byKey = Object.fromEntries(totals.items.map((i) => [i.key, i.total]))
+  assert.equal(byKey.bugs, 2)
+  assert.equal(byKey.missedRequirements, 1)
+
+  // Quality strip falls back to self-review sums per agent.
+  const quality = buildRunQualitySummary([selfOnly])
+  assert.equal(quality.hasMeasured, false)
+  assert.equal(quality.hasSelfReported, true)
+  assert.equal(quality.bugs, 2)
+  assert.equal(quality.missedReqs, 1)
+  assert.equal(quality.hallucinationRatePct, 0) // 0 hallucinated / 6 claims
+
+  // Drill-down: self-review per-task counts surface with provenance; the
+  // empty-state can distinguish self-reviewed-clean from no-signals.
+  const detail = buildAgentTaskDetail(
+    'developer-1',
+    [makeTask({ id: 'T1', status: 'done', lastImplementedByAgentId: 'developer-1' })],
+    selfOnly.metrics,
+  )
+  assert.equal(detail[0].reviewCount, 0)
+  assert.equal(detail[0].selfReviewCount, 1)
+  assert.deepEqual(detail[0].defects, [
+    { key: 'missedRequirements', label: 'Missed requirements', count: 1, selfReported: true },
+  ])
+
+  // An independently reviewed agent is untouched by the fallback.
+  const reviewed: SprintEngineAgentRow = {
+    ...selfOnly,
+    metrics: {
+      ...selfOnly.metrics!,
+      measured: {
+        reviewSampleCount: 1,
+        scores: {},
+        counts: { missedRequirements: 3 },
+        findingsAgainst: { total: 1, bySeverity: { high: 1 } },
+      },
+    },
+  }
+  assert.deepEqual(agentIssueSignal(reviewed.metrics, 'bugs'), { count: 1, selfReported: false })
+  assert.deepEqual(agentIssueSignal(reviewed.metrics, 'missedRequirements'), { count: 3, selfReported: false })
+}
+
 function implRow(
   agentId: string,
   role: string,
@@ -781,6 +864,7 @@ function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
   testCompareCliDeliveryScores()
   testIssueTotalsAndPerAgentCounts()
+  testSelfReviewFallbackWhenNoIndependentReview()
   testBuildBurnupBuildsCumulativeSeries()
   testMonotoneCubicNeverOvershoots()
   testBuildAgentActivityTimelineDerivesHandoffs()

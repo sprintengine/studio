@@ -761,13 +761,25 @@ export function buildRunQualitySummary(rows: SprintEngineAgentRow[]): SprintEngi
   for (const row of rows) {
     if ((row.metrics?.selfReported.sampleCount ?? 0) > 0) hasSelfReported = true
     const measured = row.metrics?.measured
-    if (!measured || measured.reviewSampleCount === 0) continue
-    hasMeasured = true
-    claims += measured.counts.claimsChecked ?? 0
-    hallucinated += measured.counts.hallucinatedClaims ?? 0
-    regressions += measured.counts.regressionCount ?? 0
-    missedReqs += measured.counts.missedRequirements ?? 0
-    bugs += measured.findingsAgainst?.total ?? 0
+    if (measured && measured.reviewSampleCount > 0) {
+      hasMeasured = true
+      claims += measured.counts.claimsChecked ?? 0
+      hallucinated += measured.counts.hallucinatedClaims ?? 0
+      regressions += measured.counts.regressionCount ?? 0
+      missedReqs += measured.counts.missedRequirements ?? 0
+      bugs += measured.findingsAgainst?.total ?? 0
+      continue
+    }
+    // No independent review of this agent's work: fall back to its own
+    // self-review telemetry so the strip reflects what the run knows.
+    const selfReview = row.metrics?.selfReview
+    if (!hasSelfReviewSignals(row.metrics)) continue
+    hasSelfReported = true
+    claims += selfReview?.counts?.claimsChecked ?? 0
+    hallucinated += selfReview?.counts?.hallucinatedClaims ?? 0
+    regressions += selfReview?.counts?.regressionCount ?? 0
+    missedReqs += selfReview?.counts?.missedRequirements ?? 0
+    bugs += selfReview?.findingsReported?.total ?? 0
   }
 
   return {
@@ -1148,30 +1160,71 @@ export function agentIssueCount(
   return metrics.measured.counts[key] ?? 0
 }
 
+/** Whether an agent has self-review telemetry (counts, findings, or closed
+ *  phases) to fall back on when no independent review measured its work. */
+function hasSelfReviewSignals(metrics: SprintEngineAgentMetrics | null): boolean {
+  const selfReview = metrics?.selfReview
+  if (!selfReview) return false
+  return (
+    selfReview.phasesClosed > 0
+    || Object.keys(selfReview.counts ?? {}).length > 0
+    || (selfReview.findingsReported?.total ?? 0) > 0
+  )
+}
+
+export type SprintEngineIssueSignal = { count: number; selfReported: boolean }
+
+/** An agent's count for an issue type with provenance: independently reviewed
+ *  counts when a reviewer measured this agent's work, otherwise the agent's own
+ *  self-review telemetry (marked `selfReported`). Null = no signal of either
+ *  kind (renders "—"). Independent review wins outright — mixing the two would
+ *  double-count defects the owner found and a reviewer re-confirmed. */
+export function agentIssueSignal(
+  metrics: SprintEngineAgentMetrics | null,
+  key: string
+): SprintEngineIssueSignal | null {
+  const measured = agentIssueCount(metrics, key)
+  if (measured !== null) return { count: measured, selfReported: false }
+  if (!hasSelfReviewSignals(metrics)) return null
+  const selfReview = metrics?.selfReview
+  const count =
+    key === 'bugs'
+      ? selfReview?.findingsReported?.total ?? 0
+      : selfReview?.counts?.[key] ?? 0
+  return { count, selfReported: true }
+}
+
 export type SprintEngineIssueTotal = { key: string; label: string; short: string; total: number }
 
-/** Run-wide totals per issue type, summed across agents (review attribution). */
+/** Run-wide totals per issue type, summed across agents. Per agent the
+ *  independently-reviewed counts win; agents with only self-review telemetry
+ *  contribute their self-reported counts (flagged via `includesSelfReported`
+ *  so the surface can label the provenance). */
 export function buildIssueTotals(rows: SprintEngineAgentRow[]): {
   items: SprintEngineIssueTotal[]
   total: number
   hasMeasured: boolean
+  includesSelfReported: boolean
 } {
   let hasMeasured = false
+  let includesSelfReported = false
   const sums = new Map<string, number>()
   for (const row of rows) {
-    const measured = row.metrics?.measured
-    if (!measured || measured.reviewSampleCount === 0) continue
-    hasMeasured = true
     for (const type of measuredIssueTypes) {
-      const value =
-        type.key === 'bugs'
-          ? measured.findingsAgainst?.total ?? 0
-          : measured.counts[type.key] ?? 0
-      sums.set(type.key, (sums.get(type.key) ?? 0) + value)
+      const signal = agentIssueSignal(row.metrics, type.key)
+      if (!signal) continue
+      if (signal.selfReported) includesSelfReported = true
+      else hasMeasured = true
+      sums.set(type.key, (sums.get(type.key) ?? 0) + signal.count)
     }
   }
   const items = measuredIssueTypes.map((type) => ({ ...type, total: sums.get(type.key) ?? 0 }))
-  return { items, total: items.reduce((sum, item) => sum + item.total, 0), hasMeasured }
+  return {
+    items,
+    total: items.reduce((sum, item) => sum + item.total, 0),
+    hasMeasured,
+    includesSelfReported,
+  }
 }
 
 export type SprintEngineAgentTaskDetail = {
@@ -1179,14 +1232,17 @@ export type SprintEngineAgentTaskDetail = {
   title: string
   status: SprintEngineTaskStatus
   reviewCount: number
-  defects: Array<{ key: string; label: string; count: number }>
+  /** Self-review phase closes recorded on this task by its owner. */
+  selfReviewCount: number
+  defects: Array<{ key: string; label: string; count: number; selfReported: boolean }>
   findings: SprintEngineRunFinding[]
 }
 
 /** Per-agent drill-down: the tasks an agent implemented, each with the review
  *  signals against it. Task list + titles come from local state; per-task
- *  defect counts come from the analysis; finding prose comes from the local
- *  projection (feedback / reviewer assessments). */
+ *  defect counts come from the analysis — independently-reviewed counts first,
+ *  the owner's self-review telemetry otherwise; finding prose comes from the
+ *  local projection (feedback / reviewer assessments). */
 export function buildAgentTaskDetail(
   agentId: string,
   tasks: SprintEngineTask[],
@@ -1199,20 +1255,24 @@ export function buildAgentTaskDetail(
     else findingsByTask.set(finding.taskId, [finding])
   }
   const taskCounts = metrics?.measured.taskCounts ?? {}
+  const selfTaskCounts = metrics?.selfReview?.taskCounts ?? {}
 
   return tasks
     .filter((task) => taskImplementerAgentId(task) === agentId)
     .map((task) => {
-      const counts = taskCounts[task.id]?.counts ?? {}
+      const reviewCount = taskCounts[task.id]?.reviewSampleCount ?? 0
+      const selfReported = reviewCount === 0
+      const counts = (selfReported ? selfTaskCounts : taskCounts)[task.id]?.counts ?? {}
       const defects = Object.entries(measuredCountLabels).flatMap(([key, label]) => {
         const count = counts[key] ?? 0
-        return count > 0 ? [{ key, label, count }] : []
+        return count > 0 ? [{ key, label, count, selfReported }] : []
       })
       return {
         id: task.id,
         title: task.title,
         status: task.status,
-        reviewCount: taskCounts[task.id]?.reviewSampleCount ?? 0,
+        reviewCount,
+        selfReviewCount: selfTaskCounts[task.id]?.reviewSampleCount ?? 0,
         defects,
         findings: findingsByTask.get(task.id) ?? [],
       }

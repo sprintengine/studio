@@ -14,7 +14,7 @@ import {
   type Tone,
 } from '../ui'
 import {
-  agentIssueCount,
+  agentIssueSignal,
   buildAgentTaskDetail,
   buildAgentTypeSummary,
   bucketAgentRowsByWorkType,
@@ -664,6 +664,9 @@ function ImplementationTable({
       else next.add(agentId)
       return next
     })
+  const anySelfReported = rows.some((row) =>
+    measuredIssueTypes.some((type) => agentIssueSignal(row.metrics, type.key)?.selfReported)
+  )
   return (
     <div className="mt-1">
       <WorkTypeHeading label="Implementation" count={rows.length} />
@@ -718,6 +721,11 @@ function ImplementationTable({
           </tbody>
         </table>
       </div>
+      {anySelfReported ? (
+        <p className="mt-1.5 text-[11px] text-[color:var(--text-disabled)]">
+          ° Self-reported — found by the agent reviewing its own work; no independent review.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -909,6 +917,20 @@ function WorkTypeHeading({ label, count }: { label: string; count?: number }) {
   )
 }
 
+// Marks a value the agent reported reviewing its OWN work (no independent
+// review). Rendered as a superscript ° with the explanation on hover.
+function SelfReportedMark() {
+  return (
+    <span
+      title="Self-reported — found by the agent reviewing its own work; no independent review."
+      aria-label="self-reported"
+      className="ml-0.5 align-super text-[9px] leading-none text-[color:var(--text-disabled)]"
+    >
+      °
+    </span>
+  )
+}
+
 function AgentRow({
   row,
   loading,
@@ -934,7 +956,10 @@ function AgentRow({
   // While metrics are still loading we show "…" rather than a misleading "—".
   const pending = loading && !metrics
   const dash = pending ? <span className="text-[color:var(--text-disabled)]">…</span> : NA
-  const bugSeverity = metrics?.measured.findingsAgainst?.bySeverity ?? {}
+  const bugSeverity =
+    metrics?.measured.findingsAgainst?.bySeverity
+    ?? metrics?.selfReview?.findingsReported?.bySeverity
+    ?? {}
 
   // Fixed-width disclosure slot so expandable and non-expandable rows share the
   // exact same left edge for the glyph + id.
@@ -984,20 +1009,32 @@ function AgentRow({
         {row.tasksDone}
       </NumCellB>
       {measuredIssueTypes.map((type) => {
-        const count = agentIssueCount(metrics, type.key)
+        const signal = agentIssueSignal(metrics, type.key)
         let content: React.ReactNode
-        if (count === null) {
+        if (signal === null) {
           content = dash
-        } else if (type.key === 'bugs' && count > 0) {
+        } else if (type.key === 'bugs' && signal.count > 0) {
           content = (
             <span className="inline-flex items-baseline justify-end gap-1.5">
               <StatusDot tone={highestFindingTone(bugSeverity)} className="-translate-y-px" />
-              {count}
+              {signal.count}
+              {signal.selfReported ? <SelfReportedMark /> : null}
+            </span>
+          )
+        } else if (signal.count === 0) {
+          // Zero defects read as a muted "0" so real defect counts pop.
+          content = (
+            <span className="text-[color:var(--text-disabled)]">
+              0{signal.selfReported ? <SelfReportedMark /> : null}
             </span>
           )
         } else {
-          // Zero defects read as a muted "0" so real defect counts pop.
-          content = count === 0 ? <span className="text-[color:var(--text-disabled)]">0</span> : count
+          content = (
+            <span>
+              {signal.count}
+              {signal.selfReported ? <SelfReportedMark /> : null}
+            </span>
+          )
         }
         return (
           <NumCellB key={type.key} border={cellBorder}>
@@ -1078,6 +1115,7 @@ function AgentDetailRow({
                           {defect.count}
                         </span>{' '}
                         {defect.label.toLowerCase()}
+                        {defect.selfReported ? <SelfReportedMark /> : null}
                       </span>
                     ))}
                   </div>
@@ -1097,7 +1135,9 @@ function AgentDetailRow({
                   <div className="mt-0.5 text-[12px] text-[color:var(--text-disabled)]">
                     {task.reviewCount > 0
                       ? 'Reviewed — no issues recorded.'
-                      : 'No review signals recorded.'}
+                      : task.selfReviewCount > 0
+                        ? 'Self-review — no issues recorded.'
+                        : 'No review signals recorded.'}
                   </div>
                 ) : null}
               </div>
@@ -1191,12 +1231,16 @@ function IssuesCaughtSection({
         count={issueTotals.total > 0 ? issueTotals.total : undefined}
         action={
           <span className="text-[12px] text-[color:var(--text-disabled)]">
-            flagged by reviewers during the run
+            {issueTotals.includesSelfReported
+              ? issueTotals.hasMeasured
+                ? 'flagged by reviewers and self-review during the run'
+                : 'found by agents reviewing their own work'
+              : 'flagged by reviewers during the run'}
           </span>
         }
         level={3}
       >
-        {issueTotals.hasMeasured ? (
+        {issueTotals.hasMeasured || issueTotals.includesSelfReported ? (
           <IssueBars items={issueTotals.items} />
         ) : (
           <p className="text-[12px] text-[color:var(--text-disabled)]">
@@ -1331,7 +1375,7 @@ function LeftRow({
   )
 }
 
-type StatCell = { label: string; value: React.ReactNode; inverse?: boolean }
+type StatCell = { label: string; value: React.ReactNode; inverse?: boolean; hint?: string }
 
 function StatStrip({ cells, columns }: { cells: StatCell[]; columns: string }) {
   return (
@@ -1344,6 +1388,7 @@ function StatStrip({ cells, columns }: { cells: StatCell[]; columns: string }) {
           <div className="text-[12px] text-[color:var(--text-muted)]">
             {cell.label}
             {cell.inverse ? <span className="text-[color:var(--text-disabled)]"> ↓</span> : null}
+            {cell.hint ? <ColumnHint label={cell.label} hint={cell.hint} /> : null}
           </div>
           <div className="mt-0.5 text-[20px] font-semibold tabular-nums text-[color:var(--text-strong)]">
             {cell.value}
@@ -1431,9 +1476,17 @@ function TokenUsageSection({ report }: { report: SprintEngineTokenUsageReport | 
     // so only the honest headline total is shown.
     ...(run.total.split
       ? [
-          { label: 'Input', value: formatTokenCount(run.total.input) },
+          {
+            label: 'Fresh input',
+            value: formatTokenCount(run.total.input),
+            hint: 'New (uncached) prompt tokens only. Almost all context arrives as cache reads instead, so this number is tiny by design.',
+          },
           { label: 'Output', value: formatTokenCount(run.total.output) },
-          { label: 'Cache read', value: formatTokenCount(run.total.cacheRead) },
+          {
+            label: 'Cache read',
+            value: formatTokenCount(run.total.cacheRead),
+            hint: "Tokens re-read from the prompt cache: every API turn re-reads the agent's whole accumulated context, so long sessions dominate the total. Cache reads are billed at a small fraction of the input price.",
+          },
         ]
       : []),
   ]

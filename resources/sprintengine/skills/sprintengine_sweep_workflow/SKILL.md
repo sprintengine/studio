@@ -8,7 +8,7 @@ Review the combined branch diff (or, for QA, exercise the finished behaviour), t
 
 - **Patch what you find, directly.** Including code outside "your" lane. You own the fix.
 - Commit your fixes scoped to this task (`sprintengine.vcs.commit --task-id <id> --path <file>`), then publish. Your fixes are fresh implementation work, so they walk your own review phase like any other change. A sweep that found nothing publishes its findings summary and lands in `done` without entering review.
-- Record every real finding — the ones you fixed too — as categorical telemetry with repeatable `findingJson`.
+- **Record one assessment per audited task** with `sprintengine.task.log` on YOUR task id, passing `reviewTargetTaskId` naming the task you audited (its implementer is attributed automatically), plus categorical `findingJson` entries (`{kind, severity, area, title?}`) for every real finding — the ones you fixed too — and the defect counts you actually evaluated (`claimsChecked`, `missedRequirements`, `implementationMistakes`, `regressionCount`, `testFailuresIntroduced`, `unsafeChanges`, …). A clean audit still gets an assessment (`claimsChecked` + honest zeros): "checked, found nothing" and "never checked" must not look the same in the run metrics.
 
 **Never take the whole sprint hostage over one finding.** Three rungs, in order:
 

@@ -317,28 +317,33 @@ def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
 
 def feedback_review_target(args: argparse.Namespace, state: Dict[str, Any], default_task: Dict[str, Any]) -> Dict[str, Any]:
     # This runs on every feedback path. A sweep that assesses ANOTHER task passes
-    # the --review-target-* trio and becomes a reviewer assessment; partial
-    # review-target metadata is a hard error. A phase advance passes none of them,
-    # so the owner's self-review reports against its own task.
+    # --review-target-task-id and becomes a reviewer assessment; the audited
+    # task's implementer is resolved from its record (single-owner invariant), so
+    # --review-target-agent-id / --review-target-execution-id are optional
+    # overrides. Target agent/execution WITHOUT a task id is a hard error — an
+    # assessment must name the audited task. A phase advance passes none of
+    # them, so the owner's self-review reports against its own task.
     target_task_id = str(getattr(args, "review_target_task_id", "") or "").strip()
     target_agent_id = str(getattr(args, "review_target_agent_id", "") or "").strip()
     target_execution_id = str(getattr(args, "review_target_execution_id", "") or "").strip()
-    target_values = {
-        "--review-target-task-id": target_task_id,
-        "--review-target-agent-id": target_agent_id,
-        "--review-target-execution-id": target_execution_id,
-    }
-    provided_target_flags = [flag for flag, value in target_values.items() if value]
-    if provided_target_flags and len(provided_target_flags) != len(target_values):
-        missing = ", ".join(flag for flag, value in target_values.items() if not value)
-        raise SystemExit(f"Reviewer assessments require all review target fields. Missing: {missing}.")
+    if not target_task_id and (target_agent_id or target_execution_id):
+        raise SystemExit("Reviewer assessments require --review-target-task-id naming the audited task.")
     target_task = find_task(state, target_task_id) if target_task_id else default_task
+    if target_task_id and not target_agent_id:
+        target_agent_id = str(
+            target_task.get("lastImplementedByAgentId") or target_task.get("ownerAgentId") or ""
+        ).strip()
+        if not target_agent_id:
+            raise SystemExit(
+                f"Cannot attribute assessment: {target_task_id} records no implementer. "
+                "Pass --review-target-agent-id explicitly."
+            )
     return {
         "task": target_task,
         "taskId": str(target_task.get("id") or ""),
         "agentId": target_agent_id,
         "executionId": target_execution_id,
-        "isReviewerAssessment": bool(provided_target_flags),
+        "isReviewerAssessment": bool(target_task_id),
     }
 
 def build_feedback_payload(

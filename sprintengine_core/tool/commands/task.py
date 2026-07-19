@@ -573,8 +573,33 @@ def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
         ev["results"].extend(args.result or [])
         append_task_activity(task, "evidence", args.id, f"{args.id} logged evidence for {args.task_id}.")
         event = append_event(state, "task_evidence_appended", args.id, f"{args.id} logged evidence for {args.task_id}.")
-        return {"ok": True, "task": task, "event": event}
-    return with_locked_state(args.state, run)
+
+        # Repeatable feedback channel (best-effort, like the advance path): a
+        # sweep audits N tasks and records one assessment per audited task via
+        # the --review-target-* trio; without the trio the fields land as the
+        # agent's own self-report. No feedback args -> zero-cost no-op.
+        feedback_warnings: List[str] = []
+        feedback_payload = build_feedback_payload(
+            args, state, args.state, task, str(args.id), best_effort=True
+        )
+        if feedback_payload:
+            feedback_warnings.extend(feedback_payload.get("warnings") or [])
+            attach_feedback_payload(state, feedback_payload, str(args.id))
+
+        return {
+            "ok": True,
+            "task": task,
+            "event": event,
+            **({"feedbackWarnings": feedback_warnings} if feedback_warnings else {}),
+            "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
+        }
+
+    result = with_locked_state(args.state, run)
+    feedback_record = result.pop("_feedbackRecord", None)
+    if feedback_record:
+        result["feedbackRecorded"] = True
+        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
+    return result
 
 def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:

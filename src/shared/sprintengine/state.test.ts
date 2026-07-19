@@ -279,6 +279,41 @@ function testVcsReposUnresolvableEntriesDropped(): void {
   assert.deepEqual(state.vcs.repos.map((repo) => repo.id), ['primary'], 'entry with no worktreePath dropped')
 }
 
+function testCategoricalFindingsSurviveNormalization(): void {
+  // `findingJson` is categorical-only ({kind, severity, area, title?}); prose
+  // `title`/`detail` are optional. Findings without them must survive — the
+  // run summary's review signals are built from these.
+  const projection = v3Projection({
+    tasks: [
+      {
+        id: 'T7',
+        title: 'Surface work',
+        role: 'frontend',
+        status: 'done',
+        feedback: {
+          schemaVersion: 4,
+          capturedAt: '2026-07-18T01:25:56Z',
+          source: 'phase_advance_self_review',
+          agentId: 'frontend-2',
+          role: 'frontend',
+          scores: { hallucinationRiskPct: 5 },
+          findings: [
+            { id: 'T7-F1', kind: 'other', severity: 'low', area: 'frontend', status: 'open' },
+            { id: 'T7-F2', kind: 'code_bug', severity: 'medium', area: 'frontend', title: 'label only', status: 'open' },
+            { id: 'bad', kind: 'not_a_kind', severity: 'low', area: 'frontend' },
+          ],
+        },
+      },
+    ],
+  })
+  const state = normalizeSprintEngineProjection(projection)
+  const findings = state?.tasks[0]?.feedback?.findings ?? []
+  assert.equal(findings.length, 2, 'categorical findings kept, invalid enum dropped')
+  assert.equal(findings[0].title, undefined, 'absent prose stays absent, not fabricated')
+  assert.equal(findings[1].title, 'label only')
+}
+
+testCategoricalFindingsSurviveNormalization()
 testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()

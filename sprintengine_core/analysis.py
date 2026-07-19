@@ -262,6 +262,17 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
     findings_against: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"total": 0, "bySeverity": defaultdict(int)}
     )
+    # Self-review provenance, kept separate from reviewer-measured signals: the
+    # defect counts and findings an owner reported against its OWN work. These
+    # are honest but not independent, so the renderer labels them differently.
+    self_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    self_findings: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"total": 0, "bySeverity": defaultdict(int)}
+    )
+    self_task_counts: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(int))
+    )
+    self_task_reviews: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     findings_raised: dict[str, int] = defaultdict(int)
     # Reviewer activity, keyed by the reviewing agent (what they did, vs. the
     # measured signals above which describe the implementer's work).
@@ -287,8 +298,9 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
 
         # A phase advance is the OWNER reporting on its own work (MC-1542): it is a
         # self-report, but unlike a plain `agent_self_report` it carries the findings
-        # the owner found AND fixed. Those findings are the review signal that gate
-        # verdicts used to supply — count them, attributed to the owner's own task.
+        # the owner found AND fixed. Those findings (and any defect counts) are the
+        # review signal that gate verdicts used to supply — counted under the
+        # agent's selfReview provenance, attributed to the owner's own task.
         if source in {"agent_self_report", "phase_advance_self_review"}:
             if not agent_id:
                 continue
@@ -296,11 +308,25 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
             self_record_count[agent_id] += 1
             for key, value in scores.items():
                 self_scores[agent_id][key].append(value)
+            # Self-attributed defect telemetry: the owner's counts and findings
+            # against its own task. Kept in the selfReview buckets — never mixed
+            # into `measured`, which stays reviewer-only.
+            task_id = str(record.get("task_id") or "").strip()
+            raw_counts = record.get("counts")
+            if isinstance(raw_counts, dict):
+                for snake, camel in _MEASURED_COUNT_KEYS.items():
+                    value = raw_counts.get(snake)
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                        self_counts[agent_id][camel] += value
+                        if task_id and camel != "claimsChecked":
+                            self_task_counts[agent_id][task_id][camel] += value
             if source == "phase_advance_self_review":
+                if task_id:
+                    self_task_reviews[agent_id][task_id] += 1
                 outcome = str(record.get("phase_outcome") or "").strip()
                 if outcome:
                     phase_outcomes[agent_id][outcome] += 1
-                _accumulate_findings(record.get("findings"), findings_against[agent_id])
+                _accumulate_findings(record.get("findings"), self_findings[agent_id])
                 if isinstance(record.get("findings"), list):
                     findings_raised[agent_id] += len(record["findings"])
             continue
@@ -338,8 +364,27 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
             if review_target_task:
                 tasks_reviewed[reviewer].add(review_target_task)
             outcome = str(record.get("phase_outcome") or "").strip()
-            if outcome:
-                review_verdicts[reviewer][outcome] += 1
+            if not outcome:
+                # A task.log assessment carries no phase outcome; classify it
+                # from content. Fix-forward is the sweep mandate, so an audit
+                # that surfaced defects reads as fixed-forward, a defect-free
+                # one as a clean pass (escalations arrive via task.advance).
+                raw_counts = record.get("counts")
+                defect_count = (
+                    sum(
+                        value
+                        for snake, value in raw_counts.items()
+                        if snake != "claims_checked"
+                        and isinstance(value, int)
+                        and not isinstance(value, bool)
+                        and value > 0
+                    )
+                    if isinstance(raw_counts, dict)
+                    else 0
+                )
+                has_findings = isinstance(record.get("findings"), list) and bool(record["findings"])
+                outcome = "pass_with_fixes" if defect_count > 0 or has_findings else "pass"
+            review_verdicts[reviewer][outcome] += 1
 
     agent_ids = (
         set(self_record_count)
@@ -401,15 +446,41 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
                 "fixedForward": outcomes.get("pass_with_fixes", 0),
                 "escalated": outcomes.get("escalate", 0),
             }
-        # Self-review table: what this agent found (and fixed) reviewing its OWN diff.
+        # Self-review table: what this agent found (and fixed) reviewing its OWN
+        # diff — phase outcomes plus the self-attributed defect counts/findings.
         own = phase_outcomes.get(agent_id, {})
-        if own:
-            row["selfReview"] = {
+        own_counts = dict(self_counts.get(agent_id, {}))
+        own_findings = self_findings.get(agent_id)
+        if own or own_counts or (own_findings and own_findings["total"] > 0):
+            self_review: dict[str, Any] = {
                 "phasesClosed": sum(own.values()),
                 "passed": own.get("pass", 0),
                 "fixedForward": own.get("pass_with_fixes", 0),
                 "escalated": own.get("escalate", 0),
             }
+            if own_counts:
+                self_review["counts"] = dict(sorted(own_counts.items()))
+            if own_findings and own_findings["total"] > 0:
+                self_review["findingsReported"] = {
+                    "total": own_findings["total"],
+                    "bySeverity": dict(sorted(own_findings["bySeverity"].items())),
+                }
+            own_task_reviews = self_task_reviews.get(agent_id, {})
+            own_task_counts = self_task_counts.get(agent_id, {})
+            own_task_ids = set(own_task_reviews) | set(own_task_counts)
+            if own_task_ids:
+                self_review["taskCounts"] = {
+                    task_id: {
+                        "reviewSampleCount": own_task_reviews.get(task_id, 0),
+                        "counts": {
+                            key: value
+                            for key, value in sorted(own_task_counts.get(task_id, {}).items())
+                            if value > 0
+                        },
+                    }
+                    for task_id in sorted(own_task_ids)
+                }
+            row["selfReview"] = self_review
         output[agent_id] = row
     return output
 

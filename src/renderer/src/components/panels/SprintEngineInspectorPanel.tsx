@@ -1261,10 +1261,14 @@ function TaskOpenFindings({
                 </>
               ) : null}
             </div>
-            <div className="mt-1 text-[color:var(--text-strong)]">{finding.title}</div>
-            <div className="mt-0.5 text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
-              {finding.detail}
+            <div className="mt-1 text-[color:var(--text-strong)]">
+              {finding.title ?? feedbackFindingKindLabels[finding.kind]}
             </div>
+            {finding.detail ? (
+              <div className="mt-0.5 text-[color:var(--text-muted)] [overflow-wrap:anywhere]">
+                {finding.detail}
+              </div>
+            ) : null}
             {finding.recommendation ? (
               <div className="mt-0.5 text-[color:var(--text-default)]">
                 <span className="text-[color:var(--text-muted)]">→ </span>

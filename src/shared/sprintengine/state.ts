@@ -1532,12 +1532,12 @@ function normalizeSprintEngineTaskFeedbackFindings(value: unknown): SprintEngine
     const title = optionalTrimmedString(record.title)
     const detail = optionalTrimmedString(record.detail)
 
+    // `findingJson` is categorical-only telemetry (kind/severity/area); `title`
+    // and `detail` are optional prose — a finding without them is still real.
     if (
       !isFeedbackFindingKind(kind)
       || !isFeedbackFindingSeverity(severity)
       || !isFeedbackFindingArea(area)
-      || !title
-      || !detail
     ) {
       return []
     }
@@ -1553,8 +1553,8 @@ function normalizeSprintEngineTaskFeedbackFindings(value: unknown): SprintEngine
       kind,
       severity,
       area,
-      title,
-      detail,
+      ...(title ? { title } : {}),
+      ...(detail ? { detail } : {}),
       ...(status ? { status } : {}),
       ...(recommendation ? { recommendation } : {}),
       ...(requirementId ? { requirementId } : {}),

@@ -434,12 +434,20 @@ export type SprintEngineAgentSweepMetrics = {
   escalated: number
 }
 
-/** What an agent found (and fixed) reviewing its OWN diff, per `task.advance`. */
+/** What an agent found (and fixed) reviewing its OWN diff, per `task.advance`.
+ *  Carries the self-attributed defect counts and findings — honest but not
+ *  independent, so surfaces label them as self-reported, never as measured. */
 export type SprintEngineAgentSelfReviewMetrics = {
   phasesClosed: number
   passed: number
   fixedForward: number
   escalated: number
+  /** Self-attributed defect counts (same camelCase keys as measured.counts). */
+  counts?: Record<string, number>
+  /** Findings the owner reported against its own work. */
+  findingsReported?: { total: number; bySeverity: Record<string, number> }
+  /** Per-own-task self-review detail for the drill-down, keyed by task id. */
+  taskCounts?: Record<string, SprintEngineAgentTaskCounts>
 }
 
 export type SprintEngineAgentMetrics = {
