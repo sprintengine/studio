@@ -225,7 +225,9 @@ export function useRoadmapBoard(): RoadmapBoardData {
   const roadmapFiles = useMemo<RoadmapFileSummary[]>(() => {
     const homeItems = homePath ? (itemsByRootKey.get(rootKey(homePath)) ?? []) : []
     const summaries = homeItems
-      .filter((item) => isRoadmapContent(item.relativePath, item.rawType))
+      // Archived roadmaps are retired, not activatable drafts — keep them out of
+      // the rail so a stale file never clutters it as a misleading "Draft" row.
+      .filter((item) => isRoadmapContent(item.relativePath, item.rawType) && item.status !== 'archived')
       .map(summarizeRoadmapFile)
     if (activeRef && !summaries.some((summary) => summary.roadmapRef === normalizeRelativePath(activeRef))) {
       summaries.push({
