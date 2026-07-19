@@ -45,6 +45,7 @@ import type {
 import type { BacklogCreateInput, BacklogCreateResult, BacklogListItemsResult, BacklogReadItemResult } from '../backlog-service'
 import type { AutomationStoreListResult } from '../automations/store'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
+import type { RoadmapAppFrontDoor, RoadmapSteerAction } from '../roadmap-orchestrator'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
 import { isValidBacklogSlug } from '../../shared/backlog/frontmatter'
@@ -98,6 +99,13 @@ export type AutomationBackends = {
    * loaded — tools report that explicitly instead of buffering.
    */
   getAutomationsFrontDoor(): AutomationsAppFrontDoor | null
+  /**
+   * The instance roadmap's read + plan + steer surface (MC-1693), resolved lazily
+   * like the Automations front door (the orchestrator boots with the Automations
+   * module, after these tools are constructed). Null while that module is disabled
+   * or not yet loaded — the roadmap.* tools report that explicitly.
+   */
+  getRoadmapFrontDoor(): RoadmapAppFrontDoor | null
   /** Absolute run.yaml paths under <root>/.multi-code/sprintengine, newest first. */
   listSprintRunStatePaths(workspaceRoot: string): Promise<string[]>
   /** One run's projection.json via the sprint-engine artifact reader (main-owned). */
@@ -1737,7 +1745,249 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  // --- Roadmap tools (MC-1693): agents read, plan, and steer the ONE instance
+  //     roadmap through the same sanctioned paths the global surface offers a human.
+  //     The roadmap is instance-global (its home project is an app setting), so these
+  //     tools take no workspaceId except add_step, where it names the source project
+  //     for a cross-project step. ---
+
+  function roadmapFrontDoorOrFailure(): RoadmapAppFrontDoor | McpToolResult {
+    const frontDoor = backends.getRoadmapFrontDoor()
+    if (!frontDoor) {
+      return failure(
+        'roadmap_module_unavailable',
+        'The Roadmap orchestrator is disabled or not loaded in this app session; enable the Roadmap module in Settings → Modules.'
+      )
+    }
+    return frontDoor
+  }
+
+  // Shape a front-door outcome into a tool result: a failure carries the message
+  // (never fake success); a success echoes the optional structured `data`.
+  function roadmapResult(code: string, outcome: { ok: boolean; message?: string }, data: Record<string, unknown>): McpToolResult {
+    if (!outcome.ok) return failure(code, outcome.message ?? 'The roadmap operation failed.')
+    return success(data)
+  }
+
+  const roadmapStatus: McpToolRegistration = {
+    name: 'roadmap.status',
+    description:
+      "Read this Multicode's single instance roadmap — the board model the global surface renders. Each lane lists its "
+      + 'steps with the project they belong to, a per-step state (done | running | up_next | queued | paused | unknown | '
+      + 'unknown_project), and the lane\'s attention signal (approval | merge | paused | none). Read-only; returns '
+      + '{ roadmap: null } when no roadmap is configured or active.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: async () => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const board = await frontDoor.readBoard()
+      return success({ roadmap: board })
+    },
+  }
+
+  const roadmapAddStep: McpToolRegistration = {
+    name: 'roadmap.add_step',
+    description:
+      'Add a step to the instance roadmap: a backlog item, or an epic as one step (snapshotting its children, matching '
+      + 'the UI). By default the item is from the home project that owns the roadmap; pass workspaceId to plan work from '
+      + "another OPEN project (its alias is registered automatically). Appends to the last track unless `lane` names one. "
+      + 'A malformed path, an unknown/unopened project, a missing item, or a duplicate is rejected with a message and the '
+      + 'roadmap file is never touched.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'Backlog item path relative to its project root, e.g. "backlog/foo.md" or "backlog/epics/bar.md".' },
+        workspaceId: { type: 'string', description: 'Open workspace whose project the item belongs to; omit for the home project.' },
+        lane: { type: 'string', description: 'Track (lane heading) to append to; defaults to the last track.' },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const ref = requireString(args, 'ref')
+      if (typeof ref !== 'string') return ref
+      const invalid = firstInvalidOptionalString(args, ['workspaceId', 'lane'])
+      if (invalid) return invalid
+      let projectPath: string | undefined
+      const workspaceId = optionalString(args.workspaceId)
+      if (workspaceId) {
+        const resolved = resolveWorkspaceRoot(workspaceId)
+        if (!('root' in resolved)) return resolved
+        projectPath = resolved.root
+      }
+      const outcome = await frontDoor.addStep({
+        ref,
+        ...(projectPath ? { projectPath } : {}),
+        ...(optionalString(args.lane) ? { lane: optionalString(args.lane) } : {}),
+        actor: 'automation',
+      })
+      return roadmapResult('roadmap_add_step_failed', outcome, { added: { ref: outcome.ref ?? ref } })
+    },
+  }
+
+  const roadmapRemoveStep: McpToolRegistration = {
+    name: 'roadmap.remove_step',
+    description:
+      'Remove a top-level step from the instance roadmap by its stored (authored) ref — the `ref` roadmap.status shows '
+      + 'for the unit (project-qualified for a non-home step, e.g. "mobile:backlog/foo.md"). To drop a single snapshotted '
+      + 'epic child instead, use roadmap.skip with the child ref.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'The step\'s authored ref from roadmap.status (e.g. "backlog/foo.md" or "mobile:backlog/foo.md").' },
+      },
+      required: ['ref'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const ref = requireString(args, 'ref')
+      if (typeof ref !== 'string') return ref
+      const outcome = await frontDoor.removeStep({ ref, actor: 'automation' })
+      return roadmapResult('roadmap_remove_step_failed', outcome, { removed: { ref } })
+    },
+  }
+
+  const roadmapReorder: McpToolRegistration = {
+    name: 'roadmap.reorder',
+    description:
+      "Move a step to a new position in the plan. `ref` is the step's authored ref (from roadmap.status); `toIndex` is "
+      + 'its zero-based target position within the destination track. `toLane` moves it to a different track (defaults to '
+      + 'its current track). The frontier is re-derived on the next refresh.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'The step\'s authored ref from roadmap.status.' },
+        toIndex: { type: 'integer', minimum: 0, description: 'Zero-based target position within the destination track.' },
+        toLane: { type: 'string', description: 'Destination track heading; defaults to the step\'s current track.' },
+      },
+      required: ['ref', 'toIndex'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const ref = requireString(args, 'ref')
+      if (typeof ref !== 'string') return ref
+      if (typeof args.toIndex !== 'number' || !Number.isInteger(args.toIndex) || args.toIndex < 0) {
+        return failure('invalid_arguments', '"toIndex" must be a non-negative integer.')
+      }
+      const invalid = firstInvalidOptionalString(args, ['toLane'])
+      if (invalid) return invalid
+      const outcome = await frontDoor.reorderStep({
+        ref,
+        toIndex: args.toIndex,
+        ...(optionalString(args.toLane) ? { toLane: optionalString(args.toLane) } : {}),
+        actor: 'automation',
+      })
+      return roadmapResult('roadmap_reorder_failed', outcome, { reordered: { ref } })
+    },
+  }
+
+  const roadmapSkip: McpToolRegistration = {
+    name: 'roadmap.skip',
+    description:
+      'Skip a step: remove it from the plan so the lane\'s frontier advances past it, recording a reason as an inert audit '
+      + 'comment in the roadmap file. Never archives the backlog item (that would read as dangling and pause the lane). '
+      + 'Accepts a top-level step ref or a single snapshotted epic child ref (both from roadmap.status). A reason is required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ref: { type: 'string', description: 'The step (or epic child) authored ref from roadmap.status.' },
+        reason: { type: 'string', description: 'Why the step is being skipped (recorded in the roadmap file).' },
+      },
+      required: ['ref', 'reason'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const ref = requireString(args, 'ref')
+      if (typeof ref !== 'string') return ref
+      const reason = requireString(args, 'reason')
+      if (typeof reason !== 'string') return reason
+      const outcome = await frontDoor.skipStep({ ref, reason, actor: 'automation' })
+      return roadmapResult('roadmap_skip_failed', outcome, { skipped: { ref } })
+    },
+  }
+
+  // The four lane-steering tools (approve/merge/pause/resume) share one shape: name a
+  // lane, forward to the front door's steer wrapper (which derives the roadmap ref),
+  // and audit-log the agent action. Steering is a human-proxy surface, so every call
+  // is recorded — "the agent merged it" is always reconstructible (decision 4).
+  function roadmapSteerTool(config: {
+    name: string
+    action: RoadmapSteerAction
+    description: string
+    failureCode: string
+  }): McpToolRegistration {
+    return {
+      name: config.name,
+      description: config.description,
+      inputSchema: {
+        type: 'object',
+        properties: { lane: { type: 'string', description: 'The lane (track heading) to steer, from roadmap.status.' } },
+        required: ['lane'],
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const frontDoor = roadmapFrontDoorOrFailure()
+        if ('content' in frontDoor) return frontDoor
+        const lane = requireString(args, 'lane')
+        if (typeof lane !== 'string') return lane
+        const outcome = await frontDoor.steerLane(lane, config.action, 'automation')
+        return roadmapResult(config.failureCode, outcome, { [config.action]: { lane } })
+      },
+    }
+  }
+
+  const roadmapApprove = roadmapSteerTool({
+    name: 'roadmap.approve',
+    action: 'approve',
+    failureCode: 'roadmap_approve_failed',
+    description:
+      "Approve the next start for a lane waiting on you (attention \"approval\"). Consumes the lane's pending approval so "
+      + 'the orchestrator dispatches the next sprint on its next tick. Fails when the lane has no pending approval.',
+  })
+  const roadmapMerge = roadmapSteerTool({
+    name: 'roadmap.merge',
+    action: 'merge',
+    failureCode: 'roadmap_merge_failed',
+    description:
+      "Merge a lane's delivered run (attention \"merge\") through the engine's own single-repo merge primitive — the same "
+      + 'action the board offers. The engine re-checks merge order and is idempotent; a refusal (conflict/order/gh) surfaces '
+      + 'as the failure message. Fails when the lane has no run to merge.',
+  })
+  const roadmapPause = roadmapSteerTool({
+    name: 'roadmap.pause',
+    action: 'pause',
+    failureCode: 'roadmap_pause_failed',
+    description:
+      'Hold a lane at your request: the orchestrator stops advancing/merging/starting-next for it without touching the '
+      + 'running sprint. Resume is the only exit. A no-op when the lane is already paused/parked.',
+  })
+  const roadmapResume = roadmapSteerTool({
+    name: 'roadmap.resume',
+    action: 'resume',
+    failureCode: 'roadmap_resume_failed',
+    description:
+      'Resume a paused or parked lane. A manual pause continues exactly where it was; a failure park re-plans a fresh sprint '
+      + 'from the same item (abandoning the dead run first). Verify the effect with roadmap.status.',
+  })
+
   return [
+    roadmapStatus,
+    roadmapAddStep,
+    roadmapRemoveStep,
+    roadmapReorder,
+    roadmapSkip,
+    roadmapApprove,
+    roadmapMerge,
+    roadmapPause,
+    roadmapResume,
     workspaceCreate,
     workspaceList,
     workspaceStatus,

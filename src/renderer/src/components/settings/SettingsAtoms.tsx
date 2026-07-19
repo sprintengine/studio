@@ -92,12 +92,16 @@ export function SettingToggle({
   enabled,
   onChange,
   disabled,
+  requirement,
 }: {
   label: string
   description?: string
   enabled: boolean
   onChange: (next: boolean) => void
   disabled?: boolean
+  // A muted suffix on the label line naming an unmet prerequisite, e.g. "Needs
+  // Sprint Engine". When present the row is typically also `disabled`.
+  requirement?: string
 }) {
   const labelId = React.useId()
   const helpId = description ? `${labelId}-help` : undefined
@@ -106,6 +110,11 @@ export function SettingToggle({
       <div className="min-w-0">
         <div id={labelId} className="text-[13px] font-medium text-[color:var(--text-strong)]">
           {label}
+          {requirement ? (
+            <span className="ml-1.5 text-[11px] font-normal text-[color:var(--text-subtle)]">
+              · {requirement}
+            </span>
+          ) : null}
         </div>
         {description ? (
           <div id={helpId} className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">

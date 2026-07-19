@@ -9,6 +9,7 @@ import { createAutomationTools } from './automation/automation-tools'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
+import type { RoadmapAppFrontDoor } from './roadmap-orchestrator'
 import {
   addOrUpdateBacklogLink,
   createBacklogEpic,
@@ -176,6 +177,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // resolve it lazily, at call time. Until the module is up, both report the
   // module as unavailable rather than buffering.
   let resolveAutomationsAppFrontDoor: () => AutomationsAppFrontDoor | null = () => null
+  // The instance roadmap's front door (roadmap.* tools) is provided by the same
+  // module and resolved lazily for the same reason — null until the module is up.
+  let resolveRoadmapAppFrontDoor: () => RoadmapAppFrontDoor | null = () => null
 
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
@@ -381,6 +385,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         addOrUpdateLink: addOrUpdateBacklogLink,
       },
       getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
+      // The instance roadmap's read + plan + steer surface for the roadmap.* tools;
+      // null until the automations module (which owns the orchestrator) is up.
+      getRoadmapFrontDoor: () => resolveRoadmapAppFrontDoor(),
       listSprintRunStatePaths: (workspaceRoot) => discoverMobileSprintEngineStatePaths([workspaceRoot]),
       readSprintEngineProjection: (statePath) => sprintEngineArtifacts.readProjection({ statePath }),
       // Sprint lifecycle control (MC-1653): mode writes go through the main-owned
@@ -474,6 +481,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     automationService,
     setAutomationsAppFrontDoorResolver(resolver: () => AutomationsAppFrontDoor | null): void {
       resolveAutomationsAppFrontDoor = resolver
+    },
+    setRoadmapAppFrontDoorResolver(resolver: () => RoadmapAppFrontDoor | null): void {
+      resolveRoadmapAppFrontDoor = resolver
     },
     builtinSkillManager,
     conversationRuntime,

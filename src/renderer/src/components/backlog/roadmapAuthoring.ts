@@ -1,66 +1,65 @@
-// Pure, DOM-free authoring logic for the roadmap editor (T4). The editor panel
-// (RoadmapEditorPanel.tsx) owns rendering and IPC; every structural transform —
-// add/remove/move a step, split/merge a track, snapshot an epic, decide the save
-// path — lives here so it is unit-testable without a DOM.
+// The roadmap editor's read-model adapters: the renderer-scan-coupled half of the
+// authoring engine. The pure, renderer-free structural transforms (add/remove/move a
+// step, split/merge a track, decide the save path, construct an entry) were promoted
+// to src/shared/backlog/roadmapAuthoring.ts (T6) so the human editor and the agent-
+// facing `roadmap.*` automation tools share ONE transform engine; they are re-exported
+// below so every consumer of this path keeps importing them unchanged.
 //
-// This module consumes the T3 substrate (src/shared/backlog/roadmap.ts): the
-// canonical body serializer (renderRoadmapBody), the frontmatter-only policy
-// writer (setRoadmapPolicy), and the parse/validate/eligibility contract. It adds
-// no orchestration behavior. It imports only node-safe modules (the shared roadmap
-// module, the shared frontmatter helper, and the pure backlog read model), so it
-// runs under the esbuild→node test harness like backlogEpics.test.ts.
+// What stays here needs the renderer read model (BacklogItem, childrenOfEpic,
+// normalizeRelativePath, BacklogItemSearchOption): the BacklogItem → shared-contract
+// adapters, the cross-project library rail, epic-child snapshotting, and the two entry
+// constructors that snapshot from a live scan. These cannot live in shared, which must
+// not import renderer modules.
 
 import {
-  parseBacklogFrontmatter,
-} from '../../../../shared/backlog/frontmatter'
-import {
-  DEFAULT_ROADMAP_POLICY,
   ROADMAP_TYPE,
-  renderRoadmapBody,
   roadmapEpicDrift,
   roadmapRefSlug,
-  setRoadmapPolicy,
-  type Roadmap,
+  type ProjectKey,
   type RoadmapEntry,
   type RoadmapLane,
-  type RoadmapPolicy,
 } from '../../../../shared/backlog/roadmap'
+import {
+  addEntry,
+  authoredRef,
+  buildRoadmapEntry,
+  draftContainsRef,
+  insertEntry,
+  isEpicRef,
+  type RoadmapDraft,
+} from '../../../../shared/backlog/roadmapAuthoring'
 import type { BacklogItemSearchOption } from './BacklogItemSearchPicker'
 import { childrenOfEpic } from '../../utils/backlogEpics'
 import { normalizeRelativePath, type BacklogItem } from '../../utils/backlog'
 
-// The plain-human default name for the first track of a new roadmap. Track titles
-// are the markdown `## ` headings the author edits; "Up next" reads as a person
-// would say it (house rule: no "lane"/"eligibility" jargon in the UI).
-export const DEFAULT_TRACK_TITLE = 'Up next'
-const EPICS_DIR_PREFIX = 'backlog/epics/'
-
-// The editable roadmap the panel holds while the author works. It is exactly the
-// structural subset of a parsed Roadmap the editor can change — title, execution
-// policy, and the ordered tracks — separated from the parse-only fields (issues,
-// preserved body) so a draft round-trips through renderRoadmapBody cleanly.
-export type RoadmapDraft = {
-  title: string | undefined
-  policy: RoadmapPolicy
-  lanes: RoadmapLane[]
-}
-
-// A draft seeded from a freshly parsed roadmap. Lanes/entries are deep-copied so
-// the editor's immutable transforms never mutate the parsed model behind it.
-export function draftFromRoadmap(roadmap: Roadmap): RoadmapDraft {
-  return {
-    title: roadmap.title,
-    policy: { ...roadmap.policy },
-    lanes: cloneLanes(roadmap.lanes),
-  }
-}
-
-function cloneLanes(lanes: ReadonlyArray<RoadmapLane>): RoadmapLane[] {
-  return lanes.map((lane) => ({
-    title: lane.title,
-    entries: lane.entries.map((entry) => ({ ...entry, children: [...entry.children] })),
-  }))
-}
+// The pure transform engine, re-exported so the editor panel / planning view / tests
+// keep importing add/remove/move/save from this path with no signature change.
+export {
+  DEFAULT_TRACK_TITLE,
+  addEntry,
+  addLane,
+  authoredRef,
+  buildRoadmapEntry,
+  composeRoadmapSaveContent,
+  draftContainsRef,
+  draftFromRoadmap,
+  insertEntry,
+  isDraftDirty,
+  isEpicRef,
+  mergeLaneDown,
+  moveEntry,
+  newRoadmapFileContent,
+  policyChanged,
+  projectsChanged,
+  removeEntry,
+  removeLane,
+  renameLane,
+  roadmapProjectAlias,
+  splitAuthoredRef,
+  splitLane,
+  structureChanged,
+} from '../../../../shared/backlog/roadmapAuthoring'
+export type { RoadmapDraft } from '../../../../shared/backlog/roadmapAuthoring'
 
 // ---------------------------------------------------------------------------
 // Read-model adapters (BacklogItem -> the shared contract's structural subset)
@@ -120,12 +119,217 @@ export function entryPickerOptions(
 }
 
 // ---------------------------------------------------------------------------
-// Entry construction + epic snapshotting
+// Cross-project planning (MC-1690): one plan, every project's backlog
 // ---------------------------------------------------------------------------
 
-export function isEpicRef(ref: string): boolean {
-  return normalizeRelativePath(ref).startsWith(EPICS_DIR_PREFIX)
+// One project's backlog, tagged with the identity the roadmap file uses for it:
+// `projectKey` is the D2 alias, or `null` for the HOME project (unqualified refs).
+// `path` is the absolute project root recorded in the `projects:` frontmatter map
+// when a cross-project entry is first added (home is never stored — its refs are
+// unqualified). `items` is that project's live backlog scan.
+export type RoadmapProjectItems = {
+  projectKey: ProjectKey
+  projectName: string
+  path: string
+  items: ReadonlyArray<BacklogItem>
 }
+
+// Display identity keyed by AUTHORED ref across every project the plan spans, so a
+// step row resolves its title/id/status even when two projects hold a same-named
+// file (their authored refs differ by the `alias:` prefix). The single-project
+// refDisplayMap is the degenerate case (one home project).
+export function refDisplayMapMulti(projects: ReadonlyArray<RoadmapProjectItems>): Map<string, RoadmapRefDisplay> {
+  const map = new Map<string, RoadmapRefDisplay>()
+  for (const project of projects) {
+    for (const item of project.items) {
+      map.set(authoredRef(project.projectKey, item.relativePath), {
+        title: item.title,
+        displayId: item.displayId,
+        status: item.status,
+      })
+    }
+  }
+  return map
+}
+
+// The per-item state validate/eligibility read, tagged with each item's project so
+// cross-project units never merge (the shared contract keys on `projectKey`). `ref`
+// is the project-relative path; slugs and dependsOn resolve within the same project.
+export function roadmapItemStatesMulti(
+  projects: ReadonlyArray<RoadmapProjectItems>,
+): Array<{ ref: string; status: BacklogItem['status']; dependsOn?: string[]; projectKey: ProjectKey }> {
+  const states: Array<{ ref: string; status: BacklogItem['status']; dependsOn?: string[]; projectKey: ProjectKey }> = []
+  for (const project of projects) {
+    for (const item of project.items) {
+      states.push({
+        ref: normalizeRelativePath(item.relativePath),
+        status: item.status,
+        dependsOn: item.dependsOn,
+        projectKey: project.projectKey,
+      })
+    }
+  }
+  return states
+}
+
+// Picker candidates across every project: the reused keyboard-first alternate to
+// dragging. `value` is the authored ref (project-qualified for non-home), so adding
+// via the picker and dragging from the library produce the identical entry.
+// searchText widens matching to the project name + slug.
+export function entryPickerOptionsMulti(
+  projects: ReadonlyArray<RoadmapProjectItems>,
+): BacklogItemSearchOption[] {
+  const options: BacklogItemSearchOption[] = []
+  for (const project of projects) {
+    for (const item of project.items) {
+      if (item.status === 'archived') continue
+      if (item.rawType === ROADMAP_TYPE) continue
+      const ref = authoredRef(project.projectKey, item.relativePath)
+      options.push({
+        id: ref,
+        value: ref,
+        title: item.title,
+        displayId: item.displayId,
+        searchText: `${project.projectName} ${roadmapRefSlug(item.relativePath)}`,
+      })
+    }
+  }
+  return options
+}
+
+// ---------------------------------------------------------------------------
+// The cross-project library feed (the planning rail's source of truth)
+// ---------------------------------------------------------------------------
+
+// A snapshotted child preview shown under an expanded epic in the library rail.
+export type RoadmapLibraryChild = { ref: string; title: string; displayId?: string }
+
+// One draggable row in the library rail: a loose backlog item, or an epic that
+// drops in as a single step carrying its snapshotted children. `ref` is the
+// authored ref (what lands in the plan); `planned` dims (never hides) a row already
+// in the draft, so the author sees what is placed without losing it from the list.
+export type RoadmapLibraryEntry = {
+  kind: 'item' | 'epic'
+  ref: string
+  projectKey: ProjectKey
+  relativePath: string
+  title: string
+  displayId?: string
+  children: RoadmapLibraryChild[]
+  planned: boolean
+}
+
+// A project's section in the library rail: its name and its draggable rows.
+export type RoadmapLibraryGroup = {
+  projectKey: ProjectKey
+  projectName: string
+  entries: RoadmapLibraryEntry[]
+}
+
+// The authored refs already placed in the draft: every entry ref, plus each
+// snapshotted epic child (resolved to its authored ref, inheriting the epic's
+// project). A library item is "planned" when its ref is in this set; an epic is
+// planned when its own entry ref is (its children dim individually via this set).
+function plannedRefSet(lanes: ReadonlyArray<RoadmapLane>): Set<string> {
+  const placed = new Set<string>()
+  for (const lane of lanes) {
+    for (const entry of lane.entries) {
+      placed.add(entry.ref)
+      if (entry.kind === 'epic') {
+        for (const child of entry.children) {
+          // A child carries its own `alias:` only if authored that way; otherwise
+          // it inherits the epic entry's project.
+          placed.add(child.includes(':') ? normalizeRelativePath(child) : authoredRef(entry.projectKey, child))
+        }
+      }
+    }
+  }
+  return placed
+}
+
+function matchesQuery(query: string, ...fields: Array<string | undefined>): boolean {
+  if (query === '') return true
+  const needle = query.toLowerCase()
+  return fields.some((field) => field !== undefined && field.toLowerCase().includes(needle))
+}
+
+// Build the grouped library feed from every project's live scan. Epics list first
+// (each expandable to its snapshotted children), then the loose items that are not
+// members of any epic — a member is dragged in via its epic, never twice. Roadmaps
+// and archived items are excluded (a roadmap never references another; an archived
+// item is not runnable work). A non-empty `query` filters rows by title, id, or
+// slug (an epic is kept if it or any child matches); empty groups are dropped so
+// the rail shows only projects with matching work.
+export function buildRoadmapLibrary(
+  projects: ReadonlyArray<RoadmapProjectItems>,
+  lanes: ReadonlyArray<RoadmapLane>,
+  query = '',
+): RoadmapLibraryGroup[] {
+  const placed = plannedRefSet(lanes)
+  const trimmedQuery = query.trim()
+  const groups: RoadmapLibraryGroup[] = []
+
+  for (const project of projects) {
+    const usable = project.items.filter((item) => item.status !== 'archived' && item.rawType !== ROADMAP_TYPE)
+    const entries: RoadmapLibraryEntry[] = []
+
+    for (const epic of usable) {
+      if (!epic.isEpic) continue
+      const slug = roadmapRefSlug(epic.relativePath)
+      const children = childrenOfEpic([...project.items], slug)
+        .filter((child) => child.status !== 'archived')
+        .map<RoadmapLibraryChild>((child) => ({
+          ref: normalizeRelativePath(child.relativePath),
+          title: child.title,
+          displayId: child.displayId,
+        }))
+      const ref = authoredRef(project.projectKey, epic.relativePath)
+      if (
+        trimmedQuery !== '' &&
+        !matchesQuery(trimmedQuery, epic.title, epic.displayId, slug) &&
+        !children.some((child) => matchesQuery(trimmedQuery, child.title, child.displayId))
+      ) {
+        continue
+      }
+      entries.push({
+        kind: 'epic',
+        ref,
+        projectKey: project.projectKey,
+        relativePath: normalizeRelativePath(epic.relativePath),
+        title: epic.title,
+        displayId: epic.displayId,
+        children,
+        planned: placed.has(ref),
+      })
+    }
+
+    for (const item of usable) {
+      if (item.isEpic || item.epic) continue
+      const slug = roadmapRefSlug(item.relativePath)
+      if (trimmedQuery !== '' && !matchesQuery(trimmedQuery, item.title, item.displayId, slug)) continue
+      const ref = authoredRef(project.projectKey, item.relativePath)
+      entries.push({
+        kind: 'item',
+        ref,
+        projectKey: project.projectKey,
+        relativePath: normalizeRelativePath(item.relativePath),
+        title: item.title,
+        displayId: item.displayId,
+        children: [],
+        planned: placed.has(ref),
+      })
+    }
+
+    if (entries.length > 0) {
+      groups.push({ projectKey: project.projectKey, projectName: project.projectName, entries })
+    }
+  }
+  return groups
+}
+
+// ---------------------------------------------------------------------------
+// Entry construction + epic snapshotting (scan-coupled)
+// ---------------------------------------------------------------------------
 
 // The child references an epic contributes, in a deterministic snapshot order.
 // V1 plans are static: the children are captured EXPLICITLY at add time so the
@@ -143,16 +347,49 @@ export function snapshotEpicChildren(
   return childrenOfEpic([...items], slug).map((child) => normalizeRelativePath(child.relativePath))
 }
 
-// Build a lane entry for a picked ref. An epic ref snapshots its children now; an
-// item ref carries none. A ref that resolves to no known item is still added as
-// an entry (kind decided by path) — validateRoadmap surfaces it as dangling, so a
-// stale pick is visible, never silently dropped (Fallback Discipline).
+// Build a lane entry for a picked home-project ref (the keyboard picker and the
+// single-project Backlog editor). An epic ref snapshots its children now; an item
+// ref carries none. A ref that resolves to no known item is still added as an entry
+// (kind decided by path) — validateRoadmap surfaces it as dangling, so a stale pick
+// is visible, never silently dropped (Fallback Discipline).
 export function makeEntry(items: ReadonlyArray<BacklogItem>, ref: string): RoadmapEntry {
   const normalized = normalizeRelativePath(ref)
-  if (isEpicRef(normalized)) {
-    return { kind: 'epic', ref: normalized, children: snapshotEpicChildren(items, normalized) }
-  }
-  return { kind: 'item', ref: normalized, children: [] }
+  const children = isEpicRef(normalized) ? snapshotEpicChildren(items, normalized) : []
+  return buildRoadmapEntry(null, normalized, children)
+}
+
+// Build a lane entry for a ref in a specific project. An epic snapshots its
+// children from THAT project's scan (stored unqualified — they inherit the epic
+// entry's project on read); an item carries none. The stored `entry.ref` is the
+// authored ref, so a home entry stays unqualified and an aliased entry keeps its
+// `alias:` prefix — round-tripping through renderRoadmapBody unchanged.
+export function makeProjectEntry(project: RoadmapProjectItems, relativePath: string): RoadmapEntry {
+  const normalized = normalizeRelativePath(relativePath)
+  const children = isEpicRef(normalized) ? snapshotEpicChildren(project.items, normalized) : []
+  return buildRoadmapEntry(project.projectKey, normalized, children)
+}
+
+// Add a library row to a track, registering the source project's alias in the
+// draft's `projects:` map the first time a non-home project contributes a step (so
+// its refs resolve on save, D2). A ref already present anywhere in the draft is a
+// no-op (no duplicate steps). Home-project rows add no alias — their refs stay
+// unqualified. Returns a new draft; the caller replaces state with it.
+export function addLibraryEntry(
+  draft: RoadmapDraft,
+  laneIndex: number,
+  project: RoadmapProjectItems,
+  relativePath: string,
+  index?: number,
+): RoadmapDraft {
+  const entry = makeProjectEntry(project, relativePath)
+  if (draftContainsRef(draft.lanes, entry.ref)) return draft
+  const projects =
+    project.projectKey && !draft.projects.some((existing) => existing.alias === project.projectKey)
+      ? [...draft.projects, { alias: project.projectKey, path: project.path }]
+      : draft.projects
+  const lanes =
+    index === undefined ? addEntry(draft.lanes, laneIndex, entry) : insertEntry(draft.lanes, laneIndex, index, entry)
+  return { ...draft, projects, lanes }
 }
 
 // The gained/removed drift between an epic entry's stored snapshot and the epic's
@@ -167,97 +404,6 @@ export function epicEntryDrift(
   const { gained, removed } = roadmapEpicDrift(entry, live)
   if (gained.length === 0 && removed.length === 0) return null
   return { gained, removed }
-}
-
-// Whether a ref already appears anywhere in the draft (as an entry ref). Used to
-// keep the picker from adding the same item to a track twice.
-export function draftContainsRef(lanes: ReadonlyArray<RoadmapLane>, ref: string): boolean {
-  const normalized = normalizeRelativePath(ref)
-  return lanes.some((lane) => lane.entries.some((entry) => entry.ref === normalized))
-}
-
-// ---------------------------------------------------------------------------
-// Immutable track/step transforms (each returns a new lanes array)
-// ---------------------------------------------------------------------------
-
-export function addEntry(lanes: RoadmapLane[], laneIndex: number, entry: RoadmapEntry): RoadmapLane[] {
-  return lanes.map((lane, index) =>
-    index === laneIndex ? { ...lane, entries: [...lane.entries, entry] } : lane,
-  )
-}
-
-export function removeEntry(lanes: RoadmapLane[], laneIndex: number, entryIndex: number): RoadmapLane[] {
-  return lanes.map((lane, index) =>
-    index === laneIndex
-      ? { ...lane, entries: lane.entries.filter((_, i) => i !== entryIndex) }
-      : lane,
-  )
-}
-
-// Move a step to a new position, within its track or across tracks. `toIndex` is
-// the insert index in the destination track BEFORE removal, interpreted against
-// the post-removal list when the move stays in the same track — the standard
-// splice-reorder adjustment — so dropping a step just after its old slot is a
-// no-op rather than an off-by-one.
-export function moveEntry(
-  lanes: RoadmapLane[],
-  from: { lane: number; index: number },
-  to: { lane: number; index: number },
-): RoadmapLane[] {
-  const source = lanes[from.lane]
-  if (!source) return lanes
-  const moved = source.entries[from.index]
-  if (!moved) return lanes
-
-  const next = lanes.map((lane) => ({ ...lane, entries: [...lane.entries] }))
-  next[from.lane].entries.splice(from.index, 1)
-  let insertAt = to.index
-  if (from.lane === to.lane && from.index < to.index) insertAt -= 1
-  insertAt = Math.max(0, Math.min(insertAt, next[to.lane].entries.length))
-  next[to.lane].entries.splice(insertAt, 0, moved)
-  return next
-}
-
-export function addLane(lanes: RoadmapLane[], title = DEFAULT_TRACK_TITLE): RoadmapLane[] {
-  return [...lanes, { title: uniqueLaneTitle(lanes, title), entries: [] }]
-}
-
-export function renameLane(lanes: RoadmapLane[], laneIndex: number, title: string): RoadmapLane[] {
-  return lanes.map((lane, index) => (index === laneIndex ? { ...lane, title } : lane))
-}
-
-export function removeLane(lanes: RoadmapLane[], laneIndex: number): RoadmapLane[] {
-  return lanes.filter((_, index) => index !== laneIndex)
-}
-
-// Split a track at a step boundary: steps from `entryIndex` onward move to a new
-// track inserted directly after. A split at 0 or past the end is a no-op (nothing
-// to peel off). The new track borrows the source title with a "cont." suffix so
-// the author can see which half is which and rename it.
-export function splitLane(lanes: RoadmapLane[], laneIndex: number, entryIndex: number): RoadmapLane[] {
-  const lane = lanes[laneIndex]
-  if (!lane) return lanes
-  if (entryIndex <= 0 || entryIndex >= lane.entries.length) return lanes
-  const head: RoadmapLane = { title: lane.title, entries: lane.entries.slice(0, entryIndex) }
-  const tail: RoadmapLane = {
-    title: uniqueLaneTitle(lanes, `${lane.title} (cont.)`),
-    entries: lane.entries.slice(entryIndex),
-  }
-  const next = [...lanes]
-  next.splice(laneIndex, 1, head, tail)
-  return next
-}
-
-// Merge a track into the one directly below it, appending this track's steps to
-// the next track's and keeping the next track's title. A no-op on the last track.
-export function mergeLaneDown(lanes: RoadmapLane[], laneIndex: number): RoadmapLane[] {
-  if (laneIndex < 0 || laneIndex >= lanes.length - 1) return lanes
-  const upper = lanes[laneIndex]
-  const lower = lanes[laneIndex + 1]
-  const merged: RoadmapLane = { title: lower.title, entries: [...upper.entries, ...lower.entries] }
-  const next = [...lanes]
-  next.splice(laneIndex, 2, merged)
-  return next
 }
 
 // Re-sync an epic entry's snapshot to the epic's live membership (the one-click
@@ -279,95 +425,4 @@ export function resyncEpicEntry(
       }),
     }
   })
-}
-
-function uniqueLaneTitle(lanes: ReadonlyArray<RoadmapLane>, base: string): string {
-  const taken = new Set(lanes.map((lane) => lane.title))
-  if (!taken.has(base)) return base
-  for (let n = 2; ; n += 1) {
-    const candidate = `${base} ${n}`
-    if (!taken.has(candidate)) return candidate
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Dirty tracking + save composition
-// ---------------------------------------------------------------------------
-
-// True when the draft's structure (title, tracks, steps, snapshots) differs from
-// the baseline — i.e. anything renderRoadmapBody would emit differently. Policy is
-// a separate axis (policyChanged), because a policy-only edit takes the
-// frontmatter-only write path that preserves the body byte-for-byte.
-export function structureChanged(baseline: RoadmapDraft, draft: RoadmapDraft): boolean {
-  return renderRoadmapBody(baseline) !== renderRoadmapBody(draft)
-}
-
-export function policyChanged(baseline: RoadmapDraft, draft: RoadmapDraft): boolean {
-  return policyDiff(baseline.policy, draft.policy) !== null
-}
-
-export function isDraftDirty(baseline: RoadmapDraft, draft: RoadmapDraft): boolean {
-  return structureChanged(baseline, draft) || policyChanged(baseline, draft)
-}
-
-// The subset of policy fields the draft changed, or null when identical. Only
-// changed fields are written, so setRoadmapPolicy touches the minimum frontmatter.
-function policyDiff(baseline: RoadmapPolicy, next: RoadmapPolicy): Partial<RoadmapPolicy> | null {
-  const diff: Partial<RoadmapPolicy> = {}
-  if (baseline.advance !== next.advance) diff.advance = next.advance
-  if (baseline.merge !== next.merge) diff.merge = next.merge
-  if (baseline.concurrency !== next.concurrency) diff.concurrency = next.concurrency
-  return Object.keys(diff).length > 0 ? diff : null
-}
-
-// Compose the file content to write for a save, given the ORIGINAL on-disk content
-// and the current baseline/draft.
-//   - Policy-only edit: setRoadmapPolicy rewrites just the changed frontmatter
-//     scalars and preserves the body byte-for-byte (the frontmatter-discipline
-//     guarantee inherited from backlog-service).
-//   - Structural edit: the body is re-emitted in canonical form by
-//     renderRoadmapBody, spliced onto the (policy-updated) frontmatter block. The
-//     frontmatter block itself is preserved exactly.
-// Returns the original content unchanged when nothing is dirty.
-export function composeRoadmapSaveContent(
-  originalContent: string,
-  baseline: RoadmapDraft,
-  draft: RoadmapDraft,
-): string {
-  const diff = policyDiff(baseline.policy, draft.policy)
-  const withPolicy = diff ? setRoadmapPolicy(originalContent, diff) : originalContent
-  if (!structureChanged(baseline, draft)) return withPolicy
-  return replaceBody(withPolicy, renderRoadmapBody(draft))
-}
-
-// Swap a file's markdown body while preserving its frontmatter block byte-for-byte.
-// parseBacklogFrontmatter returns the body as the suffix after the frontmatter
-// block, so the block is exactly the prefix before it. The blank line that
-// customarily separates frontmatter from body lives at the head of `body`, so its
-// leading blank-line run is carried over — a structural save keeps the same
-// separator the file was authored with (renderRoadmapBody emits none of its own).
-function replaceBody(content: string, newBody: string): string {
-  const { body } = parseBacklogFrontmatter(content)
-  const frontmatterBlock = content.slice(0, content.length - body.length)
-  const leadingBlankLines = /^(?:[ \t]*\r?\n)+/.exec(body)?.[0] ?? ''
-  return frontmatterBlock + leadingBlankLines + newBody
-}
-
-// The full file content for a brand-new roadmap: a minimal frontmatter block
-// (type + a calm default status + the V1 default policy) over a canonical body
-// with one empty track. The scan's id-allocation pass mints the `id:` on first
-// discovery, so it is intentionally omitted here.
-export function newRoadmapFileContent(title: string, policy: RoadmapPolicy = DEFAULT_ROADMAP_POLICY): string {
-  const frontmatter = [
-    '---',
-    `type: ${ROADMAP_TYPE}`,
-    'status: idea',
-    `advance: ${policy.advance}`,
-    `merge: ${policy.merge}`,
-    `concurrency: ${policy.concurrency}`,
-    '---',
-    '',
-  ].join('\n')
-  const body = renderRoadmapBody({ title, lanes: [{ title: DEFAULT_TRACK_TITLE, entries: [] }] })
-  return frontmatter + body
 }

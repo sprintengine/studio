@@ -53,12 +53,13 @@ import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import {
   clearSprintEngineAgentLaunchState,
   dedupeAutomationsHostWorkspaces,
+  dropRetiredRoadmapWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 64
+export const WORKSPACE_STORE_VERSION = 65
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1008,6 +1009,23 @@ export function migratePersistedWorkspaceState(
     // also restores the kept host's stable 'Automations' name, which v63 left
     // branded after whichever run minted it.
     migrationState.workspaces = dedupeAutomationsHostWorkspaces(migrationState.workspaces ?? [])
+    if (
+      migrationState.activeWorkspaceId
+      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+    ) {
+      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
+    }
+  }
+  if (version < 65) {
+    // The `roadmap` workspace mode retired (MC-1692): Roadmap is now an
+    // instance-global sidebar surface, not a per-project workspace you mint from
+    // the picker. Drop any persisted roadmap-mode workspace — its only content
+    // was the board lens, and the roadmap plan itself lives on disk under the
+    // home project's `backlog/roadmaps/`, read by the global surface, so nothing
+    // the user authored is lost. Window membership is reconciled by
+    // normalizeWorkspaceWindows during merge; keep the top-level active pointer
+    // honest too (mirrors the v62 automations-mode drop).
+    migrationState.workspaces = dropRetiredRoadmapWorkspaces(migrationState.workspaces ?? [])
     if (
       migrationState.activeWorkspaceId
       && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)

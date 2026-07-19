@@ -303,6 +303,7 @@ const carrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   connectorsSurface: { open: false, initialView: null },
+  roadmapSurface: { open: false },
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
@@ -324,6 +325,13 @@ slice.openConnectorsSurface()
 assert.equal(carrier.connectorsSurface.open, true)
 slice.closeConnectorsSurface()
 assert.equal(carrier.connectorsSurface.open, false)
+
+// The instance-global Roadmap surface flag toggles like Connectors (per-window,
+// unsynced/unpersisted — see extractSettingsFields, which omits it).
+slice.openRoadmapSurface()
+assert.equal(carrier.roadmapSurface.open, true)
+slice.closeRoadmapSurface()
+assert.equal(carrier.roadmapSurface.open, false)
 
 // Sprints aside view: partial patches merge into the existing axes so setting
 // one axis never resets the others.
@@ -395,6 +403,7 @@ const permissionCarrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   connectorsSurface: { open: false, initialView: null },
+  roadmapSurface: { open: false },
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,

@@ -6,6 +6,16 @@
 // and the pure eligibility function. It adds NO orchestration behavior — it is
 // inert until MC-1619 consumes it.
 //
+// INSTANCE-GLOBAL model (MC-1688): a single roadmap per Multicode may reference
+// backlog items from ANY project the instance knows. Frontmatter carries a
+// `projects:` alias map (`alias -> absolute project root`); an entry ref is either
+// unqualified (`backlog/foo.md` — the HOME project that owns the roadmap file) or
+// alias-qualified (`mobile:backlog/foo.md`). Unqualified refs keep every existing
+// single-project roadmap valid with no ref migration (D2). A project key is the
+// alias, or `null` for the home project; `(projectKey, relativePath)` is the item
+// identity, and `qualifiedRef` renders it to the string key the graph edges,
+// run-links, and lane runtime use.
+//
 // Node-free by construction (tsconfig.web-safe): it must never import from
 // src/main, and — because src/shared cannot import renderer types either — it
 // re-uses only the shared status payload union (BacklogItemStatusPayload) and the
@@ -36,6 +46,18 @@ export const ROADMAP_TYPE = 'roadmap'
 export const ROADMAPS_DIR_PREFIX = 'backlog/roadmaps/'
 const EPICS_DIR_PREFIX = 'backlog/epics/'
 const BACKLOG_DIR_PREFIX = 'backlog/'
+
+// The project a ref resolves to: an alias string, or `null` for the home project
+// (the project whose repo holds the roadmap file). The home project is always
+// resolvable; an alias is resolvable only when the driver can map it to a known
+// workspace root.
+export type ProjectKey = string | null
+
+// One `projects:` frontmatter entry: an alias and the absolute project root it
+// names. Absolute paths are machine-specific by design (D2) and repairable — an
+// alias whose path is not among the known roots parks the lane `unknown_project`,
+// never a silent drop.
+export type RoadmapProjectAlias = { alias: string; path: string }
 
 // A roadmap's execution policy, all frontmatter scalars with V1 defaults.
 export type RoadmapAdvancePolicy = 'approve' | 'auto'
@@ -72,11 +94,18 @@ export type RoadmapEntryKind = 'item' | 'epic' | 'unknown'
 
 export type RoadmapEntry = {
   kind: RoadmapEntryKind
-  // Project-relative backlog reference, e.g. 'backlog/foo.md' or
-  // 'backlog/epics/auth.md'. Normalized (forward slashes, no leading slash).
+  // The raw authored reference, verbatim (byte-stable render key), e.g.
+  // 'backlog/foo.md' or 'mobile:backlog/epics/auth.md'. Normalized (forward
+  // slashes, no leading slash) but keeps its `alias:` prefix.
   ref: string
-  // Snapshotted child references for an epic entry, in the stored order. Empty
-  // for item/unknown entries. Each child is itself a plain backlog ref.
+  // The project the ref resolves to: an alias, or `null` for the home project.
+  projectKey: ProjectKey
+  // The project-relative backlog path with any `alias:` prefix stripped, e.g.
+  // 'backlog/foo.md'. This is the path within `projectKey`'s root.
+  relativePath: string
+  // Snapshotted child references for an epic entry, in the stored order (raw,
+  // verbatim). Empty for item/unknown entries. Each child inherits the entry's
+  // project unless it carries its own `alias:` prefix.
   children: string[]
 }
 
@@ -89,15 +118,28 @@ export type RoadmapLane = {
 // A structural problem found while parsing the body, surfaced rather than thrown
 // so a malformed roadmap still parses into the best-effort model the UI can show.
 export type RoadmapParseIssue = {
-  // 1-based line number within the body (frontmatter excluded).
+  // 1-based line number within the body (frontmatter excluded); 0 for
+  // frontmatter-level issues (unknown/duplicate alias) that have no body line.
   line: number
-  kind: 'entry_before_lane' | 'child_before_entry' | 'child_under_non_epic' | 'unparseable_entry'
+  kind:
+    | 'entry_before_lane'
+    | 'child_before_entry'
+    | 'child_under_non_epic'
+    | 'unparseable_entry'
+    // An entry (or child) uses an `alias:` prefix that the frontmatter
+    // `projects:` map does not define — the lane cannot resolve a project.
+    | 'unknown_alias'
+    // The `projects:` map declares the same alias more than once.
+    | 'duplicate_alias'
   message: string
 }
 
 export type Roadmap = {
   // Parsed frontmatter policy scalars.
   policy: RoadmapPolicy
+  // The `projects:` alias map, in authored order (duplicates preserved so
+  // validation can flag them). Empty for a single-project (home-only) roadmap.
+  projects: RoadmapProjectAlias[]
   // Frontmatter `status:` when a valid lifecycle status, else undefined.
   status?: BacklogItemStatusPayload
   // Frontmatter `id:` integer when present and parseable.
@@ -125,44 +167,109 @@ export function isRoadmapContent(relativePath: string, frontmatterType: string |
   return isRoadmapRelativePath(relativePath) || frontmatterType === ROADMAP_TYPE
 }
 
-// The stable per-item slug = the file's name stem, independent of its directory.
-// Mirrors backlogItemSlugFromPath (src/renderer/src/utils/backlog.ts) — the key
-// the `dependsOn:` and `epic:` pointers reference — re-spelled here to stay
-// node-free and renderer-free.
+// The stable per-item slug = the file's name stem, independent of its directory
+// (and of any `alias:` prefix). Mirrors backlogItemSlugFromPath
+// (src/renderer/src/utils/backlog.ts) — the key the `dependsOn:` and `epic:`
+// pointers reference — re-spelled here to stay node-free and renderer-free.
 export function roadmapRefSlug(ref: string): string {
-  const name = normalizeRef(ref).split('/').filter(Boolean).at(-1) ?? ref
+  const relativePath = splitAliasRef(ref).relativePath
+  const name = relativePath.split('/').filter(Boolean).at(-1) ?? relativePath
   return name.replace(/\.(md|html?)$/i, '')
+}
+
+// The graph/runtime identity of a resolved reference: the project key joined to
+// the project-relative path. Home = `':backlog/foo.md'`; alias =
+// `'mobile:backlog/foo.md'`. Unique across projects (an alias can never contain
+// `:`), so two same-named items in different projects never collide, and a lane's
+// edges, run-links, and active handle all key off this one string.
+export function qualifiedRef(projectKey: ProjectKey, relativePath: string): string {
+  return `${projectKey ?? ''}:${relativePath}`
+}
+
+// The inverse of `qualifiedRef`: split an identity key back into its project key
+// (empty prefix = the home project, null) and its project-relative path. Used by
+// the driver to map a persisted lane handle to a project root + backlog file.
+export function splitQualifiedRef(key: string): { projectKey: ProjectKey; relativePath: string } {
+  const colon = key.indexOf(':')
+  if (colon < 0) return { projectKey: null, relativePath: key }
+  const alias = key.slice(0, colon)
+  return { projectKey: alias.length > 0 ? alias : null, relativePath: key.slice(colon + 1) }
 }
 
 function normalizeRef(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/').trim()
 }
 
-// A backlog reference is one that points into the backlog tree at a source file.
-function looksLikeBacklogRef(value: string): boolean {
-  const normalized = normalizeRef(value)
-  return normalized.startsWith(BACKLOG_DIR_PREFIX) && /\.(md|html?)$/i.test(normalized)
+// Split an authored ref into its optional `alias:` prefix and the project-relative
+// path. An alias is the token before the first colon WHEN that colon precedes any
+// slash — a backlog path (`backlog/...`) never carries a colon, so a leading
+// `alias:` is unambiguous. No colon (or a colon inside the path) → home project.
+function splitAliasRef(rawRef: string): { alias: string | null; relativePath: string } {
+  const normalized = rawRef.replace(/\\/g, '/').replace(/^\/+/, '').trim()
+  const colon = normalized.indexOf(':')
+  const slash = normalized.indexOf('/')
+  if (colon > 0 && (slash === -1 || colon < slash) && ALIAS_TOKEN_RE.test(normalized.slice(0, colon))) {
+    return { alias: normalized.slice(0, colon), relativePath: normalizeRef(normalized.slice(colon + 1)) }
+  }
+  return { alias: null, relativePath: normalizeRef(normalized) }
 }
 
-function entryKindForRef(ref: string): Exclude<RoadmapEntryKind, 'unknown'> {
-  return normalizeRef(ref).startsWith(EPICS_DIR_PREFIX) ? 'epic' : 'item'
+const ALIAS_TOKEN_RE = /^[A-Za-z0-9._-]+$/
+
+// Resolve an authored ref against an inherited project (the home project for a
+// top-level entry; the parent epic's project for a snapshotted child) and the set
+// of aliases the frontmatter declares. An alias not in the map still resolves to
+// that alias key (so the lane parks `unknown_project` downstream, never drops) but
+// is flagged so the author sees an `unknown_alias` issue.
+function resolveRef(
+  rawRef: string,
+  inherited: ProjectKey,
+  knownAliases: ReadonlySet<string>,
+): { ref: string; projectKey: ProjectKey; relativePath: string; unknownAlias: boolean } {
+  const { alias, relativePath } = splitAliasRef(rawRef)
+  if (alias === null) {
+    return { ref: normalizeRef(rawRef), projectKey: inherited, relativePath, unknownAlias: false }
+  }
+  return {
+    ref: normalizeRef(rawRef),
+    projectKey: alias,
+    relativePath,
+    unknownAlias: !knownAliases.has(alias),
+  }
+}
+
+// A backlog reference is one that points into the backlog tree at a source file.
+// Applied to the project-relative path (alias prefix already stripped).
+function looksLikeBacklogRef(relativePath: string): boolean {
+  return relativePath.startsWith(BACKLOG_DIR_PREFIX) && /\.(md|html?)$/i.test(relativePath)
+}
+
+function entryKindForRelativePath(relativePath: string): Exclude<RoadmapEntryKind, 'unknown'> {
+  return relativePath.startsWith(EPICS_DIR_PREFIX) ? 'epic' : 'item'
 }
 
 // ---------------------------------------------------------------------------
 // Parse
 // ---------------------------------------------------------------------------
 
-// Parse a roadmap file into its policy, lanes, and preserved body. Never throws:
-// a body that breaks the entry/lane grammar still yields the best-effort lanes it
-// could recover plus a structured issue per offending line.
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
+
+// Parse a roadmap file into its policy, projects map, lanes, and preserved body.
+// Never throws: a body that breaks the entry/lane grammar still yields the
+// best-effort lanes it could recover plus a structured issue per offending line.
 export function parseRoadmap(content: string): Roadmap {
   const { fields, body } = parseBacklogFrontmatter(content)
   const policy = parseRoadmapPolicy(fields)
   const status = isBacklogStatus(fields.status) ? fields.status : undefined
   const numericId = parseNumericId(fields.id)
 
+  const frontmatterBlock = FRONTMATTER_RE.exec(content)?.[1] ?? ''
+  const projects = parseRoadmapProjectAliases(frontmatterBlock)
+  const knownAliases = new Set(projects.map((project) => project.alias))
+
   const lanes: RoadmapLane[] = []
   const issues: RoadmapParseIssue[] = []
+  addDuplicateAliasIssues(projects, issues)
   let title: string | undefined
   let currentLane: RoadmapLane | null = null
   let currentEntry: RoadmapEntry | null = null
@@ -191,36 +298,107 @@ export function parseRoadmap(content: string): Roadmap {
     const listItem = /^(\s*)-\s+(.*\S)\s*$/.exec(rawLine)
     if (!listItem) continue
     const indent = listItem[1].replace(/\t/g, '  ').length
-    const ref = normalizeRef(listItem[2].split(/\s+/)[0])
+    const rawToken = normalizeRef(listItem[2].split(/\s+/)[0])
 
     if (indent >= 2) {
       // An indented list item is a snapshotted child of the entry above it.
       if (!currentEntry) {
-        issues.push({ line: lineNumber, kind: 'child_before_entry', message: `Child "${ref}" has no parent entry.` })
+        issues.push({ line: lineNumber, kind: 'child_before_entry', message: `Child "${rawToken}" has no parent entry.` })
         continue
       }
       if (currentEntry.kind !== 'epic') {
-        issues.push({ line: lineNumber, kind: 'child_under_non_epic', message: `Child "${ref}" listed under a non-epic entry "${currentEntry.ref}".` })
+        issues.push({ line: lineNumber, kind: 'child_under_non_epic', message: `Child "${rawToken}" listed under a non-epic entry "${currentEntry.ref}".` })
         continue
       }
-      currentEntry.children.push(ref)
+      currentEntry.children.push(rawToken)
+      // A child inheriting an unknown alias (its own or the parent's) is flagged
+      // so the author sees the same signal a top-level entry would raise.
+      const childResolved = resolveRef(rawToken, currentEntry.projectKey, knownAliases)
+      if (childResolved.unknownAlias) {
+        issues.push({ line: lineNumber, kind: 'unknown_alias', message: `Child "${rawToken}" uses an undefined project alias.` })
+      }
       continue
     }
 
     // A top-level list item is a lane entry.
     if (!currentLane) {
-      issues.push({ line: lineNumber, kind: 'entry_before_lane', message: `Entry "${ref}" appears before any lane heading.` })
+      issues.push({ line: lineNumber, kind: 'entry_before_lane', message: `Entry "${rawToken}" appears before any lane heading.` })
       continue
     }
-    if (!looksLikeBacklogRef(ref)) {
+    const resolved = resolveRef(rawToken, null, knownAliases)
+    if (!looksLikeBacklogRef(resolved.relativePath)) {
       issues.push({ line: lineNumber, kind: 'unparseable_entry', message: `List item "${listItem[2]}" is not a backlog reference.` })
       continue
     }
-    currentEntry = { kind: entryKindForRef(ref), ref, children: [] }
+    if (resolved.unknownAlias) {
+      issues.push({ line: lineNumber, kind: 'unknown_alias', message: `Entry "${rawToken}" uses an undefined project alias.` })
+    }
+    currentEntry = {
+      kind: entryKindForRelativePath(resolved.relativePath),
+      ref: resolved.ref,
+      projectKey: resolved.projectKey,
+      relativePath: resolved.relativePath,
+      children: [],
+    }
     currentLane.entries.push(currentEntry)
   }
 
-  return { policy, status, numericId, title, lanes, body, issues }
+  return { policy, projects, status, numericId, title, lanes, body, issues }
+}
+
+// Parse the `projects:` frontmatter map. Supports the nested block form
+// (`projects:` then indented `alias: /path` lines) and the inline form
+// (`projects: { alias: /path, ... }`). Values are absolute project roots. Order
+// and duplicates are preserved so validation can flag a repeated alias.
+function parseRoadmapProjectAliases(frontmatterBlock: string): RoadmapProjectAlias[] {
+  const lines = frontmatterBlock.split(/\r?\n/)
+  const aliases: RoadmapProjectAlias[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const header = /^projects\s*:\s*(.*)$/i.exec(line)
+    if (!header) continue
+    const inline = header[1].trim()
+    if (inline.startsWith('{')) {
+      const inner = inline.replace(/^\{/, '').replace(/\}\s*$/, '')
+      for (const pair of inner.split(',')) {
+        const kv = /^\s*([A-Za-z0-9._-]+)\s*:\s*(.+?)\s*$/.exec(pair)
+        if (kv) aliases.push({ alias: kv[1], path: stripInlineQuotes(kv[2]) })
+      }
+      return aliases
+    }
+    // Block form: read subsequent indented `alias: path` lines until a dedent.
+    for (let child = index + 1; child < lines.length; child += 1) {
+      const childLine = lines[child]
+      if (childLine.trim() === '') continue
+      const kv = /^(\s+)([A-Za-z0-9._-]+)\s*:\s*(.+)$/.exec(childLine)
+      if (!kv) break
+      aliases.push({ alias: kv[2], path: stripInlineQuotes(kv[3].trim()) })
+    }
+    return aliases
+  }
+  return aliases
+}
+
+function stripInlineQuotes(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed.length >= 2) {
+    const first = trimmed[0]
+    const last = trimmed[trimmed.length - 1]
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) return trimmed.slice(1, -1)
+  }
+  return trimmed
+}
+
+function addDuplicateAliasIssues(projects: RoadmapProjectAlias[], issues: RoadmapParseIssue[]): void {
+  const seen = new Set<string>()
+  const reported = new Set<string>()
+  for (const project of projects) {
+    if (seen.has(project.alias) && !reported.has(project.alias)) {
+      reported.add(project.alias)
+      issues.push({ line: 0, kind: 'duplicate_alias', message: `Project alias "${project.alias}" is declared more than once.` })
+    }
+    seen.add(project.alias)
+  }
 }
 
 function parseRoadmapPolicy(fields: Record<string, string>): RoadmapPolicy {
@@ -276,6 +454,59 @@ export function setRoadmapPolicy(content: string, updates: Partial<RoadmapPolicy
   return serializeBacklogFrontmatterFields(content, frontmatterUpdates)
 }
 
+// Write the `projects:` alias map into the frontmatter as a nested block,
+// preserving every other frontmatter key/line and the body byte-for-byte. The
+// authoring UI (T3) calls this when a project's first item is dragged in. Emitting
+// an empty map removes the block entirely. Rewriting an unchanged map is a no-op
+// (byte-identical), so a re-save never churns the file. The nested block is the
+// form parseRoadmapProjectAliases reads and serializeBacklogFrontmatterFields
+// leaves untouched (it only edits top-level scalars).
+export function setRoadmapProjects(content: string, projects: ReadonlyArray<RoadmapProjectAlias>): string {
+  const match = FRONTMATTER_RE.exec(content)
+  const eol = content.includes('\r\n') ? '\r\n' : '\n'
+  const blockLines = renderProjectsBlock(projects, eol)
+
+  if (!match) {
+    if (projects.length === 0) return content
+    return `---${eol}${blockLines}${eol}---${eol}${content}`
+  }
+
+  // Drop any existing `projects:` header line plus its indented children, then
+  // splice the fresh block in the same position (or at the end if it was absent).
+  const originalLines = match[1].split(/\r?\n/)
+  const kept: string[] = []
+  let insertAt = -1
+  for (let index = 0; index < originalLines.length; index += 1) {
+    const line = originalLines[index]
+    if (/^projects\s*:/i.test(line)) {
+      insertAt = kept.length
+      // Skip the header and, for the block form, its indented children.
+      while (index + 1 < originalLines.length && /^\s+\S/.test(originalLines[index + 1])) index += 1
+      continue
+    }
+    kept.push(line)
+  }
+
+  if (projects.length > 0) {
+    const blockArray = blockLines.split(eol)
+    const at = insertAt >= 0 ? insertAt : kept.length
+    kept.splice(at, 0, ...blockArray)
+  }
+
+  const body = content.slice(match[0].length)
+  if (!kept.some((line) => line.trim().length > 0)) return body
+  const closeTrailing = /\r?\n$/.test(match[0]) ? eol : ''
+  const next = `---${eol}${kept.join(eol)}${eol}---${closeTrailing}${body}`
+  return next === content ? content : next
+}
+
+function renderProjectsBlock(projects: ReadonlyArray<RoadmapProjectAlias>, eol: string): string {
+  if (projects.length === 0) return ''
+  const lines = ['projects:']
+  for (const project of projects) lines.push(`  ${project.alias}: ${project.path}`)
+  return lines.join(eol)
+}
+
 // ---------------------------------------------------------------------------
 // Render (canonical body serializer — for the authoring UI, T4)
 // ---------------------------------------------------------------------------
@@ -284,7 +515,8 @@ export function setRoadmapPolicy(content: string, updates: Partial<RoadmapPolicy
 // edits (reorder, lane split/merge, add/remove entries) round-trip through this;
 // parse(renderRoadmapBody(...)) reproduces the same lanes/entries. The stored
 // file's body is preserved verbatim on frontmatter-only edits (setRoadmapPolicy);
-// this serializer is what T4 writes when the STRUCTURE changes.
+// this serializer is what T4 writes when the STRUCTURE changes. Entry refs keep
+// their `alias:` prefix (`entry.ref`), so a project-qualified plan round-trips.
 export function renderRoadmapBody(roadmap: Pick<Roadmap, 'title' | 'lanes'>): string {
   const out: string[] = []
   if (roadmap.title) {
@@ -306,9 +538,10 @@ export function renderRoadmapBody(roadmap: Pick<Roadmap, 'title' | 'lanes'>): st
 // ---------------------------------------------------------------------------
 
 export type RoadmapValidation = {
-  // Entry/child references that name no known backlog file, in first-seen order.
-  // Surfaced as "unknown", never dropped, so the author can clear a stale entry
-  // instead of the roadmap silently reading complete.
+  // Entry/child references that name no known backlog file, in first-seen order
+  // (raw refs, matching entry.ref). Surfaced as "unknown", never dropped, so the
+  // author can clear a stale entry instead of the roadmap silently reading
+  // complete.
   danglingRefs: string[]
   // Refs that sit on at least one cycle across roadmap-order edges and dependsOn
   // edges combined — an author error (something must run before itself).
@@ -321,40 +554,49 @@ export type RoadmapValidation = {
 // The minimal item state validate/eligibility read off each referenced backlog
 // item — a structural subset both the renderer read model (BacklogItem) and the
 // main-process listing satisfy, so callers adapt without importing this module's
-// internals. `dependsOn` are prerequisite slugs (filename stems), matching the
-// frontmatter axis.
+// internals. `ref` is the project-relative path; `projectKey` is its project
+// (omitted/undefined = the home project). `dependsOn` are prerequisite slugs
+// (filename stems), matching the frontmatter axis and resolved within the same
+// project.
 export type RoadmapItemState = {
   ref: string
   status: BacklogItemStatusPayload
   dependsOn?: string[]
+  projectKey?: ProjectKey
 }
 
+const itemProjectKey = (item: RoadmapItemState): ProjectKey => item.projectKey ?? null
+
 // Validate a parsed roadmap against the known backlog universe. `items` supplies
-// dependsOn edges (keyed by ref) for cycle detection; without a dependsOn axis a
-// roadmap's lane order is linear and cannot cycle. Dangling detection needs only
-// the set of known refs.
+// dependsOn edges (keyed within each project) for cycle detection; without a
+// dependsOn axis a roadmap's lane order is linear and cannot cycle. Dangling
+// detection needs only the set of known `(project, path)` pairs — an item in one
+// project never satisfies a same-named ref in another.
 export function validateRoadmap(
   roadmap: Roadmap,
   items: ReadonlyArray<RoadmapItemState>,
 ): RoadmapValidation {
-  const knownRefs = new Set<string>()
-  const slugToRef = new Map<string, string>()
+  const knownKeys = new Set<string>()
+  const slugToKey = new Map<string, string>() // (project\0slug) -> qualifiedRef
   for (const item of items) {
-    const ref = normalizeRef(item.ref)
-    knownRefs.add(ref)
-    slugToRef.set(roadmapRefSlug(ref), ref)
+    const project = itemProjectKey(item)
+    const key = qualifiedRef(project, normalizeRef(item.ref))
+    knownKeys.add(key)
+    slugToKey.set(projectSlugKey(project, roadmapRefSlug(item.ref)), key)
   }
 
   const danglingRefs: string[] = []
   const seenDangling = new Set<string>()
-  const markDangling = (ref: string): void => {
-    if (knownRefs.has(ref) || seenDangling.has(ref)) return
-    seenDangling.add(ref)
-    danglingRefs.push(ref)
+  const markDangling = (rawRef: string, projectKey: ProjectKey, relativePath: string): void => {
+    const key = qualifiedRef(projectKey, relativePath)
+    if (knownKeys.has(key) || seenDangling.has(rawRef)) return
+    seenDangling.add(rawRef)
+    danglingRefs.push(rawRef)
   }
 
   // Order edges: predecessor unit -> successor unit within each lane. Units are
-  // the flattened runnable references (an epic contributes its children).
+  // the flattened runnable references (an epic contributes its children), keyed by
+  // their qualifiedRef so cross-project units never merge.
   const edges = new Map<string, Set<string>>()
   const addEdge = (from: string, to: string): void => {
     if (from === to) return
@@ -363,40 +605,65 @@ export function validateRoadmap(
     edges.set(from, set)
   }
 
+  const knownAliases = new Set(roadmap.projects.map((project) => project.alias))
   for (const lane of roadmap.lanes) {
     // Dangling is checked over every reference an author wrote — item and epic
     // entry refs plus each snapshotted child — so a stale epic file or child is
     // surfaced, not just the runnable units.
     for (const entry of lane.entries) {
-      markDangling(entry.ref)
-      for (const child of entry.children) markDangling(child)
+      markDangling(entry.ref, entry.projectKey, entry.relativePath)
+      for (const child of entry.children) {
+        const resolved = resolveRef(child, entry.projectKey, knownAliases)
+        markDangling(resolved.ref, resolved.projectKey, resolved.relativePath)
+      }
     }
     // Order edges sequence the runnable units (an epic contributes its children).
     const units = flattenLaneUnits(lane)
     for (let index = 1; index < units.length; index += 1) {
-      addEdge(units[index - 1].ref, units[index].ref)
+      addEdge(units[index - 1].key, units[index].key)
     }
   }
 
   // Dependency edges: a prerequisite must run before its dependent, so an item
-  // that dependsOn slug S gets an edge ref(S) -> item.ref. Only edges between
-  // refs that both appear in the graph matter for cycle detection; a dependency
-  // on an item outside the roadmap cannot close a cycle inside it.
+  // that dependsOn slug S gets an edge key(S) -> item.key. Only edges between refs
+  // that both appear in the graph matter for cycle detection; a dependency on an
+  // item outside the roadmap cannot close a cycle inside it. Slugs resolve within
+  // the dependent's own project.
   for (const item of items) {
-    const dependentRef = normalizeRef(item.ref)
+    const project = itemProjectKey(item)
+    const dependentKey = qualifiedRef(project, normalizeRef(item.ref))
     for (const slug of item.dependsOn ?? []) {
-      const prerequisiteRef = slugToRef.get(slug)
-      if (prerequisiteRef) addEdge(prerequisiteRef, dependentRef)
+      const prerequisiteKey = slugToKey.get(projectSlugKey(project, slug))
+      if (prerequisiteKey) addEdge(prerequisiteKey, dependentKey)
     }
   }
 
-  const cycleRefs = detectCycleRefs(edges)
+  const cycleKeys = detectCycleRefs(edges)
+  // Translate the cyclic qualifiedRefs back to the raw refs the author wrote so
+  // the editor can highlight the offending entry lines.
+  const keyToRawRef = new Map<string, string>()
+  for (const lane of roadmap.lanes) {
+    for (const unit of flattenLaneUnits(lane)) keyToRawRef.set(unit.key, unit.ref)
+  }
+  const cycleRefs: string[] = []
+  const seenCycleRef = new Set<string>()
+  for (const key of cycleKeys) {
+    const rawRef = keyToRawRef.get(key) ?? key
+    if (seenCycleRef.has(rawRef)) continue
+    seenCycleRef.add(rawRef)
+    cycleRefs.push(rawRef)
+  }
+
   return {
     danglingRefs,
     cycleRefs,
     issues: roadmap.issues,
     hasCycle: cycleRefs.length > 0,
   }
+}
+
+function projectSlugKey(projectKey: ProjectKey, slug: string): string {
+  return `${projectKey ?? ''} ${slug}`
 }
 
 // Tarjan's SCC over the "before" edge graph: every strongly-connected component
@@ -473,12 +740,13 @@ function detectCycleRefs(edges: Map<string, Set<string>>): string[] {
 // Eligibility (the orchestrator's contract — pure, no IO)
 // ---------------------------------------------------------------------------
 
-// Per-item run state the orchestrator supplies. A lane predecessor is "merged"
-// per the MC-1439 decision of record: a worktree run delivers via a pull request
-// and is merged only when that PR is merged; a non-worktree ('shared') run has no
-// PR, so its terminal signal is the item reaching a terminal status. Absence of a
-// link means the item was never run under a tracked run — it is treated as a
-// shared/manual item whose terminal signal is its status.
+// Per-item run state the orchestrator supplies, keyed by `qualifiedRef`. A lane
+// predecessor is "merged" per the MC-1439 decision of record: a worktree run
+// delivers via a pull request and is merged only when that PR is merged; a
+// non-worktree ('shared') run has no PR, so its terminal signal is the item
+// reaching a terminal status. Absence of a link means the item was never run
+// under a tracked run — it is treated as a shared/manual item whose terminal
+// signal is its status.
 export type RoadmapRunState = {
   mode: 'worktree' | 'shared'
   // Worktree runs only: whether the delivering PR has merged. Ignored otherwise.
@@ -486,13 +754,16 @@ export type RoadmapRunState = {
 }
 
 // Why a lane has (or has not) a dispatchable entry.
-// - eligible: `eligibleRef` is the concrete backlog item to dispatch next.
+// - eligible: `eligible` is the concrete backlog item to dispatch next.
 // - lane_complete: every unit is terminal (merged).
 // - in_progress: the frontier is actively being worked (in_progress/needs_input).
 // - awaiting_merge: the frontier finished but its worktree PR is not yet merged
 //   (MC-1439 — a completed-but-unmerged worktree item holds the lane).
 // - blocked: the frontier is not ready, or ready with unresolved prerequisites.
-// - dangling: the frontier references no known backlog item.
+// - dangling: the frontier references no known backlog item in a resolvable
+//   project (an authoring contradiction).
+// - unknown_project: the frontier's `alias:` maps to a project the instance
+//   cannot resolve to a known root — the lane parks for a re-map, never drops.
 // - empty: the lane has no entries.
 export type RoadmapLaneReason =
   | 'eligible'
@@ -501,42 +772,84 @@ export type RoadmapLaneReason =
   | 'awaiting_merge'
   | 'blocked'
   | 'dangling'
+  | 'unknown_project'
   | 'empty'
+
+// A resolved reference the orchestrator can act on: the identity key plus the
+// project + path a driver maps to a workspace root and a backlog file.
+export type RoadmapUnitRef = {
+  key: string
+  ref: string
+  projectKey: ProjectKey
+  relativePath: string
+}
 
 export type RoadmapLaneEligibility = {
   lane: string
-  // The backlog ref the orchestrator should dispatch next, or null.
+  // The backlog ref the orchestrator should dispatch next, or null. `eligibleRef`
+  // is the raw ref (byte-stable, back-compatible display); `eligible` carries the
+  // resolved project + path a driver needs to start the run in the right root.
   eligibleRef: string | null
+  eligible: RoadmapUnitRef | null
   reason: RoadmapLaneReason
   // The frontier unit under consideration (first non-terminal unit), for
   // diagnostics — null when the lane is complete or empty.
   frontierRef: string | null
+  frontier: RoadmapUnitRef | null
 }
 
-export type LaneUnit = { ref: string; epic?: string }
+export type LaneUnit = {
+  // The graph/runtime identity (qualifiedRef) — unique across projects.
+  key: string
+  // The raw authored ref (for display; keeps any `alias:` prefix).
+  ref: string
+  projectKey: ProjectKey
+  relativePath: string
+  // The epic entry raw ref this unit was snapshotted under, if any.
+  epic?: string
+}
 
 // The runnable units of a lane: an item entry is one unit; an epic entry expands
 // to its snapshotted children in order (the epic derives from children, MC-1617);
 // an unknown entry still contributes its ref so a dangling frontier is visible.
+// Children inherit the epic entry's project unless they carry their own `alias:`.
 // Exported so the steering surface (MC-1620) renders and counts exactly the units
 // the orchestrator schedules — the board's "done vs up next" split is the frontier
 // index over this same flattening, never a parallel re-derivation.
 export function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
   const units: LaneUnit[] = []
+  const unitOf = (ref: string, projectKey: ProjectKey, relativePath: string, epic?: string): LaneUnit => ({
+    key: qualifiedRef(projectKey, relativePath),
+    ref,
+    projectKey,
+    relativePath,
+    ...(epic ? { epic } : {}),
+  })
   for (const entry of lane.entries) {
     if (entry.kind === 'epic') {
       if (entry.children.length === 0) {
         // A snapshot with no children can never advance on its own; carry the
         // epic ref so the lane reports it rather than silently skipping.
-        units.push({ ref: entry.ref, epic: entry.ref })
+        units.push(unitOf(entry.ref, entry.projectKey, entry.relativePath, entry.ref))
       } else {
-        for (const child of entry.children) units.push({ ref: child, epic: entry.ref })
+        for (const child of entry.children) {
+          const { projectKey, relativePath } = resolveChildRef(child, entry.projectKey)
+          units.push(unitOf(normalizeRef(child), projectKey, relativePath, entry.ref))
+        }
       }
       continue
     }
-    units.push({ ref: entry.ref })
+    units.push(unitOf(entry.ref, entry.projectKey, entry.relativePath))
   }
   return units
+}
+
+// Resolve a snapshotted child ref: inherit the parent epic's project unless the
+// child carries its own `alias:` prefix. (Validation of the alias against the
+// projects map happens in parse; here we only split the reference.)
+function resolveChildRef(child: string, inherited: ProjectKey): { projectKey: ProjectKey; relativePath: string } {
+  const { alias, relativePath } = splitAliasRef(child)
+  return { projectKey: alias ?? inherited, relativePath }
 }
 
 const TERMINAL_STATUSES: ReadonlySet<BacklogItemStatusPayload> = new Set<BacklogItemStatusPayload>([
@@ -550,30 +863,42 @@ const TERMINAL_STATUSES: ReadonlySet<BacklogItemStatusPayload> = new Set<Backlog
 // Epic entries derive from their children — the children ARE the units, so an
 // epic entry is terminal only when all its children are, and an epic frontier
 // resolves to its first non-merged child.
+//
+// `items` is the backlog universe (flat, each tagged with its `projectKey`); a
+// unit resolves against the items sharing its project. `resolvableProjects`, when
+// supplied, is the set of project keys the instance can map to a known root — a
+// frontier whose project is absent from it parks `unknown_project` rather than
+// reading as a plain dangling ref. When omitted, every project present in `items`
+// (plus the home project) is treated as resolvable, so single-project callers
+// never see `unknown_project`.
 export function nextEligible(
   roadmap: Roadmap,
   items: ReadonlyArray<RoadmapItemState>,
   runLinks: ReadonlyMap<string, RoadmapRunState>,
+  resolvableProjects?: ReadonlySet<ProjectKey>,
 ): RoadmapLaneEligibility[] {
-  const byRef = new Map<string, RoadmapItemState>()
+  const byKey = new Map<string, RoadmapItemState>()
   const bySlug = new Map<string, RoadmapItemState>()
+  const presentProjects = new Set<ProjectKey>([null])
   for (const item of items) {
-    const ref = normalizeRef(item.ref)
-    byRef.set(ref, item)
-    bySlug.set(roadmapRefSlug(ref), item)
+    const project = itemProjectKey(item)
+    presentProjects.add(project)
+    byKey.set(qualifiedRef(project, normalizeRef(item.ref)), item)
+    bySlug.set(projectSlugKey(project, roadmapRefSlug(item.ref)), item)
   }
+  const resolvable = resolvableProjects ?? presentProjects
 
-  const isMerged = (ref: string): boolean => {
-    const link = runLinks.get(ref)
+  const isMerged = (unit: LaneUnit): boolean => {
+    const link = runLinks.get(unit.key)
     if (link?.mode === 'worktree') return link.prMerged === true
     // Shared runs and manual/untracked items: terminal status is the signal.
-    const state = byRef.get(ref)
+    const state = byKey.get(unit.key)
     return state !== undefined && TERMINAL_STATUSES.has(state.status)
   }
 
-  const dependsOnResolved = (state: RoadmapItemState): boolean => {
+  const dependsOnResolved = (state: RoadmapItemState, project: ProjectKey): boolean => {
     for (const slug of state.dependsOn ?? []) {
-      const target = bySlug.get(slug)
+      const target = bySlug.get(projectSlugKey(project, slug))
       // A dangling prerequisite is unresolved: an unknown blocker must not read
       // as satisfied (Fallback Discipline). A prerequisite is resolved once its
       // target is terminal — the backlogDependencies.ts RESOLVED_STATUSES rule.
@@ -582,34 +907,48 @@ export function nextEligible(
     return true
   }
 
+  const unitRef = (unit: LaneUnit): RoadmapUnitRef => ({
+    key: unit.key,
+    ref: unit.ref,
+    projectKey: unit.projectKey,
+    relativePath: unit.relativePath,
+  })
+
   return roadmap.lanes.map((lane) => {
     const units = flattenLaneUnits(lane)
     if (units.length === 0) {
-      return { lane: lane.title, eligibleRef: null, reason: 'empty', frontierRef: null }
+      return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'empty', frontierRef: null, frontier: null }
     }
 
-    const frontier = units.find((unit) => !isMerged(unit.ref))
+    const frontier = units.find((unit) => !isMerged(unit))
     if (!frontier) {
-      return { lane: lane.title, eligibleRef: null, reason: 'lane_complete', frontierRef: null }
+      return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'lane_complete', frontierRef: null, frontier: null }
     }
 
-    const state = byRef.get(frontier.ref)
-    if (!state) {
-      return { lane: lane.title, eligibleRef: null, reason: 'dangling', frontierRef: frontier.ref }
+    const frontierUnitRef = unitRef(frontier)
+    // The frontier's project is not resolvable to a known root — park for a re-map
+    // rather than treating the (necessarily missing) item as a plain dangling ref.
+    if (!resolvable.has(frontier.projectKey)) {
+      return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'unknown_project', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
-    if (state.status === 'ready' && dependsOnResolved(state)) {
-      return { lane: lane.title, eligibleRef: frontier.ref, reason: 'eligible', frontierRef: frontier.ref }
+
+    const state = byKey.get(frontier.key)
+    if (!state) {
+      return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'dangling', frontierRef: frontier.ref, frontier: frontierUnitRef }
+    }
+    if (state.status === 'ready' && dependsOnResolved(state, frontier.projectKey)) {
+      return { lane: lane.title, eligibleRef: frontier.ref, eligible: frontierUnitRef, reason: 'eligible', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
     if (state.status === 'in_progress' || state.status === 'needs_input') {
-      return { lane: lane.title, eligibleRef: null, reason: 'in_progress', frontierRef: frontier.ref }
+      return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'in_progress', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
     // Terminal status but not merged — only reachable for a worktree run whose PR
     // has not merged (a shared/manual terminal item is `isMerged`, so it would
     // have been skipped). The lane waits on the merge.
     if (TERMINAL_STATUSES.has(state.status)) {
-      return { lane: lane.title, eligibleRef: null, reason: 'awaiting_merge', frontierRef: frontier.ref }
+      return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'awaiting_merge', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
-    return { lane: lane.title, eligibleRef: null, reason: 'blocked', frontierRef: frontier.ref }
+    return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'blocked', frontierRef: frontier.ref, frontier: frontierUnitRef }
   })
 }
 

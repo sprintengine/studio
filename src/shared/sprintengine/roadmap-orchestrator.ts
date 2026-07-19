@@ -17,10 +17,12 @@
 
 import {
   nextEligible,
+  type ProjectKey,
   type Roadmap,
   type RoadmapItemState,
   type RoadmapRunState,
   type RoadmapLaneEligibility,
+  type RoadmapUnitRef,
 } from '../backlog/roadmap'
 
 // Why a lane is parked. Machine-readable so the surface (MC-1620) can render a
@@ -43,6 +45,10 @@ export type RoadmapParkReason =
   // The lane's frontier references a backlog item that no longer exists — an
   // authoring contradiction the orchestrator must not paper over.
   | 'eligibility_contradiction'
+  // The lane's frontier uses a project alias whose path is not among the known
+  // workspace roots — the instance cannot resolve it. Parks for a re-map (edit the
+  // frontmatter `projects:` line), never a silent drop (Fallback Discipline, D2).
+  | 'unknown_project'
   // A human paused the lane from the steering surface (MC-1620). Unlike every
   // reason above this is not a failure: resume continues the lane in place (it does
   // NOT abandon the running sprint or re-plan), so the reducer stops advancing the
@@ -68,8 +74,8 @@ export type RoadmapRunLifecycle =
 // The driver's observation of the run currently linked to a lane's frontier
 // item. Built fresh each reconcile from the run projection + PR status, so a run
 // deleted out from under the orchestrator simply stops appearing (the lane then
-// re-derives from eligibility). Keyed in `observations` by the item ref the run
-// was started for.
+// re-derives from eligibility). Keyed in `observations` by the unit's
+// `qualifiedRef` (the same key the lane runtime's `activeItemRef` holds).
 export type RoadmapRunObservation = {
   itemRef: string
   statePath: string
@@ -90,7 +96,8 @@ export type RoadmapRunObservation = {
 // ref adopts the existing run instead of starting a second.
 export type RoadmapLaneRuntime = {
   lane: string
-  // The item ref whose run this lane is currently executing/watching, if any.
+  // The unit's `qualifiedRef` whose run this lane is currently executing/watching,
+  // if any — the identity that matches `observations` and eligibility units.
   activeItemRef?: string
   activeStatePath?: string
   activeTeamSlug?: string
@@ -108,9 +115,12 @@ export type RoadmapLaneRuntime = {
 // reflects in the returned runtime, so a driver replaying actions and a driver
 // trusting the returned runtime agree.
 export type RoadmapOrchestratorAction =
-  // Launch the shared plan-sourced creation flow for `itemRef` (worktree mode,
-  // startRunner). The driver records the execution link + fans out epic children.
-  | { kind: 'start'; lane: string; itemRef: string }
+  // Launch the shared plan-sourced creation flow for the target unit (worktree
+  // mode, startRunner). `itemRef` is the raw ref (display); `projectKey` +
+  // `relativePath` tell the driver which project root to start the run in and
+  // which backlog file to source. The driver records the execution link + fans out
+  // epic children.
+  | { kind: 'start'; lane: string; itemRef: string; projectKey: ProjectKey; relativePath: string }
   // Raise a "start next?" approval for `itemRef` (advance: approve). Idempotent:
   // emitted once, then the lane waits until the ref is approved.
   | { kind: 'queue_approval'; lane: string; itemRef: string }
@@ -127,25 +137,31 @@ export type RoadmapOrchestratorAction =
 
 export type RoadmapReconcileInput = {
   roadmap: Roadmap
-  // Every backlog item the roadmap references, with status + dependsOn — the
-  // universe `nextEligible` resolves eligibility against.
+  // Every backlog item the roadmap's resolvable projects contain, each tagged with
+  // its `projectKey` — the universe `nextEligible` resolves eligibility against.
   items: ReadonlyArray<RoadmapItemState>
-  // Merge state per ref for `nextEligible` (worktree → PR merged; else terminal
-  // status). The driver derives this from run links + PR rollup.
+  // The project keys the instance can map to a known workspace root (home = null
+  // is always resolvable). A frontier whose project is absent parks
+  // `unknown_project` rather than reading as a plain dangling ref (D2).
+  resolvableProjects: ReadonlySet<ProjectKey>
+  // Merge state per unit `qualifiedRef` for `nextEligible` (worktree → PR merged;
+  // else terminal status). The driver derives this from run links + PR rollup.
   runLinks: ReadonlyMap<string, RoadmapRunState>
-  // The driver's live observation of each lane's active run, keyed by item ref.
+  // The driver's live observation of each lane's active run, keyed by the unit's
+  // `qualifiedRef`.
   observations: ReadonlyMap<string, RoadmapRunObservation>
   // Persisted lane runtime from the last reconcile, keyed by lane title.
   laneRuntimes: ReadonlyMap<string, RoadmapLaneRuntime>
-  // Eligible refs the human has approved to start (advance: approve). A ref stays
-  // approved until its run starts; the driver drops it once activeItemRef is set.
+  // Unit `qualifiedRef`s the human has approved to start (advance: approve). A key
+  // stays approved until its run starts; the driver drops it once activeItemRef is
+  // set.
   approvedRefs: ReadonlySet<string>
-  // Concurrency guard: true when the repo already has an active orchestrated run
-  // (across ALL roadmaps). The driver computes it over the global lane set.
+  // Concurrency guard: true when the repo (a project root) already has an active
+  // orchestrated run across ALL lanes. The driver computes it over the global set.
   repoBusy: (repoId: string) => boolean
-  // The repo a lane's runs occupy. Defaults to the primary repo; a driver may
-  // key it off the lane's items later. Used only for the concurrency guard.
-  repoForLane: (lane: string, itemRef: string) => string
+  // The repo a unit's run occupies — its project root, so each project runs at
+  // most one orchestrated sprint at a time. Used only for the concurrency guard.
+  repoForLane: (lane: string, unit: RoadmapUnitRef) => string
   // ISO timestamp for park stamps (injected so the reducer stays pure).
   now: string
 }
@@ -161,7 +177,7 @@ export type RoadmapReconcileResult = {
 // kill/restart idempotent.
 export function reconcileRoadmap(input: RoadmapReconcileInput): RoadmapReconcileResult {
   const eligibilityByLane = new Map<string, RoadmapLaneEligibility>()
-  for (const eligibility of nextEligible(input.roadmap, input.items, input.runLinks)) {
+  for (const eligibility of nextEligible(input.roadmap, input.items, input.runLinks, input.resolvableProjects)) {
     eligibilityByLane.set(eligibility.lane, eligibility)
   }
 
@@ -206,7 +222,7 @@ type LaneReconcileArgs = {
   approvedRefs: ReadonlySet<string>
   policy: Roadmap['policy']
   repoBusy: (repoId: string) => boolean
-  repoForLane: (lane: string, itemRef: string) => string
+  repoForLane: (lane: string, unit: RoadmapUnitRef) => string
   now: string
 }
 
@@ -300,39 +316,43 @@ function decideFromEligibility(args: LaneReconcileArgs): LaneDecision {
 
   switch (eligibility.reason) {
     case 'eligible': {
-      const itemRef = eligibility.eligibleRef
-      if (itemRef === null) {
-        // `eligible` always carries a ref; defensive only.
+      const unit = eligibility.eligible
+      if (unit === null) {
+        // `eligible` always carries a unit; defensive only.
         return { action: null, runtime }
       }
-      const repoId = args.repoForLane(lane, itemRef)
-      // Concurrency guard: one active orchestrated sprint per repo across ALL
-      // roadmaps. Wait rather than start a second sprint sharing a checkout.
+      const repoId = args.repoForLane(lane, unit)
+      // Concurrency guard: one active orchestrated sprint per repo (project root)
+      // across ALL lanes. Wait rather than start a second sprint sharing a checkout.
       if (args.repoBusy(repoId)) {
         return { action: null, runtime }
       }
-      const approved = policy.advance === 'auto' || args.approvedRefs.has(itemRef)
+      const approved = policy.advance === 'auto' || args.approvedRefs.has(unit.key)
       if (approved) {
         // Optimistically claim the frontier so a concurrent lane in the same
         // reconcile sees the repo as busy; the driver fills in the run refs after
         // creation and clears the pending approval.
         return {
-          action: { kind: 'start', lane, itemRef },
-          runtime: { ...clearPending(runtime), activeItemRef: itemRef, activeRepoId: repoId },
+          action: { kind: 'start', lane, itemRef: unit.ref, projectKey: unit.projectKey, relativePath: unit.relativePath },
+          runtime: { ...clearPending(runtime), activeItemRef: unit.key, activeRepoId: repoId },
         }
       }
       // advance: approve — raise the "start next?" gate once, then wait.
-      if (runtime.pendingApprovalRef === itemRef) {
+      if (runtime.pendingApprovalRef === unit.key) {
         return { action: null, runtime }
       }
       return {
-        action: { kind: 'queue_approval', lane, itemRef },
-        runtime: { ...runtime, pendingApprovalRef: itemRef },
+        action: { kind: 'queue_approval', lane, itemRef: unit.ref },
+        runtime: { ...runtime, pendingApprovalRef: unit.key },
       }
     }
     case 'dangling':
       // The frontier names an unknown backlog item — an authoring contradiction.
-      return park(lane, runtime, 'eligibility_contradiction', eligibility.frontierRef ?? '', args.now)
+      return park(lane, runtime, 'eligibility_contradiction', eligibility.frontier?.key ?? '', args.now)
+    case 'unknown_project':
+      // The frontier's project alias is not resolvable to a known root — park for a
+      // re-map (edit the frontmatter `projects:` line), never a silent drop (D2).
+      return park(lane, runtime, 'unknown_project', eligibility.frontier?.key ?? '', args.now)
     case 'in_progress':
     case 'awaiting_merge':
     case 'blocked':
@@ -341,8 +361,8 @@ function decideFromEligibility(args: LaneReconcileArgs): LaneDecision {
     default:
       // Nothing to start: something is working, waiting on a merge we do not own,
       // blocked on prerequisites, or done. Clear a stale pending approval whose
-      // ref is no longer the eligible frontier.
-      return { action: null, runtime: clearPendingIfStale(runtime, eligibility.eligibleRef) }
+      // key is no longer the eligible frontier.
+      return { action: null, runtime: clearPendingIfStale(runtime, eligibility.eligible?.key ?? null) }
   }
 }
 

@@ -19,6 +19,7 @@ const UNIT_LIFECYCLE: Record<RoadmapUnitState, LifecycleState> = {
   queued: 'todo',
   paused: 'paused',
   unknown: 'blocked',
+  unknown_project: 'blocked',
 }
 
 const PARK_REASON_COPY: Record<string, string> = {
@@ -49,11 +50,16 @@ export function RoadmapLaneColumn({
   folderPath,
   callbacks,
   onReloadBoard,
+  showProjectTag = false,
 }: {
   lane: RoadmapBoardLane
   folderPath: string | null
   callbacks: RoadmapLaneCallbacks
   onReloadBoard: () => void
+  /** Tag each step with the project it changes — the roadmap now spans projects,
+   *  so a step names the one it lives in (mockup §2). Off for a single-project plan
+   *  where the tag would be noise. */
+  showProjectTag?: boolean
 }): JSX.Element {
   const busy = callbacks.busyLane === lane.lane
   return (
@@ -95,6 +101,7 @@ export function RoadmapLaneColumn({
                 unit={unit}
                 lane={lane.lane}
                 busy={busy}
+                showProjectTag={showProjectTag}
                 onSkip={() => callbacks.onSkip(lane.lane, unit)}
                 onOpenRun={
                   unit.state === 'running' && lane.activeStatePath
@@ -190,12 +197,14 @@ function RoadmapUnitRow({
   unit,
   lane,
   busy,
+  showProjectTag,
   onSkip,
   onOpenRun,
 }: {
   unit: RoadmapBoardUnit
   lane: string
   busy: boolean
+  showProjectTag: boolean
   onSkip: () => void
   onOpenRun?: () => void
 }): JSX.Element {
@@ -212,11 +221,27 @@ function RoadmapUnitRow({
           >
             {unit.title}
           </span>
+          {showProjectTag ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-[color:var(--border-subtle)] px-1 py-px font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
+              title={
+                unit.state === 'unknown_project'
+                  ? `${unit.projectName} — this project is not open in this Multicode`
+                  : `In ${unit.projectName}`
+              }
+            >
+              <ProjectBranchGlyph />
+              <span className="max-w-[120px] truncate">{unit.projectName}</span>
+            </span>
+          ) : null}
           {unit.epicRef ? (
             <span className="shrink-0 text-[10px] leading-4 text-[color:var(--text-subtle)]">epic</span>
           ) : null}
           {unit.state === 'unknown' ? (
             <span className="shrink-0 text-[10px] font-medium text-[color:var(--tone-warn)]">Unknown</span>
+          ) : null}
+          {unit.state === 'unknown_project' ? (
+            <span className="shrink-0 text-[10px] font-medium text-[color:var(--tone-warn)]">Project not found</span>
           ) : null}
         </div>
       </div>
@@ -254,6 +279,19 @@ function RoadmapUnitRow({
         </button>
       ) : null}
     </div>
+  )
+}
+
+// The project tag's leading glyph — a small branch mark, matching the design's
+// "this step changes <project>" idiom without pulling in an icon set.
+function ProjectBranchGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5 shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
+      <circle cx="4" cy="4" r="1.8" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="4" cy="12" r="1.8" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="12" cy="6" r="1.8" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4 5.8 V10.2 M12 7.8 C12 10 9 10.5 6 10.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
   )
 }
 

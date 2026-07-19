@@ -442,4 +442,50 @@ assert.equal(
   'v64 reconciles a dangling active pointer to a surviving workspace',
 )
 
+// v65: the `roadmap` workspace mode retired (MC-1692) — Roadmap is an
+// instance-global sidebar surface now, not a per-project workspace. The migration
+// drops any roadmap-mode row and reconciles a dangling active pointer, mirroring
+// the v62 automations-mode drop. The roadmap plan on disk is untouched.
+const v64RoadmapState = {
+  workspaces: [
+    { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} },
+    { id: 'ws-roadmap', mode: 'roadmap', folderPath: '/repo/app', agents: {} },
+    { id: 'ws-sprint', mode: 'sprintengine', folderPath: '/repo/app', agents: {} },
+  ],
+  activeWorkspaceId: 'ws-roadmap',
+}
+const migratedRoadmapDrop = migratePersistedWorkspaceState(v64RoadmapState, 64) as {
+  workspaces: Array<{ id: string; mode: string }>
+  activeWorkspaceId: string | null
+}
+assert.deepEqual(
+  migratedRoadmapDrop.workspaces.map((ws) => ws.id),
+  ['ws-standard', 'ws-sprint'],
+  'v65 drops the retired roadmap-mode workspace and keeps the rest',
+)
+assert.equal(
+  migratedRoadmapDrop.workspaces.some((ws) => ws.mode === 'roadmap'),
+  false,
+  'no roadmap-mode workspace survives the migration',
+)
+assert.equal(
+  migratedRoadmapDrop.activeWorkspaceId,
+  'ws-standard',
+  'v65 reconciles a dangling active pointer to a surviving workspace',
+)
+
+// An account whose ONLY workspace was a roadmap-mode workspace migrates to an
+// empty list with a null active pointer (the dangerous-empty recovery path then
+// honors that, and the merge/recovery filters keep the on-disk copy clean).
+const v64RoadmapOnly = {
+  workspaces: [{ id: 'ws-roadmap', mode: 'roadmap', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-roadmap',
+}
+const migratedRoadmapOnly = migratePersistedWorkspaceState(v64RoadmapOnly, 64) as {
+  workspaces: unknown[]
+  activeWorkspaceId: string | null
+}
+assert.equal(migratedRoadmapOnly.workspaces.length, 0, 'roadmap-only account migrates to an empty list')
+assert.equal(migratedRoadmapOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
+
 console.log('persistenceSlice.test.ts: ok')

@@ -20,9 +20,10 @@ environment variable (used by the dev harness); plugins always resolve under
 ## Capability modules
 
 A capability module extends the app itself — main-process services and IPC,
-renderer panels, workspace types, commands, Backlog actions, and settings
-sections — through the `MainHost` / `RendererHost` contracts. Modules are
-trust-gated: only modules the user has trusted execute code.
+renderer panels, workspace types, commands, Backlog actions, settings
+sections, and sidebar nav doors — through the `MainHost` / `RendererHost`
+contracts. Modules are trust-gated: only modules the user has trusted execute
+code.
 
 - Author against [`@multicode/module-sdk`](../../packages/module-sdk/README.md).
 - Validate, pack, and sign with the bundled `multicode-module` CLI.

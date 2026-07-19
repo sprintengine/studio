@@ -159,6 +159,11 @@ const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
 // via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
 const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
 
+// The instance-global Roadmap surface (MC-1689). Same pattern as Connectors: a
+// code-split store overlay mounted only while open, so its orchestrator-state polling
+// never runs on boot. Opened via `openRoadmapSurface` from the sidebar Roadmap door.
+const RoadmapSurface = React.lazy(() => import('../panels/RoadmapSurface'))
+
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -286,6 +291,7 @@ export default function WorkspaceManager() {
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
+  const roadmapEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'roadmap'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -315,6 +321,7 @@ export default function WorkspaceManager() {
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
   const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
   const closeConnectorsSurface = useWorkspaceStore((s) => s.closeConnectorsSurface)
+  const roadmapSurfaceOpen = useWorkspaceStore((s) => s.roadmapSurface.open)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -3059,6 +3066,13 @@ export default function WorkspaceManager() {
               }}
               activeWorkspaceRoot={activeWorkspaceFolderPath}
             />
+          </React.Suspense>
+        ) : null}
+        {/* Gated on the roadmap module: off means the surface is unreachable even
+            if a stale open flag lingers from before the toggle (MC-1691). */}
+        {roadmapSurfaceOpen && roadmapEnabled ? (
+          <React.Suspense fallback={null}>
+            <RoadmapSurface />
           </React.Suspense>
         ) : null}
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is

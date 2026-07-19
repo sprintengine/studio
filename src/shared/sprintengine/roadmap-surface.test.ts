@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { parseRoadmap } from '../backlog/roadmap'
+import { parseRoadmap, qualifiedRef, type ProjectKey } from '../backlog/roadmap'
 import type { BacklogItemStatusPayload } from '../electron-api'
 import type { SprintEngineVcsRepo } from './run-types'
 import {
@@ -8,6 +8,7 @@ import {
   deriveRepoMergeBlockers,
   skipRoadmapEntry,
   type RoadmapBoardItemInfo,
+  type RoadmapBoardResolver,
   type RoadmapLaneStateView,
 } from './roadmap-surface'
 
@@ -37,13 +38,23 @@ type: roadmap
 `,
 )
 
-function infoMap(entries: Record<string, { status: BacklogItemStatusPayload; title?: string; prUrl?: string }>) {
-  return (ref: string): RoadmapBoardItemInfo | undefined => {
-    const found = entries[ref]
+// A home-only resolver keyed by relative path (the single-project shape). All
+// entries resolve to the home project (projectKey null).
+function infoMap(
+  entries: Record<string, { status: BacklogItemStatusPayload; title?: string; prUrl?: string }>,
+): RoadmapBoardResolver {
+  const lookup = (projectKey: ProjectKey, relativePath: string): RoadmapBoardItemInfo | undefined => {
+    if (projectKey !== null) return undefined
+    const found = entries[relativePath]
     if (!found) return undefined
-    return { status: found.status, title: found.title ?? ref, ...(found.prUrl ? { prUrl: found.prUrl } : {}) }
+    return { status: found.status, title: found.title ?? relativePath, ...(found.prUrl ? { prUrl: found.prUrl } : {}) }
   }
+  return { itemInfo: lookup, projectName: (projectKey) => projectKey ?? 'Home', resolvableProjects: new Set<ProjectKey>([null]) }
 }
+
+// Lane runtime handles are unit qualifiedRefs; spell the home-project one so the
+// fixtures read like the ref they mean.
+const qref = (ref: string): string => qualifiedRef(null, ref)
 
 run('board: frontier splits done from up next; running overlay wins', () => {
   const info = infoMap({
@@ -56,7 +67,7 @@ run('board: frontier splits done from up next; running overlay wins', () => {
     'backlog/ship.md': { status: 'ready' },
   })
   const runtime = new Map<string, RoadmapLaneStateView>([
-    ['Backend', { lane: 'Backend', activeItemRef: 'backlog/bar.md', activeStatePath: '/runs/bar/run.yaml' }],
+    ['Backend', { lane: 'Backend', activeItemRef: qref('backlog/bar.md'), activeStatePath: '/runs/bar/run.yaml' }],
   ])
   const lanes = buildRoadmapBoardModel(ROADMAP, info, runtime)
   const backend = lanes.find((lane) => lane.lane === 'Backend')
@@ -124,7 +135,7 @@ run('board: pending approval surfaces attention=approval', () => {
     'backlog/ship.md': { status: 'ready' },
   })
   const runtime = new Map<string, RoadmapLaneStateView>([
-    ['Backend', { lane: 'Backend', pendingApprovalRef: 'backlog/bar.md' }],
+    ['Backend', { lane: 'Backend', pendingApprovalRef: qref('backlog/bar.md') }],
   ])
   const backend = buildRoadmapBoardModel(ROADMAP, info, runtime).find((lane) => lane.lane === 'Backend')
   assert.ok(backend)
@@ -144,7 +155,7 @@ run('board: a still-active delivered item reads attention=merge (awaiting human 
     'backlog/ship.md': { status: 'ready' },
   })
   const runtime = new Map<string, RoadmapLaneStateView>([
-    ['Backend', { lane: 'Backend', activeItemRef: 'backlog/bar.md', activeStatePath: '/runs/bar/run.yaml' }],
+    ['Backend', { lane: 'Backend', activeItemRef: qref('backlog/bar.md'), activeStatePath: '/runs/bar/run.yaml' }],
   ])
   const backend = buildRoadmapBoardModel(ROADMAP, info, runtime).find((lane) => lane.lane === 'Backend')
   assert.ok(backend)
@@ -162,7 +173,7 @@ run('board: parked lane marks its item paused and attention=paused', () => {
     'backlog/ship.md': { status: 'ready' },
   })
   const runtime = new Map<string, RoadmapLaneStateView>([
-    ['Backend', { lane: 'Backend', parked: { reason: 'run_failed', itemRef: 'backlog/bar.md', at: '2026-07-18T00:00:00Z' } }],
+    ['Backend', { lane: 'Backend', parked: { reason: 'run_failed', itemRef: qref('backlog/bar.md'), at: '2026-07-18T00:00:00Z' } }],
   ])
   const backend = buildRoadmapBoardModel(ROADMAP, info, runtime).find((lane) => lane.lane === 'Backend')
   assert.ok(backend)
@@ -185,6 +196,66 @@ run('board: dangling frontier reads unknown, never dropped', () => {
   assert.equal(backend.units[1].kind, 'unknown')
   assert.equal(backend.units[1].state, 'unknown')
   assert.equal(backend.reason, 'dangling')
+})
+
+// --- Project-qualified board (instance-global) -----------------------------
+
+const CROSS_PROJECT = parseRoadmap(
+  `---
+type: roadmap
+projects:
+  mobile: /abs/mobile
+---
+## Ship
+- backlog/home-1.md
+- mobile:backlog/m-1.md
+- ghost:backlog/g-1.md
+`,
+)
+
+// Resolver knowing home + mobile; `ghost` is unresolvable.
+const crossResolver: RoadmapBoardResolver = {
+  itemInfo: (projectKey, relativePath) => {
+    if (projectKey === null && relativePath === 'backlog/home-1.md') return { title: 'Home 1', status: 'completed' }
+    if (projectKey === 'mobile' && relativePath === 'backlog/m-1.md') return { title: 'Mobile 1', status: 'ready' }
+    return undefined
+  },
+  projectName: (projectKey) => (projectKey === null ? 'Home' : projectKey === 'mobile' ? 'Mobile app' : ''),
+  resolvableProjects: new Set<ProjectKey>([null, 'mobile']),
+}
+
+run('board: units carry their project key + display name', () => {
+  const ship = buildRoadmapBoardModel(CROSS_PROJECT, crossResolver, new Map()).find((lane) => lane.lane === 'Ship')
+  assert.ok(ship)
+  assert.deepEqual(
+    ship.units.map((unit) => [unit.ref, unit.projectKey, unit.projectName]),
+    [
+      ['backlog/home-1.md', null, 'Home'],
+      ['mobile:backlog/m-1.md', 'mobile', 'Mobile app'],
+      ['ghost:backlog/g-1.md', 'ghost', ''],
+    ],
+  )
+  // home-1 delivered → mobile m-1 is the frontier, up next in its own project.
+  assert.equal(ship.units[1].state, 'up_next')
+  assert.equal(ship.upNextRef, 'mobile:backlog/m-1.md')
+})
+
+run('board: an unresolvable project frontier reads unknown_project, never dropped', () => {
+  // Both home-1 and m-1 delivered so the ghost entry becomes the frontier.
+  const resolver: RoadmapBoardResolver = {
+    itemInfo: (projectKey, relativePath) => {
+      if (projectKey === null && relativePath === 'backlog/home-1.md') return { title: 'Home 1', status: 'completed' }
+      if (projectKey === 'mobile' && relativePath === 'backlog/m-1.md') return { title: 'Mobile 1', status: 'completed' }
+      return undefined
+    },
+    projectName: (projectKey) => (projectKey === null ? 'Home' : projectKey ?? ''),
+    resolvableProjects: new Set<ProjectKey>([null, 'mobile']),
+  }
+  const ship = buildRoadmapBoardModel(CROSS_PROJECT, resolver, new Map()).find((lane) => lane.lane === 'Ship')
+  assert.ok(ship)
+  assert.equal(ship.reason, 'unknown_project')
+  assert.equal(ship.units[2].state, 'unknown_project')
+  assert.equal(ship.units[2].ref, 'ghost:backlog/g-1.md')
 })
 
 // --- Merge order -----------------------------------------------------------

@@ -113,6 +113,50 @@ run('renders the per-track frontier (up next) from eligibility', () => {
   assert.match(render(), /Up next/)
 })
 
+// --- Cross-project planning (MC-1690 / T3) ---------------------------------
+
+// A second project's backlog: an epic (sync) with a child, plus a loose item.
+const MOBILE_ITEMS: BacklogItem[] = [
+  backlogItem('backlog/epics/sync.md', '---\ntype: epic\n---\n# Offline sync\n'),
+  backlogItem('backlog/sync-a.md', '---\nstatus: ready\nepic: sync\n---\n# Sync worker\n'),
+  backlogItem('backlog/phone.md', '---\nstatus: ready\n---\n# Phone screen\n'),
+]
+
+function renderCrossProject(): string {
+  const libraryProjects = [
+    { projectKey: null, projectName: 'multicode', path: '/repo', items },
+    { projectKey: 'mobile', projectName: 'multicode-mobile', path: '/mobile', items: MOBILE_ITEMS },
+  ]
+  return renderToStaticMarkup(
+    <ConfirmDialogProvider>
+      <RoadmapEditorPanel
+        roadmapItem={roadmapItem}
+        items={items}
+        libraryProjects={libraryProjects}
+        onSaved={() => {}}
+        onOpenInEditor={() => {}}
+        onNavigate={() => {}}
+        showBack
+        onBack={() => {}}
+      />
+    </ConfirmDialogProvider>,
+  )
+}
+
+run('cross-project: renders the library rail with the cross-project search and both project groups', () => {
+  const markup = renderCrossProject()
+  assert.match(markup, /Search all backlogs…/)
+  assert.match(markup, /multicode-mobile/)
+  // The other project's epic and loose item are draggable library rows.
+  assert.match(markup, /Offline sync/)
+  assert.match(markup, /Phone screen/)
+})
+
+run('cross-project: an already-planned library row is dimmed (planned), never dropped', () => {
+  // The roadmap fixture plans home backlog/foo.md, so its library row dims.
+  assert.match(renderCrossProject(), /opacity-40/)
+})
+
 if (failures > 0) {
   console.error(`\n${failures} render smoke checks failed`)
   process.exit(1)

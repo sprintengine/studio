@@ -5,6 +5,7 @@ import type { AutomationProviderRegistryService } from '../automations/provider-
 import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
 import type { SwitchboardAutomationFrontDoors } from '../automations/actions/switchboard'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
+import type { RoadmapAppFrontDoor } from '../roadmap-orchestrator'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ReviewChangeSetService } from '../review/changeset-service'
@@ -59,6 +60,12 @@ export const AutomationsModuleServiceToken = createServiceToken<ModuleAutomation
 // callers — today the automation server's automation.create/automation.run.
 export const AutomationsAppFrontDoorToken = createServiceToken<AutomationsAppFrontDoor>(
   'automations.app-front-door'
+)
+// The instance roadmap's read + plan + steer surface for app-level callers — today
+// the automation server's roadmap.* tools. Provided by the automations module (which
+// constructs the orchestrator) and resolved lazily, like the Automations front door.
+export const RoadmapAppFrontDoorToken = createServiceToken<RoadmapAppFrontDoor>(
+  'roadmap.app-front-door'
 )
 export const SwitchboardAutomationFrontDoorsToken = createServiceToken<SwitchboardAutomationFrontDoors>(
   'switchboard.automation-front-doors'

@@ -210,6 +210,39 @@ export type RegisteredSettingsSection = SettingsSectionDefinition & {
   moduleId: string
 }
 
+// A top-nav door a module contributes to the workspace sidebar's instance-level
+// nav cluster (the band that holds New chat, Automations, Sprints, Connectors).
+// The entry is a self-contained row component so it owns its full behavior —
+// a status dot, an open action against the LOCAL window's store, active-state —
+// exactly like the shell's own doors; the host only owns placement + gating.
+// Consumers filter by the owning module's enablement and sort by `order`, so a
+// module toggle adds/removes its door without a reload, at a deterministic slot.
+export type SidebarNavEntryRenderProps = {
+  /** The sidebar is collapsed to the icon rail; render icon-only with a tooltip. */
+  collapsed: boolean
+}
+
+export type SidebarNavEntryComponent =
+  | ComponentType<SidebarNavEntryRenderProps>
+  | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
+
+export type SidebarNavEntryDefinition = {
+  id: string
+  /**
+   * Sort key within the top-nav cluster; lower renders first. The shell's
+   * built-in doors reserve Create=0, Automations=10, Sprints=20, Connectors=30,
+   * so a module door slots deterministically around them (Roadmap uses 40, after
+   * Connectors). Ties break on id.
+   */
+  order: number
+  /** The row. Rendered as its own element so it may use hooks and own its behavior. */
+  Component: SidebarNavEntryComponent
+}
+
+export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
+  moduleId: string
+}
+
 // Read access to the workspace's Backlog for module renderers. The kernel owns
 // only the seam: the backlog module provides the implementation (shared scan +
 // watcher), and the scoped host methods below route through it — the kernel
@@ -228,6 +261,13 @@ export type RendererHost = {
   registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
+  /**
+   * Contribute a top-nav door to the workspace sidebar's instance-level nav
+   * cluster. Registered unconditionally at boot; the sidebar filters by this
+   * module's enablement and orders by `order`, so a module toggle shows/hides
+   * the door without a reload. The row acts on the local window's store.
+   */
+  registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
@@ -283,6 +323,13 @@ export type RendererKernel = {
    */
   getSettingsSections(moduleEnabled?: (moduleId: string) => boolean): RegisteredSettingsSection[]
   /**
+   * Contributed sidebar nav doors for enabled modules, sorted by `order` then
+   * id so the top-nav cluster reads the same across reloads. The sidebar merges
+   * these with its own built-in doors (Create/Automations/Sprints/Connectors),
+   * which carry their own `order`, into one deterministic band.
+   */
+  getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): RegisteredSidebarNavEntry[]
+  /**
    * Enablement source for host methods that must gate on a module's live
    * enablement without a caller-supplied predicate (the Backlog read API).
    * Wired once at boot by modules/index.ts from the workspace store; absent
@@ -302,6 +349,7 @@ export function createRendererHost(): RendererKernel {
   const notificationActionProviders = new Map<DiagnosticSource, RegisteredNotificationActionProvider>()
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
+  const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   // Shared gate for the Backlog read methods: the error names the actual cause
@@ -416,6 +464,18 @@ export function createRendererHost(): RendererKernel {
           }
           settingsSections.set(definition.id, { ...definition, moduleId })
         },
+        registerSidebarNavEntry(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Sidebar nav entry id must be a non-empty string.')
+          }
+          const existing = sidebarNavEntries.get(definition.id)
+          if (existing) {
+            throw new Error(
+              `Sidebar nav entry "${definition.id}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          sidebarNavEntries.set(definition.id, { ...definition, moduleId })
+        },
         provideBacklogReader(reader) {
           if (backlogReader) {
             throw new Error(
@@ -526,6 +586,14 @@ export function createRendererHost(): RendererKernel {
         .filter((section) => !moduleEnabled || moduleEnabled(section.moduleId))
         .sort((a, b) => {
           const order = (a.order ?? 100) - (b.order ?? 100)
+          return order === 0 ? a.id.localeCompare(b.id) : order
+        })
+    },
+    getSidebarNavEntries(moduleEnabled) {
+      return [...sidebarNavEntries.values()]
+        .filter((entry) => !moduleEnabled || moduleEnabled(entry.moduleId))
+        .sort((a, b) => {
+          const order = a.order - b.order
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
     },

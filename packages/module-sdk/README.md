@@ -4,8 +4,8 @@ Published contract types for building **Multicode capability modules** — the
 manifest and permission shapes, the main-process `MainHost` registration
 contract, the renderer `RendererHost` contribution types (panels, workspace
 types, Backlog item actions, Backlog link providers, commands, settings
-sections), Automations provider registration, and the module notification
-payloads.
+sections, sidebar nav entries), Automations provider registration, and the
+module notification payloads.
 
 The package is types-first: it ships type declarations plus a handful of small
 mirrored values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
@@ -47,7 +47,12 @@ contracts, so a published version always matches the app version it ships with.
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`),
   `registerSettingsSection` (values persist in the module's own
-  `module:<id>` settings namespace), `invoke` (call your own
+  `module:<id>` settings namespace), `registerSidebarNavEntry` (an
+  instance-level door in the workspace sidebar's top-nav cluster — a
+  `SidebarNavEntryDefinition` of `{ id, order, Component }`; the door shows
+  only while your module is enabled and sits at its `order`, so the module
+  toggle adds/removes it without a reload, and the row acts on the local
+  window's store), `invoke` (call your own
   `entry.main`'s `registerIpc` channels; see below), and the Backlog read
   API — `listBacklogItems(workspaceId)` / `watchBacklogItems(workspaceId, cb)`
   return `BacklogItemView`s from the same scan the Backlog panel uses (watch

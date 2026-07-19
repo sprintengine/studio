@@ -1,6 +1,6 @@
 import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
-import { GuidedBriefWorkspaceTypeIcon, RoadmapWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
+import { GuidedBriefWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEnginesNav'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
@@ -19,13 +19,6 @@ const guidedBriefTab = () => ({
   type: 'tab',
   name: 'Design Wizard',
   component: 'guided-brief',
-  enableClose: false,
-})
-
-const roadmapBoardTab = () => ({
-  type: 'tab',
-  name: 'Roadmap',
-  component: 'roadmap',
   enableClose: false,
 })
 
@@ -56,33 +49,6 @@ export function createGuidedBriefTemplate(): LayoutTemplate {
             weight: 100,
             enableTabStrip: false,
             children: [guidedBriefTab()],
-          },
-        ],
-      },
-    },
-  }
-}
-
-// The roadmap steering board (MC-1620) is a workspace lens over the project's
-// roadmap files — it is not "created" like a sprint run, so it carries no creation
-// wizard: opening the mode drops you straight onto the board, which reads every
-// roadmap in the project.
-export function createRoadmapTemplate(): LayoutTemplate {
-  return {
-    id: 'roadmap-mode',
-    name: 'Roadmap',
-    description: 'See what ran, what is running, what is next, and what is waiting on you.',
-    previewSlots: [editor('Roadmap', 4, 4, 292, 102)],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            children: [roadmapBoardTab()],
           },
         ],
       },
@@ -147,19 +113,10 @@ export function registerSprintEngineWorkspaceTypes(host: RendererHost): void {
     creationStepsId: 'sprintengine',
     pickerOrder: 20,
   })
-  // Roadmap steering board (MC-1620): a searchable workspace lens over the
-  // project's roadmap files. No creation wizard — the mode opens straight onto the
-  // board (createRoadmapTemplate).
-  host.registerWorkspaceType({
-    id: 'roadmap',
-    label: 'Roadmap',
-    description: 'Steer a multi-week roadmap: progress, pull requests, and what is waiting on you.',
-    icon: RoadmapWorkspaceTypeIcon,
-    accentToken: '--tool-sprintengine',
-    searchTerms: ['roadmap', 'roadmaps', 'plan', 'steering', 'lanes', 'up next', 'waiting on you'],
-    createTemplate: createRoadmapTemplate,
-    pickerOrder: 25,
-  })
+  // The `roadmap` workspace type retired (MC-1692): Roadmap is now an
+  // instance-global door in the sidebar (the `roadmap` capability module's
+  // sidebar-nav contribution), not a per-project workspace you mint from the
+  // picker. Its board panel + sidebar door live in `roadmap-module.ts`.
   // Design Wizard (internal id 'guided-brief') hands off into Sprint Engine, so
   // this dependent workspace type is registered by the Sprint Engine capability
   // module. The 'guided-brief' id stays frozen as a compatibility identifier.

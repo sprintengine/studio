@@ -27,12 +27,6 @@ const SprintEngineBoardPanel = React.lazy(
   () => import('../components/panels/SprintEngineBoardPanel')
 )
 
-// The roadmap steering board (MC-1620). Lazy so its bundle stays off the wire until
-// a roadmap workspace mounts.
-const RoadmapBoardPanel = React.lazy(
-  () => import('../components/panels/RoadmapBoardPanel')
-)
-
 const backlogRunMountCliDefaults: SprintEngineRoleCliDefaults = {
   architect: 'claude-code',
   product: 'claude-code',
@@ -147,7 +141,10 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
-    host.registerPanel('roadmap', RoadmapBoardPanel)
+    // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
+    // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired
+    // (MC-1692) — Roadmap is an instance-global sidebar door now, not a per-project
+    // workspace. So this only registers the Sprint Engine + Design Wizard types.
     registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,

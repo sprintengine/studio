@@ -27,27 +27,32 @@ import {
 import { BACKLOG_STATUS_LABEL } from './BacklogRow'
 import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
 import {
-  addEntry,
   addLane,
+  addLibraryEntry,
+  authoredRef,
+  buildRoadmapLibrary,
   composeRoadmapSaveContent,
-  draftContainsRef,
   draftFromRoadmap,
-  entryPickerOptions,
+  entryPickerOptionsMulti,
   epicEntryDrift,
   isDraftDirty,
-  makeEntry,
   mergeLaneDown,
   moveEntry,
-  refDisplayMap,
+  refDisplayMapMulti,
   removeEntry,
   removeLane,
   renameLane,
   resyncEpicEntry,
-  roadmapItemStates,
+  roadmapItemStatesMulti,
+  splitAuthoredRef,
   splitLane,
   type RoadmapDraft,
+  type RoadmapLibraryEntry,
+  type RoadmapLibraryGroup,
+  type RoadmapProjectItems,
   type RoadmapRefDisplay,
 } from './roadmapAuthoring'
+import type { ProjectKey } from '../../../../shared/backlog/roadmap'
 
 // The roadmap authoring surface (MC-1618 / T4). It replaces the plain backlog
 // detail body when the selected item is a roadmap, turning the file's markdown
@@ -70,14 +75,19 @@ const NO_RUN_LINKS = new Map()
 
 type RoadmapEditorPanelProps = {
   roadmapItem: BacklogItem
-  // The full backlog scan: the picker's candidates, the display/status of every
-  // referenced ref, and the epic membership the drift check reconciles against.
+  // The home project's backlog scan: the display/status of every referenced ref and
+  // the epic membership the drift check reconciles against, for the home project.
   items: BacklogItem[]
+  // Every project's backlog, when planning on the instance-global surface (MC-1690):
+  // the source of the cross-project library rail and the resolution of aliased refs.
+  // Omitted for the single-project Backlog editor, which plans the home project only
+  // (the home project is then the sole implicit source).
+  libraryProjects?: RoadmapProjectItems[]
   // Persist a save, then re-scan + reselect this roadmap (owned by the panel).
   onSaved: (content: string) => void
   onOpenInEditor: (item: BacklogItem) => void
   // Navigate to a referenced item's own detail (widening navigate — a target may
-  // sit outside the active lens/search).
+  // sit outside the active lens/search). Receives the authored ref.
   onNavigate: (itemId: string) => void
   showBack: boolean
   onBack: () => void
@@ -86,6 +96,7 @@ type RoadmapEditorPanelProps = {
 export function RoadmapEditorPanel({
   roadmapItem,
   items,
+  libraryProjects,
   onSaved,
   onOpenInEditor,
   onNavigate,
@@ -93,6 +104,24 @@ export function RoadmapEditorPanel({
   onBack,
 }: RoadmapEditorPanelProps): JSX.Element {
   const dialog = useConfirmDialog()
+
+  // The plan resolves against a set of projects. On the global surface that is every
+  // known project (the library rail); in the single-project Backlog editor it is
+  // just the home project, so the two paths share one project-aware data model.
+  const showLibrary = libraryProjects !== undefined && libraryProjects.length > 0
+  const projectsInput = useMemo<RoadmapProjectItems[]>(
+    () => libraryProjects ?? [{ projectKey: null, projectName: 'This project', path: '', items }],
+    [libraryProjects, items],
+  )
+  const itemsByProjectKey = useMemo(() => {
+    const map = new Map<ProjectKey, ReadonlyArray<BacklogItem>>()
+    for (const project of projectsInput) map.set(project.projectKey, project.items)
+    return map
+  }, [projectsInput])
+  const projectByKey = useCallback(
+    (projectKey: ProjectKey) => projectsInput.find((project) => project.projectKey === projectKey),
+    [projectsInput],
+  )
 
   // Baseline = the parsed on-disk roadmap; draft = the author's working copy. The
   // baseline content string is the byte source a save composes against.
@@ -119,14 +148,15 @@ export function RoadmapEditorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on content; `dirty` read as a guard, not a trigger
   }, [roadmapItem.relativePath, roadmapItem.sourceContent])
 
-  const itemStates = useMemo(() => roadmapItemStates(items), [items])
-  const refDisplay = useMemo(() => refDisplayMap(items), [items])
-  const pickerOptions = useMemo(() => entryPickerOptions(items), [items])
+  const itemStates = useMemo(() => roadmapItemStatesMulti(projectsInput), [projectsInput])
+  const refDisplay = useMemo(() => refDisplayMapMulti(projectsInput), [projectsInput])
+  const pickerOptions = useMemo(() => entryPickerOptionsMulti(projectsInput), [projectsInput])
 
   // Validation + the per-track frontier are derived from the DRAFT, so both track
   // dangling/cycle state and the "up next" readout update live as the author edits.
+  // The draft's own `projects:` map lets validate/eligibility resolve aliased refs.
   const draftRoadmap = useMemo<Roadmap>(
-    () => ({ policy: draft.policy, title: draft.title, lanes: draft.lanes, body: '', issues: [] }),
+    () => ({ policy: draft.policy, projects: draft.projects, title: draft.title, lanes: draft.lanes, body: '', issues: [] }),
     [draft],
   )
   const validation = useMemo(() => validateRoadmap(draftRoadmap, itemStates), [draftRoadmap, itemStates])
@@ -139,6 +169,31 @@ export function RoadmapEditorPanel({
     (patch: Partial<RoadmapPolicy>) => setDraft((d) => ({ ...d, policy: { ...d.policy, ...patch } })),
     [],
   )
+
+  // Add a step from an authored ref (the keyboard picker's value, or a dragged
+  // library row) into a track, at an optional insert index. Routes through
+  // addLibraryEntry so the source project's alias is registered the first time it
+  // contributes — home refs stay unqualified, cross-project refs gain their prefix.
+  const addRef = useCallback(
+    (laneIndex: number, value: string, index?: number) => {
+      const { projectKey, relativePath } = splitAuthoredRef(value)
+      const project = projectByKey(projectKey)
+      if (!project) return
+      setDraft((d) => addLibraryEntry(d, laneIndex, project, relativePath, index))
+    },
+    [projectByKey],
+  )
+
+  // The library rail feed + its search query. Built from the DRAFT lanes so a row
+  // dims the instant it is placed, and re-computed as the query narrows.
+  const [libraryQuery, setLibraryQuery] = useState('')
+  const libraryGroups = useMemo(
+    () => (showLibrary ? buildRoadmapLibrary(projectsInput, draft.lanes, libraryQuery) : []),
+    [showLibrary, projectsInput, draft.lanes, libraryQuery],
+  )
+  // A library drag in flight, shared so a track can accept the drop (the rail and
+  // the tracks live in one tree, so React state is the transport — no dataTransfer).
+  const [libDrag, setLibDrag] = useState<{ ref: string } | null>(null)
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -181,6 +236,12 @@ export function RoadmapEditorPanel({
     },
     [dialog, draft.lanes, setLanes],
   )
+
+  const projectNameByKey = useMemo(() => {
+    const map = new Map<ProjectKey, string>()
+    for (const project of projectsInput) map.set(project.projectKey, project.projectName)
+    return map
+  }, [projectsInput])
 
   const title = draft.title ?? roadmapItem.title
   const statusLabel = BACKLOG_STATUS_LABEL[roadmapItem.status] ?? roadmapItem.status
@@ -229,39 +290,57 @@ export function RoadmapEditorPanel({
         <PolicyBar policy={draft.policy} onChange={setPolicy} />
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {saveError ? (
-          <div className="px-4 pt-3">
-            <InlineNotice tone="error">{saveError}</InlineNotice>
-          </div>
-        ) : null}
-        {validation.hasCycle ? (
-          <div className="px-4 pt-3">
-            <InlineNotice tone="warn">
-              Some steps must run before themselves — an ordering loop. Reorder them or remove a
-              prerequisite so the roadmap can run start to finish.
-            </InlineNotice>
-          </div>
+      <div className="flex min-h-0 flex-1">
+        {showLibrary ? (
+          <LibraryRail
+            groups={libraryGroups}
+            query={libraryQuery}
+            onQuery={setLibraryQuery}
+            firstLaneIndex={draft.lanes.length > 0 ? 0 : null}
+            onAdd={(ref) => addRef(0, ref)}
+            onDragStart={(ref) => setLibDrag({ ref })}
+            onDragEnd={() => setLibDrag(null)}
+          />
         ) : null}
 
-        <TrackList
-          lanes={draft.lanes}
-          eligibility={eligibility}
-          refDisplay={refDisplay}
-          danglingRefs={danglingRefs}
-          cycleRefs={cycleRefs}
-          pickerOptions={pickerOptions}
-          items={items}
-          onLanes={setLanes}
-          onRemoveTrack={(index) => void confirmRemoveTrack(index)}
-          onNavigate={onNavigate}
-        />
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {saveError ? (
+            <div className="px-4 pt-3">
+              <InlineNotice tone="error">{saveError}</InlineNotice>
+            </div>
+          ) : null}
+          {validation.hasCycle ? (
+            <div className="px-4 pt-3">
+              <InlineNotice tone="warn">
+                Some steps must run before themselves — an ordering loop. Reorder them or remove a
+                prerequisite so the roadmap can run start to finish.
+              </InlineNotice>
+            </div>
+          ) : null}
 
-        <div className="px-4 py-4">
-          <GhostButton onClick={() => setLanes(addLane(draft.lanes))} aria-label="Add a track">
-            <PlusGlyph />
-            Add track
-          </GhostButton>
+          <TrackList
+            lanes={draft.lanes}
+            eligibility={eligibility}
+            refDisplay={refDisplay}
+            danglingRefs={danglingRefs}
+            cycleRefs={cycleRefs}
+            pickerOptions={pickerOptions}
+            itemsByProjectKey={itemsByProjectKey}
+            projectNameByKey={projectNameByKey}
+            showProjectTag={showLibrary}
+            libDragRef={libDrag?.ref ?? null}
+            onAddRef={addRef}
+            onLanes={setLanes}
+            onRemoveTrack={(index) => void confirmRemoveTrack(index)}
+            onNavigate={onNavigate}
+          />
+
+          <div className="px-4 py-4">
+            <GhostButton onClick={() => setLanes(addLane(draft.lanes))} aria-label="Add a track">
+              <PlusGlyph />
+              Add track
+            </GhostButton>
+          </div>
         </div>
       </div>
     </div>
@@ -343,7 +422,11 @@ function TrackList({
   danglingRefs,
   cycleRefs,
   pickerOptions,
-  items,
+  itemsByProjectKey,
+  projectNameByKey,
+  showProjectTag,
+  libDragRef,
+  onAddRef,
   onLanes,
   onRemoveTrack,
   onNavigate,
@@ -353,8 +436,14 @@ function TrackList({
   refDisplay: Map<string, RoadmapRefDisplay>
   danglingRefs: Set<string>
   cycleRefs: Set<string>
-  pickerOptions: ReturnType<typeof entryPickerOptions>
-  items: BacklogItem[]
+  pickerOptions: ReturnType<typeof entryPickerOptionsMulti>
+  itemsByProjectKey: Map<ProjectKey, ReadonlyArray<BacklogItem>>
+  projectNameByKey: Map<ProjectKey, string>
+  showProjectTag: boolean
+  // The authored ref of a library row being dragged, or null. Non-null lets a track
+  // accept the drop as an add rather than a reorder.
+  libDragRef: string | null
+  onAddRef: (laneIndex: number, ref: string, index?: number) => void
   onLanes: (next: RoadmapLane[]) => void
   onRemoveTrack: (index: number) => void
   onNavigate: (itemId: string) => void
@@ -367,10 +456,15 @@ function TrackList({
     setOver(null)
   }, [])
 
+  // A drop resolves to a reorder (a step was dragged) or an add (a library row was
+  // dragged, tracked in libDragRef). Either way it lands at the over-index.
   const drop = useCallback(() => {
-    if (drag && over) onLanes(moveEntry(lanes, drag, over))
+    if (over) {
+      if (drag) onLanes(moveEntry(lanes, drag, over))
+      else if (libDragRef) onAddRef(over.lane, libDragRef, over.index)
+    }
     endDrag()
-  }, [drag, over, lanes, onLanes, endDrag])
+  }, [drag, over, libDragRef, lanes, onLanes, onAddRef, endDrag])
 
   // Keyboard reorder: move a step up/down, crossing into the adjacent track at a
   // boundary, so ordering never requires a pointer.
@@ -411,15 +505,19 @@ function TrackList({
           danglingRefs={danglingRefs}
           cycleRefs={cycleRefs}
           pickerOptions={pickerOptions}
-          items={items}
+          itemsByProjectKey={itemsByProjectKey}
+          projectNameByKey={projectNameByKey}
+          showProjectTag={showProjectTag}
           lanes={lanes}
           drag={drag}
           over={over}
+          dropActive={Boolean(drag) || Boolean(libDragRef)}
           onDragStart={(index) => setDrag({ lane: laneIndex, index })}
           onDragOverIndex={(index) => setOver({ lane: laneIndex, index })}
           onDrop={drop}
           onDragEnd={endDrag}
           onMoveByKey={moveByKey}
+          onAddRef={onAddRef}
           onLanes={onLanes}
           onRemoveTrack={onRemoveTrack}
           onNavigate={onNavigate}
@@ -438,15 +536,19 @@ function TrackSection({
   danglingRefs,
   cycleRefs,
   pickerOptions,
-  items,
+  itemsByProjectKey,
+  projectNameByKey,
+  showProjectTag,
   lanes,
   drag,
   over,
+  dropActive,
   onDragStart,
   onDragOverIndex,
   onDrop,
   onDragEnd,
   onMoveByKey,
+  onAddRef,
   onLanes,
   onRemoveTrack,
   onNavigate,
@@ -458,16 +560,21 @@ function TrackSection({
   refDisplay: Map<string, RoadmapRefDisplay>
   danglingRefs: Set<string>
   cycleRefs: Set<string>
-  pickerOptions: ReturnType<typeof entryPickerOptions>
-  items: BacklogItem[]
+  pickerOptions: ReturnType<typeof entryPickerOptionsMulti>
+  itemsByProjectKey: Map<ProjectKey, ReadonlyArray<BacklogItem>>
+  projectNameByKey: Map<ProjectKey, string>
+  showProjectTag: boolean
   lanes: RoadmapLane[]
   drag: DragState
   over: DropTarget
+  // A drag (step or library row) is in flight, so this track should accept drops.
+  dropActive: boolean
   onDragStart: (index: number) => void
   onDragOverIndex: (index: number) => void
   onDrop: () => void
   onDragEnd: () => void
   onMoveByKey: (lane: number, index: number, direction: -1 | 1) => void
+  onAddRef: (laneIndex: number, ref: string, index?: number) => void
   onLanes: (next: RoadmapLane[]) => void
   onRemoveTrack: (index: number) => void
   onNavigate: (itemId: string) => void
@@ -475,7 +582,7 @@ function TrackSection({
   const listRef = useRef<HTMLOListElement | null>(null)
 
   const handleDragOver = (event: React.DragEvent): void => {
-    if (!drag) return
+    if (!dropActive) return
     const list = listRef.current
     if (!list) return
     event.preventDefault()
@@ -483,7 +590,7 @@ function TrackSection({
     onDragOverIndex(computeInsertIndex(list, event.clientY))
   }
 
-  const showDrop = drag && over && over.lane === laneIndex
+  const showDrop = dropActive && over && over.lane === laneIndex
 
   return (
     <section
@@ -494,13 +601,7 @@ function TrackSection({
         <TrackTitleInput value={lane.title} onChange={(next) => onLanes(renameLane(lanes, laneIndex, next))} />
         <TrackFrontier eligibility={eligibility} refDisplay={refDisplay} />
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <AddStepButton
-            pickerOptions={pickerOptions}
-            lane={lane}
-            onAdd={(ref) => {
-              if (!draftContainsRef(lanes, ref)) onLanes(addEntry(lanes, laneIndex, makeEntry(items, ref)))
-            }}
-          />
+          <AddStepButton pickerOptions={pickerOptions} lane={lane} onAdd={(ref) => onAddRef(laneIndex, ref)} />
           {laneIndex < laneCount - 1 ? (
             <TrackIconButton label="Merge into the track below" onClick={() => onLanes(mergeLaneDown(lanes, laneIndex))}>
               <MergeGlyph />
@@ -523,35 +624,39 @@ function TrackSection({
       >
         {lane.entries.length === 0 ? (
           <li className="list-none px-1.5 py-2 text-[12px] text-[color:var(--text-disabled)]">
-            No steps yet — use “Add step”.
+            {showProjectTag ? 'No steps yet — drag work in, or use “Add step”.' : 'No steps yet — use “Add step”.'}
           </li>
         ) : (
-          lane.entries.map((entry, entryIndex) => (
-            <li key={`${entry.ref}:${entryIndex}`} className="list-none">
-              {showDrop && over?.index === entryIndex ? <DropIndicator /> : null}
-              <StepRow
-                entry={entry}
-                position={entryIndex + 1}
-                refDisplay={refDisplay}
-                danglingRefs={danglingRefs}
-                cycleRefs={cycleRefs}
-                items={items}
-                dragging={drag?.lane === laneIndex && drag.index === entryIndex}
-                onDragStart={() => onDragStart(entryIndex)}
-                onDragEnd={onDragEnd}
-                onMoveUp={() => onMoveByKey(laneIndex, entryIndex, -1)}
-                onMoveDown={() => onMoveByKey(laneIndex, entryIndex, 1)}
-                onRemove={() => onLanes(removeEntry(lanes, laneIndex, entryIndex))}
-                onSplitAbove={entryIndex > 0 ? () => onLanes(splitLane(lanes, laneIndex, entryIndex)) : undefined}
-                onResync={
-                  entry.kind === 'epic'
-                    ? () => onLanes(resyncEpicEntry(items, lanes, laneIndex, entryIndex))
-                    : undefined
-                }
-                onNavigate={onNavigate}
-              />
-            </li>
-          ))
+          lane.entries.map((entry, entryIndex) => {
+            const entryItems = itemsByProjectKey.get(entry.projectKey) ?? []
+            return (
+              <li key={`${entry.ref}:${entryIndex}`} className="list-none">
+                {showDrop && over?.index === entryIndex ? <DropIndicator /> : null}
+                <StepRow
+                  entry={entry}
+                  position={entryIndex + 1}
+                  refDisplay={refDisplay}
+                  danglingRefs={danglingRefs}
+                  cycleRefs={cycleRefs}
+                  entryItems={entryItems}
+                  projectName={showProjectTag && entry.projectKey ? projectNameByKey.get(entry.projectKey) : undefined}
+                  dragging={drag?.lane === laneIndex && drag.index === entryIndex}
+                  onDragStart={() => onDragStart(entryIndex)}
+                  onDragEnd={onDragEnd}
+                  onMoveUp={() => onMoveByKey(laneIndex, entryIndex, -1)}
+                  onMoveDown={() => onMoveByKey(laneIndex, entryIndex, 1)}
+                  onRemove={() => onLanes(removeEntry(lanes, laneIndex, entryIndex))}
+                  onSplitAbove={entryIndex > 0 ? () => onLanes(splitLane(lanes, laneIndex, entryIndex)) : undefined}
+                  onResync={
+                    entry.kind === 'epic'
+                      ? () => onLanes(resyncEpicEntry(entryItems, lanes, laneIndex, entryIndex))
+                      : undefined
+                  }
+                  onNavigate={onNavigate}
+                />
+              </li>
+            )
+          })
         )}
         {showDrop && over?.index === lane.entries.length ? <DropIndicator /> : null}
       </ol>
@@ -599,7 +704,8 @@ function StepRow({
   refDisplay,
   danglingRefs,
   cycleRefs,
-  items,
+  entryItems,
+  projectName,
   dragging,
   onDragStart,
   onDragEnd,
@@ -615,7 +721,12 @@ function StepRow({
   refDisplay: Map<string, RoadmapRefDisplay>
   danglingRefs: Set<string>
   cycleRefs: Set<string>
-  items: BacklogItem[]
+  // The backlog scan of THIS entry's project, so an aliased epic's drift reconciles
+  // against its own project's membership, not the home project's.
+  entryItems: ReadonlyArray<BacklogItem>
+  // The project a cross-project step belongs to, shown as a quiet tag. Undefined for
+  // home-project steps and in single-project mode (no tag).
+  projectName?: string
   dragging: boolean
   onDragStart: () => void
   onDragEnd: () => void
@@ -629,7 +740,7 @@ function StepRow({
   const display = refDisplay.get(entry.ref)
   const dangling = danglingRefs.has(entry.ref)
   const inCycle = cycleRefs.has(entry.ref)
-  const drift = entry.kind === 'epic' ? epicEntryDrift(items, entry) : null
+  const drift = entry.kind === 'epic' ? epicEntryDrift(entryItems, entry) : null
 
   return (
     <div
@@ -685,6 +796,11 @@ function StepRow({
               <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">{display.displayId}</span>
             ) : null}
             <TruncatedText as="span" text={display?.title ?? entry.ref} className="min-w-0 flex-1" />
+            {projectName ? (
+              <span className="shrink-0 max-w-[9rem] truncate text-[10.5px] text-[color:var(--text-subtle)]" title={projectName}>
+                {projectName}
+              </span>
+            ) : null}
             {entry.kind === 'epic' ? (
               <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
                 {entry.children.length} {entry.children.length === 1 ? 'item' : 'items'}
@@ -714,7 +830,13 @@ function StepRow({
       </div>
 
       {entry.kind === 'epic' && entry.children.length > 0 ? (
-        <EpicChildren childRefs={entry.children} refDisplay={refDisplay} danglingRefs={danglingRefs} onNavigate={onNavigate} />
+        <EpicChildren
+          childRefs={entry.children}
+          projectKey={entry.projectKey}
+          refDisplay={refDisplay}
+          danglingRefs={danglingRefs}
+          onNavigate={onNavigate}
+        />
       ) : null}
       {drift ? <DriftAffordance drift={drift} onResync={onResync} /> : null}
     </div>
@@ -723,11 +845,15 @@ function StepRow({
 
 function EpicChildren({
   childRefs,
+  projectKey,
   refDisplay,
   danglingRefs,
   onNavigate,
 }: {
   childRefs: string[]
+  // The parent epic's project — a child inherits it unless authored with its own
+  // `alias:`, so the child's display key is the child resolved against this project.
+  projectKey: ProjectKey
   refDisplay: Map<string, RoadmapRefDisplay>
   danglingRefs: Set<string>
   onNavigate: (itemId: string) => void
@@ -735,7 +861,8 @@ function EpicChildren({
   return (
     <ul className="ml-[2.15rem] flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pb-1.5 pl-2">
       {childRefs.map((child, index) => {
-        const display = refDisplay.get(child)
+        const resolvedRef = child.includes(':') ? child : authoredRef(projectKey, child)
+        const display = refDisplay.get(resolvedRef)
         const dangling = danglingRefs.has(child)
         return (
           <li key={`${child}:${index}`} className="min-w-0">
@@ -746,7 +873,7 @@ function EpicChildren({
             ) : (
               <button
                 type="button"
-                onClick={() => onNavigate(child)}
+                onClick={() => onNavigate(resolvedRef)}
                 className="interactive flex min-w-0 items-center gap-1.5 rounded py-0.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
               >
                 {display?.displayId ? (
@@ -799,7 +926,7 @@ function AddStepButton({
   lane,
   onAdd,
 }: {
-  pickerOptions: ReturnType<typeof entryPickerOptions>
+  pickerOptions: ReturnType<typeof entryPickerOptionsMulti>
   lane: RoadmapLane
   onAdd: (ref: string) => void
 }): JSX.Element {
@@ -838,6 +965,211 @@ function AddStepButton({
         onSelect={(option) => onAdd(option.value)}
       />
     </Popover>
+  )
+}
+
+// ---- Library rail (cross-project planning) ---------------------------------
+
+// The planning rail: every project's backlog, grouped and searchable, the source
+// of drag-in work (mockup §3). A row drags into a track, or adds to the first track
+// on click/Enter (the keyboard path). A placed row dims rather than disappears, so
+// the author always sees the whole backlog. Groups and epics collapse locally.
+function LibraryRail({
+  groups,
+  query,
+  onQuery,
+  firstLaneIndex,
+  onAdd,
+  onDragStart,
+  onDragEnd,
+}: {
+  groups: RoadmapLibraryGroup[]
+  query: string
+  onQuery: (next: string) => void
+  // The lane a click/Enter adds to (the first track), or null when there is none.
+  firstLaneIndex: number | null
+  onAdd: (ref: string) => void
+  onDragStart: (ref: string) => void
+  onDragEnd: () => void
+}): JSX.Element {
+  // Collapsed projects and expanded epics, keyed by their stable ids. A project is
+  // open by default; an epic is collapsed (its children are a peek, not the default).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set())
+  const toggle = (set: Set<string>, key: string): Set<string> => {
+    const next = new Set(set)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  }
+  const canAdd = firstLaneIndex !== null
+
+  return (
+    <aside
+      aria-label="Backlog library"
+      className="flex w-[264px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3"
+    >
+      <div className="relative shrink-0">
+        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[color:var(--text-disabled)]">
+          <SearchGlyph />
+        </span>
+        <input
+          value={query}
+          onChange={(event) => onQuery(event.target.value)}
+          placeholder="Search all backlogs…"
+          aria-label="Search all project backlogs"
+          className="h-7 w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] pl-7 pr-2 text-[12px] text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:border-[color:var(--border-focus)] focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+        />
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5">
+        {groups.length === 0 ? (
+          <p className="px-1 py-2 text-[11px] text-[color:var(--text-subtle)]">
+            {query.trim() ? 'No matching backlog work.' : 'No backlog work to plan yet.'}
+          </p>
+        ) : (
+          groups.map((group) => {
+            const groupKey = group.projectKey ?? '(home)'
+            const isOpen = !collapsed.has(groupKey)
+            return (
+              <div key={groupKey} className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((set) => toggle(set, groupKey))}
+                  aria-expanded={isOpen}
+                  className="interactive flex h-7 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
+                >
+                  <ChevronGlyph className={isOpen ? 'rotate-90' : ''} />
+                  <TruncatedText
+                    as="span"
+                    text={group.projectName}
+                    className="min-w-0 flex-1 text-[12px] font-semibold text-[color:var(--text-strong)]"
+                  />
+                  <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
+                    {group.entries.length}
+                  </span>
+                </button>
+                {isOpen ? (
+                  <ul className="mb-1 ml-2 flex flex-col gap-0.5">
+                    {group.entries.map((entry) => (
+                      <li key={entry.ref} className="min-w-0">
+                        <LibraryRow
+                          entry={entry}
+                          canAdd={canAdd}
+                          expanded={expandedEpics.has(entry.ref)}
+                          onToggleEpic={() => setExpandedEpics((set) => toggle(set, entry.ref))}
+                          onAdd={() => onAdd(entry.ref)}
+                          onDragStart={() => onDragStart(entry.ref)}
+                          onDragEnd={onDragEnd}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      <p className="shrink-0 border-t border-[color:var(--border-subtle)] pt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        Grouped by project. Placed work is dimmed. Drag an epic to run all of its items as one sequence.
+      </p>
+    </aside>
+  )
+}
+
+function LibraryRow({
+  entry,
+  canAdd,
+  expanded,
+  onToggleEpic,
+  onAdd,
+  onDragStart,
+  onDragEnd,
+}: {
+  entry: RoadmapLibraryEntry
+  canAdd: boolean
+  expanded: boolean
+  onToggleEpic: () => void
+  onAdd: () => void
+  onDragStart: () => void
+  onDragEnd: () => void
+}): JSX.Element {
+  const draggable = !entry.planned && canAdd
+  // The row is a draggable container holding real controls (an add button, and for
+  // epics a peek toggle) — not a button-role div wrapping a button, so screen readers
+  // and keyboard focus stay unambiguous while drag stays the pointer affordance.
+  return (
+    <>
+      <div
+        draggable={draggable}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = 'copy'
+          // A minimal payload keeps the native drag image; the ref rides React state.
+          event.dataTransfer.setData('text/plain', entry.ref)
+          onDragStart()
+        }}
+        onDragEnd={onDragEnd}
+        className={`group flex h-7 min-w-0 items-center gap-1.5 rounded pr-1.5 text-[12px] transition-colors ${
+          entry.planned ? 'opacity-40' : `cursor-grab hover:bg-[color:var(--bg-hover)]`
+        }`}
+      >
+        {entry.kind === 'epic' ? (
+          <button
+            type="button"
+            aria-label={expanded ? `Hide items in ${entry.title}` : `Show items in ${entry.title}`}
+            aria-expanded={expanded}
+            onClick={onToggleEpic}
+            className="interactive ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]"
+          >
+            <ChevronGlyph className={expanded ? 'rotate-90' : ''} />
+          </button>
+        ) : (
+          <span aria-hidden="true" className="ml-1 shrink-0 text-[color:var(--text-disabled)] opacity-0 transition-opacity group-hover:opacity-100">
+            <GripGlyph />
+          </span>
+        )}
+        <button
+          type="button"
+          disabled={!draggable}
+          onClick={onAdd}
+          aria-label={
+            entry.planned
+              ? `${entry.title} — already in the plan`
+              : `Add ${entry.title}${entry.kind === 'epic' ? ` (${entry.children.length} items)` : ''} to the plan`
+          }
+          className="interactive flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[color:var(--text-default)] outline-none disabled:cursor-default focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+        >
+          {entry.kind === 'epic' ? <EpicGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" /> : null}
+          {entry.displayId ? (
+            <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">{entry.displayId}</span>
+          ) : null}
+          <TruncatedText as="span" text={entry.title} className="min-w-0 flex-1" />
+          {entry.kind === 'epic' ? (
+            <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">
+              {entry.children.length}
+            </span>
+          ) : null}
+        </button>
+      </div>
+      {entry.kind === 'epic' && expanded ? (
+        <ul className="ml-6 mb-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-2">
+          {entry.children.length === 0 ? (
+            <li className="py-0.5 text-[11px] text-[color:var(--text-disabled)]">No items in this epic yet.</li>
+          ) : (
+            entry.children.map((child) => (
+              <li key={child.ref} className="flex min-w-0 items-center gap-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)]">
+                {child.displayId ? (
+                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-[color:var(--text-subtle)]">{child.displayId}</span>
+                ) : null}
+                <TruncatedText as="span" text={child.title} className="min-w-0" />
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </>
   )
 }
 
@@ -895,6 +1227,7 @@ const REASON_PRESENTATION: Record<RoadmapLaneReason, { word: string; tone: Tone 
   blocked: { word: 'Blocked', tone: 'warn' },
   lane_complete: { word: 'All done', tone: 'good' },
   dangling: { word: 'Unknown item', tone: 'error' },
+  unknown_project: { word: 'Unknown project', tone: 'error' },
   empty: { word: 'No steps yet', tone: 'neutral' },
 }
 
@@ -942,6 +1275,28 @@ function GripGlyph(): JSX.Element {
       <circle cx="10" cy="8" r="1" />
       <circle cx="6" cy="12" r="1" />
       <circle cx="10" cy="12" r="1" />
+    </svg>
+  )
+}
+
+function SearchGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+      <circle cx="7" cy="7" r="3.4" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M9.6 9.6 13 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ChevronGlyph({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      className={`icon-xs shrink-0 transition-transform ${className ?? ''}`}
+    >
+      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

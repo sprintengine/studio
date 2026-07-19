@@ -28,6 +28,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'sprint-engine',
   'review',
   'automations',
+  'roadmap',
   'mobile-relay',
   'voice-dictation',
 ]

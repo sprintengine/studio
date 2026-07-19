@@ -11,6 +11,7 @@ import {
   flattenLaneUnits,
   nextEligible,
   roadmapRefSlug,
+  type ProjectKey,
   type Roadmap,
   type RoadmapEntryKind,
   type RoadmapItemState,
@@ -59,6 +60,8 @@ export type RoadmapStateView = {
 // - queued: a later unit waiting its turn.
 // - paused: the frontier of a parked lane — nothing advances until you resume.
 // - unknown: the frontier names no known backlog item (an authoring contradiction).
+// - unknown_project: the frontier's `alias:` maps to a project the instance cannot
+//   resolve to a known root — a re-map, never a silent drop (D2).
 export type RoadmapUnitState =
   | 'done'
   | 'running'
@@ -66,6 +69,7 @@ export type RoadmapUnitState =
   | 'queued'
   | 'paused'
   | 'unknown'
+  | 'unknown_project'
 
 export type RoadmapBoardUnit = {
   ref: string
@@ -74,6 +78,10 @@ export type RoadmapBoardUnit = {
   title: string
   state: RoadmapUnitState
   itemStatus?: BacklogItemStatusPayload
+  // The project this unit lives in: the alias key (null = home) and its display
+  // name (the board's per-step project tag, mockup §2).
+  projectKey: ProjectKey
+  projectName: string
   // The epic entry this unit was snapshotted under, if any (for a grouping badge).
   epicRef?: string
   // The delivering pull request, when the item recorded one (done units link out).
@@ -116,72 +124,91 @@ const TERMINAL_STATUSES: ReadonlySet<BacklogItemStatusPayload> = new Set<Backlog
   'archived',
 ])
 
-// Build the board model for one roadmap. `itemInfo` resolves each ref to its live
-// backlog facts; `laneRuntime` overlays the orchestrator's persisted per-lane
-// state. The frontier and reason come from `nextEligible` over backlog status
-// alone (no run links) — the same authoring-time frontier the editor shows — and
-// the runtime overlay supplies the live "running / paused / waiting on you" truth.
+// The project-aware lookups the board resolves each unit through. `itemInfo`
+// returns the live backlog facts for `(projectKey, relativePath)` — undefined when
+// the item is missing OR its project is unresolvable; `resolvableProjects` (home =
+// null is always included) tells the two apart so an unresolvable project reads as
+// `unknown_project`, not a plain dangling ref. `projectName` supplies the per-step
+// project tag display.
+export type RoadmapBoardResolver = {
+  itemInfo(projectKey: ProjectKey, relativePath: string): RoadmapBoardItemInfo | undefined
+  projectName(projectKey: ProjectKey): string
+  resolvableProjects: ReadonlySet<ProjectKey>
+}
+
+// Build the board model for one roadmap. `resolve` supplies each unit's live
+// backlog facts + project display; `laneRuntime` overlays the orchestrator's
+// persisted per-lane state (its ref handles are unit `qualifiedRef`s). The frontier
+// and reason come from `nextEligible` over backlog status alone (no run links) —
+// the same authoring-time frontier the editor shows — and the runtime overlay
+// supplies the live "running / paused / waiting on you" truth.
 export function buildRoadmapBoardModel(
   roadmap: Roadmap,
-  itemInfo: (ref: string) => RoadmapBoardItemInfo | undefined,
+  resolve: RoadmapBoardResolver,
   laneRuntimeByLane: ReadonlyMap<string, RoadmapLaneStateView>,
 ): RoadmapBoardLane[] {
   const itemStates: RoadmapItemState[] = []
-  const seenRefs = new Set<string>()
-  const collectRef = (ref: string): void => {
-    if (seenRefs.has(ref)) return
-    seenRefs.add(ref)
-    const info = itemInfo(ref)
-    if (info) itemStates.push({ ref, status: info.status })
-  }
+  const seenKeys = new Set<string>()
   for (const lane of roadmap.lanes) {
-    for (const unit of flattenLaneUnits(lane)) collectRef(unit.ref)
+    for (const unit of flattenLaneUnits(lane)) {
+      if (seenKeys.has(unit.key)) continue
+      seenKeys.add(unit.key)
+      const info = resolve.itemInfo(unit.projectKey, unit.relativePath)
+      if (info) itemStates.push({ ref: unit.relativePath, status: info.status, projectKey: unit.projectKey })
+    }
   }
 
   const noRunLinks: ReadonlyMap<string, RoadmapRunState> = new Map()
   const eligibilityByLane = new Map<string, ReturnType<typeof nextEligible>[number]>()
-  for (const eligibility of nextEligible(roadmap, itemStates, noRunLinks)) {
+  for (const eligibility of nextEligible(roadmap, itemStates, noRunLinks, resolve.resolvableProjects)) {
     eligibilityByLane.set(eligibility.lane, eligibility)
   }
 
   return roadmap.lanes.map((lane) => {
     const units = flattenLaneUnits(lane)
+    const unitByKey = new Map(units.map((unit) => [unit.key, unit]))
+    const rawRefOf = (key: string | undefined): string | undefined => (key ? unitByKey.get(key)?.ref : undefined)
     const eligibility = eligibilityByLane.get(lane.title)
     const runtime = laneRuntimeByLane.get(lane.title)
-    const frontierRef = eligibility?.frontierRef ?? null
-    const frontierIndex = frontierRef ? units.findIndex((unit) => unit.ref === frontierRef) : -1
+    const frontierKey = eligibility?.frontier?.key ?? null
+    const frontierIndex = frontierKey ? units.findIndex((unit) => unit.key === frontierKey) : -1
     // Units before the frontier are delivered; the frontier is the live edge.
     const doneCount = frontierIndex === -1 ? units.length : frontierIndex
 
-    const parkedRef = runtime?.parked?.itemRef
-    const runningRef = runtime?.activeItemRef
-    const pendingRef = runtime?.pendingApprovalRef
+    const parkedKey = runtime?.parked?.itemRef
+    const runningKey = runtime?.activeItemRef
+    const pendingKey = runtime?.pendingApprovalRef
 
     const boardUnits: RoadmapBoardUnit[] = units.map((unit, index) => {
-      const info = itemInfo(unit.ref)
+      const resolvable = resolve.resolvableProjects.has(unit.projectKey)
+      const info = resolvable ? resolve.itemInfo(unit.projectKey, unit.relativePath) : undefined
       const slug = roadmapRefSlug(unit.ref)
-      const kind: RoadmapEntryKind = unit.epic ? 'item' : info ? 'item' : 'unknown'
+      const kind: RoadmapEntryKind = info ? 'item' : 'unknown'
       const state = classifyUnit({
-        ref: unit.ref,
+        key: unit.key,
         index,
         frontierIndex,
         info,
-        runningRef,
-        parkedRef,
+        resolvable,
+        runningKey,
+        parkedKey,
         laneParked: Boolean(runtime?.parked),
       })
       return {
         ref: unit.ref,
         slug,
-        kind: info ? kind : 'unknown',
+        kind,
         title: info?.title ?? slug,
         state,
+        projectKey: unit.projectKey,
+        projectName: resolve.projectName(unit.projectKey),
         ...(info ? { itemStatus: info.status } : {}),
         ...(unit.epic ? { epicRef: unit.epic } : {}),
         ...(info?.prUrl ? { prUrl: info.prUrl } : {}),
       }
     })
 
+    const runningUnit = runningKey ? unitByKey.get(runningKey) : undefined
     const attention = laneAttention({
       reason: eligibility?.reason ?? 'empty',
       runtime,
@@ -191,8 +218,14 @@ export function buildRoadmapBoardModel(
       // truthful "waiting to merge" signal (its own status-only eligibility, built
       // with no run links, reads a terminal item as merged and never reports
       // awaiting_merge).
-      activeItemTerminal: runningRef ? isTerminalRoadmapStatus(itemInfo(runningRef)?.status) : false,
+      activeItemTerminal: runningUnit
+        ? isTerminalRoadmapStatus(resolve.itemInfo(runningUnit.projectKey, runningUnit.relativePath)?.status)
+        : false,
     })
+
+    const runningRef = rawRefOf(runningKey)
+    const upNextRef = rawRefOf(eligibility?.eligible?.key ?? frontierKey ?? undefined)
+    const pendingRef = rawRefOf(pendingKey)
 
     return {
       lane: lane.title,
@@ -202,9 +235,7 @@ export function buildRoadmapBoardModel(
       reason: eligibility?.reason ?? 'empty',
       attention,
       ...(runningRef ? { runningRef } : {}),
-      ...(eligibility?.eligibleRef || frontierRef
-        ? { upNextRef: eligibility?.eligibleRef ?? frontierRef ?? undefined }
-        : {}),
+      ...(upNextRef ? { upNextRef } : {}),
       ...(runtime?.activeStatePath ? { activeStatePath: runtime.activeStatePath } : {}),
       ...(runningRef ? { activeItemRef: runningRef } : {}),
       ...(runtime?.parked ? { parked: runtime.parked } : {}),
@@ -214,20 +245,23 @@ export function buildRoadmapBoardModel(
 }
 
 function classifyUnit(input: {
-  ref: string
+  key: string
   index: number
   frontierIndex: number
   info: RoadmapBoardItemInfo | undefined
-  runningRef: string | undefined
-  parkedRef: string | undefined
+  resolvable: boolean
+  runningKey: string | undefined
+  parkedKey: string | undefined
   laneParked: boolean
 }): RoadmapUnitState {
-  const { ref, index, frontierIndex, info, runningRef, parkedRef, laneParked } = input
-  if (runningRef && ref === runningRef) return 'running'
-  if (laneParked && parkedRef && ref === parkedRef) return 'paused'
+  const { key, index, frontierIndex, info, resolvable, runningKey, parkedKey, laneParked } = input
+  if (runningKey && key === runningKey) return 'running'
+  if (laneParked && parkedKey && key === parkedKey) return 'paused'
   if (frontierIndex === -1) return 'done' // lane complete — every unit delivered.
   if (index < frontierIndex) return 'done'
   if (index === frontierIndex) {
+    // The frontier's project is unresolvable — a re-map, not a plain unknown item.
+    if (!resolvable) return 'unknown_project'
     if (!info) return 'unknown'
     // The frontier being worked already reads as running above; otherwise it is
     // the next thing to start.

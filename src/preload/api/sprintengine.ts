@@ -11,6 +11,7 @@ import type {
   SprintEngineAutomationWriteResult,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
+  RoadmapHomeResult,
   RoadmapLaneCommandInput,
   RoadmapLaneCommandResult,
   RoadmapStatesReadResult,
@@ -181,11 +182,11 @@ export const sprintEngineApi = {
     input: { statePath: string }
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:run:cancel', input),
-  // Roadmap steering surface (MC-1620 / T7). Read + the four lane commands the
-  // orchestrator reconciles against — no imperative side-channel: each command
-  // writes orchestrator/roadmap state, then the reconcile tick acts on it.
-  readRoadmapStates: (workspaceRoot: string): Promise<RoadmapStatesReadResult> =>
-    ipcRenderer.invoke('roadmap:states:read', { workspaceRoot }),
+  // Roadmap steering surface. The roadmap is instance-global (one plan per
+  // Multicode, MC-1688), so the read + lane commands carry no workspaceRoot — the
+  // main driver derives the home project (D1). No imperative side-channel: each
+  // command writes orchestrator/roadmap state, then the reconcile tick acts on it.
+  readRoadmapStates: (): Promise<RoadmapStatesReadResult> => ipcRenderer.invoke('roadmap:states:read'),
   approveRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:lane:approve', input),
   mergeRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
@@ -194,6 +195,9 @@ export const sprintEngineApi = {
     ipcRenderer.invoke('roadmap:lane:resume', input),
   pauseRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:lane:pause', input),
+  getRoadmapHomeProject: (): Promise<RoadmapHomeResult> => ipcRenderer.invoke('roadmap:home:get'),
+  setRoadmapHomeProject: (path: string | null): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:home:set', { path }),
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
     const ch = SPRINT_RUNTIME_OP_CHANNEL
     const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
@@ -227,6 +231,8 @@ export const sprintEngineApi = {
   | 'mergeRoadmapLane'
   | 'resumeRoadmapLane'
   | 'pauseRoadmapLane'
+  | 'getRoadmapHomeProject'
+  | 'setRoadmapHomeProject'
   | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'

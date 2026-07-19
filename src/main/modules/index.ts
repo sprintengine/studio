@@ -3,6 +3,7 @@ import { automationsModule, createAutomationsModule, type AutomationsModuleOptio
 import { mobileRelayModule } from './mobile-relay-module'
 import { multiloopModule } from './multiloop-module'
 import { reviewModule } from './review-module'
+import { roadmapModule } from './roadmap-module'
 import { sprintEngineModule } from './sprint-engine-module'
 import { switchboardModule } from './switchboard-module'
 
@@ -17,6 +18,7 @@ export function createBundledMainModules(options: BundledMainModuleOptions = {})
     sprintEngineModule,
     reviewModule,
     options.automations ? createAutomationsModule(options.automations) : automationsModule,
+    roadmapModule,
     mobileRelayModule,
   ]
 }

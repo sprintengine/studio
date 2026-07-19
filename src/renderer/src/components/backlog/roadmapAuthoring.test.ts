@@ -5,24 +5,33 @@ import type { BacklogItem } from '../../utils/backlog'
 import {
   addEntry,
   addLane,
+  addLibraryEntry,
+  authoredRef,
+  buildRoadmapLibrary,
   composeRoadmapSaveContent,
   draftContainsRef,
   draftFromRoadmap,
   entryPickerOptions,
+  entryPickerOptionsMulti,
   epicEntryDrift,
   isDraftDirty,
   makeEntry,
+  makeProjectEntry,
   mergeLaneDown,
   moveEntry,
   newRoadmapFileContent,
   policyChanged,
+  projectsChanged,
+  refDisplayMapMulti,
   removeEntry,
   removeLane,
   resyncEpicEntry,
   roadmapItemStates,
+  roadmapProjectAlias,
   snapshotEpicChildren,
   splitLane,
   structureChanged,
+  type RoadmapProjectItems,
 } from './roadmapAuthoring'
 
 const tests: Array<{ name: string; body: () => void }> = []
@@ -293,6 +302,134 @@ run('newRoadmapFileContent parses into a roadmap with default policy and one emp
   assert.equal(roadmap.lanes.length, 1)
   assert.equal(roadmap.lanes[0].entries.length, 0)
   assert.match(content, /type: roadmap/)
+})
+
+// ---------------------------------------------------------------------------
+// Cross-project planning (MC-1690 / T3)
+// ---------------------------------------------------------------------------
+
+const HOME: RoadmapProjectItems = { projectKey: null, projectName: 'multicode', path: '/abs/home', items: SCAN }
+const MOBILE: RoadmapProjectItems = {
+  projectKey: 'mobile',
+  projectName: 'multicode-mobile',
+  path: '/abs/mobile',
+  items: [
+    item({ relativePath: 'backlog/epics/sync.md', title: 'Sync', isEpic: true }),
+    item({ relativePath: 'backlog/sync-a.md', title: 'Sync A', epic: 'sync' }),
+    item({ relativePath: 'backlog/sync-b.md', title: 'Sync B', epic: 'sync' }),
+    item({ relativePath: 'backlog/phone.md', title: 'Phone', displayId: 'MB-9' }),
+    item({ relativePath: 'backlog/roadmaps/mobile.md', title: 'Mobile plan', rawType: 'roadmap' }),
+    item({ relativePath: 'backlog/gone.md', title: 'Gone', status: 'archived' }),
+  ],
+}
+
+run('authoredRef: home stays unqualified, an alias keeps its prefix', () => {
+  assert.equal(authoredRef(null, 'backlog/foo.md'), 'backlog/foo.md')
+  assert.equal(authoredRef('mobile', 'backlog/foo.md'), 'mobile:backlog/foo.md')
+})
+
+run('roadmapProjectAlias: slugifies and dedupes against taken aliases', () => {
+  assert.equal(roadmapProjectAlias('multicode-mobile', new Set()), 'multicode-mobile')
+  assert.equal(roadmapProjectAlias('multicode mobile', new Set(['multicode-mobile'])), 'multicode-mobile-2')
+})
+
+run('makeProjectEntry: a home epic is unqualified; a mobile epic is alias-qualified and snapshots its project', () => {
+  const home = makeProjectEntry(HOME, 'backlog/epics/auth.md')
+  assert.equal(home.ref, 'backlog/epics/auth.md')
+  assert.equal(home.projectKey, null)
+  const mobile = makeProjectEntry(MOBILE, 'backlog/epics/sync.md')
+  assert.equal(mobile.ref, 'mobile:backlog/epics/sync.md')
+  assert.equal(mobile.projectKey, 'mobile')
+  assert.deepEqual(mobile.children, ['backlog/sync-a.md', 'backlog/sync-b.md'])
+})
+
+run('acceptance #1: drag an item from A and an epic from B, reorder — file reflects the order with project-qualified refs + a projects map', () => {
+  const content = newRoadmapFileContent('Cross plan')
+  const baseline = draftFromRoadmap(parseRoadmap(content))
+  // Drag home item, then mobile epic, into the one default track.
+  let draft = addLibraryEntry(baseline, 0, HOME, 'backlog/foo.md')
+  draft = addLibraryEntry(draft, 0, MOBILE, 'backlog/epics/sync.md')
+  assert.equal(projectsChanged(baseline, draft), true)
+  // Reorder: move the mobile epic (index 1) above the home item (index 0).
+  draft = { ...draft, lanes: moveEntry(draft.lanes, { lane: 0, index: 1 }, { lane: 0, index: 0 }) }
+
+  const saved = composeRoadmapSaveContent(content, baseline, draft)
+  const reparsed = parseRoadmap(saved)
+  assert.deepEqual(reparsed.lanes[0].entries.map((e) => e.ref), ['mobile:backlog/epics/sync.md', 'backlog/foo.md'])
+  const epicEntry = reparsed.lanes[0].entries[0]
+  assert.equal(epicEntry.projectKey, 'mobile')
+  assert.deepEqual(epicEntry.children, ['backlog/sync-a.md', 'backlog/sync-b.md'])
+  assert.deepEqual(reparsed.projects, [{ alias: 'mobile', path: '/abs/mobile' }])
+  // No parse issues: the alias resolves against the projects map it wrote.
+  assert.deepEqual(reparsed.issues, [])
+})
+
+run('addLibraryEntry: a home row adds no alias; a duplicate ref is a no-op', () => {
+  const baseline = draftFromRoadmap(parseRoadmap(newRoadmapFileContent('P')))
+  const once = addLibraryEntry(baseline, 0, HOME, 'backlog/foo.md')
+  assert.equal(once.projects.length, 0)
+  const twice = addLibraryEntry(once, 0, HOME, 'backlog/foo.md')
+  assert.equal(twice, once)
+})
+
+run('composeRoadmapSaveContent: a projects-only churn does not perturb the body', () => {
+  // Adding then removing structure but keeping an alias would still write the block;
+  // here we just confirm a saved cross-project plan is a re-save fixed point.
+  const content = newRoadmapFileContent('P')
+  const baseline = draftFromRoadmap(parseRoadmap(content))
+  const draft = addLibraryEntry(baseline, 0, MOBILE, 'backlog/phone.md')
+  const saved = composeRoadmapSaveContent(content, baseline, draft)
+  const rebaseline = draftFromRoadmap(parseRoadmap(saved))
+  assert.equal(composeRoadmapSaveContent(saved, rebaseline, rebaseline), saved)
+  assert.match(saved, /projects:/)
+  assert.match(saved, /mobile: \/abs\/mobile/)
+})
+
+run('buildRoadmapLibrary: groups by project, epics first, loose items only, excludes roadmaps/archived/epic-children', () => {
+  const groups = buildRoadmapLibrary([HOME, MOBILE], [])
+  const mobile = groups.find((g) => g.projectKey === 'mobile')
+  assert.ok(mobile)
+  const refs = mobile.entries.map((e) => e.ref)
+  // Epic first, then the loose item; children, roadmaps, archived excluded.
+  assert.deepEqual(refs, ['mobile:backlog/epics/sync.md', 'mobile:backlog/phone.md'])
+  const epic = mobile.entries[0]
+  assert.equal(epic.kind, 'epic')
+  assert.deepEqual(epic.children.map((c) => c.ref), ['backlog/sync-a.md', 'backlog/sync-b.md'])
+})
+
+run('buildRoadmapLibrary: a placed item/epic dims (planned) but is never dropped', () => {
+  const baseline = draftFromRoadmap(parseRoadmap(newRoadmapFileContent('P')))
+  const draft = addLibraryEntry(baseline, 0, MOBILE, 'backlog/epics/sync.md')
+  const groups = buildRoadmapLibrary([HOME, MOBILE], draft.lanes)
+  const mobile = groups.find((g) => g.projectKey === 'mobile')
+  const epic = mobile?.entries.find((e) => e.ref === 'mobile:backlog/epics/sync.md')
+  assert.equal(epic?.planned, true)
+  // The loose item is still un-planned and present.
+  assert.equal(mobile?.entries.find((e) => e.ref === 'mobile:backlog/phone.md')?.planned, false)
+})
+
+run('buildRoadmapLibrary: a query filters rows and drops empty groups', () => {
+  const groups = buildRoadmapLibrary([HOME, MOBILE], [], 'phone')
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].projectKey, 'mobile')
+  assert.deepEqual(groups[0].entries.map((e) => e.ref), ['mobile:backlog/phone.md'])
+})
+
+run('buildRoadmapLibrary: an epic is kept when a child matches the query', () => {
+  const groups = buildRoadmapLibrary([MOBILE], [], 'Sync A')
+  assert.deepEqual(groups[0].entries.map((e) => e.ref), ['mobile:backlog/epics/sync.md'])
+})
+
+run('refDisplayMapMulti + entryPickerOptionsMulti: keyed by authored ref across projects', () => {
+  const display = refDisplayMapMulti([HOME, MOBILE])
+  assert.equal(display.get('backlog/foo.md')?.title, 'Foo')
+  assert.equal(display.get('mobile:backlog/phone.md')?.title, 'Phone')
+  const values = entryPickerOptionsMulti([HOME, MOBILE]).map((o) => o.value)
+  assert.ok(values.includes('backlog/foo.md'))
+  assert.ok(values.includes('mobile:backlog/phone.md'))
+  // Archived + roadmap excluded from the picker.
+  assert.ok(!values.includes('mobile:backlog/gone.md'))
+  assert.ok(!values.includes('mobile:backlog/roadmaps/mobile.md'))
 })
 
 let failures = 0

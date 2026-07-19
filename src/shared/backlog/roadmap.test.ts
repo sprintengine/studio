@@ -7,11 +7,14 @@ import {
   isRoadmapRelativePath,
   nextEligible,
   parseRoadmap,
+  qualifiedRef,
   renderRoadmapBody,
   roadmapEpicDrift,
   roadmapRefSlug,
   setRoadmapPolicy,
+  setRoadmapProjects,
   validateRoadmap,
+  type ProjectKey,
   type RoadmapItemState,
   type RoadmapRunState,
 } from './roadmap'
@@ -168,6 +171,21 @@ function item(ref: string, status: RoadmapItemState['status'], dependsOn?: strin
   return { ref, status, ...(dependsOn ? { dependsOn } : {}) }
 }
 
+function projectItem(
+  projectKey: ProjectKey,
+  ref: string,
+  status: RoadmapItemState['status'],
+  dependsOn?: string[],
+): RoadmapItemState {
+  return { ref, status, projectKey, ...(dependsOn ? { dependsOn } : {}) }
+}
+
+// Run links are keyed by qualifiedRef; these helpers spell that so a test reads
+// like the roadmap ref it means.
+function homeRuns(entries: Array<[string, RoadmapRunState]>): Map<string, RoadmapRunState> {
+  return new Map(entries.map(([ref, state]) => [qualifiedRef(null, ref), state]))
+}
+
 run('validate: dangling references surfaced, never dropped', () => {
   const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/known.md\n- backlog/ghost.md\n')
   const result = validateRoadmap(roadmap, [item('backlog/known.md', 'ready')])
@@ -228,7 +246,7 @@ const NO_RUNS: ReadonlyMap<string, RoadmapRunState> = new Map()
 run('eligibility: lane blocked by an unmerged worktree predecessor', () => {
   // foo finished but its PR has not merged; bar must not become eligible.
   const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/foo.md\n- backlog/bar.md\n')
-  const runs = new Map<string, RoadmapRunState>([['backlog/foo.md', { mode: 'worktree', prMerged: false }]])
+  const runs = homeRuns([['backlog/foo.md', { mode: 'worktree', prMerged: false }]])
   const [lane] = nextEligible(
     roadmap,
     [item('backlog/foo.md', 'completed'), item('backlog/bar.md', 'ready')],
@@ -241,7 +259,7 @@ run('eligibility: lane blocked by an unmerged worktree predecessor', () => {
 
 run('eligibility: merged worktree predecessor unblocks the next entry', () => {
   const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/foo.md\n- backlog/bar.md\n')
-  const runs = new Map<string, RoadmapRunState>([['backlog/foo.md', { mode: 'worktree', prMerged: true }]])
+  const runs = homeRuns([['backlog/foo.md', { mode: 'worktree', prMerged: true }]])
   const [lane] = nextEligible(
     roadmap,
     [item('backlog/foo.md', 'completed'), item('backlog/bar.md', 'ready')],
@@ -253,7 +271,7 @@ run('eligibility: merged worktree predecessor unblocks the next entry', () => {
 
 run('eligibility: non-worktree predecessor is merged when completed (MC-1439)', () => {
   const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- backlog/foo.md\n- backlog/bar.md\n')
-  const runs = new Map<string, RoadmapRunState>([['backlog/foo.md', { mode: 'shared' }]])
+  const runs = homeRuns([['backlog/foo.md', { mode: 'shared' }]])
   const [lane] = nextEligible(
     roadmap,
     [item('backlog/foo.md', 'completed'), item('backlog/bar.md', 'ready')],
@@ -298,7 +316,7 @@ run('eligibility: epic entry with mixed children resolves to the first runnable 
   const roadmap = parseRoadmap(
     '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n  - backlog/c3.md\n',
   )
-  const runs = new Map<string, RoadmapRunState>([['backlog/c1.md', { mode: 'shared' }]])
+  const runs = homeRuns([['backlog/c1.md', { mode: 'shared' }]])
   const [lane] = nextEligible(
     roadmap,
     [
@@ -337,6 +355,161 @@ run('eligibility: an empty lane reports empty', () => {
   const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n')
   const [lane] = nextEligible(roadmap, [], NO_RUNS)
   assert.equal(lane.reason, 'empty')
+})
+
+// ---------------------------------------------------------------------------
+// Project-qualified refs (instance-global model, MC-1688)
+// ---------------------------------------------------------------------------
+
+const MULTI_PROJECT_FILE = `---
+type: roadmap
+status: in_progress
+projects:
+  mobile: /abs/multicode-mobile
+  web: /abs/multicode-web
+---
+# Cross-project roadmap
+
+## Ship
+- backlog/home-1.md
+- mobile:backlog/m-1.md
+- web:backlog/w-1.md
+`
+
+run('parse: an existing single-project roadmap has no projects and home entries', () => {
+  const roadmap = parseRoadmap(ROADMAP_FILE)
+  assert.deepEqual(roadmap.projects, [])
+  for (const lane of roadmap.lanes) {
+    for (const entry of lane.entries) {
+      assert.equal(entry.projectKey, null)
+      assert.equal(entry.relativePath, entry.ref)
+    }
+  }
+})
+
+run('parse: projects map + alias-qualified entry refs resolve to project + path', () => {
+  const roadmap = parseRoadmap(MULTI_PROJECT_FILE)
+  assert.deepEqual(roadmap.projects, [
+    { alias: 'mobile', path: '/abs/multicode-mobile' },
+    { alias: 'web', path: '/abs/multicode-web' },
+  ])
+  const [home, mobile, web] = roadmap.lanes[0].entries
+  assert.deepEqual(
+    [home, mobile, web].map((entry) => [entry.ref, entry.projectKey, entry.relativePath]),
+    [
+      ['backlog/home-1.md', null, 'backlog/home-1.md'],
+      ['mobile:backlog/m-1.md', 'mobile', 'backlog/m-1.md'],
+      ['web:backlog/w-1.md', 'web', 'backlog/w-1.md'],
+    ],
+  )
+  assert.equal(roadmap.issues.length, 0)
+})
+
+run('parse: alias-qualified refs round-trip through render byte-stably', () => {
+  const roadmap = parseRoadmap(MULTI_PROJECT_FILE)
+  const reparsed = parseRoadmap(`---\ntype: roadmap\n---\n${renderRoadmapBody(roadmap)}`)
+  assert.deepEqual(
+    reparsed.lanes[0].entries.map((entry) => entry.ref),
+    ['backlog/home-1.md', 'mobile:backlog/m-1.md', 'web:backlog/w-1.md'],
+  )
+})
+
+run('parse: inline projects map form is tolerated', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nprojects: { mobile: /abs/m, web: /abs/w }\n---\n## L\n- mobile:backlog/x.md\n',
+  )
+  assert.deepEqual(roadmap.projects, [
+    { alias: 'mobile', path: '/abs/m' },
+    { alias: 'web', path: '/abs/w' },
+  ])
+})
+
+run('parse: an alias with no projects entry is flagged unknown_alias, never dropped', () => {
+  const roadmap = parseRoadmap('---\ntype: roadmap\n---\n## L\n- ghost:backlog/x.md\n')
+  // The entry survives (never silently dropped) and carries the alias key.
+  assert.equal(roadmap.lanes[0].entries[0].projectKey, 'ghost')
+  assert.equal(roadmap.issues.some((issue) => issue.kind === 'unknown_alias'), true)
+})
+
+run('parse: a duplicate alias is flagged once', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nprojects:\n  mobile: /abs/a\n  mobile: /abs/b\n---\n## L\n- mobile:backlog/x.md\n',
+  )
+  assert.equal(roadmap.issues.filter((issue) => issue.kind === 'duplicate_alias').length, 1)
+})
+
+run('eligibility: same-named items in different projects never satisfy each other', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nprojects:\n  mobile: /abs/m\n---\n## L\n- backlog/foo.md\n- mobile:backlog/foo.md\n',
+  )
+  const resolvable = new Set<ProjectKey>([null, 'mobile'])
+  // Home foo completed (merged, shared) → frontier moves to mobile foo, which is
+  // ready → eligible. The home item does NOT satisfy the mobile entry.
+  const [lane] = nextEligible(
+    roadmap,
+    [projectItem(null, 'backlog/foo.md', 'completed'), projectItem('mobile', 'backlog/foo.md', 'ready')],
+    homeRuns([['backlog/foo.md', { mode: 'shared' }]]),
+    resolvable,
+  )
+  assert.equal(lane.reason, 'eligible')
+  assert.equal(lane.eligible?.projectKey, 'mobile')
+  assert.equal(lane.eligible?.relativePath, 'backlog/foo.md')
+  assert.equal(lane.eligibleRef, 'mobile:backlog/foo.md')
+})
+
+run('eligibility: a frontier whose alias is not resolvable parks unknown_project', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nprojects:\n  mobile: /abs/gone\n---\n## L\n- mobile:backlog/x.md\n',
+  )
+  // `mobile` is declared but its path is not among the resolvable projects.
+  const [lane] = nextEligible(roadmap, [], NO_RUNS, new Set<ProjectKey>([null]))
+  assert.equal(lane.reason, 'unknown_project')
+  assert.equal(lane.frontier?.projectKey, 'mobile')
+  assert.equal(lane.eligibleRef, null)
+})
+
+run('eligibility: cross-project dependsOn resolves within each project', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nprojects:\n  mobile: /abs/m\n---\n## L\n- backlog/a.md\n- mobile:backlog/b.md\n',
+  )
+  const resolvable = new Set<ProjectKey>([null, 'mobile'])
+  // mobile b dependsOn slug `a`. There is a home `a` (completed) AND a mobile `a`
+  // (in_progress). The prerequisite must resolve to the MOBILE a (same project),
+  // which is not terminal → b is blocked, not eligible.
+  const resolved = nextEligible(
+    roadmap,
+    [
+      projectItem(null, 'backlog/a.md', 'completed'),
+      projectItem('mobile', 'backlog/b.md', 'ready', ['a']),
+      projectItem('mobile', 'backlog/a.md', 'in_progress'),
+    ],
+    homeRuns([['backlog/a.md', { mode: 'shared' }]]),
+    resolvable,
+  )
+  assert.equal(resolved[0].reason, 'blocked')
+})
+
+run('validate: an alias-qualified dangling ref is surfaced with its raw ref', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\nprojects:\n  mobile: /abs/m\n---\n## L\n- mobile:backlog/ghost.md\n',
+  )
+  const result = validateRoadmap(roadmap, [projectItem('mobile', 'backlog/other.md', 'ready')])
+  assert.deepEqual(result.danglingRefs, ['mobile:backlog/ghost.md'])
+})
+
+run('setRoadmapProjects: writes a block, round-trips, and no-ops when unchanged', () => {
+  const base = '---\ntype: roadmap\nstatus: ready\n---\n\n## L\n- backlog/x.md\n'
+  const withProjects = setRoadmapProjects(base, [{ alias: 'mobile', path: '/abs/m' }])
+  const parsed = parseRoadmap(withProjects)
+  assert.deepEqual(parsed.projects, [{ alias: 'mobile', path: '/abs/m' }])
+  // Body + other frontmatter preserved.
+  assert.equal(bodyOf(withProjects), bodyOf(base))
+  assert.ok(withProjects.includes('status: ready'))
+  // Re-writing the same map is byte-identical.
+  assert.equal(setRoadmapProjects(withProjects, [{ alias: 'mobile', path: '/abs/m' }]), withProjects)
+  // Clearing removes the block.
+  assert.equal(bodyOf(setRoadmapProjects(withProjects, [])), bodyOf(base))
+  assert.equal(parseRoadmap(setRoadmapProjects(withProjects, [])).projects.length, 0)
 })
 
 // ---------------------------------------------------------------------------

@@ -49,6 +49,28 @@ export function categoryLabel(category: CapabilityCategory): string {
 // Ids of the feature-flagged modules surfaced as read-only "Coming soon" rows.
 export const COMING_SOON_IDS: ReadonlySet<string> = new Set(COMING_SOON_MODULE_MANIFESTS.map((m) => m.id))
 
+// Manifest lookup for resolving a module's `dependsOn` labels.
+const MANIFEST_BY_ID: ReadonlyMap<string, CapabilityManifest> = new Map(
+  ACTIVE_RENDERER_MODULE_MANIFESTS.map((manifest) => [manifest.id, manifest]),
+)
+
+// The display name of the first prerequisite a module still needs — a non-core
+// dependency (agent-runtime is always on) that is not currently enabled. When
+// present the row is disabled and shows "Needs <name>" (e.g. Roadmap needs Sprint
+// Engine), mirroring the resolver's `disabled_dependency` so the reason is visible
+// rather than the toggle silently refusing to stick.
+function unmetDependencyName(
+  manifest: CapabilityManifest,
+  overrides: ModuleEnablementOverrides,
+): string | null {
+  for (const depId of manifest.dependsOn ?? []) {
+    const dependency = MANIFEST_BY_ID.get(depId)
+    if (!dependency || dependency.core) continue
+    if (!selectModuleEnabled(overrides, depId)) return dependency.displayName
+  }
+  return null
+}
+
 // Computed once: immutable for the session. Groups the active (toggleable)
 // modules together with any "Coming soon" feature-flagged modules, by category.
 // Active modules are listed before coming-soon ones within a category because
@@ -107,16 +129,22 @@ export function ModuleToggleList({
               COMING_SOON_IDS.has(manifest.id) ? (
                 <ComingSoonModuleRow key={manifest.id} manifest={manifest} />
               ) : (
-                <SettingToggle
-                  key={manifest.id}
-                  label={manifest.displayName}
-                  description={
-                    manifest.core ? `${manifest.summary ?? ''} Always on.`.trim() : manifest.summary
-                  }
-                  enabled={manifest.core ? true : selectModuleEnabled(overrides, manifest.id)}
-                  disabled={manifest.core}
-                  onChange={(next) => onToggle(manifest.id, next)}
-                />
+                (() => {
+                  const missingDependency = manifest.core ? null : unmetDependencyName(manifest, overrides)
+                  return (
+                    <SettingToggle
+                      key={manifest.id}
+                      label={manifest.displayName}
+                      description={
+                        manifest.core ? `${manifest.summary ?? ''} Always on.`.trim() : manifest.summary
+                      }
+                      requirement={missingDependency ? `Needs ${missingDependency}` : undefined}
+                      enabled={manifest.core ? true : selectModuleEnabled(overrides, manifest.id)}
+                      disabled={manifest.core || Boolean(missingDependency)}
+                      onChange={(next) => onToggle(manifest.id, next)}
+                    />
+                  )
+                })()
               )
             )}
           </div>

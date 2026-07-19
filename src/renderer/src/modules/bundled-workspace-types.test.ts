@@ -163,8 +163,8 @@ const host = getRendererHost()
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'review', 'roadmap', 'multiloop', 'automations-host', 'guided-brief'],
-  'bundled workspace types keep picker order (review + roadmap both sort at pickerOrder 25, review first by id; automations-host at 35)',
+  ['switchboard', 'sprintengine', 'review', 'multiloop', 'automations-host', 'guided-brief'],
+  'bundled workspace types keep picker order (review at pickerOrder 25; automations-host at 35); the roadmap workspace type retired (MC-1692)',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine').map((definition) => definition.id),
@@ -173,12 +173,12 @@ assert.deepEqual(
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'review', 'roadmap', 'multiloop', 'guided-brief'],
+  ['switchboard', 'sprintengine', 'review', 'multiloop', 'guided-brief'],
   'disabling the automations module removes the automations-host workspace type from the picker',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'review').map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'roadmap', 'multiloop', 'automations-host', 'guided-brief'],
+  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'],
   'disabling the review module removes the review workspace type from the picker',
 )
 assert.deepEqual(
@@ -191,7 +191,7 @@ assert.deepEqual(
 
 assert.equal(host.getWorkspaceTypeModule('sprintengine'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('review'), 'review')
-assert.equal(host.getWorkspaceTypeModule('roadmap'), 'sprint-engine')
+assert.equal(host.getWorkspaceTypeModule('roadmap'), undefined, 'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type')
 assert.equal(host.getWorkspaceTypeModule('guided-brief'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('switchboard'), 'switchboard')
 assert.equal(host.getWorkspaceTypeModule('multiloop'), 'multiloop')
@@ -199,7 +199,7 @@ assert.equal(host.getWorkspaceTypeModule('automations-host'), 'automations', 'au
 assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id is 'automations-host', not 'automations'")
 
 assert.deepEqual(
-  ['switchboard', 'sprintengine', 'review', 'roadmap', 'multiloop', 'automations-host', 'guided-brief'].map((id) => {
+  ['switchboard', 'sprintengine', 'review', 'multiloop', 'automations-host', 'guided-brief'].map((id) => {
     const definition = host.getWorkspaceType(id)
     assert.ok(definition, `expected ${id} registration`)
     return {
@@ -235,14 +235,6 @@ assert.deepEqual(
       description: 'Guided walkthrough of a pull request, branch, or patch',
       accentToken: '--accent-primary',
       creationStepsId: 'review',
-    },
-    {
-      id: 'roadmap',
-      moduleId: 'sprint-engine',
-      label: 'Roadmap',
-      description: 'Steer a multi-week roadmap: progress, pull requests, and what is waiting on you.',
-      accentToken: '--tool-sprintengine',
-      creationStepsId: undefined,
     },
     {
       id: 'multiloop',

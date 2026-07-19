@@ -84,6 +84,49 @@ test('sidecar path is contained to a single safe segment', async () => {
   })
 })
 
+test('absorbs a legacy non-home sidecar once, then deletes every legacy copy', async () => {
+  await withTempRoot(async (homeRoot) => {
+    await withTempRoot(async (repoA) => {
+      await withTempRoot(async (repoB) => {
+        // A pre-instance build left sidecars under two NON-home projects.
+        const legacyA = roadmapRuntimePath(repoA, 'backlog/roadmaps/platform.md').path
+        const legacyB = roadmapRuntimePath(repoB, 'backlog/roadmaps/platform.md').path
+        for (const [path, ref] of [[legacyA, 'backlog/a.md'], [legacyB, 'backlog/z.md']] as const) {
+          await mkdir(dirname(path), { recursive: true })
+          await writeFile(
+            path,
+            JSON.stringify({ schemaVersion: 1, roadmapRef: 'backlog/roadmaps/platform.md', lanes: [{ lane: 'Backend', activeItemRef: ref }] }),
+            'utf8',
+          )
+        }
+
+        // The home store (empty) absorbs the first legacy sidecar found.
+        const store = createRoadmapOrchestratorStore(homeRoot)
+        const read = await store.read('backlog/roadmaps/platform.md', [repoA, repoB])
+        assert.equal(read.get('Backend')?.activeItemRef, 'backlog/a.md')
+        const { path: instancePath } = roadmapRuntimePath(homeRoot, 'backlog/roadmaps/platform.md')
+        assert.match(await readFile(instancePath, 'utf8'), /"activeItemRef": "backlog\/a.md"/)
+        // ...and every legacy copy is gone.
+        await assert.rejects(() => readFile(legacyA, 'utf8'))
+        await assert.rejects(() => readFile(legacyB, 'utf8'))
+        // A second read reads the home store directly (no legacy left).
+        const again = await store.read('backlog/roadmaps/platform.md', [repoA, repoB])
+        assert.equal(again.get('Backend')?.activeItemRef, 'backlog/a.md')
+      })
+    })
+  })
+})
+
+test('the home store is never swept as its own legacy copy', async () => {
+  await withTempRoot(async (homeRoot) => {
+    const store = createRoadmapOrchestratorStore(homeRoot)
+    await store.write('backlog/roadmaps/platform.md', new Map([['L', { lane: 'L', activeItemRef: ':backlog/x.md' }]]))
+    // Passing the home root itself as a "legacy" root must not delete the store.
+    const read = await store.read('backlog/roadmaps/platform.md', [homeRoot])
+    assert.equal(read.get('L')?.activeItemRef, ':backlog/x.md')
+  })
+})
+
 test('write is atomic (no .tmp left behind)', async () => {
   await withTempRoot(async (root) => {
     const store = createRoadmapOrchestratorStore(root)

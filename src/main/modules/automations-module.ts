@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 
 import { createLocalAutomationExecutor, defaultRemoveRunWorktree } from '../automations/executor-local'
 import { openAutomationRunPullRequest } from '../automations/pull-request'
@@ -23,6 +23,7 @@ import {
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
+  RoadmapAppFrontDoorToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
   TerminalRuntimeToken,
@@ -48,11 +49,20 @@ import { createAutomationWebhookReceiver } from '../automations/webhook-receiver
 import { createRoadmapOrchestrator } from '../roadmap-orchestrator'
 import { createRoadmapOrchestratorPorts } from '../roadmap-orchestrator-ports'
 import { registerRoadmapOrchestratorIpc } from '../ipc/roadmap-orchestrator-ipc'
+import { readRoadmapHomeProjectPath, writeRoadmapHomeProjectPath } from '../roadmap-home-store'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
   deliverRunEvent?: (event: AutomationsRunEvent) => void
   checkProviderPermission?: AutomationProviderPermissionChecker
+  // Live gate for the roadmap reconcile that rides the engine's evaluation tick
+  // (MC-1691). The roadmap orchestrator is built here (D3: it has no timer of its
+  // own), but the `roadmap` module toggles independently, so each tick asks
+  // whether Roadmap is currently enabled before reconciling. Returning false
+  // simply skips the pass — it starts no new sprint and never touches a running
+  // one — so disabling Roadmap (or a dependency) stops new work without a reload
+  // and without killing a live sprint. Defaults to always-on for tests.
+  isRoadmapReconcileEnabled?: () => boolean
 }
 
 type RunEventWindow = {
@@ -150,10 +160,17 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       // runtime, and consumes existing run/PR machinery through the shared front
       // doors. Reconcile is single-flight and fail-soft, so a slow or throwing
       // pass never blocks the engine tick that triggered it.
+      // The instance roadmap lives in a designated HOME PROJECT (D1), recorded as
+      // an app-level setting under userData. The orchestrator reads it every
+      // reconcile; the creation flow (MC-1689) sets it over the home IPC below.
+      const userDataDir = app.getPath('userData')
       const roadmapOrchestrator = createRoadmapOrchestrator(
         createRoadmapOrchestratorPorts({
           frontDoors: sprintEngineFrontDoors,
           delegateToRenderer: (request) => automationDelegate.request(request),
+          getHomeProjectRoot: () => readRoadmapHomeProjectPath(userDataDir),
+          // All open roots — used to resolve a `projects:` alias path to a known
+          // workspace root (an unresolvable alias parks the lane `unknown_project`).
           getWorkspaceRoots: () =>
             projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()).map(
               (folder) => folder.folderPath,
@@ -161,7 +178,14 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           notify: (input) => host.notify(input),
         }),
       )
-      registerRoadmapOrchestratorIpc(host.ipcMain, roadmapOrchestrator)
+      registerRoadmapOrchestratorIpc(host.ipcMain, roadmapOrchestrator, {
+        getHomeProjectPath: () => readRoadmapHomeProjectPath(userDataDir),
+        setHomeProjectPath: (path) => writeRoadmapHomeProjectPath(userDataDir, path),
+      })
+      // Expose the instance roadmap's read + plan + steer surface to app-level
+      // callers (the automation server's roadmap.* tools), resolved lazily like the
+      // Automations front door — the orchestrator's public API is a superset of it.
+      host.provideService(RoadmapAppFrontDoorToken, () => roadmapOrchestrator)
 
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
@@ -170,6 +194,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           isIntegrationAvailable,
           runAutomation,
           onEvaluation: () => {
+            // Off means off: when the roadmap module is disabled, skip reconcile
+            // entirely so no new sprint is started. A sprint already running is
+            // owned by the pool supervisor, untouched by skipping this tick.
+            if (options.isRoadmapReconcileEnabled && !options.isRoadmapReconcileEnabled()) return
             void roadmapOrchestrator.reconcile().catch(() => undefined)
           },
           onRunEvent: (event, definition) => {

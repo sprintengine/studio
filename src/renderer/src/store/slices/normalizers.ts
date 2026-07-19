@@ -16,6 +16,11 @@ import {
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 
+// The retired `roadmap` workspace-mode string (MC-1692). Kept as a local literal
+// rather than a live `WorkspaceMode` constant: it is a legacy value with no
+// producer left, referenced only to filter it out of persisted state.
+const RETIRED_ROADMAP_WORKSPACE_MODE = 'roadmap'
+
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
   migrate: (workspace: Workspace) => Workspace,
@@ -152,6 +157,20 @@ export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Worksp
     result.push(workspace.name === 'Automations' ? workspace : { ...workspace, name: 'Automations' })
   }
   return result
+}
+
+// The `roadmap` workspace mode retired in store v65 (MC-1692): Roadmap became an
+// instance-global sidebar surface, so a per-project "Roadmap workspace" no longer
+// exists. Drop any persisted roadmap-mode row on every list-entry path, not only
+// in the v65 migration step — a dev-HMR reload (or any write that stamps the
+// current store version onto un-migrated state) would otherwise leave a roadmap
+// row the migrate ladder never revisits, exactly how the v63 host dedupe was
+// bypassed in the wild. The roadmap plan on disk (the home project's
+// `backlog/roadmaps/`) is untouched; the global surface reads it. Returns the
+// input array unchanged when there is no roadmap-mode row.
+export function dropRetiredRoadmapWorkspaces(workspaces: Workspace[]): Workspace[] {
+  if (!workspaces.some((workspace) => workspace.mode === RETIRED_ROADMAP_WORKSPACE_MODE)) return workspaces
+  return workspaces.filter((workspace) => workspace.mode !== RETIRED_ROADMAP_WORKSPACE_MODE)
 }
 
 // Every agent carries a real name like the specialists do, but workspaces

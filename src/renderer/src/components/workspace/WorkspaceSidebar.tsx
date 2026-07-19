@@ -8,7 +8,8 @@ import {
   resolveEnabledWorkspaceType,
 } from '../AppIcons'
 import { buildModeModels } from './newWorkspace/modeModels'
-import { selectModuleEnabled } from '../../modules'
+import { getRendererHost, selectModuleEnabled } from '../../modules'
+import { SidebarNavButton } from './SidebarNavButton'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -519,6 +520,16 @@ export default function WorkspaceSidebar({
   const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
   const sprintEngineEnabled = useWorkspaceStore((s) =>
     selectModuleEnabled(s.appSettings.modules, 'sprint-engine')
+  )
+  // Module-contributed top-nav doors (the sidebar-nav host contribution point).
+  // The Roadmap door now rides this registry rather than being hardcoded here:
+  // it registers unconditionally at boot and is filtered by its module's live
+  // enablement, so toggling Roadmap (or a Sprint-Engine/Automations dependency)
+  // shows/hides the door without a reload. Memoized on the enablement overrides
+  // so the array is stable between toggles.
+  const moduleNavEntries = useMemo(
+    () => getRendererHost().getSidebarNavEntries((id) => selectModuleEnabled(moduleOverrides, id)),
+    [moduleOverrides],
   )
   const now = useRelativeNow()
 
@@ -1479,123 +1490,168 @@ export default function WorkspaceSidebar({
        */}
       {chromeSlot}
       <div className={`mt-1 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
-        {/* Create cluster — New chat is the primary click (the most common
-            create), and the attached "+" opens a menu of everything else; each
-            menu row opens the creation hub preselected on that type (the
-            Linear "+" idiom). The primary row keeps the tab-extract drop
-            target; Ctrl+T still opens the hub on Workspace. */}
-        {sidebarCollapsed ? (
-          <>
-            <SidebarNavButton
-              collapsed={sidebarCollapsed}
-              dropActive={tabDropTarget?.kind === 'new'}
-              icon={<NewChatIcon className="icon-xs pointer-events-none shrink-0" />}
-              label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
-              ariaLabel="New chat"
-              tooltip="New chat"
-              onClick={onNewChat}
-              onDragOver={handleTabDragOverNew}
-              onDragLeave={handleTabDragLeaveNew}
-              onDrop={handleTabDropOnNew}
-            />
-            <SidebarNavButton
-              collapsed={sidebarCollapsed}
-              icon={
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
-                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              }
-              label="New…"
-              ariaLabel="New…"
-              tooltip="New… (Ctrl+T for workspace)"
-              onClick={(event) => {
-                // Anchor to the button, not the pointer — a keyboard-activated
-                // click reports clientX/Y of 0,0.
-                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-                setCreateMenu({ x: rect.right, y: rect.top })
-              }}
-            />
-          </>
-        ) : (
-          <div className="flex items-stretch gap-px">
-            <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
-              <button
-                type="button"
-                onClick={onNewChat}
-                onDragOver={handleTabDragOverNew}
-                onDragLeave={handleTabDragLeaveNew}
-                onDrop={handleTabDropOnNew}
-                className={`flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
-                  tabDropTarget?.kind === 'new'
-                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                    : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                }`}
-              >
-                <NewChatIcon className="icon-xs pointer-events-none shrink-0" />
-                <span className="min-w-0 flex-1 truncate">
-                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
-                </span>
-              </button>
-            </Tooltip>
-            <Tooltip content="New… (Ctrl+T for workspace)" placement="right" wrapperClassName="flex">
-              <button
-                type="button"
-                aria-label="New…"
-                aria-haspopup="menu"
-                onClick={(event) => {
-                  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-                  setCreateMenu({ x: rect.right, y: rect.bottom })
-                }}
-                className={`flex h-[30px] w-[26px] shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
-              >
-                <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
-                  <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-            </Tooltip>
-          </div>
-        )}
+        {/* Instance-level top-nav cluster. Every door carries an explicit `order`
+            — the shell's own built-ins (Create=0, Automations=10, Sprints=20,
+            Connectors=30) alongside module-contributed doors (Roadmap=40, from the
+            sidebar-nav host contribution point) — and one merged sort renders the
+            band deterministically: Create → Automations → Sprints → Connectors →
+            Roadmap (D4). A gated door drops out when its module or host is off
+            without disturbing the order of the rest.
 
-        {/* Top nav (Create → Automations → Sprints → Connectors).
-            Automations keeps its front-door picker; the gate stays so it only
-            appears when a host workspace exists. Sprints toggles the global
-            Sprint Engines aside (all sprints across projects). Connectors opens
-            the T2 surface. */}
-        {automationsEntryEnabled ? (
-          <SidebarNavButton
-            collapsed={sidebarCollapsed}
-            icon={<AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
-            label="Automations"
-            ariaLabel="Automations"
-            tooltip="Automations"
-            tooltipWhenExpanded
-            onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
-          />
-        ) : null}
-
-        {sprintEngineEnabled ? (
-          <SidebarNavButton
-            collapsed={sidebarCollapsed}
-            icon={<SprintEngineWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
-            label="Sprints"
-            ariaLabel="Sprints"
-            tooltip="Sprints — all projects"
-            tooltipWhenExpanded
-            active={sprintEnginesAsideOpen}
-            onClick={() => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)}
-          />
-        ) : null}
-
-        <SidebarNavButton
-          collapsed={sidebarCollapsed}
-          icon={<ConnectorsNavIcon className="icon-xs pointer-events-none shrink-0" />}
-          label="Connectors"
-          ariaLabel="Connectors"
-          tooltip="Connectors"
-          tooltipWhenExpanded
-          active={connectorsSurfaceOpen}
-          onClick={() => openConnectorsSurface()}
-        />
+            Create cluster: New chat is the primary click (the most common create),
+            and the attached "+" opens a menu of everything else; each menu row
+            opens the creation hub preselected on that type (the Linear "+" idiom).
+            The primary row keeps the tab-extract drop target; Ctrl+T still opens
+            the hub on Workspace. */}
+        {(
+          [
+            {
+              id: 'create',
+              order: 0,
+              node: sidebarCollapsed ? (
+                <>
+                  <SidebarNavButton
+                    collapsed={sidebarCollapsed}
+                    dropActive={tabDropTarget?.kind === 'new'}
+                    icon={<NewChatIcon className="icon-xs pointer-events-none shrink-0" />}
+                    label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
+                    ariaLabel="New chat"
+                    tooltip="New chat"
+                    onClick={onNewChat}
+                    onDragOver={handleTabDragOverNew}
+                    onDragLeave={handleTabDragLeaveNew}
+                    onDrop={handleTabDropOnNew}
+                  />
+                  <SidebarNavButton
+                    collapsed={sidebarCollapsed}
+                    icon={
+                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
+                        <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                      </svg>
+                    }
+                    label="New…"
+                    ariaLabel="New…"
+                    tooltip="New… (Ctrl+T for workspace)"
+                    onClick={(event) => {
+                      // Anchor to the button, not the pointer — a keyboard-activated
+                      // click reports clientX/Y of 0,0.
+                      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                      setCreateMenu({ x: rect.right, y: rect.top })
+                    }}
+                  />
+                </>
+              ) : (
+                <div className="flex items-stretch gap-px">
+                  <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
+                    <button
+                      type="button"
+                      onClick={onNewChat}
+                      onDragOver={handleTabDragOverNew}
+                      onDragLeave={handleTabDragLeaveNew}
+                      onDrop={handleTabDropOnNew}
+                      className={`flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                        tabDropTarget?.kind === 'new'
+                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                      }`}
+                    >
+                      <NewChatIcon className="icon-xs pointer-events-none shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
+                      </span>
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="New… (Ctrl+T for workspace)" placement="right" wrapperClassName="flex">
+                    <button
+                      type="button"
+                      aria-label="New…"
+                      aria-haspopup="menu"
+                      onClick={(event) => {
+                        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+                        setCreateMenu({ x: rect.right, y: rect.bottom })
+                      }}
+                      className={`flex h-[30px] w-[26px] shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
+                        <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </Tooltip>
+                </div>
+              ),
+            },
+            // Automations keeps its front-door picker; the gate stays so it only
+            // appears when a host workspace exists.
+            automationsEntryEnabled
+              ? {
+                  id: 'automations',
+                  order: 10,
+                  node: (
+                    <SidebarNavButton
+                      collapsed={sidebarCollapsed}
+                      icon={<AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
+                      label="Automations"
+                      ariaLabel="Automations"
+                      tooltip="Automations"
+                      tooltipWhenExpanded
+                      onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
+                    />
+                  ),
+                }
+              : null,
+            // Sprints toggles the global Sprint Engines aside (all sprints across projects).
+            sprintEngineEnabled
+              ? {
+                  id: 'sprints',
+                  order: 20,
+                  node: (
+                    <SidebarNavButton
+                      collapsed={sidebarCollapsed}
+                      icon={<SprintEngineWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
+                      label="Sprints"
+                      ariaLabel="Sprints"
+                      tooltip="Sprints — all projects"
+                      tooltipWhenExpanded
+                      active={sprintEnginesAsideOpen}
+                      onClick={() => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)}
+                    />
+                  ),
+                }
+              : null,
+            {
+              id: 'connectors',
+              order: 30,
+              node: (
+                <SidebarNavButton
+                  collapsed={sidebarCollapsed}
+                  icon={<ConnectorsNavIcon className="icon-xs pointer-events-none shrink-0" />}
+                  label="Connectors"
+                  ariaLabel="Connectors"
+                  tooltip="Connectors"
+                  tooltipWhenExpanded
+                  active={connectorsSurfaceOpen}
+                  onClick={() => openConnectorsSurface()}
+                />
+              ),
+            },
+            // Module-contributed doors (Roadmap). Lazy, so wrapped in Suspense; a
+            // brief null while its bundle loads is fine for a nav row. The row id
+            // is namespaced so a module entry id can never collide with a shell
+            // door's React key (a module picks its own entry id freely).
+            ...moduleNavEntries.map((entry) => ({
+              id: `module:${entry.id}`,
+              order: entry.order,
+              node: (
+                <React.Suspense fallback={null}>
+                  <entry.Component collapsed={sidebarCollapsed} />
+                </React.Suspense>
+              ),
+            })),
+          ] as Array<{ id: string; order: number; node: React.ReactNode } | null>
+        )
+          .filter((row): row is { id: string; order: number; node: React.ReactNode } => row !== null)
+          .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+          .map((row) => <React.Fragment key={row.id}>{row.node}</React.Fragment>)}
       </div>
 
       <div
@@ -2171,83 +2227,6 @@ function ConnectorsNavIcon({ className }: { className?: string }) {
       />
     </svg>
   )
-}
-
-// Top-nav row (Automations, Connectors). One quiet muted row that lights to the
-// canonical selected fill when active; the collapsed rail shows the icon with a
-// hover tooltip carrying the label.
-function SidebarNavButton({
-  collapsed,
-  active,
-  dropActive,
-  label,
-  ariaLabel,
-  tooltip,
-  tooltipWhenExpanded,
-  onClick,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  icon,
-}: {
-  collapsed: boolean
-  active?: boolean
-  // Transient drop-target highlight (e.g. tab-extract); styled like `active`
-  // but without claiming aria-current, since it is not a persistent selection.
-  dropActive?: boolean
-  label: string
-  ariaLabel: string
-  tooltip: string
-  // Show the tooltip in the expanded state too, not only when collapsed —
-  // used to surface an accelerator/drop hint the visible label omits.
-  tooltipWhenExpanded?: boolean
-  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
-  onDragOver?: (event: React.DragEvent<HTMLButtonElement>) => void
-  onDragLeave?: (event: React.DragEvent<HTMLButtonElement>) => void
-  onDrop?: (event: React.DragEvent<HTMLButtonElement>) => void
-  icon: React.ReactNode
-}) {
-  const highlighted = Boolean(active) || Boolean(dropActive)
-  const button = (
-    <button
-      type="button"
-      onClick={onClick}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      aria-current={active ? 'true' : undefined}
-      aria-label={collapsed ? ariaLabel : undefined}
-      className={`flex h-[30px] w-full items-center rounded-md text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
-        collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
-      } ${
-        highlighted
-          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      }`}
-    >
-      {icon}
-      {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
-    </button>
-  )
-  if (collapsed) {
-    return (
-      <Tooltip content={tooltip} placement="right" wrapperClassName="flex">
-        {button}
-      </Tooltip>
-    )
-  }
-  if (tooltipWhenExpanded) {
-    // `right` (matching the collapsed rail) keeps the tip beside the row over the
-    // content column. The default `top` sent the topmost row's (New Agent) tip up
-    // into the macOS traffic-light zone, where the viewport clamp pinned it to the
-    // window's top-left corner.
-    return (
-      <Tooltip content={tooltip} placement="right" wrapperClassName="flex">
-        {button}
-      </Tooltip>
-    )
-  }
-  return button
 }
 
 type ContextMenuAction =

@@ -147,25 +147,6 @@ export function GuidedBriefWorkspaceTypeIcon({ className }: IconProps) {
   )
 }
 
-// Roadmap steering board (MC-1620): an ordered path of milestones — a route with
-// stops, reading as "a plan that advances", distinct from the sprint board glyph.
-export function RoadmapWorkspaceTypeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M6 18.5C6 18.5 6 13.5 9.5 13.5C13 13.5 11 8.5 14.5 8.5C18 8.5 18 5.5 18 5.5"
-        stroke="currentColor"
-        strokeWidth={iconStroke}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="6" cy="18.5" r="1.6" fill="currentColor" />
-      <circle cx="11" cy="12" r="1.6" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="18" cy="5.5" r="1.6" stroke="currentColor" strokeWidth={iconStroke} />
-    </svg>
-  )
-}
-
 export function ReviewWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
