@@ -1635,9 +1635,11 @@ export default function WorkspaceSidebar({
               ),
             },
             // Module-contributed doors (Roadmap). Lazy, so wrapped in Suspense; a
-            // brief null while its bundle loads is fine for a nav row.
+            // brief null while its bundle loads is fine for a nav row. The row id
+            // is namespaced so a module entry id can never collide with a shell
+            // door's React key (a module picks its own entry id freely).
             ...moduleNavEntries.map((entry) => ({
-              id: entry.id,
+              id: `module:${entry.id}`,
               order: entry.order,
               node: (
                 <React.Suspense fallback={null}>
