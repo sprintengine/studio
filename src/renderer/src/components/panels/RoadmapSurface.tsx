@@ -303,8 +303,14 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
     if (!name) return
     setCreating(true)
     try {
-      // Set the home project (D1) if it is not set yet — this triggers a reconcile so
-      // the new roadmap begins orchestrating.
+      // Write the roadmap file FIRST, then set the home project (D1). Ordering
+      // matters: `setRoadmapHomeProject` triggers a reconcile, so writing the file
+      // before it means that reconcile already sees the new roadmap and begins
+      // orchestrating it — rather than reconciling an empty home.
+      const roadmapsDir = await window.api.ensureDir(backlogRootPath(projectRoot), 'roadmaps')
+      const fileName = `${todayPrefix()}-${slugify(name)}.md`
+      const newPath = await window.api.createFile(roadmapsDir, fileName)
+      await window.api.writefile(newPath, newRoadmapFileContent(name))
       if (!homePath) {
         const set = await window.api.setRoadmapHomeProject(projectRoot)
         if (!set.ok) {
@@ -316,10 +322,6 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
           return
         }
       }
-      const roadmapsDir = await window.api.ensureDir(backlogRootPath(projectRoot), 'roadmaps')
-      const fileName = `${todayPrefix()}-${slugify(name)}.md`
-      const newPath = await window.api.createFile(roadmapsDir, fileName)
-      await window.api.writefile(newPath, newRoadmapFileContent(name))
       reload()
       openPlanning(projectRoot, normalizeRelativePath(`backlog/roadmaps/${fileName}`))
     } catch (createError) {
