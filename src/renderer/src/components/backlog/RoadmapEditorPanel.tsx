@@ -1097,20 +1097,12 @@ function LibraryRow({
   onDragEnd: () => void
 }): JSX.Element {
   const draggable = !entry.planned && canAdd
-  const activate = (): void => {
-    if (draggable) onAdd()
-  }
+  // The row is a draggable container holding real controls (an add button, and for
+  // epics a peek toggle) — not a button-role div wrapping a button, so screen readers
+  // and keyboard focus stay unambiguous while drag stays the pointer affordance.
   return (
     <>
       <div
-        role="button"
-        tabIndex={entry.planned ? -1 : 0}
-        aria-disabled={entry.planned}
-        aria-label={
-          entry.planned
-            ? `${entry.title} — already in the plan`
-            : `Add ${entry.title}${entry.kind === 'epic' ? ` (${entry.children.length} items)` : ''} to the plan`
-        }
         draggable={draggable}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = 'copy'
@@ -1119,46 +1111,47 @@ function LibraryRow({
           onDragStart()
         }}
         onDragEnd={onDragEnd}
-        onClick={activate}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            activate()
-          }
-        }}
-        className={`group flex h-7 min-w-0 items-center gap-1.5 rounded px-1.5 text-[12px] transition-colors ${
-          entry.planned
-            ? 'cursor-default opacity-40'
-            : 'interactive cursor-grab text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
+        className={`group flex h-7 min-w-0 items-center gap-1.5 rounded pr-1.5 text-[12px] transition-colors ${
+          entry.planned ? 'opacity-40' : `cursor-grab hover:bg-[color:var(--bg-hover)]`
         }`}
       >
         {entry.kind === 'epic' ? (
           <button
             type="button"
-            aria-label={expanded ? 'Hide epic items' : 'Show epic items'}
-            onClick={(event) => {
-              event.stopPropagation()
-              onToggleEpic()
-            }}
-            className="interactive -ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]"
+            aria-label={expanded ? `Hide items in ${entry.title}` : `Show items in ${entry.title}`}
+            aria-expanded={expanded}
+            onClick={onToggleEpic}
+            className="interactive ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]"
           >
             <ChevronGlyph className={expanded ? 'rotate-90' : ''} />
           </button>
         ) : (
-          <span className="shrink-0 text-[color:var(--text-disabled)] opacity-0 transition-opacity group-hover:opacity-100">
+          <span aria-hidden="true" className="ml-1 shrink-0 text-[color:var(--text-disabled)] opacity-0 transition-opacity group-hover:opacity-100">
             <GripGlyph />
           </span>
         )}
-        {entry.kind === 'epic' ? <EpicGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" /> : null}
-        {entry.displayId ? (
-          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">{entry.displayId}</span>
-        ) : null}
-        <TruncatedText as="span" text={entry.title} className="min-w-0 flex-1" />
-        {entry.kind === 'epic' ? (
-          <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">
-            {entry.children.length}
-          </span>
-        ) : null}
+        <button
+          type="button"
+          disabled={!draggable}
+          onClick={onAdd}
+          aria-label={
+            entry.planned
+              ? `${entry.title} — already in the plan`
+              : `Add ${entry.title}${entry.kind === 'epic' ? ` (${entry.children.length} items)` : ''} to the plan`
+          }
+          className="interactive flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[color:var(--text-default)] outline-none disabled:cursor-default focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+        >
+          {entry.kind === 'epic' ? <EpicGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" /> : null}
+          {entry.displayId ? (
+            <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">{entry.displayId}</span>
+          ) : null}
+          <TruncatedText as="span" text={entry.title} className="min-w-0 flex-1" />
+          {entry.kind === 'epic' ? (
+            <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">
+              {entry.children.length}
+            </span>
+          ) : null}
+        </button>
       </div>
       {entry.kind === 'epic' && expanded ? (
         <ul className="ml-6 mb-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-2">
