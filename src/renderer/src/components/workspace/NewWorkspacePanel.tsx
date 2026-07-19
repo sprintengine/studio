@@ -2820,16 +2820,20 @@ export default function NewWorkspacePanel({
                       className={`flex w-full ${stepColumnClass} ${step === 'workspace' ? 'h-full' : ''} flex-col gap-7 px-6 py-5 ${stepAnimationClass}`}
                     >
                       {stepIndex > 0 ? (
+                        /* The sprint flow labels the control with what the sprint
+                           is about (the source item's title) instead of the word
+                           "Back" — the chevron alone carries the navigation. */
                         <button
                           type="button"
                           onClick={goBack}
+                          aria-label="Back"
                           className="
-                            -ml-1.5 inline-flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
+                            -ml-1.5 inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
                             transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
                             focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
                           "
                         >
-                          <svg className="icon-sm" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                          <svg className="icon-sm shrink-0" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                             <path
                               d="M7.5 3L4.5 6L7.5 9"
                               stroke="currentColor"
@@ -2838,7 +2842,16 @@ export default function NewWorkspacePanel({
                               strokeLinejoin="round"
                             />
                           </svg>
-                          Back
+                          {mode === 'sprintengine' && seGoal.trim() ? (
+                            <span
+                              title={seGoal.trim()}
+                              className="min-w-0 truncate text-[color:var(--text-strong)]"
+                            >
+                              {seGoal.trim()}
+                            </span>
+                          ) : (
+                            'Back'
+                          )}
                         </button>
                       ) : null}
 
