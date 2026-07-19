@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useCompanionAgent } from '../../../hooks/useCompanionAgent'
-import type { UserTurn } from '../AgentChatView'
 import { PrimaryButton } from '../../ui/Buttons'
 import { GuideChatThread } from './GuideChatThread'
 
@@ -28,7 +27,6 @@ interface AskGuidePaneProps {
 export function AskGuidePane({ workspaceId, workspaceRoot, changedPaths, onJumpToLine, prefill }: AskGuidePaneProps) {
   const { events } = useCompanionAgent(workspaceId, REVIEW_GUIDE_AGENT_ID)
   const [draft, setDraft] = useState('')
-  const [localUserTurns, setLocalUserTurns] = useState<UserTurn[]>([])
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
@@ -50,13 +48,15 @@ export function AskGuidePane({ workspaceId, workspaceRoot, changedPaths, onJumpT
   useEffect(() => {
     const node = scrollRef.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [events, localUserTurns])
+  }, [events])
 
+  // Send binds to the guide companion via review IPC; the reply — and the echo of
+  // this very message — arrive on the conversation event stream this pane already
+  // observes, so there is no optimistic local turn to reconcile (and no duplicate
+  // bubble). A failed send surfaces an error and drops nothing into the thread.
   const send = useCallback(async () => {
     const message = draft.trim()
     if (!message || sending) return
-    const localTurnId = crypto.randomUUID()
-    setLocalUserTurns((prev) => [...prev, { id: localTurnId, text: message }])
     setDraft('')
     setSendError(null)
     setSending(true)
@@ -73,12 +73,7 @@ export function AskGuidePane({ workspaceId, workspaceRoot, changedPaths, onJumpT
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pr-0.5">
-        <GuideChatThread
-          events={events}
-          localUserTurns={localUserTurns}
-          changedPaths={changedPaths}
-          onJumpToLine={onJumpToLine}
-        />
+        <GuideChatThread events={events} changedPaths={changedPaths} onJumpToLine={onJumpToLine} />
       </div>
 
       {sendError ? (

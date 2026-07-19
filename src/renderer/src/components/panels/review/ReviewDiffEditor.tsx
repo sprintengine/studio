@@ -261,6 +261,11 @@ export function ReviewDiffEditor({
   // so a comment stays on its line across side-by-side ↔ inline.
   const dynamicZonesRef = useRef<Map<string, DynamicZone>>(new Map())
   const modelRef = useRef<DiffFileModel | null>(null)
+  // Signature of the last reconciled zone set. `comments` is a fresh array on
+  // every parent render, so the effect re-runs constantly; this lets it bail
+  // before touching Monaco unless the anchored set or a comment body actually
+  // changed.
+  const zoneSigRef = useRef<string>('')
   const [dynamicZones, setDynamicZones] = useState<DynamicZone[]>([])
 
   const resizeDynamic = useCallback((key: string, height: number) => {
@@ -279,7 +284,8 @@ export function ReviewDiffEditor({
 
     // A new file model means Monaco dropped the old zones with it; forget them so
     // we do not layout against dead ids.
-    if (modelRef.current !== model) {
+    const modelChanged = modelRef.current !== model
+    if (modelChanged) {
       modelRef.current = model
       current.clear()
     }
@@ -296,6 +302,19 @@ export function ReviewDiffEditor({
         desired.push({ key: 'composer', afterLineNumber, descriptor: { kind: 'composer', line: composerLine } })
       }
     }
+
+    // Skip the Monaco reconcile when nothing that affects a zone changed. The
+    // signature folds in each thread's body + sync state so an edit still repaints.
+    const signature = JSON.stringify(
+      desired.map((entry) =>
+        entry.descriptor.kind === 'thread'
+          ? [entry.key, entry.afterLineNumber, entry.descriptor.comment.body, entry.descriptor.comment.sync.state]
+          : [entry.key, entry.afterLineNumber],
+      ),
+    )
+    if (!modelChanged && signature === zoneSigRef.current) return
+    zoneSigRef.current = signature
+
     const desiredByKey = new Map(desired.map((entry) => [entry.key, entry]))
 
     modified.changeViewZones((accessor) => {

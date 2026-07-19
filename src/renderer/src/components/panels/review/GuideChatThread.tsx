@@ -13,11 +13,13 @@ import { AgentWorkingDots } from '../../ui/AgentWorkingDots'
 import { extractGuideCitations, type LineCitation } from './guideCitations'
 
 interface GuideChatThreadProps {
-  // The raw companion event stream (useCompanionAgent) plus any optimistic user
-  // turns not yet echoed by the runtime — fed straight into the shared
-  // projection so the thread reuses AgentChatView's exact message model.
+  // The raw companion event stream (useCompanionAgent), fed straight into the
+  // shared projection so the thread reuses AgentChatView's exact message model.
   events: ConversationEvent[]
-  localUserTurns: UserTurn[]
+  // Optimistic user turns not yet echoed by the runtime. The review chat relies
+  // on the authoritative event echo (no localTurnId to reconcile), so it passes
+  // none; the prop stays for the projection contract and tests.
+  localUserTurns?: UserTurn[]
   // Changed-file paths, so a `path:line` citation in a reply resolves to a real
   // file and renders as a jump link.
   changedPaths: string[]
@@ -36,7 +38,7 @@ const SparkGlyph = () => (
 // right-aligned user cards, glyph-led guide turns with markdown prose — adding
 // the review-specific citation links under each answer. It renders nothing that
 // judges or acts; it only shows what the guide said.
-export function GuideChatThread({ events, localUserTurns, changedPaths, onJumpToLine }: GuideChatThreadProps) {
+export function GuideChatThread({ events, localUserTurns = [], changedPaths, onJumpToLine }: GuideChatThreadProps) {
   const rows = useMemo(() => {
     const projection = projectConversation(events, localUserTurns)
     return deriveConversationTimelineRows(projection.entries, projection.activeTurn)
