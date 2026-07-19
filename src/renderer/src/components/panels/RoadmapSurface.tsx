@@ -394,12 +394,20 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
 
       <div className="min-h-0 flex-1 overflow-auto">
         {!hasRoadmap ? (
-          <RoadmapEmptyState
-            loading={loading}
-            creating={creating}
-            projectCount={projectCount}
-            onCreate={() => void handleCreateRoadmap()}
-          />
+          // A read error is NOT an empty roadmap: offer a retry, never the creation
+          // pitch. Showing "Plan your roadmap" on a transient state-read failure
+          // invites a duplicate file when a roadmap already exists but failed to
+          // load (fallback discipline — a failure must not look like "nothing yet").
+          error ? (
+            <RoadmapLoadError onRetry={reload} />
+          ) : (
+            <RoadmapEmptyState
+              loading={loading}
+              creating={creating}
+              projectCount={projectCount}
+              onCreate={() => void handleCreateRoadmap()}
+            />
+          )
         ) : (
           <div className="flex flex-col gap-6 p-4">
             {roadmaps.map((roadmap) => {
@@ -523,6 +531,26 @@ function RoadmapEmptyState({
       ) : (
         <span className="mt-3 text-[11px] text-[color:var(--text-subtle)]">Open a project to plan a roadmap.</span>
       )}
+    </div>
+  )
+}
+
+// The no-roadmap-but-read-failed state: the header banner already carries the
+// specific error, so this offers only the recovery — a retry — and never the
+// creation pitch that would risk a duplicate roadmap file.
+function RoadmapLoadError({ onRetry }: { onRetry: () => void }): JSX.Element {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+      <p className="max-w-[42ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
+        We couldn’t load your roadmap. This is usually temporary — try again in a moment.
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="interactive rounded-md border border-[color:var(--border-default)] px-3 py-1.5 text-[12px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+      >
+        Try again
+      </button>
     </div>
   )
 }
