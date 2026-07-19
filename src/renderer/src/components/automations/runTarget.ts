@@ -95,7 +95,9 @@ export function scheduledRunNotification(
       ? 'This scheduled run did not finish. Open it to see what stopped it.'
       : 'This scheduled run is blocked and cannot continue. Open it to see why.',
     workspaceId: event.workspaceId,
-    navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(event.automationId, event.runId, resolveFolderPath()) },
+    // The full-page Automations door target (item 1707): Open opens the door and
+    // selects this run's automation, not the retired host workspace.
+    navigationTarget: automationsDoorTarget(event.automationId, event.runId, resolveFolderPath()),
   }
 }
 

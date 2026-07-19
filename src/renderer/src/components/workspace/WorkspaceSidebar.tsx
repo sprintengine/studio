@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AutomationsWorkspaceTypeIcon,
   NewChatIcon,
   SprintEngineMarkIcon,
   SprintEngineWorkspaceTypeIcon,
@@ -37,7 +36,6 @@ import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/M
 import SidebarAccountBar from './SidebarAccountBar'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
-  AUTOMATIONS_HOST_WORKSPACE_MODE,
   type HighlightColor,
   type LayoutTemplate,
   type Workspace,
@@ -66,7 +64,6 @@ import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengine
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
-import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -555,8 +552,6 @@ export default function WorkspaceSidebar({
   const [renameValue, setRenameValue] = useState('')
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
-  // Front-door project picker anchor for the bottom Automations utility rail.
-  const [automationsMenu, setAutomationsMenu] = useState<{ x: number; y: number } | null>(null)
   // The "+" create menu beside New chat: one row per creatable type, each
   // opening the creation hub preselected (chat/standard route to their own
   // dedicated openers).
@@ -1438,19 +1433,6 @@ export default function WorkspaceSidebar({
     )
   }
 
-  // The Automations front door (bottom utility rail) lists the project
-  // Automations workspaces that already exist and lets the user jump to one. It
-  // never creates — that stays the New-workspace mode card's job. Gated on the
-  // automations module being enabled AND at least one host existing, so the rail
-  // only appears when it has somewhere to go.
-  const automationsHostWorkspaces = useMemo(
-    () => listAutomationsHostWorkspaces(workspaces),
-    [workspaces],
-  )
-  const automationsEntryEnabled =
-    automationsHostWorkspaces.length > 0 &&
-    Boolean(resolveEnabledWorkspaceType(AUTOMATIONS_HOST_WORKSPACE_MODE, moduleOverrides))
-
   return (
     <aside
       ref={sidebarRef}
@@ -1504,12 +1486,12 @@ export default function WorkspaceSidebar({
       {chromeSlot}
       <div className={`mt-1 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
         {/* Instance-level top-nav cluster. Every door carries an explicit `order`
-            — the shell's own built-ins (Create=0, Automations=10, Sprints=20,
-            Connectors=30) alongside module-contributed doors (Roadmap=40, from the
-            sidebar-nav host contribution point) — and one merged sort renders the
-            band deterministically: Create → Automations → Sprints → Connectors →
-            Roadmap (D4). A gated door drops out when its module or host is off
-            without disturbing the order of the rest.
+            — the shell's own built-ins (Create=0, Sprints=20, Connectors=30)
+            alongside module-contributed doors (Automations=10 and Roadmap=40, from
+            the sidebar-nav host contribution point) — and one merged sort renders
+            the band deterministically: Create → Automations → Sprints → Connectors
+            → Roadmap (D4). A gated door drops out when its module is off without
+            disturbing the order of the rest.
 
             Create cluster: New chat is the primary click (the most common create),
             and the attached "+" opens a menu of everything else; each menu row
@@ -1593,25 +1575,10 @@ export default function WorkspaceSidebar({
                 </div>
               ),
             },
-            // Automations keeps its front-door picker; the gate stays so it only
-            // appears when a host workspace exists.
-            automationsEntryEnabled
-              ? {
-                  id: 'automations',
-                  order: 10,
-                  node: (
-                    <SidebarNavButton
-                      collapsed={sidebarCollapsed}
-                      icon={<AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
-                      label="Automations"
-                      ariaLabel="Automations"
-                      tooltip="Automations"
-                      tooltipWhenExpanded
-                      onClick={(event) => setAutomationsMenu({ x: event.clientX, y: event.clientY })}
-                    />
-                  ),
-                }
-              : null,
+            // Automations is now a module-contributed door (order 10) in the
+            // moduleNavEntries block below — automations left the Projects list
+            // for the full-page surface (item 1707), so the hardcoded built-in
+            // button + host project-picker menu retired.
             // Sprints toggles the global Sprint Engines aside (all sprints across projects).
             sprintEngineEnabled
               ? {
@@ -1856,9 +1823,6 @@ export default function WorkspaceSidebar({
         settingsOpen={settingsOpen}
       />
 
-      {/* Front-door picker: jump to an existing project's Automations workspace.
-          Reveal-only — creating an Automations workspace is the New-workspace
-          mode card's job, not this rail. */}
       {/* The "+" create menu: one row per creatable type, mirroring the
           creation hub rail's list and order (buildModeModels). Chat routes to
           the dedicated New Chat panel; everything else opens the hub
@@ -1893,32 +1857,6 @@ export default function WorkspaceSidebar({
                 </button>
               )
             })}
-          </div>
-        </PointerPopover>
-      ) : null}
-
-      {automationsMenu ? (
-        <PointerPopover
-          x={automationsMenu.x}
-          y={automationsMenu.y}
-          ariaLabel="Open Automations"
-          onClose={() => setAutomationsMenu(null)}
-        >
-          <div className="min-w-[220px] max-w-[320px] py-1">
-            {automationsHostWorkspaces.map((host) => (
-              <button
-                key={host.id}
-                type="button"
-                onClick={() => {
-                  setAutomationsMenu(null)
-                  onSelectWorkspace(host.id)
-                }}
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-              >
-                <AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0 text-[color:var(--accent-primary)]" />
-                <span className="min-w-0 flex-1 truncate">{host.displayName}</span>
-              </button>
-            ))}
           </div>
         </PointerPopover>
       ) : null}

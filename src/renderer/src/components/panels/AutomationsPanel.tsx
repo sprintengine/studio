@@ -14,7 +14,7 @@ import { AutomationEditor } from './AutomationsPanel/AutomationEditor'
 import { DefinitionList, DetailEmptyState } from './AutomationsPanel/AutomationsList'
 import { isEditableTarget, sortDefinitions, type EditorState } from './AutomationsPanel/automationsFormat'
 import { useAutomationsController } from './AutomationsPanel/useAutomationsController'
-import { RUN_TARGET_KIND, decodeRunRef, encodeRunRef } from '../automations/runTarget'
+import { RUN_TARGET_KIND, automationsDoorTarget, decodeRunRef } from '../automations/runTarget'
 
 // Automations control center: composes the data controller (window.api IPC
 // boundary), the definitions list, the run-history/detail pane, and the
@@ -95,7 +95,8 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
       message: run.blockedReason || run.summary || `The run ended ${run.status}.`,
       workspaceId,
       workspaceName: workspaceName ?? undefined,
-      navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(def.id, run.id, folderPath) },
+      // Route to the full-page Automations door (item 1707), not the retired host.
+      navigationTarget: automationsDoorTarget(def.id, run.id, folderPath),
     })
   }, [runNow, workspaceId, workspaceName, folderPath])
 

@@ -36,6 +36,9 @@ export const CREATION_RAIL_GROUP_BREAK_INDEX = 2
 export function buildModeModels(moduleOverrides: ModuleEnablementOverrides): ModeCardModel[] {
   const contributed = getRendererHost()
     .getWorkspaceTypes((moduleId) => selectModuleEnabled(moduleOverrides, moduleId))
+    // Runtime-only container types (automations-host) stay registered so their
+    // workspaces resolve, but never offer themselves as a create option here.
+    .filter((definition) => !definition.hiddenFromPicker)
     .map<ModeCardModel>((definition) => ({
       id: definition.id,
       label: definition.label,

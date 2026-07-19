@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, TruncatedText } from '../../ui'
 import type { AutomationDefinition, AutomationRun } from '../../../../../shared/automations/contracts'
@@ -8,13 +8,13 @@ import {
   DEFINITION_STATUS_LABEL,
   RUN_LIFECYCLE,
   RUN_STATUS_LABEL,
-  type AsyncState,
   absoluteTime,
   actionLabel,
   cadenceSummary,
   parseTime,
   relativeFromNow,
 } from './automationsFormat'
+import { useAutomationRunHistory } from './useAutomationRunHistory'
 import { ModuleAttribution } from './ModuleAttribution'
 
 // Selected definition's run timeline + summary. Loads run history through the
@@ -34,55 +34,11 @@ export function AutomationDetailPane({
   /** Open a run's report in the in-app viewer. */
   onViewReport: (run: AutomationRun) => void
 }) {
-  const [runs, setRuns] = useState<AutomationRun[]>([])
-  const [state, setState] = useState<AsyncState>('idle')
-  const [error, setError] = useState<string | null>(null)
+  const { runs, state, error, finalizingRunId, reload: loadRuns, finalize: finalizeRun } = useAutomationRunHistory(
+    workspaceRoot,
+    definition,
+  )
   const [highlightRunId, setHighlightRunId] = useState<string | null>(null)
-  const [finalizingRunId, setFinalizingRunId] = useState<string | null>(null)
-
-  const loadRuns = useCallback(async () => {
-    if (!workspaceRoot) return
-    setState('loading')
-    setError(null)
-    try {
-      const result = await window.api.listAutomationRuns({ workspaceRoot, automationId: definition.id })
-      if (!result.ok) {
-        setState('error')
-        setError(result.message)
-        return
-      }
-      // Newest first for the timeline.
-      setRuns([...result.value].sort((a, b) => (parseTime(b.dueAt) ?? 0) - (parseTime(a.dueAt) ?? 0)))
-      setState('ready')
-    } catch (err) {
-      setState('error')
-      setError(err instanceof Error ? err.message : 'The automations service did not respond.')
-    }
-  }, [workspaceRoot, definition.id, definition.lastRunId])
-
-  useEffect(() => { void loadRuns() }, [loadRuns])
-
-  // Finalize an in-progress agent-backed run: records the terminal outcome and
-  // (for `completed`) backstop-commits + opens/links a PR for the run's branch.
-  const finalizeRun = useCallback(async (run: AutomationRun, outcome: 'completed' | 'failed') => {
-    if (!workspaceRoot) return
-    setFinalizingRunId(run.id)
-    setError(null)
-    try {
-      const result = await window.api.finalizeAutomationRun({
-        workspaceRoot,
-        automationId: definition.id,
-        runId: run.id,
-        outcome,
-      })
-      if (!result.ok) setError(result.message)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'The automations service did not respond.')
-    } finally {
-      setFinalizingRunId(null)
-      await loadRuns()
-    }
-  }, [workspaceRoot, definition.id, loadRuns])
 
   // Scroll the deep-linked run into view once history has loaded, and highlight
   // it briefly so the eye lands on it. Instant scroll (no smooth behaviour) so

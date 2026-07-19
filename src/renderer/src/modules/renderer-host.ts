@@ -71,6 +71,15 @@ export type WorkspaceTypeDefinition = {
   supervisors?: WorkspaceTypeSupervisor[]
   creationStepsId?: string
   pickerOrder?: number
+  /**
+   * Keep the type registered (so its runtime workspaces still resolve, render,
+   * and get created programmatically) but withhold it from the new-workspace
+   * creation picker. For a runtime-only container the user never creates by hand
+   * — the `automations-host` mode, whose automations are created from the
+   * full-page Automations door, not the picker (global-surfaces epic 1704). The
+   * picker analog of `isHiddenFromRail`.
+   */
+  hiddenFromPicker?: boolean
 }
 
 export type RegisteredWorkspaceTypeDefinition = WorkspaceTypeDefinition & {

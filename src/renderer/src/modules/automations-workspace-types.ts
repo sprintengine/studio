@@ -45,6 +45,14 @@ export function createAutomationsTemplate(): LayoutTemplate {
   }
 }
 
+// The `automations-host` type stays REGISTERED but is hidden from the creation
+// picker (global-surfaces epic 1704 / item 1707): automations are no longer
+// user-created workspaces — the full-page Automations door owns "New automation"
+// — but the executor still creates hidden host workspaces at runtime (through
+// `createAutomationsTemplate`, imported directly) to host live run terminals, and
+// existing hosts must still resolve their type to render. So, unlike the review
+// and roadmap types (fully retired), this one is kept for the runtime container
+// and only withheld from the picker via `hiddenFromPicker`.
 export function registerAutomationsWorkspaceTypes(host: RendererHost): void {
   host.registerWorkspaceType({
     id: AUTOMATIONS_HOST_WORKSPACE_MODE,
@@ -57,6 +65,11 @@ export function registerAutomationsWorkspaceTypes(host: RendererHost): void {
     // Fixed single-surface layout, so the new-workspace wizard skips the
     // layout-picker step (same zero-config flow shape as Switchboard).
     creationStepsId: 'automations',
+    // Not user-creatable: the door creates automations, not the workspace picker.
+    // `hiddenFromPicker` withholds it from the creation picker; `pickerOrder`
+    // stays only to keep its slot stable in the full `getWorkspaceTypes()` listing
+    // (run-glyph/registry consumers), which the picker never reaches.
+    hiddenFromPicker: true,
     pickerOrder: 35,
   })
 }
