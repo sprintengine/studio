@@ -6,12 +6,12 @@
 // `automations-module.ts` so the module wiring stays small and this glue is
 // unit-inspectable in isolation.
 
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
 import { listBacklogItems, readBacklogObjectStore, removeBacklogLink, updateBacklogStatus } from './backlog-service'
-import { createRoadmapOrchestratorStore } from './roadmap-orchestrator-store'
+import { createRoadmapOrchestratorStore, roadmapRuntimePath } from './roadmap-orchestrator-store'
 import type {
   RoadmapBacklogItem,
   RoadmapOrchestratorPorts,
@@ -74,6 +74,7 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
           ...(item.dependsOn ? { dependsOn: item.dependsOn } : {}),
           ...(item.isRoadmap ? { isRoadmap: true } : {}),
           ...(item.isEpic ? { isEpic: true } : {}),
+          ...(item.epic ? { epic: item.epic } : {}),
         }),
       )
     },
@@ -84,6 +85,32 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       } catch {
         return null
       }
+    },
+
+    writeRoadmapFile: async (workspaceRoot, relativePath, content) => {
+      const target = join(workspaceRoot, relativePath)
+      await mkdir(dirname(target), { recursive: true })
+      // Atomic tmp + rename, matching the sidecar store's discipline: a crash
+      // mid-write can never leave the plan file half-written.
+      const tmpPath = `${target}.tmp-${process.pid}`
+      await writeFile(tmpPath, content, 'utf8')
+      try {
+        await rename(tmpPath, target)
+      } catch (error) {
+        await unlink(tmpPath).catch(() => undefined)
+        throw error
+      }
+    },
+
+    appendAudit: async (roadmapRef, entry) => {
+      const home = deps.getHomeProjectRoot()
+      if (!home) return
+      // Beside the lane-runtime sidecar: `<homeRoot>/.multi-code/sprintengine/
+      // roadmaps/<slug>.audit.jsonl`. Append-only JSONL so "the agent merged it" is
+      // always reconstructible and a re-read never has to parse a growing object.
+      const auditPath = roadmapRuntimePath(home, roadmapRef).path.replace(/\.json$/, '.audit.jsonl')
+      await mkdir(dirname(auditPath), { recursive: true })
+      await appendFile(auditPath, `${JSON.stringify(entry)}\n`, 'utf8')
     },
 
     resolveExecutionLink: async (workspaceRoot, itemRelativePath) => {

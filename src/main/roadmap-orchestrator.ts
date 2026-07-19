@@ -36,16 +36,37 @@ import {
   nextEligible,
   parseRoadmap,
   qualifiedRef,
+  roadmapRefSlug,
   splitQualifiedRef,
   type ProjectKey,
   type Roadmap,
   type RoadmapItemState,
   type RoadmapRunState,
 } from '../shared/backlog/roadmap'
-import type {
-  RoadmapLaneStateView,
-  RoadmapStateView,
+import {
+  addEntry,
+  addLane,
+  authoredRef,
+  buildRoadmapEntry,
+  composeRoadmapSaveContent,
+  draftContainsRef,
+  draftFromRoadmap,
+  moveEntry,
+  normalizeRoadmapPath,
+  removeEntry,
+  roadmapProjectAlias,
+  type RoadmapDraft,
+} from '../shared/backlog/roadmapAuthoring'
+import {
+  buildRoadmapBoardModel,
+  skipRoadmapEntry,
+  type RoadmapBoardItemInfo,
+  type RoadmapBoardLane,
+  type RoadmapBoardResolver,
+  type RoadmapLaneStateView,
+  type RoadmapStateView,
 } from '../shared/sprintengine/roadmap-surface'
+import { basename } from 'node:path'
 
 // A resolved handle to a run started for a roadmap item, from its execution link.
 export type RoadmapRunRef = { statePath: string; teamSlug: string }
@@ -67,9 +88,57 @@ export type RoadmapBacklogItem = {
   dependsOn?: string[]
   isRoadmap?: boolean
   isEpic?: boolean
+  // The epic slug this item is a member of (`epic:` frontmatter), used to snapshot
+  // an epic's children when an agent adds it as one step.
+  epic?: string
   // The scan-minted backlog id, used to pick the single newest active roadmap.
   numericId?: number
   title?: string
+}
+
+// Who invoked a steering/planning action — a human at the board, or an external
+// agent over the automation surface. Agent actions are audit-logged so "the agent
+// merged it" is always reconstructible (MC-1693 decision 4).
+export type RoadmapActor = 'user' | 'automation'
+
+// One append-only audit record for an agent-invoked roadmap action, written beside
+// the lane-runtime sidecar. Human (IPC) actions default to `actor: 'user'` and are
+// not logged — the board already attributes them.
+export type RoadmapAuditEntry = {
+  at: string
+  actor: RoadmapActor
+  action: 'approve' | 'merge' | 'pause' | 'resume' | 'add_step' | 'remove_step' | 'reorder' | 'skip'
+  roadmapRef: string
+  lane?: string
+  ref?: string
+  detail?: string
+}
+
+// One roadmap's board projection for the agent read (`roadmap.status`): the same
+// per-unit model the global surface renders, built from the shared board builder.
+export type RoadmapBoardView = {
+  roadmapRef: string
+  title?: string
+  lanes: RoadmapBoardLane[]
+}
+
+// A roadmap steer/plan action's result. `ref` echoes the stored (authored) ref for
+// an add so the caller can address it later.
+export type RoadmapCommandOutcome = { ok: boolean; message?: string; ref?: string }
+export type RoadmapSteerAction = 'approve' | 'merge' | 'pause' | 'resume'
+
+// The narrow surface the automation server's `roadmap.*` tools reach (MC-1693),
+// provided as a service and resolved lazily like the Automations front door. It is
+// a subset of the orchestrator's public API: the agent read, the four plan edits,
+// and a lane-only steer wrapper that derives the instance roadmap itself so a tool
+// never has to pass a roadmap ref. `actor` tags every mutation for the audit log.
+export type RoadmapAppFrontDoor = {
+  readBoard(): Promise<RoadmapBoardView | null>
+  addStep(input: { ref: string; projectPath?: string; lane?: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
+  removeStep(input: { ref: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
+  reorderStep(input: { ref: string; toIndex: number; toLane?: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
+  skipStep(input: { ref: string; reason: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
+  steerLane(lane: string, action: RoadmapSteerAction, actor: RoadmapActor): Promise<RoadmapCommandOutcome>
 }
 
 // A parked/active/idle lane as the surface (MC-1620) renders it. The wire shape is
@@ -89,6 +158,14 @@ export type RoadmapOrchestratorPorts = {
   listBacklogItems(workspaceRoot: string): Promise<RoadmapBacklogItem[]>
   // Raw roadmap file content (with frontmatter) for parseRoadmap; null if absent.
   readRoadmapFile(workspaceRoot: string, relativePath: string): Promise<string | null>
+  // Atomically overwrite the roadmap file (the plan/skip tools' source-of-truth
+  // edit). Atomic (tmp + rename) so a crash mid-write never leaves the plan half
+  // written; the caller validates the content before handing it over.
+  writeRoadmapFile(workspaceRoot: string, relativePath: string, content: string): Promise<void>
+  // Append an audit record for an agent-invoked action, beside the lane-runtime
+  // sidecar. Best-effort — an audit-write failure never fails the steering action
+  // itself (the action already happened; losing the log is the lesser harm).
+  appendAudit(roadmapRef: string, entry: RoadmapAuditEntry): Promise<void>
   // The execution link on a backlog item → its run, or null if unlinked. The item
   // is addressed by its project-relative path within `workspaceRoot`.
   resolveExecutionLink(workspaceRoot: string, itemRelativePath: string): Promise<RoadmapRunRef | null>
@@ -496,20 +573,30 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     })
   }
 
-  // --- Human commands (invoked over IPC by the surface, MC-1620) ---
+  // --- Human + agent commands (over IPC from the surface, MC-1620; over the
+  //     automation surface from an agent, MC-1693) ---
 
-  async function approveStart(roadmapRef: string, lane: string): Promise<{ ok: boolean; message?: string }> {
+  // Record an agent-invoked action to the append-only audit log. Human (`'user'`)
+  // actions are not logged — the board already attributes them. Best-effort: a
+  // logging failure never fails the action that already succeeded.
+  async function auditIfAgent(entry: RoadmapAuditEntry): Promise<void> {
+    if (entry.actor !== 'automation') return
+    await ports.appendAudit(entry.roadmapRef, entry).catch(() => undefined)
+  }
+
+  async function approveStart(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<{ ok: boolean; message?: string }> {
     const runtimes = await ports.readLaneRuntime(roadmapRef)
     const runtime = runtimes.get(lane)
     if (!runtime?.pendingApprovalRef) {
       return { ok: false, message: 'No pending approval for this lane.' }
     }
     approvals.set(laneKey(roadmapRef, lane), runtime.pendingApprovalRef)
+    await auditIfAgent({ at: ports.now().toISOString(), actor, action: 'approve', roadmapRef, lane, ref: runtime.pendingApprovalRef })
     await reconcile()
     return { ok: true }
   }
 
-  async function mergeLane(roadmapRef: string, lane: string): Promise<{ ok: boolean; message?: string }> {
+  async function mergeLane(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<{ ok: boolean; message?: string }> {
     const runtimes = await ports.readLaneRuntime(roadmapRef)
     const runtime = runtimes.get(lane)
     if (!runtime?.activeStatePath) {
@@ -517,11 +604,13 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     }
     const merged = await ports.mergePullRequest(runtime.activeStatePath)
     if (!merged.ok) return { ok: false, message: merged.message }
+    await auditIfAgent({ at: ports.now().toISOString(), actor, action: 'merge', roadmapRef, lane, ...(runtime.activeItemRef ? { ref: runtime.activeItemRef } : {}) })
     await reconcile()
     return { ok: true }
   }
 
-  async function resumeLane(roadmapRef: string, lane: string): Promise<{ ok: boolean; message?: string }> {
+  async function resumeLane(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<{ ok: boolean; message?: string }> {
+    await auditIfAgent({ at: ports.now().toISOString(), actor, action: 'resume', roadmapRef, lane })
     const runtime = (await ports.readLaneRuntime(roadmapRef)).get(lane)
     // A MANUAL pause is not a failure: resume continues the lane exactly where it
     // was, so it must NOT abandon the still-live run. Only clear the parked flag.
@@ -553,7 +642,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   // Hold a lane at the human's request: set a `paused` park so the reducer stops
   // advancing/merging/starting-next for this lane, without touching the running
   // sprint. A no-op if the lane is already parked (resume is the only exit).
-  async function pauseLane(roadmapRef: string, lane: string): Promise<{ ok: boolean; message?: string }> {
+  async function pauseLane(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<{ ok: boolean; message?: string }> {
     const runtimes = await ports.readLaneRuntime(roadmapRef)
     const runtime = runtimes.get(lane) ?? { lane }
     if (runtime.parked) return { ok: true }
@@ -561,6 +650,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     const { pendingApprovalRef, ...rest } = runtime
     runtimes.set(lane, { ...rest, parked: { reason: 'paused', itemRef, at: ports.now().toISOString() } })
     await ports.writeLaneRuntime(roadmapRef, runtimes)
+    await auditIfAgent({ at: ports.now().toISOString(), actor, action: 'pause', roadmapRef, lane, ...(itemRef ? { ref: itemRef } : {}) })
     return { ok: true }
   }
 
@@ -588,7 +678,316 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     ]
   }
 
-  return { reconcile, approveStart, mergeLane, resumeLane, pauseLane, readRoadmapStates }
+  // --- Agent read + plan surface (roadmap.* automation tools, MC-1693) ---
+
+  // The board projection the global surface renders, built in main for the agent
+  // read: the same shared builder over the loaded roadmap + backlog scan + lane
+  // runtime. Null when no roadmap is configured/active (the tool reports that).
+  async function readBoard(): Promise<RoadmapBoardView | null> {
+    const entry = await loadActiveRoadmap()
+    if (!entry) return null
+    const infoByKey = new Map<string, RoadmapBoardItemInfo>()
+    for (const item of entry.items) {
+      infoByKey.set(qualifiedRef(item.projectKey, normalizeRoadmapPath(item.relativePath)), {
+        title: item.title ?? roadmapRefSlug(item.relativePath),
+        status: item.status,
+      })
+    }
+    const resolver: RoadmapBoardResolver = {
+      itemInfo: (projectKey, relativePath) => infoByKey.get(qualifiedRef(projectKey, normalizeRoadmapPath(relativePath))),
+      projectName: (projectKey) => projectDisplayName(entry, projectKey),
+      resolvableProjects: entry.resolvableProjects,
+    }
+    const lanes = buildRoadmapBoardModel(entry.roadmap, resolver, laneRuntimeViewMap(entry))
+    return { roadmapRef: entry.roadmapRef, title: entry.roadmap.title, lanes }
+  }
+
+  // Add a step to the plan: an item (or an epic as one step, snapshotting its
+  // children) from the home project or any open workspace. Malformed or unresolvable
+  // refs are rejected with a message and the file is never touched (acceptance #2).
+  async function addStep(input: {
+    ref: string
+    projectPath?: string
+    lane?: string
+    actor?: RoadmapActor
+  }): Promise<{ ok: boolean; message?: string; ref?: string }> {
+    const loaded = await loadForEdit()
+    if ('error' in loaded) return { ok: false, message: loaded.error }
+    const { entry, content } = loaded
+
+    const relativePath = normalizeRoadmapPath(input.ref)
+    if (!/^backlog\/.+\.(md|html?)$/i.test(relativePath)) {
+      return { ok: false, message: `"${input.ref}" is not a backlog item path (expected e.g. backlog/foo.md).` }
+    }
+    const target = await resolveTargetProject(entry, input.projectPath)
+    if ('error' in target) return { ok: false, message: target.error }
+
+    const items = await ports.listBacklogItems(target.root)
+    const item = items.find((candidate) => normalizeRoadmapPath(candidate.relativePath) === relativePath)
+    if (!item) {
+      return { ok: false, message: `No backlog item at ${relativePath} in ${projectDisplayName(entry, target.projectKey)}.` }
+    }
+    const stored = authoredRef(target.projectKey, relativePath)
+    if (draftContainsRef(entry.roadmap.lanes, stored)) {
+      return { ok: false, message: `${stored} is already in the roadmap.` }
+    }
+
+    const epicChildren = item.isEpic ? epicChildRefs(items, relativePath) : []
+    const newEntry = buildRoadmapEntry(target.projectKey, relativePath, epicChildren)
+
+    const baseline = draftFromRoadmap(entry.roadmap)
+    const draft = draftFromRoadmap(entry.roadmap)
+    if (target.alias && target.projectKey && !draft.projects.some((project) => project.alias === target.alias)) {
+      draft.projects = [...draft.projects, { alias: target.alias, path: target.root }]
+    }
+    const laneIndex = resolveLaneIndexForAdd(draft, input.lane)
+    if (typeof laneIndex !== 'number') return { ok: false, message: laneIndex.error }
+    draft.lanes = addEntry(draft.lanes, laneIndex, newEntry)
+
+    const written = await writePlan(entry, content, baseline, draft, {
+      at: ports.now().toISOString(),
+      actor: input.actor ?? 'automation',
+      action: 'add_step',
+      roadmapRef: entry.roadmapRef,
+      ref: stored,
+      lane: draft.lanes[laneIndex]?.title,
+    })
+    if (!written.ok) return written
+    return { ok: true, ref: stored }
+  }
+
+  async function removeStep(input: { ref: string; actor?: RoadmapActor }): Promise<{ ok: boolean; message?: string }> {
+    const loaded = await loadForEdit()
+    if ('error' in loaded) return { ok: false, message: loaded.error }
+    const { entry, content } = loaded
+    const stored = normalizeRoadmapPath(input.ref)
+    const located = locateEntry(entry.roadmap.lanes, stored)
+    if (!located) return { ok: false, message: `${stored} is not in the roadmap.` }
+
+    const baseline = draftFromRoadmap(entry.roadmap)
+    const draft = draftFromRoadmap(entry.roadmap)
+    draft.lanes = removeEntry(draft.lanes, located.laneIndex, located.entryIndex)
+    return writePlan(entry, content, baseline, draft, {
+      at: ports.now().toISOString(),
+      actor: input.actor ?? 'automation',
+      action: 'remove_step',
+      roadmapRef: entry.roadmapRef,
+      ref: stored,
+    })
+  }
+
+  async function reorderStep(input: {
+    ref: string
+    toIndex: number
+    toLane?: string
+    actor?: RoadmapActor
+  }): Promise<{ ok: boolean; message?: string }> {
+    const loaded = await loadForEdit()
+    if ('error' in loaded) return { ok: false, message: loaded.error }
+    const { entry, content } = loaded
+    const stored = normalizeRoadmapPath(input.ref)
+    const located = locateEntry(entry.roadmap.lanes, stored)
+    if (!located) return { ok: false, message: `${stored} is not in the roadmap.` }
+
+    const baseline = draftFromRoadmap(entry.roadmap)
+    const draft = draftFromRoadmap(entry.roadmap)
+    const toLaneIndex = input.toLane ? draft.lanes.findIndex((lane) => lane.title === input.toLane) : located.laneIndex
+    if (toLaneIndex < 0) return { ok: false, message: `No track named "${input.toLane}".` }
+    draft.lanes = moveEntry(
+      draft.lanes,
+      { lane: located.laneIndex, index: located.entryIndex },
+      { lane: toLaneIndex, index: Math.max(0, Math.trunc(input.toIndex)) },
+    )
+    return writePlan(entry, content, baseline, draft, {
+      at: ports.now().toISOString(),
+      actor: input.actor ?? 'automation',
+      action: 'reorder',
+      roadmapRef: entry.roadmapRef,
+      ref: stored,
+      lane: draft.lanes[toLaneIndex]?.title,
+    })
+  }
+
+  // Skip a step: remove it from the plan (a source-of-truth file edit that appends an
+  // inert audit comment), so the frontier advances past it. Never archives the backlog
+  // item (that would read as dangling and PARK). Requires a reason, like the UI.
+  async function skipStep(input: { ref: string; reason: string; actor?: RoadmapActor }): Promise<{ ok: boolean; message?: string }> {
+    const loaded = await loadForEdit()
+    if ('error' in loaded) return { ok: false, message: loaded.error }
+    const { entry, content } = loaded
+    const stored = normalizeRoadmapPath(input.ref)
+    const newContent = skipRoadmapEntry(content, stored, input.reason, ports.now().toISOString().slice(0, 10))
+    if (newContent === content) {
+      return { ok: false, message: `${stored} is not in the roadmap (nothing was skipped).` }
+    }
+    await ports.writeRoadmapFile(entry.homeRoot, entry.roadmapRef, newContent)
+    await auditIfAgent({
+      at: ports.now().toISOString(),
+      actor: input.actor ?? 'automation',
+      action: 'skip',
+      roadmapRef: entry.roadmapRef,
+      ref: stored,
+      detail: input.reason,
+    })
+    await reconcile()
+    return { ok: true }
+  }
+
+  // Load the active roadmap plus its raw on-disk content, for a plan edit. The
+  // content is the exact bytes composeRoadmapSaveContent/skipRoadmapEntry edit.
+  async function loadForEdit(): Promise<{ entry: RoadmapEntry; content: string } | { error: string }> {
+    const entry = await loadActiveRoadmap()
+    if (!entry) return { error: 'No active roadmap is configured for this Multicode.' }
+    const content = await ports.readRoadmapFile(entry.homeRoot, entry.roadmapRef)
+    if (content === null) return { error: 'The roadmap file could not be read.' }
+    return { entry, content }
+  }
+
+  // Resolve the target project for a plan add: the home project (unqualified refs)
+  // when no path or the home path is given, else an OPEN workspace root. An existing
+  // alias for that path is reused; a new one is minted (registered on save). A path
+  // that is not an open workspace is rejected — never a silent home fallback.
+  async function resolveTargetProject(
+    entry: RoadmapEntry,
+    projectPath: string | undefined,
+  ): Promise<{ projectKey: ProjectKey; root: string; alias?: string } | { error: string }> {
+    if (!projectPath || normalizeRoot(projectPath) === normalizeRoot(entry.homeRoot)) {
+      return { projectKey: null, root: entry.homeRoot }
+    }
+    const normalized = normalizeRoot(projectPath)
+    const knownRoots = new Set(ports.listWorkspaceRoots().map(normalizeRoot))
+    knownRoots.add(normalizeRoot(entry.homeRoot))
+    if (!knownRoots.has(normalized)) {
+      return { error: `Project "${projectPath}" is not an open workspace in this Multicode.` }
+    }
+    for (const project of entry.roadmap.projects) {
+      if (normalizeRoot(project.path) === normalized) return { projectKey: project.alias, root: project.path }
+    }
+    const taken = new Set(entry.roadmap.projects.map((project) => project.alias))
+    const alias = roadmapProjectAlias(basename(projectPath) || 'project', taken)
+    return { projectKey: alias, root: projectPath, alias }
+  }
+
+  // Compose the plan edit, guard that it still parses, atomically write it, audit the
+  // agent action, then reconcile so the change takes effect. A no-op edit (identical
+  // bytes) succeeds without a write.
+  async function writePlan(
+    entry: RoadmapEntry,
+    content: string,
+    baseline: RoadmapDraft,
+    draft: RoadmapDraft,
+    audit: RoadmapAuditEntry,
+  ): Promise<{ ok: boolean; message?: string }> {
+    const newContent = composeRoadmapSaveContent(content, baseline, draft)
+    if (newContent === content) return { ok: true }
+    // Never leave the file invalid: the canonical serializer always parses, but guard
+    // against a structural loss (steps expected, none recovered) before writing.
+    const reparsed = parseRoadmap(newContent)
+    const expectedEntries = draft.lanes.some((lane) => lane.entries.length > 0)
+    if (expectedEntries && reparsed.lanes.every((lane) => lane.entries.length === 0)) {
+      return { ok: false, message: 'The edit would produce an invalid roadmap; nothing was written.' }
+    }
+    await ports.writeRoadmapFile(entry.homeRoot, entry.roadmapRef, newContent)
+    await auditIfAgent(audit)
+    await reconcile()
+    return { ok: true }
+  }
+
+  // Lane-only steer for the agent surface: derive the instance roadmap ref so the
+  // tool names only a lane, then forward to the same steer method the board IPC uses.
+  async function steerLane(lane: string, action: RoadmapSteerAction, actor: RoadmapActor): Promise<RoadmapCommandOutcome> {
+    const entry = await loadActiveRoadmap()
+    if (!entry) return { ok: false, message: 'No active roadmap is configured for this Multicode.' }
+    switch (action) {
+      case 'approve':
+        return approveStart(entry.roadmapRef, lane, actor)
+      case 'merge':
+        return mergeLane(entry.roadmapRef, lane, actor)
+      case 'pause':
+        return pauseLane(entry.roadmapRef, lane, actor)
+      case 'resume':
+        return resumeLane(entry.roadmapRef, lane, actor)
+    }
+  }
+
+  // The runnable children of an epic, path-sorted for a deterministic snapshot
+  // (matches the renderer's childrenOfEpic scan order). Non-epic members only.
+  function epicChildRefs(items: ReadonlyArray<RoadmapBacklogItem>, epicRelativePath: string): string[] {
+    const slug = roadmapRefSlug(epicRelativePath)
+    return items
+      .filter((item) => !item.isEpic && item.epic === slug)
+      .map((item) => normalizeRoadmapPath(item.relativePath))
+      .sort()
+  }
+
+  // Locate a stored (authored) entry ref across the lanes — the lane + position the
+  // plan transforms address. Only top-level entries are located; a snapshotted epic
+  // child is removed via skipStep, not remove_step.
+  function locateEntry(
+    lanes: Roadmap['lanes'],
+    ref: string,
+  ): { laneIndex: number; entryIndex: number } | null {
+    for (let laneIndex = 0; laneIndex < lanes.length; laneIndex += 1) {
+      const entryIndex = lanes[laneIndex].entries.findIndex((entry) => entry.ref === ref)
+      if (entryIndex >= 0) return { laneIndex, entryIndex }
+    }
+    return null
+  }
+
+  // The lane index a new step lands in: a named track (rejected when absent), else the
+  // last track — creating a first track when the plan has none. Mutates the draft when
+  // it must add a track.
+  function resolveLaneIndexForAdd(draft: RoadmapDraft, laneTitle: string | undefined): number | { error: string } {
+    if (laneTitle) {
+      const index = draft.lanes.findIndex((lane) => lane.title === laneTitle)
+      if (index < 0) return { error: `No track named "${laneTitle}".` }
+      return index
+    }
+    if (draft.lanes.length === 0) {
+      draft.lanes = addLane(draft.lanes)
+      return 0
+    }
+    return draft.lanes.length - 1
+  }
+
+  // A friendly project display name for the board's per-step tag: the project root's
+  // folder name (home = the home project's folder). The renderer surface has the real
+  // workspace names; a basename is the honest main-side approximation.
+  function projectDisplayName(entry: RoadmapEntry, projectKey: ProjectKey): string {
+    return basename(projectRootOf(entry, projectKey)) || (projectKey ?? 'this project')
+  }
+
+  // The per-lane runtime overlay the board builder reads, projected from the loaded
+  // entry's persisted lane runtime (dropping the internal activeRepoId).
+  function laneRuntimeViewMap(entry: RoadmapEntry): Map<string, RoadmapLaneStateView> {
+    const map = new Map<string, RoadmapLaneStateView>()
+    for (const [lane, runtime] of entry.laneRuntimes) {
+      map.set(lane, {
+        lane,
+        ...(runtime.activeItemRef ? { activeItemRef: runtime.activeItemRef } : {}),
+        ...(runtime.activeTeamSlug ? { activeTeamSlug: runtime.activeTeamSlug } : {}),
+        ...(runtime.activeStatePath ? { activeStatePath: runtime.activeStatePath } : {}),
+        ...(runtime.parked ? { parked: runtime.parked } : {}),
+        ...(runtime.pendingApprovalRef ? { pendingApprovalRef: runtime.pendingApprovalRef } : {}),
+      })
+    }
+    return map
+  }
+
+  return {
+    reconcile,
+    approveStart,
+    mergeLane,
+    resumeLane,
+    pauseLane,
+    readRoadmapStates,
+    readBoard,
+    addStep,
+    removeStep,
+    reorderStep,
+    skipStep,
+    steerLane,
+  }
 }
 
 // The single active roadmap: the newest roadmap-flagged file (highest backlog id,
