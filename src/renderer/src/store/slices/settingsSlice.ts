@@ -82,6 +82,15 @@ export type ConnectorsSurfaceState = {
   initialView: 'browse' | 'installed' | null
 }
 
+export type RoadmapSurfaceState = {
+  /** The instance-global Roadmap surface (MC-1689), opened from the sidebar door.
+   *  A store-level overlay mirroring `connectorsSurface`: per-window and transient
+   *  (absent from extractSettingsFields / partializeWorkspaceStoreState), so the
+   *  sync bus never replicates it across windows and it is not persisted. The
+   *  roadmap has one plan per Multicode, so no deep-link view is needed. */
+  open: boolean
+}
+
 export const defaultLearningSettings = (): LearningSettings => ({
   showTipsOnStartup: true,
   lastShownTipId: null,
@@ -953,6 +962,7 @@ export interface SettingsSliceState {
   settingsOverlay: SettingsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
   connectorsSurface: ConnectorsSurfaceState
+  roadmapSurface: RoadmapSurfaceState
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -996,6 +1006,8 @@ export interface SettingsSliceActions {
   closeRunSummaryOverlay: () => void
   openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   closeConnectorsSurface: () => void
+  openRoadmapSurface: () => void
+  closeRoadmapSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
@@ -1089,6 +1101,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     connectorsSurface: { open: false, initialView: null },
+    roadmapSurface: { open: false },
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
@@ -1178,6 +1191,16 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         state.connectorsSurface.open = false
         state.connectorsSurface.initialView = null
+      }),
+
+    openRoadmapSurface: () =>
+      set((state) => {
+        state.roadmapSurface.open = true
+      }),
+
+    closeRoadmapSurface: () =>
+      set((state) => {
+        state.roadmapSurface.open = false
       }),
 
     setCliRuntime: (cli, update) =>

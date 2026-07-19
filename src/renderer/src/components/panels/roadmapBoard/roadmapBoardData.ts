@@ -10,8 +10,9 @@
 // call `reload()` — there is no imperative in-memory board state to drift.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
-import { parseRoadmap, type Roadmap } from '../../../../../shared/backlog/roadmap'
+import { parseRoadmap, type ProjectKey, type Roadmap } from '../../../../../shared/backlog/roadmap'
 import {
   buildRoadmapBoardModel,
   deriveRepoMergeBlockers,
@@ -25,8 +26,10 @@ import {
 import { normalizeSprintEngineProjection } from '../../../../../shared/sprintengine/state'
 import { sprintEnginePullRequestLinkOf } from '../../../../../shared/backlog/sprintengine-links'
 import type { SprintEngineTask, SprintEngineVcs } from '../../../../../shared/sprintengine/run-types'
-import { useSharedBacklogScan } from '../../../hooks/useSharedBacklogScan'
-import { joinFilePath } from '../../../utils/paths'
+import { subscribeBacklogScan } from '../../../hooks/useSharedBacklogScan'
+import { useWorkspaceStore } from '../../../store/workspaceStore'
+import { basename, joinFilePath } from '../../../utils/paths'
+import { normalizeProjectRootKey } from '../../../utils/projectKnowledge'
 import type { BacklogItem } from '../../../utils/backlog'
 
 // One roadmap ready to render: its state view, the parsed file, and the derived
@@ -44,60 +47,82 @@ export type RoadmapBoardData = {
   roadmaps: LoadedRoadmap[]
   loading: boolean
   error: string | null
+  /** The home project holding the instance roadmap (D1), or null when unset. The
+   *  surface builds absolute paths (skip edits, file reads) against it. */
+  homePath: string | null
   /** Re-read orchestrator state + roadmap files from disk. */
   reload: () => void
 }
 
-// The board refreshes on mount, when the backlog scan changes, after any command,
-// and on this quiet cadence while the panel is open — no background supervisor, so
-// it stops the moment the panel unmounts.
+// The board refreshes on mount, when a backlog scan changes, after any command,
+// and on this quiet cadence while the surface is open — no background supervisor, so
+// it stops the moment the surface unmounts.
 const ROADMAP_BOARD_REFRESH_MS = 12_000
 
-export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
-  const { scan } = useSharedBacklogScan(folderPath)
+// The roadmap is instance-global (MC-1689): one plan per Multicode, held in a HOME
+// project (D1). The board derives that home project itself (no per-workspace
+// `folderPath` scoping) and resolves each step against the project it lives in — the
+// home project plus every `projects:` alias that maps to a known workspace root — so
+// a cross-project step shows its real title, status, and project tag (mockup §2).
+export function useRoadmapBoard(): RoadmapBoardData {
+  const [homePath, setHomePath] = useState<string | null>(null)
   const [states, setStates] = useState<RoadmapStateView[] | null>(null)
   const [contentByRef, setContentByRef] = useState<Map<string, string>>(new Map())
-  const [loading, setLoading] = useState<boolean>(Boolean(folderPath))
+  const [loading, setLoading] = useState<boolean>(true)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
 
   const reload = useCallback(() => setNonce((value) => value + 1), [])
 
+  // The project roots the instance knows, for alias resolvability (D2): an alias
+  // whose path is not a known root parks its lane `unknown_project`, never a silent
+  // drop. Selected shallow so a workspace-list churn that doesn't change the roots
+  // never re-subscribes the scans.
+  const knownRootKeys = useWorkspaceStore(
+    useShallow((s) => {
+      const keys = new Set<string>()
+      for (const workspace of s.workspaces) {
+        if (workspace.folderPath) keys.add(rootKey(workspace.folderPath))
+      }
+      return keys
+    }),
+  )
+
   useEffect(() => {
-    if (!folderPath) {
-      setStates(null)
-      setContentByRef(new Map())
-      setLoading(false)
-      return
-    }
     let cancelled = false
     setLoading(true)
     const load = async () => {
       try {
+        const home = (await window.api.getRoadmapHomeProject()).path
+        if (cancelled) return
+        setHomePath(home)
         const result = await window.api.readRoadmapStates()
         if (cancelled) return
         if (!result.ok) {
           setError(result.message)
           setStates([])
+          setContentByRef(new Map())
           return
         }
         setError(null)
         setStates(result.roadmaps)
-        // Read each roadmap file so the board can show its lane entries (the
-        // state view carries only runtime, not the plan). A missing file is
-        // dropped from the map — its roadmap renders with no lanes rather than
-        // failing the whole board.
+        // Read each roadmap file so the board can show its lane entries (the state
+        // view carries only runtime, not the plan). The file lives in the home
+        // project; a missing/unreadable file is dropped from the map — its roadmap
+        // renders with no lanes rather than failing the whole board.
         const contents = new Map<string, string>()
-        await Promise.all(
-          result.roadmaps.map(async (view) => {
-            try {
-              const content = await window.api.readfile(joinFilePath(folderPath, view.roadmapRef))
-              if (!cancelled) contents.set(view.roadmapRef, content)
-            } catch {
-              /* file unreadable — omit; roadmap shows as empty */
-            }
-          }),
-        )
+        if (home) {
+          await Promise.all(
+            result.roadmaps.map(async (view) => {
+              try {
+                const content = await window.api.readfile(joinFilePath(home, view.roadmapRef))
+                if (!cancelled) contents.set(view.roadmapRef, content)
+              } catch {
+                /* file unreadable — omit; roadmap shows as empty */
+              }
+            }),
+          )
+        }
         if (!cancelled) setContentByRef(contents)
       } catch (loadError) {
         if (!cancelled) {
@@ -112,26 +137,43 @@ export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
     return () => {
       cancelled = true
     }
-  }, [folderPath, nonce])
+  }, [nonce])
 
-  // Quiet foreground refresh; cleared on unmount. Gated on a resolved folder.
+  // Quiet foreground refresh; cleared on unmount.
   useEffect(() => {
-    if (!folderPath) return
     const timer = setInterval(reload, ROADMAP_BOARD_REFRESH_MS)
     return () => clearInterval(timer)
-  }, [folderPath, reload])
+  }, [reload])
 
-  const itemResolver = useMemo(() => buildHomeResolver(scan?.items ?? []), [scan])
+  const parsedRoadmaps = useMemo(
+    () =>
+      (states ?? []).map((view) => ({
+        view,
+        roadmap: parseRoadmapContent(contentByRef.get(view.roadmapRef)),
+      })),
+    [states, contentByRef],
+  )
+
+  // Every project root the plan spans that the instance can resolve: the home
+  // project plus each alias mapping to a known workspace root.
+  const scanRoots = useMemo(() => {
+    const roots: string[] = []
+    if (homePath) roots.push(homePath)
+    for (const { roadmap } of parsedRoadmaps) {
+      for (const project of roadmap.projects) {
+        if (knownRootKeys.has(rootKey(project.path))) roots.push(project.path)
+      }
+    }
+    return Array.from(new Set(roots))
+  }, [homePath, parsedRoadmaps, knownRootKeys])
+
+  const itemsByRootKey = useMultiRootBacklogScan(scanRoots)
 
   const roadmaps = useMemo<LoadedRoadmap[]>(() => {
-    if (!states) return []
-    return states.map((view) => {
-      const content = contentByRef.get(view.roadmapRef)
-      const roadmap = content ? parseRoadmap(content) : EMPTY_ROADMAP
-      const laneRuntime = new Map<string, RoadmapLaneStateView>(
-        view.lanes.map((lane) => [lane.lane, lane]),
-      )
-      const lanes = buildRoadmapBoardModel(roadmap, itemResolver, laneRuntime)
+    return parsedRoadmaps.map(({ view, roadmap }) => {
+      const resolver = buildInstanceResolver(roadmap, homePath, itemsByRootKey, knownRootKeys)
+      const laneRuntime = new Map<string, RoadmapLaneStateView>(view.lanes.map((lane) => [lane.lane, lane]))
+      const lanes = buildRoadmapBoardModel(roadmap, resolver, laneRuntime)
       return {
         roadmapRef: view.roadmapRef,
         title: view.title ?? roadmapTitleFromRef(view.roadmapRef),
@@ -141,9 +183,54 @@ export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
         stateView: view,
       }
     })
-  }, [states, contentByRef, itemResolver])
+  }, [parsedRoadmaps, homePath, itemsByRootKey, knownRootKeys])
 
-  return { roadmaps, loading, error, reload }
+  return { roadmaps, loading, error, homePath, reload }
+}
+
+// A lane needs the human when it awaits an approval or has parked; a lane is live
+// when its runtime carries a running sprint. The sidebar door reads this signal
+// always-on (surface closed too), so it stays a cheap state-only poll — no roadmap
+// file reads, no backlog scans.
+export type RoadmapAttention = { running: boolean; waiting: boolean }
+
+// How often the always-on nav signal re-reads orchestrator state. Quieter than the
+// open board's cadence — it drives a dot, not a live surface.
+const ROADMAP_ATTENTION_POLL_MS = 20_000
+
+export function useRoadmapAttention(enabled: boolean): RoadmapAttention {
+  const [attention, setAttention] = useState<RoadmapAttention>({ running: false, waiting: false })
+  useEffect(() => {
+    if (!enabled) {
+      setAttention({ running: false, waiting: false })
+      return
+    }
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const result = await window.api.readRoadmapStates()
+        if (cancelled || !result.ok) return
+        let running = false
+        let waiting = false
+        for (const view of result.roadmaps) {
+          for (const lane of view.lanes) {
+            if (lane.activeStatePath || lane.activeItemRef) running = true
+            if (lane.pendingApprovalRef || lane.parked) waiting = true
+          }
+        }
+        if (!cancelled) setAttention({ running, waiting })
+      } catch {
+        /* transient read failure — keep the last known signal */
+      }
+    }
+    void poll()
+    const timer = setInterval(poll, ROADMAP_ATTENTION_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [enabled])
+  return attention
 }
 
 const EMPTY_ROADMAP: Roadmap = {
@@ -154,31 +241,100 @@ const EMPTY_ROADMAP: Roadmap = {
   issues: [],
 }
 
+function parseRoadmapContent(content: string | undefined): Roadmap {
+  return content ? parseRoadmap(content) : EMPTY_ROADMAP
+}
+
 function roadmapTitleFromRef(ref: string): string {
   const stem = ref.split('/').filter(Boolean).at(-1) ?? ref
   return stem.replace(/\.md$/i, '')
 }
 
-// Backlog scan → the project-aware resolver the board looks up each unit through
-// (title, live status, and the delivering PR url when the item recorded one).
-// Keyed by lowercased relative path so a ref's casing never misses. This renderer
-// path resolves the home project's scan only (projectKey null); cross-project item
-// resolution rides the instance-global surface rebuild (MC-1689 / T2), so entries
-// in another project render as unknown here until then.
-function buildHomeResolver(items: ReadonlyArray<BacklogItem>): RoadmapBoardResolver {
-  const byPath = new Map<string, RoadmapBoardItemInfo>()
-  for (const item of items) {
-    const prUrl = sprintEnginePullRequestLinkOf(item.links)?.target?.url
-    byPath.set(item.relativePath.toLowerCase(), {
-      title: item.title,
-      status: item.status,
-      ...(prUrl ? { prUrl } : {}),
-    })
+// The normalized project-root key backlog scans are shared under (mirrors
+// useSharedBacklogScan.subscriptionKey), so a roadmap's alias path and a known
+// workspace root compare on the same footing.
+function rootKey(path: string): string {
+  return normalizeProjectRootKey(path)?.toLowerCase() ?? path
+}
+
+// Subscribe to the shared backlog scan for every project root the roadmap spans,
+// aggregating each root's items keyed by its normalized root key. Reuses the shared
+// subscription, so a project with an open BacklogPanel is not scanned twice.
+function useMultiRootBacklogScan(rootPaths: ReadonlyArray<string>): Map<string, BacklogItem[]> {
+  const [itemsByKey, setItemsByKey] = useState<Map<string, BacklogItem[]>>(new Map())
+  const depKey = useMemo(() => Array.from(new Set(rootPaths)).sort().join('|'), [rootPaths])
+  const rootsRef = useRef<ReadonlyArray<string>>(rootPaths)
+  rootsRef.current = rootPaths
+
+  useEffect(() => {
+    const roots = Array.from(new Set(rootsRef.current))
+    if (roots.length === 0) {
+      setItemsByKey(new Map())
+      return
+    }
+    const aggregate = new Map<string, BacklogItem[]>()
+    const unsubscribes = roots.map((root) =>
+      subscribeBacklogScan(root, ({ scan }) => {
+        aggregate.set(rootKey(root), scan?.items ?? [])
+        setItemsByKey(new Map(aggregate))
+      }),
+    )
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe())
+  }, [depKey])
+
+  return itemsByKey
+}
+
+// The project-aware resolver the board looks up each unit through. A unit's project
+// resolves to the home project (`projectKey === null`) or a `projects:` alias; its
+// live backlog facts come from that project's scan. `resolvableProjects` marks home
+// plus every alias mapping to a known workspace root — an alias off that set reads
+// as `unknown_project` (a re-map offer, D2), never a silent drop. `projectName`
+// supplies the per-step project tag (mockup §2): the project folder's own name.
+function buildInstanceResolver(
+  roadmap: Roadmap,
+  homePath: string | null,
+  itemsByRootKey: ReadonlyMap<string, BacklogItem[]>,
+  knownRootKeys: ReadonlySet<string>,
+): RoadmapBoardResolver {
+  const pathOf = (projectKey: ProjectKey): string | null =>
+    projectKey === null ? homePath : (roadmap.projects.find((project) => project.alias === projectKey)?.path ?? null)
+
+  const byPathCache = new Map<string, Map<string, RoadmapBoardItemInfo>>()
+  const byPathFor = (projectKey: ProjectKey): Map<string, RoadmapBoardItemInfo> | null => {
+    const path = pathOf(projectKey)
+    if (!path) return null
+    const key = rootKey(path)
+    const cached = byPathCache.get(key)
+    if (cached) return cached
+    const items = itemsByRootKey.get(key)
+    if (!items) return null
+    const byPath = new Map<string, RoadmapBoardItemInfo>()
+    for (const item of items) {
+      const prUrl = sprintEnginePullRequestLinkOf(item.links)?.target?.url
+      byPath.set(item.relativePath.toLowerCase(), {
+        title: item.title,
+        status: item.status,
+        ...(prUrl ? { prUrl } : {}),
+      })
+    }
+    byPathCache.set(key, byPath)
+    return byPath
   }
+
+  const resolvableProjects = new Set<ProjectKey>([null])
+  for (const project of roadmap.projects) {
+    if (knownRootKeys.has(rootKey(project.path))) resolvableProjects.add(project.alias)
+  }
+
   return {
-    itemInfo: (projectKey, relativePath) => (projectKey === null ? byPath.get(relativePath.toLowerCase()) : undefined),
-    projectName: (projectKey) => projectKey ?? 'This project',
-    resolvableProjects: new Set([null]),
+    itemInfo: (projectKey, relativePath) => byPathFor(projectKey)?.get(relativePath.toLowerCase()),
+    projectName: (projectKey) => {
+      const path = pathOf(projectKey)
+      if (path) return basename(path)
+      return projectKey ?? 'This project'
+    },
+    resolvableProjects,
   }
 }
 

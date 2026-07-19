@@ -61,7 +61,6 @@ import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
 import { RoadmapEditorPanel } from '../backlog/RoadmapEditorPanel'
-import { newRoadmapFileContent } from '../backlog/roadmapAuthoring'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
@@ -845,33 +844,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, refreshAndSelect, scan],
   )
 
-  // Create a roadmap file under backlog/roadmaps/ and open it in the editor. A
-  // roadmap is discovered by the same scan as any backlog file (T3), so nothing
-  // else needs seeding — the id-allocation pass mints its id on first discovery.
-  const createRoadmap = useCallback(
-    () =>
-      runAction(async () => {
-        if (!folderPath) return
-        const name = (
-          await dialog.prompt({
-            title: 'New roadmap',
-            inputLabel: 'Roadmap name',
-            confirmLabel: 'Create',
-            required: true,
-          })
-        )?.trim()
-        if (!name) return
-        const fileName = uniquePlanFileName(
-          `${todayPrefix()}-${slugify(name)}`,
-          new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
-        )
-        const roadmapsDir = await window.api.ensureDir(backlogRootPath(folderPath), 'roadmaps')
-        const newPath = await window.api.createFile(roadmapsDir, fileName)
-        await window.api.writefile(newPath, newRoadmapFileContent(name))
-        await refreshAndSelect(normalizeRelativePath(`backlog/roadmaps/${fileName}`))
-      }),
-    [dialog, folderPath, refreshAndSelect, runAction, scan],
-  )
+  // The roadmap is now instance-global (one plan per Multicode, MC-1689), created and
+  // steered from the sidebar Roadmap door — not per project. The Backlog overflow
+  // "New roadmap" is retained only as a secondary door into that same flow, so a
+  // roadmap is never created orphaned in a non-home project.
+  const openRoadmapSurface = useWorkspaceStore((s) => s.openRoadmapSurface)
 
   const openInEditor = useCallback(
     (item: BacklogItem) =>
@@ -1256,7 +1233,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     <OverflowMenu
       ariaLabel="Backlog actions"
       items={[
-        { id: 'new-roadmap', label: 'New roadmap', onSelect: () => createRoadmap(), disabled: !folderPath },
+        { id: 'new-roadmap', label: 'Open Roadmap', onSelect: () => openRoadmapSurface() },
         { id: 'refresh', label: 'Refresh backlog', onSelect: () => void runScan(), disabled: loading || !folderPath },
       ]}
     />

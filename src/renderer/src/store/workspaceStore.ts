@@ -189,6 +189,15 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   closeConnectorsSurface: () => void
+  // The instance-global Roadmap surface (MC-1689), opened from the sidebar door.
+  // Deliberately absent from extractSettingsFields / partializeWorkspaceStoreState
+  // (like connectorsSurface): per-window and transient, so the sync bus never
+  // replicates the open flag across windows and it is not persisted.
+  roadmapSurface: {
+    open: boolean
+  }
+  openRoadmapSurface: () => void
+  closeRoadmapSurface: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (

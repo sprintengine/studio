@@ -66,6 +66,7 @@ import { publishDiagnostic } from '../../utils/diagnostics'
 import { partitionWorkspacesByRecency, sortWorkspacesByActivity } from '../../utils/workspaceRecency'
 import { isArchivedWorkspace, isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { listAutomationsHostWorkspaces } from '../../utils/automationsEntry'
+import { useRoadmapAttention, type RoadmapAttention } from '../panels/roadmapBoard/roadmapBoardData'
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -520,6 +521,14 @@ export default function WorkspaceSidebar({
   const sprintEngineEnabled = useWorkspaceStore((s) =>
     selectModuleEnabled(s.appSettings.modules, 'sprint-engine')
   )
+  // The Roadmap nav door opens the instance-global surface (mounted by
+  // WorkspaceManager, like Connectors). It gates on Sprint Engine — the roadmap
+  // orchestrates sprints — and its dot carries the orchestrator's escalations
+  // (waiting-on-you) and live-sprint signal into the sidebar even while the surface
+  // is closed. Polled only while the door is shown (sprintEngineEnabled).
+  const openRoadmapSurface = useWorkspaceStore((s) => s.openRoadmapSurface)
+  const roadmapSurfaceOpen = useWorkspaceStore((s) => s.roadmapSurface.open)
+  const roadmapAttention = useRoadmapAttention(sprintEngineEnabled)
   const now = useRelativeNow()
 
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({})
@@ -1596,6 +1605,20 @@ export default function WorkspaceSidebar({
           active={connectorsSurfaceOpen}
           onClick={() => openConnectorsSurface()}
         />
+
+        {sprintEngineEnabled ? (
+          <SidebarNavButton
+            collapsed={sidebarCollapsed}
+            icon={<RoadmapNavIcon className="icon-xs pointer-events-none shrink-0" />}
+            label="Roadmap"
+            ariaLabel="Roadmap"
+            tooltip={roadmapAttention.waiting ? 'Roadmap — waiting on you' : 'Roadmap'}
+            tooltipWhenExpanded
+            active={roadmapSurfaceOpen}
+            indicator={roadmapNavIndicator(roadmapAttention)}
+            onClick={() => openRoadmapSurface()}
+          />
+        ) : null}
       </div>
 
       <div
@@ -2173,9 +2196,35 @@ function ConnectorsNavIcon({ className }: { className?: string }) {
   )
 }
 
-// Top-nav row (Automations, Connectors). One quiet muted row that lights to the
-// canonical selected fill when active; the collapsed rail shows the icon with a
-// hover tooltip carrying the label.
+// Route glyph for the Roadmap top-nav entry — an ordered path through steps, in the
+// icon family's 16-box round-stroke idiom.
+function RoadmapNavIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <circle cx="4" cy="3.6" r="1.9" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="12" cy="12.4" r="1.9" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M6 3.6 H10.6 A2.2 2.2 0 0 1 10.6 8 H5.4 A2.2 2.2 0 0 0 5.4 12.4 H10"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+// The Roadmap nav dot: waiting-on-you takes precedence (a warn dot the user should
+// act on) over the live-sprint pulse (an accent dot that is merely informational).
+function roadmapNavIndicator(attention: RoadmapAttention): React.ReactNode {
+  if (attention.waiting) return <StatusDot tone="warn" label="Roadmap is waiting on you" />
+  if (attention.running) return <StatusDot tone="accent" pulse label="A roadmap sprint is running" />
+  return null
+}
+
+// Top-nav row (Automations, Connectors, Roadmap). One quiet muted row that lights to
+// the canonical selected fill when active; the collapsed rail shows the icon with a
+// hover tooltip carrying the label. An optional `indicator` (a status dot) rides the
+// trailing edge when expanded, or the top-right corner when collapsed.
 function SidebarNavButton({
   collapsed,
   active,
@@ -2184,6 +2233,7 @@ function SidebarNavButton({
   ariaLabel,
   tooltip,
   tooltipWhenExpanded,
+  indicator,
   onClick,
   onDragOver,
   onDragLeave,
@@ -2201,6 +2251,9 @@ function SidebarNavButton({
   // Show the tooltip in the expanded state too, not only when collapsed —
   // used to surface an accelerator/drop hint the visible label omits.
   tooltipWhenExpanded?: boolean
+  // A small state dot (running / waiting-on-you), trailing when expanded and a
+  // corner dot when collapsed. Its own aria-label carries the meaning.
+  indicator?: React.ReactNode
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
   onDragOver?: (event: React.DragEvent<HTMLButtonElement>) => void
   onDragLeave?: (event: React.DragEvent<HTMLButtonElement>) => void
@@ -2217,7 +2270,7 @@ function SidebarNavButton({
       onDrop={onDrop}
       aria-current={active ? 'true' : undefined}
       aria-label={collapsed ? ariaLabel : undefined}
-      className={`flex h-[30px] w-full items-center rounded-md text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+      className={`relative flex h-[30px] w-full items-center rounded-md text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
         collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
       } ${
         highlighted
@@ -2227,6 +2280,13 @@ function SidebarNavButton({
     >
       {icon}
       {!collapsed ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
+      {indicator ? (
+        collapsed ? (
+          <span className="absolute right-1 top-1 flex">{indicator}</span>
+        ) : (
+          <span className="ml-auto flex shrink-0 pl-1">{indicator}</span>
+        )
+      ) : null}
     </button>
   )
   if (collapsed) {
