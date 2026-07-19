@@ -109,6 +109,23 @@ export type CliModelSelectionSpec = {
   allowCustomId?: boolean
 }
 
+// Declares that the CLI supports reasoning-effort selection. Mirrors
+// `modelSelection`: `args` are substituted templates spread into launch argv as
+// `reasoningArgs`, with `{{reasoning}}` resolving to the selected level id
+// (e.g. Codex: ["-c", "model_reasoning_effort=\"{{reasoning}}\""]). Args render
+// only when a level is selected and differs from `default`, so an unset or
+// default level passes no flag. `levels` is the closed set the CLI accepts.
+export type CliReasoningOption = {
+  id: string
+  label?: string
+}
+
+export type CliReasoningSelectionSpec = {
+  args: string[]
+  levels: CliReasoningOption[]
+  default?: string
+}
+
 // Declares that the CLI can be launched matching the host's light/dark color
 // scheme. `args` are substituted templates spread into launch/resume argv as
 // `themeArgs`, with `{{colorScheme}}` resolving to 'light' or 'dark'
@@ -193,6 +210,7 @@ export type CliPluginManifest = {
   capabilities: CliCapabilities
   souls?: CliSoulsSpec
   modelSelection?: CliModelSelectionSpec
+  reasoningSelection?: CliReasoningSelectionSpec
   themeSelection?: CliThemeSelectionSpec
   skillIntegration?: CliSkillIntegration
   auth?: CliAuthSpec
@@ -268,6 +286,7 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   if (value.variables !== undefined) validateVariables(value.variables, issues)
   if (value.souls !== undefined) validateSouls(value.souls, issues)
   if (value.modelSelection !== undefined) validateModelSelection(value.modelSelection, issues)
+  if (value.reasoningSelection !== undefined) validateReasoningSelection(value.reasoningSelection, issues)
   if (value.themeSelection !== undefined) validateThemeSelection(value.themeSelection, issues)
   if (value.skillIntegration !== undefined) validateSkillIntegration(value.skillIntegration, issues)
   if (value.auth !== undefined) validateAuth(value.auth, issues)
@@ -468,6 +487,39 @@ function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): voi
           issues.push({ path: `themeSelection.schemes.${scheme}`, message: `themeSelection.schemes.${scheme} must be a non-empty string when schemes is present.` })
         }
       }
+    }
+  }
+}
+
+function validateReasoningSelection(value: unknown, issues: CliManifestIssue[]): void {
+  if (!isObject(value)) {
+    issues.push({ path: 'reasoningSelection', message: 'reasoningSelection must be an object when present.' })
+    return
+  }
+  if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
+    issues.push({ path: 'reasoningSelection.args', message: 'reasoningSelection.args must be a non-empty array of string templates.' })
+  }
+  const levelIds: string[] = []
+  if (!Array.isArray(value.levels) || value.levels.length === 0) {
+    issues.push({ path: 'reasoningSelection.levels', message: 'reasoningSelection.levels must be a non-empty array of level options.' })
+  } else {
+    value.levels.forEach((level, index) => {
+      const path = `reasoningSelection.levels[${index}]`
+      if (!isObject(level)) {
+        issues.push({ path, message: 'Reasoning level must be an object.' })
+        return
+      }
+      requireString(level, 'id', issues, undefined, path)
+      if (typeof level.id === 'string') levelIds.push(level.id)
+      // Present ⇒ non-empty string (matches the app's requireString).
+      if (level.label !== undefined) requireString(level, 'label', issues, undefined, path)
+    })
+  }
+  if (value.default !== undefined) {
+    if (typeof value.default !== 'string' || value.default.length === 0) {
+      issues.push({ path: 'reasoningSelection.default', message: 'reasoningSelection.default must be a non-empty string when present.' })
+    } else if (levelIds.length > 0 && !levelIds.includes(value.default)) {
+      issues.push({ path: 'reasoningSelection.default', message: 'reasoningSelection.default must be one of the declared level ids.' })
     }
   }
 }

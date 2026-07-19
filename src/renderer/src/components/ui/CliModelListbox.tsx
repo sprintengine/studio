@@ -4,7 +4,7 @@ import { Popover } from './Popover'
 import { Tooltip } from './Tooltip'
 import { TruncatedText } from './TruncatedText'
 import type { AgentCli } from '../../types/workspace'
-import type { PluginModelCatalog } from '../../../../shared/plugin-manifest'
+import type { PluginModelCatalog, PluginReasoningCatalog } from '../../../../shared/plugin-manifest'
 
 // Structurally compatible with AgentCliCatalogOption from
 // newWorkspace/cliRuntimeOptions; declared here so the ui primitive does not
@@ -13,6 +13,8 @@ export type CliModelListboxOption = {
   value: AgentCli
   label: string
   modelSelection?: PluginModelCatalog
+  reasoningSelection?: PluginReasoningCatalog
+  hostedVia?: 'claude-code'
 }
 
 // Compact "CLI · model" trigger button wrapping CliModelListbox in a popover.
@@ -23,6 +25,8 @@ export function CliModelPickerButton({
   options,
   cli,
   effectiveModelFor,
+  effectiveReasoningFor,
+  onSelectReasoning,
   disabled,
   quiet,
   maxWidthClassName = 'max-w-[220px]',
@@ -33,6 +37,14 @@ export function CliModelPickerButton({
   options: CliModelListboxOption[]
   cli: AgentCli
   effectiveModelFor: (cli: AgentCli) => string | undefined
+  /**
+   * Opt-in reasoning-effort support (manifest reasoningSelection). When both
+   * accessors are provided, the listbox renders a level segmented control under
+   * the selected entry and the trigger suffixes a non-default level. Hosts
+   * without effort persistence omit them and render exactly as before.
+   */
+  effectiveReasoningFor?: (cli: AgentCli) => string | undefined
+  onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
   disabled?: boolean
   /**
    * Opt-in low-emphasis trigger for in-place property editing (the Sprint
@@ -60,7 +72,20 @@ export function CliModelPickerButton({
   const modelLabel = model
     ? selected.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model
     : null
-  const triggerLabel = modelLabel ? `${selected.label} · ${modelLabel}` : selected.label
+  // Hosted models (zai, kimi-claude) name the host in the trigger — "Kimi K3 ·
+  // Claude Code" — since their own label is the model, not a CLI. A reasoning
+  // level away from the CLI's default trails last, muted: "Codex · GPT · high".
+  const reasoning = effectiveReasoningFor?.(cli)
+  const reasoningSuffix =
+    reasoning && selected.reasoningSelection && reasoning !== selected.reasoningSelection.default
+      ? ` · ${reasoning}`
+      : ''
+  const baseLabel = modelLabel
+    ? `${selected.label} · ${modelLabel}`
+    : selected.hostedVia === 'claude-code'
+      ? `${selected.label} · Claude Code`
+      : selected.label
+  const triggerLabel = `${baseLabel}${reasoningSuffix}`
   return (
     <Popover
       open={open}
@@ -118,6 +143,8 @@ export function CliModelPickerButton({
         options={resolvedOptions}
         currentCli={cli}
         effectiveModelFor={effectiveModelFor}
+        effectiveReasoningFor={effectiveReasoningFor}
+        onSelectReasoning={onSelectReasoning}
         onSelectCli={(nextCli) => {
           onSelectCli(nextCli)
           setOpen(false)
@@ -183,6 +210,59 @@ function CliModelRow({
   )
 }
 
+// Reasoning-effort segmented control, rendered directly under the selected
+// runtime row when its manifest declares reasoningSelection and the host wires
+// effort persistence. One control per listbox — effort is a property of the
+// current selection, never a per-row multiplier. Picking the declared default
+// clears the override (null), so ordinary launches pass no effort flag.
+function ReasoningSegment({
+  cli,
+  levels,
+  defaultLevel,
+  value,
+  onSelect,
+}: {
+  cli: AgentCli
+  levels: { id: string; label?: string }[]
+  defaultLevel?: string
+  value: string | undefined
+  onSelect: (cli: AgentCli, reasoning: string | null) => void
+}) {
+  const active = value ?? defaultLevel
+  return (
+    <div className="mb-1.5 ml-8 mr-2">
+      <div className="pb-1 pt-1.5 text-[9.5px] font-semibold uppercase tracking-[0.07em] text-[color:var(--text-subtle)]">
+        Reasoning effort
+      </div>
+      <div
+        role="radiogroup"
+        aria-label="Reasoning effort"
+        className="inline-flex w-fit gap-0.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5"
+      >
+        {levels.map((level) => {
+          const isActive = level.id === active
+          return (
+            <button
+              key={level.id}
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              onClick={() => onSelect(cli, level.id === defaultLevel ? null : level.id)}
+              className={`rounded-[3px] px-2 py-0.5 text-[10.5px] transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)] ${
+                isActive
+                  ? 'bg-[color:var(--accent-primary-soft-strong)] font-semibold text-[color:var(--accent-primary)]'
+                  : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
+              }`}
+            >
+              {level.label ?? level.id}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Runtime listbox shared by the top-bar spawn-row chip popovers (General
 // Agent, specialist rows, Multiloop roles) and the Sprint Engine roster runtime
 // pickers. Grouped by CLI with whitespace between groups: each group leads with a
@@ -192,11 +272,19 @@ function CliModelRow({
 // dropped, so they read as children of the CLI rather than peer CLIs. Picking any
 // row selects the CLI and the model together in a single action; the header row
 // clears the model (CLIs without a model catalog select the CLI as-is).
+//
+// Hosted models (manifest-derived `hostedVia`, e.g. Kimi K3 and Z.AI GLM riding
+// the claude binary) render below the CLI groups under a labelled "Models via
+// Claude Code" section: the section label explains the hosting once, so each
+// row keeps its provider's own mark and name and reads as a model, not a peer
+// CLI.
 export function CliModelListbox({
   ariaLabel,
   options,
   currentCli,
   effectiveModelFor,
+  effectiveReasoningFor,
+  onSelectReasoning,
   onSelectCli,
   onSelectModel,
   className,
@@ -205,59 +293,93 @@ export function CliModelListbox({
   options: CliModelListboxOption[]
   currentCli: AgentCli
   effectiveModelFor: (cli: AgentCli) => string | undefined
+  /** Opt-in effort support — see CliModelPickerButton. Both must be set. */
+  effectiveReasoningFor?: (cli: AgentCli) => string | undefined
+  onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
   /** Height clamp override — popovers keep the default; inline hosts may allow more. */
   className?: string
 }) {
-  return (
-    <div role="listbox" aria-label={ariaLabel} className={`overflow-y-auto ${className ?? 'max-h-[280px]'}`}>
-      {options.map((option, groupIndex) => {
-        const models = option.modelSelection
-        const effectiveModel = option.value === currentCli ? effectiveModelFor(option.value) : undefined
-        const hasStaleModel =
-          Boolean(effectiveModel) && !models?.options.some((model) => model.id === effectiveModel)
-        return (
-          <div
-            key={option.value}
-            role="group"
-            aria-label={option.label}
-            className={groupIndex > 0 ? 'mt-1.5' : ''}
-          >
+  const cliOptions = options.filter((option) => !option.hostedVia)
+  const hostedOptions = options.filter((option) => option.hostedVia)
+  const renderGroup = (option: CliModelListboxOption, groupIndex: number) => {
+    const models = option.modelSelection
+    const effectiveModel = option.value === currentCli ? effectiveModelFor(option.value) : undefined
+    const hasStaleModel =
+      Boolean(effectiveModel) && !models?.options.some((model) => model.id === effectiveModel)
+    const reasoningLevels =
+      option.value === currentCli && option.reasoningSelection && effectiveReasoningFor && onSelectReasoning
+        ? option.reasoningSelection
+        : undefined
+    const reasoningSegment = reasoningLevels ? (
+      <ReasoningSegment
+        cli={option.value}
+        levels={reasoningLevels.levels}
+        defaultLevel={reasoningLevels.default}
+        value={effectiveReasoningFor!(option.value)}
+        onSelect={onSelectReasoning!}
+      />
+    ) : null
+    return (
+      <div
+        key={option.value}
+        role="group"
+        aria-label={option.label}
+        className={groupIndex > 0 ? 'mt-1.5' : ''}
+      >
+        <CliModelRow
+          icon={option.value}
+          label={option.label}
+          selected={option.value === currentCli && !effectiveModel}
+          onClick={() => (models ? onSelectModel(option.value, null) : onSelectCli(option.value))}
+        />
+        {option.value === currentCli && !effectiveModel ? reasoningSegment : null}
+        {models?.options.map((model) => (
+          <React.Fragment key={model.id}>
             <CliModelRow
               icon={option.value}
-              label={option.label}
-              selected={option.value === currentCli && !effectiveModel}
-              onClick={() => (models ? onSelectModel(option.value, null) : onSelectCli(option.value))}
+              label={model.label ?? model.id}
+              mono={!model.label}
+              indent
+              selected={option.value === currentCli && effectiveModel === model.id}
+              onClick={() => onSelectModel(option.value, model.id)}
             />
-            {models?.options.map((model) => (
-              <CliModelRow
-                key={model.id}
-                icon={option.value}
-                label={model.label ?? model.id}
-                mono={!model.label}
-                indent
-                selected={option.value === currentCli && effectiveModel === model.id}
-                onClick={() => onSelectModel(option.value, model.id)}
-              />
-            ))}
-            {/* A persisted model no longer in the catalog still launches with
-                that id; surface it as the checked entry, marked "Not listed" so
-                the user knows it is active but not one of the configured ids. */}
-            {models && hasStaleModel && effectiveModel ? (
-              <CliModelRow
-                icon={option.value}
-                label={effectiveModel}
-                mono
-                indent
-                selected
-                note="Not listed"
-                onClick={() => onSelectModel(option.value, effectiveModel)}
-              />
-            ) : null}
+            {option.value === currentCli && effectiveModel === model.id ? reasoningSegment : null}
+          </React.Fragment>
+        ))}
+        {/* A persisted model no longer in the catalog still launches with
+            that id; surface it as the checked entry, marked "Not listed" so
+            the user knows it is active but not one of the configured ids. */}
+        {models && hasStaleModel && effectiveModel ? (
+          <>
+            <CliModelRow
+              icon={option.value}
+              label={effectiveModel}
+              mono
+              indent
+              selected
+              note="Not listed"
+              onClick={() => onSelectModel(option.value, effectiveModel)}
+            />
+            {reasoningSegment}
+          </>
+        ) : null}
+      </div>
+    )
+  }
+  return (
+    <div role="listbox" aria-label={ariaLabel} className={`overflow-y-auto ${className ?? 'max-h-[280px]'}`}>
+      {cliOptions.map(renderGroup)}
+      {hostedOptions.length > 0 ? (
+        <>
+          <div aria-hidden="true" className="mx-1 my-1.5 h-px bg-[color:var(--border-subtle)]" />
+          <div className="px-2 pb-0.5 pt-1 text-[9.5px] font-semibold uppercase tracking-[0.07em] text-[color:var(--text-subtle)]">
+            Models via Claude Code
           </div>
-        )
-      })}
+          {hostedOptions.map((option, index) => renderGroup(option, index))}
+        </>
+      ) : null}
     </div>
   )
 }

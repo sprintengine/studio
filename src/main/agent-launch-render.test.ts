@@ -49,6 +49,8 @@ async function main(): Promise<void> {
     testOrdinaryCliRendersNoLaunchEnv()
     testZaiRenderInjectsLaunchEnv()
     testZaiRenderOmitsModelFlag()
+    testKimiClaudeRenderInjectsLaunchEnv()
+    testCodexRenderWithReasoning()
     testCliCredentialLaunchBlock()
     testQuoteTokenLeavesSafeStringsBare()
     testQuoteTokenWrapsSpecialChars()
@@ -160,6 +162,49 @@ function testZaiRenderInjectsLaunchEnv(): void {
 function testZaiRenderOmitsModelFlag(): void {
   const out = renderAgentLaunchArgv({ cli: 'zai', sessionId: 'sid_zai3', cliModel: 'glm-4.7' })
   assert.equal(out.argv.includes('--model'), false, 'Z.AI argv must not carry --model')
+}
+
+// Codex's reasoningSelection renders `-c model_reasoning_effort="…"` only for a
+// declared non-default level: the default (medium), an unset level, and an
+// undeclared level all leave the argv byte-for-byte unchanged.
+function testCodexRenderWithReasoning(): void {
+  const high = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r1', cliReasoning: 'high' })
+  assert.deepEqual(high.argv, ['codex', '-c', 'model_reasoning_effort="high"'])
+
+  const atDefault = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r2', cliReasoning: 'medium' })
+  assert.equal(atDefault.argv.includes('-c'), false, 'default level renders no effort flag')
+
+  const unset = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r3' })
+  assert.equal(unset.argv.includes('-c'), false, 'unset level renders no effort flag')
+
+  const undeclared = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r4', cliReasoning: 'ultra' })
+  assert.equal(undeclared.argv.includes('-c'), false, 'undeclared level renders no effort flag')
+
+  // CLIs without reasoningSelection ignore the input entirely.
+  const claude = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_r5', cliReasoning: 'high' })
+  assert.equal(claude.argv.some((token) => token.includes('reasoning')), false)
+}
+
+// Kimi K3 via Claude Code runs the `claude` binary redirected at Moonshot's
+// Anthropic-compatible endpoint via `launch.env` (the zai pattern). All model
+// tiers pin kimi-k3 per Moonshot's Claude Code guide; the auth token expands
+// from the resolved `{{secret}}` and is dropped when unconfigured.
+function testKimiClaudeRenderInjectsLaunchEnv(): void {
+  const withToken = renderAgentLaunchArgv({
+    cli: 'kimi-claude',
+    sessionId: 'sid_kimi',
+    secretToken: 'moonshot-secret-123',
+  })
+  assert.equal(withToken.binary, 'claude', 'Kimi K3 (Claude Code) runs the claude binary')
+  assert.equal(withToken.env.ANTHROPIC_BASE_URL, 'https://api.moonshot.ai/anthropic')
+  assert.equal(withToken.env.ANTHROPIC_AUTH_TOKEN, 'moonshot-secret-123')
+  assert.equal(withToken.env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'kimi-k3')
+  assert.equal(withToken.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'kimi-k3')
+  assert.equal(withToken.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'kimi-k3')
+
+  const noToken = renderAgentLaunchArgv({ cli: 'kimi-claude', sessionId: 'sid_kimi2' })
+  assert.equal(noToken.env.ANTHROPIC_BASE_URL, 'https://api.moonshot.ai/anthropic')
+  assert.equal('ANTHROPIC_AUTH_TOKEN' in noToken.env, false, 'no empty token is injected')
 }
 
 // A CLI that declares `auth` with no configured key is blocked from launching

@@ -1,0 +1,106 @@
+{
+  "id": "kimi-code",
+  "displayName": "Kimi Code",
+  "publisher": "moonshotai",
+  "version": 1,
+  "binary": "kimi",
+  "permissionPresets": {
+    "default": {
+      "label": "Default (Kimi prompts for approvals)",
+      "args": []
+    },
+    "auto_workspace": {
+      "label": "Auto-approve (Kimi auto mode)",
+      "args": ["--auto"]
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--yolo"]
+    }
+  },
+  "modelSelection": {
+    "args": ["--model", "{{model}}"],
+    "options": [
+      { "id": "kimi-k3", "label": "Kimi K3" }
+    ],
+    "allowCustomId": true
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" }
+    ]
+  },
+  "resume": {
+    "$comment": "Kimi Code documents -c/--continue (most recent session in cwd) and -S/--session [id]. Mirrors the OpenCode wiring: --continue as the base, the explicit session pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (MC-1464/MC-1465 discipline) — flipping it is a config-only change.",
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      "--continue",
+      { "valueIf": "sessionId", "value": "--session" },
+      { "valueIf": "sessionId", "value": "{{sessionId}}" }
+    ]
+  },
+  "promptInjection": {
+    "$comment": "Kimi Code's -p/--prompt is a one-shot non-interactive run, and no positional interactive prompt argument is documented. Same discipline as Grok Build: the (?!) pattern never matches by design, so the prompt is delivered exactly once via the runtime's timeout fallback after the TUI has had timeoutMs to become ready. If a real install confirms `kimi \"prompt\"` starts an interactive session with the prompt, flip mode to positional-arg — config-only change.",
+    "mode": "send-after-ready",
+    "readiness": {
+      "type": "output-match",
+      "pattern": "(?!)",
+      "timeoutMs": 8000
+    }
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "linux": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "wsl": [
+      {
+        "id": "official",
+        "label": "Official installer in WSL (recommended)",
+        "shell": "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "win32": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "irm https://code.kimi.com/kimi-code/install.ps1 | iex",
+        "recommended": true
+      }
+    ]
+  },
+  "capabilities": {
+    "$comment": "resumeSession is intentionally false pending end-to-end verification (MC-1464/MC-1465 discipline): the resume argv above is wired but a wrong flag combination silently starts a fresh session, which is exactly the lost-conversation failure the guardrail exists for. sessionIdFromCaller is false because Kimi Code mints its own session ids (-S selects, it does not assign). mcpServers reflects Kimi Code's documented MCP support, but no mcpConfig block is declared yet because its config format (config.toml under ~/.kimi-code) has no writer in mcp-config-service.",
+    "resumeSession": false,
+    "sessionIdFromCaller": false,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

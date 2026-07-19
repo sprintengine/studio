@@ -1,0 +1,95 @@
+{
+  "id": "kimi-claude",
+  "displayName": "Kimi K3",
+  "publisher": "multicode",
+  "version": 1,
+  "binary": "claude",
+  "auth": {
+    "type": "api-key",
+    "label": "Moonshot API key",
+    "env": "MOONSHOT_API_KEY"
+  },
+  "permissionPresets": {
+    "default": {
+      "label": "Default (prompts for permissions)",
+      "args": []
+    },
+    "auto_workspace": {
+      "label": "Auto-approve workspace edits",
+      "args": ["--permission-mode", "auto"]
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--permission-mode", "bypassPermissions"]
+    }
+  },
+  "themeSelection": {
+    "args": ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]
+  },
+  "launch": {
+    "$comment": "Runs the claude binary redirected at Moonshot's Anthropic-compatible endpoint, per Moonshot's official 'Use Kimi in Claude Code' guide. Model tier is driven entirely by the ANTHROPIC_DEFAULT_*_MODEL map (all tiers pin kimi-k3, matching the guide), so no modelSelection is declared — same pattern as the Z.AI runtime.",
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "themeArgs" },
+      "--session-id",
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ],
+    "env": {
+      "ANTHROPIC_BASE_URL": "https://api.moonshot.ai/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "{{secret}}",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL": "kimi-k3",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL": "kimi-k3",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL": "kimi-k3"
+    }
+  },
+  "resume": {
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "themeArgs" },
+      "--resume",
+      "{{sessionId}}",
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "promptInjection": {
+    "mode": "positional-arg"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "path": "{{workspaceRoot}}/.mcp.json",
+    "format": "claude-code"
+  },
+  "skillIntegration": {
+    "support": "native",
+    "harnessId": "claude",
+    "installTargets": [
+      {
+        "scope": "workspace",
+        "path": "{{workspaceRoot}}/.claude/skills/{{skillId}}",
+        "format": "claude-code",
+        "restartRequired": true
+      }
+    ],
+    "invocation": {
+      "fileDropTemplate": "/{{skillId}} {{path}}",
+      "explicitTemplate": "/{{skillId}}",
+      "nativeSlashCommand": true
+    }
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "capabilities": {
+    "$comment": "resumeSession/sessionIdFromCaller mirror claude-code and zai: resume is the claude binary's own local session store (--session-id at launch, --resume on relaunch), which is endpoint-independent — the same verified path the Z.AI runtime uses.",
+    "resumeSession": true,
+    "sessionIdFromCaller": true,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

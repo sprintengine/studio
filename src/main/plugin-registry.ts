@@ -501,8 +501,19 @@ function formatError(err: unknown): string {
 
 export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEntry {
   const modelSelection = plugin.manifest.modelSelection
+  const reasoningSelection = plugin.manifest.reasoningSelection
   const skillIntegration = plugin.manifest.skillIntegration
   const auth = plugin.manifest.auth
+  // Derived, never declared: a runtime that is the claude binary redirected at
+  // an alternate provider endpoint (zai, kimi-claude) is a hosted model, and
+  // pickers group it under "Models via Claude Code". claude-code itself is the
+  // host, not hosted.
+  const hostedVia =
+    plugin.manifest.binary === 'claude' &&
+    plugin.manifest.id !== 'claude-code' &&
+    typeof plugin.manifest.launch.env?.ANTHROPIC_BASE_URL === 'string'
+      ? ('claude-code' as const)
+      : undefined
   return {
     id: plugin.manifest.id,
     displayName: plugin.manifest.displayName,
@@ -515,6 +526,7 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
     sessionIdFromCaller: plugin.manifest.capabilities.sessionIdFromCaller,
     // Only the label crosses to the renderer; the secret value never does.
     ...(auth ? { auth: { label: auth.label } } : {}),
+    ...(hostedVia ? { hostedVia } : {}),
     // Renderer pickers need the choices, not the arg templates.
     ...(modelSelection
       ? {
@@ -524,6 +536,18 @@ export function manifestToListEntry(plugin: LoadedPlugin): PluginRegistryListEnt
               ...(option.label ? { label: option.label } : {}),
             })),
             allowCustomId: modelSelection.allowCustomId ?? false,
+          },
+        }
+      : {}),
+    // Renderer pickers need the levels + default, not the arg templates.
+    ...(reasoningSelection
+      ? {
+          reasoningSelection: {
+            levels: reasoningSelection.levels.map((level) => ({
+              id: level.id,
+              ...(level.label ? { label: level.label } : {}),
+            })),
+            ...(reasoningSelection.default ? { default: reasoningSelection.default } : {}),
           },
         }
       : {}),

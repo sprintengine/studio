@@ -66,7 +66,17 @@ async function testBundledManifestsLoad(): Promise<void> {
   )
 
   const ids = registry.list().map((p) => p.id).sort()
-  assert.deepEqual(ids, ['claude-code', 'codex', 'generic-shell', 'grok', 'opencode', 'zai'])
+  assert.deepEqual(ids, [
+    'claude-code',
+    'codex',
+    'cursor',
+    'generic-shell',
+    'grok',
+    'kimi-claude',
+    'kimi-code',
+    'opencode',
+    'zai',
+  ])
   assert.equal(
     registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
     true
@@ -79,8 +89,29 @@ async function testBundledManifestsLoad(): Promise<void> {
   // CLIs without auth omit the field entirely.
   const zaiEntry = registry.list().find((entry) => entry.id === 'zai')
   assert.deepEqual(zaiEntry?.auth, { label: 'Z.AI API key' })
+  const kimiClaudeEntry = registry.list().find((entry) => entry.id === 'kimi-claude')
+  assert.deepEqual(kimiClaudeEntry?.auth, { label: 'Moonshot API key' })
   const claudeEntry = registry.list().find((entry) => entry.id === 'claude-code')
   assert.equal(claudeEntry?.auth, undefined)
+
+  // `hostedVia` is derived (claude binary + ANTHROPIC_BASE_URL redirect), never
+  // declared: the two hosted-model runtimes carry it, the host itself must not.
+  assert.equal(kimiClaudeEntry?.hostedVia, 'claude-code')
+  assert.equal(zaiEntry?.hostedVia, 'claude-code')
+  assert.equal(claudeEntry?.hostedVia, undefined)
+
+  // Codex's reasoningSelection projects levels + default to the renderer
+  // (arg templates stay main-process-only, mirroring modelSelection).
+  const codexReasoning = registry.list().find((entry) => entry.id === 'codex')?.reasoningSelection
+  assert.deepEqual(codexReasoning, {
+    levels: [
+      { id: 'low', label: 'Low' },
+      { id: 'medium', label: 'Medium' },
+      { id: 'high', label: 'High' },
+      { id: 'xhigh', label: 'Extra high' },
+    ],
+    default: 'medium',
+  })
 
   const codexEntry = registry.list().find((entry) => entry.id === 'codex')
   assert.equal(codexEntry?.skillIntegration?.support, 'native')
@@ -122,6 +153,14 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     // so resume stays off (the MC-1464/MC-1465 discipline) until confirmed
     // against a real install; launch does pass our minted --session-id.
     grok: { resumeSession: false, sessionIdFromCaller: true },
+    // Kimi K3 via Claude Code shares the claude binary's endpoint-independent
+    // local session store (the verified zai path), so resume is on. The native
+    // Kimi Code CLI and Cursor have their resume argv wired but unverified
+    // end-to-end, so resume stays off (MC-1464/MC-1465 discipline) and both
+    // mint their own session ids.
+    'kimi-claude': { resumeSession: true, sessionIdFromCaller: true },
+    'kimi-code': { resumeSession: false, sessionIdFromCaller: false },
+    cursor: { resumeSession: false, sessionIdFromCaller: false },
     'generic-shell': { resumeSession: false, sessionIdFromCaller: false },
   }
 

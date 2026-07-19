@@ -145,6 +145,25 @@ export type PluginModelSelectionSpec = {
   allowCustomId?: boolean
 }
 
+// Declares that a CLI supports reasoning-effort selection and how the chosen
+// level is passed on its command line. Mirrors the `modelSelection` →
+// `modelArgs` pattern: `args` are substituted templates (e.g. ["-c",
+// "model_reasoning_effort=\"{{reasoning}}\""]) exposed to launch argv as the
+// `reasoningArgs` spread. They render only when a level is selected AND it
+// differs from `default`, so an unset (or default) level passes no flag and the
+// CLI's own default effort wins. `levels` is the closed set the CLI accepts —
+// the picker never offers a level the CLI can't parse.
+export type PluginReasoningOption = {
+  id: string
+  label?: string
+}
+
+export type PluginReasoningSelectionSpec = {
+  args: string[]
+  levels: PluginReasoningOption[]
+  default?: string
+}
+
 // Declares that a CLI can be told the host's light/dark color scheme on launch,
 // and how. `args` are substituted templates exposed to launch/resume argv as the
 // `themeArgs` spread, with `{{colorScheme}}` resolving to 'light' or 'dark'
@@ -182,6 +201,7 @@ export type PluginManifest = {
   capabilities: PluginCapabilities
   souls?: PluginSoulsSpec
   modelSelection?: PluginModelSelectionSpec
+  reasoningSelection?: PluginReasoningSelectionSpec
   themeSelection?: PluginThemeSelectionSpec
   skillIntegration?: PluginSkillIntegration
   // Optional credential the CLI needs to reach an authenticated endpoint (e.g.
@@ -298,6 +318,10 @@ export type PluginRenderContext = {
   workspaceRoot?: string
   permissionPreset?: string
   model?: string
+  // Selected reasoning-effort level; consumed by manifests declaring
+  // `reasoningSelection` to spread `reasoningArgs` (no-op at the declared
+  // default level).
+  reasoning?: string
   // Host light/dark color scheme; consumed by manifests that declare
   // `themeSelection` to spread theme args (e.g. Claude Code's --settings theme).
   colorScheme?: string
@@ -344,6 +368,13 @@ export type PluginModelCatalog = {
   allowCustomId: boolean
 }
 
+// Renderer-facing reasoning-selection metadata. `args` stays main-process-only;
+// pickers need the levels and which one is the CLI's default.
+export type PluginReasoningCatalog = {
+  levels: PluginReasoningOption[]
+  default?: string
+}
+
 export type PluginSkillCatalog = {
   support: PluginSkillSupport
   harnessId: string
@@ -365,6 +396,13 @@ export type PluginRegistryListEntry = {
   resumeSession: boolean
   sessionIdFromCaller: boolean
   modelSelection?: PluginModelCatalog
+  reasoningSelection?: PluginReasoningCatalog
+  // Set when this runtime is another CLI's binary redirected at an alternate
+  // provider endpoint (today: `binary: "claude"` + a `launch.env` base-URL
+  // redirect, e.g. zai and kimi-claude). Derived from the manifest, never
+  // declared. Pickers group these under a "Models via Claude Code" section so
+  // they read as hosted models rather than peer CLIs.
+  hostedVia?: 'claude-code'
   skillIntegration?: PluginSkillCatalog
   // Present when the CLI declares a credential (`auth`); the renderer uses the
   // label to render a key-entry row in Agents settings. The secret value itself

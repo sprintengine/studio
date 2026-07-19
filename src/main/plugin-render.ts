@@ -91,6 +91,30 @@ function buildVariableScope(
     scope.set('modelArgs', [])
   }
 
+  // `reasoningArgs` mirrors `modelArgs`: spread into argv via
+  // { spreadIf: "reasoningArgs" }. Rendered only when a reasoning level was
+  // selected, the manifest declares how to pass it, AND the level differs from
+  // the manifest's declared default — so an unset or default level passes no
+  // flag and the CLI's own default effort wins. A level outside the declared
+  // set renders nothing rather than sending a value the CLI can't parse.
+  const reasoning = context.reasoning?.trim()
+  const reasoningSelection = manifest.reasoningSelection
+  if (
+    reasoning &&
+    reasoningSelection &&
+    reasoningSelection.args.length > 0 &&
+    reasoning !== reasoningSelection.default &&
+    reasoningSelection.levels.some((level) => level.id === reasoning)
+  ) {
+    scope.set('reasoning', reasoning)
+    scope.set(
+      'reasoningArgs',
+      reasoningSelection.args.map((template) => substituteString(template, scope))
+    )
+  } else {
+    scope.set('reasoningArgs', [])
+  }
+
   // `themeArgs` mirrors `modelArgs`: spread into argv via { spreadIf: "themeArgs" }.
   // Rendered only when the host reported a color scheme AND the manifest declares
   // themeSelection; otherwise empty, so a CLI without theme support — or before

@@ -1,0 +1,102 @@
+{
+  "id": "cursor",
+  "displayName": "Cursor",
+  "publisher": "anysphere",
+  "version": 1,
+  "binary": "cursor-agent",
+  "$comment": "Cursor's docs now present `agent` as the primary command, but the installer still ships `cursor-agent` and `agent` is far too generic a name to probe for (`command -v agent` can false-positive on unrelated binaries). `cursor-agent` remains supported as the stable alias, so it is both the probe target and the launch binary.",
+  "permissionPresets": {
+    "default": {
+      "label": "Default (Cursor prompts for approvals)",
+      "args": []
+    },
+    "bypass_all": {
+      "label": "Bypass all approvals (dangerous)",
+      "args": ["--force"]
+    }
+  },
+  "modelSelection": {
+    "$comment": "Cursor's model roster is subscription-entitlement-dependent and churns often, so no ids are seeded — the user adds the models their plan actually has via Settings (the no-guess policy from BUNDLED_AGENT_MODEL_CATALOGS applies to the manifest seed here too).",
+    "args": ["--model", "{{model}}"],
+    "options": [],
+    "allowCustomId": true
+  },
+  "launch": {
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      { "valueIf": "prompt", "value": "{{prompt}}" }
+    ]
+  },
+  "resume": {
+    "$comment": "Cursor documents `--resume <chat-id>` and `--continue` (previous session). Mirrors the OpenCode wiring: --continue as the base, the explicit resume pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (MC-1464/MC-1465 discipline).",
+    "supported": true,
+    "argv": [
+      "{{binary}}",
+      { "spreadIf": "permissionArgs" },
+      { "spreadIf": "modelArgs" },
+      "--continue",
+      { "valueIf": "sessionId", "value": "--resume" },
+      { "valueIf": "sessionId", "value": "{{sessionId}}" }
+    ]
+  },
+  "promptInjection": {
+    "mode": "positional-arg"
+  },
+  "completion": {
+    "mode": "process-exit"
+  },
+  "mcpConfig": {
+    "$comment": "Cursor reads workspace MCP servers from .cursor/mcp.json in the same {\"mcpServers\": {...}} shape Claude Code uses, so the claude-code writer applies as-is.",
+    "path": "{{workspaceRoot}}/.cursor/mcp.json",
+    "format": "claude-code"
+  },
+  "detect": {
+    "versionArgs": ["--version"]
+  },
+  "install": {
+    "darwin": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl https://cursor.com/install -fsS | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "linux": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "curl https://cursor.com/install -fsS | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "wsl": [
+      {
+        "id": "official",
+        "label": "Official installer in WSL (recommended)",
+        "shell": "curl https://cursor.com/install -fsS | bash",
+        "recommended": true,
+        "requires": "curl"
+      }
+    ],
+    "win32": [
+      {
+        "id": "official",
+        "label": "Official installer (recommended)",
+        "shell": "irm 'https://cursor.com/install?win32=true' | iex",
+        "recommended": true
+      }
+    ]
+  },
+  "capabilities": {
+    "$comment": "resumeSession is intentionally false pending end-to-end verification (MC-1464/MC-1465 discipline); the resume argv above is wired for the flip. sessionIdFromCaller is false because Cursor mints its own chat ids (no --session-id-style launch assignment is documented).",
+    "resumeSession": false,
+    "sessionIdFromCaller": false,
+    "toolUse": true,
+    "mcpServers": true
+  }
+}

@@ -45,6 +45,11 @@ export type AgentLaunchRenderInput = {
   cliRuntime?: CliRuntimeSettings
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliModel?: string
+  // Selected reasoning-effort level. Consumed only by manifests declaring
+  // reasoningSelection (today: Codex); rendered as `reasoningArgs` only when it
+  // differs from the manifest's declared default, so unset/default levels leave
+  // the launch argv unchanged.
+  cliReasoning?: string
   // Orthogonal Debug Mode flag. When true the launch boundary prepends the debug
   // directive to the initial prompt; it never affects permission/session/model
   // flags (the orthogonality invariant). See applyDebugDirective.
@@ -100,6 +105,7 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
     prompt,
     permissionPreset: input.cliPermissionPreset ?? 'default',
     model: input.cliModel,
+    reasoning: input.cliReasoning,
     colorScheme: input.colorScheme,
     // Only expose the secret variable when a token was resolved, so manifests
     // without auth render no `{{secret}}` value (renderEnv drops empty results,

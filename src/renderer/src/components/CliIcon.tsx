@@ -1,6 +1,14 @@
 import type { AgentCli } from '../types/workspace'
 
-export type CliIconKind = 'claude-code' | 'codex' | 'opencode' | 'zai' | 'grok' | 'terminal'
+export type CliIconKind =
+  | 'claude-code'
+  | 'codex'
+  | 'opencode'
+  | 'zai'
+  | 'grok'
+  | 'kimi'
+  | 'cursor'
+  | 'terminal'
 
 export function resolveCliIconKind(cli: AgentCli): CliIconKind {
   if (cli === 'claude-code') return 'claude-code'
@@ -8,6 +16,10 @@ export function resolveCliIconKind(cli: AgentCli): CliIconKind {
   if (cli === 'opencode') return 'opencode'
   if (cli === 'zai') return 'zai'
   if (cli === 'grok') return 'grok'
+  // Both Kimi runtimes (the native Kimi Code CLI and the K3-via-Claude-Code
+  // redirect) share the Kimi mark so they read as one provider in pickers.
+  if (cli === 'kimi-code' || cli === 'kimi-claude') return 'kimi'
+  if (cli === 'cursor') return 'cursor'
   return 'terminal'
 }
 
@@ -92,6 +104,53 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
           stroke="currentColor"
           strokeWidth="1.9"
           strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (iconKind === 'kimi') {
+    // A simple, original "K" tile mark (theme-adaptive via currentColor) that
+    // reads as the Kimi runtimes. Swap this branch's contents for Moonshot's
+    // official brand SVG if/when one is bundled.
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
+        <path
+          d="M9.25 7.75V16.25M15 7.75L9.25 13.25M11.6 11L15 16.25"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+
+  if (iconKind === 'cursor') {
+    // A simple, original pointer tile mark (theme-adaptive via currentColor)
+    // that reads as the Cursor CLI. Swap this branch's contents for Anysphere's
+    // official brand SVG if/when one is bundled.
+    return (
+      <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
+        <path
+          d="M9.25 7.75L15.5 12.1L12.4 13L11.2 16.25L9.25 7.75Z"
+          stroke="currentColor"
+          strokeWidth="1.7"
           strokeLinejoin="round"
         />
       </svg>

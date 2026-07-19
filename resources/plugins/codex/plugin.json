@@ -30,6 +30,17 @@
     ],
     "allowCustomId": true
   },
+  "reasoningSelection": {
+    "$comment": "Codex's documented model_reasoning_effort config override. Rendered only when the selected level differs from the default, so ordinary launches stay byte-for-byte unchanged.",
+    "args": ["-c", "model_reasoning_effort=\"{{reasoning}}\""],
+    "levels": [
+      { "id": "low", "label": "Low" },
+      { "id": "medium", "label": "Medium" },
+      { "id": "high", "label": "High" },
+      { "id": "xhigh", "label": "Extra high" }
+    ],
+    "default": "medium"
+  },
   "themeSelection": {
     "args": ["-c", "tui.theme=\"{{themeName}}\""],
     "schemes": { "light": "catppuccin-latte", "dark": "catppuccin-mocha" }
@@ -39,6 +50,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
       { "valueIf": "prompt", "value": "{{prompt}}" }
     ]

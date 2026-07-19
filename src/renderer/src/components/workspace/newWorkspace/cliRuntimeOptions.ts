@@ -6,7 +6,11 @@ import type {
   PluginCatalogEntry,
   PluginCatalogStatus,
 } from '../../../types/workspace'
-import type { PluginModelCatalog, PluginModelOption } from '../../../../../shared/plugin-manifest'
+import type {
+  PluginModelCatalog,
+  PluginModelOption,
+  PluginReasoningCatalog,
+} from '../../../../../shared/plugin-manifest'
 
 export type AgentCliCatalogOption = {
   value: AgentCli
@@ -16,6 +20,12 @@ export type AgentCliCatalogOption = {
   // the user-added ids from `cliRuntimes[id].models`. Absent when the plugin
   // declares no modelSelection — such CLIs show no model UI at all.
   modelSelection?: PluginModelCatalog
+  // Reasoning-effort levels the CLI accepts (manifest-declared). Absent when
+  // the plugin declares no reasoningSelection — such CLIs show no effort UI.
+  reasoningSelection?: PluginReasoningCatalog
+  // Set when this runtime is a hosted model (another CLI's binary redirected at
+  // a provider endpoint); pickers group these under "Models via Claude Code".
+  hostedVia?: PluginCatalogEntry['hostedVia']
   // Detected install state, attached once availability is known. `undefined`
   // means "not probed yet"; deployment surfaces hide only options that are
   // explicitly `installed === false` (see filterCatalogByAvailability).
@@ -80,12 +90,30 @@ const BUNDLED_AGENT_MODEL_CATALOGS: Record<AgentCli, PluginModelCatalog> = {
     options: [],
     allowCustomId: true,
   },
+  'kimi-code': {
+    options: [],
+    allowCustomId: true,
+  },
+  // Kimi K3 via Claude Code runs the claude binary against Moonshot's endpoint;
+  // model tier is driven by the manifest's ANTHROPIC_DEFAULT_*_MODEL env, so
+  // the picker seeds no models (same as zai).
+  'kimi-claude': {
+    options: [],
+    allowCustomId: true,
+  },
+  cursor: {
+    options: [],
+    allowCustomId: true,
+  },
 }
 
 export function labelForCliRuntime(cli: AgentCli): string {
   if (cli === 'codex') return 'Codex'
   if (cli === 'claude-code') return 'Claude Code'
   if (cli === 'opencode') return 'OpenCode'
+  // Title-casing would render this id as "Kimi Claude"; keep the registry
+  // displayName so the loading/error fallback catalog reads the same.
+  if (cli === 'kimi-claude') return 'Kimi K3'
   return cli
     .split(/[-_\s]+/u)
     .filter(Boolean)
@@ -215,6 +243,8 @@ export function buildAgentCliCatalog(
       label: plugin.displayName,
       source: plugin.source,
       ...(modelSelection ? { modelSelection } : {}),
+      ...(plugin.reasoningSelection ? { reasoningSelection: plugin.reasoningSelection } : {}),
+      ...(plugin.hostedVia ? { hostedVia: plugin.hostedVia } : {}),
     })
   }
   return options
