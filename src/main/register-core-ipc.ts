@@ -33,6 +33,7 @@ import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-reg
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerTrackerIpc } from './ipc/tracker-ipc'
 import { registerGitHubTrackerProvider } from './tracker/github/register'
+import { registerJiraTrackerProvider } from './tracker/jira/register'
 import { registerLinearTrackerProvider } from './tracker/linear/register'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
@@ -120,6 +121,7 @@ export function registerCoreIpc(
   registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
   registerCredentialIpc(ipcMain)
   registerGitHubTrackerProvider()
+  registerJiraTrackerProvider()
   registerLinearTrackerProvider()
   registerTrackerIpc(ipcMain)
   registerSprintEngineRoleRegistryIpc(ipcMain)
