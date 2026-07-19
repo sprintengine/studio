@@ -10,7 +10,7 @@ import { activeForChannel } from '../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../shared/modules/resolve'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
-import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
+import { AutomationsAppFrontDoorToken, RoadmapAppFrontDoorToken } from './module-host/service-tokens'
 import { createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { createBundledMainModules } from './modules'
 import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
@@ -117,6 +117,10 @@ applyModuleEnablementLive = async (overrides) => {
 // report automations_module_unavailable).
 services.setAutomationsAppFrontDoorResolver(
   () => moduleLoad.kernel.hostFor('@host').getService(AutomationsAppFrontDoorToken) ?? null
+)
+// Roadmap.* tools ← the same Automations module, which constructs the orchestrator.
+services.setRoadmapAppFrontDoorResolver(
+  () => moduleLoad.kernel.hostFor('@host').getService(RoadmapAppFrontDoorToken) ?? null
 )
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),

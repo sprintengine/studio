@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   createRoadmapOrchestrator,
+  type RoadmapAuditEntry,
   type RoadmapBacklogItem,
   type RoadmapOrchestratorPorts,
   type RoadmapRunRef,
@@ -35,6 +36,8 @@ type Harness = {
   startCalls: Array<{ root: string; rel: string }>
   merges: string[]
   notices: Array<{ severity: string; title: string }>
+  audits: RoadmapAuditEntry[]
+  getRoadmap: () => string
   setRoadmap: (content: string) => void
 }
 
@@ -66,6 +69,7 @@ function harness(
   const startCalls: Array<{ root: string; rel: string }> = []
   const merges: string[] = []
   const notices: Array<{ severity: string; title: string }> = []
+  const audits: RoadmapAuditEntry[] = []
 
   const statePathFor = (root: string, rel: string): string =>
     `${root}/.multi-code/sprintengine/team-${rel.replace(/[^a-z]/g, '')}/run.yaml`
@@ -80,6 +84,12 @@ function harness(
         : projItems
     },
     readRoadmapFile: async (_root, relativePath) => (relativePath === ROADMAP_REF ? roadmapContent : null),
+    writeRoadmapFile: async (_root, relativePath, content) => {
+      if (relativePath === ROADMAP_REF) roadmapContent = content
+    },
+    appendAudit: async (_roadmapRef, entry) => {
+      audits.push(entry)
+    },
     resolveExecutionLink: async (root, rel) => links.get(linkKey(root, rel)) ?? null,
     observeRun: async (runRef) => runs.get(runRef.statePath) ?? null,
     mergePullRequest: async (statePath) => {
@@ -125,6 +135,8 @@ function harness(
     startCalls,
     merges,
     notices,
+    audits,
+    getRoadmap: () => roadmapContent,
     setRoadmap: (content) => {
       roadmapContent = content
     },
@@ -323,4 +335,143 @@ test('no home project configured → no roadmaps, no work', async () => {
   await orchestrator.reconcile()
   assert.equal(h.starts.length, 0)
   assert.deepEqual(await orchestrator.readRoadmapStates(), [])
+})
+
+// --- Agent read + plan + steer surface (roadmap.* tools, MC-1693) ---
+
+test('readBoard builds the board model with per-step state + project tags', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md\n- backlog/b.md'), {
+    itemsByRoot: {
+      [ROOT]: [
+        { relativePath: 'backlog/a.md', status: 'completed', title: 'First' },
+        { relativePath: 'backlog/b.md', status: 'ready', title: 'Second' },
+      ],
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  const board = await orchestrator.readBoard()
+  assert.ok(board)
+  assert.equal(board?.roadmapRef, ROADMAP_REF)
+  const backend = board?.lanes[0]
+  assert.equal(backend?.units[0].state, 'done') // completed predecessor
+  assert.equal(backend?.units[0].title, 'First')
+  assert.equal(backend?.units[1].state, 'up_next') // ready frontier
+  assert.equal(backend?.units[1].projectName, 'home') // basename('/w/home')
+})
+
+test('readBoard returns null when no roadmap is active', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const noHome: RoadmapOrchestratorPorts = { ...h.ports, getHomeProjectRoot: () => null }
+  assert.equal(await createRoadmapOrchestrator(noHome).readBoard(), null)
+})
+
+test('addStep appends an item and audits the agent action', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md'), {
+    itemsByRoot: { [ROOT]: [{ relativePath: 'backlog/a.md', status: 'ready' }, { relativePath: 'backlog/c.md', status: 'ready' }] },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  const result = await orchestrator.addStep({ ref: 'backlog/c.md', actor: 'automation' })
+  assert.equal(result.ok, true)
+  assert.equal(result.ref, 'backlog/c.md')
+  assert.match(h.getRoadmap(), /- backlog\/c\.md/)
+  assert.equal(h.audits.at(-1)?.action, 'add_step')
+  assert.equal(h.audits.at(-1)?.ref, 'backlog/c.md')
+})
+
+test('addStep rejects an unknown item without touching the file', async () => {
+  const before = roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md')
+  const h = harness(before, { itemsByRoot: { [ROOT]: [{ relativePath: 'backlog/a.md', status: 'ready' }] } })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  const missing = await orchestrator.addStep({ ref: 'backlog/ghost.md' })
+  assert.equal(missing.ok, false)
+  assert.match(missing.message ?? '', /No backlog item/)
+  const malformed = await orchestrator.addStep({ ref: 'notes/x.txt' })
+  assert.equal(malformed.ok, false)
+  assert.equal(h.getRoadmap(), before) // never written
+  assert.equal(h.audits.length, 0)
+})
+
+test('addStep from another project registers its alias and qualifies the ref', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Ship\n- backlog/a.md'), {
+    roots: [ROOT, MOBILE_ROOT],
+    itemsByRoot: {
+      [ROOT]: [{ relativePath: 'backlog/a.md', status: 'ready' }],
+      [MOBILE_ROOT]: [{ relativePath: 'backlog/m.md', status: 'ready' }],
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  const result = await orchestrator.addStep({ ref: 'backlog/m.md', projectPath: MOBILE_ROOT })
+  assert.equal(result.ok, true)
+  assert.equal(result.ref, 'mobile:backlog/m.md')
+  assert.match(h.getRoadmap(), /projects:/)
+  assert.match(h.getRoadmap(), /mobile: \/w\/mobile/)
+  assert.match(h.getRoadmap(), /- mobile:backlog\/m\.md/)
+})
+
+test('addStep as one step snapshots an epic\'s children', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md'), {
+    itemsByRoot: {
+      [ROOT]: [
+        { relativePath: 'backlog/a.md', status: 'ready' },
+        { relativePath: 'backlog/epics/auth.md', status: 'ready', isEpic: true },
+        { relativePath: 'backlog/login.md', status: 'ready', epic: 'auth' },
+        { relativePath: 'backlog/logout.md', status: 'ready', epic: 'auth' },
+      ],
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  const result = await orchestrator.addStep({ ref: 'backlog/epics/auth.md' })
+  assert.equal(result.ok, true)
+  assert.match(h.getRoadmap(), /- backlog\/epics\/auth\.md/)
+  assert.match(h.getRoadmap(), /  - backlog\/login\.md/)
+  assert.match(h.getRoadmap(), /  - backlog\/logout\.md/)
+})
+
+test('removeStep drops a step; reorderStep changes its position', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md\n- backlog/b.md\n- backlog/c.md'), {
+    itemsByRoot: {
+      [ROOT]: [
+        { relativePath: 'backlog/a.md', status: 'ready' },
+        { relativePath: 'backlog/b.md', status: 'ready' },
+        { relativePath: 'backlog/c.md', status: 'ready' },
+      ],
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const removed = await orchestrator.removeStep({ ref: 'backlog/b.md' })
+  assert.equal(removed.ok, true)
+  assert.doesNotMatch(h.getRoadmap(), /- backlog\/b\.md/)
+
+  const reordered = await orchestrator.reorderStep({ ref: 'backlog/c.md', toIndex: 0 })
+  assert.equal(reordered.ok, true)
+  const backendLane = h.getRoadmap().split('## Backend')[1]
+  assert.ok(backendLane.indexOf('backlog/c.md') < backendLane.indexOf('backlog/a.md'))
+
+  const gone = await orchestrator.removeStep({ ref: 'backlog/zzz.md' })
+  assert.equal(gone.ok, false)
+})
+
+test('skipStep removes a step and records an audit comment; steerLane pauses a lane', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md\n- backlog/b.md'), {
+    itemsByRoot: {
+      [ROOT]: [
+        { relativePath: 'backlog/a.md', status: 'ready' },
+        { relativePath: 'backlog/b.md', status: 'ready' },
+      ],
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const skipped = await orchestrator.skipStep({ ref: 'backlog/b.md', reason: 'superseded', actor: 'automation' })
+  assert.equal(skipped.ok, true)
+  assert.doesNotMatch(h.getRoadmap(), /- backlog\/b\.md/)
+  assert.match(h.getRoadmap(), /<!-- skipped 2026-07-18: backlog\/b\.md — superseded -->/)
+  assert.equal(h.audits.at(-1)?.action, 'skip')
+
+  // A manual pause parks the lane; steerLane derives the roadmap ref itself.
+  const paused = await orchestrator.steerLane('Backend', 'pause', 'automation')
+  assert.equal(paused.ok, true)
+  assert.equal(lane(h)?.parked?.reason, 'paused')
+  assert.equal(h.audits.at(-1)?.action, 'pause')
 })

@@ -23,6 +23,7 @@ import {
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
+  RoadmapAppFrontDoorToken,
   SprintEngineAutomationFrontDoorsToken,
   SwitchboardAutomationFrontDoorsToken,
   TerminalRuntimeToken,
@@ -181,6 +182,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         getHomeProjectPath: () => readRoadmapHomeProjectPath(userDataDir),
         setHomeProjectPath: (path) => writeRoadmapHomeProjectPath(userDataDir, path),
       })
+      // Expose the instance roadmap's read + plan + steer surface to app-level
+      // callers (the automation server's roadmap.* tools), resolved lazily like the
+      // Automations front door — the orchestrator's public API is a superset of it.
+      host.provideService(RoadmapAppFrontDoorToken, () => roadmapOrchestrator)
 
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({
