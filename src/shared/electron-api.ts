@@ -78,6 +78,46 @@ export type {
   UserRoleSaveResult,
 } from './sprintengine/role-manifest'
 import type { SprintEngineTokenUsageReport } from './sprintengine-token-usage'
+import type {
+  TrackerAddConnectionInput,
+  TrackerAddConnectionResult,
+  TrackerFetchIssueInput,
+  TrackerFetchIssueResult,
+  TrackerListConnectionsResult,
+  TrackerRemoveConnectionInput,
+  TrackerRemoveConnectionResult,
+  TrackerSearchInput,
+  TrackerSearchResult,
+  TrackerTestConnectionInput,
+  TrackerTestConnectionResult,
+} from './tracker/types'
+// Re-export the tracker seam contract so the preload bridge and renderer import
+// tracker types from the single electron-api surface (MC-1633).
+export type {
+  NormalizedIssue,
+  RedactedTrackerConnection,
+  TrackerAddConnectionInput,
+  TrackerAddConnectionResult,
+  TrackerAuthMode,
+  TrackerCapabilities,
+  TrackerConnection,
+  TrackerConnectionDraft,
+  TrackerConnectionProbe,
+  TrackerConnectionStatus,
+  TrackerError,
+  TrackerErrorKind,
+  TrackerFetchIssueInput,
+  TrackerFetchIssueResult,
+  TrackerListConnectionsResult,
+  TrackerProviderId,
+  TrackerRemoveConnectionInput,
+  TrackerRemoveConnectionResult,
+  TrackerSearchInput,
+  TrackerSearchResult,
+  TrackerTestConnectionInput,
+  TrackerTestConnectionResult,
+  TrackerTransition,
+} from './tracker/types'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-demo'
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
@@ -2644,6 +2684,12 @@ export type ElectronApi = {
   credentialSecretStatus: (input: CredentialSecretStatusInput) => Promise<CredentialSecretStatusResult>
   credentialSecretSet: (input: CredentialSecretSetInput) => Promise<CredentialSecretSetResult>
   credentialSecretClear: (input: CredentialSecretClearInput) => Promise<CredentialSecretClearResult>
+  trackerListConnections: () => Promise<TrackerListConnectionsResult>
+  trackerAddConnection: (input: TrackerAddConnectionInput) => Promise<TrackerAddConnectionResult>
+  trackerRemoveConnection: (input: TrackerRemoveConnectionInput) => Promise<TrackerRemoveConnectionResult>
+  trackerTestConnection: (input: TrackerTestConnectionInput) => Promise<TrackerTestConnectionResult>
+  trackerSearch: (input: TrackerSearchInput) => Promise<TrackerSearchResult>
+  trackerFetchIssue: (input: TrackerFetchIssueInput) => Promise<TrackerFetchIssueResult>
   conversationSessionStart: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
   conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>
