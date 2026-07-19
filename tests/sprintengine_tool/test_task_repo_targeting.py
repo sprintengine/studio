@@ -197,7 +197,24 @@ def test_claim_rejects_a_task_targeting_an_undeclared_repo(tmp_path: Path) -> No
         failure = fixture.cli.run_failure(*args)
         message = failure.stdout + failure.stderr
         assert "gone" in message and "primary, mobile" in message
+        # The claim gate signposts the self-service remedy, not just the miss.
+        assert "sprintengine.vcs.request_repo" in message
     assert get_task(read_state(fixture.state_path), "T1")["status"] == "todo"
+
+
+def test_creation_rejects_a_task_targeting_an_undeclared_repo(tmp_path: Path) -> None:
+    """The first gate: planning a task against a repo the run does not declare
+    fails at creation with the same request_repo signpost, so the typo (or a
+    genuinely new project) is surfaced before it enters the graph."""
+    fixture = create_team(tmp_path, "repo-create-unknown", [])
+    _declare_repos(fixture.state_path, "primary", "mobile")
+
+    failure = fixture.cli.run_failure(
+        "plan", "add-task", "--title", "New tree", "--role", "developer", "--repo", "gone"
+    )
+    message = failure.stdout + failure.stderr
+    assert "gone" in message and "sprintengine.vcs.request_repo" in message
+    assert read_state(fixture.state_path)["tasks"] == []
 
 
 def test_claim_stamps_the_task_repo_onto_the_lease(tmp_path: Path) -> None:
@@ -244,7 +261,27 @@ def test_ensure_task_repo_declared_returns_the_clean_id(tmp_path: Path) -> None:
     assert ensure_task_repo_declared(state, None, context="Task T1") == "primary"
     with pytest.raises(SystemExit) as excinfo:
         ensure_task_repo_declared(state, "unknown", context="Task T1")
-    assert "Task T1" in str(excinfo.value)
+    message = str(excinfo.value)
+    # Not a dead end: the error names the offending project, the self-service
+    # remedy, and the discovery constraint (agent must name the project; no
+    # auto-detection because reads are gated too).
+    assert "Task T1" in message and "unknown" in message
+    assert "sprintengine.vcs.request_repo" in message
+    assert "allowedRoots" in message
+
+
+def test_undeclared_repo_in_a_single_repo_run_says_it_cannot_expand(tmp_path: Path) -> None:
+    """A non-worktree run has no second tree to add, so request_repo cannot help:
+    the error says the run cannot expand rather than signposting a tool that would
+    reject it."""
+    fixture = create_team(tmp_path, "repo-single", [])
+    state = read_state(fixture.state_path)
+
+    with pytest.raises(SystemExit) as excinfo:
+        ensure_task_repo_declared(state, "mobile", context="Task T1")
+    message = str(excinfo.value)
+    assert "mobile" in message and "worktree-mode runs can expand" in message
+    assert "sprintengine.vcs.request_repo" not in message
 
 
 # --- the default repo id is spelled in three places -------------------------

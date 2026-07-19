@@ -381,15 +381,35 @@ def ensure_task_repo_declared(state: Dict[str, Any], repo: Optional[str], *, con
     task that named a repo the run does not declare fails loudly with the tree
     named rather than silently resolving against the primary one. A blank/absent
     repo is the primary repo, which every run declares.
+
+    An undeclared target in a worktree-mode run is not a dead end: the run can
+    bring the project in on demand, so the error signposts
+    `sprintengine.vcs.request_repo` rather than only listing what is declared. The
+    agent must NAME the project (from an import, a broken reference, or the user)
+    and pass its path — the engine cannot auto-detect it because `allowedRoots`
+    gates reads too, so a sibling tree cannot be browsed to discover it. A
+    single-repo run has no second tree to add, so there the error says only that
+    the run cannot expand, mirroring `request_repo`'s own refusal.
     """
     clean = str(repo or "").strip() or folder_store.DEFAULT_TASK_REPO
     declared = declared_repo_ids(state)
-    if clean not in declared:
+    if clean in declared:
+        return clean
+    projects = ", ".join(declared)
+    if not get_run_vcs(state):
         raise SystemExit(
             f"{context} targets project {clean!r}, which this sprint does not work in. "
-            f"This sprint's projects are: {', '.join(declared)}."
+            f"This sprint's only project is: {projects}. It is not in worktree mode, so it "
+            "cannot bring another project in — only worktree-mode runs can expand."
         )
-    return clean
+    raise SystemExit(
+        f"{context} targets project {clean!r}, which this sprint does not work in yet. "
+        f"This sprint's projects are: {projects}. To bring {clean!r} in, call "
+        "sprintengine.vcs.request_repo --root <path to the project>, then retry. You must "
+        "name the project yourself (from an import, a broken reference, or the user) and pass "
+        "its path: the engine validates the path but cannot auto-detect it, because "
+        "allowedRoots gates reads too — a sibling tree cannot be browsed to discover it."
+    )
 
 
 def run_is_canceled(state: Dict[str, Any]) -> bool:

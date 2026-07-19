@@ -224,10 +224,6 @@ export async function runSprintEngineNewTeamCreation(
       events: args.sprintEngineState.events,
       artifacts: args.sprintEngineState.artifacts,
       useWorktrees: input.useWorktrees === true,
-      // The other projects this run also changes. Only ever present alongside
-      // worktree mode: the engine refuses the pair, and the wizard cannot offer
-      // the projects without it.
-      ...(input.repos && input.repos.length > 0 ? { repos: input.repos } : {}),
       // Record the roster's per-role model selection so claimed tasks get
       // stamped with the model that worked them (same as the plan-sourced path).
       // Architect-roster runs pin only the architect seat instead.
@@ -329,7 +325,6 @@ export async function runSprintEnginePlanSourcedCreation(
       ...(input.phaseRuntimes !== undefined ? { phaseRuntimes: input.phaseRuntimes } : {}),
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
-      ...(input.repos && input.repos.length > 0 ? { repos: input.repos } : {}),
       sourceReference: input.sourceReference === true,
       sprintEngineAutoState: {
         ...sprintEngineAutoStateFromRunOptions(input),

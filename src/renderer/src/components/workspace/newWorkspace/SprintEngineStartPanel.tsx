@@ -22,7 +22,7 @@ import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAu
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import { listSprintEngineWizardWorkRoles } from '../../../utils/sprintengineRoleOptions'
 import { RoleAvatar, Select, Switch } from '../../ui'
-import { AlsoChangesProjectsPanel, cliPermissionOptions, type WizardSiblingProject } from './WizardControls'
+import { cliPermissionOptions } from './WizardControls'
 
 // Human-readable "CLI · model" label for a role, mirroring the picker chips.
 function runtimeLabelFor(
@@ -68,10 +68,6 @@ export function SprintEngineStartPanel({
   useWorktrees,
   onChangeUseWorktrees,
   worktreesDisabled,
-  projectOptions,
-  selectedProjectIds,
-  onToggleProject,
-  projectsDisabled,
   createError,
 }: {
   workspaceName: string
@@ -105,13 +101,6 @@ export function SprintEngineStartPanel({
   useWorktrees: boolean
   onChangeUseWorktrees: (value: boolean) => void
   worktreesDisabled: boolean
-  // "Also changes these projects" (MC-1613): the sibling projects on disk this
-  // run may also change, none selected by default. Shown only in worktree mode,
-  // and only when the workspace has a sibling project to offer.
-  projectOptions: readonly WizardSiblingProject[]
-  selectedProjectIds: readonly string[]
-  onToggleProject: (id: string, on: boolean) => void
-  projectsDisabled: boolean
   createError: string | null
 }) {
   const onRoles = listSprintEngineWizardWorkRoles(registry, disabledRoleIds).filter(
@@ -293,13 +282,6 @@ export function SprintEngineStartPanel({
               : 'All agents work in one shared worktree on a dedicated branch; a pull request opens when the run completes.'}
           </div>
         </RunRow>
-        <AlsoChangesProjectsPanel
-          projects={projectOptions}
-          selectedProjectIds={selectedProjectIds}
-          onToggleProject={onToggleProject}
-          disabled={projectsDisabled}
-          useWorktrees={useWorktrees}
-        />
       </div>
     </div>
   )

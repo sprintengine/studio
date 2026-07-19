@@ -519,9 +519,11 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
     # The token-efficiency plan targeted ~6k tokens (~24k chars) for workers.
     # Replacing the four gate tools with the single `task.advance` bought some of
     # that back; MC-1591 deleting the roster-growth/dispatch tools bought more
-    # (measured ~25.5k), so the ceiling ratchets from 28k to 26k. It guards against
-    # regression toward the old ~62k-char full listing.
-    assert serialized < 26_000, f"worker tools/list serialized to {serialized} chars"
+    # (measured ~25.5k), so the ceiling ratcheted from 28k to 26k. MC-1671 adds one
+    # agent-common tool (`vcs.request_repo`, ~0.5k), a real new capability every
+    # worker needs, nudging it to 27k. It still guards against regression toward the
+    # old ~62k-char full listing.
+    assert serialized < 27_000, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 

@@ -55,6 +55,7 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.triage.needs_input',
   'sprintengine.vcs.commit',
   'sprintengine.vcs.pr',
+  'sprintengine.vcs.request_repo',
   'sprintengine.vcs.status',
 ] as const
 

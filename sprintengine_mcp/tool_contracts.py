@@ -44,6 +44,7 @@ from sprintengine_core.tool import (
     cmd_triage_needs_input,
     cmd_vcs_commit,
     cmd_vcs_pr,
+    cmd_vcs_request_repo,
     cmd_vcs_status,
 )
 
@@ -124,6 +125,7 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _command("sprintengine.artifact.request_changes", cmd_artifact_request_changes),
         _command("sprintengine.vcs.status", cmd_vcs_status),
         _command("sprintengine.vcs.commit", cmd_vcs_commit),
+        _command("sprintengine.vcs.request_repo", cmd_vcs_request_repo),
         _command("sprintengine.vcs.pr", cmd_vcs_pr),
         _special("sprintengine.run.get"),
         _special("sprintengine.run.policy.get"),

@@ -205,6 +205,7 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.artifact.request_changes",
         "sprintengine.vcs.status",
         "sprintengine.vcs.commit",
+        "sprintengine.vcs.request_repo",
         "sprintengine.vcs.pr",
         "sprintengine.run.get",
         "sprintengine.run.policy.get",
@@ -262,6 +263,7 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.artifact.request_changes": {"artifactId": "A1", "id": "product", "feedback": "revise"},
         "sprintengine.vcs.status": {},
         "sprintengine.vcs.commit": {"taskId": "T1", "id": "developer-1"},
+        "sprintengine.vcs.request_repo": {"root": "../multicode-mobile", "id": "developer-1"},
         "sprintengine.vcs.pr": {},
         "sprintengine.run.projection": {},
     }

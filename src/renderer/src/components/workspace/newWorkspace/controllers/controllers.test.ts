@@ -1963,6 +1963,71 @@ async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void
   assert.equal(fs.files.has('/workspace/product/build-handoff.md'), false, 'no handoff file is written when Advanced setup fails')
 }
 
+// MC-1670 D6: sibling projects are no longer declared at creation — a run starts
+// with only its primary repo and expands on demand via request_repo. Both
+// creation controllers must drop any repos from the run init, even if one is
+// supplied, so no wizard path can freeze a repo set again.
+async function testSprintEngineCreationSendsNoRepos(): Promise<void> {
+  const newTeamInit: Array<{ repos: unknown }> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      folderPath: '/p',
+      teamName: 'No Repos',
+      goal: 'Single project only',
+      roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', developer: 'claude-code', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      useWorktrees: true,
+      // Even a supplied repo set must be dropped — the freeze-at-creation path is gone.
+      repos: [{ id: 'mobile', root: '../multicode-mobile' }],
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async () => false,
+      initializeSprintEngineState: async (input) => {
+        newTeamInit.push({ repos: (input as { repos?: unknown }).repos })
+        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'No Repos', goal: 'Single project only' })) } }
+      },
+    },
+  )
+  assert.equal(newTeamInit.length, 1)
+  assert.equal(newTeamInit[0].repos, undefined, 'new-team creation never forwards repos to run init')
+
+  const planInit: Array<{ repos: unknown }> = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'No Repos Plan',
+      goal: 'Single project only',
+      sourcePlanPath: '/p/backlog/plan.md',
+      sourcePlanRelativePath: 'backlog/plan.md',
+      sourcePlanContent: '# Plan',
+      sourcePlanKind: 'architect_plan',
+      sourceBundle: null,
+      visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', developer: 'claude-code', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      useWorktrees: true,
+      repos: [{ id: 'mobile', root: '../multicode-mobile' }],
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async (path) => path === '/p/backlog/plan.md',
+      initializeSprintEngineState: async (input) => {
+        planInit.push({ repos: (input as { repos?: unknown }).repos })
+        return { ok: true, data: {} }
+      },
+    },
+  )
+  assert.equal(planInit.length, 1)
+  assert.equal(planInit[0].repos, undefined, 'plan-sourced creation never forwards repos to run init')
+}
+
 async function main(): Promise<void> {
   testBuildStandardCreation()
   testBuildModuleTypeCreation()
@@ -1976,6 +2041,7 @@ async function main(): Promise<void> {
   testSprintEngineWorkflowInitKeys()
   await testSprintEngineWorkflowKeysFlowToInit()
   await testSprintEngineAdditionalEnabledRolesMergeIntoInit()
+  await testSprintEngineCreationSendsNoRepos()
   await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
   testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()
