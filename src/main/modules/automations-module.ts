@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 
 import { createLocalAutomationExecutor, defaultRemoveRunWorktree } from '../automations/executor-local'
 import { openAutomationRunPullRequest } from '../automations/pull-request'
@@ -48,6 +48,7 @@ import { createAutomationWebhookReceiver } from '../automations/webhook-receiver
 import { createRoadmapOrchestrator } from '../roadmap-orchestrator'
 import { createRoadmapOrchestratorPorts } from '../roadmap-orchestrator-ports'
 import { registerRoadmapOrchestratorIpc } from '../ipc/roadmap-orchestrator-ipc'
+import { readRoadmapHomeProjectPath, writeRoadmapHomeProjectPath } from '../roadmap-home-store'
 
 export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
@@ -150,10 +151,17 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       // runtime, and consumes existing run/PR machinery through the shared front
       // doors. Reconcile is single-flight and fail-soft, so a slow or throwing
       // pass never blocks the engine tick that triggered it.
+      // The instance roadmap lives in a designated HOME PROJECT (D1), recorded as
+      // an app-level setting under userData. The orchestrator reads it every
+      // reconcile; the creation flow (MC-1689) sets it over the home IPC below.
+      const userDataDir = app.getPath('userData')
       const roadmapOrchestrator = createRoadmapOrchestrator(
         createRoadmapOrchestratorPorts({
           frontDoors: sprintEngineFrontDoors,
           delegateToRenderer: (request) => automationDelegate.request(request),
+          getHomeProjectRoot: () => readRoadmapHomeProjectPath(userDataDir),
+          // All open roots — used to resolve a `projects:` alias path to a known
+          // workspace root (an unresolvable alias parks the lane `unknown_project`).
           getWorkspaceRoots: () =>
             projectFoldersFromWorkspaceSyncSnapshot(workspaceSyncService.getSnapshot()).map(
               (folder) => folder.folderPath,
@@ -161,7 +169,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           notify: (input) => host.notify(input),
         }),
       )
-      registerRoadmapOrchestratorIpc(host.ipcMain, roadmapOrchestrator)
+      registerRoadmapOrchestratorIpc(host.ipcMain, roadmapOrchestrator, {
+        getHomeProjectPath: () => readRoadmapHomeProjectPath(userDataDir),
+        setHomeProjectPath: (path) => writeRoadmapHomeProjectPath(userDataDir, path),
+      })
 
       const engine = host.provideService(AutomationsEngineToken, () =>
         (options.createEngine ?? createAutomationsEngine)({

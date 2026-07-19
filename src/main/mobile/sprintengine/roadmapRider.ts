@@ -18,6 +18,7 @@ import type { BacklogItemStatusPayload } from '../../../shared/electron-api'
 import {
   buildRoadmapBoardModel,
   type RoadmapBoardItemInfo,
+  type RoadmapBoardResolver,
   type RoadmapLaneStateView,
 } from '../../../shared/sprintengine/roadmap-surface'
 import type { RoadmapLaneRuntime } from '../../../shared/sprintengine/roadmap-orchestrator'
@@ -39,7 +40,14 @@ export async function readMobileRoadmapRiders(workspaceRoot: string): Promise<Mo
       status: (item.status ?? 'idea') as BacklogItemStatusPayload,
     })
   }
-  const itemInfo = (ref: string): RoadmapBoardItemInfo | undefined => infoByPath.get(ref.toLowerCase())
+  // The roadmap file lives in the home project, so this per-workspace pass resolves
+  // items in that same project (projectKey null); cross-project entries are surfaced
+  // as unknown here, which the read-only progress rider tolerates.
+  const resolver: RoadmapBoardResolver = {
+    itemInfo: (projectKey, relativePath) => (projectKey === null ? infoByPath.get(relativePath.toLowerCase()) : undefined),
+    projectName: (projectKey) => projectKey ?? 'This project',
+    resolvableProjects: new Set([null]),
+  }
 
   const store = createRoadmapOrchestratorStore(workspaceRoot)
   const riders: MobileControlRoadmapRider[] = []
@@ -61,8 +69,8 @@ export async function readMobileRoadmapRiders(workspaceRoot: string): Promise<Mo
     const laneRuntime = new Map<string, RoadmapLaneStateView>()
     for (const [lane, value] of runtime) laneRuntime.set(lane, toLaneStateView(value))
 
-    const lanes = buildRoadmapBoardModel(roadmap, itemInfo, laneRuntime).map((lane) => {
-      const runningTitle = lane.runningRef ? itemInfo(lane.runningRef)?.title : undefined
+    const lanes = buildRoadmapBoardModel(roadmap, resolver, laneRuntime).map((lane) => {
+      const runningTitle = lane.units.find((unit) => unit.state === 'running')?.title
       return {
         name: lane.lane,
         done: lane.doneCount,

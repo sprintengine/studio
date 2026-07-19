@@ -3,9 +3,14 @@
 // else re-derives from backlog + run records on restart, so this store is small
 // and its loss degrades to "re-derive from scratch", never to a wrong conclusion.
 //
-// One sidecar per roadmap, under `.multi-code/sprintengine/roadmaps/<slug>.json`
-// — app-owned bookkeeping the engine neither reads nor validates, kept out of the
-// roadmap markdown so a policy edit and an orchestrator write never contend.
+// INSTANCE-GLOBAL (MC-1688): the roadmap is one plan per Multicode, so its runtime
+// lives in a SINGLE instance store rooted at the designated HOME PROJECT (D1) —
+// `<homeRoot>/.multi-code/sprintengine/roadmaps/<slug>.json`, beside the roadmap
+// file. Older builds let ANY project carry roadmaps, each with its own per-project
+// sidecar at the SAME relative path; `read` absorbs the first such legacy sidecar
+// found under a NON-home root into the home store ONCE and deletes every legacy
+// copy, so a kill/restart after the upgrade re-derives the same state.
+//
 // Writes are atomic (tmp + rename) and serialized per roadmap, mirroring
 // `sprintengine-automation-service.ts`'s sidecar discipline; a malformed or
 // missing file reads as empty rather than throwing.
@@ -34,15 +39,17 @@ const PARK_REASONS: ReadonlySet<RoadmapParkReason> = new Set<RoadmapParkReason>(
   'merge_failed',
   'start_failed',
   'eligibility_contradiction',
+  'unknown_project',
   'paused',
 ])
 
-// The sidecar path for a roadmap, keyed by its file-name stem so two roadmaps
-// never collide. `queueKey` is the resolved path so aliases share one write
-// queue.
-export function roadmapRuntimePath(workspaceRoot: string, roadmapRef: string): { path: string; queueKey: string } {
+// The sidecar path for a roadmap under a project root, keyed by its file-name stem
+// so two roadmaps never collide. `queueKey` is the resolved path so aliases share
+// one write queue. The instance store passes the home root; a legacy sweep passes
+// a non-home root (same relative path).
+export function roadmapRuntimePath(baseDir: string, roadmapRef: string): { path: string; queueKey: string } {
   const slug = roadmapSlug(roadmapRef)
-  const path = join(workspaceRoot, ...ROADMAP_RUNTIME_DIR, `${slug}.json`)
+  const path = join(baseDir, ...ROADMAP_RUNTIME_DIR, `${slug}.json`)
   return { path, queueKey: resolve(path) }
 }
 
@@ -54,7 +61,9 @@ function roadmapSlug(roadmapRef: string): string {
   return stem.replace(/[^a-zA-Z0-9._-]/g, '_') || 'roadmap'
 }
 
-export function createRoadmapOrchestratorStore(workspaceRoot: string) {
+// The single instance store. `baseDir` is the home project root (D1); the roadmap
+// runtime lives beside the roadmap file under `<homeRoot>/.multi-code/...`.
+export function createRoadmapOrchestratorStore(baseDir: string) {
   const writeQueues = new Map<string, Promise<unknown>>()
 
   function enqueue<T>(queueKey: string, task: () => Promise<T>): Promise<T> {
@@ -68,40 +77,78 @@ export function createRoadmapOrchestratorStore(workspaceRoot: string) {
     return next
   }
 
-  async function read(roadmapRef: string): Promise<Map<string, RoadmapLaneRuntime>> {
-    const { path, queueKey } = roadmapRuntimePath(workspaceRoot, roadmapRef)
+  // Read the roadmap's lane runtime. `legacyRoots`, when supplied, are NON-home
+  // workspace roots to sweep for a pre-instance sidecar: if the home store has no
+  // record yet, the first legacy sidecar found is absorbed and every legacy copy
+  // deleted, so the migration runs exactly once.
+  async function read(roadmapRef: string, legacyRoots: ReadonlyArray<string> = []): Promise<Map<string, RoadmapLaneRuntime>> {
+    const { path, queueKey } = roadmapRuntimePath(baseDir, roadmapRef)
     return enqueue(queueKey, async () => {
-      let raw: string
-      try {
-        raw = await readFile(path, 'utf8')
-      } catch {
-        return new Map<string, RoadmapLaneRuntime>()
-      }
-      return normalizeLanes(safeParse(raw))
+      const existing = await readRecord(path)
+      if (existing) return normalizeLanes(existing)
+      if (legacyRoots.length === 0) return new Map<string, RoadmapLaneRuntime>()
+      return absorbLegacy(path, roadmapRef, legacyRoots)
     })
   }
 
   async function write(roadmapRef: string, lanes: ReadonlyMap<string, RoadmapLaneRuntime>): Promise<void> {
-    const { path, queueKey } = roadmapRuntimePath(workspaceRoot, roadmapRef)
+    const { path, queueKey } = roadmapRuntimePath(baseDir, roadmapRef)
     const record: RoadmapRuntimeRecord = {
       schemaVersion: ROADMAP_RUNTIME_SCHEMA_VERSION,
       roadmapRef,
       lanes: [...lanes.values()].map(normalizeLane).filter((lane): lane is RoadmapLaneRuntime => lane !== null),
     }
-    await enqueue(queueKey, async () => {
-      await mkdir(dirname(path), { recursive: true })
-      const tmpPath = `${path}.tmp-${process.pid}`
-      await writeFile(tmpPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-      try {
-        await rename(tmpPath, path)
-      } catch (error) {
-        await unlink(tmpPath).catch(() => undefined)
-        throw error
-      }
-    })
+    await enqueue(queueKey, () => writeRecord(path, record))
+  }
+
+  // Absorb the first legacy per-project sidecar into the instance store, then
+  // delete every legacy copy (best-effort). Returns the absorbed lanes, or empty
+  // when no legacy sidecar exists.
+  async function absorbLegacy(
+    instancePath: string,
+    roadmapRef: string,
+    legacyRoots: ReadonlyArray<string>,
+  ): Promise<Map<string, RoadmapLaneRuntime>> {
+    let absorbed: Map<string, RoadmapLaneRuntime> | null = null
+    for (const root of legacyRoots) {
+      const legacyPath = roadmapRuntimePath(root, roadmapRef).path
+      if (legacyPath === instancePath) continue // never sweep the home store itself.
+      const record = await readRecord(legacyPath)
+      if (record && !absorbed) absorbed = normalizeLanes(record)
+      await unlink(legacyPath).catch(() => undefined)
+    }
+    if (!absorbed) return new Map<string, RoadmapLaneRuntime>()
+    await writeRecord(instancePath, {
+      schemaVersion: ROADMAP_RUNTIME_SCHEMA_VERSION,
+      roadmapRef,
+      lanes: [...absorbed.values()],
+    }).catch(() => undefined)
+    return absorbed
   }
 
   return { read, write }
+}
+
+async function readRecord(path: string): Promise<unknown | null> {
+  let raw: string
+  try {
+    raw = await readFile(path, 'utf8')
+  } catch {
+    return null
+  }
+  return safeParse(raw)
+}
+
+async function writeRecord(path: string, record: RoadmapRuntimeRecord): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  const tmpPath = `${path}.tmp-${process.pid}`
+  await writeFile(tmpPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+  try {
+    await rename(tmpPath, path)
+  } catch (error) {
+    await unlink(tmpPath).catch(() => undefined)
+    throw error
+  }
 }
 
 function safeParse(raw: string): unknown {

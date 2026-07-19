@@ -14,46 +14,76 @@ export const ROADMAP_LANE_APPROVE_CHANNEL = 'roadmap:lane:approve'
 export const ROADMAP_LANE_MERGE_CHANNEL = 'roadmap:lane:merge'
 export const ROADMAP_LANE_RESUME_CHANNEL = 'roadmap:lane:resume'
 export const ROADMAP_LANE_PAUSE_CHANNEL = 'roadmap:lane:pause'
+export const ROADMAP_HOME_GET_CHANNEL = 'roadmap:home:get'
+export const ROADMAP_HOME_SET_CHANNEL = 'roadmap:home:set'
 
-export type RoadmapStatesReadPayload = { workspaceRoot: string }
-export type RoadmapLaneCommandPayload = { workspaceRoot: string; roadmapRef: string; lane: string }
+// The roadmap is instance-global (one plan per Multicode), so commands no longer
+// carry a `workspaceRoot` — the driver derives the home project (D1). A command
+// names only the roadmap file + the lane it steers.
+export type RoadmapLaneCommandPayload = { roadmapRef: string; lane: string }
 export type RoadmapCommandResult = { ok: boolean; message?: string }
 export type RoadmapStatesReadResult = { ok: true; roadmaps: RoadmapView[] } | { ok: false; message: string }
+export type RoadmapHomeResult = { path: string | null }
+export type RoadmapHomeSetPayload = { path: string | null }
 
-export function registerRoadmapOrchestratorIpc(ipcMain: IpcMain, orchestrator: RoadmapOrchestrator): void {
+// The home-project setting seam the creation flow (MC-1689) drives: read the
+// current home project root, and set/clear it (a set triggers a reconcile so the
+// new roadmap begins orchestrating immediately).
+export type RoadmapHomePorts = {
+  getHomeProjectPath(): string | null
+  setHomeProjectPath(path: string | null): Promise<void>
+}
+
+export function registerRoadmapOrchestratorIpc(
+  ipcMain: IpcMain,
+  orchestrator: RoadmapOrchestrator,
+  home: RoadmapHomePorts,
+): void {
+  ipcMain.handle(ROADMAP_HOME_GET_CHANNEL, async (): Promise<RoadmapHomeResult> => ({ path: home.getHomeProjectPath() }))
+
   ipcMain.handle(
-    ROADMAP_STATES_READ_CHANNEL,
-    async (_event, payload: RoadmapStatesReadPayload): Promise<RoadmapStatesReadResult> => {
+    ROADMAP_HOME_SET_CHANNEL,
+    async (_event, payload: RoadmapHomeSetPayload): Promise<RoadmapCommandResult> => {
       try {
-        const roadmaps = await orchestrator.readRoadmapStates(payload.workspaceRoot)
-        return { ok: true, roadmaps }
+        await home.setHomeProjectPath(payload.path)
+        await orchestrator.reconcile()
+        return { ok: true }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
     },
   )
 
+  ipcMain.handle(ROADMAP_STATES_READ_CHANNEL, async (): Promise<RoadmapStatesReadResult> => {
+    try {
+      const roadmaps = await orchestrator.readRoadmapStates()
+      return { ok: true, roadmaps }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
   ipcMain.handle(
     ROADMAP_LANE_APPROVE_CHANNEL,
     async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
-      orchestrator.approveStart(payload.workspaceRoot, payload.roadmapRef, payload.lane),
+      orchestrator.approveStart(payload.roadmapRef, payload.lane),
   )
 
   ipcMain.handle(
     ROADMAP_LANE_MERGE_CHANNEL,
     async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
-      orchestrator.mergeLane(payload.workspaceRoot, payload.roadmapRef, payload.lane),
+      orchestrator.mergeLane(payload.roadmapRef, payload.lane),
   )
 
   ipcMain.handle(
     ROADMAP_LANE_RESUME_CHANNEL,
     async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
-      orchestrator.resumeLane(payload.workspaceRoot, payload.roadmapRef, payload.lane),
+      orchestrator.resumeLane(payload.roadmapRef, payload.lane),
   )
 
   ipcMain.handle(
     ROADMAP_LANE_PAUSE_CHANNEL,
     async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
-      orchestrator.pauseLane(payload.workspaceRoot, payload.roadmapRef, payload.lane),
+      orchestrator.pauseLane(payload.roadmapRef, payload.lane),
   )
 }

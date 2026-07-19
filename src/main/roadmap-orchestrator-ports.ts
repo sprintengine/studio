@@ -1,9 +1,10 @@
 // Wires the roadmap orchestrator's ports to the real main-process collaborators:
 // the backlog service (item listing + execution links), the Sprint Engine front
 // doors (projection read, PR status/merge), the renderer creation delegate
-// (`sprint.create`), the crash-safe sidecar store, and the user notification
-// channel. Kept separate from `automations-module.ts` so the module wiring stays
-// small and this glue is unit-inspectable in isolation.
+// (`sprint.create`), the single instance-global sidecar store, the home-project
+// setting (D1), and the user notification channel. Kept separate from
+// `automations-module.ts` so the module wiring stays small and this glue is
+// unit-inspectable in isolation.
 
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -34,24 +35,31 @@ import {
 export type RoadmapOrchestratorPortsDeps = {
   frontDoors: SprintEngineAutomationFrontDoors
   delegateToRenderer(request: AutomationRendererRequest): Promise<AutomationRendererResponse>
-  // Open workspace roots (from the workspace sync snapshot).
+  // The designated home project root (D1), from the roadmap-home setting; null
+  // when unset.
+  getHomeProjectRoot(): string | null
+  // Open workspace roots (from the workspace sync snapshot), for resolving aliases.
   getWorkspaceRoots(): string[]
   notify(input: { severity: 'info' | 'warning' | 'error'; title: string; body?: string }): void
 }
 
 export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDeps): RoadmapOrchestratorPorts {
-  // One store per workspace root — its serialized write queue must be shared
-  // across reconciles, so the instance is cached rather than rebuilt per call.
+  // The single instance store is rooted at the CURRENT home project (D1). Cached by
+  // home root so its serialized write queue is shared across reconciles; a home
+  // reassignment simply news up a store rooted at the new project.
   const stores = new Map<string, ReturnType<typeof createRoadmapOrchestratorStore>>()
-  const storeFor = (workspaceRoot: string) => {
-    const existing = stores.get(workspaceRoot)
+  const storeForHome = (): ReturnType<typeof createRoadmapOrchestratorStore> | null => {
+    const home = deps.getHomeProjectRoot()
+    if (!home) return null
+    const existing = stores.get(home)
     if (existing) return existing
-    const created = createRoadmapOrchestratorStore(workspaceRoot)
-    stores.set(workspaceRoot, created)
+    const created = createRoadmapOrchestratorStore(home)
+    stores.set(home, created)
     return created
   }
 
   return {
+    getHomeProjectRoot: () => deps.getHomeProjectRoot(),
     listWorkspaceRoots: () => deps.getWorkspaceRoots(),
 
     listBacklogItems: async (workspaceRoot) => {
@@ -61,6 +69,8 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
         (item): RoadmapBacklogItem => ({
           relativePath: item.relativePath,
           status: item.status ?? 'idea',
+          title: item.title,
+          ...(item.id !== undefined ? { numericId: item.id } : {}),
           ...(item.dependsOn ? { dependsOn: item.dependsOn } : {}),
           ...(item.isRoadmap ? { isRoadmap: true } : {}),
           ...(item.isEpic ? { isEpic: true } : {}),
@@ -76,11 +86,11 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       }
     },
 
-    resolveExecutionLink: async (workspaceRoot, itemRef) => {
+    resolveExecutionLink: async (workspaceRoot, itemRelativePath) => {
       const store = await readBacklogObjectStore(workspaceRoot)
       if (!store.ok) return null
       const record = store.store.items.find(
-        (candidate) => candidate.source.relativePath.toLowerCase() === itemRef.toLowerCase(),
+        (candidate) => candidate.source.relativePath.toLowerCase() === itemRelativePath.toLowerCase(),
       )
       const link = record?.links ? sprintEngineRunLinkOf(record.links) : null
       if (!link?.target.path) return null
@@ -94,45 +104,48 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       return result.ok ? { ok: true } : { ok: false, message: result.message }
     },
 
-    startSprint: async ({ workspaceRoot, itemRef }) => {
-      // The shared plan-sourced creation flow — the same `sprint.create` delegate
-      // a human backlog start and sprint chaining use. It creates the workspace,
-      // inits the run store (worktree mode), starts the runner, and records the
-      // execution link + epic children fan-out. Worktree mode is on so the lane
-      // gates on a PR (MC-1439). The delegate refuses an epic source, so callers
-      // only ever pass a concrete child item (nextEligible never yields an epic).
+    startSprint: async ({ workspaceRoot, itemRelativePath }) => {
+      // The shared plan-sourced creation flow — the same `sprint.create` delegate a
+      // human backlog start and sprint chaining use. It creates the workspace, inits
+      // the run store (worktree mode), starts the runner, and records the execution
+      // link + epic children fan-out, in the item's own project root. Worktree mode
+      // is on so the lane gates on a PR (MC-1439). The delegate refuses an epic
+      // source, so callers only ever pass a concrete child item.
       const response = await deps.delegateToRenderer({
         kind: 'sprint.create',
         folderPath: workspaceRoot,
         goal: '',
-        sourceRelativePath: itemRef,
+        sourceRelativePath: itemRelativePath,
         startRunner: true,
         useWorktrees: true,
       })
       return response.ok ? { ok: true } : { ok: false, message: response.message }
     },
 
-    abandonRun: async (workspaceRoot, itemRef, teamSlug) => {
+    abandonRun: async (workspaceRoot, itemRelativePath, teamSlug) => {
       // Remove the execution link so the reconcile cannot re-adopt the dead run.
-      // Prefer the lane's recorded team slug; fall back to the link on disk when
-      // the runtime never captured one (e.g. a start that failed before linking).
-      const slug = teamSlug ?? (await resolveTeamSlug(workspaceRoot, itemRef))
+      // Prefer the lane's recorded team slug; fall back to the link on disk.
+      const slug = teamSlug ?? (await resolveTeamSlug(workspaceRoot, itemRelativePath))
       if (slug) {
-        await removeBacklogLink({ workspaceRoot, relativePath: itemRef, linkId: sprintEngineRunLinkId(slug) }).catch(
+        await removeBacklogLink({ workspaceRoot, relativePath: itemRelativePath, linkId: sprintEngineRunLinkId(slug) }).catch(
           () => undefined,
         )
       }
       // Reset the item so it is eligible to start a fresh sprint.
-      await updateBacklogStatus({ workspaceRoot, relativePath: itemRef, status: 'ready' }).catch(() => undefined)
+      await updateBacklogStatus({ workspaceRoot, relativePath: itemRelativePath, status: 'ready' }).catch(() => undefined)
     },
 
-    readLaneRuntime: (workspaceRoot, roadmapRef) => storeFor(workspaceRoot).read(roadmapRef),
-    writeLaneRuntime: (workspaceRoot, roadmapRef, lanes) => storeFor(workspaceRoot).write(roadmapRef, lanes),
+    readLaneRuntime: (roadmapRef, legacyRoots) => {
+      const store = storeForHome()
+      return store ? store.read(roadmapRef, legacyRoots) : Promise.resolve(new Map())
+    },
+    writeLaneRuntime: (roadmapRef, lanes) => {
+      const store = storeForHome()
+      return store ? store.write(roadmapRef, lanes) : Promise.resolve()
+    },
 
     notify: deps.notify,
     logDiagnostic: (input) => {
-      // Internal diagnostics: surfaced to the main log, never to the user (the
-      // user-facing channel is `notify`).
       console.warn(`[roadmap-orchestrator] ${input.title}: ${input.message}`)
     },
     now: () => new Date(),
@@ -141,11 +154,11 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
 
 // The team slug on an item's execution link, read off the object store — the
 // fallback for abandoning a run whose lane runtime never captured its slug.
-async function resolveTeamSlug(workspaceRoot: string, itemRef: string): Promise<string | undefined> {
+async function resolveTeamSlug(workspaceRoot: string, itemRelativePath: string): Promise<string | undefined> {
   const store = await readBacklogObjectStore(workspaceRoot)
   if (!store.ok) return undefined
   const record = store.store.items.find(
-    (candidate) => candidate.source.relativePath.toLowerCase() === itemRef.toLowerCase(),
+    (candidate) => candidate.source.relativePath.toLowerCase() === itemRelativePath.toLowerCase(),
   )
   const link = record?.links ? sprintEngineRunLinkOf(record.links) : null
   return link?.target.id
@@ -162,8 +175,6 @@ async function observeRun(
   const teamSlug = teamSlugFromStatePath(runRef.statePath) ?? runRef.teamSlug
   const read = await frontDoors.readProjection({ statePath: runRef.statePath })
   if (!read.ok) {
-    // A permanently-gone run store (deleted) is "no run"; a transient read error
-    // is treated the same for this tick and simply retried next reconcile.
     return null
   }
   let state = normalizeSprintEngineProjection(read.data, teamSlug)
@@ -192,7 +203,6 @@ async function observeRun(
     lifecycle,
     ...(mode === 'worktree' ? { prAllMerged: rollup?.allMerged === true } : {}),
     ...(prClosedUnmerged ? { prClosedUnmerged: true } : {}),
-    repoId: 'primary',
   }
 }
 
