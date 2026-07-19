@@ -4191,6 +4191,10 @@ function ReviewSourceStep({
   const branchNames = branches?.branches.map((branch) => branch.name) ?? []
   const reachabilityChip =
     sourceKind === 'branch' ? 'Local' : sourceKind === 'patch' ? 'No remote' : 'Remote'
+  // The success dot's accessible label tracks the source kind — "Reachable" is only
+  // accurate for a remote PR; a local branch or a pasted patch has no remote to reach.
+  const successDotLabel =
+    sourceKind === 'branch' ? 'Local' : sourceKind === 'patch' ? 'Valid diff' : 'Reachable'
 
   return (
     <div className="flex flex-col gap-6">
@@ -4278,7 +4282,7 @@ function ReviewSourceStep({
         </div>
       ) : null}
 
-      <ReviewDetectionCard probe={probe} reachabilityChip={reachabilityChip} />
+      <ReviewDetectionCard probe={probe} reachabilityChip={reachabilityChip} successLabel={successDotLabel} />
 
       <div className="flex flex-col gap-2.5 border-t border-[color:var(--border-subtle)] pt-4">
         <span className="text-[11px] font-medium text-[color:var(--text-subtle)]">Walkthrough context</span>
@@ -4408,7 +4412,15 @@ function ReviewRefField({
   )
 }
 
-function ReviewDetectionCard({ probe, reachabilityChip }: { probe: ReviewProbeState; reachabilityChip: string }) {
+function ReviewDetectionCard({
+  probe,
+  reachabilityChip,
+  successLabel,
+}: {
+  probe: ReviewProbeState
+  reachabilityChip: string
+  successLabel: string
+}) {
   if (probe.status === 'idle') return null
   if (probe.status === 'probing') {
     return (
@@ -4419,16 +4431,19 @@ function ReviewDetectionCard({ probe, reachabilityChip }: { probe: ReviewProbeSt
     )
   }
   if (probe.status === 'error') {
+    // An error must read as an error, not as neutral field help: error-tone text
+    // and a matching status dot instead of muted body copy.
     return (
-      <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-[12px] leading-4 text-[color:var(--text-muted)]">
-        {probe.message}
+      <div className="flex items-start gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-[12px] leading-4 text-[color:var(--tone-error)]">
+        <StatusDot tone="error" className="mt-1" />
+        <span>{probe.message}</span>
       </div>
     )
   }
   const stats = probe.probe.stats
   return (
     <div className="flex items-center gap-2.5 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5">
-      <StatusDot tone="accent" label="Reachable" />
+      <StatusDot tone="accent" label={successLabel} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[12px] font-medium text-[color:var(--text-strong)]">
           {probe.probe.title ?? 'Ready to review'}

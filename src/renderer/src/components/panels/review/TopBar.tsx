@@ -67,12 +67,24 @@ export function TopBar({
         </GhostButton>
       ) : null}
       {onOpenReview ? (
-        <GhostButton onClick={onOpenReview} className="shrink-0">
-          Your review
-          {typeof reviewCount === 'number' && reviewCount > 0 ? (
-            <span className="tabular-nums text-[color:var(--text-subtle)]"> · {reviewCount}</span>
-          ) : null}
-        </GhostButton>
+        (() => {
+          // Pending comments give "Your review" an accent affordance so the loop's
+          // payoff — post these to the PR — is discoverable without opening the
+          // drawer: a soft accent fill plus the count in accent. Zero pending: the
+          // plain ghost button, no competing accent.
+          const pending = typeof reviewCount === 'number' && reviewCount > 0
+          return (
+            <GhostButton
+              onClick={onOpenReview}
+              className={`shrink-0${pending ? ' bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]' : ''}`}
+            >
+              Your review
+              {pending ? (
+                <span className="font-medium tabular-nums text-[color:var(--accent-primary)]"> · {reviewCount}</span>
+              ) : null}
+            </GhostButton>
+          )
+        })()
       ) : null}
       <GhostButton onClick={onRerun} disabled={rerunning} className="shrink-0">
         <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">

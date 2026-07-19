@@ -52,12 +52,57 @@ run('the tray renders a row per comment with the right chip and PR post copy', (
   assert.ok(html.includes('Pending'))
   assert.ok(html.includes('Posted'))
   assert.ok(html.includes('Failed'))
-  // PR source: post is present, disabled, counts only the two postable comments.
+  // PR source: post is present and counts only the two postable comments.
   assert.ok(html.includes('Post 2 comments to pull request'))
-  assert.ok(html.includes('disabled'))
+  // The retired "arrives later" line is gone now that posting is wired.
+  assert.ok(!html.includes('Posting arrives with pull-request sync'))
   // design-tokens-allow: "#482" is a pull-request number in an expected string, not a color literal
   assert.ok(html.includes('acme/web-app #482'))
   assert.ok(html.includes('Copy as markdown'))
+})
+
+// The `disabled=""` attribute (not the `disabled:` class variant every button
+// carries) is what marks an actually-disabled control in the static markup.
+run('without a wired onPost the post button is disabled (read-only harness)', () => {
+  const html = renderToStaticMarkup(<ReviewTray comments={[pending, failed]} changeset={fixtureChangeSet} />)
+  assert.ok(html.includes('Post 2 comments to pull request'))
+  assert.ok(html.includes('disabled=""'), 'no post handler → disabled button')
+})
+
+run('a wired onPost with pending comments enables the post button', () => {
+  const html = renderToStaticMarkup(
+    <ReviewTray comments={[pending, failed]} changeset={fixtureChangeSet} onPost={() => {}} postState={{ phase: 'idle' }} />,
+  )
+  assert.ok(html.includes('Post 2 comments to pull request'))
+  assert.ok(!html.includes('disabled=""'), 'PR + pending + handler → enabled')
+})
+
+run('the posting state shows Posting… and disables the button', () => {
+  const html = renderToStaticMarkup(
+    <ReviewTray comments={[pending, failed]} changeset={fixtureChangeSet} onPost={() => {}} postState={{ phase: 'posting' }} />,
+  )
+  assert.ok(html.includes('Posting…'))
+  assert.ok(html.includes('disabled=""'))
+})
+
+run('once every comment has posted the button settles to Posted', () => {
+  const html = renderToStaticMarkup(
+    <ReviewTray comments={[posted]} changeset={fixtureChangeSet} onPost={() => {}} postState={{ phase: 'idle' }} />,
+  )
+  assert.ok(!html.includes('to pull request'), 'the count button is replaced by the settled state')
+  assert.ok(html.includes('disabled=""'), 'the settled Posted button is inert')
+})
+
+run('a batch failure surfaces the error copy in the tray', () => {
+  const html = renderToStaticMarkup(
+    <ReviewTray
+      comments={[pending, failed]}
+      changeset={fixtureChangeSet}
+      onPost={() => {}}
+      postState={{ phase: 'error', error: 'GitHub denied the request (403).' }}
+    />,
+  )
+  assert.ok(html.includes('GitHub denied the request (403).'))
 })
 
 run('a branch source tray drops the post action and offers copy only', () => {
@@ -65,7 +110,7 @@ run('a branch source tray drops the post action and offers copy only', () => {
     ...fixtureChangeSet,
     source: { kind: 'branch', repoRoot: '/r', baseRef: 'main', headRef: 'agent/x' } as const,
   }
-  const html = renderToStaticMarkup(<ReviewTray comments={[pending]} changeset={branch} />)
+  const html = renderToStaticMarkup(<ReviewTray comments={[pending]} changeset={branch} onPost={() => {}} />)
   assert.ok(!html.includes('Post 1 comment to pull request'))
   assert.ok(html.includes('No pull request to post to'))
   assert.ok(html.includes('Copy as markdown'))

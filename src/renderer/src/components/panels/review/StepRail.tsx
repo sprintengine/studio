@@ -91,9 +91,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
             >
               <StepRing view={view} />
               <span className="min-w-0 flex-1">
-                <span
-                  className={`block text-[13px] font-medium leading-tight ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-strong)]'}`}
-                >
+                <span className="block text-[13px] font-medium leading-tight text-[color:var(--text-strong)]">
                   {view.step.title}
                 </span>
                 <span className="mt-0.5 block text-[11px] tabular-nums text-[color:var(--text-subtle)]">{view.metaLabel}</span>

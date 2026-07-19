@@ -218,6 +218,21 @@ export function ReviewDiffEditor({
         const real = model.modifiedRealLines[line - 1]
         if (real !== undefined) requestCommentRef.current(real)
       })
+
+      // Keyboard route to the same composer, so leaving a comment is not mouse-only:
+      // a Monaco action (Cmd/Ctrl+Alt+C, and listed in the editor command palette)
+      // opens the composer at the cursor line when it is a commentable changed line.
+      modified.addAction({
+        id: 'review-comment-on-line',
+        label: 'Comment on this line',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
+        run: (ed) => {
+          const line = ed.getPosition()?.lineNumber
+          if (!line || !addLines.has(line)) return
+          const real = model.modifiedRealLines[line - 1]
+          if (real !== undefined) requestCommentRef.current(real)
+        },
+      })
     },
     [model],
   )

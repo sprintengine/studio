@@ -154,6 +154,20 @@ run('a brief without a change map renders the Overview with no map section', () 
   assert.ok(!overview.includes('Change map')) // …with no map heading or placeholder
 })
 
+run('the layout collapses on narrow panels via a container query, not a window media query', () => {
+  // The columns key off THIS panel's width: a `@container` wrapper, the narrow
+  // default (rail 210px, no notes column), and the ≥940px expansion (rail 244px +
+  // the 276px notes column) — mirroring the mockup's ≤940px breakpoint.
+  assert.ok(html.includes('@container'), 'a container context is established')
+  assert.ok(html.includes('grid-cols-[210px_minmax(0,1fr)]'), 'narrow default: 2 columns, narrowed rail')
+  assert.ok(
+    html.includes('@[940px]:grid-cols-[244px_minmax(0,1fr)_276px]'),
+    'expands to the full 3-column layout at ≥940px',
+  )
+  // The right "In this step" column is dropped below the threshold so the diff keeps its width.
+  assert.ok(html.includes('hidden min-h-0 @[940px]:block'), 'notes column collapses below 940px')
+})
+
 // Reference the fixture so an unused-import refactor can't silently drop it.
 assert.ok(reviewFixture.changeset.files.length === 4)
 

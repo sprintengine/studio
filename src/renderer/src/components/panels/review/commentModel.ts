@@ -6,6 +6,7 @@
 // any of this; comments only enter state through the composer's create action.
 
 import type { ReviewAnchor, ReviewChangeSet, ReviewComment } from '../../../../../shared/review'
+import type { ReviewCommentPostOutcome } from '../../../../../shared/electron-api'
 import { anchorRangeLabel } from './anchorLabel'
 
 // A comment is the reviewer's to edit or delete only while it is still local —
@@ -70,6 +71,66 @@ export function postableComments(comments: ReviewComment[]): ReviewComment[] {
 
 export function pendingCommentCount(comments: ReviewComment[]): number {
   return postableComments(comments).length
+}
+
+// Whether the tray should offer Post: a pull-request source with at least one
+// comment that would post (pending / failed retry). Branch/patch have no remote.
+export function canPostReview(changeset: ReviewChangeSet, comments: ReviewComment[]): boolean {
+  return isPullRequestReviewSource(changeset) && pendingCommentCount(comments) > 0
+}
+
+// Whether anything has already landed on the PR — drives the tray's settled
+// "Posted" state once every comment has posted and nothing is left to send.
+export function hasPostedComments(comments: ReviewComment[]): boolean {
+  return comments.some((comment) => comment.sync.state === 'posted')
+}
+
+// ── Post-batch state transitions (MC-1683 wiring) ──────────────────────────────
+// Pure transforms applied to the workspace-state comment list around a post. Each
+// starts from the same pre-post snapshot, so the optimistic flip and the final
+// apply never compound: the outcomes are authoritative over the original list.
+
+// Optimistic flip: every postable comment shows "Posting…" while the batch is in
+// flight. Only pending/failed comments move; posted ones are already on the PR.
+export function markCommentsPosting(comments: ReviewComment[]): ReviewComment[] {
+  return comments.map((comment) =>
+    comment.sync.state === 'pending' || comment.sync.state === 'failed'
+      ? { ...comment, sync: { state: 'posting' } }
+      : comment,
+  )
+}
+
+// Apply a successful batch's per-comment outcomes. Each outcome flips its comment
+// to the returned sync state; `anchorStatus: 'moved'` marks a held comment (kept
+// pending, never posted to a guessed line). A comment with no outcome (already
+// posted, or not in the batch) is left untouched, and a prior 'moved' flag is
+// cleared unless the outcome re-sets it.
+export function applyPostOutcomes(
+  comments: ReviewComment[],
+  outcomes: ReviewCommentPostOutcome[],
+): ReviewComment[] {
+  const byId = new Map(outcomes.map((outcome) => [outcome.id, outcome]))
+  return comments.map((comment) => {
+    const outcome = byId.get(comment.id)
+    if (!outcome) return comment
+    const { anchorStatus: _prior, ...rest } = comment
+    return outcome.anchorStatus
+      ? { ...rest, sync: outcome.sync, anchorStatus: outcome.anchorStatus }
+      : { ...rest, sync: outcome.sync }
+  })
+}
+
+// A whole-batch failure (auth/transport/not-a-PR): GitHub's create-review is
+// atomic, so nothing posted. Every postable comment flips to a retryable 'failed'
+// carrying the error, so the tray and each thread show why and stay editable.
+export function applyPostFailure(comments: ReviewComment[], error: string): ReviewComment[] {
+  return comments.map((comment) =>
+    comment.sync.state === 'pending' ||
+    comment.sync.state === 'failed' ||
+    comment.sync.state === 'posting'
+      ? { ...comment, sync: { state: 'failed', error } }
+      : comment,
+  )
 }
 
 export type CommentSyncTone = 'neutral' | 'good' | 'error'

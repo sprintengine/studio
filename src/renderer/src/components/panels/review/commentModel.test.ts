@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 
 import { validateReviewWorkspaceState, type ReviewComment, type ReviewWorkspaceState } from '../../../../../shared/review'
+import type { ReviewCommentPostOutcome } from '../../../../../shared/electron-api'
 import {
   addComment,
+  applyPostFailure,
+  applyPostOutcomes,
+  canPostReview,
   commentCitation,
   commentLocationLabel,
   commentSyncChip,
@@ -10,8 +14,10 @@ import {
   commentsToMarkdown,
   deleteComment,
   editComment,
+  hasPostedComments,
   isCommentEditable,
   isPullRequestReviewSource,
+  markCommentsPosting,
   newReviewComment,
   pendingCommentCount,
   postableComments,
@@ -148,6 +154,59 @@ run('PR-source detection drives the tray post affordance', () => {
   const branch = { ...fixtureChangeSet, source: { kind: 'branch', repoRoot: '/r', baseRef: 'main', headRef: 'x' } as const }
   assert.equal(isPullRequestReviewSource(branch), false)
   assert.equal(pullRequestLabel(branch), null)
+})
+
+run('canPostReview needs a PR source and at least one postable comment', () => {
+  assert.equal(canPostReview(fixtureChangeSet, [pending, posted]), true)
+  assert.equal(canPostReview(fixtureChangeSet, [posted]), false, 'all posted → nothing to send')
+  assert.equal(canPostReview(fixtureChangeSet, []), false)
+  const branch = { ...fixtureChangeSet, source: { kind: 'branch', repoRoot: '/r', baseRef: 'main', headRef: 'x' } as const }
+  assert.equal(canPostReview(branch, [pending]), false, 'branch has no remote to post to')
+  assert.equal(hasPostedComments([pending, posted]), true)
+  assert.equal(hasPostedComments([pending, failed]), false)
+})
+
+run('markCommentsPosting flips only postable comments to posting', () => {
+  const marked = markCommentsPosting([pending, posted, failed])
+  assert.deepEqual(
+    marked.map((c) => c.sync.state),
+    ['posting', 'posted', 'posting'],
+    'pending + failed → posting; posted is left on the PR',
+  )
+})
+
+run('applyPostOutcomes flips each comment to its returned sync state', () => {
+  const outcomes: ReviewCommentPostOutcome[] = [
+    { id: 'c-pending', sync: { state: 'posted', url: 'https://github.com/acme/web-app/pull/482#c1', postedAt: '2026-07-18T01:00:00.000Z' } },
+    { id: 'c-failed', sync: { state: 'pending' }, anchorStatus: 'moved' },
+  ]
+  const applied = applyPostOutcomes([pending, posted, failed], outcomes)
+  const byId = new Map(applied.map((c) => [c.id, c]))
+  assert.equal(byId.get('c-pending')!.sync.state, 'posted')
+  // A held comment stays pending and carries the moved flag (never posted to a guessed line).
+  assert.equal(byId.get('c-failed')!.sync.state, 'pending')
+  assert.equal(byId.get('c-failed')!.anchorStatus, 'moved')
+  // A comment with no outcome is untouched.
+  assert.equal(byId.get('c-posted')!.sync.state, 'posted')
+})
+
+run('applyPostOutcomes clears a stale moved flag when the comment posts cleanly', () => {
+  const held: ReviewComment = { ...pending, anchorStatus: 'moved' }
+  const applied = applyPostOutcomes([held], [
+    { id: 'c-pending', sync: { state: 'posted', url: 'u', postedAt: 't' } },
+  ])
+  assert.equal(applied[0].sync.state, 'posted')
+  assert.equal(applied[0].anchorStatus, undefined, 'a cleanly posted comment keeps no moved flag')
+})
+
+run('applyPostFailure flips every postable comment to a retryable failed', () => {
+  const failedBatch = applyPostFailure([pending, posted, failed], 'GitHub denied the request (403).')
+  const byId = new Map(failedBatch.map((c) => [c.id, c]))
+  assert.equal(byId.get('c-pending')!.sync.state, 'failed')
+  assert.equal((byId.get('c-pending')!.sync as { error: string }).error, 'GitHub denied the request (403).')
+  assert.equal(byId.get('c-failed')!.sync.state, 'failed')
+  assert.equal(byId.get('c-posted')!.sync.state, 'posted', 'a posted comment is not re-failed')
+  assert.ok(isCommentEditable(byId.get('c-pending')!), 'a failed comment is editable for retry')
 })
 
 run('a comment anchor maps to a modified-editor line by anchor math (view-independent)', () => {

@@ -17,7 +17,7 @@ import { StepPane } from './StepPane'
 import { OverviewPane } from './OverviewPane'
 import { ChangeMapView } from './ChangeMapView'
 import { AnnotationsPanel } from './AnnotationsPanel'
-import { ReviewTray } from './ReviewTray'
+import { ReviewTray, type ReviewPostPhase } from './ReviewTray'
 import { pendingCommentCount } from './commentModel'
 import { anchorRangeLabel } from './anchorLabel'
 import {
@@ -57,6 +57,11 @@ export interface ReviewWalkthroughProps {
   onCreateComment?: (path: string, anchor: ReviewAnchor, body: string) => void
   onEditComment?: (id: string, body: string) => void
   onDeleteComment?: (id: string) => void
+  // Posting the pending review to the pull request (MC-1683). Present only for
+  // pull-request sources the container can post; absent leaves the tray with
+  // Copy-as-markdown alone. `postState` renders the in-flight / failed batch.
+  onPostReview?: () => void
+  postState?: ReviewPostPhase
   // Identity of the guide companion to chat with (MC-1681/MC-1684). Present
   // together: with both the "Ask the guide" chat opens; absent it stays hidden.
   workspaceId?: string
@@ -86,6 +91,8 @@ export function ReviewWalkthrough({
   onCreateComment,
   onEditComment,
   onDeleteComment,
+  onPostReview,
+  postState,
   workspaceId,
   workspaceRoot,
 }: ReviewWalkthroughProps) {
@@ -216,47 +223,57 @@ export function ReviewWalkthrough({
         }
       />
       {bannerSlot}
-      <div className="grid min-h-0 flex-1 grid-cols-[244px_minmax(0,1fr)_276px]">
-        <StepRail rail={rail} activePaneId={activePaneId} onSelectPane={onSetActivePane} />
-        <div ref={centerRef} className="min-w-0 overflow-y-auto px-6 py-5">
-          <div key={activePaneId} className="review-pane-enter">
+      {/* Container query, not a window media query: the walkthrough opens in split
+          and narrow panes, so the collapse keys off THIS panel's width. Below
+          940px the rail narrows (244→210px) and the right "In this step" column
+          drops so the diff — the primary content — keeps its width. Mirrors the
+          mockup's ≤940px breakpoint. The container sits under the root so it never
+          captures the fixed-position drawers below. */}
+      <div className="@container min-h-0 flex-1">
+        <div className="grid h-full grid-cols-[210px_minmax(0,1fr)] @[940px]:grid-cols-[244px_minmax(0,1fr)_276px]">
+          <StepRail rail={rail} activePaneId={activePaneId} onSelectPane={onSetActivePane} />
+          <div ref={centerRef} className="min-w-0 overflow-y-auto px-6 py-5">
+            <div key={activePaneId} className="review-pane-enter">
+              {activeStep ? (
+                <StepPane
+                  step={activeStep}
+                  fileByPath={fileByPath}
+                  readFiles={readFiles}
+                  diffView={diffView}
+                  monacoTheme={monacoTheme}
+                  onToggleRead={onToggleRead}
+                  onRequestComment={onRequestComment}
+                  onAskGuide={handleAskGuide}
+                  onOrphans={handleOrphans}
+                  registerReveal={registerReveal}
+                  comments={comments}
+                  onCreateComment={onCreateComment}
+                  onEditComment={onEditComment}
+                  onDeleteComment={onDeleteComment}
+                />
+              ) : (
+                <OverviewPane
+                  overview={brief.overview}
+                  knowledgeRefs={brief.knowledgeRefs}
+                  unassignedPaths={brief.coverage.unassignedPaths}
+                  changeMapSlot={changeMapSlot}
+                />
+              )}
+            </div>
+          </div>
+          <div className="hidden min-h-0 @[940px]:block">
             {activeStep ? (
-              <StepPane
-                step={activeStep}
-                fileByPath={fileByPath}
-                readFiles={readFiles}
-                diffView={diffView}
-                monacoTheme={monacoTheme}
-                onToggleRead={onToggleRead}
-                onRequestComment={onRequestComment}
-                onAskGuide={handleAskGuide}
-                onOrphans={handleOrphans}
-                registerReveal={registerReveal}
-                comments={comments}
-                onCreateComment={onCreateComment}
-                onEditComment={onEditComment}
-                onDeleteComment={onDeleteComment}
-              />
+              <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={handleAskGuide} />
             ) : (
-              <OverviewPane
-                overview={brief.overview}
-                knowledgeRefs={brief.knowledgeRefs}
-                unassignedPaths={brief.coverage.unassignedPaths}
-                changeMapSlot={changeMapSlot}
-              />
+              <div className="h-full border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 py-4">
+                <span className="mb-2.5 block text-[11px] font-medium text-[color:var(--text-subtle)]">In this step</span>
+                <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
+                  Pick a step to see the guide’s notes for it.
+                </p>
+              </div>
             )}
           </div>
         </div>
-        {activeStep ? (
-          <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={handleAskGuide} />
-        ) : (
-          <div className="border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 py-4">
-            <span className="mb-2.5 block text-[11px] font-medium text-[color:var(--text-subtle)]">In this step</span>
-            <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
-              Pick a step to see the guide’s notes for it.
-            </p>
-          </div>
-        )}
       </div>
 
       {commentsEnabled ? (
@@ -268,7 +285,7 @@ export function ReviewWalkthrough({
           width={440}
         >
           <Drawer.Body>
-            <ReviewTray comments={comments} changeset={changeset} />
+            <ReviewTray comments={comments} changeset={changeset} onPost={onPostReview} postState={postState} />
           </Drawer.Body>
         </Drawer>
       ) : null}

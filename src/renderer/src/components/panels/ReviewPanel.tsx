@@ -15,7 +15,18 @@ import { InlineNotice } from '../ui/InlineNotice'
 import { PrimaryButton } from '../ui/Buttons'
 import { Spinner } from '../ui/Spinner'
 import { ReviewWalkthrough } from './review/ReviewWalkthrough'
-import { addComment, deleteComment, editComment, newReviewComment } from './review/commentModel'
+import type { ReviewPostPhase } from './review/ReviewTray'
+import {
+  addComment,
+  applyPostFailure,
+  applyPostOutcomes,
+  canPostReview,
+  deleteComment,
+  editComment,
+  isPullRequestReviewSource,
+  markCommentsPosting,
+  newReviewComment,
+} from './review/commentModel'
 import { FreshnessBanner } from './review/FreshnessBanner'
 import { resolveActivePaneId, sourceIdentity } from './review/reviewSelectors'
 import {
@@ -80,6 +91,10 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
   // The quiet "current with <sha>" settle line shown after a successful refresh
   // (mockup §4). Null hides it; it persists until the next stale detection.
   const [settle, setSettle] = useState<{ headSha?: string; refreshedStepIds: string[] } | null>(null)
+  // The post-to-PR batch (MC-1683): idle, in-flight, or a whole-batch failure. The
+  // per-comment posted/held state lives on the comments themselves; this only
+  // drives the tray button label and the batch-error line.
+  const [postState, setPostState] = useState<ReviewPostPhase>({ phase: 'idle' })
   // Set while a re-run is migrating reviewer state across the new change set id, so
   // the default-state reset effect below does not clobber the migration mid-swap.
   const refreshInFlightRef = useRef(false)
@@ -257,6 +272,34 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
     [resolvedState, patchState],
   )
 
+  // Post the pending review to the pull request (MC-1683) — a human-outward,
+  // batched action gated to this window's gesture (the main-process IPC refuses
+  // any non-window caller, so the guide can never reach it). The optimistic flip
+  // and the outcome/failure apply both derive from the same pre-post snapshot, so
+  // they never compound. GitHub's create-review is atomic: a batch failure posts
+  // nothing and every postable comment flips to a retryable "failed".
+  const onPostReview = useCallback(async () => {
+    if (!target || !resolvedState || !changeset) return
+    const original = resolvedState.comments
+    if (!canPostReview(changeset, original)) return
+    setPostState({ phase: 'posting' })
+    patchState({ comments: markCommentsPosting(original) })
+    try {
+      const result = await window.api.reviewPostReview({ target, comments: original })
+      if (!result.ok) {
+        patchState({ comments: applyPostFailure(original, result.error) })
+        setPostState({ phase: 'error', error: result.error })
+        return
+      }
+      patchState({ comments: applyPostOutcomes(original, result.outcomes) })
+      setPostState({ phase: 'idle' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      patchState({ comments: applyPostFailure(original, message) })
+      setPostState({ phase: 'error', error: message })
+    }
+  }, [target, resolvedState, changeset, patchState])
+
   // Freshness: probe whether the reviewed head moved past this walkthrough. Branch
   // sources key off the git-status snapshot; PR sources probe on reveal (debounced);
   // patch sources never go stale. The hook never mutates anything.
@@ -417,6 +460,8 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
       onCreateComment={onCreateComment}
       onEditComment={onEditComment}
       onDeleteComment={onDeleteComment}
+      onPostReview={isPullRequestReviewSource(changeset) ? onPostReview : undefined}
+      postState={postState}
       workspaceId={workspaceId}
       workspaceRoot={folderPath ?? undefined}
     />

@@ -5,27 +5,42 @@ import { PrimaryButton, GhostButton } from '../../ui/Buttons'
 import {
   commentLocationLabel,
   commentsToMarkdown,
+  hasPostedComments,
   isPullRequestReviewSource,
   pendingCommentCount,
   pullRequestLabel,
 } from './commentModel'
 import { CommentSyncBadge } from './CommentThread'
 
+// The container owns the async post; the tray only renders its phase and calls
+// back. 'error' carries the whole-batch failure copy (nothing posted).
+export type ReviewPostPhase = { phase: 'idle' | 'posting' | 'error'; error?: string }
+
 interface ReviewTrayProps {
   comments: ReviewComment[]
   changeset: ReviewChangeSet
+  // Present only for pull-request sources the container can post (MC-1683). Absent
+  // (branch/patch, or the read-only fixture harness) leaves Copy-as-markdown alone.
+  onPost?: () => void
+  postState?: ReviewPostPhase
 }
 
-// "Your review" — the pending-review tray: one row per comment, a Copy-as-
-// markdown escape hatch that works for any source, and the Post action. Posting
-// is not wired until PR sync (MC-1683), so its button is honestly disabled with
-// copy that says why — never a control that only pretends to work. Non-PR sources
-// (branch / patch) have no remote, so they get Copy-as-markdown alone.
-export function ReviewTray({ comments, changeset }: ReviewTrayProps) {
+// "Your review" — the pending-review tray: one row per comment, a Copy-as-markdown
+// escape hatch that works for any source, and the Post action. For a pull-request
+// source with pending comments the button posts them as one review under the
+// reviewer's account; it shows posting / posted / failed as the batch resolves.
+// Non-PR sources (branch / patch) have no remote, so they get Copy-as-markdown alone.
+export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTrayProps) {
   const [copied, setCopied] = useState(false)
   const pending = pendingCommentCount(comments)
   const isPr = isPullRequestReviewSource(changeset)
   const prLabel = pullRequestLabel(changeset)
+  const posting = postState?.phase === 'posting'
+  const postError = postState?.phase === 'error' ? postState.error : undefined
+  // The button can post only when the container wired onPost and there is work to
+  // send. Once everything has posted it settles to a disabled "Posted".
+  const canPost = Boolean(onPost) && isPr && pending > 0 && !posting
+  const settled = isPr && pending === 0 && hasPostedComments(comments)
 
   const copyMarkdown = async (): Promise<void> => {
     try {
@@ -85,13 +100,19 @@ export function ReviewTray({ comments, changeset }: ReviewTrayProps) {
             {copied ? 'Copied' : 'Copy as markdown'}
           </GhostButton>
           {isPr ? (
-            <PrimaryButton disabled>
-              Post {pending} {pending === 1 ? 'comment' : 'comments'} to pull request
-            </PrimaryButton>
+            settled ? (
+              <PrimaryButton disabled>Posted</PrimaryButton>
+            ) : (
+              <PrimaryButton onClick={onPost} disabled={!canPost}>
+                {posting
+                  ? 'Posting…'
+                  : `Post ${pending} ${pending === 1 ? 'comment' : 'comments'} to pull request`}
+              </PrimaryButton>
+            )
           ) : null}
         </div>
-        {isPr ? (
-          <p className="mt-1.5 text-[11px] text-[color:var(--text-subtle)]">Posting arrives with pull-request sync.</p>
+        {postError ? (
+          <p className="mt-1.5 text-[11px] leading-4 text-[color:var(--tone-error)]">{postError}</p>
         ) : null}
       </div>
     </div>
