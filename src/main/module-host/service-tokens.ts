@@ -7,6 +7,7 @@ import type { SwitchboardAutomationFrontDoors } from '../automations/actions/swi
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
+import type { ReviewChangeSetService } from '../review/changeset-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -79,4 +80,10 @@ export const CompanionAgentServiceToken = createServiceToken<CompanionAgentServi
 // so a third-party module resolves the instance the app provides here.
 export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAgentsModuleRegistry>(
   'companion-agents.module-service'
+)
+// The review change-set ingestion service (MC-1676). Provided by the `review`
+// capability module so the GitHub PR provider (MC-1678) can register its source
+// provider against the same instance.
+export const ReviewChangeSetServiceToken = createServiceToken<ReviewChangeSetService>(
+  'review.change-set-service'
 )

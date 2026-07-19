@@ -1,6 +1,12 @@
+import { BrowserWindow } from 'electron'
 import { registerReviewIpc } from '../ipc/review-ipc'
-import { ReviewChangeSetServiceToken } from '../module-host/service-tokens'
+import { CompanionAgentServiceToken, ReviewChangeSetServiceToken } from '../module-host/service-tokens'
 import { createReviewChangeSetService } from '../review/changeset-service'
+import {
+  BRIEF_RUN_EVENT_CHANNEL,
+  createReviewBriefRunService,
+  type BriefRunEvent,
+} from '../review/brief-run-service'
 import type { CapabilityModule } from '../module-host/load-modules'
 
 // Review as a capability module. Matches the renderer `review` module id so the
@@ -25,6 +31,26 @@ export const reviewModule: CapabilityModule = {
     const changeSetService = host.provideService(ReviewChangeSetServiceToken, () =>
       createReviewChangeSetService()
     )
-    registerReviewIpc(host.ipcMain, { changeSetService })
+    // The guide run (MC-1679) builds on the companion-agent surface (MC-1684),
+    // provided by the agent-runtime module this module depends on. Phase events
+    // fan out to every open window so any review tab can render live progress.
+    const companionAgents = host.requireService(CompanionAgentServiceToken)
+    const briefRunService = createReviewBriefRunService({
+      companionAgents,
+      changeSets: changeSetService,
+      emit: (event: BriefRunEvent) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) win.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
+        }
+      },
+    })
+    registerReviewIpc(host.ipcMain, {
+      changeSetService,
+      briefRunService,
+      // Posting a review is human-outward; allow it only when the invocation
+      // resolves to a real application window. The guide companion has no
+      // renderer, so it can never satisfy this (or reach an ipcMain handler).
+      isUserWindowSender: (event) => BrowserWindow.fromWebContents(event.sender) !== null,
+    })
   },
 }

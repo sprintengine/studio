@@ -407,7 +407,10 @@ function isAbortLike(error: unknown): boolean {
 // does not inherit the shell PATH, so a Homebrew/nvm `gh` is invisible to a bare
 // spawn but present in the shell that PTY terminals use (mirrors detectCli's
 // $SHELL -ilc fallback in cli-runtime-install.ts).
-function createDefaultGhRunner(): GhRunner {
+// Exported so the review-sync write path (MC-1683) shares the exact same gh
+// runner — including the GUI-launched-app shell-PATH fallback — instead of
+// duplicating it, keeping "gh-first auth" identical between read and write.
+export function createDefaultGhRunner(): GhRunner {
   const maxBuffer = MAX_PATCH_BYTES + 1024 * 1024
   const runDirect = async (args: string[]): Promise<GhResult> => {
     try {

@@ -125,7 +125,7 @@ import type {
   WorkspaceSyncEvent,
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
-import type { ReviewBrief, ReviewChangeSet } from './review'
+import type { CommentSync, ReviewBrief, ReviewChangeSet, ReviewComment } from './review'
 
 export type SaveDialogOptions = {
   title?: string
@@ -2288,6 +2288,35 @@ export interface ReviewAskGuideInput {
 
 export type ReviewAskGuideResult = { ok: true } | { ok: false; error: string }
 
+// Posting the pending review to the pull request (MC-1683). An explicit,
+// human-initiated, batched action: the reviewer's pending comments post as ONE
+// GitHub review (event COMMENT) under their own account. The renderer sends the
+// workspace's PR change-set target plus the comments to post; the main process
+// re-reads the persisted change set for the PR coordinates and current head,
+// re-anchors as needed, and returns a per-comment outcome the panel applies.
+export interface ReviewPostReviewInput {
+  target: ReviewTarget
+  comments: ReviewComment[]
+}
+
+// One comment's result. `sync` is the new sync state to flip the comment to;
+// `anchorStatus: 'moved'` marks a comment held for re-review because its line
+// could not be anchored on the PR's current head (never posted to a guessed line).
+export interface ReviewCommentPostOutcome {
+  id: string
+  sync: CommentSync
+  anchorStatus?: 'moved'
+}
+
+// `ok: false` is a whole-batch failure (not a pull request, unreadable change set,
+// or an auth/transport error carrying the same actionable copy as the read path) —
+// nothing was posted. `ok: true` carries the created review URL (absent when every
+// comment was held) and the per-comment outcomes; GitHub's create-review is atomic,
+// so a mixed result is comments held locally, never a partially-created review.
+export type ReviewPostReviewResult =
+  | { ok: true; reviewUrl?: string; outcomes: ReviewCommentPostOutcome[] }
+  | { ok: false; error: string }
+
 // Scan-time id allocation: the renderer hands the main process every scanned
 // item with its current frontmatter id (or null), and the service writes the
 // next sequential id into the frontmatter of those without one. `assignments`
@@ -2882,5 +2911,6 @@ export type ElectronApi = {
   reviewProbeChangeset: (input: ReviewSourceInput) => Promise<ReviewProbeResult>
   reviewStartBriefRun: (input: ReviewBriefRunInput) => Promise<ReviewBriefRunResult>
   reviewAskGuide: (input: ReviewAskGuideInput) => Promise<ReviewAskGuideResult>
+  reviewPostReview: (input: ReviewPostReviewInput) => Promise<ReviewPostReviewResult>
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => () => void
 }

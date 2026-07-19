@@ -5,7 +5,7 @@
 
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import type { IpcMain } from 'electron'
+import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 import type {
   ReviewAskGuideInput,
   ReviewAskGuideResult,
@@ -14,6 +14,8 @@ import type {
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
   ReviewIngestResult,
+  ReviewPostReviewInput,
+  ReviewPostReviewResult,
   ReviewProbeResult,
   ReviewSourceInput,
   ReviewSourceProbe,
@@ -26,12 +28,26 @@ import type { ReviewBriefRunService } from '../review/brief-run-service'
 // the service can ingest GitHub PR URLs. The local branch/patch providers register
 // from within changeset-service itself.
 import '../review/providers/github-pr-provider'
+import {
+  defaultReviewSyncDeps,
+  postReview,
+  type GithubReviewSyncDeps,
+} from '../review/providers/github-review-sync'
 
 const BRIEF_FILE = 'brief.json'
 
 export interface ReviewIpcDeps {
   changeSetService: ReviewChangeSetService
   briefRunService: Pick<ReviewBriefRunService, 'start' | 'ask'>
+  // Gate for outward, human-initiated actions: true only when the invocation came
+  // from a real application window. Posting a review is human-outward, so it is
+  // refused unless this passes. The module wires a window-sender check; it is
+  // injected (rather than importing BrowserWindow here) so this module stays free
+  // of an Electron runtime import and the handler is unit-testable. A run that
+  // omits it fails closed — the action is refused.
+  isUserWindowSender?: (event: IpcMainInvokeEvent) => boolean
+  // The GitHub transport postReview uses; injected so tests drive it with a stub.
+  reviewSyncDeps?: GithubReviewSyncDeps
 }
 
 // Read and validate the guide's brief for a workspace. A missing file is the
@@ -56,7 +72,10 @@ async function readBrief(targetDir: string): Promise<ReviewBriefReadResult> {
   return { ok: true, brief: validation.value }
 }
 
-export function registerReviewIpc(ipcMain: IpcMain, { changeSetService, briefRunService }: ReviewIpcDeps): void {
+export function registerReviewIpc(
+  ipcMain: IpcMain,
+  { changeSetService, briefRunService, isUserWindowSender, reviewSyncDeps }: ReviewIpcDeps
+): void {
   ipcMain.handle('review:detect-source', (_event, input: ReviewSourceInput): Promise<ReviewSourceProbe> => {
     return changeSetService.detect(input)
   })
@@ -119,5 +138,27 @@ export function registerReviewIpc(ipcMain: IpcMain, { changeSetService, briefRun
   // turn was accepted. The guide answers; it never creates or edits a comment.
   ipcMain.handle('review:ask-guide', async (_event, input: ReviewAskGuideInput): Promise<ReviewAskGuideResult> => {
     return briefRunService.ask(input)
+  })
+
+  // Post the pending review to the pull request (MC-1683). This is the ONLY entry
+  // point to the write path — there is no programmatic caller — and it is
+  // human-outward, so it is gated to a real application window's gesture. The guide
+  // companion runs in the main process with no renderer, so it cannot reach an
+  // ipcMain handler at all; the sender gate is defence-in-depth on top of that,
+  // refusing any invocation that does not resolve to an application window.
+  ipcMain.handle('review:post-review', async (event, input: ReviewPostReviewInput): Promise<ReviewPostReviewResult> => {
+    if (!isUserWindowSender || !isUserWindowSender(event)) {
+      return { ok: false, error: 'Posting a review must be initiated from the review window.' }
+    }
+    try {
+      const read = await changeSetService.read(
+        reviewChangeSetDir(input.target.workspaceRoot, input.target.workspaceId)
+      )
+      if (!read.ok) return { ok: false, error: read.error }
+      if (!read.changeset) return { ok: false, error: 'There is no review to post yet.' }
+      return await postReview(read.changeset, input.comments, reviewSyncDeps ?? defaultReviewSyncDeps())
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 }

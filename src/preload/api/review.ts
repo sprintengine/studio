@@ -9,6 +9,8 @@ import type {
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
   ReviewIngestResult,
+  ReviewPostReviewInput,
+  ReviewPostReviewResult,
   ReviewProbeResult,
   ReviewSourceInput,
   ReviewSourceProbe,
@@ -30,6 +32,8 @@ export const reviewApi = {
     ipcRenderer.invoke('review:start-brief-run', input),
   reviewAskGuide: (input: ReviewAskGuideInput): Promise<ReviewAskGuideResult> =>
     ipcRenderer.invoke('review:ask-guide', input),
+  reviewPostReview: (input: ReviewPostReviewInput): Promise<ReviewPostReviewResult> =>
+    ipcRenderer.invoke('review:post-review', input),
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
     const handler = (_: IpcRendererEvent, event: ReviewBriefRunEvent) => cb(event)
     ipcRenderer.on('review:brief-run-event', handler)
@@ -44,5 +48,6 @@ export const reviewApi = {
   | 'reviewProbeChangeset'
   | 'reviewStartBriefRun'
   | 'reviewAskGuide'
+  | 'reviewPostReview'
   | 'onReviewBriefRunEvent'
 >
