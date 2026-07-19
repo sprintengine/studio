@@ -282,8 +282,11 @@ function TitleField({ value, onChange }: { value: string; onChange: (next: strin
   )
 }
 
-// The three execution policies, in plain human terms: what happens after a step
-// finishes, who merges delivered work, and how many tracks run at once.
+// The execution policies, in plain human terms: what happens after a step
+// finishes and who merges delivered work. (`policy.concurrency` is parsed and
+// preserved but the orchestrator does not honor it yet — it serializes to one
+// active run per repo — so no editing control is shown for it. See the backlog
+// item for real per-repo concurrency.)
 function PolicyBar({
   policy,
   onChange,
@@ -315,9 +318,6 @@ function PolicyBar({
           ]}
         />
       </PolicyControl>
-      <PolicyControl label="Tracks running at once">
-        <ConcurrencyStepper value={policy.concurrency} onChange={(value) => onChange({ concurrency: value })} />
-      </PolicyControl>
     </div>
   )
 }
@@ -328,47 +328,6 @@ function PolicyControl({ label, children }: { label: string; children: React.Rea
       <span className="text-[11px] text-[color:var(--text-muted)]">{label}</span>
       {children}
     </div>
-  )
-}
-
-function ConcurrencyStepper({ value, onChange }: { value: number; onChange: (next: number) => void }): JSX.Element {
-  const set = (next: number): void => onChange(Math.max(1, next))
-  return (
-    <div className="inline-flex h-[26px] items-center rounded border border-[color:var(--border-default)]">
-      <StepperButton label="Fewer tracks" onClick={() => set(value - 1)} disabled={value <= 1}>
-        −
-      </StepperButton>
-      <span className="w-7 text-center text-[12px] tabular-nums text-[color:var(--text-strong)]" aria-live="polite">
-        {value}
-      </span>
-      <StepperButton label="More tracks" onClick={() => set(value + 1)}>
-        +
-      </StepperButton>
-    </div>
-  )
-}
-
-function StepperButton({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string
-  onClick: () => void
-  disabled?: boolean
-  children: React.ReactNode
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      disabled={disabled}
-      className="interactive inline-flex h-full w-6 items-center justify-center text-[12px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {children}
-    </button>
   )
 }
 

@@ -104,7 +104,8 @@ run('renders the plain-human policy controls', () => {
   const markup = render()
   assert.match(markup, /Ask me first/)
   assert.match(markup, /I merge/)
-  assert.match(markup, /Tracks running at once/)
+  // Concurrency has no editing control — the orchestrator does not honor it yet.
+  assert.doesNotMatch(markup, /Tracks running at once/)
 })
 
 run('renders the per-track frontier (up next) from eligibility', () => {

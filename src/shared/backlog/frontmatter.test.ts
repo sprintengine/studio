@@ -81,7 +81,10 @@ run('property: a dependsOn line set then cleared is byte-identical and preserves
   for (const path of fixtureFiles) {
     const original = readFileSync(path, 'utf8')
     const fields = parseBacklogFrontmatter(original).fields
-    assert.ok(!('dependson' in fields), `${path} unexpectedly already defines dependsOn`)
+    // A file that already declares dependsOn can't exercise the set-absent→clear
+    // inverse (clearing would strip its real dependency line); the property holds
+    // only where dependsOn starts absent, so skip those fixtures.
+    if ('dependson' in fields) continue
     const beforeBody = bodyOf(original)
     const beforeKeys = topLevelKeyOrder(original)
     const csv = formatBacklogCsvList(['alpha-item', 'beta-item'])

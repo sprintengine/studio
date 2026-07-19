@@ -110,7 +110,17 @@ export default function RoadmapBoardPanel({ workspaceId }: WorkspacePanelProps):
         const absolute = joinFilePath(folderPath, roadmap.roadmapRef)
         const content = await window.api.readfile(absolute)
         const next = skipRoadmapEntry(content, unit.ref, reason.trim(), new Date().toISOString().slice(0, 10))
-        if (next !== content) await window.api.writefile(absolute, next)
+        if (next !== content) {
+          await window.api.writefile(absolute, next)
+        } else {
+          // The ref wasn't found in the file — never let a skip fail silently
+          // after the user typed a required reason and confirmed.
+          await dialog.confirm({
+            title: 'That step could not be skipped',
+            body: 'This step was not found in the roadmap file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
+            confirmLabel: 'OK',
+          })
+        }
       } finally {
         setBusyLane(null)
         reload()

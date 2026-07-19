@@ -289,6 +289,27 @@ type: roadmap
   )
 })
 
+run('skip: removes a single snapshotted epic child, keeping the epic + siblings', () => {
+  const content = `---
+type: roadmap
+---
+## Platform
+- backlog/epics/auth.md
+  - backlog/auth-1.md
+  - backlog/auth-2.md
+- backlog/ship.md
+`
+  const next = skipRoadmapEntry(content, 'backlog/auth-1.md', 'no longer needed', '2026-07-18')
+  const parsed = parseRoadmap(next)
+  // The epic entry and the loose item remain; only the one child is gone.
+  assert.deepEqual(
+    parsed.lanes[0].entries.map((entry) => entry.ref),
+    ['backlog/epics/auth.md', 'backlog/ship.md'],
+  )
+  assert.deepEqual(parsed.lanes[0].entries[0].children, ['backlog/auth-2.md'])
+  assert.ok(next.includes('<!-- skipped 2026-07-18: backlog/auth-1.md — no longer needed -->'))
+})
+
 run('skip: an unmatched ref leaves the file byte-identical', () => {
   const content = `---
 type: roadmap

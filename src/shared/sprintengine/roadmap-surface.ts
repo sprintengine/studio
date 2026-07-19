@@ -289,7 +289,9 @@ export type RepoMergeBlockers = {
 // preserved as an inert HTML comment appended to the body — invisible to
 // `parseRoadmap` (not a heading or list item) so it never becomes a spurious lane,
 // and the entry line (plus its snapshotted children) is removed in place, leaving
-// the rest of the file byte-stable. `date` is injected so the transform stays pure.
+// the rest of the file byte-stable. Skipping a single snapshotted epic child (an
+// indented ref) removes just that one line, keeping its epic and sibling children.
+// `date` is injected so the transform stays pure.
 export function skipRoadmapEntry(content: string, ref: string, reason: string, date: string): string {
   const { head, body } = splitFrontmatter(content)
   const normalizedRef = ref.replace(/\\/g, '/').replace(/^\/+/, '').trim()
@@ -302,6 +304,12 @@ export function skipRoadmapEntry(content: string, ref: string, reason: string, d
       removed = true
       // Skip this entry line and any indented child lines beneath it.
       while (index + 1 < lines.length && /^\s+-\s+/.test(lines[index + 1])) index += 1
+      continue
+    }
+    if (!removed && isChildEntryLine(line, normalizedRef)) {
+      // A snapshotted epic child: drop just this indented line, leaving its epic
+      // entry and sibling children intact so the frontier moves past it.
+      removed = true
       continue
     }
     out.push(line)
@@ -317,6 +325,13 @@ export function skipRoadmapEntry(content: string, ref: string, reason: string, d
 
 function isTopLevelEntryLine(line: string, ref: string): boolean {
   const match = /^-\s+(\S+)/.exec(line)
+  if (!match) return false
+  return match[1].replace(/\\/g, '/').replace(/^\/+/, '') === ref
+}
+
+// An indented list item — a snapshotted epic child under a top-level entry.
+function isChildEntryLine(line: string, ref: string): boolean {
+  const match = /^\s+-\s+(\S+)/.exec(line)
   if (!match) return false
   return match[1].replace(/\\/g, '/').replace(/^\/+/, '') === ref
 }

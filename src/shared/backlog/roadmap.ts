@@ -48,6 +48,10 @@ export type RoadmapPolicy = {
   // 'manual' — merging is a human call (see sprint-engine-pull-requests).
   merge: RoadmapMergePolicy
   // How many lanes may be actively executing per repo at once. Default 1.
+  // NOTE: parsed, validated and preserved, but the orchestrator does NOT honor
+  // this yet — it serializes to one active run per repo (see reconcileRoadmap's
+  // repoBusy guard). Real per-repo concurrency is a separate backlog item; until
+  // then the editor shows no control for it.
   concurrency: number
 }
 
