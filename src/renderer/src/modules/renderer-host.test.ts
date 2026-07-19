@@ -291,6 +291,50 @@ assert.deepEqual(
 
 console.log('renderer host settings section tests passed')
 
+// --- Sidebar nav entries (the top-nav host contribution point) ----------------
+
+const navHost = createRendererHost()
+const navComponent = () => {
+  throw new Error('nav entry component should not be evaluated during registration')
+}
+// A first-party door and a third-party module's door register through the same
+// contract — this is what lets an SDK module contribute an instance-level door.
+navHost.hostFor('roadmap').registerSidebarNavEntry({ id: 'roadmap', order: 40, Component: navComponent })
+navHost.hostFor('acme.compass').registerSidebarNavEntry({ id: 'compass', order: 15, Component: navComponent })
+
+assert.equal(
+  navHost.getSidebarNavEntries().find((entry) => entry.id === 'roadmap')?.moduleId,
+  'roadmap',
+  'sidebar nav entries record their owning module for enablement gating',
+)
+assert.throws(
+  () => navHost.hostFor('impostor').registerSidebarNavEntry({ id: 'roadmap', order: 1, Component: navComponent }),
+  /Sidebar nav entry "roadmap" is already registered by module "roadmap"/,
+  'duplicate nav entry ids fail with an explicit error naming the owner',
+)
+assert.throws(
+  () => navHost.hostFor('roadmap').registerSidebarNavEntry({ id: '  ', order: 1, Component: navComponent }),
+  /non-empty string/,
+  'blank nav entry ids are rejected',
+)
+assert.deepEqual(
+  navHost.getSidebarNavEntries().map((entry) => entry.id),
+  ['compass', 'roadmap'],
+  'nav entries sort by order then id — deterministic across reloads',
+)
+assert.deepEqual(
+  navHost.getSidebarNavEntries((moduleId) => moduleId !== 'roadmap').map((entry) => entry.id),
+  ['compass'],
+  'a disabled module\'s nav door is filtered out reactively — the toggle needs no reload',
+)
+assert.deepEqual(
+  navHost.getSidebarNavEntries(() => true).map((entry) => entry.id),
+  ['compass', 'roadmap'],
+  're-enabling restores the door without re-registration',
+)
+
+console.log('renderer host sidebar nav entry tests passed')
+
 // --- Notification action providers ---
 
 function notification(overrides: Partial<AppNotification> = {}): AppNotification {

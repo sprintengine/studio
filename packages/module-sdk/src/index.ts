@@ -82,6 +82,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'multiloop',
   'sprint-engine',
   'automations',
+  'roadmap',
   'mobile-relay',
   'voice-dictation',
 ]
@@ -804,6 +805,32 @@ export type SettingsSectionDefinition = {
   order?: number
 }
 
+// ── Sidebar nav entries ──────────────────────────────────────────────────────
+
+export type SidebarNavEntryRenderProps = {
+  /** The sidebar is collapsed to the icon rail; render icon-only with a tooltip. */
+  collapsed: boolean
+}
+
+export type SidebarNavEntryComponent =
+  | ComponentType<SidebarNavEntryRenderProps>
+  | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
+
+/**
+ * A top-nav door your module contributes to the workspace sidebar's
+ * instance-level nav cluster (the band holding New chat, Automations, Sprints,
+ * Connectors). The entry is a self-contained row component that owns its full
+ * behavior — a status dot, an open action against the local window's store,
+ * active state. The sidebar shows it only while your module is enabled and
+ * places it by `order`, so the toggle adds/removes the door without a reload.
+ */
+export type SidebarNavEntryDefinition = {
+  id: string
+  /** Sort key in the top-nav cluster; lower renders first. Built-in doors reserve 0–30. */
+  order: number
+  Component: SidebarNavEntryComponent
+}
+
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
@@ -813,6 +840,12 @@ export type RendererHost = {
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
+  /**
+   * Contribute a top-nav door to the workspace sidebar. Registered once at
+   * boot; the sidebar filters by your module's enablement and orders by
+   * `order`, so toggling your module shows/hides the door without a reload.
+   */
+  registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
   /**
    * The workspace's Backlog items as read-only views. Declare the
    * `backlog.read` permission (install-time disclosure). Mutations go through

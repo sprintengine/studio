@@ -1233,7 +1233,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     <OverflowMenu
       ariaLabel="Backlog actions"
       items={[
-        { id: 'new-roadmap', label: 'Open Roadmap', onSelect: () => openRoadmapSurface() },
+        // The Roadmap door only appears while the roadmap module is enabled, so
+        // this secondary entry point stays consistent with the sidebar (MC-1691).
+        ...(selectModuleEnabled(moduleOverrides, 'roadmap')
+          ? [{ id: 'new-roadmap', label: 'Open Roadmap', onSelect: () => openRoadmapSurface() }]
+          : []),
         { id: 'refresh', label: 'Refresh backlog', onSelect: () => void runScan(), disabled: loading || !folderPath },
       ]}
     />

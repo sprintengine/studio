@@ -70,6 +70,7 @@ import type {
   RendererHost as AppRendererHost,
   SettingsSectionDefinition as AppSettingsSectionDefinition,
   SettingsSectionProps as AppSettingsSectionProps,
+  SidebarNavEntryDefinition as AppSidebarNavEntryDefinition,
   WorkspacePanelComponent as AppWorkspacePanelComponent,
   WorkspaceTypeDefinition as AppWorkspaceTypeDefinition,
 } from '../../../src/renderer/src/modules/renderer-host'
@@ -128,6 +129,7 @@ import type {
   ScheduleTriggerConfig as SdkScheduleTriggerConfig,
   SettingsSectionDefinition as SdkSettingsSectionDefinition,
   SettingsSectionProps as SdkSettingsSectionProps,
+  SidebarNavEntryDefinition as SdkSidebarNavEntryDefinition,
   SidecarSpec as SdkSidecarSpec,
   TriggerKind as SdkTriggerKind,
   WorkspaceLayoutTemplate as SdkWorkspaceLayoutTemplate,
@@ -200,6 +202,7 @@ expectType<Extends<SdkModuleCommandDefinition, AppModuleCommandDefinition>>()
 expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
+expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()
 
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.

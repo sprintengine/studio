@@ -54,6 +54,14 @@ export type AutomationsModuleOptions = {
   createEngine?: (options: AutomationsEngineOptions) => AutomationsEngine
   deliverRunEvent?: (event: AutomationsRunEvent) => void
   checkProviderPermission?: AutomationProviderPermissionChecker
+  // Live gate for the roadmap reconcile that rides the engine's evaluation tick
+  // (MC-1691). The roadmap orchestrator is built here (D3: it has no timer of its
+  // own), but the `roadmap` module toggles independently, so each tick asks
+  // whether Roadmap is currently enabled before reconciling. Returning false
+  // simply skips the pass — it starts no new sprint and never touches a running
+  // one — so disabling Roadmap (or a dependency) stops new work without a reload
+  // and without killing a live sprint. Defaults to always-on for tests.
+  isRoadmapReconcileEnabled?: () => boolean
 }
 
 type RunEventWindow = {
@@ -181,6 +189,10 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           isIntegrationAvailable,
           runAutomation,
           onEvaluation: () => {
+            // Off means off: when the roadmap module is disabled, skip reconcile
+            // entirely so no new sprint is started. A sprint already running is
+            // owned by the pool supervisor, untouched by skipping this tick.
+            if (options.isRoadmapReconcileEnabled && !options.isRoadmapReconcileEnabled()) return
             void roadmapOrchestrator.reconcile().catch(() => undefined)
           },
           onRunEvent: (event, definition) => {

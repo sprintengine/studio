@@ -7,6 +7,7 @@ import { ensureExtensionFolders } from './extension-folders'
 import { readTrustedMarketplacePublisherFingerprintsSync } from './marketplace/trusted-publishers'
 import type { ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { activeForChannel } from '../shared/modules/dev-only'
+import { resolveModuleEnablement } from '../shared/modules/resolve'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
@@ -56,16 +57,27 @@ const moduleOverrides = readModuleEnablementOverrides()
 const thirdPartyMainLoad = planThirdPartyMainModules(
   discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
 )
+// Live-resolved main enablement, kept in step with the renderer's overrides (see
+// recomputeMainEnablement below). The `roadmap` module has no main runtime of its
+// own — its orchestrator rides the Automations engine tick — so the reconcile
+// gate reads this set each tick to honor the roadmap toggle (and its dependency
+// cascade) without a reload. Declared before module construction so the predicate
+// can close over it; the set is filled in once the manifest list exists.
+const enabledMainModuleIds = new Set<string>()
+const agentRuntimeModule = createAgentRuntimeModule(services)
 const activeMainModules = activeForChannel(
   createBundledMainModules({
-    automations: { checkProviderPermission: checkAutomationProviderPermission },
+    automations: {
+      checkProviderPermission: checkAutomationProviderPermission,
+      isRoadmapReconcileEnabled: () => enabledMainModuleIds.has('roadmap'),
+    },
   }),
   (module) => module.manifest.id,
   includeDevModules
 )
 const moduleLoad = loadMainModules({
   ipcMain,
-  modules: [createAgentRuntimeModule(services), ...activeMainModules, ...thirdPartyMainLoad.modules],
+  modules: [agentRuntimeModule, ...activeMainModules, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,
@@ -76,10 +88,28 @@ const moduleLoad = loadMainModules({
     }
   },
 })
+// The manifest universe the roadmap gate resolves against — every main module
+// present this channel, so `roadmap` and its dependencies (sprint-engine,
+// automations, agent-runtime) all resolve. Recompute mirrors the renderer's
+// resolution so the gate's answer matches what the user sees in Settings.
+const mainModuleManifests = [
+  agentRuntimeModule.manifest,
+  ...activeMainModules.map((module) => module.manifest),
+  ...thirdPartyMainLoad.modules.map((module) => module.manifest),
+]
+const recomputeMainEnablement = (overrides: Record<string, boolean>): void => {
+  const { order } = resolveModuleEnablement(mainModuleManifests, overrides)
+  enabledMainModuleIds.clear()
+  for (const id of order) enabledMainModuleIds.add(id)
+}
+recomputeMainEnablement(moduleOverrides)
 applyModuleEnablementLive = async (overrides) => {
   const report = await moduleLoad.applyEnablement(overrides, { liveModuleIds: ['automations'] })
   const automationsError = report.errors.find((error) => error.id === 'automations')
   if (automationsError) return { ok: false, message: automationsError.message }
+  // Roadmap has no live-loadable main module, so its toggle takes effect through
+  // the reconcile gate rather than module load/unload — refresh the resolved set.
+  recomputeMainEnablement(overrides)
   return { ok: true }
 }
 // Automation server ← Automations module: resolved per tool call so a live

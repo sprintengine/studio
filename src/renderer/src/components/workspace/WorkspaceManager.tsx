@@ -291,6 +291,7 @@ export default function WorkspaceManager() {
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
+  const roadmapEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'roadmap'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -3067,7 +3068,9 @@ export default function WorkspaceManager() {
             />
           </React.Suspense>
         ) : null}
-        {roadmapSurfaceOpen ? (
+        {/* Gated on the roadmap module: off means the surface is unreachable even
+            if a stale open flag lingers from before the toggle (MC-1691). */}
+        {roadmapSurfaceOpen && roadmapEnabled ? (
           <React.Suspense fallback={null}>
             <RoadmapSurface />
           </React.Suspense>
