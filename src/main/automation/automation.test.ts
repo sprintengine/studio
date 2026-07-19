@@ -89,6 +89,7 @@ type BackendsOverrides = {
   listAutomationRuns?: AutomationBackends['listAutomationRuns']
   backlogWrite?: Partial<AutomationBackends['backlogWrite']>
   getAutomationsFrontDoor?: AutomationBackends['getAutomationsFrontDoor']
+  getRoadmapFrontDoor?: AutomationBackends['getRoadmapFrontDoor']
   listSprintRunStatePaths?: AutomationBackends['listSprintRunStatePaths']
   readSprintEngineProjection?: AutomationBackends['readSprintEngineProjection']
   readSprintAutomationMode?: AutomationBackends['readSprintAutomationMode']
@@ -138,6 +139,7 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
       ...overrides.backlogWrite,
     },
     getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
+    getRoadmapFrontDoor: overrides.getRoadmapFrontDoor ?? (() => null),
     listSprintRunStatePaths: overrides.listSprintRunStatePaths ?? (async () => []),
     readSprintEngineProjection:
       overrides.readSprintEngineProjection ?? (async () => ({ ok: false, message: 'no projection in test' })),
@@ -263,6 +265,15 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'backlog.read',
       'backlog.update',
       'backlog.work',
+      'roadmap.add_step',
+      'roadmap.approve',
+      'roadmap.merge',
+      'roadmap.pause',
+      'roadmap.remove_step',
+      'roadmap.reorder',
+      'roadmap.resume',
+      'roadmap.skip',
+      'roadmap.status',
       'sprint.artifact.approve',
       'sprint.artifact.request_changes',
       'sprint.cancel',
@@ -1800,6 +1811,128 @@ async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
   assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
+// A recording fake of the roadmap front door: captures the calls the tools forward
+// and returns canned outcomes, so the tests assert wiring + arg shaping + the
+// unavailable/failure paths without a live orchestrator.
+function recordingRoadmapFrontDoor(overrides: {
+  board?: unknown
+  addStep?: (input: unknown) => Promise<{ ok: boolean; message?: string; ref?: string }>
+  removeStep?: (input: unknown) => Promise<{ ok: boolean; message?: string }>
+  reorderStep?: (input: unknown) => Promise<{ ok: boolean; message?: string }>
+  skipStep?: (input: unknown) => Promise<{ ok: boolean; message?: string }>
+  steerLane?: (lane: string, action: string, actor: string) => Promise<{ ok: boolean; message?: string }>
+} = {}): { frontDoor: AutomationBackends['getRoadmapFrontDoor']; calls: unknown[] } {
+  const calls: unknown[] = []
+  const record = <T,>(name: string, value: T): T => {
+    calls.push({ name, value })
+    return value
+  }
+  const frontDoor = () =>
+    ({
+      readBoard: async () => record('readBoard', overrides.board ?? null),
+      addStep: (input: unknown) => (overrides.addStep ?? (async () => ({ ok: true, ref: (input as { ref: string }).ref })))(record('addStep', input)),
+      removeStep: (input: unknown) => (overrides.removeStep ?? (async () => ({ ok: true })))(record('removeStep', input)),
+      reorderStep: (input: unknown) => (overrides.reorderStep ?? (async () => ({ ok: true })))(record('reorderStep', input)),
+      skipStep: (input: unknown) => (overrides.skipStep ?? (async () => ({ ok: true })))(record('skipStep', input)),
+      steerLane: (lane: string, action: string, actor: string) => {
+        calls.push({ name: 'steerLane', value: { lane, action, actor } })
+        return (overrides.steerLane ?? (async () => ({ ok: true })))(lane, action, actor)
+      },
+    }) as unknown as ReturnType<NonNullable<AutomationBackends['getRoadmapFrontDoor']>>
+  return { frontDoor: () => frontDoor(), calls }
+}
+
+async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
+  // Unavailable module: every roadmap tool reports roadmap_module_unavailable, never
+  // a fake success.
+  const offline = createAutomationTools(backendsOf({ getRoadmapFrontDoor: () => null }))
+  const offStatus = await tool(offline, 'roadmap.status').handler({})
+  assert.equal(offStatus.isError, true)
+  assert.equal((offStatus.structuredContent as { error: { code: string } }).error.code, 'roadmap_module_unavailable')
+
+  // roadmap.status forwards the board read straight through.
+  const board = { roadmapRef: 'backlog/roadmaps/platform.md', title: 'Platform', lanes: [] }
+  const read = recordingRoadmapFrontDoor({ board })
+  const readTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: read.frontDoor }))
+  const status = await tool(readTools, 'roadmap.status').handler({})
+  assert.deepEqual((status.structuredContent as { roadmap: unknown }).roadmap, board)
+
+  // add_step resolves a workspaceId to its project root and passes it as projectPath,
+  // tagging the action 'automation'.
+  const add = recordingRoadmapFrontDoor()
+  const addTools = createAutomationTools(
+    backendsOf({
+      workspaces: [testWorkspace('ws-mobile', { folderPath: '/repos/mobile' })],
+      getRoadmapFrontDoor: add.frontDoor,
+    })
+  )
+  const added = await tool(addTools, 'roadmap.add_step').handler({ ref: 'backlog/foo.md', workspaceId: 'ws-mobile', lane: 'Up next' })
+  assert.equal(added.isError, undefined)
+  assert.deepEqual(
+    add.calls.find((call) => (call as { name: string }).name === 'addStep'),
+    { name: 'addStep', value: { ref: 'backlog/foo.md', projectPath: '/repos/mobile', lane: 'Up next', actor: 'automation' } }
+  )
+
+  // add_step with an unknown workspaceId fails at the tool boundary, never reaching
+  // the front door.
+  const addUnknown = await tool(addTools, 'roadmap.add_step').handler({ ref: 'backlog/foo.md', workspaceId: 'nope' })
+  assert.equal((addUnknown.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
+
+  // A front-door rejection (malformed ref) surfaces as the tool's own failure code,
+  // carrying the message — never fake success.
+  const reject = recordingRoadmapFrontDoor({ addStep: async () => ({ ok: false, message: 'not a backlog path' }) })
+  const rejectTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: reject.frontDoor }))
+  const rejected = await tool(rejectTools, 'roadmap.add_step').handler({ ref: 'not-a-path' })
+  assert.equal(rejected.isError, true)
+  assert.equal((rejected.structuredContent as { error: { code: string; message: string } }).error.code, 'roadmap_add_step_failed')
+  assert.match((rejected.structuredContent as { error: { message: string } }).error.message, /not a backlog path/)
+
+  // reorder rejects a non-integer index at the boundary.
+  const reorder = recordingRoadmapFrontDoor()
+  const reorderTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: reorder.frontDoor }))
+  const badIndex = await tool(reorderTools, 'roadmap.reorder').handler({ ref: 'backlog/foo.md', toIndex: 1.5 })
+  assert.equal((badIndex.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  await tool(reorderTools, 'roadmap.reorder').handler({ ref: 'backlog/foo.md', toIndex: 2, toLane: 'Later' })
+  assert.deepEqual(
+    reorder.calls.find((call) => (call as { name: string }).name === 'reorderStep'),
+    { name: 'reorderStep', value: { ref: 'backlog/foo.md', toIndex: 2, toLane: 'Later', actor: 'automation' } }
+  )
+
+  // skip requires a reason and forwards it.
+  const skip = recordingRoadmapFrontDoor()
+  const skipTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: skip.frontDoor }))
+  const noReason = await tool(skipTools, 'roadmap.skip').handler({ ref: 'backlog/foo.md' })
+  assert.equal((noReason.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  await tool(skipTools, 'roadmap.skip').handler({ ref: 'backlog/foo.md', reason: 'superseded' })
+  assert.deepEqual(
+    skip.calls.find((call) => (call as { name: string }).name === 'skipStep'),
+    { name: 'skipStep', value: { ref: 'backlog/foo.md', reason: 'superseded', actor: 'automation' } }
+  )
+
+  // The four steer tools name a lane and forward the action + 'automation' actor.
+  const steer = recordingRoadmapFrontDoor()
+  const steerTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: steer.frontDoor }))
+  for (const action of ['approve', 'merge', 'pause', 'resume'] as const) {
+    const result = await tool(steerTools, `roadmap.${action}`).handler({ lane: 'Up next' })
+    assert.equal(result.isError, undefined)
+  }
+  assert.deepEqual(
+    steer.calls.filter((call) => (call as { name: string }).name === 'steerLane').map((call) => (call as { value: unknown }).value),
+    [
+      { lane: 'Up next', action: 'approve', actor: 'automation' },
+      { lane: 'Up next', action: 'merge', actor: 'automation' },
+      { lane: 'Up next', action: 'pause', actor: 'automation' },
+      { lane: 'Up next', action: 'resume', actor: 'automation' },
+    ]
+  )
+
+  // A steer refusal (no pending approval) surfaces the message.
+  const refuse = recordingRoadmapFrontDoor({ steerLane: async () => ({ ok: false, message: 'No pending approval for this lane.' }) })
+  const refuseTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: refuse.frontDoor }))
+  const refused = await tool(refuseTools, 'roadmap.approve').handler({ lane: 'Up next' })
+  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'roadmap_approve_failed')
+}
+
 const tests = [
   testSettingsDefaultOffAndRoundTrip,
   testToolListNamesTheToolSurface,
@@ -1812,6 +1945,7 @@ const tests = [
   testBacklogWorkHandsItemToAgent,
   testBacklogWorkFallsBackAndRefusesFinishedItems,
   testBacklogWorkPresetGuardAndPostLaunchLinkFailure,
+  testRoadmapToolsReadPlanAndSteer,
   testAutomationMutationToolsGateOnPresetAndModule,
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
