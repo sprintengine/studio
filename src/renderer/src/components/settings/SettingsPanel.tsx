@@ -55,6 +55,7 @@ import {
   ProvidersSettingsIcon,
   RolesSettingsIcon,
   GithubSettingsIcon,
+  TrackersSettingsIcon,
   KnowledgeGraphSettingsIcon,
   ModulesSettingsIcon,
   MobileSettingsIcon,
@@ -63,6 +64,7 @@ import {
 } from '../AppIcons'
 import { hasActiveProPlan } from '../workspace/workspaceManagerHelpers'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
+import { TrackerConnectionsTab } from './TrackerConnectionsTab'
 import {
   authoringFieldErrors,
   authoringStatusReducer,
@@ -131,6 +133,7 @@ type SettingsTabId =
   | 'shortcuts'
   | 'modules'
   | 'github'
+  | 'trackers'
   | 'agents'
   | 'providers'
   | 'roles'
@@ -158,6 +161,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
   { id: 'roles', label: 'Roles', icon: RolesSettingsIcon },
   { id: 'github', label: 'GitHub', icon: GithubSettingsIcon },
+  { id: 'trackers', label: 'Trackers', icon: TrackersSettingsIcon },
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
   { id: 'mobile', label: 'Mobile', icon: MobileSettingsIcon },
@@ -171,7 +175,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
   { label: 'agents', ids: ['agents', 'providers', 'roles'] },
-  { label: 'workspace', ids: ['github', 'knowledge-graph', 'modules'] },
+  { label: 'workspace', ids: ['github', 'trackers', 'knowledge-graph', 'modules'] },
   { label: 'companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
 
@@ -204,6 +208,7 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'shortcuts'
     || value === 'modules'
     || value === 'github'
+    || value === 'trackers'
     || value === 'agents'
     || value === 'providers'
     || value === 'roles'
@@ -1986,6 +1991,8 @@ export default function SettingsPanel({
           ) : null}
         </div>
       ) : null}
+
+      {activeSettingsTab === 'trackers' ? <TrackerConnectionsTab /> : null}
 
       {activeSettingsTab === 'agents' ? (
         <div

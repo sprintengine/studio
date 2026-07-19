@@ -813,6 +813,16 @@ export function GithubSettingsIcon({ className }: IconProps) {
   )
 }
 
+export function TrackersSettingsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h9l4.5 4.5v8A1.5 1.5 0 0 1 17.5 19h-12A1.5 1.5 0 0 1 4 17.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <circle cx="9" cy="12" r="1.4" stroke="currentColor" strokeWidth={iconStroke} />
+      <path d="M11.5 12h4" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function KnowledgeGraphSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
