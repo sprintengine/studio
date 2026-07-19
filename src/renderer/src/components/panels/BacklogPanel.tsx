@@ -27,7 +27,7 @@ import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
 import { basename, joinFilePath, parentPath } from '../../utils/paths'
-import { backlogMockupResolutionCandidates } from '../../utils/backlogMockups'
+import { resolveFirstMockupCandidate } from '../../utils/backlogMockups'
 import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
@@ -829,13 +829,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     (target: { path: string; relativePath: string; absolutePath: string }) =>
       void runAction(async () => {
         if (!folderPath) return
-        for (const relativePath of backlogMockupResolutionCandidates(target.path)) {
+        const found = await resolveFirstMockupCandidate(target.path, async (relativePath) => {
           const absolutePath = joinFilePath(folderPath, relativePath)
-          if (!(await window.api.pathExists(absolutePath))) continue
-          const content = await window.api.readfile(absolutePath)
-          setPreviewedMockup({ path: target.path, relativePath, absolutePath, content })
-          return
-        }
+          if (!(await window.api.pathExists(absolutePath))) return null
+          return { relativePath, absolutePath, content: await window.api.readfile(absolutePath) }
+        })
+        if (found) setPreviewedMockup({ path: target.path, ...found })
       }),
     [folderPath, runAction],
   )

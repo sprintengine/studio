@@ -10,11 +10,11 @@ import {
 } from './sprintEngineStartedFrom'
 import type { SprintEngineSource, SprintEngineSourceBundleStateItem } from '../../../types/workspace'
 
-// T8 (Slice 2: "Started from" seed docs). The pure model builder is proven
-// directly here (row shape, epic nesting, subtitle, mode/preview routing);
-// the React-coupled behaviours (cap/expand, preview-pane routing, Open in
-// Backlog) are pinned as source contracts on SprintEngineInboxView.tsx, which
-// has no headless render harness.
+// T8 (Slice 2: seed docs). The pure model builder is proven directly here (row
+// shape, epic nesting, subtitle, mode/preview routing); the React-coupled
+// behaviours (seed inbox row, seeded-documents panel, preview-pane routing,
+// Open in Backlog) are pinned as source contracts on SprintEngineInboxView.tsx,
+// which has no headless render harness.
 
 function source(overrides: Partial<SprintEngineSource> = {}): SprintEngineSource {
   return { kind: 'markdown', origin: 'reference', path: 'backlog/login.md', ...overrides }
@@ -132,18 +132,19 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
     ),
     'utf8',
   )
-  // Cap at 4 with a Show-N-more toggle.
+  // The seed is a normal inbox row (SprintEngineSeedInboxRow) tagged "Seed
+  // input", not a pinned bottom section.
   assert.ok(
-    viewSource.includes('SPRINT_ENGINE_SEED_ROW_CAP = 4'),
-    'seed list caps at 4 rows',
+    viewSource.includes('<SprintEngineSeedInboxRow') &&
+      viewSource.includes('Seed input'),
+    'the seed surfaces as a "Seed input" inbox row',
   )
+  // Selecting the seed row opens the seeded-documents list in the detail pane.
   assert.ok(
-    viewSource.includes('rows.slice(0, SPRINT_ENGINE_SEED_ROW_CAP)') &&
-      viewSource.includes('Show ${hiddenCount} more'),
-    'cap-expand renders a Show N more control',
+    viewSource.includes('<SprintEngineSeededDocumentsPanel') &&
+      viewSource.includes('This sprint was seeded from the following'),
+    'selecting the seed row opens the seeded-documents list',
   )
-  // Collapsible section.
-  assert.ok(viewSource.includes('aria-expanded={!collapsed}'), 'the section is collapsible')
   // Preview routing: HTML → HtmlArtifactFrame (opt-in Source), else FilePreviewPane.
   assert.ok(
     viewSource.includes("row.previewKind === 'html'") &&
@@ -163,13 +164,6 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   assert.ok(
     viewSource.includes('aria-label={`Open ${row.fileName} in Backlog`}'),
     'Open-in-Backlog button aria-label names the seed file',
-  )
-  // T14/2 (responsive): the expanded seed list is height-bounded with an
-  // internal scroll, so a tall bundle / short viewport cannot push the collapse
-  // toggle or lowest rows off the pane and trap the operator.
-  assert.ok(
-    viewSource.includes('<ul className="max-h-[40vh] overflow-y-auto pb-1">'),
-    'expanded seed list is height-bounded with internal scroll',
   )
   // T14/4 (polish): incomplete epic children reserve the tick's width so child
   // filenames share one left margin (no ragged left edge). The completed tick

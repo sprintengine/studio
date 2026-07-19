@@ -301,8 +301,14 @@ def test_phase_respawn_brief_caps_evidence_and_diff_lists(tmp_path) -> None:
     assert "result 24" in brief and "result 5" not in brief
     assert "20 more changed files elided" in brief
     assert "src/file_99.py" in brief and "src/file_100.py" not in brief
-    # Long prose truncates at the respawn text limit rather than riding whole.
+    # Long prose truncates at the respawn text limit rather than riding whole —
+    # and a capped description says so, pointing at the full on-disk card
+    # instead of passing as complete.
     assert "D" * 2_000 not in brief
+    assert (
+        'description truncated — `sprintengine.task.get` with `{taskId: "T1"}` '
+        "returns the complete card; read it before working)"
+    ) in brief
     # Acceptance criteria now ride the brief (the inline directive references
     # the card instead of re-listing them, and a cold owner has no card yet).
     assert "Acceptance: CLI exposes the feature." in brief

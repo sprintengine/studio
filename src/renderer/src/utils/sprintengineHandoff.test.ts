@@ -301,6 +301,106 @@ function testSeedAlreadyPersistedDropsHandoverStep(): void {
   assert.ok(!notSeeded.includes('do NOT call `sprintengine.handover`'), 'non-seeded prompt omits the skip-handover guidance')
 }
 
+function testMockupBundleItemsGetTheMockupDirectiveAndRootStaysListed(): void {
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow',
+    sourcePlanKind: 'product_plan',
+    reference: true,
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        sourcePath: '/repo/backlog/mockups/checkout.html',
+        sourceRelativePath: 'backlog/mockups/checkout.html',
+        sourceContent: '<h1>Checkout</h1>',
+      },
+    ],
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  })
+
+  // The primary markdown source must not vanish from the summary just because
+  // a bundle (here: an attached mockup) exists.
+  assert.ok(prompt.includes('Source path: `backlog/checkout-flow.md`'), 'root source stays listed alongside the bundle')
+  assert.ok(prompt.includes('- html_mockup: `backlog/mockups/checkout.html`'), 'mockup rides the source summary')
+  assert.ok(prompt.includes('Attached mockups — the visual contract for product-facing work:'), 'mockup directive is emitted')
+  assert.ok(
+    prompt.includes('name, inline in its description, the mockup file path and the specific section it implements'),
+    'directive requires path + section on every product-facing task card',
+  )
+  // The card-structure rule text itself lives in the architect workflow skill
+  // (one behavior per prompt layer) — the launch directive must not restate it.
+  assert.ok(
+    !prompt.includes('"Match the mockup" without a path and section is not a reference.'),
+    'launch directive does not duplicate the skill-owned card rule',
+  )
+
+  const noMockups = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow',
+    sourcePlanKind: 'product_plan',
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  })
+  assert.ok(!noMockups.includes('Attached mockups'), 'directive is dropped when no mockup is attached')
+}
+
+function testSupportOnlyBundleDoesNotReclassifyThePlanSource(): void {
+  // A referenced implementation-plan backlog item with an attached mockup must
+  // keep the referenced-plan guidance — the mockup bundle is supporting
+  // context, not what the sprint is "from".
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'checkout-flow',
+    goal: 'Checkout Flow',
+    sourcePath: 'backlog/checkout-flow.md',
+    sourceContent: '# Checkout Flow',
+    sourcePlanKind: 'architect_plan',
+    reference: true,
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        sourcePath: '/repo/backlog/mockups/checkout.html',
+        sourceRelativePath: 'backlog/mockups/checkout.html',
+        sourceContent: '<h1>Checkout</h1>',
+      },
+    ],
+    statePath: '.multi-code/sprintengine/checkout-flow/run.yaml',
+  })
+
+  assert.ok(
+    prompt.includes('implementation plan, referenced in place'),
+    'attached-mockup launch keeps the referenced-plan guidance',
+  )
+  assert.ok(
+    !prompt.includes('Source bundle type: HTML mockup'),
+    'a support-only bundle does not reclassify the launch as mockup-sourced',
+  )
+}
+
+function testRootSourceLineIsNotDuplicatedWhenRootIsABundleItem(): void {
+  // Hand-picked HTML source: the root IS the bundle's only item — one listing.
+  const prompt = buildPlanFileSprintEngineHandoffPrompt({
+    teamSlug: 'mockup-run',
+    goal: 'Mockup run',
+    sourcePath: 'mockups/picker.html',
+    sourceContent: '<h1>Picker</h1>',
+    sourceBundle: [
+      {
+        kind: 'html_mockup',
+        sourcePath: '/repo/mockups/picker.html',
+        sourceRelativePath: 'mockups/picker.html',
+        sourceContent: '<h1>Picker</h1>',
+      },
+    ],
+    statePath: '.multi-code/sprintengine/mockup-run/run.yaml',
+  })
+
+  assert.ok(!prompt.includes('Source path: `mockups/picker.html`'), 'no duplicate root line when the root is a bundle item')
+  assert.ok(prompt.includes('- html_mockup: `mockups/picker.html`'), 'the bundle listing carries the source')
+}
+
 function main(): void {
   testPlanFileHandoffIsMcpNative()
   testRolesSentenceUsesConfiguredRolesNotSeats()
@@ -312,6 +412,9 @@ function main(): void {
   testReferenceFlagFlowsIntoHandoverPayload()
   testReferencedArchitectPlanGetsManifestGuidanceNotSeedGuidance()
   testEpicHandoffReferencesChildrenAndGuidesInPlaceReview()
+  testMockupBundleItemsGetTheMockupDirectiveAndRootStaysListed()
+  testSupportOnlyBundleDoesNotReclassifyThePlanSource()
+  testRootSourceLineIsNotDuplicatedWhenRootIsABundleItem()
   console.log('sprintengineHandoff.test.ts: ok')
 }
 

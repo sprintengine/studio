@@ -471,6 +471,8 @@ def ensure_plan_approval_gate(
                 f"{role_noun} plan describes the execution approach and task graph.",
                 f"{role_noun} plan artifact is written at the active team path `{plan_path_value}`.",
                 f"{role_noun} plan records confirmed decisions, repo-answered decisions, defaulted assumptions, and remaining open questions or blockers.",
+                f"{role_noun} plan pins every contract shared between tasks — named APIs, registry seams, component props and types, store fields, schemas, IPC channels — so no cross-task interface is left for an implementer to invent.",
+                f"{role_noun} plan commits to one choice per load-bearing decision, with rationale and the rejected alternative recorded; no decision is left open as an either/or for the implementer.",
                 "If autonomous planning or artifact auto-approval is active, plan records conservative defaults used, risks accepted by autonomy mode, and any questions intentionally not asked.",
                 "Plan is reviewed by the user and either approved to done or sent back for changes.",
             ],

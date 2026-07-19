@@ -8,6 +8,7 @@ import type { BacklogItem } from '../../utils/backlog'
 import {
   backlogMockupResolutionCandidates,
   collectBacklogMockups,
+  resolveFirstMockupCandidate,
   type BacklogMockupEntry,
 } from '../../utils/backlogMockups'
 
@@ -69,18 +70,10 @@ export function BacklogMockupsSection({
     void (async () => {
       const next = new Map<string, ResolvedMockup | null>()
       for (const entry of entries) {
-        let found: ResolvedMockup | null = null
-        for (const rel of backlogMockupResolutionCandidates(entry.path)) {
-          const absolutePath = joinFilePath(folderPath, rel)
-          try {
-            if (await window.api.pathExists(absolutePath)) {
-              found = { relativePath: rel, absolutePath }
-              break
-            }
-          } catch {
-            // Treat a probe error like "not found" for this candidate.
-          }
-        }
+        const found = await resolveFirstMockupCandidate(entry.path, async (relativePath) => {
+          const absolutePath = joinFilePath(folderPath, relativePath)
+          return (await window.api.pathExists(absolutePath)) ? { relativePath, absolutePath } : null
+        })
         next.set(entry.path, found)
       }
       if (!cancelled) setResolved(next)

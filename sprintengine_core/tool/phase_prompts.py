@@ -265,6 +265,25 @@ def _respawn_text(value: Any) -> str:
     return f"{text[:RESPAWN_TEXT_LIMIT - 3].rstrip()}..."
 
 
+def _respawn_description(task: Dict[str, Any]) -> str:
+    """The card's description, with an honest elision marker when capped.
+
+    The description is the worker's operating brief; a bare `...` reads as the
+    whole card and a revived owner would work a truncated scope without knowing
+    it. The full card lives on disk, so the marker points at `task.get` instead
+    of inlining unbounded text.
+    """
+    text = str(task.get("description") or "").strip()
+    truncated = _respawn_text(text)
+    if truncated == text:
+        return text
+    return (
+        f"{truncated} "
+        f"(description truncated — `sprintengine.task.get` with "
+        f"`{{taskId: \"{task.get('id')}\"}}` returns the complete card; read it before working)"
+    )
+
+
 def _respawn_tail(values: List[Any], label: str, *, code: bool = False) -> List[str]:
     """Newest-last tail of a list, with an elision marker naming what was cut."""
     items = [value for value in values if str(value or "").strip()]
@@ -308,7 +327,7 @@ def build_phase_respawn_brief(
         f"Task role: `{task.get('role')}`",
         "",
         *prompt_list("Task Card", [
-            f"- Description: {_respawn_text(task.get('description'))}",
+            f"- Description: {_respawn_description(task)}",
             *[f"- Acceptance: {_respawn_text(item)}" for item in task.get("acceptanceCriteria", []) or []],
             *[f"- Implementation note: {_respawn_text(item)}" for item in task.get("implementationNotes", []) or []],
         ]),

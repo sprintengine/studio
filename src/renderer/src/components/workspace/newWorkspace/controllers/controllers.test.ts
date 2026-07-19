@@ -944,6 +944,103 @@ async function testSprintEnginePlanSourcedInitializesAndLinksBacklog(): Promise<
   assert.deepEqual(workspace?.sprintEngineInitialSpawnAgentIds, ['architect'])
 }
 
+// Regression (MC-1485 sprint wiring): a non-epic backlog item may now carry a
+// source bundle of attached mockups. The selected item must stay the primary
+// handover source — the bundle's first item (a mockup) must never displace it.
+async function testSprintEnginePlanSourcedMockupBundleNeverDisplacesThePrimarySource(): Promise<void> {
+  const probedPaths: string[] = []
+  const initSources: Array<{ sourcePath?: string; bundlePaths?: string[]; bundleKinds?: string[] }> = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Mockup Attach Run',
+      goal: 'Ship the mockup work',
+      sourcePlanPath: '/p/backlog/feature.md',
+      sourcePlanRelativePath: 'backlog/feature.md',
+      sourcePlanContent: '# Feature',
+      sourcePlanKind: 'unknown',
+      sourceBundle: [
+        {
+          kind: 'html_mockup',
+          sourcePath: '/p/backlog/mockups/feature.html',
+          sourceRelativePath: 'backlog/mockups/feature.html',
+          sourceContent: '<h1>Feature</h1>',
+        },
+      ],
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+      sourceReference: true,
+    },
+    {
+      pathExists: async (path) => {
+        probedPaths.push(path)
+        return path === '/p/backlog/feature.md'
+      },
+      initializeSprintEngineState: async (input) => {
+        initSources.push({
+          sourcePath: input.source?.path,
+          bundlePaths: input.sourceBundle?.map((item) => item.path),
+          bundleKinds: input.sourceBundle?.map((item) => item.kind),
+        })
+        return { ok: true, data: {} }
+      },
+    },
+  )
+
+  assert.ok(probedPaths.includes('/p/backlog/feature.md'), 'the on-disk check probes the selected item, not the mockup')
+  assert.deepEqual(initSources, [
+    {
+      sourcePath: 'backlog/feature.md',
+      bundlePaths: ['backlog/mockups/feature.html'],
+      bundleKinds: ['html_mockup'],
+    },
+  ], 'init seeds the item as the root source and the mockup as a bundle reference')
+}
+
+// Bundle-only launches (no selected plan path, e.g. a hand-picked HTML mockup
+// flow that never set one) still promote the first bundle item to primary.
+async function testSprintEnginePlanSourcedBundleOnlyLaunchPromotesFirstItem(): Promise<void> {
+  const probedPaths: string[] = []
+  await runSprintEnginePlanSourcedCreation(
+    {
+      folderPath: '/p',
+      teamName: 'Bundle Only Run',
+      goal: 'Ship the bundle work',
+      sourcePlanPath: '',
+      sourcePlanRelativePath: undefined,
+      sourcePlanContent: '<h1>Picker</h1>',
+      sourcePlanKind: 'unknown',
+      sourceBundle: [
+        {
+          kind: 'html_mockup',
+          sourcePath: '/p/mockups/picker.html',
+          sourceRelativePath: 'mockups/picker.html',
+          sourceContent: '<h1>Picker</h1>',
+        },
+      ],
+      visibleRoleCounts: { architect: 1, product: 1, frontend: 0, developer: 0, performance: 0, cross_platform: 0, tester: 0, security: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', product: 'claude-code', frontend: 'claude-code', developer: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async (path) => {
+        probedPaths.push(path)
+        return path === '/p/mockups/picker.html'
+      },
+      initializeSprintEngineState: async () => ({ ok: true, data: {} }),
+    },
+  )
+
+  assert.ok(probedPaths.includes('/p/mockups/picker.html'), 'bundle-only launch uses the first bundle item as primary')
+}
+
 async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt(): Promise<void> {
   const initInputs: Array<{ useWorktrees?: boolean }> = []
   await runSprintEnginePlanSourcedCreation(
@@ -1883,6 +1980,8 @@ async function main(): Promise<void> {
   testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()
   await testSprintEnginePlanSourcedInitializesAndLinksBacklog()
+  await testSprintEnginePlanSourcedMockupBundleNeverDisplacesThePrimarySource()
+  await testSprintEnginePlanSourcedBundleOnlyLaunchPromotesFirstItem()
   await testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt()
   await testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit()
   await testSprintEnginePlanSourcedSkipsNonBacklogLink()

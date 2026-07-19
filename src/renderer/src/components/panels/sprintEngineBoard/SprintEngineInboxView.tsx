@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FilePreviewPane, InboxSearchInput, Section, SidePane } from '../../ui'
+import { FilePreviewPane, InboxRow, InboxSearchInput, Section, SidePane } from '../../ui'
 import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
 import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
@@ -20,11 +20,6 @@ import {
   sprintEngineCapturedLabel,
   type SprintEngineSeedRow,
 } from './sprintEngineStartedFrom'
-
-// Cap the "Started from" list so a large bundle never dominates the Inbox
-// column; "Show N more" reveals the rest. The primary seed is always within
-// the cap (it is row 0).
-const SPRINT_ENGINE_SEED_ROW_CAP = 4
 
 // Inbox tab: list + detail. The artifact queue sits in the primary content
 // column on the left; the inspector fills the remaining width when something
@@ -65,11 +60,14 @@ export function SprintEngineInboxView({
     () => buildSprintEngineStartedFrom(sprintEngineState.source, sprintEngineState.sourceBundle),
     [sprintEngineState.source, sprintEngineState.sourceBundle],
   )
-  // Epic children show a green tick when their backlog frontmatter status is
-  // 'completed'. That status is owned by the backlog store, not run state, so
-  // read it from the shared scan — but only for epic launches, to avoid
-  // scanning backlog/ for every non-epic run.
-  const { scan: backlogScan } = useSharedBacklogScan(startedFrom?.epic ? folderPath : null)
+  // The seed row title mirrors the backlog item that launched the sprint, and
+  // epic children show a green tick when their backlog frontmatter status is
+  // 'completed'. Both come from the backlog store, not run state, so read them
+  // from the shared scan — gated on a backlog-backed seed (epic or a backlog
+  // primary) to avoid scanning backlog/ for runs seeded by a raw document.
+  const primaryBacklogPath = startedFrom?.rows[0]?.backlogPath ?? null
+  const needsBacklogScan = Boolean(startedFrom && (startedFrom.epic || primaryBacklogPath))
+  const { scan: backlogScan } = useSharedBacklogScan(needsBacklogScan ? folderPath : null)
   const backlogStatusByPath = useMemo(() => {
     const map = new Map<string, string>()
     for (const item of backlogScan?.items ?? []) {
@@ -77,23 +75,57 @@ export function SprintEngineInboxView({
     }
     return map
   }, [backlogScan])
+  const backlogTitleByPath = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of backlogScan?.items ?? []) {
+      map.set(item.relativePath.toLowerCase(), item.title)
+    }
+    return map
+  }, [backlogScan])
 
-  // Opening a seed row previews the file in the detail pane. Selection is owned
-  // here (the parent owns artifact/task selection); a seed preview takes over
-  // the right pane until the user opens an artifact/task, which clears it.
+  // Human title for the seed inbox row: the launching backlog item's title when
+  // we have it, else the primary seed's file name — never empty.
+  const seedTitle = useMemo(() => {
+    const primary = startedFrom?.rows[0]
+    if (!primary) return null
+    const fromBacklog = primary.backlogPath
+      ? backlogTitleByPath.get(primary.backlogPath.toLowerCase())
+      : undefined
+    return fromBacklog?.trim() || primary.fileName
+  }, [startedFrom, backlogTitleByPath])
+
+  // The seed is a normal inbox row now. Selecting it opens the "Seeded
+  // documents" list in the detail pane; opening one of those rows previews the
+  // file. Both are local selection state — the parent owns artifact/task
+  // selection, and picking a real artifact/task clears both here.
+  const [seedSelected, setSeedSelected] = useState(false)
   const [selectedSeed, setSelectedSeed] = useState<SprintEngineSeedRow | null>(null)
   useEffect(() => {
-    if (selectedArtifactId) setSelectedSeed(null)
+    // Only a genuine artifact selection (truthy id) evicts the seed panes — the
+    // transition back to null when we open the seed ourselves must not clobber
+    // it.
+    if (selectedArtifactId) {
+      setSelectedSeed(null)
+      setSeedSelected(false)
+    }
   }, [selectedArtifactId])
   useEffect(() => {
     setSelectedSeed((current) =>
       current && startedFrom?.rows.some((row) => row.key === current.key) ? current : null,
     )
+    if (!startedFrom) setSeedSelected(false)
   }, [startedFrom])
 
+  const handleSelectSeed = useCallback(() => {
+    // Clear the artifact inspector so the seeded-documents list owns the pane.
+    onSelectArtifact(null)
+    setSelectedSeed(null)
+    setSeedSelected(true)
+  }, [onSelectArtifact])
   const handleOpenSeed = useCallback(
     (row: SprintEngineSeedRow) => {
-      // Clear the artifact inspector so the seed preview owns the detail pane.
+      // Preview one seeded document; keep the seed selected so Back returns to
+      // the list rather than the empty state.
       onSelectArtifact(null)
       setSelectedSeed(row)
     },
@@ -102,6 +134,7 @@ export function SprintEngineInboxView({
   const handleSelectTask = useCallback(
     (taskId: string) => {
       setSelectedSeed(null)
+      setSeedSelected(false)
       onSelectTask(taskId)
     },
     [onSelectTask],
@@ -180,6 +213,20 @@ export function SprintEngineInboxView({
       ? 'No inbox artifacts match the current search.'
       : inboxEmptyMessage
 
+  // The seed row is the sprint's origin — the oldest entry — so it sits at the
+  // BOTTOM of the queue, in the same list flow as every other row (never a
+  // pinned box). It participates in search like any other item.
+  const seedRowVisible = useMemo(() => {
+    if (!startedFrom || !seedTitle) return false
+    if (!filteringActive) return true
+    const query = search.trim().toLowerCase()
+    return (
+      seedTitle.toLowerCase().includes(query) ||
+      startedFrom.subtitle.toLowerCase().includes(query) ||
+      'seed input'.includes(query)
+    )
+  }, [startedFrom, seedTitle, filteringActive, search])
+
   // Drop a selection when the search has filtered it out so the inspector
   // never shows an artifact that isn't visible in either grouping (queue or
   // evidence).
@@ -250,10 +297,10 @@ export function SprintEngineInboxView({
               role="region"
               aria-label="Inbox artifacts (use arrow keys)"
             >
-              {visibleArtifacts.length === 0 ? (
-                // The queue is empty. Suppress the empty copy when evidence is
-                // present below, so it never reads as "nothing here" over a
-                // populated Evidence grouping.
+              {visibleArtifacts.length === 0 && !seedRowVisible ? (
+                // The queue is empty and there is no seed row. Suppress the empty
+                // copy when evidence is present below, so it never reads as
+                // "nothing here" over a populated Evidence grouping.
                 visibleEvidence.length === 0 ? (
                   <div className="px-3 py-6 text-[12px] leading-5 text-[color:var(--text-muted)]">
                     {emptyMessage}
@@ -271,6 +318,18 @@ export function SprintEngineInboxView({
                       />
                     </li>
                   ))}
+                  {/* The seed sits last — it is the sprint's origin, the oldest
+                      entry in the stack. */}
+                  {seedRowVisible && startedFrom && seedTitle ? (
+                    <li>
+                      <SprintEngineSeedInboxRow
+                        title={seedTitle}
+                        subtitle={startedFrom.subtitle}
+                        selected={seedSelected}
+                        onSelect={handleSelectSeed}
+                      />
+                    </li>
+                  ) : null}
                 </ul>
               )}
             </div>
@@ -325,16 +384,6 @@ export function SprintEngineInboxView({
               </div>
             ) : null}
           </div>
-
-          {startedFrom ? (
-            <SprintEngineStartedFromSection
-              startedFrom={startedFrom}
-              selectedSeedKey={selectedSeed?.key ?? null}
-              backlogStatusByPath={backlogStatusByPath}
-              onOpenSeed={handleOpenSeed}
-              onOpenInBacklog={handleOpenInBacklog}
-            />
-          ) : null}
         </SidePane>
       )}
 
@@ -347,6 +396,23 @@ export function SprintEngineInboxView({
             row={selectedSeed}
             absolutePath={seedAbsolutePath}
             onBack={() => setSelectedSeed(null)}
+          />
+        </section>
+      ) : seedSelected && startedFrom ? (
+        <section
+          className="flex min-w-0 flex-1 flex-col"
+          aria-label="Seeded documents"
+        >
+          <SprintEngineSeededDocumentsPanel
+            startedFrom={startedFrom}
+            seedTitle={seedTitle}
+            // In this branch selectedSeed is null (a chosen seed swaps this
+            // pane for the preview above), so no list row is ever highlighted.
+            selectedSeedKey={null}
+            backlogStatusByPath={backlogStatusByPath}
+            onOpenSeed={handleOpenSeed}
+            onOpenInBacklog={handleOpenInBacklog}
+            onBack={() => setSeedSelected(false)}
           />
         </section>
       ) : hasInspector ? (
@@ -369,91 +435,100 @@ export function SprintEngineInboxView({
   )
 }
 
-// The pinned, collapsible "Started from" section. Sits at the bottom of the
-// Inbox column (shrink-0, so it never scrolls out of reach) and lists the seed
-// documents the run was launched from. Collapse and cap-expand are local UI
-// state; selection is owned by the parent.
-function SprintEngineStartedFromSection({
+// The seed inbox row: one ordinary Inbox entry standing in for what launched
+// the sprint. Its title is the launching backlog item's title (or the seed file
+// name); selecting it opens the "Seeded documents" list in the detail pane, the
+// same as any other inbox row opens its inspector.
+function SprintEngineSeedInboxRow({
+  title,
+  subtitle,
+  selected,
+  onSelect,
+}: {
+  title: string
+  subtitle: string
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <InboxRow
+      hideDot
+      leading={
+        <svg
+          viewBox="0 0 16 16"
+          className="icon-sm text-[color:var(--text-muted)]"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          aria-hidden="true"
+        >
+          <path d="M4 2.5h5l3 3V13a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 4 13V3a.5.5 0 0 1 .5-.5Z" strokeLinejoin="round" />
+          <path d="M9 2.5V5.5h3" strokeLinejoin="round" />
+        </svg>
+      }
+      title={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1 text-[10px] font-medium leading-4 text-[color:var(--text-muted)]">
+            Seed input
+          </span>
+          <span className="min-w-0 truncate">{title}</span>
+        </span>
+      }
+      supporting={subtitle}
+      selected={selected}
+      onSelect={onSelect}
+      ariaLabel={`Seed input: ${title}, ${subtitle}`}
+    />
+  )
+}
+
+// Detail-pane list of the documents the sprint was seeded from — the content
+// behind the seed inbox row. Opening a row previews that file (handled by the
+// parent, which swaps this pane for the preview). Selection is owned by the
+// parent so a highlighted row survives the preview round-trip.
+function SprintEngineSeededDocumentsPanel({
   startedFrom,
+  seedTitle,
   selectedSeedKey,
   backlogStatusByPath,
   onOpenSeed,
   onOpenInBacklog,
+  onBack,
 }: {
   startedFrom: NonNullable<ReturnType<typeof buildSprintEngineStartedFrom>>
+  seedTitle: string | null
   selectedSeedKey: string | null
   backlogStatusByPath: Map<string, string>
   onOpenSeed: (row: SprintEngineSeedRow) => void
   onOpenInBacklog: (backlogPath: string) => void
+  onBack: () => void
 }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const [capExpanded, setCapExpanded] = useState(false)
   const rows = startedFrom.rows
-  const hiddenCount = Math.max(0, rows.length - SPRINT_ENGINE_SEED_ROW_CAP)
-  const visibleRows = capExpanded ? rows : rows.slice(0, SPRINT_ENGINE_SEED_ROW_CAP)
+  const documentWord = rows.length === 1 ? 'document' : 'documents'
 
   return (
-    <section
-      className="shrink-0 border-t border-[color:var(--border-default)]"
-      aria-label="Started from"
-    >
-      <button
-        type="button"
-        onClick={() => setCollapsed((prev) => !prev)}
-        aria-expanded={!collapsed}
-        className="interactive flex w-full min-w-0 items-baseline gap-2 px-3 py-2 text-left transition-colors hover:bg-[color:var(--bg-surface)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset"
-      >
-        <svg
-          viewBox="0 0 16 16"
-          className={`icon-sm shrink-0 self-center text-[color:var(--text-disabled)] transition-transform ${collapsed ? '' : 'rotate-90'}`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          aria-hidden="true"
-        >
-          <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Started from</span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-[color:var(--text-muted)]">
-          {startedFrom.subtitle}
-        </span>
-      </button>
-
-      {collapsed ? null : (
-        // Bound the height so a large bundle fully expanded via "Show N more",
-        // or a short viewport, scrolls internally instead of pushing the last
-        // rows and the collapse toggle past the pane — the queue above keeps
-        // its own independent scroll. "Show N more" stays the primary reveal.
-        <ul className="max-h-[40vh] overflow-y-auto pb-1">
-          {visibleRows.map((row) => (
-            <li key={row.key}>
-              <SprintEngineSeedRowButton
-                row={row}
-                selected={selectedSeedKey === row.key}
-                completed={
-                  row.role === 'epic-child' && row.backlogPath
-                    ? backlogStatusByPath.get(row.backlogPath.toLowerCase()) === 'completed'
-                    : false
-                }
-                onOpen={() => onOpenSeed(row)}
-                onOpenInBacklog={onOpenInBacklog}
-              />
-            </li>
-          ))}
-          {hiddenCount > 0 ? (
-            <li>
-              <button
-                type="button"
-                onClick={() => setCapExpanded((prev) => !prev)}
-                className="interactive flex w-full items-center px-3 py-1.5 pl-8 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset"
-              >
-                {capExpanded ? 'Show fewer' : `Show ${hiddenCount} more`}
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      )}
-    </section>
+    <SprintEngineSeedPreviewShell title="Seeded documents" path={seedTitle ?? 'Seeded documents'} onBack={onBack}>
+      <p className="px-5 py-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        This sprint was seeded from the following {documentWord}. Open one to preview it.
+      </p>
+      <ul className="pb-2">
+        {rows.map((row) => (
+          <li key={row.key}>
+            <SprintEngineSeedRowButton
+              row={row}
+              selected={selectedSeedKey === row.key}
+              completed={
+                row.role === 'epic-child' && row.backlogPath
+                  ? backlogStatusByPath.get(row.backlogPath.toLowerCase()) === 'completed'
+                  : false
+              }
+              onOpen={() => onOpenSeed(row)}
+              onOpenInBacklog={onOpenInBacklog}
+            />
+          </li>
+        ))}
+      </ul>
+    </SprintEngineSeedPreviewShell>
   )
 }
 

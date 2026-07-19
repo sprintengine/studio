@@ -138,7 +138,12 @@ SKILL_BYTE_CEILINGS = {
     # ratchet DOWN — a consolidation is not a licence to grow the surviving file.
     "sprintengine_workflow": 4_000,
     "sprintengine_publish_feedback": 1_000,
-    "sprintengine_architect_workflow": 750,
+    # Re-ratcheted UP 2026-07-19 by owner decision: architect plans were landing
+    # without pinned contracts and task cards as dense prose, so the card
+    # structure (Objective/Contract/Scope/Out of scope) and the
+    # name-your-mockup-inline rule moved into this skill. Architect-session-only
+    # cost; ratchets DOWN from here like every other ceiling.
+    "sprintengine_architect_workflow": 1_500,
     # MC-1542: the shared review base pack every phase directive is composed from.
     "sprintengine_phase_review": 4_800,
 }

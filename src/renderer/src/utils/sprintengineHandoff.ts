@@ -45,12 +45,25 @@ const referencedArchitectPlanGuidance = [
   'Then write `plan.md` as a thin manifest: the source plan referenced by project-root-relative path with a verification note, plus only run-scoped additions (current-codebase index, cross-cutting decisions, risks, role adaptation, task-graph summary). Do not re-author valid plan prose into plan.md. Then create the full task graph.',
 ].join('\n\n')
 
+// Bundle kinds that are supporting context rather than a plan in their own
+// right. A bundle made only of these (attached mockups, design notes) must not
+// reclassify the launch — the selected markdown source stays what the sprint
+// is "from", and guidance branches on its kind exactly like a bundle-less
+// launch.
+const SUPPORTING_BUNDLE_KINDS = new Set(['html_mockup', 'design_notes', 'plan_overview', 'generic_context'])
+
 function sourceTypeGuidance(
   hasExplicitSourceBundle: boolean,
   bundle: Array<{ kind: string }>,
   sourcePlanKind: string,
   reference: boolean,
+  rootListedInBundle: boolean,
 ): string {
+  const supportOnlyBundle =
+    hasExplicitSourceBundle
+    && !rootListedInBundle
+    && bundle.every((item) => SUPPORTING_BUNDLE_KINDS.has(item.kind))
+  const classifyByBundle = hasExplicitSourceBundle && !supportOnlyBundle
   if (sourcePlanKind === 'epic') {
     return [
       'Source type: backlog epic. The epic and its child design documents (the source bundle) are the canonical plan — they are referenced in place, not copied.',
@@ -58,7 +71,7 @@ function sourceTypeGuidance(
       'Then write `plan.md` as a thin manifest that references each source document by project-root-relative path with a per-document verification note, and build the full task graph covering every child item. Do not re-author valid design prose into plan.md.',
     ].join('\n\n')
   }
-  if (hasExplicitSourceBundle) {
+  if (classifyByBundle) {
     const kinds = Array.from(new Set(bundle.map((item) => item.kind)))
     if (kinds.length === 1) {
       const kind = kinds[0]
@@ -118,10 +131,33 @@ export function buildPlanFileSprintEngineHandoffPrompt({
   const bundle = hasExplicitSourceBundle
     ? sourceBundle
     : [{ kind: sourcePlanKind, sourcePath, sourceContent }]
+  // The root source always appears in the summary and the line count: with a
+  // bundle whose items are supporting documents (epic children, attached
+  // mockups), counting/listing only the bundle would drop the primary source
+  // from the prompt entirely. Skip the extra line when the root is itself a
+  // bundle item (hand-picked file).
+  const bundleLines = bundle.map((item) => `- ${item.kind}: \`${item.sourceRelativePath ?? item.sourcePath}\``)
+  const rootListedInBundle = bundle.some((item) => (item.sourceRelativePath ?? item.sourcePath) === sourcePath)
   const contentLines = bundle.reduce((sum, item) => sum + item.sourceContent.trim().split(/\r?\n/).length, 0)
+    + (hasExplicitSourceBundle && !rootListedInBundle ? sourceContent.trim().split(/\r?\n/).length : 0)
   const sourceSummary = hasExplicitSourceBundle
-    ? bundle.map((item) => `- ${item.kind}: \`${item.sourceRelativePath ?? item.sourcePath}\``).join('\n')
+    ? (rootListedInBundle ? bundleLines : [`Source path: \`${sourcePath}\``, ...bundleLines]).join('\n')
     : `Source path: \`${sourcePath}\``
+
+  // Attached mockups are a contract, not ambient context: the architect must
+  // review them and carry an explicit path + section reference onto every
+  // product-facing task card, so workers never depend on the architect having
+  // volunteered the reference by convention. (The card-structure rule itself —
+  // what a pathless reference is worth — lives in the architect workflow
+  // skill; this launch-scoped directive only binds these files to it.)
+  const mockupItems = bundle.filter((item) => item.kind === 'html_mockup')
+  const mockupDirective = mockupItems.length > 0
+    ? [
+      'Attached mockups — the visual contract for product-facing work:',
+      ...mockupItems.map((item) => `- \`${item.sourceRelativePath ?? item.sourcePath}\``),
+      'The architect must open and review each mockup before planning. Every product-facing task card must name, inline in its description, the mockup file path and the specific section it implements, and the plan must map each mockup section to the task that builds it.',
+    ].join('\n')
+    : null
 
   const handoverCalls = hasExplicitSourceBundle
     ? [
@@ -193,7 +229,8 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     configuredRoles.length > 0
       ? `Your run's roles are: ${configuredRoles.join(', ')}. Create tasks and schedule reviews only for these roles. If the work needs a role you don't have, raise needs_input to the user rather than inventing a role.`
       : null,
-    sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind, reference),
+    sourceTypeGuidance(hasExplicitSourceBundle, bundle, sourcePlanKind, reference, rootListedInBundle),
+    mockupDirective,
     autoRunRequested
       ? [
         'Auto-run was requested when this workspace was created. The Multicode app owns runner policy and will persist `auto` mode through its supervisor IPC immediately after `sprintengine.init` returns — you do not need to set runner mode from this terminal.',

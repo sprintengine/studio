@@ -287,10 +287,15 @@ export async function runSprintEnginePlanSourcedCreation(
 ): Promise<void> {
   if (!input.folderPath) throw new SprintEnginePlanSourcedError('missing-folder')
   // For an epic, the epic file itself is the primary handover source and the
-  // bundle holds its children; for every other bundle (e.g. an HTML mockup) the
-  // first bundle item is the primary source.
+  // bundle holds its children. For every other launch the selected plan path is
+  // the primary when the caller set one — a bundle may carry supporting items
+  // (attached mockups, sibling docs) whose first entry must never displace the
+  // selected source. Only a bundle-only launch (no plan path, e.g. a hand-picked
+  // HTML mockup) promotes its first item to primary.
   const isEpicSource = input.sourcePlanKind === 'epic'
-  const bundlePrimary = !isEpicSource ? (input.sourceBundle?.[0] ?? null) : null
+  const bundlePrimary = !isEpicSource && !input.sourcePlanPath
+    ? (input.sourceBundle?.[0] ?? null)
+    : null
   const optionRelativePath = bundlePrimary
     ? bundlePrimary.sourceRelativePath
     : input.sourcePlanRelativePath

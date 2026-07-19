@@ -101,6 +101,11 @@ import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { compareBacklogItems } from '../../utils/backlogTriage'
 import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
+import {
+  mockupSourceDocFromMarkdown,
+  resolveSprintEngineMockupBundleItems,
+  type SprintEngineMockupSourceDoc,
+} from '../../utils/sprintengineMockupSources'
 import { basename, folderKey, joinPath, planBasename, markdownTitle, shouldScanDirectory, slugifySiblingProjectId, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import { parentPath, samePath } from '../../utils/paths'
 import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../../shared/sprintengine/run-types'
@@ -1518,15 +1523,69 @@ export default function NewWorkspacePanel({
     }
   }, [folderDraftPath])
 
+  // Mockup enrichment (MC-1485): a plan source's attached/body-referenced
+  // mockups resolve from disk asynchronously and append to the source bundle.
+  // One implementation shared by the initialFuturePlan seed effect below and
+  // applyPlanSource; the request token serializes them — whichever selection
+  // is newest owns the bundle, and an overtaken enrichment is dropped.
+  // Dangling references resolve to nothing; a failure never blocks selection.
+  const planSourceRequestRef = useRef(0)
+  const enrichSourceBundleWithMockups = (args: {
+    requestId: number
+    rootPath: string
+    docs: SprintEngineMockupSourceDoc[]
+    excludeRelativePaths: string[]
+  }): void => {
+    if (args.docs.length === 0 || !args.rootPath) return
+    void (async () => {
+      try {
+        const mockupItems = await resolveSprintEngineMockupBundleItems({
+          docs: args.docs,
+          folderPath: args.rootPath,
+          readFile: (absolutePath) => window.api.readfile(absolutePath),
+          excludeRelativePaths: args.excludeRelativePaths,
+        })
+        if (planSourceRequestRef.current !== args.requestId || mockupItems.length === 0) return
+        setSeSourceBundle((previous) => [...(previous ?? []), ...mockupItems])
+      } catch {
+        // Mockups are supporting context — enrichment failure is silent.
+      }
+    })()
+  }
+
   // Sync initial future-plan option into the scan list once available.
   useEffect(() => {
     if (!initialFuturePlan) return
+    // The seed is a selection: it takes the request token so any in-flight
+    // enrichment for a previous source is dropped, and a later click drops
+    // this seed's own enrichment in turn.
+    const requestId = ++planSourceRequestRef.current
     setSePath('plan')
     setSePlanPath(initialFuturePlan.sourcePath)
     setSePlanRelativePath(initialFuturePlan.sourceRelativePath)
     setSePlanContent(initialFuturePlan.sourceContent ?? null)
     setSeSourcePlanKind(initialFuturePlan.sourcePlanKind ?? 'unknown')
     setSeSourceBundle(initialFuturePlan.sourceBundle ?? null)
+
+    // Sources seeded from outside the wizard (FileExplorer context menu) skip
+    // applyPlanSource, so their attached/body-referenced mockups (MC-1485) are
+    // resolved here through the same enrichment — markdown sources only; an
+    // HTML source is itself the mockup.
+    const seededBundle = initialFuturePlan.sourceBundle ?? []
+    enrichSourceBundleWithMockups({
+      requestId,
+      rootPath: initialFuturePlan.folderPath,
+      docs: [
+        { content: initialFuturePlan.sourceContent, relativePath: initialFuturePlan.sourceRelativePath },
+        ...seededBundle.map((item) => ({ content: item.sourceContent, relativePath: item.sourceRelativePath })),
+      ]
+        .filter((doc) => Boolean(doc.content) && /\.(md|markdown)$/i.test(doc.relativePath))
+        .map((doc) => mockupSourceDocFromMarkdown(doc.content ?? '', doc.relativePath)),
+      excludeRelativePaths: [
+        initialFuturePlan.sourceRelativePath,
+        ...seededBundle.map((item) => item.sourceRelativePath),
+      ],
+    })
   }, [initialFuturePlan])
 
   // Escape closes when allowed. While a Guided brief runtime session is mid-
@@ -1938,6 +1997,13 @@ export default function NewWorkspacePanel({
   // derived title and loaded content; the file picker passes freshly read
   // content. `fromFile` switches the step between the backlog list and the
   // hand-picked-file view.
+  //
+  // Selection state applies synchronously — the Create gate and the selection
+  // highlight must never lag a click behind file IPC. The source's attached/
+  // body-referenced mockups (MC-1485) then resolve asynchronously and append
+  // to the bundle via enrichSourceBundleWithMockups (declared with the seed
+  // effect above); the request token drops an enrichment a newer selection
+  // (click or seed) overtook.
   const applyPlanSource = (input: {
     path: string
     relativePath: string
@@ -1949,18 +2015,15 @@ export default function NewWorkspacePanel({
     // bundle; each is referenced in place, never copied.
     epicChildren?: BacklogItem[]
   }) => {
+    const requestId = ++planSourceRequestRef.current
     const fallbackName = planBasename(input.relativePath)
     const goal = input.title?.trim() || markdownTitle(input.content) || toTitleName(fallbackName)
     const isHtmlSource = /\.html?$/i.test(input.relativePath)
     const epicChildren = input.epicChildren ?? []
     const isEpicSource = epicChildren.length > 0
-    setSePlanPath(input.path)
-    setSePlanRelativePath(input.relativePath)
-    setSePlanContent(input.content)
-    setSePlanError(null)
-    if (isEpicSource) {
-      setSeSourcePlanKind('epic')
-      setSeSourceBundle(epicChildren.map((child) => {
+
+    const baseBundle: SprintEngineSourceBundleItem[] | null = isEpicSource
+      ? epicChildren.map((child) => {
         const inferred = inferSourcePlanKind(child.relativePath, child.sourceContent)
         return {
           kind: /\.html?$/i.test(child.relativePath)
@@ -1972,25 +2035,43 @@ export default function NewWorkspacePanel({
           sourceRelativePath: child.relativePath,
           sourceContent: child.sourceContent,
         }
-      }))
-      setSeEpicChildRelativePaths(epicChildren.map((child) => child.relativePath))
-    } else {
-      setSeSourcePlanKind(isHtmlSource ? 'unknown' : inferSourcePlanKind(input.relativePath, input.content))
-      setSeSourceBundle(isHtmlSource
+      })
+      : isHtmlSource
         ? [{
           kind: 'html_mockup',
           sourcePath: input.path,
           sourceRelativePath: input.relativePath,
           sourceContent: input.content,
         }]
-        : null)
-      setSeEpicChildRelativePaths(null)
-    }
+        : null
+
+    setSePlanPath(input.path)
+    setSePlanRelativePath(input.relativePath)
+    setSePlanContent(input.content)
+    setSePlanError(null)
+    setSeSourcePlanKind(isEpicSource ? 'epic' : isHtmlSource ? 'unknown' : inferSourcePlanKind(input.relativePath, input.content))
+    setSeSourceBundle(baseBundle)
+    setSeEpicChildRelativePaths(isEpicSource ? epicChildren.map((child) => child.relativePath) : null)
     if (!seTeamNameTouched) setSeTeamName(slugifySprintEngineName(fallbackName))
     setSeGoal(goal)
     setSeExistingTeam(null)
     setSeAgentCliOverrides({})
     setSeSourceFromFile(input.fromFile)
+
+    // An HTML source IS the mockup; every markdown source (backlog item, epic +
+    // children, hand-picked file) may attach mockups in `mockups:` frontmatter
+    // or reference them in the body — one parse path for all of them.
+    if (!isHtmlSource) {
+      enrichSourceBundleWithMockups({
+        requestId,
+        rootPath: folderPath ?? '',
+        docs: [mockupSourceDocFromMarkdown(input.content, input.relativePath), ...epicChildren],
+        excludeRelativePaths: [
+          input.relativePath,
+          ...(baseBundle ?? []).map((item) => item.sourceRelativePath),
+        ],
+      })
+    }
   }
 
   const handleSelectBacklogItem = (item: BacklogItem) => {
@@ -2473,19 +2554,12 @@ export default function NewWorkspacePanel({
           setSePlanError('Pick a folder before creating from a plan.')
           return
         }
-        // For an epic the epic file itself is the primary handover source and the
-        // bundle holds its children; every other bundle uses its first item.
-        const isEpicSource = seSourcePlanKind === 'epic'
-        const bundlePrimary = !isEpicSource ? (seSourceBundle?.[0] ?? null) : null
-        const option = bundlePrimary
-          ? { path: bundlePrimary.sourcePath, relativePath: bundlePrimary.sourceRelativePath }
-          : sePlanPath
-            ? { path: sePlanPath, relativePath: sePlanRelativePath }
-            : null
-        if (!option) {
-          setSePlanError('Selected plan is no longer available. Pick it again on the previous step.')
-          return
-        }
+        // The selected plan path is always the primary handover source — a
+        // bundle carries supporting items (attached mockups, epic children,
+        // sibling docs) and its first entry must never displace the selection.
+        // (For a hand-picked HTML source the plan path IS the mockup, so the
+        // values coincide.) Bundle-only promotion lives in the controller.
+        const option = { path: sePlanPath, relativePath: sePlanRelativePath }
         if (sePlanContent == null) {
           setSePlanError('Plan content was not loaded. Re-select the plan on the previous step.')
           return

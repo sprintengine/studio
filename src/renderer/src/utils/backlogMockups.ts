@@ -188,3 +188,25 @@ export function backlogMockupResolutionCandidates(ref: string): string[] {
   if (!clean.startsWith('backlog/')) candidates.push(`backlog/${clean}`)
   return candidates
 }
+
+// The one probe-in-resolution-order loop over the candidates above: returns the
+// first candidate the probe resolves, or null when the ref dangles. The probe
+// decides what "resolves" means (exists on disk, readable content, …) and
+// reports a miss as null or by throwing — both advance to the next candidate.
+// Every consumer of the tolerated-roots rule goes through here so the probing
+// behavior can never drift between the section UI, the preview, and the sprint
+// source enrichment.
+export async function resolveFirstMockupCandidate<T>(
+  ref: string,
+  probe: (relativePath: string) => Promise<T | null>,
+): Promise<T | null> {
+  for (const relativePath of backlogMockupResolutionCandidates(ref)) {
+    try {
+      const result = await probe(relativePath)
+      if (result !== null) return result
+    } catch {
+      // A probe error is a miss for this candidate root.
+    }
+  }
+  return null
+}

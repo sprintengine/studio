@@ -111,6 +111,8 @@ def test_architect_plan_gate_is_byte_for_byte_unchanged(tmp_path) -> None:
         "Architect plan describes the execution approach and task graph.",
         f"Architect plan artifact is written at the active team path `{plan_path_value}`.",
         "Architect plan records confirmed decisions, repo-answered decisions, defaulted assumptions, and remaining open questions or blockers.",
+        "Architect plan pins every contract shared between tasks — named APIs, registry seams, component props and types, store fields, schemas, IPC channels — so no cross-task interface is left for an implementer to invent.",
+        "Architect plan commits to one choice per load-bearing decision, with rationale and the rejected alternative recorded; no decision is left open as an either/or for the implementer.",
         "If autonomous planning or artifact auto-approval is active, plan records conservative defaults used, risks accepted by autonomy mode, and any questions intentionally not asked.",
         "Plan is reviewed by the user and either approved to done or sent back for changes.",
     ]
