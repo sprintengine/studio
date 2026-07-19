@@ -149,10 +149,13 @@ export function snapshotEpicChildren(
 // stale pick is visible, never silently dropped (Fallback Discipline).
 export function makeEntry(items: ReadonlyArray<BacklogItem>, ref: string): RoadmapEntry {
   const normalized = normalizeRelativePath(ref)
+  // The authoring UI works within the home project today (MC-1688 cross-project
+  // planning is T3), so a picked ref resolves to the home project: projectKey null,
+  // relativePath = the ref itself.
   if (isEpicRef(normalized)) {
-    return { kind: 'epic', ref: normalized, children: snapshotEpicChildren(items, normalized) }
+    return { kind: 'epic', ref: normalized, projectKey: null, relativePath: normalized, children: snapshotEpicChildren(items, normalized) }
   }
-  return { kind: 'item', ref: normalized, children: [] }
+  return { kind: 'item', ref: normalized, projectKey: null, relativePath: normalized, children: [] }
 }
 
 // The gained/removed drift between an epic entry's stored snapshot and the epic's

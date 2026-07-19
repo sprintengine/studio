@@ -18,6 +18,7 @@ import {
   type RepoMergeBlockers,
   type RoadmapBoardItemInfo,
   type RoadmapBoardLane,
+  type RoadmapBoardResolver,
   type RoadmapLaneStateView,
   type RoadmapStateView,
 } from '../../../../../shared/sprintengine/roadmap-surface'
@@ -73,7 +74,7 @@ export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
     setLoading(true)
     const load = async () => {
       try {
-        const result = await window.api.readRoadmapStates(folderPath)
+        const result = await window.api.readRoadmapStates()
         if (cancelled) return
         if (!result.ok) {
           setError(result.message)
@@ -120,7 +121,7 @@ export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
     return () => clearInterval(timer)
   }, [folderPath, reload])
 
-  const itemInfoLookup = useMemo(() => buildItemInfoLookup(scan?.items ?? []), [scan])
+  const itemResolver = useMemo(() => buildHomeResolver(scan?.items ?? []), [scan])
 
   const roadmaps = useMemo<LoadedRoadmap[]>(() => {
     if (!states) return []
@@ -130,7 +131,7 @@ export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
       const laneRuntime = new Map<string, RoadmapLaneStateView>(
         view.lanes.map((lane) => [lane.lane, lane]),
       )
-      const lanes = buildRoadmapBoardModel(roadmap, itemInfoLookup, laneRuntime)
+      const lanes = buildRoadmapBoardModel(roadmap, itemResolver, laneRuntime)
       return {
         roadmapRef: view.roadmapRef,
         title: view.title ?? roadmapTitleFromRef(view.roadmapRef),
@@ -140,13 +141,14 @@ export function useRoadmapBoard(folderPath: string | null): RoadmapBoardData {
         stateView: view,
       }
     })
-  }, [states, contentByRef, itemInfoLookup])
+  }, [states, contentByRef, itemResolver])
 
   return { roadmaps, loading, error, reload }
 }
 
 const EMPTY_ROADMAP: Roadmap = {
   policy: { advance: 'approve', merge: 'manual', concurrency: 1 },
+  projects: [],
   body: '',
   lanes: [],
   issues: [],
@@ -157,12 +159,13 @@ function roadmapTitleFromRef(ref: string): string {
   return stem.replace(/\.md$/i, '')
 }
 
-// Backlog scan → the per-ref facts the board looks up (title, live status, and the
-// delivering PR url when the item recorded one). Keyed by lowercased relative path
-// so a ref's casing never misses.
-function buildItemInfoLookup(
-  items: ReadonlyArray<BacklogItem>,
-): (ref: string) => RoadmapBoardItemInfo | undefined {
+// Backlog scan → the project-aware resolver the board looks up each unit through
+// (title, live status, and the delivering PR url when the item recorded one).
+// Keyed by lowercased relative path so a ref's casing never misses. This renderer
+// path resolves the home project's scan only (projectKey null); cross-project item
+// resolution rides the instance-global surface rebuild (MC-1689 / T2), so entries
+// in another project render as unknown here until then.
+function buildHomeResolver(items: ReadonlyArray<BacklogItem>): RoadmapBoardResolver {
   const byPath = new Map<string, RoadmapBoardItemInfo>()
   for (const item of items) {
     const prUrl = sprintEnginePullRequestLinkOf(item.links)?.target?.url
@@ -172,7 +175,11 @@ function buildItemInfoLookup(
       ...(prUrl ? { prUrl } : {}),
     })
   }
-  return (ref: string) => byPath.get(ref.toLowerCase())
+  return {
+    itemInfo: (projectKey, relativePath) => (projectKey === null ? byPath.get(relativePath.toLowerCase()) : undefined),
+    projectName: (projectKey) => projectKey ?? 'This project',
+    resolvableProjects: new Set([null]),
+  }
 }
 
 // --- Lane run projection (the pull-request surface) ------------------------

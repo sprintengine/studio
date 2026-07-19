@@ -19,6 +19,7 @@ const UNIT_LIFECYCLE: Record<RoadmapUnitState, LifecycleState> = {
   queued: 'todo',
   paused: 'paused',
   unknown: 'blocked',
+  unknown_project: 'blocked',
 }
 
 const PARK_REASON_COPY: Record<string, string> = {

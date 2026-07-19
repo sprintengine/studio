@@ -1596,11 +1596,16 @@ export type SprintEngineArtifactCommandResult =
 // parked lane, pause a running lane). `RoadmapStateView` is defined once in shared
 // (`sprintengine/roadmap-surface.ts`) — imported type-only, so there is no runtime
 // import cycle with this module.
-export type RoadmapLaneCommandInput = { workspaceRoot: string; roadmapRef: string; lane: string }
+// The roadmap is instance-global (one plan per Multicode, MC-1688), so a command
+// no longer carries a `workspaceRoot` — the main driver derives the home project
+// (D1). A command names only the roadmap file + the lane it steers.
+export type RoadmapLaneCommandInput = { roadmapRef: string; lane: string }
 export type RoadmapLaneCommandResult = { ok: boolean; message?: string }
 export type RoadmapStatesReadResult =
   | { ok: true; roadmaps: RoadmapStateView[] }
   | { ok: false; message: string }
+// The home-project setting (D1): which project's repo holds the instance roadmap.
+export type RoadmapHomeResult = { path: string | null }
 
 export type SprintEngineProjectionReadResult =
   // `token` is a cheap file-change fingerprint (mtime:size) the caller can pass
@@ -2608,8 +2613,8 @@ export type ElectronApi = {
    * not merged yet. Merging is always the user's call — nothing merges on its own.
    */
   mergeSprintEnginePullRequest: (statePath: string, repo?: string) => Promise<SprintEngineArtifactCommandResult>
-  /** Read every roadmap's per-lane steering state for the roadmap board (MC-1620). */
-  readRoadmapStates: (workspaceRoot: string) => Promise<RoadmapStatesReadResult>
+  /** Read the single instance roadmap's per-lane steering state for the board (MC-1688). */
+  readRoadmapStates: () => Promise<RoadmapStatesReadResult>
   /** Approve the next start for a lane awaiting the human (advance: approve). */
   approveRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
   /** Merge a lane's delivered pull request through the orchestrator (merge: manual). */
@@ -2618,6 +2623,10 @@ export type ElectronApi = {
   resumeRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
   /** Pause a lane: hold advancement/merge/start-next without stopping the running sprint. */
   pauseRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
+  /** The home project holding the instance roadmap (D1), or null when unset. */
+  getRoadmapHomeProject: () => Promise<RoadmapHomeResult>
+  /** Set (or clear, with null) the home project; triggers a reconcile (MC-1689). */
+  setRoadmapHomeProject: (path: string | null) => Promise<RoadmapLaneCommandResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>

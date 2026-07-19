@@ -126,7 +126,7 @@ export function RoadmapEditorPanel({
   // Validation + the per-track frontier are derived from the DRAFT, so both track
   // dangling/cycle state and the "up next" readout update live as the author edits.
   const draftRoadmap = useMemo<Roadmap>(
-    () => ({ policy: draft.policy, title: draft.title, lanes: draft.lanes, body: '', issues: [] }),
+    () => ({ policy: draft.policy, projects: [], title: draft.title, lanes: draft.lanes, body: '', issues: [] }),
     [draft],
   )
   const validation = useMemo(() => validateRoadmap(draftRoadmap, itemStates), [draftRoadmap, itemStates])
@@ -895,6 +895,7 @@ const REASON_PRESENTATION: Record<RoadmapLaneReason, { word: string; tone: Tone 
   blocked: { word: 'Blocked', tone: 'warn' },
   lane_complete: { word: 'All done', tone: 'good' },
   dangling: { word: 'Unknown item', tone: 'error' },
+  unknown_project: { word: 'Unknown project', tone: 'error' },
   empty: { word: 'No steps yet', tone: 'neutral' },
 }
 

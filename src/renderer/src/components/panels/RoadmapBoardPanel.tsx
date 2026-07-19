@@ -56,9 +56,11 @@ export default function RoadmapBoardPanel({ workspaceId }: WorkspacePanelProps):
     [dialog, reload],
   )
 
+  // The roadmap is instance-global (MC-1688): commands carry only the roadmap file
+  // + lane; the main driver derives the home project (D1).
   const commandInput = useCallback(
-    (roadmapRef: string, lane: string) => ({ workspaceRoot: folderPath ?? '', roadmapRef, lane }),
-    [folderPath],
+    (roadmapRef: string, lane: string) => ({ roadmapRef, lane }),
+    [],
   )
 
   const handleApprove = useCallback(

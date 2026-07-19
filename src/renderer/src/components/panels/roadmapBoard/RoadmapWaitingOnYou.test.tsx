@@ -22,7 +22,7 @@ function roadmap(title: string, lanes: RoadmapBoardLane[]): LoadedRoadmap {
     roadmapRef: `backlog/roadmaps/${title}.md`,
     title,
     path: `backlog/roadmaps/${title}.md`,
-    roadmap: { policy: { advance: 'approve', merge: 'manual', concurrency: 1 }, body: '', lanes: [], issues: [] },
+    roadmap: { policy: { advance: 'approve', merge: 'manual', concurrency: 1 }, projects: [], body: '', lanes: [], issues: [] },
     lanes,
     stateView: { roadmapRef: `backlog/roadmaps/${title}.md`, title, lanes: [] },
   }
