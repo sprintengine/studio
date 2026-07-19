@@ -192,15 +192,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   closeConnectorsSurface: () => void
-  // The instance-global Roadmap surface (MC-1689), opened from the sidebar door.
-  // Deliberately absent from extractSettingsFields / partializeWorkspaceStoreState
-  // (like connectorsSurface): per-window and transient, so the sync bus never
-  // replicates the open flag across windows and it is not persisted.
-  roadmapSurface: {
-    open: boolean
-  }
+  // The Roadmap door + the Backlog "Open Roadmap" affordance route to the
+  // door-routed full-page surface (global-surfaces epic 1704) via activeGlobalSurface;
+  // a named convenience over openGlobalSurface('roadmap'). The legacy centered
+  // overlay + its store flag are retired (T2).
   openRoadmapSurface: () => void
-  closeRoadmapSurface: () => void
   // The door-routed full-page surface for this window (global-surfaces epic
   // 1704): a registered surface id or null when a workspace owns the card
   // region. Transient/unsynced like roadmapSurface (absent from

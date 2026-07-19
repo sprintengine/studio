@@ -159,13 +159,6 @@ const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
 // via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
 const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
 
-// The legacy instance-global Roadmap OVERLAY (MC-1689). Bypassed since the
-// global-surfaces move (epic 1704): the Roadmap door now routes to the
-// door-routed full-page surface (below), so `openRoadmapSurface` sets
-// activeGlobalSurface instead of `roadmapSurface.open` and this mount never
-// opens. Left present but inert; T2 retires the overlay file and this mount.
-const RoadmapSurface = React.lazy(() => import('../panels/RoadmapSurface'))
-
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -293,7 +286,6 @@ export default function WorkspaceManager() {
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
-  const roadmapEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'roadmap'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -323,7 +315,6 @@ export default function WorkspaceManager() {
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
   const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
   const closeConnectorsSurface = useWorkspaceStore((s) => s.closeConnectorsSurface)
-  const roadmapSurfaceOpen = useWorkspaceStore((s) => s.roadmapSurface.open)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
@@ -3101,14 +3092,6 @@ export default function WorkspaceManager() {
               }}
               activeWorkspaceRoot={activeWorkspaceFolderPath}
             />
-          </React.Suspense>
-        ) : null}
-        {/* Legacy Roadmap overlay — bypassed since epic 1704 (the door routes to
-            the full-page surface above, so roadmapSurface.open is never set).
-            Kept behind its module gate until T2 retires it. */}
-        {roadmapSurfaceOpen && roadmapEnabled ? (
-          <React.Suspense fallback={null}>
-            <RoadmapSurface />
           </React.Suspense>
         ) : null}
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is

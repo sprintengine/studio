@@ -60,7 +60,6 @@ import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
-import { RoadmapEditorPanel } from '../backlog/RoadmapEditorPanel'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
@@ -1538,7 +1537,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       agentSessions={agentSessions}
       onAgentFlyoutOpen={refreshAgentSessions}
       onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
-      onRoadmapSaved={() => void (selected && refreshAndSelect(selected.relativePath))}
     />
   )
 
@@ -2063,7 +2061,6 @@ function BacklogDetail({
   agentSessions,
   onAgentFlyoutOpen,
   onSendToAgent,
-  onRoadmapSaved,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2109,8 +2106,6 @@ function BacklogDetail({
   agentSessions: TerminalSessionSnapshot[] | null
   onAgentFlyoutOpen: () => void
   onSendToAgent: (item: BacklogItem, sessionId: string) => void
-  // Re-scan + reselect this roadmap after the editor writes it to disk.
-  onRoadmapSaved: () => void
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2161,22 +2156,6 @@ function BacklogDetail({
   }
   if (!selected) {
     return <DetailState body="Select an item to preview." />
-  }
-
-  // A roadmap opens the authoring editor instead of the plain item preview: its
-  // body IS an ordered plan of tracks + steps, edited directly (MC-1618 / T4).
-  if (isRoadmapContent(selected.relativePath, selected.rawType)) {
-    return (
-      <RoadmapEditorPanel
-        roadmapItem={selected}
-        items={items}
-        onSaved={onRoadmapSaved}
-        onOpenInEditor={actions.openInEditor}
-        onNavigate={onNavigate}
-        showBack={showBack}
-        onBack={onBack}
-      />
-    )
   }
 
   // The first sprintengine.run execution link is the primary Open Sprint Engine

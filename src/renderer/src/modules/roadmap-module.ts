@@ -2,11 +2,6 @@ import React from 'react'
 
 import type { RendererModule } from './renderer-host'
 
-// The roadmap steering board (MC-1620). Lazy so its bundle stays off the wire
-// until a roadmap workspace mounts. Owned here (not by sprint-engine) so the
-// board gates on the roadmap module's own enablement.
-const RoadmapBoardPanel = React.lazy(() => import('../components/panels/RoadmapBoardPanel'))
-
 // The Roadmap top-nav door. Lazy — and deliberately NOT a top-level import —
 // because the entry component reaches the workspace store (and, through it, the
 // FlexLayout graph); keeping it behind a dynamic import leaves the eager
@@ -45,7 +40,8 @@ export const roadmapRendererModule: RendererModule = {
     host.registerSidebarNavEntry({ id: 'roadmap', order: 40, Component: RoadmapNavEntry })
     // The door routes to this full-page surface (epic 1704); the id matches the
     // one the nav entry opens via openRoadmapSurface → openGlobalSurface('roadmap').
+    // The retired `roadmap` workspace mode (store v65, dropRetiredRoadmapWorkspaces)
+    // has no reachable panel mount, so the board lives only on this surface now.
     host.registerGlobalSurface({ id: 'roadmap', Component: RoadmapGlobalSurface })
-    host.registerPanel('roadmap', RoadmapBoardPanel)
   },
 }

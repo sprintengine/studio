@@ -5,7 +5,9 @@ import type { BacklogItemStatusPayload } from '../electron-api'
 import type { SprintEngineVcsRepo } from './run-types'
 import {
   buildRoadmapBoardModel,
+  buildRoadmapRail,
   deriveRepoMergeBlockers,
+  roadmapProgress,
   skipRoadmapEntry,
   type RoadmapBoardItemInfo,
   type RoadmapBoardResolver,
@@ -389,6 +391,88 @@ type: roadmap
 - backlog/foo.md
 `
   assert.equal(skipRoadmapEntry(content, 'backlog/missing.md', 'x', '2026-07-18'), content)
+})
+
+// --- Rail model (active vs draft classification) ---------------------------
+
+run('rail: the file matching activeRef is the single Active; the rest are drafts', () => {
+  const rail = buildRoadmapRail(
+    [
+      { roadmapRef: 'backlog/roadmaps/july26.md', title: 'july26', numericId: 12 },
+      { roadmapRef: 'backlog/roadmaps/summer26.md', title: 'summer26', numericId: 8 },
+    ],
+    'backlog/roadmaps/summer26.md',
+  )
+  // Active sorts first even though july26 has the higher id.
+  assert.deepEqual(
+    rail.map((entry) => [entry.title, entry.active]),
+    [
+      ['summer26', true],
+      ['july26', false],
+    ],
+  )
+  // Exactly one active.
+  assert.equal(rail.filter((entry) => entry.active).length, 1)
+})
+
+run('rail: drafts sort newest-first by backlog id, then path desc', () => {
+  const rail = buildRoadmapRail(
+    [
+      { roadmapRef: 'backlog/roadmaps/a.md', title: 'a', numericId: 3 },
+      { roadmapRef: 'backlog/roadmaps/c.md', title: 'c', numericId: 9 },
+      { roadmapRef: 'backlog/roadmaps/b.md', title: 'b', numericId: 9 },
+    ],
+    null,
+  )
+  // No active → every entry is a draft, newest id first, path desc breaking the id tie.
+  assert.equal(rail.every((entry) => !entry.active), true)
+  assert.deepEqual(
+    rail.map((entry) => entry.title),
+    ['c', 'b', 'a'],
+  )
+})
+
+run('rail: activeRef normalization tolerates leading slash + backslashes', () => {
+  const rail = buildRoadmapRail(
+    [{ roadmapRef: 'backlog/roadmaps/summer26.md', title: 'summer26' }],
+    '\\backlog\\roadmaps\\summer26.md',
+  )
+  assert.equal(rail[0].active, true)
+})
+
+run('rail: an activeRef naming no listed file yields an all-draft rail, no phantom row', () => {
+  const rail = buildRoadmapRail(
+    [{ roadmapRef: 'backlog/roadmaps/summer26.md', title: 'summer26' }],
+    'backlog/roadmaps/gone.md',
+  )
+  assert.equal(rail.length, 1)
+  assert.equal(rail[0].active, false)
+})
+
+// --- Progress (rail state line + surface bar sub) --------------------------
+
+run('progress: aggregates done/step/total/running across tracks', () => {
+  const info = infoMap({
+    'backlog/foo.md': { status: 'completed' },
+    'backlog/bar.md': { status: 'in_progress' },
+    'backlog/baz.md': { status: 'ready' },
+    'backlog/epics/auth.md': { status: 'ready' },
+    'backlog/auth-1.md': { status: 'ready' },
+    'backlog/auth-2.md': { status: 'ready' },
+    'backlog/ship.md': { status: 'ready' },
+  })
+  // Backend: foo done, bar in_progress (running), baz queued. Platform: 3 up-next/queued.
+  const lanes = buildRoadmapBoardModel(ROADMAP, info, new Map())
+  const progress = roadmapProgress(lanes)
+  assert.equal(progress.total, 6, 'two tracks, six steps total')
+  assert.equal(progress.done, 1, 'only foo has delivered')
+  assert.equal(progress.step, 2, 'on step 2 (done + 1)')
+  assert.equal(progress.running, 1, 'bar is the one running sprint')
+})
+
+run('progress: nothing planned yields step 0 of 0', () => {
+  const progress = roadmapProgress([])
+  assert.deepEqual(progress, { done: 0, step: 0, total: 0, running: 0 })
 })
 
 let failures = 0

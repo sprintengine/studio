@@ -303,7 +303,6 @@ const carrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   connectorsSurface: { open: false, initialView: null },
-  roadmapSurface: { open: false },
   activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
@@ -338,13 +337,13 @@ assert.equal(carrier.activeGlobalSurface, 'automations', 'opening another door r
 slice.closeGlobalSurface()
 assert.equal(carrier.activeGlobalSurface, null)
 
-// The Roadmap door + Backlog "Open Roadmap" now route to the full-page surface,
-// NOT the legacy centered overlay: openRoadmapSurface sets activeGlobalSurface and
-// leaves the retired roadmapSurface.open flag untouched (T2 removes the overlay).
+// The Roadmap door + Backlog "Open Roadmap" route to the full-page surface, NOT a
+// centered overlay: openRoadmapSurface sets activeGlobalSurface. The legacy
+// roadmapSurface.open store flag + its overlay are retired (T2).
 carrier.activeGlobalSurface = null
 slice.openRoadmapSurface()
 assert.equal(carrier.activeGlobalSurface, 'roadmap', 'openRoadmapSurface routes to the door-routed surface')
-assert.equal(carrier.roadmapSurface.open, false, 'the legacy overlay flag stays unset — the overlay is bypassed')
+assert.equal('roadmapSurface' in carrier, false, 'the legacy overlay store flag is gone')
 slice.closeGlobalSurface()
 
 // Sprints aside view: partial patches merge into the existing axes so setting
@@ -417,7 +416,6 @@ const permissionCarrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   connectorsSurface: { open: false, initialView: null },
-  roadmapSurface: { open: false },
   activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
