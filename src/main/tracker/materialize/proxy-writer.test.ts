@@ -112,6 +112,29 @@ async function main(): Promise<void> {
     files = await backlogFiles(root)
     assert.equal(files.length, 2)
 
+    // --- concurrent create of the same new id never duplicates ----------
+    // Two racing materializes of one not-yet-written issue both miss the match
+    // scan and target the same base; the `wx` write lets exactly one win and the
+    // loser fails cleanly (no clobber, no second file).
+    const raceInputs = {
+      workspaceRoot: root,
+      provider: 'github' as const,
+      connectionId: 'trk-1',
+      externalId: 'acme/web#42',
+      externalKey: '#42',
+      externalUrl: 'https://github.com/acme/web/issues/42',
+      title: 'Race issue',
+      body: '# Race issue\n\nConcurrent.\n',
+    }
+    const raced = await Promise.all([
+      materializeProxyBacklogItem(raceInputs),
+      materializeProxyBacklogItem(raceInputs),
+    ])
+    const wins = raced.filter((r) => r.ok).length
+    assert.equal(wins >= 1, true, 'at least one concurrent create succeeds')
+    const raceFiles = (await backlogFiles(root)).filter((f) => /race-issue/.test(f))
+    assert.equal(raceFiles.length, 1, 'concurrent create of one id yields exactly one file')
+
     // --- deleted upstream: mark unavailable, never delete ---------------
     const marked = await markProxyBacklogItemUnavailable({
       workspaceRoot: root,
@@ -123,7 +146,7 @@ async function main(): Promise<void> {
     assert.equal(marked.ok, true)
     assert.equal(marked.ok && marked.found, true)
     files = await backlogFiles(root)
-    assert.equal(files.length, 2, 'an unavailable issue is marked, never deleted')
+    assert.equal(files.length, 3, 'an unavailable issue is marked, never deleted')
     raw = await readFile(join(root, relativePath), 'utf-8')
     parsed = parseBacklogFrontmatter(raw)
     assert.equal(parsed.fields.external_unavailable, 'No longer available in GitHub.')
