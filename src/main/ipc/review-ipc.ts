@@ -12,6 +12,10 @@ import type {
   ReviewTarget,
 } from '../../shared/electron-api'
 import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-service'
+// Side-effect import: registers the 'pull-request' source provider (MC-1678) so
+// the service can ingest GitHub PR URLs. The local branch/patch providers register
+// from within changeset-service itself.
+import '../review/providers/github-pr-provider'
 
 export interface ReviewIpcDeps {
   changeSetService: ReviewChangeSetService
