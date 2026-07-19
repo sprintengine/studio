@@ -107,6 +107,8 @@ What and why, user impact, reproduction notes for bugs, and any reference needed
 
 Set only the axes you can estimate from the current context; leave the rest out rather than guessing.
 
+**Attaching a mockup:** when an item ships with an HTML mockup, attach it via a `mockups:` frontmatter line — a comma-separated list of project-relative paths (canonical home `backlog/mockups/<file>.html`), e.g. `mockups: backlog/mockups/2026-07-06-x.html` — rather than only linking it in the body prose. The attachment shows as an openable, rendered preview in the item's detail pane; body-prose links still light up read-only, but the frontmatter line is the structured, UI-editable form.
+
 ## Epics
 
 An **epic** groups related items. It is itself a file at `backlog/epics/<slug>.md` with `type: epic`; the `<slug>` is the filename stem (e.g. `backlog/epics/auth-revamp.md` → slug `auth-revamp`) and its title is the first `# Heading`. Membership is **stored up, derived down** — the only stored relationship is each child's `epic:` field, so the grouping can never desync:

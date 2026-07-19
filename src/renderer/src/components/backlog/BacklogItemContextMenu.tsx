@@ -128,6 +128,9 @@ export type BacklogActions = {
   // Rewrite the item's full `dependsOn:` slug list (null clears the line). The
   // menu and detail editor compute the next set with toggleDependencySlug.
   setDependencies: (item: BacklogItem, slugs: string[] | null) => void
+  // Rewrite the item's full attached `mockups:` path list (null clears the line).
+  // The detail Mockups section computes the next set on attach/remove.
+  setMockups: (item: BacklogItem, mockups: string[] | null) => void
   // Prompt for a title, create `backlog/epics/<slug>.md`, then assign the item.
   createEpic: (item: BacklogItem) => void
   // Set (or clear) an epic's identity colour — writes the epic file's `color:`

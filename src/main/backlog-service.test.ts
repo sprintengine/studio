@@ -14,6 +14,7 @@ import {
   readBacklogObjectStore,
   removeBacklogLink,
   updateBacklogDependencies,
+  updateBacklogMockups,
   updateBacklogEpic,
   updateBacklogEpicColor,
   updateBacklogHighlight,
@@ -293,6 +294,52 @@ async function main(): Promise<void> {
     assert.equal(await readFile(depsPath, 'utf-8'), depsOriginal, 'null clears the line, restoring the original bytes')
 
     await rm(depsPath)
+
+    // Mockup attachments are the item-side write: the single comma-separated
+    // `mockups:` frontmatter line, set/cleared via the shared CSV formatter, body
+    // + unrelated keys preserved, sidecar untouched. Same shape as dependsOn, but
+    // the paths carry slashes (a stored attachment is a project-relative path).
+    const mockPath = join(tempRoot, 'backlog', 'mock.md')
+    const mockBody = '# Mock\n\nBody stays put.\n'
+    const mockOriginal = `---\nstatus: idea\ncustom: keep-me\n---\n${mockBody}`
+    await writeFile(mockPath, mockOriginal, 'utf-8')
+    const readMock = async (): Promise<ReturnType<typeof parseBacklogFrontmatter>> =>
+      parseBacklogFrontmatter(await readFile(mockPath, 'utf-8'))
+
+    // Set a list: backslashes normalized, duplicates dropped, first-seen order kept.
+    const mockSet = await updateBacklogMockups({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/mock.md',
+      mockups: ['backlog/mockups/a.html', 'mockups\\b.html', 'backlog/mockups/a.html'],
+    })
+    assert.equal(mockSet.ok, true)
+    const afterMockSet = await readMock()
+    assert.equal(afterMockSet.fields.mockups, 'backlog/mockups/a.html, mockups/b.html')
+    assert.equal(afterMockSet.fields.custom, 'keep-me', 'an unrelated frontmatter key must be preserved')
+    assert.equal(afterMockSet.body, mockBody, 'mockups write must preserve the document body byte-for-byte')
+
+    // A `..` escape rejects the whole write and mutates nothing.
+    const beforeBadMock = await readFile(mockPath, 'utf-8')
+    const rejectedMock = await updateBacklogMockups({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/mock.md',
+      mockups: ['mockups/ok.html', '../escape.html'],
+    })
+    assert.equal(rejectedMock.ok, false)
+    assert.match(rejectedMock.ok ? '' : rejectedMock.message, /mockup/)
+    assert.equal(await readFile(mockPath, 'utf-8'), beforeBadMock, 'a rejected mockup path must not mutate the item file')
+
+    // Clearing with an empty list removes the line and round-trips to the original bytes.
+    const mockCleared = await updateBacklogMockups({
+      workspaceRoot: tempRoot,
+      relativePath: 'backlog/mock.md',
+      mockups: [],
+    })
+    assert.equal(mockCleared.ok, true)
+    assert.equal('mockups' in (await readMock()).fields, false, 'clearing mockups must remove the frontmatter line')
+    assert.equal(await readFile(mockPath, 'utf-8'), mockOriginal, 'set then clear is a byte-for-byte round-trip')
+
+    await rm(mockPath)
 
     // All lifecycle/type/triage/epic/dependsOn work so far must have stayed off the sidecar.
     await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter mutations must never create items.json')

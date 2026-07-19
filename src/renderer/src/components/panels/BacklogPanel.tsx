@@ -26,7 +26,8 @@ import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
-import { basename, parentPath } from '../../utils/paths'
+import { basename, joinFilePath, parentPath } from '../../utils/paths'
+import { backlogMockupResolutionCandidates } from '../../utils/backlogMockups'
 import { HtmlArtifactFrame } from '../workspace/guidedBrief/MockupPreviewPane'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
 import { sendFileDropToTerminal, setFileDropData, type FileDropPayload } from '../../utils/terminalDrop'
@@ -59,6 +60,8 @@ import {
 import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
+import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
+import { FilePreviewPane } from '../ui/FilePreviewPane'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
 import { RoadmapEditorPanel } from '../backlog/RoadmapEditorPanel'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
@@ -400,6 +403,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       // MC ids — exactly the impression the global redesign retired. They stay
       // in `items` so navigation/reveal still opens the authoring editor.
       if (isRoadmapContent(item.relativePath, item.rawType)) return false
+      // Files under backlog/mockups/ are attachments other items reference via
+      // `mockups:` frontmatter, not work items — listing them here gave them
+      // MC-id-looking rows. Full substrate fix (markdown-only objects, MC-1710)
+      // will retire their item-hood; until then they are hidden, not gone, so
+      // the sprint source picker and handoff flows keep resolving them.
+      if (item.relativePath.startsWith('backlog/mockups/')) return false
       // The view lens owns archived visibility (its own option) and the
       // difficulty/criticality triage ranges; search narrows within it.
       if (!matchesBacklogView(item, view)) return false
@@ -584,6 +593,21 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     if (selected.isEpic) return deriveEpicRunGlyphFromChildren(selected, items, runGlyphById)
     return runGlyphById.get(selected.id)
   }, [selected, items, runGlyphById])
+
+  // Inline mockup preview (MC-1485 / T4), mirroring the Sprint board's
+  // previewed-artifact local state: when set, the detail pane renders the
+  // rendered mockup in a FilePreviewPane in place of the item content. Cleared
+  // whenever the selected item changes (below) and on back/close, so a preview
+  // never bleeds across items.
+  const [previewedMockup, setPreviewedMockup] = useState<{
+    path: string
+    absolutePath: string
+    relativePath: string
+    content: string
+  } | null>(null)
+  useEffect(() => {
+    setPreviewedMockup(null)
+  }, [selectedId])
 
   // Responsive split vs single-column, measured from the panel's own width.
   const rootRef = useRef<HTMLElement | null>(null)
@@ -793,6 +817,27 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       if (id) setShowDetailInSingle(true)
     },
     [runScan],
+  )
+
+  // Resolve + read the mockup, then swap the detail pane to its rendered preview
+  // (MC-1485 / T4). Resolution re-runs across both tolerated roots from the
+  // authored ref (not just the path the section optimistically passed while its
+  // async existence check was still pending), so an open is always correct. A
+  // missing/unreadable file leaves the preview closed rather than opening an
+  // empty frame, mirroring the Sprint openArtifact path.
+  const openMockupPreview = useCallback(
+    (target: { path: string; relativePath: string; absolutePath: string }) =>
+      void runAction(async () => {
+        if (!folderPath) return
+        for (const relativePath of backlogMockupResolutionCandidates(target.path)) {
+          const absolutePath = joinFilePath(folderPath, relativePath)
+          if (!(await window.api.pathExists(absolutePath))) continue
+          const content = await window.api.readfile(absolutePath)
+          setPreviewedMockup({ path: target.path, relativePath, absolutePath, content })
+          return
+        }
+      }),
+    [folderPath, runAction],
   )
 
   const createBacklogFolder = useCallback(
@@ -1185,6 +1230,26 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, runAction, runScan],
   )
 
+  // Mockup attachments are the item's `mockups:` frontmatter only
+  // (backlog:update-mockups rewrites the markdown via the shared serializer;
+  // items.json is untouched). The full path list is rewritten each attach/remove;
+  // null / empty clears the line. The service validates/dedupes, so the UI just
+  // sends the next set and re-scans (the fs watcher refreshes the item).
+  const setItemMockups = useCallback(
+    (item: BacklogItem, mockups: string[] | null) =>
+      runAction(async () => {
+        if (!folderPath) return
+        const updated = await window.api.updateBacklogMockups({
+          workspaceRoot: folderPath,
+          relativePath: item.relativePath,
+          mockups,
+        })
+        assertBacklogMutation(updated)
+        await runScan()
+      }),
+    [folderPath, runAction, runScan],
+  )
+
   // "New epic…": prompt for a title, write backlog/epics/<slug>.md via the
   // create-epic writer, then assign this item to the freshly created slug. A
   // cancelled prompt or a create failure leaves the item untouched.
@@ -1274,6 +1339,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     setRisk: (item, value) => setItemTriage(item, { risk: value === 'unset' ? null : value }),
     setEpic: (item, slug) => void setItemEpic(item, slug),
     setDependencies: (item, slugs) => void setItemDependencies(item, slugs),
+    setMockups: (item, mockups) => void setItemMockups(item, mockups),
     createEpic: (item) => void createEpicForItem(item),
     setEpicColor: (item, color) => void setEpicColorForItem(item, color),
     setHighlight: (item, highlight) => void setItemHighlight(item, highlight),
@@ -1539,6 +1605,15 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       onAgentFlyoutOpen={refreshAgentSessions}
       onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
       onRoadmapSaved={() => void (selected && refreshAndSelect(selected.relativePath))}
+      previewedMockup={previewedMockup}
+      onOpenMockup={openMockupPreview}
+      onCloseMockupPreview={() => setPreviewedMockup(null)}
+      onPopOutMockup={() => {
+        if (!previewedMockup) return
+        const name = basename(previewedMockup.relativePath)
+        openFile(workspaceId, previewedMockup.absolutePath, name, previewedMockup.content)
+        focusOrAddFileTab(workspaceId, previewedMockup.absolutePath, name)
+      }}
     />
   )
 
@@ -2064,6 +2139,10 @@ function BacklogDetail({
   onAgentFlyoutOpen,
   onSendToAgent,
   onRoadmapSaved,
+  previewedMockup,
+  onOpenMockup,
+  onCloseMockupPreview,
+  onPopOutMockup,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2111,6 +2190,16 @@ function BacklogDetail({
   onSendToAgent: (item: BacklogItem, sessionId: string) => void
   // Re-scan + reselect this roadmap after the editor writes it to disk.
   onRoadmapSaved: () => void
+  // Inline mockup preview (MC-1485 / T4): the currently-open mockup (rendered in
+  // place of the item content), the open handler the Mockups section calls, and
+  // the back/close clear. Owned by the panel so it survives this component's
+  // early returns and clears on selection change.
+  previewedMockup: { path: string; absolutePath: string; relativePath: string; content: string } | null
+  onOpenMockup: (target: { path: string; relativePath: string; absolutePath: string }) => void
+  onCloseMockupPreview: () => void
+  // Pop the previewed mockup out into a source editor tab (the FilePreviewPane
+  // "Open in editor" jump-out), wired to the workspace openFile bridge.
+  onPopOutMockup: () => void
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2175,6 +2264,36 @@ function BacklogDetail({
         onNavigate={onNavigate}
         showBack={showBack}
         onBack={onBack}
+      />
+    )
+  }
+
+  // Inline mockup preview (MC-1485 / T4): while a mockup is open it replaces the
+  // item content, mirroring the Sprint inspector's artifact-preview arm — shared
+  // FilePreviewPane chrome (back / pop-out / close) with the sandboxed
+  // HtmlArtifactFrame as the body override for HTML, and the pane's own
+  // extension-based markdown/plain-text rendering for anything else. Back and
+  // close both return to the item; pop-out opens the source in an editor tab.
+  if (previewedMockup) {
+    const isHtmlPreview = /\.html?$/i.test(previewedMockup.relativePath)
+    return (
+      <FilePreviewPane
+        title={<span className="font-mono tabular-nums">{basename(previewedMockup.relativePath)}</span>}
+        path={previewedMockup.absolutePath}
+        content={previewedMockup.content}
+        onBack={onCloseMockupPreview}
+        onClose={onCloseMockupPreview}
+        onPopOut={onPopOutMockup}
+        body={
+          isHtmlPreview ? (
+            <HtmlArtifactFrame
+              absolutePath={previewedMockup.absolutePath}
+              relativePath={previewedMockup.relativePath}
+              watchDirectoryPath={parentPath(previewedMockup.absolutePath)}
+              enableSourceView
+            />
+          ) : undefined
+        }
       />
     )
   }
@@ -2503,6 +2622,18 @@ function BacklogDetail({
             dependencyStateById={dependencyStateById}
             blockedRollup={epicBlockedRollup}
             onNavigate={onNavigate}
+          />
+        ) : null}
+
+        {/* Mockups lead the metadata sections (above Links): design mockups
+            attach to epics and leaf items alike (amendment 3). A `type: mockup`
+            item is exempt — it IS the mockup, rendered directly below. */}
+        {selected.type !== 'mockup' ? (
+          <BacklogMockupsSection
+            item={selected}
+            folderPath={folderPath}
+            onOpenMockup={onOpenMockup}
+            onSetMockups={actions.setMockups}
           />
         ) : null}
 

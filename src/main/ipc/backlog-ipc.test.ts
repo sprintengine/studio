@@ -28,6 +28,8 @@ async function main(): Promise<void> {
     'backlog:update-module-metadata',
     'backlog:move-object-source',
     'backlog:remove-object-record',
+    'backlog:update-dependencies',
+    'backlog:update-mockups',
   ]) {
     assert.ok(ipcMain.handlers.has(channel), `${channel} should be registered`)
   }

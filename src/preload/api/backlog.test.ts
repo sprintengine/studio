@@ -41,6 +41,11 @@ async function main(): Promise<void> {
     value: { runId: 'plan' },
   })
   await api.updateBacklogEpic({ workspaceRoot: '/repo', relativePath: 'backlog/plan.md', epic: 'auth-revamp' })
+  await api.updateBacklogMockups({
+    workspaceRoot: '/repo',
+    relativePath: 'backlog/plan.md',
+    mockups: ['backlog/mockups/plan.html'],
+  })
   await api.createBacklogEpic({ workspaceRoot: '/repo', title: 'Auth Revamp' })
 
   assert.deepEqual(calls.map((call) => call.channel), [
@@ -53,6 +58,7 @@ async function main(): Promise<void> {
     'backlog:remove-link',
     'backlog:update-module-metadata',
     'backlog:update-epic',
+    'backlog:update-mockups',
     'backlog:create-epic',
   ])
 }

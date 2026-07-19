@@ -1,6 +1,7 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
 import { parseBacklogCsvList, parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import { parseBacklogNumericId } from '../../../shared/backlog/item-id'
+import { parseBacklogMockups } from './backlogMockups'
 import type { HighlightColor, SprintEngineSourcePlanKind } from '../types/workspace'
 import {
   inferSourcePlanKind,
@@ -133,6 +134,13 @@ export type BacklogItem = {
   // dependent; reverse "blocks" edges and the waiting signal are derived (T2),
   // never persisted to items.json (mirrors the epic axis).
   dependsOn?: string[]
+  // Attached mockup files from the frontmatter `mockups:` comma-separated scalar
+  // — project-relative paths, cleaned (normalized slashes, absolute/`..` dropped)
+  // by parseBacklogMockups. `undefined` when the field is absent or names nothing
+  // valid. Authored intent that travels with the file (mirrors `dependsOn`);
+  // body-prose references are derived separately (backlogMockups.ts), never
+  // stored here.
+  mockups?: string[]
   highlight?: BacklogHighlight
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
@@ -321,6 +329,7 @@ export function createBacklogItem(input: {
   const frontmatterRisk = parseBacklogRisk(frontmatterValue(fields, 'risk'))
   const epic = frontmatterValue(fields, 'epic')
   const dependsOn = parseBacklogDependsOn(frontmatterValue(fields, 'dependsOn'), backlogItemSlugFromPath(relativePath))
+  const mockupsList = parseBacklogMockups(frontmatterValue(fields, 'mockups'))
   const title = inferBacklogTitle(relativePath, body)
   // Lifecycle/triage and epic are frontmatter-sourced (frontmatter is the source
   // of truth); the sidecar object only contributes identity, links, metadata,
@@ -344,6 +353,7 @@ export function createBacklogItem(input: {
     epic,
     isEpic: type === 'epic',
     dependsOn,
+    mockups: mockupsList.length > 0 ? mockupsList : undefined,
     highlight: input.object?.highlight,
     metadata: input.object?.metadata ?? {},
     links: input.object?.links ?? [],

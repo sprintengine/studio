@@ -2427,6 +2427,17 @@ export type BacklogDependenciesInput = {
   dependsOn: string[] | null
 }
 
+// Mockup attachments are the item-side write: `mockups` is the list of
+// project-relative mockup paths, serialized to the single comma-separated
+// `mockups:` frontmatter line (mirrors `dependsOn`). An empty list or null clears
+// the line. Body-prose references stay derived (see backlogMockups.ts), never
+// written back here.
+export type BacklogMockupsInput = {
+  workspaceRoot: string
+  relativePath: string
+  mockups: string[] | null
+}
+
 export type BacklogCreateEpicInput = {
   workspaceRoot: string
   title: string
@@ -2912,6 +2923,7 @@ export type ElectronApi = {
   updateBacklogEpic: (input: BacklogEpicInput) => Promise<BacklogMutationResult>
   updateBacklogEpicColor: (input: BacklogEpicColorInput) => Promise<BacklogMutationResult>
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
+  updateBacklogMockups: (input: BacklogMockupsInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
   reviewDetectSource: (input: ReviewSourceInput) => Promise<ReviewSourceProbe>
   reviewIngestSource: (input: ReviewSourceInput, target: ReviewTarget) => Promise<ReviewIngestResult>

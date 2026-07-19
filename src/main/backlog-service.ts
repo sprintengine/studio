@@ -32,6 +32,7 @@ import type {
   BacklogHighlightInput,
   BacklogItemLinkPayload,
   BacklogItemRecordInput,
+  BacklogMockupsInput,
   BacklogModuleMetadataInput,
   BacklogMutationResult,
   BacklogObjectRecordPayload,
@@ -686,6 +687,46 @@ export async function updateBacklogDependencies(input: BacklogDependenciesInput)
   }
   const dependsOn = cleaned.length > 0 ? formatBacklogCsvList(cleaned) : null
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { dependsOn })
+}
+
+// Mockup attachments are the item-side write: serialize the item's mockup paths
+// to the single comma-separated `mockups:` frontmatter line via the shared CSV
+// formatter, mirroring updateBacklogDependencies. Each path is validated (a
+// non-empty, workspace-relative path with no `..` escape and — the CSV
+// contract — no comma) and the whole write is rejected on the first invalid one,
+// so a bad payload never lands a half-written line. Surrounding whitespace is
+// trimmed, backslashes normalized to `/`, and duplicates dropped keeping
+// first-seen order, so the stored line matches what parseBacklogMockups reads
+// back. An empty list or null clears the line (passed as null, since the
+// serializer treats an empty string as a set, not a clear). Body-prose
+// references stay derived (backlogMockups.ts), never written here, and this
+// targets markdown frontmatter only, never items.json.
+export async function updateBacklogMockups(input: BacklogMockupsInput): Promise<BacklogMutationResult> {
+  if (input.mockups !== null && !Array.isArray(input.mockups)) {
+    return { ok: false, message: 'Enter a valid Backlog mockup list.' }
+  }
+  const cleaned: string[] = []
+  const seen = new Set<string>()
+  for (const raw of input.mockups ?? []) {
+    const path = typeof raw === 'string' ? raw.trim().replace(/\\/g, '/') : ''
+    // A stored attachment must be a real, workspace-relative path: non-empty, not
+    // absolute (POSIX `/` or Windows drive), no `..` escape, and comma-free (the
+    // single-line CSV contract can't survive an embedded comma).
+    const invalid =
+      !path ||
+      path.includes(',') ||
+      path.startsWith('/') ||
+      /^[A-Za-z]:[\\/]/.test(path) ||
+      path.split('/').includes('..')
+    if (invalid) {
+      return { ok: false, message: 'Enter valid Backlog mockup paths (workspace-relative, no “..”).' }
+    }
+    if (seen.has(path)) continue
+    seen.add(path)
+    cleaned.push(path)
+  }
+  const mockups = cleaned.length > 0 ? formatBacklogCsvList(cleaned) : null
+  return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { mockups })
 }
 
 export async function updateBacklogHighlight(input: BacklogHighlightInput): Promise<BacklogMutationResult> {

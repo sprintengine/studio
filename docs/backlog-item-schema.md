@@ -31,6 +31,7 @@ criticality: high    # low | normal | high | critical   (impact if missing)
 risk: normal         # low | normal | high   (likelihood it breaks; not effort)
 epic: auth-revamp    # optional; slug of the epic this item belongs to
 dependsOn: a-item, b-item   # optional; comma-separated slugs of prerequisite items
+mockups: backlog/mockups/2026-07-06-x.html   # optional; comma-separated project-relative mockup paths
 updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
 ---
 ```
@@ -82,6 +83,18 @@ updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
     an epic surfaces `N blocked` of its remaining (non-terminal) children beside
     its progress meter, and reads Blocked itself only when **every** remaining
     child is blocked (or its own `dependsOn` is unresolved while `ready`).
+- **mockups**: optional attached-mockup list — a single **flat comma-separated
+  scalar** of **project-relative, comma-free paths** (the CSV contract forbids an
+  embedded comma), e.g.
+  `mockups: backlog/mockups/2026-07-06-x.html, backlog/mockups/2026-07-06-y.html`.
+  The canonical home is `backlog/mockups/`; a legacy project-root `mockups/…`
+  path is also resolved. Each attachment shows in the item detail pane's
+  **Mockups** section as a live scripts-off preview, openable rendered in the
+  panel and removable there (UI-editable via `window.api.updateBacklogMockups`,
+  which validates paths and preserves every other frontmatter key). Body-prose
+  mockup links (`Mockup: [x](../mockups/x.html)`) light up the same section
+  read-only without being written here. Absolute paths and `..` escapes are
+  rejected on write.
 - **updated**: optional ISO-8601 timestamp powering the "recently updated" sort.
 
 Set an axis only when the current context supports a grounded estimate; leave it

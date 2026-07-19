@@ -306,6 +306,34 @@ run('dependsOn is undefined when the field is absent or names only self', () => 
   assert.equal(selfOnly.dependsOn, undefined)
 })
 
+run('mockups parses the CSV frontmatter scalar into a project-relative list', () => {
+  const item = createBacklogItem({
+    path: '/repo/backlog/design.md',
+    relativePath: 'backlog/design.md',
+    sourceContent: '---\ntype: feature\nmockups: mockups/a.html, backlog/mockups/b.html\n---\n# Design',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.deepEqual(item.mockups, ['mockups/a.html', 'backlog/mockups/b.html'])
+})
+
+run('mockups is undefined when the field is absent or only names invalid paths', () => {
+  const absent = createBacklogItem({
+    path: '/repo/backlog/design.md',
+    relativePath: 'backlog/design.md',
+    sourceContent: '---\ntype: feature\n---\n# Design',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(absent.mockups, undefined)
+
+  const invalidOnly = createBacklogItem({
+    path: '/repo/backlog/design.md',
+    relativePath: 'backlog/design.md',
+    sourceContent: '---\nmockups: /abs.html, ../up.html\n---\n# Design',
+    stats: { modifiedAtMs: 20, sizeBytes: 64 },
+  })
+  assert.equal(invalidOnly.mockups, undefined)
+})
+
 run('backlogItemSlugFromPath returns the filename stem for md and html items', () => {
   assert.equal(backlogItemSlugFromPath('backlog/epics/auth-revamp.md'), 'auth-revamp')
   assert.equal(backlogItemSlugFromPath('backlog/checkout.html'), 'checkout')

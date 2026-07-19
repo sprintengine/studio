@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { BacklogRowContent, BacklogRowHoverCard } from './BacklogRow'
 import { BacklogDependenciesSection } from './BacklogDependenciesSection'
+import { BacklogMockupsSection } from './BacklogMockupsSection'
 import type { BacklogActions } from './BacklogItemContextMenu'
 import { filterBacklogItemSearchOptions } from './BacklogItemSearchPicker'
 import { createBacklogItem, type BacklogHighlight, type BacklogItem } from '../../utils/backlog'
@@ -364,6 +365,58 @@ run('detail dependency editor offers a "Depends on…" control', () => {
   assert.match(markup, /Depends on…/, 'the add/remove editor is reachable from the detail pane')
 })
 
+// ---- Detail mockups section (MC-1485) --------------------------------------
+
+// Build a real BacklogItem carrying a body-prose mockup link so the detected
+// (read-only) row path is exercised through the same collectBacklogMockups the
+// panel uses. renderToStaticMarkup does not run effects, so the async existence
+// check never fires — the row renders optimistically, which is what we assert.
+function mockupItem(opts: { mockups?: string[]; body?: string } = {}): BacklogItem {
+  const lines: string[] = ['type: feature']
+  if (opts.mockups?.length) lines.push(`mockups: ${opts.mockups.join(', ')}`)
+  const body = opts.body ?? '# Design item'
+  return createBacklogItem({
+    path: '/repo/backlog/design.md',
+    relativePath: 'backlog/design.md',
+    sourceContent: `---\n${lines.join('\n')}\n---\n${body}`,
+    stats: { modifiedAtMs: 1, sizeBytes: 1 },
+  })
+}
+
+function mockupsSection(item: BacklogItem): string {
+  return renderToStaticMarkup(
+    <BacklogMockupsSection
+      item={item}
+      folderPath="/repo"
+      onOpenMockup={() => {}}
+      onSetMockups={() => {}}
+    />,
+  )
+}
+
+run('detail Mockups: the section renders its title and the Attach mockup… action', () => {
+  const markup = mockupsSection(mockupItem())
+  assert.match(markup, /Mockups/, 'the Mockups section header renders')
+  assert.match(markup, /Attach mockup…/, 'the attach editor is reachable from the detail pane')
+})
+
+run('detail Mockups: an empty item shows the reachable empty state, not a bare header', () => {
+  const markup = mockupsSection(mockupItem())
+  assert.match(markup, /No mockups attached/, 'the empty state invites the first attach')
+})
+
+run('detail Mockups: a body-prose mockup link lights up as a read-only detected row', () => {
+  const markup = mockupsSection(mockupItem({ body: '# Design\n\nMockup: [main](../mockups/main.html)' }))
+  assert.match(markup, /Found in this item/, 'a detected reference is labelled read-only')
+  assert.match(markup, /mockups\/main\.html/, 'the detected path is shown')
+})
+
+run('detail Mockups: an attached mockup renders a removable row (no read-only caption)', () => {
+  const markup = mockupsSection(mockupItem({ mockups: ['backlog/mockups/a.html'] }))
+  assert.match(markup, /aria-label="Remove mockup backlog\/mockups\/a\.html"/, 'attached rows carry a remove control')
+  assert.ok(!markup.includes('Found in this item'), 'an attached row is not captioned as detected')
+})
+
 // Source contracts, in the spirit of backlog.test.ts: the panel-side wiring the
 // static render above cannot reach (store-bound list + detail surfaces).
 const backlogPanelSource = readFileSync(
@@ -694,6 +747,34 @@ run('prerequisites persist only through the dependsOn frontmatter IPC, never ite
     /setDependencies: \(item, slugs\) => void setItemDependencies\(item, slugs\)/,
     'setDependencies sits in BacklogActions so the menu and detail share one path',
   )
+})
+
+run('the detail pane renders the Mockups section above Links, exempting only type: mockup items', () => {
+  // The section leads the metadata stack (above Links) and renders for epics +
+  // leaf items alike; a `type: mockup` item is the mockup itself, so it is exempt.
+  assert.match(backlogPanelSource, /<BacklogMockupsSection/, 'the detail pane renders the Mockups section')
+  assert.match(backlogPanelSource, /selected\.type !== 'mockup' \?/, 'only a type: mockup item is exempt from the section')
+  const mockupsAt = backlogPanelSource.indexOf('<BacklogMockupsSection')
+  const linksAt = backlogPanelSource.indexOf('<BacklogLinksSection')
+  assert.ok(mockupsAt >= 0 && linksAt > mockupsAt, 'Mockups renders above Links')
+})
+
+run('mockup attachments persist only through the mockups frontmatter IPC, never items.json', () => {
+  assert.match(backlogPanelSource, /window\.api\.updateBacklogMockups\(\{/, 'setMockups mutates through the update-mockups IPC')
+  assert.match(
+    backlogPanelSource,
+    /setMockups: \(item, mockups\) => void setItemMockups\(item, mockups\)/,
+    'setMockups sits in BacklogActions so the section routes through the shared path',
+  )
+})
+
+run('opening a mockup swaps the detail pane to the shared FilePreviewPane with the sandboxed frame', () => {
+  assert.match(backlogPanelSource, /if \(previewedMockup\) \{/, 'a previewed mockup replaces the item content')
+  assert.match(backlogPanelSource, /<FilePreviewPane/, 'the preview reuses the shared FilePreviewPane chrome')
+  assert.match(backlogPanelSource, /<HtmlArtifactFrame/, 'HTML mockups render through the sandboxed frame')
+  assert.match(backlogPanelSource, /enableSourceView/, 'the frame keeps its source toggle')
+  // Selection change clears the preview so it never bleeds across items.
+  assert.match(backlogPanelSource, /setPreviewedMockup\(null\)\s*\n\s*\}, \[selectedId\]\)/, 'the preview clears on selection change')
 })
 
 run('context menu exposes a search-first multi-select "Depends on…" flyout', () => {
