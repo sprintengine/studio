@@ -70,12 +70,14 @@ function splitGitBlocks(lines: string[]): string[][] {
 }
 
 // Plain unified diffs (`diff -u`, no `diff --git`) are segmented by their `--- `
-// header; the matching `+++ ` and hunks follow within the block.
+// header. Requiring the immediately following `+++ ` avoids mistaking a deleted
+// line that itself renders as `--- ...` for a new file boundary.
 function splitUnifiedBlocks(lines: string[]): string[][] {
   const blocks: string[][] = []
   let current: string[] | null = null
-  for (const line of lines) {
-    if (line.startsWith('--- ')) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line.startsWith('--- ') && lines[i + 1]?.startsWith('+++ ')) {
       if (current) blocks.push(current)
       current = [line]
     } else if (current) {

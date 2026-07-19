@@ -295,6 +295,25 @@ run('plain unified diff without diff --git header', () => {
   assert.equal(files[0].path, 'plain.ts')
 })
 
+run('plain unified diff: a deleted "--- " line is not a false file boundary', () => {
+  // Without diff --git headers, a hunk that deletes a line rendering as "--- x"
+  // must not be mistaken for a new file header (it lacks a following "+++ ").
+  const patch = [
+    '--- a/only.md',
+    '+++ b/only.md',
+    '@@ -1,3 +1,2 @@',
+    ' keep',
+    '--- a dashed list item that got removed',
+    ' tail',
+    '',
+  ].join('\n')
+  const { files } = parseOk(patch)
+  assert.equal(files.length, 1)
+  assert.equal(files[0].path, 'only.md')
+  assert.equal(files[0].deletions, 1)
+  assert.equal(files[0].hunks.length, 1)
+})
+
 function main(): void {
   for (const test of tests) {
     try {

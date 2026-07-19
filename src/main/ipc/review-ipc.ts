@@ -37,7 +37,11 @@ export function registerReviewIpc(ipcMain: IpcMain, { changeSetService }: Review
     }
   )
 
-  ipcMain.handle('review:read-changeset', (_event, target: ReviewTarget): Promise<ReviewChangeSetReadResult> => {
-    return changeSetService.read(reviewChangeSetDir(target.workspaceRoot, target.workspaceId))
+  ipcMain.handle('review:read-changeset', async (_event, target: ReviewTarget): Promise<ReviewChangeSetReadResult> => {
+    try {
+      return await changeSetService.read(reviewChangeSetDir(target.workspaceRoot, target.workspaceId))
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 }
