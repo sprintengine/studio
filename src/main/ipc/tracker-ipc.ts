@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron'
 
+import { materializeTrackerIssues } from '../tracker/materialize/materialize-service'
 import { getSharedTrackerService } from '../tracker/tracker-service'
 import type {
   TrackerAddConnectionInput,
@@ -7,6 +8,8 @@ import type {
   TrackerFetchIssueInput,
   TrackerFetchIssueResult,
   TrackerListConnectionsResult,
+  TrackerMaterializeInput,
+  TrackerMaterializeResult,
   TrackerRemoveConnectionInput,
   TrackerRemoveConnectionResult,
   TrackerSearchInput,
@@ -31,7 +34,27 @@ export type TrackerIpcService = {
   fetchIssue(input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult>
 }
 
-export function registerTrackerIpc(ipcMain: IpcMain, service: TrackerIpcService = getSharedTrackerService()): void {
+// Materialization needs the connection store + issue fetch (not just the narrow
+// IPC service slice), so it is injected separately. The default binds the shared
+// tracker service to the backlog-service writer via materializeTrackerIssues.
+export type TrackerMaterializeHandler = (input: TrackerMaterializeInput) => Promise<TrackerMaterializeResult>
+
+function defaultMaterializeHandler(input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> {
+  const service = getSharedTrackerService()
+  return materializeTrackerIssues({
+    ...input,
+    tracker: {
+      getConnection: (id) => service.connections.getConnection(id),
+      fetchIssue: (fetchInput) => service.fetchIssue(fetchInput),
+    },
+  })
+}
+
+export function registerTrackerIpc(
+  ipcMain: IpcMain,
+  service: TrackerIpcService = getSharedTrackerService(),
+  materialize: TrackerMaterializeHandler = defaultMaterializeHandler
+): void {
   ipcMain.handle('tracker:listConnections', (): Promise<TrackerListConnectionsResult> => {
     return service.listConnections()
   })
@@ -60,5 +83,9 @@ export function registerTrackerIpc(ipcMain: IpcMain, service: TrackerIpcService 
 
   ipcMain.handle('tracker:fetchIssue', (_event, input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult> => {
     return service.fetchIssue(input)
+  })
+
+  ipcMain.handle('tracker:materialize', (_event, input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> => {
+    return materialize(input)
   })
 }

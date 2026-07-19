@@ -7,6 +7,8 @@ import type {
   TrackerFetchIssueInput,
   TrackerFetchIssueResult,
   TrackerListConnectionsResult,
+  TrackerMaterializeInput,
+  TrackerMaterializeResult,
   TrackerRemoveConnectionInput,
   TrackerRemoveConnectionResult,
   TrackerSearchInput,
@@ -26,6 +28,7 @@ type TrackerIpcRenderer = {
   invoke(channel: 'tracker:testConnection', input: TrackerTestConnectionInput): Promise<TrackerTestConnectionResult>
   invoke(channel: 'tracker:search', input: TrackerSearchInput): Promise<TrackerSearchResult>
   invoke(channel: 'tracker:fetchIssue', input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult>
+  invoke(channel: 'tracker:materialize', input: TrackerMaterializeInput): Promise<TrackerMaterializeResult>
 }
 
 export function createTrackerApi(renderer: TrackerIpcRenderer) {
@@ -40,6 +43,8 @@ export function createTrackerApi(renderer: TrackerIpcRenderer) {
     trackerSearch: (input: TrackerSearchInput): Promise<TrackerSearchResult> => renderer.invoke('tracker:search', input),
     trackerFetchIssue: (input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult> =>
       renderer.invoke('tracker:fetchIssue', input),
+    trackerMaterialize: (input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> =>
+      renderer.invoke('tracker:materialize', input),
   } satisfies Pick<
     ElectronApi,
     | 'trackerListConnections'
@@ -48,6 +53,7 @@ export function createTrackerApi(renderer: TrackerIpcRenderer) {
     | 'trackerTestConnection'
     | 'trackerSearch'
     | 'trackerFetchIssue'
+    | 'trackerMaterialize'
   >
 }
 

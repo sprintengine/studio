@@ -47,7 +47,13 @@ async function main(): Promise<void> {
   }
 
   const ipcMain = createIpcMain()
-  registerTrackerIpc(ipcMain as unknown as Parameters<typeof registerTrackerIpc>[0], service)
+  // Materialization is injected separately (it needs the writer, not just the IPC
+  // service slice), so a mock captures its delegation without the real backlog fs.
+  const materialize = async (input: unknown) => {
+    calls.push({ method: 'materialize', input })
+    return { ok: true as const, added: 1, refreshed: 0, failed: [] }
+  }
+  registerTrackerIpc(ipcMain as unknown as Parameters<typeof registerTrackerIpc>[0], service, materialize)
 
   for (const channel of [
     'tracker:listConnections',
@@ -56,6 +62,7 @@ async function main(): Promise<void> {
     'tracker:testConnection',
     'tracker:search',
     'tracker:fetchIssue',
+    'tracker:materialize',
   ]) {
     assert.ok(ipcMain.handlers.has(channel), `${channel} should be registered`)
   }
@@ -66,6 +73,7 @@ async function main(): Promise<void> {
   await ipcMain.handlers.get('tracker:testConnection')!(null, { connectionId: 'trk-x' })
   await ipcMain.handlers.get('tracker:search')!(null, { connectionId: 'trk-x', query: 'bug' })
   await ipcMain.handlers.get('tracker:fetchIssue')!(null, { connectionId: 'trk-x', externalId: '42' })
+  await ipcMain.handlers.get('tracker:materialize')!(null, { workspaceRoot: '/ws', connectionId: 'trk-x', externalIds: ['42'] })
 
   assert.deepEqual(calls, [
     { method: 'listConnections', input: undefined },
@@ -74,6 +82,7 @@ async function main(): Promise<void> {
     { method: 'testConnection', input: { connectionId: 'trk-x' } },
     { method: 'search', input: { connectionId: 'trk-x', query: 'bug' } },
     { method: 'fetchIssue', input: { connectionId: 'trk-x', externalId: '42' } },
+    { method: 'materialize', input: { workspaceRoot: '/ws', connectionId: 'trk-x', externalIds: ['42'] } },
   ])
 
   console.log('tracker-ipc tests passed')
