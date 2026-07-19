@@ -8,6 +8,7 @@ import type {
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
   AutomationsEngineStatusResult,
+  AutomationsInstanceListResult,
   AutomationsListResult,
   AutomationsProviderView,
   AutomationsProvidersResult,
@@ -25,6 +26,7 @@ import {
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
+  AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
@@ -41,7 +43,16 @@ import {
   type DefinitionWriteResult,
   type ParsedDefinitionPatch,
 } from '../automations/definition-write'
-import type { AutomationsEngine, AutomationsEngineFinalizeResult, AutomationsEngineRunNowResult } from '../automations/engine'
+import {
+  buildAutomationsInstanceIndex,
+  type AutomationsInstanceProjectFolder,
+} from '../automations/instance-index'
+import {
+  projectFoldersFromWorkspaceSyncSnapshot,
+  type AutomationsEngine,
+  type AutomationsEngineFinalizeResult,
+  type AutomationsEngineRunNowResult,
+} from '../automations/engine'
 import {
   allowAutomationProvider,
   automationProviderBlockedReason,
@@ -70,6 +81,13 @@ export type AutomationsIpcDependencies = {
   checkProviderPermission?: AutomationProviderPermissionChecker
   isIntegrationAvailable?: (id: string) => boolean | undefined
   getWorkspaceSyncSnapshot?: () => WorkspaceSyncSnapshot
+  /**
+   * Known project roots the instance-wide index scans. Defaults to deriving them
+   * from the workspace-sync snapshot (every open workspace's folder, deduped) —
+   * the same source the engine and webhook receiver use — so the module normally
+   * omits it.
+   */
+  getProjectFolders?: () => AutomationsInstanceProjectFolder[]
   /**
    * Reads the kernel-tracked status of the Automations engine/scheduler sidecar
    * (kernel.sidecarStatuses() filtered to this module's sidecar, via the handle
@@ -208,6 +226,19 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
         providerView(registration, deps.isIntegrationAvailable, checkProviderPermission)
       ),
     })
+  })
+
+  host.registerIpc(AUTOMATIONS_INSTANCE_LIST_CHANNEL, async (): Promise<AutomationsInstanceListResult> => {
+    const snapshot = deps.getWorkspaceSyncSnapshot?.()
+    const projectFolders = deps.getProjectFolders?.()
+      ?? (snapshot ? projectFoldersFromWorkspaceSyncSnapshot(snapshot) : [])
+    const index = await buildAutomationsInstanceIndex({
+      projectFolders,
+      createStore,
+      // Redact webhook secrets on the way out, exactly as the per-project list.
+      mapDefinition: definitionForRenderer,
+    })
+    return ok(index)
   })
 
   host.registerIpc(AUTOMATIONS_ENGINE_STATUS_CHANNEL, async (): Promise<AutomationsEngineStatusResult> => {

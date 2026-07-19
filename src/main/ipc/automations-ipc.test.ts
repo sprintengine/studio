@@ -10,6 +10,7 @@ import type {
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
   AutomationsEngineStatusResult,
+  AutomationsInstanceListResult,
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsRunEvent,
@@ -21,6 +22,7 @@ import {
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
+  AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_NOW_CHANNEL,
@@ -768,6 +770,43 @@ async function testRunInWorktreeRoundTripAndValidation(): Promise<void> {
   console.log('automations-ipc runInWorktree round-trip tests passed')
 }
 
+// The instance channel enumerates every automation across the snapshot's roots
+// (no workspaceRoot argument), redacts webhook secrets like the per-project list,
+// and carries the workspaceRoot each entry's recent-runs read needs.
+async function testInstanceListEnumeratesAcrossRootsAndRedacts(): Promise<void> {
+  const rootA = await withWorkspaceRoot()
+  const rootB = await withWorkspaceRoot()
+  const handlers = createFakeHost({ workspaceRoots: [rootA, rootB] })
+
+  const createdA = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot: rootA,
+    definition: definitionDraft({ id: 'nightly', name: 'Nightly' }),
+  })
+  assert.equal(createdA.ok, true)
+  const createdB = await invoke<AutomationsDefinitionResult>(handlers, AUTOMATIONS_CREATE_CHANNEL, {
+    workspaceRoot: rootB,
+    definition: definitionDraft({
+      id: 'hooked',
+      name: 'Hooked',
+      trigger: { kind: 'webhook', config: { kind: 'webhook', path: 'incoming', secret: 'super-secret-1234567' } },
+    }),
+  })
+  assert.equal(createdB.ok, true)
+
+  const index = await invoke<AutomationsInstanceListResult>(handlers, AUTOMATIONS_INSTANCE_LIST_CHANNEL)
+  assert.equal(index.ok, true)
+  if (!index.ok) return
+  assert.equal(index.value.problems.length, 0)
+  const byId = new Map(index.value.entries.map((entry) => [entry.definition.id, entry]))
+  assert.deepEqual([...byId.keys()].sort(), ['hooked', 'nightly'])
+  assert.equal(byId.get('nightly')?.workspaceRoot, rootA, 'entry carries its project root for the runs read')
+  assert.equal(byId.get('nightly')?.lastRun, null, 'no runs yet')
+  assert.equal(byId.get('nightly')?.isRunningNow, false)
+  const hookedConfig = byId.get('hooked')?.definition.trigger.config as Record<string, unknown>
+  assert.equal('secret' in hookedConfig, false, 'webhook secret redacted in the instance index')
+  assert.equal(hookedConfig.hasSecret, true)
+}
+
 async function main(): Promise<void> {
   await testProviderList()
   await testRunInWorktreeRoundTripAndValidation()
@@ -778,6 +817,7 @@ async function main(): Promise<void> {
   await testDefinitionWriteSurfacesRefreshHookFailure()
   await testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow()
   await testEngineStatusChannelReflectsSidecar()
+  await testInstanceListEnumeratesAcrossRootsAndRedacts()
   console.log('automations-ipc tests passed')
 }
 

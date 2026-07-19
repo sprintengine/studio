@@ -1,7 +1,7 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
-import { decodeRunRef } from '../components/automations/runTarget'
+import { decodeAutomationTargetRef } from '../components/automations/runTarget'
 import { registerAutomationsWorkspaceTypes } from './automations-workspace-types'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
 import { dispatchRevealTarget } from '../utils/revealTarget'
@@ -61,8 +61,13 @@ export const automationsRendererModule: RendererModule = {
       source: 'automations',
       resolveActions: ({ notification }) => {
         const target = notification.navigationTarget
-        if (target?.kind !== 'run' || !target.ref) return []
-        const decoded = decodeRunRef(target.ref)
+        if (!target) return []
+        // Accept the legacy `run` reveal target and the forward door target
+        // (both carry the same automationId/runId/folderPath ref). Until the
+        // full-page surface consumes the door kind, both resolve to the same
+        // reveal-the-host action below; the surface task swaps the door path to
+        // open the door and select the automation.
+        const decoded = decodeAutomationTargetRef(target)
         if (!decoded?.folderPath) return []
         const folderKey = normalizeFolderKey(decoded.folderPath)
         const fallbackWorkspaceId = notification.workspaceId

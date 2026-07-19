@@ -1,5 +1,5 @@
 import type { AutomationsRunEvent } from '../../../../shared/automations/contracts'
-import type { DiagnosticLogInput } from '../../types/workspace'
+import type { DiagnosticLogInput, NotificationNavigationTarget } from '../../types/workspace'
 
 // The one source of truth for the automations run notification deep-link
 // contract, shared by the producers (the Automations screen's manual Run-now and
@@ -36,6 +36,37 @@ export function decodeRunRef(ref: string): RunTargetRef | null {
     // Malformed/foreign target — ignore rather than guess a run to focus.
   }
   return null
+}
+
+// The door-routed deep-link kind. Once the full-page Automations surface (epic
+// 1704 / item 1707) is wired, a run notification opens that door and selects the
+// run's automation, instead of revealing the now rail-hidden host workspace. The
+// ref payload is identical to the legacy run target (automationId + runId +
+// folderPath), so the two kinds share `encodeRunRef`/`decodeRunRef`; only the
+// kind differs, letting the notification-action provider route the door path
+// while the legacy reveal path keeps working until the surface consumes it.
+export const AUTOMATIONS_DOOR_TARGET_KIND = 'automations-door'
+
+// Build the door navigation target for a run. The surface consumer (T4) reads it
+// with `decodeAutomationTargetRef` and opens the door at the automation.
+export function automationsDoorTarget(
+  automationId: string,
+  runId: string,
+  folderPath: string | null,
+): NotificationNavigationTarget {
+  return { kind: AUTOMATIONS_DOOR_TARGET_KIND, ref: encodeRunRef(automationId, runId, folderPath) }
+}
+
+// Decode a navigation target of EITHER the legacy run kind or the door kind into
+// the shared run ref, or null for any other kind / malformed ref. A single
+// decode both kinds share, so a consumer accepts both during the migration
+// without forking the parse.
+export function decodeAutomationTargetRef(
+  target: { kind: string; ref?: string } | null | undefined,
+): RunTargetRef | null {
+  if (!target || typeof target.ref !== 'string') return null
+  if (target.kind !== RUN_TARGET_KIND && target.kind !== AUTOMATIONS_DOOR_TARGET_KIND) return null
+  return decodeRunRef(target.ref)
 }
 
 // The notification a background (scheduled) run event should raise, or null
