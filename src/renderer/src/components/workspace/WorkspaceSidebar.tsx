@@ -515,8 +515,17 @@ export default function WorkspaceSidebar({
   const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
   // A door-routed full-page surface owns the card region (global-surfaces epic
   // 1704). While one is active no project row is "current" — the door row carries
-  // the selection instead, so the sidebar shows exactly one selected thing.
-  const globalSurfaceActive = useWorkspaceStore((s) => s.activeGlobalSurface !== null)
+  // the selection instead, so the sidebar shows exactly one selected thing. This
+  // resolves + module-gates the active surface exactly as WorkspaceManager does
+  // for the mount, so the two agree: a stale id whose surface is unregistered or
+  // whose module was disabled falls back to the workspace (region shows it, and a
+  // project row re-selects) rather than leaving nothing selected.
+  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
+  const globalSurfaceActive = useMemo(() => {
+    if (!activeGlobalSurface) return false
+    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
+    return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
+  }, [activeGlobalSurface, moduleOverrides])
   // The Sprints nav entry toggles the global Sprint Engines aside — the
   // existing "all sprints across every project" survey panel mounted by
   // WorkspaceManager — rather than a bespoke surface. Gated on the module.
