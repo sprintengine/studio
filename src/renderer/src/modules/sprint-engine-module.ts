@@ -141,11 +141,10 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
-    // The `roadmap` board panel + the sidebar Roadmap door now belong to the
-    // dedicated `roadmap` module (MC-1691), so Roadmap toggles independently of
-    // Sprint Engine. The `roadmap` workspace type is still registered below (its
-    // retirement is MC-1692); with Roadmap disabled its board panel is gated off
-    // by that module, degrading the mode like any disabled-module surface.
+    // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
+    // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired
+    // (MC-1692) — Roadmap is an instance-global sidebar door now, not a per-project
+    // workspace. So this only registers the Sprint Engine + Design Wizard types.
     registerSprintEngineWorkspaceTypes(host)
     host.registerBacklogLinkProvider({
       moduleId: SPRINT_ENGINE_MODULE_ID,

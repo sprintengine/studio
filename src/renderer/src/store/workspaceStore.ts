@@ -108,6 +108,7 @@ import {
 } from './slices/pluginsSlice'
 import {
   dedupeAutomationsHostWorkspaces,
+  dropRetiredRoadmapWorkspaces,
   nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
@@ -1074,6 +1075,12 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = envelope.state.workspaces.filter(
       (workspace) => (workspace as { mode?: string }).mode !== 'automations',
     )
+    // Roadmap is an instance-global sidebar surface now, not a workspace type
+    // (store v65). This backup-recovery path bypasses the migrate ladder too, so
+    // drop any retired roadmap-mode workspace here before we re-persist it.
+    envelope.state.workspaces = dropRetiredRoadmapWorkspaces(
+      envelope.state.workspaces as Workspace[],
+    )
     // Same bypass applies to the one-host-per-project invariant (store v64):
     // a recovered backup can carry one Automations host per automation run,
     // and once recovery writes it back the state is stamped current-version so
@@ -1233,15 +1240,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
       merge: (persisted, current) => {
         const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; sidebarWidth?: number; sprintEnginesAsideOpen?: boolean; sprintsAsideWidth?: number; sprintsAsideView?: unknown }> | undefined
-        // Version-gated migrations cannot be the only enforcement of the
-        // one-host-per-project invariant: a dev-HMR module swap (or any write
-        // path that stamps WORKSPACE_STORE_VERSION onto un-migrated state)
-        // leaves duplicate Automations hosts in a "current-version" envelope
-        // the migrate ladder will never look at again — exactly how the v63
-        // dedupe was bypassed in the wild. merge() runs on every hydration
-        // regardless of version, so the invariant self-heals here.
+        // Version-gated migrations cannot be the only enforcement of these
+        // workspace-row invariants: a dev-HMR module swap (or any write path that
+        // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
+        // un-migrated rows — duplicate Automations hosts, or a retired
+        // roadmap-mode workspace (store v65) — in a "current-version" envelope the
+        // migrate ladder will never look at again, exactly how the v63 dedupe was
+        // bypassed in the wild. merge() runs on every hydration regardless of
+        // version, so the invariants self-heal here.
         const rawWorkspaces = nameGenericWorkspaceAgents(
-          dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
+          dropRetiredRoadmapWorkspaces(
+            dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
+          ),
         )
         const hydrated = hydrateSprintEngineLocalRunSettings(
           rawWorkspaces,
@@ -1436,11 +1446,13 @@ function syncWorkspaceRegistryAcrossWindows(): void {
     const incoming = parsed?.state
     if (!incoming || !Array.isArray(incoming.workspaces)) return
     // Cross-window sync adopts another window's list without the migrate
-    // ladder, so a writer still holding pre-dedupe state (store v64) would
-    // re-import duplicate Automations hosts here. Dedupe is deterministic
-    // (earliest host per folder wins), so every window converges on the same
-    // survivor regardless of which window wrote last.
-    const incomingWorkspaces = dedupeAutomationsHostWorkspaces(incoming.workspaces as Workspace[])
+    // ladder, so a writer still holding pre-migration state would re-import
+    // duplicate Automations hosts (store v64) or a retired roadmap-mode
+    // workspace (store v65) here. Both filters are deterministic, so every
+    // window converges on the same list regardless of which window wrote last.
+    const incomingWorkspaces = dropRetiredRoadmapWorkspaces(
+      dedupeAutomationsHostWorkspaces(incoming.workspaces as Workspace[]),
+    )
     let appliedRegistrySerialized: string | null = null
     suppressNextPersistWrite = true
     try {
