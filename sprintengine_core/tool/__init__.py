@@ -47,6 +47,7 @@ from .commands.run import (
     cmd_triage_needs_input,
     cmd_vcs_commit,
     cmd_vcs_pr,
+    cmd_vcs_request_repo,
     cmd_vcs_status,
     runner_watch_delay_seconds,
 )

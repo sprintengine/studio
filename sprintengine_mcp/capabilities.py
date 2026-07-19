@@ -68,6 +68,7 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.artifact.ready",
     "sprintengine.vcs.status",
     "sprintengine.vcs.commit",
+    "sprintengine.vcs.request_repo",
     "sprintengine.run.get",
     "sprintengine.run.policy.get",
     "sprintengine.run.subscribe",

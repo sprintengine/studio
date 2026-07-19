@@ -1055,6 +1055,118 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 
+def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
+    """Bring a new sibling project into a running worktree-mode sprint on demand.
+
+    Reuses init's own provisioning path verbatim — `_declared_sibling_entries`
+    (which runs the T5 blast-radius gate) to build the entry and
+    `_ensure_repo_worktree` to create or adopt its tree — then appends the entry to
+    `vcs.repos`. Provision-then-append happens in one locked section, so a task that
+    targets the repo after this returns always finds a tree (the D4 ordering
+    contract). Re-issuing for an already-declared project adopts its existing tree
+    and returns success rather than a duplicate-id error (D5 idempotency).
+    """
+    from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
+    from sprintengine_core.tool.shell import (
+        _declared_sibling_entries,
+        _ensure_repo_worktree,
+        get_run_vcs,
+        vcs_repos,
+    )
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        vcs = get_run_vcs(state)
+        if not vcs:
+            raise SystemExit(
+                "This sprint is not in worktree mode, so it cannot bring in another project. "
+                "Only worktree-mode runs can expand; a single-repo run has no second tree to add."
+            )
+        raw_root = str(getattr(args, "root", None) or "").strip()
+        if not raw_root:
+            raise SystemExit("request_repo needs --root <path to the project to bring in>.")
+        repo_id = _requested_repo_id(getattr(args, "repo_id", None), raw_root)
+
+        workspace_root = workspace_root_for_state_path(args.state)
+        # Materialize the list shape before appending so a pre-`repos` store keeps its
+        # primary as entry zero instead of being replaced by the sibling alone.
+        raw_repos = vcs.get("repos")
+        if not isinstance(raw_repos, list) or not raw_repos:
+            raw_repos = vcs_repos(vcs)
+            vcs["repos"] = raw_repos
+        branch = str(raw_repos[0].get("branchName") or "").strip()
+
+        # Build the candidate entry through init's own path — this runs the T5 gate
+        # (`_declared_sibling_root`) and spells the entry shape in one place.
+        [candidate] = _declared_sibling_entries(
+            workspace_root, args.state, [{"id": repo_id, "root": raw_root}], branch=branch
+        )
+        candidate_root = resolve_vcs_path(workspace_root, candidate["root"]).resolve()
+
+        for stored in raw_repos:
+            if not isinstance(stored, dict):
+                continue
+            if resolve_vcs_path(workspace_root, str(stored.get("root") or "")).resolve() == candidate_root:
+                # Same project already declared (a retry or a re-issue): adopt its
+                # tree — create it if a prior attempt failed mid-provision — and
+                # return success rather than a duplicate.
+                _ensure_repo_worktree(workspace_root, stored)
+                return _vcs_request_repo_result(state, args, stored, adopted=True)
+            if str(stored.get("id") or "").strip() == repo_id:
+                raise SystemExit(
+                    f"This sprint already works in a project named {repo_id!r} at a different path. "
+                    f"Pick a different --repo name for {raw_root}."
+                )
+
+        _ensure_repo_worktree(workspace_root, candidate)
+        raw_repos.append(candidate)
+        return _vcs_request_repo_result(state, args, candidate, adopted=False)
+
+    return with_locked_state(args.state, run)
+
+
+def _requested_repo_id(explicit: Optional[str], raw_root: str) -> str:
+    """The sibling id for a requested repo: the given one, or the folder name.
+
+    Validated to the same character set init's `--repo <id>=<path>` requires, so a
+    tool-provisioned repo and a wizard-declared one carry ids a path and a task
+    field can both hold without quoting.
+    """
+    from sprintengine_core.tool.shell import PRIMARY_REPO_ID, SIBLING_REPO_ID_PATTERN
+
+    candidate = str(explicit or "").strip() or Path(raw_root).expanduser().name.strip().lower()
+    if not candidate:
+        raise SystemExit(f"request_repo could not derive a project name from {raw_root!r}; pass --repo <name>.")
+    if candidate == PRIMARY_REPO_ID:
+        raise SystemExit(
+            f"{PRIMARY_REPO_ID!r} is reserved for this sprint's main project; give the new project a different --repo name."
+        )
+    if not SIBLING_REPO_ID_PATTERN.match(candidate):
+        raise SystemExit(
+            f"Project name {candidate!r} is not usable as a project id: use lowercase letters, digits, dots, dashes, "
+            "or underscores, starting with a letter or digit. Pass an explicit --repo <name>."
+        )
+    return candidate
+
+
+def _vcs_request_repo_result(
+    state: Dict[str, Any], args: argparse.Namespace, repo: Dict[str, Any], *, adopted: bool
+) -> Dict[str, Any]:
+    from sprintengine_core.tool.state import append_event
+
+    verb = "adopted existing" if adopted else "provisioned"
+    message = f"Project {repo['id']!r} {verb} at {repo['worktreePath']} on {repo['branchName']}."
+    append_event(state, "run_worktree_ready", str(getattr(args, "id", None) or "agent"), message)
+    return {
+        "action": "vcs_request_repo",
+        "adopted": adopted,
+        "repo": repo,
+        "message": (
+            f"Project {repo['id']!r} is ready. Add a task targeting it (repo={repo['id']!r}); "
+            "a worker bound to its tree will pick the work up."
+        ),
+    }
+
+
 def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import create_run_pull_request
 
@@ -1506,6 +1618,7 @@ runner_set = cmd_runner_set
 triage_needs_input = cmd_triage_needs_input
 vcs_status = cmd_vcs_status
 vcs_commit = cmd_vcs_commit
+vcs_request_repo = cmd_vcs_request_repo
 vcs_pr = cmd_vcs_pr
 vcs_pr_status = cmd_vcs_pr_status
 vcs_pr_merge = cmd_vcs_pr_merge

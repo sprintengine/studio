@@ -185,6 +185,8 @@ def command_payload_to_namespace(
             summary=payload.get("summary"),
             path=list(payload.get("path") or payload.get("paths") or []),
         )
+    elif tool_name == "sprintengine.vcs.request_repo":
+        base.update(root=payload["root"], repo_id=payload.get("repoId"), id=payload["id"])
     elif tool_name == "sprintengine.vcs.pr":
         base.update(
             id=payload.get("id") or _actor_id(actor, "architect"),

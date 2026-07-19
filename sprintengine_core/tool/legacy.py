@@ -882,6 +882,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--path", action="append", default=[], help="Extra project-root-relative path to include beyond the task's owned and logged paths.")
     p.set_defaults(handler=run_commands.vcs_commit)
 
+    p = vcs_sub.add_parser(
+        "request-repo",
+        help="Bring another git project into this running sprint on demand (worktree mode only).",
+    )
+    p.add_argument("--root", required=True, help="Path (workspace-relative or absolute) to the sibling git project to bring in.")
+    p.add_argument("--id", required=True, help="Your agent id.")
+    p.add_argument("--repo", dest="repo_id", help="Preferred short project id. Defaults to the folder name.")
+    p.set_defaults(handler=run_commands.vcs_request_repo)
+
     p = vcs_sub.add_parser("pr", help="Push the run worktree branch and open a pull request via the GitHub CLI.")
     p.add_argument("--id", default="architect", help="Actor id opening the pull request.")
     p.add_argument("--base", help="Target base branch for the pull request. Defaults to the recorded base ref.")

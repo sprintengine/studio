@@ -322,6 +322,10 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     "sprintengine.artifact.request_changes": object_schema(["statePath", "artifactId", "id", "feedback"], {"artifactId": ARTIFACT_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "feedback": {"type": "string"}}),
     "sprintengine.vcs.status": object_schema(["statePath"], {}),
     "sprintengine.vcs.commit": object_schema(["statePath", "taskId", "id"], {"taskId": TASK_ID_PROPERTY, "id": AGENT_ID_PROPERTY, "summary": {"type": "string"}, "path": {"type": "array", "items": {"type": "string"}}}),
+    # `root` is deliberately NOT named `workspaceRoot`/`statePath`: those are the only
+    # path-checked fields at the MCP boundary, and this sibling path is meant to lie
+    # outside allowedRoots. The engine's `_declared_sibling_root` gate validates it.
+    "sprintengine.vcs.request_repo": object_schema(["statePath", "root", "id"], {"root": {"type": "string", "description": "Path to the sibling git project to bring into this sprint."}, "id": AGENT_ID_PROPERTY, "repoId": {"type": "string", "description": "Preferred short project id; defaults to the folder name."}}),
     "sprintengine.vcs.pr": object_schema(["statePath"], {"id": AGENT_ID_PROPERTY, "base": {"type": "string"}, "title": {"type": "string"}, "body": {"type": "string"}, "draft": {"type": "boolean"}, "noPush": {"type": "boolean"}}),
     "sprintengine.run.get": object_schema(["statePath"], {}),
     "sprintengine.run.policy.get": object_schema(["statePath"], {}),
