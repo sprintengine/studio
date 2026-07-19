@@ -1,4 +1,5 @@
 import { StatusDot } from '../../../ui/StatusDot'
+import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import type { ReviewRailRow } from './reviewRailModel'
 
 // The Reviews-door rail (MC-1708 T6, mockup §4): every walkthrough in this
@@ -18,7 +19,7 @@ export interface ReviewsRailProps {
 export function ReviewsRail({ rows, selectedReviewId, newSelected, onSelect, onNewReview }: ReviewsRailProps): JSX.Element {
   return (
     <>
-      <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-medium text-[color:var(--text-subtle)]">Reviews</div>
+      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Reviews</div>
       {rows.map((row) => {
         const selected = !newSelected && row.reviewId === selectedReviewId
         return (
@@ -27,22 +28,18 @@ export function ReviewsRail({ rows, selectedReviewId, newSelected, onSelect, onN
             type="button"
             aria-current={selected ? 'true' : undefined}
             onClick={() => onSelect(row.reviewId)}
-            className={`flex w-full items-start gap-2 rounded-[6px] px-2 py-1.5 text-left transition-colors ${
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
               selected
-                ? 'bg-[color:var(--bg-active)]'
+                ? 'bg-[color:var(--bg-selected)]'
                 : 'hover:bg-[color:var(--bg-hover)]'
             }`}
           >
-            <StatusDot tone={row.tone} label={row.dotLabel} className="mt-[5px]" />
+            <StatusDot tone={row.tone} size={7} label={row.dotLabel} />
             <span className="min-w-0 flex-1">
-              <span
-                className={`block truncate text-[12.5px] ${
-                  selected ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
-                }`}
-              >
+              <span className="block truncate text-[12px] font-medium text-[color:var(--text-strong)]">
                 {row.title}
               </span>
-              <span className="block truncate text-[11px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
+              <span className="block truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
             </span>
           </button>
         )
@@ -51,10 +48,10 @@ export function ReviewsRail({ rows, selectedReviewId, newSelected, onSelect, onN
         type="button"
         aria-current={newSelected ? 'true' : undefined}
         onClick={onNewReview}
-        className={`mt-1.5 flex w-full items-center gap-2 rounded-[6px] px-2 py-1.5 text-left text-[12.5px] transition-colors ${
+        className={`mt-1.5 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
           newSelected
-            ? 'bg-[color:var(--bg-active)] font-medium text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]'
+            ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
         }`}
       >
         <svg viewBox="0 0 16 16" className="icon-sm shrink-0" fill="none" aria-hidden="true">

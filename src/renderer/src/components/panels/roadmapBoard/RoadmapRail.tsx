@@ -8,6 +8,7 @@
 import React from 'react'
 
 import { StatusDot } from '../../ui/StatusDot'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 
 export type RoadmapRailRow = {
   roadmapRef: string
@@ -33,7 +34,7 @@ export function RoadmapRail({
 }): JSX.Element {
   return (
     <>
-      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-medium text-[color:var(--text-subtle)]">Roadmaps</div>
+      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Roadmaps</div>
       {rows.map((row) => {
         const selected = row.roadmapRef === selectedRef
         return (
@@ -42,7 +43,7 @@ export function RoadmapRail({
             type="button"
             onClick={() => onSelect(row.roadmapRef)}
             aria-current={selected ? 'true' : undefined}
-            className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+            className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
               selected
                 ? 'bg-[color:var(--bg-selected)]'
                 : 'hover:bg-[color:var(--bg-hover)]'
@@ -51,13 +52,17 @@ export function RoadmapRail({
             <StatusDot
               tone={row.active ? 'accent' : 'neutral'}
               pulse={row.running}
+              size={7}
               label={row.active ? 'Active roadmap' : 'Draft roadmap'}
             />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[13px] font-medium text-[color:var(--text-default)]" title={row.title}>
+              <span
+                className="truncate text-[12px] font-medium text-[color:var(--text-strong)]"
+                title={row.title}
+              >
                 {row.title}
               </span>
-              <span className="truncate text-[11px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
+              <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
             </span>
           </button>
         )
@@ -65,7 +70,7 @@ export function RoadmapRail({
       <button
         type="button"
         onClick={onNewRoadmap}
-        className="interactive mt-1.5 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-[13px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+        className={`interactive mt-1.5 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
           <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

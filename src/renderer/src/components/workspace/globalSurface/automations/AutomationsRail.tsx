@@ -24,7 +24,7 @@ export function AutomationsRail({
 }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
-      <div className="px-1 pb-1.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Automations</div>
+      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Automations</div>
       <ul className="flex min-w-0 flex-col gap-0.5">
         {entries.map((entry) => {
           const rail = automationRailState(entry, now)

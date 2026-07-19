@@ -23,7 +23,7 @@ import type { RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadma
 import { buildRoadmapRail, roadmapProgress, skipRoadmapEntry } from '../../../../../shared/sprintengine/roadmap-surface'
 import { serializeBacklogFrontmatterFields } from '../../../../../shared/backlog/frontmatter'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { Section, useConfirmDialog } from '../../ui'
+import { GhostButton, PrimaryButton, Section, useConfirmDialog } from '../../ui'
 import { newRoadmapFileContent } from '../../backlog/roadmapAuthoring'
 import { backlogRootPath, normalizeRelativePath } from '../../../utils/backlog'
 import { basename, joinFilePath, samePath, slugify } from '../../../utils/paths'
@@ -503,35 +503,20 @@ function buildBar(
             Merges: {active.roadmap.policy.merge === 'auto' ? 'automatic' : 'you approve'}
           </span>
         ) : null}
-        <button type="button" onClick={() => handlers.onEditPlan(file.roadmapRef)} className={quietBarButtonClass}>
-          Edit plan
-        </button>
+        <GhostButton onClick={() => handlers.onEditPlan(file.roadmapRef)}>Edit plan</GhostButton>
         {active && allPaused ? (
-          <button
-            type="button"
-            onClick={() => handlers.onResumeRoadmap(active)}
-            disabled={handlers.busyBoard}
-            className={quietBarButtonClass}
-          >
+          <GhostButton onClick={() => handlers.onResumeRoadmap(active)} disabled={handlers.busyBoard}>
             Resume
-          </button>
+          </GhostButton>
         ) : active && anyPausable ? (
-          <button
-            type="button"
-            onClick={() => void handlers.onPauseRoadmap(active)}
-            disabled={handlers.busyBoard}
-            className={quietBarButtonClass}
-          >
+          <GhostButton onClick={() => void handlers.onPauseRoadmap(active)} disabled={handlers.busyBoard}>
             Pause
-          </button>
+          </GhostButton>
         ) : null}
       </>
     ),
   }
 }
-
-const quietBarButtonClass =
-  'interactive rounded border border-[color:var(--border-default)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
 
 // The active roadmap's tracks, full-width across the canvas (mockup §2 drops the
 // max-width card squeeze). One column per track, each with its steering controls.
@@ -570,9 +555,7 @@ function RoadmapTracks({
           This roadmap has no tracks yet.
         </p>
         <RoadmapVocabulary />
-        <button type="button" onClick={() => onEditPlan(roadmap.roadmapRef)} className={primaryCtaClass}>
-          Edit plan
-        </button>
+        <PrimaryButton onClick={() => onEditPlan(roadmap.roadmapRef)}>Edit plan</PrimaryButton>
       </div>
     )
   }
@@ -655,12 +638,10 @@ function RoadmapDraftCanvas({
           </p>
         )}
         <div className="flex items-center gap-2">
-          <button type="button" onClick={onMakeActive} disabled={activating} className={primaryCtaClass}>
+          <PrimaryButton onClick={onMakeActive} disabled={activating}>
             {activating ? 'Making active…' : 'Make active'}
-          </button>
-          <button type="button" onClick={onEditPlan} className={quietBarButtonClass}>
-            Edit plan
-          </button>
+          </PrimaryButton>
+          <GhostButton onClick={onEditPlan}>Edit plan</GhostButton>
         </div>
       </div>
     </div>
@@ -678,9 +659,6 @@ function RoadmapVocabulary(): JSX.Element {
     </p>
   )
 }
-
-const primaryCtaClass =
-  'interactive inline-flex items-center gap-1.5 rounded-md border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] px-3 py-1.5 text-[12px] font-medium text-[color:var(--text-on-accent)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
 
 // The empty state IS the creation flow (mockup §1: never a dead end) — kept lean,
 // a heading + one CTA.
@@ -708,9 +686,9 @@ function RoadmapEmptyState({
         <RoadmapDoorGlyph />
       </div>
       <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">No roadmap yet</h3>
-      <button type="button" onClick={onCreate} disabled={creating} className={`mt-1 ${primaryCtaClass}`}>
+      <PrimaryButton onClick={onCreate} disabled={creating} className="mt-1">
         {creating ? 'Creating…' : 'Plan your roadmap'}
-      </button>
+      </PrimaryButton>
       {projectCount === 0 ? (
         <span className="mt-3 text-[11px] text-[color:var(--text-subtle)]">Open a project to plan a roadmap.</span>
       ) : null}
@@ -726,9 +704,7 @@ function RoadmapLoadError({ message, onRetry }: { message: string; onRetry: () =
       <p className="max-w-[42ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
         We couldn’t load your roadmap: {message}. This is usually temporary — try again in a moment.
       </p>
-      <button type="button" onClick={onRetry} className={quietBarButtonClass}>
-        Try again
-      </button>
+      <GhostButton onClick={onRetry}>Try again</GhostButton>
     </div>
   )
 }
@@ -741,9 +717,7 @@ function RoadmapCanvasError({ message, onRetry }: { message: string; onRetry: ()
       <p className="max-w-[42ch] text-[12px] leading-5 text-[color:var(--tone-warn)]">
         Could not read this roadmap: {message}
       </p>
-      <button type="button" onClick={onRetry} className={quietBarButtonClass}>
-        Try again
-      </button>
+      <GhostButton onClick={onRetry}>Try again</GhostButton>
     </div>
   )
 }
