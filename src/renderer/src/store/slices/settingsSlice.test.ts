@@ -303,7 +303,7 @@ const carrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   connectorsSurface: { open: false, initialView: null },
-  roadmapSurface: { open: false },
+  activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,
@@ -326,12 +326,25 @@ assert.equal(carrier.connectorsSurface.open, true)
 slice.closeConnectorsSurface()
 assert.equal(carrier.connectorsSurface.open, false)
 
-// The instance-global Roadmap surface flag toggles like Connectors (per-window,
-// unsynced/unpersisted — see extractSettingsFields, which omits it).
+// The door-routed full-page surface (global-surfaces epic 1704) is a mount kind,
+// not an overlay: openGlobalSurface sets the active surface id, closeGlobalSurface
+// clears it. Per-window and transient (unsynced/unpersisted — see
+// extractSettingsFields, which omits it), like the Connectors/Roadmap flags.
+slice.openGlobalSurface('roadmap')
+assert.equal(carrier.activeGlobalSurface, 'roadmap')
+slice.openGlobalSurface('automations')
+assert.equal(carrier.activeGlobalSurface, 'automations', 'opening another door replaces the active surface')
+slice.closeGlobalSurface()
+assert.equal(carrier.activeGlobalSurface, null)
+
+// The Roadmap door + Backlog "Open Roadmap" route to the full-page surface, NOT a
+// centered overlay: openRoadmapSurface sets activeGlobalSurface. The legacy
+// roadmapSurface.open store flag + its overlay are retired (T2).
+carrier.activeGlobalSurface = null
 slice.openRoadmapSurface()
-assert.equal(carrier.roadmapSurface.open, true)
-slice.closeRoadmapSurface()
-assert.equal(carrier.roadmapSurface.open, false)
+assert.equal(carrier.activeGlobalSurface, 'roadmap', 'openRoadmapSurface routes to the door-routed surface')
+assert.equal('roadmapSurface' in carrier, false, 'the legacy overlay store flag is gone')
+slice.closeGlobalSurface()
 
 // Sprints aside view: partial patches merge into the existing axes so setting
 // one axis never resets the others.
@@ -403,7 +416,7 @@ const permissionCarrier = {
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   connectorsSurface: { open: false, initialView: null },
-  roadmapSurface: { open: false },
+  activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
   sprintEnginesAsideOpen: false,

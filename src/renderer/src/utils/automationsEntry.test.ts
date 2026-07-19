@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict'
-import type { Workspace } from '../types/workspace'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
 import {
-  listAutomationsHostWorkspaces,
-  type AutomationsHostCandidate,
+  listAutomationProjectFolders,
+  type AutomationProjectFolderCandidate,
 } from './automationsEntry'
 
 function run(name: string, body: () => void): void {
@@ -16,56 +14,48 @@ function run(name: string, body: () => void): void {
   }
 }
 
-// Only id/mode/name/folderPath are read; the cast keeps fixtures readable at
-// this test boundary without an `any`.
-function ws(
-  id: string,
-  mode: Workspace['mode'],
-  name: string,
-  folderPath: string | null,
-): AutomationsHostCandidate {
-  return { id, mode, name, folderPath } as AutomationsHostCandidate
+function ws(folderPath: string | null): AutomationProjectFolderCandidate {
+  return { folderPath }
 }
 
-const HOST = AUTOMATIONS_HOST_WORKSPACE_MODE
+// The full-page Automations surface (item 1707) creates an automation in a
+// project the user chooses; this lists those project folders. Only folderPath is
+// read.
 
-run('lists only automations-host workspaces, in order', () => {
+run('lists distinct project folders in first-seen order', () => {
   const workspaces = [
-    ws('std', 'standard', 'App', '/proj/app'),
-    ws('host-app', HOST, 'Automations', '/proj/app'),
-    ws('sprint', 'sprintengine', 'Sprint', '/proj/lib'),
-    ws('host-lib', HOST, 'Automations', '/proj/lib'),
+    ws('/proj/app'),
+    ws('/proj/lib'),
+    ws('/proj/app'), // second workspace in the same project — deduped
   ]
-  assert.deepEqual(listAutomationsHostWorkspaces(workspaces), [
-    { id: 'host-app', name: 'Automations', folderPath: '/proj/app', displayName: 'app' },
-    { id: 'host-lib', name: 'Automations', folderPath: '/proj/lib', displayName: 'lib' },
+  assert.deepEqual(listAutomationProjectFolders(workspaces), [
+    { folderPath: '/proj/app', displayName: 'app' },
+    { folderPath: '/proj/lib', displayName: 'lib' },
   ])
 })
 
-run('empty when no automations-host workspaces exist', () => {
+run('dedupes case- and separator-insensitively, keeping the first-seen path', () => {
   const workspaces = [
-    ws('std', 'standard', 'App', '/proj/app'),
-    ws('sprint', 'sprintengine', 'Sprint', '/proj/lib'),
+    ws('/work/Checkout-Service'),
+    ws('/work/checkout-service/'), // same project, trailing slash + case drift
+    ws('C:\\work\\billing'),
+    ws('C:\\work\\billing\\'),
   ]
-  assert.deepEqual(listAutomationsHostWorkspaces(workspaces), [])
-})
-
-run('displayName is the folder basename (default-named hosts disambiguate by folder)', () => {
-  const workspaces = [
-    ws('a', HOST, 'Automations', '/work/projects/checkout-service/'),
-    ws('b', HOST, 'Automations', 'C:\\work\\billing'),
-  ]
-  assert.deepEqual(
-    listAutomationsHostWorkspaces(workspaces).map((entry) => entry.displayName),
-    ['checkout-service', 'billing'],
-  )
-})
-
-run('displayName falls back to the workspace name when there is no folder', () => {
-  const workspaces = [ws('a', HOST, 'My Automations', null)]
-  assert.deepEqual(listAutomationsHostWorkspaces(workspaces), [
-    { id: 'a', name: 'My Automations', folderPath: null, displayName: 'My Automations' },
+  assert.deepEqual(listAutomationProjectFolders(workspaces), [
+    { folderPath: '/work/Checkout-Service', displayName: 'Checkout-Service' },
+    { folderPath: 'C:\\work\\billing', displayName: 'billing' },
   ])
+})
+
+run('skips folder-less workspaces (chat / standard with no root)', () => {
+  const workspaces = [ws(null), ws('/proj/app'), ws(null)]
+  assert.deepEqual(listAutomationProjectFolders(workspaces), [
+    { folderPath: '/proj/app', displayName: 'app' },
+  ])
+})
+
+run('empty when no workspace has a folder', () => {
+  assert.deepEqual(listAutomationProjectFolders([ws(null), ws(null)]), [])
 })
 
 console.log('all automationsEntry tests passed')

@@ -63,7 +63,6 @@ import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSectio
 import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
 import { FilePreviewPane } from '../ui/FilePreviewPane'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
-import { RoadmapEditorPanel } from '../backlog/RoadmapEditorPanel'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
@@ -1603,7 +1602,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       agentSessions={agentSessions}
       onAgentFlyoutOpen={refreshAgentSessions}
       onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
-      onRoadmapSaved={() => void (selected && refreshAndSelect(selected.relativePath))}
       previewedMockup={previewedMockup}
       onOpenMockup={openMockupPreview}
       onCloseMockupPreview={() => setPreviewedMockup(null)}
@@ -2137,7 +2135,6 @@ function BacklogDetail({
   agentSessions,
   onAgentFlyoutOpen,
   onSendToAgent,
-  onRoadmapSaved,
   previewedMockup,
   onOpenMockup,
   onCloseMockupPreview,
@@ -2187,8 +2184,6 @@ function BacklogDetail({
   agentSessions: TerminalSessionSnapshot[] | null
   onAgentFlyoutOpen: () => void
   onSendToAgent: (item: BacklogItem, sessionId: string) => void
-  // Re-scan + reselect this roadmap after the editor writes it to disk.
-  onRoadmapSaved: () => void
   // Inline mockup preview (MC-1485 / T4): the currently-open mockup (rendered in
   // place of the item content), the open handler the Mockups section calls, and
   // the back/close clear. Owned by the panel so it survives this component's
@@ -2249,22 +2244,6 @@ function BacklogDetail({
   }
   if (!selected) {
     return <DetailState body="Select an item to preview." />
-  }
-
-  // A roadmap opens the authoring editor instead of the plain item preview: its
-  // body IS an ordered plan of tracks + steps, edited directly (MC-1618 / T4).
-  if (isRoadmapContent(selected.relativePath, selected.rawType)) {
-    return (
-      <RoadmapEditorPanel
-        roadmapItem={selected}
-        items={items}
-        onSaved={onRoadmapSaved}
-        onOpenInEditor={actions.openInEditor}
-        onNavigate={onNavigate}
-        showBack={showBack}
-        onBack={onBack}
-      />
-    )
   }
 
   // Inline mockup preview (MC-1485 / T4): while a mockup is open it replaces the

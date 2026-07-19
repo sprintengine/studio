@@ -6,6 +6,7 @@ import type {
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
   AutomationsEngineStatusResult,
+  AutomationsInstanceListResult,
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsDefinitionsChangedEvent,
@@ -24,6 +25,7 @@ import {
   AUTOMATIONS_DELETE_CHANNEL,
   AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   AUTOMATIONS_GET_CHANNEL,
+  AUTOMATIONS_INSTANCE_LIST_CHANNEL,
   AUTOMATIONS_LIST_CHANNEL,
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
@@ -45,6 +47,7 @@ type AutomationsIpcRenderer = {
 export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   ElectronApi,
   | 'listAutomations'
+  | 'listInstanceAutomations'
   | 'getAutomation'
   | 'createAutomation'
   | 'updateAutomation'
@@ -60,6 +63,8 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
   return {
     listAutomations: (input: AutomationsWorkspaceInput): Promise<AutomationsListResult> =>
       renderer.invoke(AUTOMATIONS_LIST_CHANNEL, input) as Promise<AutomationsListResult>,
+    listInstanceAutomations: (): Promise<AutomationsInstanceListResult> =>
+      renderer.invoke(AUTOMATIONS_INSTANCE_LIST_CHANNEL) as Promise<AutomationsInstanceListResult>,
     getAutomation: (input: AutomationsDefinitionInput): Promise<AutomationsDefinitionResult> =>
       renderer.invoke(AUTOMATIONS_GET_CHANNEL, input) as Promise<AutomationsDefinitionResult>,
     createAutomation: (input: AutomationsCreateInput): Promise<AutomationsDefinitionResult> =>

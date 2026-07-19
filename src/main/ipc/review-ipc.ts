@@ -14,15 +14,20 @@ import type {
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
   ReviewIngestResult,
+  ReviewListResult,
   ReviewPostReviewInput,
   ReviewPostReviewResult,
   ReviewProbeResult,
   ReviewSourceInput,
   ReviewSourceProbe,
+  ReviewStateReadResult,
+  ReviewStateWriteResult,
   ReviewTarget,
 } from '../../shared/electron-api'
-import { validateReviewBrief } from '../../shared/review'
+import { validateReviewBrief, type ReviewWorkspaceState } from '../../shared/review'
 import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-service'
+import { enumerateReviews } from '../review/review-index'
+import { readReviewState, writeReviewState } from '../review/review-state-store'
 import type { ReviewBriefRunService } from '../review/brief-run-service'
 // Side-effect import: registers the 'pull-request' source provider (MC-1678) so
 // the service can ingest GitHub PR URLs. The local branch/patch providers register
@@ -106,6 +111,43 @@ export function registerReviewIpc(
   ipcMain.handle('review:read-brief', async (_event, target: ReviewTarget): Promise<ReviewBriefReadResult> => {
     try {
       return await readBrief(reviewChangeSetDir(target.workspaceRoot, target.workspaceId))
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // Reviewer state (MC-1708): the human's read progress, view mode, and comments,
+  // persisted on disk beside the change set and keyed by review id — the store
+  // round-trip the retired `review` workspace used to carry. Read returns
+  // { state: null } before the reviewer has started; write validates then persists
+  // atomically. Both resolve the same per-review-id directory the change set uses.
+  ipcMain.handle('review:read-state', async (_event, target: ReviewTarget): Promise<ReviewStateReadResult> => {
+    try {
+      return await readReviewState(reviewChangeSetDir(target.workspaceRoot, target.workspaceId))
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle(
+    'review:write-state',
+    async (_event, target: ReviewTarget, state: ReviewWorkspaceState): Promise<ReviewStateWriteResult> => {
+      try {
+        await writeReviewState(reviewChangeSetDir(target.workspaceRoot, target.workspaceId), state)
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
+  // Instance-level review index (MC-1708): enumerate every review across the given
+  // project roots, independent of any workspace. The renderer passes its known
+  // project folders; a root with no reviews contributes nothing. Powers the
+  // Reviews surface rail (MC-1708 T6).
+  ipcMain.handle('review:list', async (_event, roots: string[]): Promise<ReviewListResult> => {
+    try {
+      return { ok: true, reviews: await enumerateReviews(Array.isArray(roots) ? roots : []) }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }

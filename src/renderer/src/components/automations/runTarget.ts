@@ -1,5 +1,5 @@
 import type { AutomationsRunEvent } from '../../../../shared/automations/contracts'
-import type { DiagnosticLogInput } from '../../types/workspace'
+import type { DiagnosticLogInput, NotificationNavigationTarget } from '../../types/workspace'
 
 // The one source of truth for the automations run notification deep-link
 // contract, shared by the producers (the Automations screen's manual Run-now and
@@ -38,6 +38,37 @@ export function decodeRunRef(ref: string): RunTargetRef | null {
   return null
 }
 
+// The door-routed deep-link kind. Once the full-page Automations surface (epic
+// 1704 / item 1707) is wired, a run notification opens that door and selects the
+// run's automation, instead of revealing the now rail-hidden host workspace. The
+// ref payload is identical to the legacy run target (automationId + runId +
+// folderPath), so the two kinds share `encodeRunRef`/`decodeRunRef`; only the
+// kind differs, letting the notification-action provider route the door path
+// while the legacy reveal path keeps working until the surface consumes it.
+export const AUTOMATIONS_DOOR_TARGET_KIND = 'automations-door'
+
+// Build the door navigation target for a run. The surface consumer (T4) reads it
+// with `decodeAutomationTargetRef` and opens the door at the automation.
+export function automationsDoorTarget(
+  automationId: string,
+  runId: string,
+  folderPath: string | null,
+): NotificationNavigationTarget {
+  return { kind: AUTOMATIONS_DOOR_TARGET_KIND, ref: encodeRunRef(automationId, runId, folderPath) }
+}
+
+// Decode a navigation target of EITHER the legacy run kind or the door kind into
+// the shared run ref, or null for any other kind / malformed ref. A single
+// decode both kinds share, so a consumer accepts both during the migration
+// without forking the parse.
+export function decodeAutomationTargetRef(
+  target: { kind: string; ref?: string } | null | undefined,
+): RunTargetRef | null {
+  if (!target || typeof target.ref !== 'string') return null
+  if (target.kind !== RUN_TARGET_KIND && target.kind !== AUTOMATIONS_DOOR_TARGET_KIND) return null
+  return decodeRunRef(target.ref)
+}
+
 // The notification a background (scheduled) run event should raise, or null
 // when it must be ignored. Disjoint from T6's manual Run-now by trigger: only
 // `timer` runs notify here, and only failed/blocked terminal states (completed
@@ -64,7 +95,9 @@ export function scheduledRunNotification(
       ? 'This scheduled run did not finish. Open it to see what stopped it.'
       : 'This scheduled run is blocked and cannot continue. Open it to see why.',
     workspaceId: event.workspaceId,
-    navigationTarget: { kind: RUN_TARGET_KIND, ref: encodeRunRef(event.automationId, event.runId, resolveFolderPath()) },
+    // The full-page Automations door target (item 1707): Open opens the door and
+    // selects this run's automation, not the retired host workspace.
+    navigationTarget: automationsDoorTarget(event.automationId, event.runId, resolveFolderPath()),
   }
 }
 

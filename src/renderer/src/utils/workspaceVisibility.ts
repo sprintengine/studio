@@ -11,12 +11,15 @@ export function isAutomationsHostWorkspace(workspace: WorkspaceModeInput): boole
 }
 
 // True when the workspace should not appear in the normal workspace rail.
-// Hidden-ness is derived from the mode, never a persisted field. The Automations
-// workspace is now a visible, user-created workspace type that hosts its run
-// terminals in plain sight, so nothing is currently rail-hidden. The predicate is
-// retained as the single chokepoint for any future hidden mode.
-export function isHiddenFromRail(_workspace: WorkspaceModeInput): boolean {
-  return false
+// Hidden-ness is derived from the mode, never a persisted field. Automations are
+// now an instance-level surface (the sidebar Automations door, epic 1704), so
+// their host workspaces are kept only as background runtime containers for
+// agent-backed runs — they stay in the store, in window assignments, and
+// mounted/revealable, but never render as a Projects-list row, a switch target,
+// or a command-palette result. This is the single chokepoint every rail-facing
+// list consults (sidebar, WorkspaceManager, command palette).
+export function isHiddenFromRail(workspace: WorkspaceModeInput): boolean {
+  return isAutomationsHostWorkspace(workspace)
 }
 
 // True when the user archived the workspace (Sprints aside row action).

@@ -82,15 +82,6 @@ export type ConnectorsSurfaceState = {
   initialView: 'browse' | 'installed' | null
 }
 
-export type RoadmapSurfaceState = {
-  /** The instance-global Roadmap surface (MC-1689), opened from the sidebar door.
-   *  A store-level overlay mirroring `connectorsSurface`: per-window and transient
-   *  (absent from extractSettingsFields / partializeWorkspaceStoreState), so the
-   *  sync bus never replicates it across windows and it is not persisted. The
-   *  roadmap has one plan per Multicode, so no deep-link view is needed. */
-  open: boolean
-}
-
 export const defaultLearningSettings = (): LearningSettings => ({
   showTipsOnStartup: true,
   lastShownTipId: null,
@@ -962,7 +953,16 @@ export interface SettingsSliceState {
   settingsOverlay: SettingsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
   connectorsSurface: ConnectorsSurfaceState
-  roadmapSurface: RoadmapSurfaceState
+  // The active door-routed full-page surface for this window (global-surfaces
+  // epic 1704): a registered surface id (e.g. 'roadmap') or null when a
+  // workspace — not a door — owns the card region. Parallel to
+  // connectorsSurface (per-window and transient: omitted from
+  // extractSettingsFields / partializeWorkspaceStoreState, so never persisted
+  // and never replicated across windows). Unlike the Connectors/Settings
+  // overlays this is a MOUNT KIND that pre-empts the workspace card region
+  // rather than floating a dialog over it, so opening a door and activating a
+  // workspace are mutually exclusive — the sidebar selection invariant.
+  activeGlobalSurface: string | null
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -1006,8 +1006,16 @@ export interface SettingsSliceActions {
   closeRunSummaryOverlay: () => void
   openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   closeConnectorsSurface: () => void
+  // The Roadmap door + the Backlog "Open Roadmap" affordance route here; a named
+  // convenience over openGlobalSurface('roadmap') so every caller opens the same
+  // door-routed full-page surface (global-surfaces epic 1704).
   openRoadmapSurface: () => void
-  closeRoadmapSurface: () => void
+  // Open/close the door-routed full-page surface (global-surfaces epic 1704).
+  // `openGlobalSurface` is the generic entry a module's door calls with its own
+  // registered surface id; `closeGlobalSurface` returns the card region to the
+  // active workspace. Activating a workspace clears it too (see workspacesSlice).
+  openGlobalSurface: (surfaceId: string) => void
+  closeGlobalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
@@ -1101,7 +1109,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
     connectorsSurface: { open: false, initialView: null },
-    roadmapSurface: { open: false },
+    activeGlobalSurface: null,
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
@@ -1193,14 +1201,23 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.connectorsSurface.initialView = null
       }),
 
+    // The Roadmap door + the Backlog "Open Roadmap" affordance route to the
+    // door-routed full-page surface (global-surfaces epic 1704). A named
+    // convenience over openGlobalSurface('roadmap') so every caller opens the same
+    // surface; the legacy centered overlay + its store flag are retired (T2).
     openRoadmapSurface: () =>
       set((state) => {
-        state.roadmapSurface.open = true
+        state.activeGlobalSurface = 'roadmap'
       }),
 
-    closeRoadmapSurface: () =>
+    openGlobalSurface: (surfaceId) =>
       set((state) => {
-        state.roadmapSurface.open = false
+        state.activeGlobalSurface = surfaceId
+      }),
+
+    closeGlobalSurface: () =>
+      set((state) => {
+        state.activeGlobalSurface = null
       }),
 
     setCliRuntime: (cli, update) =>

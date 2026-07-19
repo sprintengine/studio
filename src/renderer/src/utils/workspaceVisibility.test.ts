@@ -30,9 +30,10 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   [SWITCHBOARD_WORKSPACE_MODE]: false,
   [MULTILOOP_WORKSPACE_MODE]: false,
   [GUIDED_BRIEF_WORKSPACE_MODE]: false,
-  // The Automations workspace is now a visible, user-created type that hosts its
-  // run terminals in plain sight, so nothing is currently rail-hidden.
-  [AUTOMATIONS_HOST_WORKSPACE_MODE]: false,
+  // Automations moved to an instance-level surface (the sidebar door), so their
+  // host workspaces are rail-hidden background runtime containers — never a
+  // Projects-list row, switch target, or palette result.
+  [AUTOMATIONS_HOST_WORKSPACE_MODE]: true,
 }
 
 const BUNDLED_MODES = Object.keys(EXPECTED_HIDDEN) as BundledWorkspaceMode[]

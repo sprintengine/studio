@@ -9,13 +9,17 @@ import type {
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
   ReviewIngestResult,
+  ReviewListResult,
   ReviewPostReviewInput,
   ReviewPostReviewResult,
   ReviewProbeResult,
   ReviewSourceInput,
   ReviewSourceProbe,
+  ReviewStateReadResult,
+  ReviewStateWriteResult,
   ReviewTarget,
 } from '../../shared/electron-api'
+import type { ReviewWorkspaceState } from '../../shared/review'
 
 export const reviewApi = {
   reviewDetectSource: (input: ReviewSourceInput): Promise<ReviewSourceProbe> =>
@@ -34,6 +38,11 @@ export const reviewApi = {
     ipcRenderer.invoke('review:ask-guide', input),
   reviewPostReview: (input: ReviewPostReviewInput): Promise<ReviewPostReviewResult> =>
     ipcRenderer.invoke('review:post-review', input),
+  reviewReadState: (target: ReviewTarget): Promise<ReviewStateReadResult> =>
+    ipcRenderer.invoke('review:read-state', target),
+  reviewWriteState: (target: ReviewTarget, state: ReviewWorkspaceState): Promise<ReviewStateWriteResult> =>
+    ipcRenderer.invoke('review:write-state', target, state),
+  reviewList: (roots: string[]): Promise<ReviewListResult> => ipcRenderer.invoke('review:list', roots),
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
     const handler = (_: IpcRendererEvent, event: ReviewBriefRunEvent) => cb(event)
     ipcRenderer.on('review:brief-run-event', handler)
@@ -49,5 +58,8 @@ export const reviewApi = {
   | 'reviewStartBriefRun'
   | 'reviewAskGuide'
   | 'reviewPostReview'
+  | 'reviewReadState'
+  | 'reviewWriteState'
+  | 'reviewList'
   | 'onReviewBriefRunEvent'
 >

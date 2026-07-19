@@ -19,6 +19,7 @@ import type {
   AutomationsDefinitionResult,
   AutomationsDeleteResult,
   AutomationsEngineStatusResult,
+  AutomationsInstanceListResult,
   AutomationsListResult,
   AutomationsProvidersResult,
   AutomationsDefinitionsChangedEvent,
@@ -125,7 +126,14 @@ import type {
   WorkspaceSyncEvent,
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
-import type { CommentSync, ReviewBrief, ReviewChangeSet, ReviewComment } from './review'
+import type {
+  CommentSync,
+  ReviewBrief,
+  ReviewChangeSet,
+  ReviewComment,
+  ReviewSourceKind,
+  ReviewWorkspaceState,
+} from './review'
 
 export type SaveDialogOptions = {
   title?: string
@@ -2322,6 +2330,42 @@ export type ReviewPostReviewResult =
   | { ok: true; reviewUrl?: string; outcomes: ReviewCommentPostOutcome[] }
   | { ok: false; error: string }
 
+// Reviewer state persistence (MC-1708). The human's mutable review progress moved
+// off the retired `review` workspace's `Workspace.reviewState` store field onto
+// disk beside the change set (`<reviewDir>/state.json`), keyed by review id so it
+// is reachable without any workspace. `state: null` means the reviewer has not
+// started this review yet; an invalid on-disk state comes back as `ok: false` so a
+// corrupted file surfaces instead of silently resetting comments/read progress.
+export type ReviewStateReadResult =
+  | { ok: true; state: ReviewWorkspaceState | null }
+  | { ok: false; error: string }
+
+export type ReviewStateWriteResult = { ok: true } | { ok: false; error: string }
+
+// One review in the instance-level index (MC-1708). The Reviews surface enumerates
+// every review across the known project roots (scanning `.multi-code/review/`),
+// independent of the retired workspace type. Each entry carries the identity the
+// rail shows (project, title, source) plus the state-line inputs (walkthrough
+// presence + step count, files read vs total, pending/posted comment counts).
+export interface ReviewIndexEntry {
+  reviewId: string
+  workspaceRoot: string
+  projectName: string
+  title: string
+  sourceKind: ReviewSourceKind
+  fetchedAt: string
+  fileCount: number
+  hasWalkthrough: boolean
+  stepCount: number
+  readFileCount: number
+  pendingComments: number
+  postedComments: number
+}
+
+export type ReviewListResult =
+  | { ok: true; reviews: ReviewIndexEntry[] }
+  | { ok: false; error: string }
+
 // Scan-time id allocation: the renderer hands the main process every scanned
 // item with its current frontmatter id (or null), and the service writes the
 // next sequential id into the frontmatter of those without one. `assignments`
@@ -2488,6 +2532,12 @@ export type ElectronApi = {
   // Automations platform (per-project scheduled agent automations). The renderer
   // reads/writes only through these channels; the engine owns the on-disk store.
   listAutomations: (input: AutomationsWorkspaceInput) => Promise<AutomationsListResult>
+  /**
+   * Instance-wide automation index: every automation across every known project
+   * root with live rail state (status, last-run outcome/time, running-now). The
+   * full-page Automations surface reads this instead of one host folder's list.
+   */
+  listInstanceAutomations: () => Promise<AutomationsInstanceListResult>
   getAutomation: (input: AutomationsDefinitionInput) => Promise<AutomationsDefinitionResult>
   createAutomation: (input: AutomationsCreateInput) => Promise<AutomationsDefinitionResult>
   updateAutomation: (input: AutomationsUpdateInput) => Promise<AutomationsDefinitionResult>
@@ -2933,5 +2983,8 @@ export type ElectronApi = {
   reviewStartBriefRun: (input: ReviewBriefRunInput) => Promise<ReviewBriefRunResult>
   reviewAskGuide: (input: ReviewAskGuideInput) => Promise<ReviewAskGuideResult>
   reviewPostReview: (input: ReviewPostReviewInput) => Promise<ReviewPostReviewResult>
+  reviewReadState: (target: ReviewTarget) => Promise<ReviewStateReadResult>
+  reviewWriteState: (target: ReviewTarget, state: ReviewWorkspaceState) => Promise<ReviewStateWriteResult>
+  reviewList: (roots: string[]) => Promise<ReviewListResult>
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => () => void
 }

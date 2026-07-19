@@ -292,6 +292,84 @@ export function isTerminalRoadmapStatus(status: BacklogItemStatusPayload | undef
 }
 
 // ---------------------------------------------------------------------------
+// Rail model: every roadmap file in the Multicode, with the single active one
+// marked. The one-active-roadmap rule (epic 1687 D1) gets its visible home here —
+// extra roadmap files surface as DRAFTS instead of a silent newest-id pick or a
+// hidden "archive the extras" warning. The active roadmap is the one the
+// orchestrator runs (readRoadmapStates' single entry); every other file is a draft.
+// ---------------------------------------------------------------------------
+
+// One roadmap file as the rail lists it: its project-relative path (its stable
+// identity), display title, and scan-minted backlog id (drafts sort newest-first
+// by it, mirroring the orchestrator's own pickActiveRoadmap tiebreak).
+export type RoadmapRailFile = {
+  roadmapRef: string
+  title: string
+  numericId?: number
+}
+
+export type RoadmapRailEntry = {
+  roadmapRef: string
+  title: string
+  // The single orchestrated roadmap is active; every other file is a draft.
+  active: boolean
+}
+
+// Normalize a project-relative roadmap ref for identity comparison (slashes + no
+// leading slash), so a scan path and the orchestrator's activeRef compare on the
+// same footing.
+function normalizeRoadmapRef(ref: string): string {
+  return ref.replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
+// Classify every roadmap file into the rail: the one whose ref matches `activeRef`
+// is active, the rest are drafts. Active sorts first (it owns the canvas by
+// default); drafts follow newest-first (highest backlog id, then path desc) so the
+// order matches which draft the orchestrator would promote next. Pure and total —
+// an activeRef naming no listed file yields an all-draft rail rather than
+// inventing a phantom row, and a file is never marked active twice.
+export function buildRoadmapRail(
+  files: ReadonlyArray<RoadmapRailFile>,
+  activeRef: string | null,
+): RoadmapRailEntry[] {
+  const active = activeRef ? normalizeRoadmapRef(activeRef) : null
+  return files
+    .map((file) => ({
+      roadmapRef: file.roadmapRef,
+      title: file.title,
+      numericId: file.numericId,
+      active: active !== null && normalizeRoadmapRef(file.roadmapRef) === active,
+    }))
+    .sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1
+      const idA = a.numericId ?? -1
+      const idB = b.numericId ?? -1
+      if (idA !== idB) return idB - idA
+      return normalizeRoadmapRef(b.roadmapRef).localeCompare(normalizeRoadmapRef(a.roadmapRef))
+    })
+    .map(({ roadmapRef, title, active: isActive }) => ({ roadmapRef, title, active: isActive }))
+}
+
+// The active roadmap's progress across all its tracks: how many steps are done,
+// the 1-based step it is on (done + 1, clamped to total), the total step count,
+// and how many sprints are running. `total` 0 means nothing is planned yet. Drives
+// both the rail's "step N of M" active state line and the surface bar sub
+// ("N tracks · M steps · K running"). Track count is the lane count itself.
+export type RoadmapProgress = { done: number; step: number; total: number; running: number }
+
+export function roadmapProgress(lanes: ReadonlyArray<RoadmapBoardLane>): RoadmapProgress {
+  let done = 0
+  let total = 0
+  let running = 0
+  for (const lane of lanes) {
+    done += lane.doneCount
+    total += lane.total
+    for (const unit of lane.units) if (unit.state === 'running') running += 1
+  }
+  return { done, step: total === 0 ? 0 : Math.min(done + 1, total), total, running }
+}
+
+// ---------------------------------------------------------------------------
 // Merge order: which projects a repo's pull request must wait for.
 // ---------------------------------------------------------------------------
 

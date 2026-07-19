@@ -144,6 +144,36 @@ state = useWorkspaceStore.getState()
 assert.equal(state.workspaceWindows.length, 1)
 assert.deepEqual(state.workspaceWindows[0]?.workspaceIds, [secondId, firstId, soloDevId])
 
+// Selection invariant (global-surfaces epic 1704): opening a door-routed
+// full-page surface must not touch workspace state, and activating a workspace
+// must clear the surface — so the sidebar shows exactly one selected thing (a
+// door XOR a project) and the workspace layers behind stay intact on return.
+useWorkspaceStore.getState().openGlobalSurface('roadmap')
+assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'roadmap')
+assert.equal(
+  useWorkspaceStore.getState().activeWorkspaceId,
+  firstId,
+  'opening a surface leaves the active workspace (and its layers) untouched',
+)
+useWorkspaceStore.getState().setActiveWorkspace(secondId)
+assert.equal(useWorkspaceStore.getState().activeWorkspaceId, secondId)
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  null,
+  'activating a workspace clears the active surface (door XOR project)',
+)
+// The per-window activation path clears it too.
+useWorkspaceStore.getState().openGlobalSurface('roadmap')
+useWorkspaceStore.getState().setActiveWorkspaceForWindow(
+  useWorkspaceStore.getState().primaryWorkspaceWindowId,
+  firstId,
+)
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  null,
+  'setActiveWorkspaceForWindow clears the active surface as well',
+)
+
 useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/src', ''])
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,

@@ -159,11 +159,6 @@ const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
 // via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
 const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
 
-// The instance-global Roadmap surface (MC-1689). Same pattern as Connectors: a
-// code-split store overlay mounted only while open, so its orchestrator-state polling
-// never runs on boot. Opened via `openRoadmapSurface` from the sidebar Roadmap door.
-const RoadmapSurface = React.lazy(() => import('../panels/RoadmapSurface'))
-
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -291,7 +286,6 @@ export default function WorkspaceManager() {
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
-  const roadmapEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'roadmap'))
   const voiceDictationEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'voice-dictation'))
   const voiceDictation = useVoiceDictation()
   const onboardingStep = useWorkspaceStore((s) => s.appSettings.onboardingStep)
@@ -321,7 +315,9 @@ export default function WorkspaceManager() {
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
   const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
   const closeConnectorsSurface = useWorkspaceStore((s) => s.closeConnectorsSurface)
-  const roadmapSurfaceOpen = useWorkspaceStore((s) => s.roadmapSurface.open)
+  // The door-routed full-page surface for this window (global-surfaces epic 1704):
+  // its registered id, or null when a workspace owns the card region.
+  const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -683,6 +679,18 @@ export default function WorkspaceManager() {
     () => getRendererHost().getCommandContributions((moduleId) => selectModuleEnabled(moduleEnablement, moduleId)),
     [moduleEnablement],
   )
+  // Resolve the active door-routed full-page surface (global-surfaces epic 1704)
+  // to its registered component, gated on the owning module's live enablement.
+  // A disabled or unregistered surface id resolves to null — the card region
+  // falls back to the active workspace rather than painting a blank page (a
+  // stale flag from before a module toggle can never strand the region).
+  const activeGlobalSurfaceEntry = useMemo(() => {
+    if (!activeGlobalSurface) return null
+    const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
+    if (!entry) return null
+    if (!selectModuleEnabled(moduleEnablement, entry.moduleId)) return null
+    return entry
+  }, [activeGlobalSurface, moduleEnablement])
 
   const openNewWorkspacePanel = useCallback(() => {
     setNewWorkspacePanelInitialState(null)
@@ -2939,8 +2947,10 @@ export default function WorkspaceManager() {
       <div className="relative min-h-0 flex-1">
         <div
           className="absolute inset-0"
-          aria-hidden={settingsOverlayOpen || undefined}
-          {...(settingsOverlayOpen ? ({ inert: '' } as Record<string, string>) : {})}
+          aria-hidden={settingsOverlayOpen || activeGlobalSurfaceEntry !== null || undefined}
+          {...(settingsOverlayOpen || activeGlobalSurfaceEntry !== null
+            ? ({ inert: '' } as Record<string, string>)
+            : {})}
         >
           {showNewWorkspacePanel ? (
             <React.Suspense fallback={<SuspenseFallback label="Loading workspace setup" />}>
@@ -3030,6 +3040,22 @@ export default function WorkspaceManager() {
             </>
           )}
         </div>
+        {/* Fourth mount kind (global-surfaces epic 1704): a door-routed full-page
+            surface pre-empts the workspace card region. It paints OVER the retained
+            workspace layers (they stay mounted and inert above, so terminals/tabs
+            are intact on return) with an opaque canvas — no scrim, and Escape does
+            NOT dismiss it: this is a page, not a dialog. You leave by opening
+            another door or selecting a project, both of which clear
+            activeGlobalSurface. Gated on the surface's owning module: a stale flag
+            after a module toggle resolves to null and the workspace shows through.
+            Connectors/Settings deliberately keep their overlay pattern below. */}
+        {activeGlobalSurfaceEntry ? (
+          <div className="absolute inset-0 z-20 bg-[color:var(--bg-app)]">
+            <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
+              <activeGlobalSurfaceEntry.Component />
+            </React.Suspense>
+          </div>
+        ) : null}
         <SettingsOverlay />
         {connectorsSurfaceOpen ? (
           <React.Suspense fallback={null}>
@@ -3066,13 +3092,6 @@ export default function WorkspaceManager() {
               }}
               activeWorkspaceRoot={activeWorkspaceFolderPath}
             />
-          </React.Suspense>
-        ) : null}
-        {/* Gated on the roadmap module: off means the surface is unreachable even
-            if a stale open flag lingers from before the toggle (MC-1691). */}
-        {roadmapSurfaceOpen && roadmapEnabled ? (
-          <React.Suspense fallback={null}>
-            <RoadmapSurface />
           </React.Suspense>
         ) : null}
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is

@@ -485,8 +485,11 @@ function TrackList({
     return (
       <div className="px-4 py-10 text-center">
         <p className="text-[12px] text-[color:var(--text-muted)]">No tracks yet.</p>
-        <p className="mt-1 text-[12px] text-[color:var(--text-disabled)]">
-          Add a track, then drop backlog items and epics into it to set the order.
+        {/* Vocabulary in place (global-surfaces epic): a first-time planner can
+            read what a track and a step are without leaving the surface. */}
+        <p className="mx-auto mt-1 max-w-[52ch] text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          A track is a lane of steps that run in order, one sprint at a time; tracks run side by side. A step is one
+          backlog item or epic. Add a track, then drop work into it to set the order.
         </p>
       </div>
     )

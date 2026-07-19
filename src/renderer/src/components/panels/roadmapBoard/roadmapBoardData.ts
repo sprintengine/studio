@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import { parseRoadmap, type ProjectKey, type Roadmap } from '../../../../../shared/backlog/roadmap'
+import { flattenLaneUnits, isRoadmapContent, parseRoadmap, type ProjectKey, type Roadmap } from '../../../../../shared/backlog/roadmap'
 import {
   buildRoadmapBoardModel,
   deriveRepoMergeBlockers,
@@ -30,7 +30,7 @@ import { subscribeBacklogScan } from '../../../hooks/useSharedBacklogScan'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { basename, joinFilePath } from '../../../utils/paths'
 import { normalizeProjectRootKey } from '../../../utils/projectKnowledge'
-import type { BacklogItem } from '../../../utils/backlog'
+import { normalizeRelativePath, type BacklogItem, type BacklogItemStatus } from '../../../utils/backlog'
 
 // One roadmap ready to render: its state view, the parsed file, and the derived
 // per-lane board model.
@@ -43,8 +43,36 @@ export type LoadedRoadmap = {
   stateView: RoadmapStateView
 }
 
+// One roadmap file as the rail lists it (T2): its stable ref + display title,
+// the scan-minted backlog id (drafts sort by it), and a lite plan preview (track
+// titles + step counts) parsed from the scan's own `sourceContent` — no second
+// read. Powers the rail rows and the read-only draft canvas.
+export type RoadmapFileSummary = {
+  roadmapRef: string
+  title: string
+  numericId?: number
+  // The file's backlog status. Activation (T2) demotes every OTHER active-status
+  // roadmap to keep exactly one Active, so the rail carries status per file.
+  status: BacklogItemStatus
+  tracks: { title: string; steps: number }[]
+  totalSteps: number
+}
+
+// The backlog statuses under which the orchestrator treats a roadmap as active
+// (mirrors roadmap-orchestrator's ACTIVE_ROADMAP_STATUSES). A file outside this
+// set is a draft; "Make active" promotes one into it and demotes the rest.
+export const ACTIVE_ROADMAP_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>([
+  'ready',
+  'in_progress',
+  'needs_input',
+])
+
 export type RoadmapBoardData = {
   roadmaps: LoadedRoadmap[]
+  /** Every roadmap file in the home project (active + drafts), for the rail (T2). */
+  roadmapFiles: RoadmapFileSummary[]
+  /** The single orchestrated roadmap's ref (readRoadmapStates' one entry), or null. */
+  activeRef: string | null
   loading: boolean
   error: string | null
   /** The home project holding the instance roadmap (D1), or null when unset. The
@@ -185,7 +213,35 @@ export function useRoadmapBoard(): RoadmapBoardData {
     })
   }, [parsedRoadmaps, homePath, itemsByRootKey, knownRootKeys])
 
-  return { roadmaps, loading, error, homePath, reload }
+  // The single orchestrated roadmap (readRoadmapStates returns exactly the active
+  // one, or nothing). Its ref is the rail's "Active" identity.
+  const activeRef = useMemo(() => roadmaps[0]?.roadmapRef ?? null, [roadmaps])
+
+  // Every roadmap file in the home project (active + drafts), for the rail. Read
+  // off the shared home-project scan — the home root is always a scanRoot, so its
+  // items (with `sourceContent`) are already loaded; no extra IPC. The active
+  // roadmap is unioned in defensively so it is always a rail citizen even on the
+  // first tick before the scan has caught up with readRoadmapStates.
+  const roadmapFiles = useMemo<RoadmapFileSummary[]>(() => {
+    const homeItems = homePath ? (itemsByRootKey.get(rootKey(homePath)) ?? []) : []
+    const summaries = homeItems
+      // Archived roadmaps are retired, not activatable drafts — keep them out of
+      // the rail so a stale file never clutters it as a misleading "Draft" row.
+      .filter((item) => isRoadmapContent(item.relativePath, item.rawType) && item.status !== 'archived')
+      .map(summarizeRoadmapFile)
+    if (activeRef && !summaries.some((summary) => summary.roadmapRef === normalizeRelativePath(activeRef))) {
+      summaries.push({
+        roadmapRef: normalizeRelativePath(activeRef),
+        title: roadmaps[0]?.title ?? roadmapTitleFromRef(activeRef),
+        status: 'in_progress',
+        tracks: [],
+        totalSteps: 0,
+      })
+    }
+    return summaries
+  }, [homePath, itemsByRootKey, activeRef, roadmaps])
+
+  return { roadmaps, roadmapFiles, activeRef, loading, error, homePath, reload }
 }
 
 // A lane needs the human when it awaits an approval or has parked; a lane is live
@@ -248,6 +304,22 @@ function parseRoadmapContent(content: string | undefined): Roadmap {
 function roadmapTitleFromRef(ref: string): string {
   const stem = ref.split('/').filter(Boolean).at(-1) ?? ref
   return stem.replace(/\.md$/i, '')
+}
+
+// A rail summary for one roadmap file, parsed from the scan's own sourceContent —
+// track titles + step counts + a total. Cheap enough to run per file; the shared
+// scan already holds the content, so this adds no read.
+function summarizeRoadmapFile(item: BacklogItem): RoadmapFileSummary {
+  const parsed = parseRoadmap(item.sourceContent)
+  const tracks = parsed.lanes.map((lane) => ({ title: lane.title, steps: flattenLaneUnits(lane).length }))
+  return {
+    roadmapRef: normalizeRelativePath(item.relativePath),
+    title: item.title,
+    ...(item.numericId !== undefined ? { numericId: item.numericId } : {}),
+    status: item.status,
+    tracks,
+    totalSteps: tracks.reduce((sum, track) => sum + track.steps, 0),
+  }
 }
 
 // The normalized project-root key backlog scans are shared under (mirrors

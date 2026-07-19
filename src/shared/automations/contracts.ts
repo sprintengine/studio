@@ -19,6 +19,7 @@ export const AUTOMATIONS_PROVIDERS_LIST_CHANNEL = 'automations:providers:list'
 export const AUTOMATIONS_ENGINE_STATUS_CHANNEL = 'automations:engine-status'
 export const AUTOMATIONS_RUN_EVENT_CHANNEL = 'automations:run-event'
 export const AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL = 'automations:definitions-changed'
+export const AUTOMATIONS_INSTANCE_LIST_CHANNEL = 'automations:instance:list'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
@@ -427,6 +428,54 @@ export function normalizeReportPath(rawPath: string): string | null {
   return normalized.join('/')
 }
 
+// ── Instance-wide automation index ───────────────────────────────────────────
+// The Automations full-page surface (epic 1704 / item 1707) lists every
+// automation across every known project root, not one host workspace's folder.
+// A single read returns each definition with the live state the rail draws —
+// on/paused status (already on the definition), the last run's outcome and time,
+// and whether a run is executing right now — so the rail never fans out a
+// per-automation call just to paint its rows.
+
+export type AutomationsInstanceEntry = {
+  /**
+   * Project root the automation is stored under (its `.multi-code/automations/`
+   * lives here). This is the `workspaceRoot` the {@link AUTOMATIONS_RUNS_LIST_CHANNEL}
+   * read takes, so the surface can lazily load an automation's recent runs.
+   */
+  workspaceRoot: string
+  /**
+   * A representative workspace id for `workspaceRoot`, used for the legacy
+   * notification reveal fallback. Any open workspace rooted at that folder.
+   */
+  workspaceId: string
+  /** Full definition (webhook secrets redacted, as the list channel returns). */
+  definition: AutomationDefinition
+  /**
+   * Most recent run for this automation, or null when it has never run. Its
+   * `status` carries the last-run outcome; a `running` status means a run is in
+   * flight right now (see {@link isRunningNow}).
+   */
+  lastRun: AutomationRun | null
+  /**
+   * True while a run for this automation is in the `running` state. Derived from
+   * the persisted run history so the rail reflects the engine's real state
+   * without polling the engine (agent-backed runs stay `running` until finalize).
+   */
+  isRunningNow: boolean
+}
+
+// A project root whose store could not be read, surfaced rather than silently
+// dropped so one malformed store never masks the automations that ARE readable.
+export type AutomationsInstanceProblem = {
+  workspaceRoot: string
+  message: string
+}
+
+export type AutomationsInstanceIndex = {
+  entries: AutomationsInstanceEntry[]
+  problems: AutomationsInstanceProblem[]
+}
+
 export type AutomationsListResult = AutomationsResult<AutomationDefinition[]>
 export type AutomationsDefinitionResult = AutomationsResult<AutomationDefinition>
 export type AutomationsDeleteResult = AutomationsResult<{ automationId: string }>
@@ -438,3 +487,4 @@ export type AutomationsRunsListResult = AutomationsResult<AutomationRun[]>
 export type AutomationsRunFinalizeResult = AutomationsResult<AutomationRun>
 export type AutomationsProvidersResult = AutomationsResult<AutomationsProviders>
 export type AutomationsEngineStatusResult = AutomationsResult<AutomationsEngineStatus>
+export type AutomationsInstanceListResult = AutomationsResult<AutomationsInstanceIndex>

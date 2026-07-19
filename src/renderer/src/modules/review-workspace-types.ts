@@ -40,6 +40,13 @@ export function createReviewTemplate(): LayoutTemplate {
   }
 }
 
+// The `review` workspace TYPE retired (MC-1708): reviews became instance-level
+// disk objects reached through the Reviews surface, so `review-module` no longer
+// calls this — the type is not registered and cannot be created from the picker.
+// The factory is retained only because the legacy creation flow in
+// `NewWorkspacePanel` (unreachable without a registered type) still references
+// `createReviewTemplate`; both retire together when the Reviews surface (T6)
+// replaces that flow with its "Review a change" entry.
 export function registerReviewWorkspaceType(host: RendererHost): void {
   host.registerWorkspaceType({
     id: REVIEW_WORKSPACE_MODE,
