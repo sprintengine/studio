@@ -2,6 +2,8 @@ import type { AppServices } from '../app-services'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
   AutomationDelegateToken,
+  CompanionAgentServiceToken,
+  CompanionAgentsModuleServiceToken,
   GitHubTokenStoreToken,
   MulticodeAuthToken,
   SprintEngineArtifactsToken,
@@ -14,7 +16,16 @@ import {
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
+import {
+  createCompanionAgentService,
+  createCompanionAgentsModuleRegistry,
+} from '../companion-agent-service'
 import { createModuleWorkspaceService } from './module-workspace-service'
+
+// Resolves a module id to the capability permissions it declared in its
+// manifest (disclosure list). The companion registry uses it to gate `attach`
+// on the `agents:companion` permission.
+export type ModulePermissionsResolver = (moduleId: string) => readonly string[] | undefined
 
 // The agent runtime is the irreducible core: terminals + the BYO-CLI launch
 // path are what every other orchestration module sits on. It is `core: true`, so
@@ -44,7 +55,10 @@ export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {
   core: true,
 }
 
-export function createAgentRuntimeModule(services: AppServices): CapabilityModule {
+export function createAgentRuntimeModule(
+  services: AppServices,
+  options: { getModulePermissions: ModulePermissionsResolver }
+): CapabilityModule {
   return {
     manifest: AGENT_RUNTIME_MANIFEST,
     registerMain(host) {
@@ -64,6 +78,21 @@ export function createAgentRuntimeModule(services: AppServices): CapabilityModul
         createModuleWorkspaceService({
           delegateToRenderer: (request) => services.automationDelegate.request(request),
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
+        })
+      )
+      // Companion agents: workspace-bound background agents driven through the
+      // shared conversation runtime. The core service is app-internal
+      // (first-party consumers require it directly); the moduleId-scoped
+      // registry is what the SDK's getCompanionAgentsService resolves, and it
+      // gates attach on the `agents:companion` permission.
+      const companionAgentService = createCompanionAgentService({
+        runtime: services.conversationRuntime,
+      })
+      host.provideService(CompanionAgentServiceToken, () => companionAgentService)
+      host.provideService(CompanionAgentsModuleServiceToken, () =>
+        createCompanionAgentsModuleRegistry({
+          service: companionAgentService,
+          getModulePermissions: options.getModulePermissions,
         })
       )
     },

@@ -70,7 +70,8 @@ import type {
   WorkspaceWorktreeState,
   WorktreeEntry,
 } from '../../types/workspace'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
+import type { ReviewGuideConfig, ReviewWorkspaceState } from '../../types/workspace'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -272,6 +273,9 @@ export interface WorkspacesSliceActions {
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
+      // Guide preparation choices for a review workspace (MC-1677), persisted on
+      // the new workspace for the guide run to consume.
+      reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
       windowId?: WorkspaceWindowId | null
       // Open-in-new-chat seed for the single-agent "solo chat" template. The UI
@@ -290,6 +294,9 @@ export interface WorkspacesSliceActions {
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
+  // Replace a review workspace's human review progress (MC-1675); pass null to
+  // clear it. Declared here AND on the WorkspaceStore interface (dual-declaration).
+  setReviewWorkspaceState: (id: WorkspaceId, reviewState: ReviewWorkspaceState | null) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
@@ -952,6 +959,7 @@ export function createWorkspacesSlice(
         const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
         const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
+        const isReview = explicitMode === REVIEW_WORKSPACE_MODE || template.id === 'review-mode'
         const targetWindowId =
           options?.windowId
           ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
@@ -1155,12 +1163,20 @@ export function createWorkspacesSlice(
                   ? 'sprintengine'
                   : isAutomationsHost
                     ? AUTOMATIONS_HOST_WORKSPACE_MODE
-                    : 'standard',
+                    : isReview
+                      ? REVIEW_WORKSPACE_MODE
+                      : 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
           multiloopContext,
+          // Review workspaces start with no human review progress (populated by
+          // the walkthrough surface, MC-1680) and carry the guide preparation
+          // choices captured at creation for the guide run (MC-1679) to consume.
+          ...(isReview
+            ? { reviewState: null, reviewGuideConfig: options?.reviewGuideConfig ?? null }
+            : {}),
           templateId: template.id,
           layoutModel: isMultiloop
             ? deps.multiloopTabsLayoutModel()
@@ -1328,6 +1344,13 @@ export function createWorkspacesSlice(
         if (!ws) return
         const current = ws.backlogState ?? defaultWorkspaceBacklogState()
         ws.backlogState = normalizeWorkspaceBacklogState({ ...current, ...patch })
+      }),
+
+    setReviewWorkspaceState: (id, reviewState) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        ws.reviewState = reviewState
       }),
 
     setGitPanelState: (id, patch) =>

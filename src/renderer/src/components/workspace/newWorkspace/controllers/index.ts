@@ -33,6 +33,10 @@ export {
   AutomationsControllerError,
 } from './automationsController'
 export {
+  runReviewCreation,
+  ReviewControllerError,
+} from './reviewController'
+export {
   runMultiloopCreation,
   MultiloopControllerError,
 } from './multiloopController'

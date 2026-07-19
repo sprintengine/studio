@@ -76,6 +76,7 @@ const ALLOW_LIST = new Map([
   ['runPullRequest.tsx', 'Pull-request controls + hooks rendered inside SprintEngineBoardPanel: a view chip in the run-hero strip and a primary action in the run-complete banner; the parent panel owns the surrounding chrome.'],
   ['SprintEngineBoardPanel.tsx', 'Carries a bespoke run-hero strip (project name + run-phase lifecycle glyph + progress hairline + settings overflow) above the Tabs strip in place of PanelHeader. The generic title/count chrome was redundant with the FlexLayout tab label and per-tab content, and the hero conveys identity richer than PanelHeader allows.'],
   ['SwitchboardWorkspacePanel.tsx', 'Thin Watchtower / Switchboard wrapper that renders the icon Tabs sub-nav at the top and delegates body chrome (PanelHeader, counts, etc.) to the active child panel. Mirrors SprintEngineBoardPanel\'s ownership pattern: the wrapper owns the row chrome, each child owns its surface.'],
+  ['ReviewPanel.tsx', 'The review workspace hides the FlexLayout tab strip and owns the whole pane; the guided walkthrough carries a bespoke 46px top bar (change identity + stats/complexity + side-by-side/inline toggle + Re-run) in place of PanelHeader. Mirrors SprintEngineBoardPanel/EditorPanel: the surface owns richer identity chrome than PanelHeader allows.'],
 ])
 
 const args = new Set(process.argv.slice(2))

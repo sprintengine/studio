@@ -106,6 +106,10 @@ export type CapabilityPermission =
   // Automations service. Disclosure-level like every other scope: the service
   // does not runtime-check it.
   | 'automations.manage'
+  // Attach workspace-bound background (companion) agents through the SDK's
+  // Companion Agents service. Unlike the disclosure-only scopes above, the
+  // companion service checks this one explicitly at attach time.
+  | 'agents:companion'
   | (string & {})
 
 export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
@@ -123,6 +127,7 @@ export const KNOWN_CAPABILITY_PERMISSIONS: readonly string[] = [
   'backlog.write',
   'backlog.link.open',
   'automations.manage',
+  'agents:companion',
 ]
 
 // ── Notifications ────────────────────────────────────────────────────────────
@@ -546,6 +551,115 @@ export function getAutomationsService(host: MainHost): ModuleAutomationsService 
     list: (input) => registry.list(moduleId, input),
     listRuns: (input) => registry.listRuns(moduleId, input),
     onRunEvent: (listener) => registry.onRunEvent(moduleId, listener),
+  }
+}
+
+// ── Companion agents (host-provided, consumed via the service bridge) ─────────
+
+/**
+ * A companion agent's status: the conversation-session vocabulary plus
+ * `absent` — never spawned, or already disposed (not present in the projection).
+ */
+export type CompanionAgentStatus =
+  | 'starting'
+  | 'ready'
+  | 'active'
+  | 'awaiting_approval'
+  | 'stopped'
+  | 'failed'
+  | 'absent'
+
+/**
+ * A canonical conversation event as delivered to a companion's `onEvent`.
+ * Secret-shaped payload keys are redacted before delivery. `type` is widened to
+ * `string` so new app event kinds never break compiled modules.
+ */
+export type CompanionAgentEvent = {
+  id: string
+  sessionId: string
+  workspaceId: string
+  agentId: string
+  providerId: string
+  modelId: string
+  type: string
+  createdAt: number
+  payload?: Record<string, unknown>
+}
+
+export type CompanionAgentSpec = {
+  workspaceId: string
+  /** Stable, module-chosen id (e.g. 'review-guide'); the projection key. */
+  agentId: string
+  /** Display name in the Sessions popover / Attention Queue. */
+  name: string
+  /** Absolute workspace folder (the main process has no id → folder registry). */
+  workspaceRoot: string
+  /** Engine selection; defaults resolve to the workspace's harness CLI/model. */
+  engine?: { cli?: string; model?: string }
+  /** Advisory context roots; the provider resolves knowledge from workspaceRoot. */
+  contextRoots?: { knowledge?: boolean }
+  /** Role instructions, delivered as a preamble on the first turn. */
+  systemPrompt: string
+}
+
+export type CompanionValidateResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }
+
+export type CompanionRunStructuredOptions<T> = {
+  prompt: string
+  validate: (raw: unknown) => CompanionValidateResult<T>
+  /** Validator errors are fed back to the agent and the turn retried. Default 1. */
+  retries?: number
+  onPhase?: (phase: string) => void
+}
+
+export type CompanionAgentHandle = {
+  readonly workspaceId: string
+  readonly agentId: string
+  /** Folds from the same conversation-session projection the Sessions popover reads. */
+  status(): CompanionAgentStatus
+  onStatus(cb: (status: CompanionAgentStatus) => void): () => void
+  /** Run a structured JSON task: extract final JSON, validate, retry-once, return typed. */
+  runStructured<T>(opts: CompanionRunStructuredOptions<T>): Promise<T>
+  /** A chat turn on the session's own transport. */
+  send(message: string): Promise<void>
+  onEvent(cb: (event: CompanionAgentEvent) => void): () => void
+  interrupt(): void
+  /** Ends the session; the handle becomes inert. Re-attach spawns a fresh one. */
+  dispose(): void
+}
+
+/**
+ * Workspace-bound background agents for a module's `entry.main`, obtained via
+ * `getCompanionAgentsService(host)`. `attach` NEVER spawns — it returns a handle
+ * in `absent` status; the first `runStructured`/`send` (a live user intent)
+ * spawns, so reopening a workspace never auto-starts a companion. A second
+ * `attach` with the same (workspaceId, agentId) returns the SAME handle.
+ *
+ * Declare the `agents:companion` permission (the service checks it at attach
+ * time and throws if absent) and `dependsOn: ['agent-runtime']` so the service
+ * exists before your entry runs.
+ */
+export type CompanionAgentsService = {
+  attach(spec: CompanionAgentSpec): CompanionAgentHandle
+}
+
+type CompanionAgentsRegistry = {
+  attach(moduleId: string, spec: CompanionAgentSpec): CompanionAgentHandle
+}
+
+const companionAgentsModuleServiceToken: ServiceToken<CompanionAgentsRegistry> =
+  createServiceToken<CompanionAgentsRegistry>('companion-agents.module-service')
+
+/**
+ * The scoped Companion Agents service for `host`'s module. The raw host registry
+ * takes a module id on every call; this helper closes over `host.moduleId`
+ * exactly like `getAutomationsService`.
+ */
+export function getCompanionAgentsService(host: MainHost): CompanionAgentsService {
+  const registry = host.requireService(companionAgentsModuleServiceToken)
+  const moduleId = host.moduleId
+  return {
+    attach: (spec) => registry.attach(moduleId, spec),
   }
 }
 

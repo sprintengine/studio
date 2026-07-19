@@ -125,6 +125,7 @@ import type {
   WorkspaceSyncEvent,
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
+import type { CommentSync, ReviewBrief, ReviewChangeSet, ReviewComment } from './review'
 
 export type SaveDialogOptions = {
   title?: string
@@ -2193,6 +2194,129 @@ export type BacklogReadResult =
   | { ok: true; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
 
+// Review change-set ingestion transport (MC-1676). Mirrors ReviewSource minus
+// derived fields: the renderer supplies the raw source, the main service
+// normalizes it into a ReviewChangeSet. The pull-request arm is typed here but its
+// provider is unregistered until MC-1678, so it fails with a clear message.
+export type ReviewSourceInput =
+  | { kind: 'branch'; repoRoot: string; baseRef: string; headRef: string }
+  | { kind: 'patch'; text: string; label?: string }
+  | { kind: 'pull-request'; url: string }
+
+// Cheap live probe returned by review:detect-source; never a thrown error.
+export interface ReviewSourceProbe {
+  ok: boolean
+  title?: string
+  stats?: { files: number; additions: number; deletions: number }
+  headSha?: string
+  error?: string
+}
+
+// Identifies where a workspace's change set is persisted; the main service owns
+// the `.multi-code/review/<workspaceId>/` path layout, so callers pass identity
+// rather than constructing paths.
+export interface ReviewTarget {
+  workspaceRoot: string
+  workspaceId: string
+}
+
+export type ReviewIngestResult =
+  | { ok: true; changeset: ReviewChangeSet }
+  | { ok: false; error: string }
+
+export type ReviewChangeSetReadResult =
+  | { ok: true; changeset: ReviewChangeSet | null }
+  | { ok: false; error: string }
+
+// Reading the guide's walkthrough (MC-1679/MC-1680). `brief: null` means the
+// guide has not run for this workspace yet (render the prepare state); an invalid
+// on-disk brief comes back as `ok: false` with path-qualified errors so the
+// surface shows a failure, never a blank pane.
+export type ReviewBriefReadResult =
+  | { ok: true; brief: ReviewBrief | null }
+  | { ok: false; error: string }
+
+export type ReviewBriefRunDepth = 'brief' | 'standard' | 'thorough'
+
+export interface ReviewBriefRunInput {
+  workspaceId: string
+  workspaceRoot: string
+  depth: ReviewBriefRunDepth
+  // A freshness re-run (MC-1682): the ids of the steps whose files changed since
+  // the previous walkthrough. When present and a previous walkthrough exists, the
+  // run is incremental — unaffected steps keep their ids verbatim. Absent = full.
+  affectedStepIds?: string[]
+}
+
+// Freshness probe (MC-1682): rebuild the current change set WITHOUT persisting it,
+// so the panel can compare its head sha + per-file diffs against the walkthrough
+// it already shows. Never overwrites the on-disk change set the current brief
+// walks; a patch source has no upstream so the panel never probes it.
+export type ReviewProbeResult =
+  | { ok: true; changeset: ReviewChangeSet }
+  | { ok: false; error: string }
+
+// Honest run progress the panel renders. `reading` loads the change set,
+// `grouping` is the guide generating, `annotating` validates the produced brief,
+// `writing` persists, and `done`/`failed` are terminal.
+export type ReviewBriefRunPhase = 'reading' | 'grouping' | 'annotating' | 'writing' | 'done' | 'failed'
+
+export interface ReviewBriefRunEvent {
+  workspaceId: string
+  phase: ReviewBriefRunPhase
+  detail?: string
+}
+
+// Terminal result of starting the guide. On success the brief was persisted and
+// the renderer re-reads it; on failure the reason distinguishes a guide that
+// produced an invalid brief (`validation`) from one that could not run at all.
+export type ReviewBriefRunResult =
+  | { ok: true }
+  | { ok: false; reason: 'validation' | 'guide-error'; errors: string[] }
+
+// "Ask the guide" chat: one free-text turn sent to the workspace's guide
+// companion (the same session the walkthrough was built from). The reply is not
+// in the result — it streams back over the conversation event channel the chat
+// pane observes (onConversationEvent); this only reports whether the turn was
+// accepted, so a dead engine surfaces as a visible error rather than a silent
+// no-op. The guide answers questions; it never creates or edits a review comment.
+export interface ReviewAskGuideInput {
+  workspaceId: string
+  workspaceRoot: string
+  message: string
+}
+
+export type ReviewAskGuideResult = { ok: true } | { ok: false; error: string }
+
+// Posting the pending review to the pull request (MC-1683). An explicit,
+// human-initiated, batched action: the reviewer's pending comments post as ONE
+// GitHub review (event COMMENT) under their own account. The renderer sends the
+// workspace's PR change-set target plus the comments to post; the main process
+// re-reads the persisted change set for the PR coordinates and current head,
+// re-anchors as needed, and returns a per-comment outcome the panel applies.
+export interface ReviewPostReviewInput {
+  target: ReviewTarget
+  comments: ReviewComment[]
+}
+
+// One comment's result. `sync` is the new sync state to flip the comment to;
+// `anchorStatus: 'moved'` marks a comment held for re-review because its line
+// could not be anchored on the PR's current head (never posted to a guessed line).
+export interface ReviewCommentPostOutcome {
+  id: string
+  sync: CommentSync
+  anchorStatus?: 'moved'
+}
+
+// `ok: false` is a whole-batch failure (not a pull request, unreadable change set,
+// or an auth/transport error carrying the same actionable copy as the read path) —
+// nothing was posted. `ok: true` carries the created review URL (absent when every
+// comment was held) and the per-comment outcomes; GitHub's create-review is atomic,
+// so a mixed result is comments held locally, never a partially-created review.
+export type ReviewPostReviewResult =
+  | { ok: true; reviewUrl?: string; outcomes: ReviewCommentPostOutcome[] }
+  | { ok: false; error: string }
+
 // Scan-time id allocation: the renderer hands the main process every scanned
 // item with its current frontmatter id (or null), and the service writes the
 // next sequential id into the frontmatter of those without one. `assignments`
@@ -2780,4 +2904,13 @@ export type ElectronApi = {
   updateBacklogEpicColor: (input: BacklogEpicColorInput) => Promise<BacklogMutationResult>
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
+  reviewDetectSource: (input: ReviewSourceInput) => Promise<ReviewSourceProbe>
+  reviewIngestSource: (input: ReviewSourceInput, target: ReviewTarget) => Promise<ReviewIngestResult>
+  reviewReadChangeset: (target: ReviewTarget) => Promise<ReviewChangeSetReadResult>
+  reviewReadBrief: (target: ReviewTarget) => Promise<ReviewBriefReadResult>
+  reviewProbeChangeset: (input: ReviewSourceInput) => Promise<ReviewProbeResult>
+  reviewStartBriefRun: (input: ReviewBriefRunInput) => Promise<ReviewBriefRunResult>
+  reviewAskGuide: (input: ReviewAskGuideInput) => Promise<ReviewAskGuideResult>
+  reviewPostReview: (input: ReviewPostReviewInput) => Promise<ReviewPostReviewResult>
+  onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => () => void
 }

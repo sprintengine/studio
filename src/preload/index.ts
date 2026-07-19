@@ -22,6 +22,7 @@ import { memoryActivityApi } from './api/memoryActivity'
 import { mcpApi } from './api/mcp'
 import { modulesApi } from './api/modules'
 import { pluginsApi } from './api/plugins'
+import { reviewApi } from './api/review'
 import { skillPackApi } from './api/skill-pack'
 import { mobileBridgeApi } from './api/mobile-bridge'
 import { multiloopApi } from './api/multiloop'
@@ -51,6 +52,7 @@ const api = {
   ...automationApi,
   ...automationsApi,
   ...backlogApi,
+  ...reviewApi,
   ...builtinSkillsApi,
   ...clipboardApi,
   ...cliRuntimeApi,

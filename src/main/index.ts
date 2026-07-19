@@ -10,7 +10,8 @@ import { activeForChannel } from '../shared/modules/dev-only'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
 import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
-import { createAgentRuntimeModule } from './modules/agent-runtime-module'
+import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
+import type { CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
 import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
@@ -63,9 +64,18 @@ const activeMainModules = activeForChannel(
   (module) => module.manifest.id,
   includeDevModules
 )
+// Resolves any module id to the permissions it declared in its manifest, across
+// every module the app assembled. The companion registry gates attach on it.
+const moduleManifestsById = new Map<string, CapabilityManifest>(
+  [AGENT_RUNTIME_MANIFEST, ...activeMainModules.map((module) => module.manifest), ...thirdPartyMainLoad.modules.map((module) => module.manifest)].map(
+    (manifest) => [manifest.id, manifest]
+  )
+)
+const getModulePermissions = (moduleId: string): readonly string[] | undefined =>
+  moduleManifestsById.get(moduleId)?.permissions
 const moduleLoad = loadMainModules({
   ipcMain,
-  modules: [createAgentRuntimeModule(services), ...activeMainModules, ...thirdPartyMainLoad.modules],
+  modules: [createAgentRuntimeModule(services, { getModulePermissions }), ...activeMainModules, ...thirdPartyMainLoad.modules],
   overrides: moduleOverrides,
   ineligible: thirdPartyMainLoad.ineligible,
   launchErrors: thirdPartyMainLoad.launchErrors,

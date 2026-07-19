@@ -32,12 +32,13 @@ export type StepId =
   | 'sprintengine-tools'
   | 'sprintengine-start'
   | 'guided-idea'
+  | 'review-source'
 
 // The hub's flows are keyed by a closed set of flow ids. A registered workspace
 // type points at one of these via its creationStepsId; 'standard' is the
 // shell-owned default and the fallback for any mode whose registry entry is
 // missing or names an unknown flow.
-export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief'
+export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief' | 'review'
 
 // Default flows keep only the steps a person needs to reach the thing they came
 // to make. The developer-configuration steps — 'mcp-servers', 'skill-packs', and
@@ -71,6 +72,10 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
     'sprintengine-tools',
     'sprintengine-start',
   ],
+  // Name/folder, then the single required-intent step: what are you reviewing?
+  // Everything after it (knowledge graph, guide, depth) is defaulted, so the
+  // footer offers "Skip the rest and create" as soon as a source resolves.
+  review: ['workspace', 'review-source'],
   // All three Design Wizard presets (full-brief, frontend-design,
   // design-system) share this flow: the preset is chosen inside the
   // 'guided-idea' step, not by a separate flow id, because presets live inside

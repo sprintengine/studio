@@ -23,7 +23,11 @@ import {
   runGuidedBriefStartBuild,
   runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
+  runReviewCreation,
+  ReviewControllerError,
 } from './index'
+import type { ReviewControllerPorts } from './reviewController'
+import type { ReviewGuideConfig } from '../../../../types/workspace'
 import { getRendererHost } from '../../../../modules'
 import { buildSprintEngineWorkflowInitKeys } from '../sprintengineWorkflowConfig'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'
@@ -1894,7 +1898,108 @@ async function main(): Promise<void> {
   await testGuidedBriefStartBuildHandoffPath()
   await testGuidedBriefStartBuildDesignPresetHandoff()
   await testGuidedBriefStartBuildAdvancedSetupFailsClosed()
+  await testReviewCreation()
   console.log('newWorkspace controllers.test.ts: ok')
+}
+
+const REVIEW_GUIDE: ReviewGuideConfig = {
+  engineCli: 'claude-code',
+  engineModel: null,
+  depth: 'standard',
+  knowledgeGraph: true,
+}
+
+async function testReviewCreation(): Promise<void> {
+  const branchSource = { kind: 'branch', repoRoot: '/repo', baseRef: 'main', headRef: 'feature' } as const
+
+  // Missing folder never creates a workspace.
+  {
+    let created = 0
+    await assert.rejects(
+      () =>
+        runReviewCreation(
+          { name: 'R', folderPath: null, source: branchSource, guideConfig: REVIEW_GUIDE },
+          {
+            addReviewWorkspace: () => {
+              created += 1
+              return 'ws-x'
+            },
+            removeWorkspace: () => {},
+            ingestSource: async () => ({ ok: true, changeset: {} as never }),
+          },
+        ),
+      (error: unknown) => error instanceof ReviewControllerError && error.code === 'missing-folder',
+    )
+    assert.equal(created, 0, 'no workspace is created without a folder')
+  }
+
+  // Happy path: create, ingest ok, no rollback, returns the id.
+  {
+    const removed: string[] = []
+    const ingestTargets: Array<{ workspaceRoot: string; workspaceId: string }> = []
+    const ports: ReviewControllerPorts = {
+      addReviewWorkspace: ({ name, folderPath, guideConfig }) => {
+        assert.equal(name, 'My review')
+        assert.equal(folderPath, '/repo')
+        assert.equal(guideConfig, REVIEW_GUIDE)
+        return 'ws-1'
+      },
+      removeWorkspace: (id) => removed.push(id),
+      ingestSource: async (input, target) => {
+        assert.deepEqual(input, branchSource)
+        ingestTargets.push(target)
+        return { ok: true, changeset: {} as never }
+      },
+    }
+    const id = await runReviewCreation(
+      { name: 'My review', folderPath: '/repo', source: branchSource, guideConfig: REVIEW_GUIDE },
+      ports,
+    )
+    assert.equal(id, 'ws-1')
+    assert.deepEqual(removed, [], 'a successful ingest never rolls back')
+    assert.deepEqual(ingestTargets, [{ workspaceRoot: '/repo', workspaceId: 'ws-1' }])
+  }
+
+  // Ingest returns ok:false -> roll the workspace back and surface the message.
+  {
+    const removed: string[] = []
+    await assert.rejects(
+      () =>
+        runReviewCreation(
+          { name: 'R', folderPath: '/repo', source: branchSource, guideConfig: REVIEW_GUIDE },
+          {
+            addReviewWorkspace: () => 'ws-2',
+            removeWorkspace: (id) => removed.push(id),
+            ingestSource: async () => ({ ok: false, error: 'Couldn’t find "main".' }),
+          },
+        ),
+      (error: unknown) =>
+        error instanceof ReviewControllerError &&
+        error.code === 'ingest-failed' &&
+        error.message === 'Couldn’t find "main".',
+    )
+    assert.deepEqual(removed, ['ws-2'], 'a failed ingest rolls the workspace back')
+  }
+
+  // Ingest throwing also rolls back.
+  {
+    const removed: string[] = []
+    await assert.rejects(
+      () =>
+        runReviewCreation(
+          { name: 'R', folderPath: '/repo', source: branchSource, guideConfig: REVIEW_GUIDE },
+          {
+            addReviewWorkspace: () => 'ws-3',
+            removeWorkspace: (id) => removed.push(id),
+            ingestSource: async () => {
+              throw new Error('IPC blew up')
+            },
+          },
+        ),
+      (error: unknown) => error instanceof ReviewControllerError && error.code === 'ingest-failed',
+    )
+    assert.deepEqual(removed, ['ws-3'], 'a thrown ingest rolls the workspace back')
+  }
 }
 
 main().catch((error) => {

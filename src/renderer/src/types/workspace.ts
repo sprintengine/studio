@@ -154,6 +154,9 @@ export type {
   MultiloopRole,
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
+import type { ReviewWorkspaceState } from '../../../shared/review'
+
+export type { ReviewWorkspaceState }
 
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
@@ -162,6 +165,10 @@ export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
 export const SWITCHBOARD_WORKSPACE_MODE = 'switchboard'
 export const MULTILOOP_WORKSPACE_MODE = 'multiloop'
 export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
+// Guided walkthrough of a pull request, branch, or pasted patch (MC-1677). A
+// single-surface type: one non-closeable review tab, its change set persisted on
+// disk under `.multi-code/review/<workspaceId>/`.
+export const REVIEW_WORKSPACE_MODE = 'review'
 // Background host workspace for per-project Automations. It is hidden from the
 // normal workspace rail (see `utils/workspaceVisibility.ts`); its hidden-ness is
 // derived from this mode, never a persisted flag, so no store migration exists.
@@ -174,6 +181,7 @@ export type BundledWorkspaceMode =
   | typeof MULTILOOP_WORKSPACE_MODE
   | typeof GUIDED_BRIEF_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
+  | typeof REVIEW_WORKSPACE_MODE
 
 export type WorkspaceMode = typeof STANDARD_WORKSPACE_MODE | (string & {})
 
@@ -1072,6 +1080,22 @@ export type WorkspaceWorktree = {
   baseRef?: string
 }
 
+/**
+ * How the background guide agent should prepare a review walkthrough, chosen in
+ * the creation flow (MC-1677) and consumed by the guide run (MC-1679). Persisted
+ * so reopening a review workspace keeps the choice; the guide is "an agent like
+ * any workspace agent", so `engineCli`/`engineModel` follow the same shape as a
+ * workspace agent runtime (null model = the engine's default).
+ */
+export type ReviewGuideConfig = {
+  engineCli: AgentCli
+  engineModel: string | null
+  // How much the guide explains before you start reading (MC-1679 depth mapping).
+  depth: 'brief' | 'standard' | 'thorough'
+  // Whether the guide reads this project's knowledge graph while preparing.
+  knowledgeGraph: boolean
+}
+
 export type Workspace = {
   id: WorkspaceId
   name: string
@@ -1081,6 +1105,14 @@ export type Workspace = {
   worktree?: WorkspaceWorktree | null
   sprintEngineContext?: SprintEngineWorkspaceContext | null
   multiloopContext?: MultiloopWorkspaceContext | null
+  // The human's mutable review progress (files read, view mode, line comments)
+  // for a `review` workspace (MC-1675). Kept OUTSIDE the change set / brief so a
+  // re-run never clobbers it; null until the walkthrough surface (MC-1680) writes
+  // it. The change set itself lives on disk, not here.
+  reviewState?: ReviewWorkspaceState | null
+  // Guide preparation choices captured at creation (MC-1677), read by the guide
+  // run (MC-1679). Absent on non-review workspaces.
+  reviewGuideConfig?: ReviewGuideConfig | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>

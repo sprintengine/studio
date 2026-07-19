@@ -8,6 +8,7 @@ import { createElement, useEffect, useState } from 'react'
 import {
   createServiceToken,
   getAutomationsService,
+  getCompanionAgentsService,
   hasFileDropData,
   readFileDropPayload,
   registerAutomationAction,
@@ -33,8 +34,8 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
-  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'automations.manage', 'backlog.read'],
-  dependsOn: ['automations'],
+  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'automations.manage', 'backlog.read', 'agents:companion'],
+  dependsOn: ['automations', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
     renderer: 'dist/renderer.mjs',
@@ -109,6 +110,34 @@ export const registerMain: RegisterMain = (host) => {
     })
     if (!created.ok) throw new Error(`${created.code}: ${created.message}`)
     return { created: true, automationId: created.automation.id }
+  })
+  // Companion agent: a workspace-bound background helper that answers a
+  // structured question. Exercises the SDK's CompanionAgentsService surface.
+  host.registerIpc('weather-deck:ask-guide', async (_event, workspaceRoot: unknown) => {
+    if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
+      throw new Error('weather-deck:ask-guide requires a workspace root.')
+    }
+    const companions = getCompanionAgentsService(host)
+    const guide = companions.attach({
+      workspaceId: 'weather-deck',
+      agentId: 'forecast-guide',
+      name: 'Forecast Guide',
+      workspaceRoot,
+      systemPrompt: 'You summarize the forecast as strict JSON.',
+    })
+    guide.onStatus((status) => void status)
+    const summary = await guide.runStructured<{ outlook: string }>({
+      prompt: 'Summarize today as {"outlook": string}.',
+      retries: 1,
+      validate: (raw) => {
+        const record = raw as { outlook?: unknown }
+        return typeof record.outlook === 'string'
+          ? { ok: true, value: { outlook: record.outlook } }
+          : { ok: false, errors: ['outlook must be a string'] }
+      },
+    })
+    guide.dispose()
+    return summary
   })
   host.registerSidecar({ id: 'weather-deck-poller', kind: 'process', description: 'Background forecast poller.' })
   host.onStartup(() => {

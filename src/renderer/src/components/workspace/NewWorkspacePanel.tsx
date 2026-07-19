@@ -5,7 +5,9 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
 import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
+import { createReviewTemplate } from '../../modules/review-workspace-types'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
+import type { GitBranchSnapshot, ReviewSourceInput, ReviewSourceProbe } from '../../../../shared/electron-api'
 import type {
   AgentCli,
   AgentId,
@@ -13,6 +15,7 @@ import type {
   FuturePlanWorkspaceSource,
   LayoutTemplate,
   McpCatalogServer,
+  ReviewGuideConfig,
   SkillPackCatalogEntry,
   SprintEngineAllowedRuntime,
   SprintEngineAutoState,
@@ -63,7 +66,7 @@ import {
 } from '../../utils/sprintengine'
 import MulticodeMark from '../brand/MulticodeMark'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
-import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, TruncatedText, WizardProgress } from '../ui'
+import { CliModelPickerButton, CloseIconButton, Field, GhostButton, Select, StatusDot, TruncatedText, WizardProgress } from '../ui'
 import {
   analyzeWorkspaceTargetPath,
   defaultWorkspaceFolderPath,
@@ -137,6 +140,8 @@ import {
   buildModuleTypeCreation,
   buildStandardCreation,
   buildSwitchboardCreation,
+  runReviewCreation,
+  ReviewControllerError,
   runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
@@ -202,6 +207,10 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'Tell us about your idea',
     subtitle: 'A sentence or two, in plain words. We’ll ask the rest.',
   },
+  'review-source': {
+    title: 'What are you reviewing?',
+    subtitle: 'Point this workspace at one set of changes — a pull request, a branch, or a pasted patch.',
+  },
 }
 
 // Short station names for the labeled progress header (MC-1646): the sprint
@@ -221,6 +230,7 @@ const STEP_LABEL: Record<StepId, string> = {
   'sprintengine-tools': 'Tools',
   'sprintengine-start': 'Start',
   'guided-idea': 'What',
+  'review-source': 'What',
 }
 
 const SOURCE_PLAN_KIND_LABELS: Record<SprintEngineSourcePlanKind, string> = {
@@ -434,6 +444,7 @@ export default function NewWorkspacePanel({
   const authState = useWorkspaceStore((s) => s.authState)
   const setAuthState = useWorkspaceStore((s) => s.setAuthState)
   const addWorkspace = useWorkspaceStore((s) => s.addWorkspace)
+  const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace)
   const storedRecentFolders = useWorkspaceStore(
     (s) => s.appSettings.recentWorkspaceFolders ?? [],
   )
@@ -694,6 +705,28 @@ export default function NewWorkspacePanel({
   const [mlName, setMlName] = useState('')
   const [mlGoal, setMlGoal] = useState('')
   const [mlError, setMlError] = useState<string | null>(null)
+
+  // Review workspace creation state (MC-1677). The source segment leads with
+  // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
+  // registered, so a URL probes live.
+  const [reviewSourceKind, setReviewSourceKind] = useState<ReviewSourceInput['kind']>('pull-request')
+  const [reviewPrUrl, setReviewPrUrl] = useState('')
+  const [reviewBrBase, setReviewBrBase] = useState('')
+  const [reviewBrHead, setReviewBrHead] = useState('')
+  const [reviewBranches, setReviewBranches] = useState<GitBranchSnapshot | null>(null)
+  const [reviewPatchText, setReviewPatchText] = useState('')
+  const [reviewPatchLabel, setReviewPatchLabel] = useState('')
+  // The live source probe (review:detect-source) for the current fields.
+  const [reviewProbe, setReviewProbe] = useState<
+    { status: 'idle' } | { status: 'probing' } | { status: 'ok'; probe: ReviewSourceProbe } | { status: 'error'; message: string }
+  >({ status: 'idle' })
+  const [reviewKgEnabled, setReviewKgEnabled] = useState(true)
+  const [reviewGuideCli, setReviewGuideCli] = useState<AgentCli>(
+    () => useWorkspaceStore.getState().appSettings.lastSelectedCli ?? 'claude-code',
+  )
+  const [reviewGuideModel, setReviewGuideModel] = useState<string | null>(null)
+  const [reviewDepth, setReviewDepth] = useState<'brief' | 'standard' | 'thorough'>('standard')
+  const [reviewError, setReviewError] = useState<string | null>(null)
 
   const [guidedIdea, setGuidedIdea] = useState('')
   const [guidedPreset, setGuidedPreset] = useState<GuidedBriefPreset>('full-brief')
@@ -1096,6 +1129,107 @@ export default function NewWorkspacePanel({
     return key ? projectKnowledgeRoots?.[key] ?? null : null
   }, [folderPath, projectKnowledgeRoots])
 
+  const isReview = mode === REVIEW_WORKSPACE_MODE
+  // The typed source the probe + ingest consume, or null when the fields are not
+  // yet fillable (empty URL/patch, or a branch pair not chosen).
+  const reviewSourceInput = useMemo<ReviewSourceInput | null>(() => {
+    if (reviewSourceKind === 'pull-request') {
+      const url = reviewPrUrl.trim()
+      return url ? { kind: 'pull-request', url } : null
+    }
+    if (reviewSourceKind === 'branch') {
+      const baseRef = reviewBrBase.trim()
+      const headRef = reviewBrHead.trim()
+      if (!folderPath || !baseRef || !headRef) return null
+      return { kind: 'branch', repoRoot: folderPath, baseRef, headRef }
+    }
+    if (reviewPatchText.trim().length === 0) return null
+    const label = reviewPatchLabel.trim()
+    return label ? { kind: 'patch', text: reviewPatchText, label } : { kind: 'patch', text: reviewPatchText }
+  }, [reviewSourceKind, reviewPrUrl, reviewBrBase, reviewBrHead, folderPath, reviewPatchText, reviewPatchLabel])
+
+  // Debounced live probe (review:detect-source). Never throws to the UI — an
+  // unresolvable ref, an unregistered provider (pull-request until MC-1678), or
+  // an unparsable patch comes back as an inline error that keeps Start
+  // walkthrough disabled.
+  useEffect(() => {
+    if (!isReview) return
+    if (!reviewSourceInput) {
+      setReviewProbe({ status: 'idle' })
+      return
+    }
+    const input = reviewSourceInput
+    let cancelled = false
+    const timer = setTimeout(() => {
+      setReviewProbe({ status: 'probing' })
+      void window.api
+        .reviewDetectSource(input)
+        .then((probe) => {
+          if (cancelled) return
+          setReviewProbe(
+            probe.ok
+              ? { status: 'ok', probe }
+              : { status: 'error', message: probe.error ?? 'Could not read this source.' },
+          )
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          setReviewProbe({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+        })
+    }, 350)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isReview, reviewSourceInput])
+
+  // Load local branches for the Branch source so the base/head pickers offer
+  // real refs (and seed sensible defaults: head = current branch, base = the
+  // project's mainline).
+  useEffect(() => {
+    if (!isReview || reviewSourceKind !== 'branch' || !folderPath) return
+    let cancelled = false
+    void window.api
+      .getGitBranches(folderPath)
+      .then((snapshot) => {
+        if (cancelled) return
+        setReviewBranches(snapshot)
+        setReviewBrHead((current) => current || snapshot.current || '')
+        setReviewBrBase((current) => current || pickReviewBaseDefault(snapshot))
+      })
+      .catch(() => {
+        if (!cancelled) setReviewBranches(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isReview, reviewSourceKind, folderPath])
+
+  // Default the knowledge-graph toggle on only when the project actually has one.
+  useEffect(() => {
+    if (!isReview) return
+    setReviewKgEnabled(Boolean(committedKnowledgeRoot))
+  }, [isReview, committedKnowledgeRoot])
+
+  // Keep the guide engine clamped to an installed CLI once detection is
+  // trustworthy, mirroring the roster pickers — never offer/seed an uninstalled
+  // agent as the guide.
+  useEffect(() => {
+    if (!isReview || cliAvailabilityStatus !== 'ready') return
+    setReviewGuideCli((current) => resolveAvailableAgentCli(current, sprintEngineCliOptions, current))
+  }, [isReview, cliAvailabilityStatus, sprintEngineCliOptions])
+
+  const reviewSourceReady = reviewProbe.status === 'ok'
+  const reviewGuideConfig = useMemo<ReviewGuideConfig>(
+    () => ({
+      engineCli: reviewGuideCli,
+      engineModel: reviewGuideModel,
+      depth: reviewDepth,
+      knowledgeGraph: reviewKgEnabled,
+    }),
+    [reviewGuideCli, reviewGuideModel, reviewDepth, reviewKgEnabled],
+  )
+
   // Persist the optional Advanced setup selections to the real project on disk:
   // write the MCP agent config through the same mcp:sync path Settings uses,
   // install each selected skill pack, then attach the selected design system
@@ -1266,7 +1400,12 @@ export default function NewWorkspacePanel({
   // automations) defer that configuration to Settings, exactly as before. The
   // sprint flow is the exception (MC-1646): its Tools & skills page IS that
   // configuration, so the accordion would offer the same choices twice.
-  const showAdvancedSetup = configSteps.length > 0 && isLastStep && mode !== 'sprintengine'
+  // Review's source page owns its own "Walkthrough context" rows (knowledge graph,
+  // guide, depth), so the generic Advanced setup disclosure would duplicate the
+  // knowledge control — suppress it, like the sprint flow suppresses it for its
+  // Tools & skills page.
+  const showAdvancedSetup =
+    configSteps.length > 0 && isLastStep && mode !== 'sprintengine' && mode !== REVIEW_WORKSPACE_MODE
 
   // The rail's type list — shell-owned Chat + Workspace, then the enabled
   // registry-contributed types (see modeModels.ts for the ordering contract).
@@ -1519,6 +1658,7 @@ export default function NewWorkspacePanel({
     sprintEngineTeamReady,
     sprintEngineRosterReady,
     guidedIdeaReady,
+    reviewSourceReady,
   }
   // Every non-chat create requires the name+folder fields plus the mode's own
   // config steps; the first unready one drives the footer's blocking hint.
@@ -1569,6 +1709,9 @@ export default function NewWorkspacePanel({
     guidedSeedMode,
     guidedSeedReady,
     committedKnowledgeRoot,
+    reviewProbeStatus: reviewProbe.status,
+    reviewProbeMessage: reviewProbe.status === 'error' ? reviewProbe.message : null,
+    reviewHasSource: reviewSourceInput != null,
   })
 
   const handleSelectMode = (next: CreationMode) => {
@@ -2250,6 +2393,44 @@ export default function NewWorkspacePanel({
         if (await persistAdvancedSetup(folderPath)) return
         onCreate(buildAutomationsCreation({ name, folderPath }))
         onClose()
+      } finally {
+        setIsCreating(false)
+      }
+      return
+    }
+
+    if (mode === REVIEW_WORKSPACE_MODE) {
+      // Start walkthrough: create the workspace, then materialize its change set.
+      // Guarded on a resolved source, so the probe already validated it.
+      if (!folderPath || !reviewSourceInput || !reviewSourceReady) return
+      const source = reviewSourceInput
+      setIsCreating(true)
+      setReviewError(null)
+      try {
+        await runReviewCreation(
+          { name, folderPath, source, guideConfig: reviewGuideConfig },
+          {
+            addReviewWorkspace: ({ name: reviewName, folderPath: reviewFolder, guideConfig }) =>
+              addWorkspace(createReviewTemplate(), {
+                name: reviewName,
+                folderPath: reviewFolder,
+                mode: REVIEW_WORKSPACE_MODE,
+                reviewGuideConfig: guideConfig,
+                windowId: workspaceWindowId,
+              }),
+            removeWorkspace,
+            ingestSource: window.api.reviewIngestSource,
+          },
+        )
+        onClose()
+      } catch (error) {
+        setReviewError(
+          error instanceof ReviewControllerError && error.message !== error.code
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : 'Could not create the review.',
+        )
       } finally {
         setIsCreating(false)
       }
@@ -3030,6 +3211,45 @@ export default function NewWorkspacePanel({
               folderPath={folderPath}
               error={guidedError}
             />
+            </ConfigStepSection>
+          ) : null}
+
+          {step === 'review-source' ? (
+            <ConfigStepSection stepId="review-source" headingRef={headingRef}>
+              <ReviewSourceStep
+                sourceKind={reviewSourceKind}
+                onChangeSourceKind={(kind) => {
+                  setReviewSourceKind(kind)
+                  setReviewProbe({ status: 'idle' })
+                  setReviewError(null)
+                }}
+                prUrl={reviewPrUrl}
+                onChangePrUrl={setReviewPrUrl}
+                branches={reviewBranches}
+                baseRef={reviewBrBase}
+                headRef={reviewBrHead}
+                onChangeBaseRef={setReviewBrBase}
+                onChangeHeadRef={setReviewBrHead}
+                patchText={reviewPatchText}
+                onChangePatchText={setReviewPatchText}
+                patchLabel={reviewPatchLabel}
+                onChangePatchLabel={setReviewPatchLabel}
+                probe={reviewProbe}
+                knowledgeRoot={committedKnowledgeRoot}
+                knowledgeEnabled={reviewKgEnabled}
+                onChangeKnowledgeEnabled={setReviewKgEnabled}
+                guideCli={reviewGuideCli}
+                guideModel={reviewGuideModel}
+                guideCliOptions={sprintEngineCliOptions}
+                onChangeGuideCli={(nextCli) => {
+                  setReviewGuideCli(nextCli)
+                  setReviewGuideModel(null)
+                }}
+                onChangeGuideModel={(_cli, model) => setReviewGuideModel(model)}
+                depth={reviewDepth}
+                onChangeDepth={setReviewDepth}
+                createError={reviewError}
+              />
             </ConfigStepSection>
           ) : null}
 
@@ -3901,6 +4121,355 @@ function StandardLayoutStep({
           <div className={`border-l-2 pl-3 text-[12px] leading-5 ${messageClass}`}>{installMessage.text}</div>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+type ReviewProbeState =
+  | { status: 'idle' }
+  | { status: 'probing' }
+  | { status: 'ok'; probe: ReviewSourceProbe }
+  | { status: 'error'; message: string }
+
+const REVIEW_SOURCE_SEGMENTS: Array<{ kind: ReviewSourceInput['kind']; label: string }> = [
+  { kind: 'pull-request', label: 'Pull request' },
+  { kind: 'branch', label: 'Branch' },
+  { kind: 'patch', label: 'Pasted patch' },
+]
+
+const REVIEW_DEPTHS: Array<{ id: 'brief' | 'standard' | 'thorough'; label: string }> = [
+  { id: 'brief', label: 'Brief' },
+  { id: 'standard', label: 'Standard' },
+  { id: 'thorough', label: 'Thorough' },
+]
+
+const reviewFieldLabelClass = 'text-[12px] font-medium text-[color:var(--text-strong)]'
+const reviewHelpClass = 'text-[11.5px] leading-4 text-[color:var(--text-subtle)]'
+const reviewInputClass =
+  'w-full rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] text-[color:var(--text-strong)] outline-none focus:border-[color:var(--accent-primary)] focus:ring-1 focus:ring-[color:var(--accent-primary)]'
+
+function ReviewSourceStep({
+  sourceKind,
+  onChangeSourceKind,
+  prUrl,
+  onChangePrUrl,
+  branches,
+  baseRef,
+  headRef,
+  onChangeBaseRef,
+  onChangeHeadRef,
+  patchText,
+  onChangePatchText,
+  patchLabel,
+  onChangePatchLabel,
+  probe,
+  knowledgeRoot,
+  knowledgeEnabled,
+  onChangeKnowledgeEnabled,
+  guideCli,
+  guideModel,
+  guideCliOptions,
+  onChangeGuideCli,
+  onChangeGuideModel,
+  depth,
+  onChangeDepth,
+  createError,
+}: {
+  sourceKind: ReviewSourceInput['kind']
+  onChangeSourceKind: (kind: ReviewSourceInput['kind']) => void
+  prUrl: string
+  onChangePrUrl: (value: string) => void
+  branches: GitBranchSnapshot | null
+  baseRef: string
+  headRef: string
+  onChangeBaseRef: (value: string) => void
+  onChangeHeadRef: (value: string) => void
+  patchText: string
+  onChangePatchText: (value: string) => void
+  patchLabel: string
+  onChangePatchLabel: (value: string) => void
+  probe: ReviewProbeState
+  knowledgeRoot: string | null
+  knowledgeEnabled: boolean
+  onChangeKnowledgeEnabled: (value: boolean) => void
+  guideCli: AgentCli
+  guideModel: string | null
+  guideCliOptions: AgentCliCatalogOption[]
+  onChangeGuideCli: (cli: AgentCli) => void
+  onChangeGuideModel: (cli: AgentCli, model: string | null) => void
+  depth: 'brief' | 'standard' | 'thorough'
+  onChangeDepth: (depth: 'brief' | 'standard' | 'thorough') => void
+  createError: string | null
+}) {
+  const branchNames = branches?.branches.map((branch) => branch.name) ?? []
+  const reachabilityChip =
+    sourceKind === 'branch' ? 'Local' : sourceKind === 'patch' ? 'No remote' : 'Remote'
+  // The success dot's accessible label tracks the source kind — "Reachable" is only
+  // accurate for a remote PR; a local branch or a pasted patch has no remote to reach.
+  const successDotLabel =
+    sourceKind === 'branch' ? 'Local' : sourceKind === 'patch' ? 'Valid diff' : 'Reachable'
+
+  return (
+    <div className="flex flex-col gap-6">
+      <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+        Your guide reads this change set and the project’s knowledge graph, then prepares a walkthrough before you start.
+      </p>
+
+      <div
+        role="tablist"
+        aria-label="What are you reviewing"
+        className="flex gap-1 rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] p-0.5"
+      >
+        {REVIEW_SOURCE_SEGMENTS.map((segment) => {
+          const selected = segment.kind === sourceKind
+          return (
+            <button
+              key={segment.kind}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => onChangeSourceKind(segment.kind)}
+              className={`flex-1 rounded-[5px] px-2 py-1.5 text-[12px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] ${
+                selected
+                  ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                  : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+              }`}
+            >
+              {segment.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {sourceKind === 'pull-request' ? (
+        <label className="flex flex-col gap-1.5">
+          <span className={reviewFieldLabelClass}>Pull request URL</span>
+          <input
+            className={reviewInputClass}
+            value={prUrl}
+            placeholder="https://github.com/owner/repo/pull/123"
+            spellCheck={false}
+            onChange={(event) => onChangePrUrl(event.currentTarget.value)}
+          />
+          <span className={reviewHelpClass}>A github.com or GitHub Enterprise pull request. Private hosts use your saved token.</span>
+        </label>
+      ) : null}
+
+      {sourceKind === 'branch' ? (
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className={reviewFieldLabelClass}>Compare against</span>
+            <ReviewRefField value={baseRef} branchNames={branchNames} onChange={onChangeBaseRef} placeholder="main" />
+            <span className={reviewHelpClass}>Base the walkthrough against this branch.</span>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={reviewFieldLabelClass}>Branch to review</span>
+            <ReviewRefField value={headRef} branchNames={branchNames} onChange={onChangeHeadRef} placeholder="feature/…" />
+            <span className={reviewHelpClass}>Agent worktree branches appear here too — review your agents’ work before it merges.</span>
+          </label>
+        </div>
+      ) : null}
+
+      {sourceKind === 'patch' ? (
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className={reviewFieldLabelClass}>Patch text</span>
+            <textarea
+              className={`${reviewInputClass} min-h-[120px] resize-y font-mono text-[11.5px] leading-4`}
+              value={patchText}
+              placeholder="diff --git a/… b/…"
+              spellCheck={false}
+              onChange={(event) => onChangePatchText(event.currentTarget.value)}
+            />
+            <span className={reviewHelpClass}>Paste unified diff or `git format-patch` output. Nothing leaves this machine.</span>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={reviewFieldLabelClass}>Label (optional)</span>
+            <input
+              className={reviewInputClass}
+              value={patchLabel}
+              placeholder="What this patch is"
+              onChange={(event) => onChangePatchLabel(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+      ) : null}
+
+      <ReviewDetectionCard probe={probe} reachabilityChip={reachabilityChip} successLabel={successDotLabel} />
+
+      <div className="flex flex-col gap-2.5 border-t border-[color:var(--border-subtle)] pt-4">
+        <span className="text-[11px] font-medium text-[color:var(--text-subtle)]">Walkthrough context</span>
+
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[12px] font-medium text-[color:var(--text-strong)]">Knowledge graph</span>
+            <span className="mt-0.5 block font-mono text-[11px] leading-4 text-[color:var(--text-muted)]">
+              {knowledgeRoot ? knowledgeRoot : 'None configured — the guide reads code only.'}
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={knowledgeEnabled}
+            aria-label="Read the knowledge graph"
+            disabled={!knowledgeRoot}
+            onClick={() => onChangeKnowledgeEnabled(!knowledgeEnabled)}
+            className={`mt-0.5 inline-flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] disabled:opacity-50 ${
+              knowledgeEnabled && knowledgeRoot
+                ? 'bg-[color:var(--accent-primary)]'
+                : 'bg-[color:var(--bg-selected)]'
+            }`}
+          >
+            <span
+              className={`h-3 w-3 rounded-full bg-white transition-transform ${
+                knowledgeEnabled && knowledgeRoot ? 'translate-x-3' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[12px] font-medium text-[color:var(--text-strong)]">Guide</span>
+            <span className="mt-0.5 block text-[11.5px] leading-4 text-[color:var(--text-muted)]">
+              Runs in the background like any workspace agent.
+            </span>
+          </span>
+          <CliModelPickerButton
+            ariaLabel="Guide agent runtime"
+            options={guideCliOptions}
+            cli={guideCli}
+            effectiveModelFor={(candidateCli) => (candidateCli === guideCli ? guideModel ?? undefined : undefined)}
+            onSelectCli={(nextCli) => onChangeGuideCli(nextCli)}
+            onSelectModel={(_cli, nextModel) => onChangeGuideModel(guideCli, nextModel)}
+          />
+        </div>
+
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[12px] font-medium text-[color:var(--text-strong)]">Explanation depth</span>
+            <span className="mt-0.5 block text-[11.5px] leading-4 text-[color:var(--text-muted)]">
+              How much the guide explains before you start reading.
+            </span>
+          </span>
+          <div
+            role="tablist"
+            aria-label="Explanation depth"
+            className="flex shrink-0 gap-0.5 rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] p-0.5"
+          >
+            {REVIEW_DEPTHS.map((option) => {
+              const selected = option.id === depth
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => onChangeDepth(option.id)}
+                  className={`rounded-[5px] px-2 py-1 text-[11.5px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] ${
+                    selected
+                      ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
+                      : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {createError ? (
+        <p className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+          {createError}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+// A ref field that offers the repo's local branches as a datalist when they are
+// known, while still accepting a typed ref (tag, sha, remote-tracking name) the
+// probe will resolve or reject.
+function ReviewRefField({
+  value,
+  branchNames,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  branchNames: string[]
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  const listId = useMemo(() => `review-refs-${Math.random().toString(36).slice(2)}`, [])
+  return (
+    <>
+      <input
+        className={reviewInputClass}
+        value={value}
+        placeholder={placeholder}
+        spellCheck={false}
+        list={branchNames.length > 0 ? listId : undefined}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+      {branchNames.length > 0 ? (
+        <datalist id={listId}>
+          {branchNames.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+      ) : null}
+    </>
+  )
+}
+
+function ReviewDetectionCard({
+  probe,
+  reachabilityChip,
+  successLabel,
+}: {
+  probe: ReviewProbeState
+  reachabilityChip: string
+  successLabel: string
+}) {
+  if (probe.status === 'idle') return null
+  if (probe.status === 'probing') {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-[12px] text-[color:var(--text-muted)]">
+        <StatusDot tone="neutral" pulse />
+        Reading the changes…
+      </div>
+    )
+  }
+  if (probe.status === 'error') {
+    // An error must read as an error, not as neutral field help: error-tone text
+    // and a matching status dot instead of muted body copy.
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5 text-[12px] leading-4 text-[color:var(--tone-error)]">
+        <StatusDot tone="error" className="mt-1" />
+        <span>{probe.message}</span>
+      </div>
+    )
+  }
+  const stats = probe.probe.stats
+  return (
+    <div className="flex items-center gap-2.5 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2.5">
+      <StatusDot tone="accent" label={successLabel} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+          {probe.probe.title ?? 'Ready to review'}
+        </span>
+        {stats ? (
+          <span className="mt-0.5 block font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">
+            {stats.files} files · +{stats.additions} −{stats.deletions}
+          </span>
+        ) : null}
+      </span>
+      <span className="shrink-0 rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-[10.5px] text-[color:var(--text-subtle)]">
+        {reachabilityChip}
+      </span>
     </div>
   )
 }
@@ -4937,6 +5506,7 @@ function guidedBriefStartBuildErrorMessage(error: GuidedBriefStartBuildError): s
 function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam: boolean): string {
   if (isCreating) return 'Creating…'
   if (mode === 'sprintengine' && hasExistingTeam) return 'Load team'
+  if (mode === REVIEW_WORKSPACE_MODE) return 'Start walkthrough'
   switch (mode) {
     // 'chat' drives create from the embedded composer's own CTA, not this footer,
     // so the footer is hidden for it; the label is defined for completeness.
@@ -4966,6 +5536,7 @@ function isStepReady(
     sprintEngineTeamReady: boolean
     sprintEngineRosterReady: boolean
     guidedIdeaReady: boolean
+    reviewSourceReady: boolean
   },
 ): boolean {
   switch (step) {
@@ -4999,7 +5570,19 @@ function isStepReady(
       return true
     case 'guided-idea':
       return readiness.guidedIdeaReady
+    case 'review-source':
+      return readiness.reviewSourceReady
   }
+}
+
+// The base ref a review's Branch source defaults to: the project mainline if
+// present (never the branch being reviewed), else the first other local branch.
+function pickReviewBaseDefault(snapshot: GitBranchSnapshot): string {
+  const names = snapshot.branches.map((branch) => branch.name)
+  for (const preferred of ['main', 'master', 'develop']) {
+    if (preferred !== snapshot.current && names.includes(preferred)) return preferred
+  }
+  return names.find((name) => name !== snapshot.current) ?? ''
 }
 
 function getStepBlockingMessage(args: {
@@ -5024,6 +5607,9 @@ function getStepBlockingMessage(args: {
   guidedSeedMode: DesignSystemSeedMode
   guidedSeedReady: boolean
   committedKnowledgeRoot: string | null
+  reviewProbeStatus: 'idle' | 'probing' | 'ok' | 'error'
+  reviewProbeMessage: string | null
+  reviewHasSource: boolean
 }): string {
   const {
     step,
@@ -5047,6 +5633,9 @@ function getStepBlockingMessage(args: {
     guidedSeedMode,
     guidedSeedReady,
     committedKnowledgeRoot,
+    reviewProbeStatus,
+    reviewProbeMessage,
+    reviewHasSource,
   } = args
 
   switch (step) {
@@ -5113,5 +5702,11 @@ function getStepBlockingMessage(args: {
           : 'The brand demo is unavailable — pick another starting point.'
       }
       return 'Ready to capture the idea.'
+    case 'review-source':
+      if (!reviewHasSource) return 'Point the workspace at a pull request, branch, or patch.'
+      if (reviewProbeStatus === 'probing') return 'Reading the changes…'
+      if (reviewProbeStatus === 'error') return reviewProbeMessage ?? 'Could not read this source.'
+      if (reviewProbeStatus === 'ok') return 'Ready to start the walkthrough.'
+      return 'Point the workspace at a pull request, branch, or patch.'
   }
 }

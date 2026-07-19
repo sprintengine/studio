@@ -2,6 +2,7 @@ import type { CapabilityModule } from '../module-host/load-modules'
 import { automationsModule, createAutomationsModule, type AutomationsModuleOptions } from './automations-module'
 import { mobileRelayModule } from './mobile-relay-module'
 import { multiloopModule } from './multiloop-module'
+import { reviewModule } from './review-module'
 import { sprintEngineModule } from './sprint-engine-module'
 import { switchboardModule } from './switchboard-module'
 
@@ -14,6 +15,7 @@ export function createBundledMainModules(options: BundledMainModuleOptions = {})
     switchboardModule,
     multiloopModule,
     sprintEngineModule,
+    reviewModule,
     options.automations ? createAutomationsModule(options.automations) : automationsModule,
     mobileRelayModule,
   ]

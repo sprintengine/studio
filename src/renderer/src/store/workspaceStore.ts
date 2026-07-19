@@ -7,6 +7,8 @@ import type {
   Workspace,
   WorkspaceBacklogState,
   WorkspaceGitPanelState,
+  ReviewWorkspaceState,
+  ReviewGuideConfig,
   WorkspaceId,
   WorkspaceWindowId,
   WorkspaceWindowState,
@@ -292,6 +294,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null
+      reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
       windowId?: WorkspaceWindowId | null
     }
@@ -310,6 +313,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
   setBacklogViewState: (id: WorkspaceId, patch: Partial<WorkspaceBacklogState>) => void
+  setReviewWorkspaceState: (id: WorkspaceId, reviewState: ReviewWorkspaceState | null) => void
   setGitPanelState: (id: WorkspaceId, patch: Partial<Omit<WorkspaceGitPanelState, 'commitDraftsByScopeId'>>) => void
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
