@@ -459,13 +459,25 @@ function posixSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-function defaultResolveToken(_host: string, provider: PullRequestProvider): Promise<string | null> {
-  const names = provider === 'github' ? ['GH_TOKEN', 'GITHUB_TOKEN'] : ['GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']
+// Resolves the REST token from the same environment variables gh reads.
+// github.com is fixed to api.github.com so GH_TOKEN can only ever reach GitHub.
+// A GHES host, though, comes straight from the pasted URL: handing the enterprise
+// token to an arbitrary host would leak it, so the token is released only when the
+// host matches an explicitly configured enterprise host (gh's own GH_HOST). An
+// unconfigured or mismatched host falls through unauthenticated.
+export function defaultResolveToken(host: string, provider: PullRequestProvider): Promise<string | null> {
+  if (provider === 'github') return Promise.resolve(pickEnv('GH_TOKEN', 'GITHUB_TOKEN'))
+  const configuredHost = (process.env.GH_HOST ?? process.env.GH_ENTERPRISE_HOST ?? '').trim().toLowerCase()
+  if (!configuredHost || configuredHost !== host.toLowerCase()) return Promise.resolve(null)
+  return Promise.resolve(pickEnv('GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'))
+}
+
+function pickEnv(...names: string[]): string | null {
   for (const name of names) {
     const value = process.env[name]?.trim()
-    if (value) return Promise.resolve(value)
+    if (value) return value
   }
-  return Promise.resolve(null)
+  return null
 }
 
 function defaultDeps(): GithubPrProviderDeps {

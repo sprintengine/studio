@@ -6,6 +6,7 @@ import { validateReviewChangeSet } from '../../../shared/review'
 import { registerReviewSourceProvider, ReviewChangeSetService } from '../changeset-service'
 import {
   createGithubPrProvider,
+  defaultResolveToken,
   type FetchLike,
   type FetchResponseLike,
   type GhRunner,
@@ -216,6 +217,32 @@ run('detect returns a still-checking state instead of blocking when the probe is
   assert.equal(probe.ok, true)
   assert.equal(probe.title, 'acme/app #123')
   assert.equal(probe.stats, undefined, 'still-checking carries no stats yet')
+})
+
+run('the enterprise token is never handed to an unconfigured or mismatched host', async () => {
+  const saved = { ...process.env }
+  try {
+    process.env.GH_ENTERPRISE_TOKEN = 'ent-secret'
+    delete process.env.GH_HOST
+    delete process.env.GH_ENTERPRISE_HOST
+    // No configured enterprise host: the token must not be released to a pasted host.
+    assert.equal(await defaultResolveToken('evil.example.com', 'github-enterprise'), null)
+
+    process.env.GH_HOST = 'ghe.corp.example.com'
+    // Configured host that does not match the pasted host: still withheld.
+    assert.equal(await defaultResolveToken('evil.example.com', 'github-enterprise'), null)
+    // Exact match: released.
+    assert.equal(await defaultResolveToken('ghe.corp.example.com', 'github-enterprise'), 'ent-secret')
+
+    // github.com is fixed to api.github.com, so GH_TOKEN is host-independent.
+    process.env.GH_TOKEN = 'dotcom-secret'
+    assert.equal(await defaultResolveToken('github.com', 'github'), 'dotcom-secret')
+  } finally {
+    for (const key of ['GH_ENTERPRISE_TOKEN', 'GH_HOST', 'GH_ENTERPRISE_HOST', 'GH_TOKEN']) {
+      if (saved[key] === undefined) delete process.env[key]
+      else process.env[key] = saved[key]
+    }
+  }
 })
 
 async function main(): Promise<void> {
