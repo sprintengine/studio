@@ -66,6 +66,30 @@ export interface ReviewWalkthroughProps {
   // together: with both the "Ask the guide" chat opens; absent it stays hidden.
   workspaceId?: string
   workspaceRoot?: string
+  // Chrome ownership (MC-1708 T6). On the full-page Reviews door the surface bar
+  // folds in the walkthrough's own top-bar actions, so the walkthrough drops its
+  // TopBar and lets the surface drive the tray/chat drawers. Omitted (the pure
+  // harness and any standalone mount) the walkthrough keeps its TopBar and owns the
+  // drawer state itself — the controllers below stay internal.
+  hideTopBar?: boolean
+  trayController?: ReviewDrawerController
+  chatController?: ReviewChatController
+}
+
+// The container drives the "Your review" tray open/closed so its trigger can live
+// in the folded surface bar instead of the walkthrough's own top bar.
+export interface ReviewDrawerController {
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
+// Same for the guide chat, plus the "Ask the guide" from a note/summary card:
+// `askFromCard` opens the chat pre-quoted at that annotation. The prefill (with
+// its re-apply nonce) lives with the container so the surface-bar "Ask the guide"
+// button can open a clean composer.
+export interface ReviewChatController extends ReviewDrawerController {
+  prefill?: { text: string; nonce: number }
+  askFromCard: (annotation: ReviewAnnotation) => void
 }
 
 // The guided walkthrough — a pure projection of a validated changeset + brief +
@@ -95,15 +119,27 @@ export function ReviewWalkthrough({
   postState,
   workspaceId,
   workspaceRoot,
+  hideTopBar = false,
+  trayController,
+  chatController,
 }: ReviewWalkthroughProps) {
   const commentsEnabled = Boolean(onCreateComment)
   const chatEnabled = Boolean(workspaceId && workspaceRoot)
-  const [trayOpen, setTrayOpen] = useState(false)
-  const [chatOpen, setChatOpen] = useState(false)
+  // Drawer open state: controlled by the surface when it owns the folded bar
+  // (Reviews door), internal otherwise (harness / standalone). Resolving both here
+  // keeps every drawer trigger below agnostic to who owns the chrome.
+  const [internalTrayOpen, setInternalTrayOpen] = useState(false)
+  const [internalChatOpen, setInternalChatOpen] = useState(false)
   // A prefill quote for the chat composer; the nonce re-applies the same quote on
   // a repeat "Ask the guide" click without needing to clear it first.
-  const [chatPrefill, setChatPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined)
+  const [internalChatPrefill, setInternalChatPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined)
   const prefillNonce = useRef(0)
+
+  const trayOpen = trayController ? trayController.open : internalTrayOpen
+  const setTrayOpen = trayController ? trayController.setOpen : setInternalTrayOpen
+  const chatOpen = chatController ? chatController.open : internalChatOpen
+  const setChatOpen = chatController ? chatController.setOpen : setInternalChatOpen
+  const chatPrefill = chatController ? chatController.prefill : internalChatPrefill
   const changedPaths = useMemo(() => changeset.files.map((file) => file.path), [changeset])
 
   const steps = useMemo(() => orderedSteps(brief), [brief])
@@ -159,14 +195,20 @@ export function ReviewWalkthrough({
         onAskGuide(annotation)
         return
       }
+      // When the surface owns the chat, hand the annotation up so its prefill +
+      // nonce live with the folded bar's "Ask the guide" control.
+      if (chatController) {
+        chatController.askFromCard(annotation)
+        return
+      }
       prefillNonce.current += 1
-      setChatPrefill({
+      setInternalChatPrefill({
         text: `> ${annotation.path} ${anchorRangeLabel(annotation.anchor)}\n\n`,
         nonce: prefillNonce.current,
       })
-      setChatOpen(true)
+      setInternalChatOpen(true)
     },
-    [chatEnabled, onAskGuide],
+    [chatEnabled, onAskGuide, chatController],
   )
 
   // Jump from a chat citation into the walkthrough: close the chat so the lines
@@ -200,28 +242,34 @@ export function ReviewWalkthrough({
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[color:var(--bg-surface)]">
-      <TopBar
-        title={changeset.title}
-        source={sourceIdentity(changeset)}
-        stats={statsChip(changeset)}
-        complexity={brief.overview.complexity}
-        diffView={diffView}
-        onSetDiffView={onSetDiffView}
-        onRerun={onRerun}
-        rerunning={rerunning}
-        reviewCount={pendingCommentCount(comments)}
-        onOpenReview={commentsEnabled ? () => setTrayOpen(true) : undefined}
-        onOpenChat={
-          chatEnabled
-            ? () => {
-                // Open a clean composer; drop any quote left from a prior "Ask the
-                // guide" so the drawer does not remount with a stale prefill.
-                setChatPrefill(undefined)
-                setChatOpen(true)
-              }
-            : undefined
-        }
-      />
+      {/* The folded Reviews-door surface bar carries these actions instead, so it
+          suppresses this bar to keep a single bar (MC-1708 T6). */}
+      {hideTopBar ? null : (
+        <TopBar
+          title={changeset.title}
+          source={sourceIdentity(changeset)}
+          stats={statsChip(changeset)}
+          complexity={brief.overview.complexity}
+          diffView={diffView}
+          onSetDiffView={onSetDiffView}
+          onRerun={onRerun}
+          rerunning={rerunning}
+          reviewCount={pendingCommentCount(comments)}
+          onOpenReview={commentsEnabled ? () => setTrayOpen(true) : undefined}
+          onOpenChat={
+            chatEnabled
+              ? () => {
+                  // Open a clean composer; drop any quote left from a prior "Ask the
+                  // guide" so the drawer does not remount with a stale prefill. This
+                  // bar renders only when the walkthrough owns its own chrome, so the
+                  // drawer state is always the internal one here.
+                  setInternalChatPrefill(undefined)
+                  setInternalChatOpen(true)
+                }
+              : undefined
+          }
+        />
+      )}
       {bannerSlot}
       {/* Container query, not a window media query: the walkthrough opens in split
           and narrow panes, so the collapse keys off THIS panel's width. Below

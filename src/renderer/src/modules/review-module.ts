@@ -5,19 +5,30 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 import { collectReviewStateMigrations } from '../store/slices/workspacesSlice'
 import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 
-// Lazy so the review panel bundle loads only when the Reviews surface renders it —
-// never into the eager module-registry graph, and never while the module is
-// disabled.
-const ReviewPanel = React.lazy(() => import('../components/panels/ReviewPanel'))
+// The Reviews door (MC-1708 T6). Lazy — and deliberately not a top-level import —
+// because the nav entry reaches the workspace store; keeping it behind a dynamic
+// import leaves the eager module-registry graph store-free, matching the other
+// module doors.
+const ReviewsNavEntry = React.lazy(() =>
+  import('../components/workspace/globalSurface/reviews/ReviewsNavEntry').then((m) => ({ default: m.ReviewsNavEntry })),
+)
+
+// The Reviews full-page surface (global-surfaces epic 1704), mounted by
+// WorkspaceManager over the workspace card region when the door opens it. Lazy so
+// its bundle (the walkthrough tree — Monaco, guide chat) stays off the wire until
+// the door is opened, and never loads while the module is disabled.
+const ReviewsGlobalSurface = React.lazy(
+  () => import('../components/workspace/globalSurface/reviews/ReviewsGlobalSurface'),
+)
 
 // Review renderer module. Matches the main-side `review` module id so the single
 // enablement override gates both processes.
 //
 // Reviews are instance-level objects (MC-1708): the `review` workspace TYPE
-// retired, so this module no longer registers a creatable workspace type. It
-// registers the review panel (mounted full-page by the Reviews surface, MC-1708
-// T6, keyed by review id) and runs the one-time retirement that lifts any
-// persisted `Workspace.reviewState` onto disk and drops the dead review-mode rows.
+// retired, so this module registers no creatable workspace type and no FlexLayout
+// panel. It contributes the Reviews sidebar door + full-page surface (which mount
+// the walkthrough keyed by review id) and runs the one-time retirement that lifts
+// any persisted `Workspace.reviewState` onto disk and drops the dead review rows.
 export const reviewRendererModule: RendererModule = {
   manifest: {
     id: 'review',
@@ -30,7 +41,9 @@ export const reviewRendererModule: RendererModule = {
     dependsOn: ['agent-runtime'],
   },
   registerRenderer(host) {
-    host.registerPanel('review', ReviewPanel)
+    // After Roadmap (order 40) in the top-nav cluster — mockup §4 sidebar order.
+    host.registerSidebarNavEntry({ id: 'reviews', order: 50, Component: ReviewsNavEntry })
+    host.registerGlobalSurface({ id: 'reviews', Component: ReviewsGlobalSurface })
     armReviewWorkspaceRetirement()
   },
 }
