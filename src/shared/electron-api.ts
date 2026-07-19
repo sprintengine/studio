@@ -125,6 +125,7 @@ import type {
   WorkspaceSyncEvent,
   WorkspaceSyncSnapshot,
 } from './workspace-sync'
+import type { ReviewChangeSet } from './review'
 
 export type SaveDialogOptions = {
   title?: string
@@ -2193,6 +2194,40 @@ export type BacklogReadResult =
   | { ok: true; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
 
+// Review change-set ingestion transport (MC-1676). Mirrors ReviewSource minus
+// derived fields: the renderer supplies the raw source, the main service
+// normalizes it into a ReviewChangeSet. The pull-request arm is typed here but its
+// provider is unregistered until MC-1678, so it fails with a clear message.
+export type ReviewSourceInput =
+  | { kind: 'branch'; repoRoot: string; baseRef: string; headRef: string }
+  | { kind: 'patch'; text: string; label?: string }
+  | { kind: 'pull-request'; url: string }
+
+// Cheap live probe returned by review:detect-source; never a thrown error.
+export interface ReviewSourceProbe {
+  ok: boolean
+  title?: string
+  stats?: { files: number; additions: number; deletions: number }
+  headSha?: string
+  error?: string
+}
+
+// Identifies where a workspace's change set is persisted; the main service owns
+// the `.multi-code/review/<workspaceId>/` path layout, so callers pass identity
+// rather than constructing paths.
+export interface ReviewTarget {
+  workspaceRoot: string
+  workspaceId: string
+}
+
+export type ReviewIngestResult =
+  | { ok: true; changeset: ReviewChangeSet }
+  | { ok: false; error: string }
+
+export type ReviewChangeSetReadResult =
+  | { ok: true; changeset: ReviewChangeSet | null }
+  | { ok: false; error: string }
+
 // Scan-time id allocation: the renderer hands the main process every scanned
 // item with its current frontmatter id (or null), and the service writes the
 // next sequential id into the frontmatter of those without one. `assignments`
@@ -2780,4 +2815,7 @@ export type ElectronApi = {
   updateBacklogEpicColor: (input: BacklogEpicColorInput) => Promise<BacklogMutationResult>
   updateBacklogDependencies: (input: BacklogDependenciesInput) => Promise<BacklogMutationResult>
   createBacklogEpic: (input: BacklogCreateEpicInput) => Promise<BacklogCreateEpicResult>
+  reviewDetectSource: (input: ReviewSourceInput) => Promise<ReviewSourceProbe>
+  reviewIngestSource: (input: ReviewSourceInput, target: ReviewTarget) => Promise<ReviewIngestResult>
+  reviewReadChangeset: (target: ReviewTarget) => Promise<ReviewChangeSetReadResult>
 }
