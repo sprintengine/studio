@@ -204,7 +204,16 @@ export function ReviewWalkthrough({
         rerunning={rerunning}
         reviewCount={pendingCommentCount(comments)}
         onOpenReview={commentsEnabled ? () => setTrayOpen(true) : undefined}
-        onOpenChat={chatEnabled ? () => setChatOpen(true) : undefined}
+        onOpenChat={
+          chatEnabled
+            ? () => {
+                // Open a clean composer; drop any quote left from a prior "Ask the
+                // guide" so the drawer does not remount with a stale prefill.
+                setChatPrefill(undefined)
+                setChatOpen(true)
+              }
+            : undefined
+        }
       />
       {bannerSlot}
       <div className="grid min-h-0 flex-1 grid-cols-[244px_minmax(0,1fr)_276px]">
