@@ -25,6 +25,7 @@ import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 import { useRoadmapBoard, type LoadedRoadmap } from './roadmapBoard/roadmapBoardData'
 import { RoadmapLaneColumn, type RoadmapLaneCallbacks } from './roadmapBoard/RoadmapLaneColumn'
+import { RoadmapPlannerView } from './roadmapBoard/RoadmapPlannerView'
 import { RoadmapWaitingOnYou, collectRoadmapInbox } from './roadmapBoard/RoadmapWaitingOnYou'
 
 const FOCUSABLE_SELECTOR =
@@ -133,6 +134,10 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
   const dialog = useConfirmDialog()
   const [busyLane, setBusyLane] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  // The roadmap file being planned in the in-surface cross-project planner (T3), or
+  // null when the steering board is showing. Planning happens here now — no detour
+  // to a single project's Backlog panel.
+  const [planningRef, setPlanningRef] = useState<string | null>(null)
   const laneRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
 
   const runLaneCommand = useCallback(
@@ -221,20 +226,17 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
     [homePath, dialog, reload],
   )
 
-  // Open a roadmap file in the home project's Backlog editor to plan it — reorder,
-  // split/merge tracks, add or drag in steps. The file stays the source of truth. The
-  // in-surface cross-project planner is MC-1690 / T3; until then this is the planning
-  // door, and it is never the Backlog ⋯ overflow menu.
+  // Reveal a backlog file in its project's Backlog panel (the planner's "open the
+  // file" and per-step "go to item" affordances). Cross-project safe: the item may
+  // live in any project, so it routes to that project's workspace when open, and
+  // otherwise leaves the surface in place rather than mounting a Backlog panel that
+  // cannot exist.
   const openPlanning = useCallback(
     (projectRoot: string, relativePath: string) => {
       const workspace = useWorkspaceStore
         .getState()
         .workspaces.find((candidate) => samePath(candidate.folderPath, projectRoot))
-      if (!workspace) {
-        // The home project is not open as a workspace: keep the surface (the board now
-        // shows the roadmap) rather than routing to a Backlog panel that cannot mount.
-        return
-      }
+      if (!workspace) return
       setActiveWorkspace(workspace.id)
       close()
       revealNavRailComponent(workspace.id, 'backlog', 'Backlog')
@@ -243,12 +245,10 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
     [close, setActiveWorkspace],
   )
 
-  const handleEditPlan = useCallback(
-    (roadmapRef: string) => {
-      if (homePath) openPlanning(homePath, roadmapRef)
-    },
-    [homePath, openPlanning],
-  )
+  // Plan the roadmap in the in-surface cross-project planner (T3): the library rail
+  // pulls from every project, and edits round-trip through the one instance roadmap
+  // file. The Backlog ⋯ overflow menu is never the door.
+  const handleEditPlan = useCallback((roadmapRef: string) => setPlanningRef(roadmapRef), [])
 
   // Focus the running sprint's own workspace, when it is open. Autonomous runs may not
   // be mounted as a workspace; the chip is then inert, never a broken link.
@@ -323,7 +323,9 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
         }
       }
       reload()
-      openPlanning(projectRoot, normalizeRelativePath(`backlog/roadmaps/${fileName}`))
+      // Drop straight into the in-surface planner on the new file (D1: the file
+      // lives in the home project, but the plan spans every project).
+      setPlanningRef(normalizeRelativePath(`backlog/roadmaps/${fileName}`))
     } catch (createError) {
       await dialog.confirm({
         title: 'Could not create the roadmap',
@@ -333,12 +335,29 @@ export function RoadmapBoard({ onClose }: { onClose?: () => void }): JSX.Element
     } finally {
       setCreating(false)
     }
-  }, [dialog, homePath, openPlanning, reload])
+  }, [dialog, homePath, reload])
 
   const inbox = collectRoadmapInbox(roadmaps)
   const spansProjects = roadmaps.some((roadmap) => roadmap.roadmap.projects.length > 0)
   const summary = deriveRoadmapSummary(roadmaps)
   const hasRoadmap = roadmaps.length > 0
+
+  // The cross-project planner takes over the whole surface while editing a plan; its
+  // own header carries Back (to this board) and Save. Escape still closes the surface.
+  if (planningRef && homePath) {
+    return (
+      <RoadmapPlannerView
+        homePath={homePath}
+        roadmapRef={planningRef}
+        onBack={() => {
+          setPlanningRef(null)
+          reload()
+        }}
+        onSaved={reload}
+        onRevealItem={openPlanning}
+      />
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
