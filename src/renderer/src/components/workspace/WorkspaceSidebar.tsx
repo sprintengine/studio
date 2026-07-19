@@ -513,6 +513,10 @@ export default function WorkspaceSidebar({
   // by WorkspaceManager) and reads its open state to carry aria-current.
   const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
   const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
+  // A door-routed full-page surface owns the card region (global-surfaces epic
+  // 1704). While one is active no project row is "current" — the door row carries
+  // the selection instead, so the sidebar shows exactly one selected thing.
+  const globalSurfaceActive = useWorkspaceStore((s) => s.activeGlobalSurface !== null)
   // The Sprints nav entry toggles the global Sprint Engines aside — the
   // existing "all sprints across every project" survey panel mounted by
   // WorkspaceManager — rather than a bespoke surface. Gated on the module.
@@ -1043,10 +1047,10 @@ export default function WorkspaceSidebar({
   )
 
   const renderWorkspaceRow = (workspace: Workspace, fKey: string, options?: { keyPrefix?: string }) => {
-    // When the Automations area is the active content region, no workspace row
-    // is "current" — the bottom-rail Automations entry carries aria-current, so
-    // a highlighted row here would be a second, conflicting selected state.
-    const active = workspace.id === activeWorkspaceId
+    // When a door-routed full-page surface owns the card region (epic 1704), no
+    // workspace row is "current" — the door row carries the selection, so a
+    // highlighted project row here would be a second, conflicting selected state.
+    const active = !globalSurfaceActive && workspace.id === activeWorkspaceId
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const recency = terminalRecencyByWorkspaceId[workspace.id]

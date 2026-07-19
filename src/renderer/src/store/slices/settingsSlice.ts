@@ -963,6 +963,16 @@ export interface SettingsSliceState {
   runSummaryOverlay: RunSummaryOverlayState
   connectorsSurface: ConnectorsSurfaceState
   roadmapSurface: RoadmapSurfaceState
+  // The active door-routed full-page surface for this window (global-surfaces
+  // epic 1704): a registered surface id (e.g. 'roadmap') or null when a
+  // workspace — not a door — owns the card region. Parallel to
+  // roadmapSurface/connectorsSurface (per-window and transient: omitted from
+  // extractSettingsFields / partializeWorkspaceStoreState, so never persisted
+  // and never replicated across windows). Unlike the Connectors/Settings
+  // overlays this is a MOUNT KIND that pre-empts the workspace card region
+  // rather than floating a dialog over it, so opening a door and activating a
+  // workspace are mutually exclusive — the sidebar selection invariant.
+  activeGlobalSurface: string | null
   sidebarCollapsed: boolean
   // User-resizable expanded width of the workspace sidebar, in px. Persisted so
   // the rail reopens at the width the user dragged it to. Only meaningful while
@@ -1008,6 +1018,12 @@ export interface SettingsSliceActions {
   closeConnectorsSurface: () => void
   openRoadmapSurface: () => void
   closeRoadmapSurface: () => void
+  // Open/close the door-routed full-page surface (global-surfaces epic 1704).
+  // `openGlobalSurface` is the generic entry a module's door calls with its own
+  // registered surface id; `closeGlobalSurface` returns the card region to the
+  // active workspace. Activating a workspace clears it too (see workspacesSlice).
+  openGlobalSurface: (surfaceId: string) => void
+  closeGlobalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
@@ -1102,6 +1118,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     runSummaryOverlay: { open: false, workspaceId: null },
     connectorsSurface: { open: false, initialView: null },
     roadmapSurface: { open: false },
+    activeGlobalSurface: null,
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     sprintEnginesAsideOpen: false,
@@ -1193,14 +1210,29 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.connectorsSurface.initialView = null
       }),
 
+    // The Roadmap door + the Backlog "Open Roadmap" affordance now route to the
+    // door-routed full-page surface (global-surfaces epic 1704) rather than the
+    // centered overlay. A named convenience over openGlobalSurface('roadmap') so
+    // every existing caller opens the same surface; the legacy roadmapSurface
+    // overlay flag below stays present but unset until T2 retires the overlay.
     openRoadmapSurface: () =>
       set((state) => {
-        state.roadmapSurface.open = true
+        state.activeGlobalSurface = 'roadmap'
       }),
 
     closeRoadmapSurface: () =>
       set((state) => {
         state.roadmapSurface.open = false
+      }),
+
+    openGlobalSurface: (surfaceId) =>
+      set((state) => {
+        state.activeGlobalSurface = surfaceId
+      }),
+
+    closeGlobalSurface: () =>
+      set((state) => {
+        state.activeGlobalSurface = null
       }),
 
     setCliRuntime: (cli, update) =>

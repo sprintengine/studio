@@ -243,6 +243,29 @@ export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
   moduleId: string
 }
 
+// A door-routed full-page surface a module contributes (global-surfaces epic
+// 1704). The companion to a sidebar nav door: the door calls
+// `openGlobalSurface(id)` on the local window's store, and WorkspaceManager
+// mounts the surface registered under that same id over the workspace card
+// region (gated on the owning module's enablement). Splitting the surface
+// component out of the shell is what lets the Automations/Reviews door tasks
+// register their page without editing WorkspaceManager/WorkspaceSidebar. The
+// component is zero-prop and owns its own data/state, exactly like a panel.
+export type GlobalSurfaceComponent =
+  | ComponentType
+  | LazyExoticComponent<ComponentType>
+
+export type GlobalSurfaceDefinition = {
+  /** Matches the id the door opens via `openGlobalSurface`. Non-empty; unique. */
+  id: string
+  /** The full-page surface. Eager or React.lazy(), mirroring WorkspacePanelComponent. */
+  Component: GlobalSurfaceComponent
+}
+
+export type RegisteredGlobalSurface = GlobalSurfaceDefinition & {
+  moduleId: string
+}
+
 // Read access to the workspace's Backlog for module renderers. The kernel owns
 // only the seam: the backlog module provides the implementation (shared scan +
 // watcher), and the scoped host methods below route through it — the kernel
@@ -268,6 +291,13 @@ export type RendererHost = {
    * the door without a reload. The row acts on the local window's store.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute a door-routed full-page surface (global-surfaces epic 1704),
+   * mounted by WorkspaceManager over the workspace card region when a door
+   * opens it via `openGlobalSurface(id)`. Registered unconditionally at boot;
+   * the mount gates on this module's live enablement. Duplicate ids throw.
+   */
+  registerGlobalSurface(definition: GlobalSurfaceDefinition): void
   /**
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
@@ -330,6 +360,18 @@ export type RendererKernel = {
    */
   getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): RegisteredSidebarNavEntry[]
   /**
+   * The full-page surface registered under `id`, with its owning module — so
+   * WorkspaceManager can gate the mount on that module's enablement. Undefined
+   * when no surface (or a disabled/absent module's surface) claims the id.
+   */
+  getGlobalSurface(id: string): RegisteredGlobalSurface | undefined
+  /**
+   * All contributed full-page surfaces for enabled modules, in stable order
+   * (id) regardless of registration order. The mount resolves a single surface
+   * by id; this listing exists for parity with the other registries.
+   */
+  getGlobalSurfaces(moduleEnabled?: (moduleId: string) => boolean): RegisteredGlobalSurface[]
+  /**
    * Enablement source for host methods that must gate on a module's live
    * enablement without a caller-supplied predicate (the Backlog read API).
    * Wired once at boot by modules/index.ts from the workspace store; absent
@@ -350,6 +392,7 @@ export function createRendererHost(): RendererKernel {
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
   const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
+  const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
   let backlogReader: { moduleId: string; reader: BacklogReader } | null = null
   let moduleEnabledResolver: ((moduleId: string) => boolean) | null = null
   // Shared gate for the Backlog read methods: the error names the actual cause
@@ -476,6 +519,18 @@ export function createRendererHost(): RendererKernel {
           }
           sidebarNavEntries.set(definition.id, { ...definition, moduleId })
         },
+        registerGlobalSurface(definition) {
+          if (definition.id.trim().length === 0) {
+            throw new Error('Global surface id must be a non-empty string.')
+          }
+          const existing = globalSurfaces.get(definition.id)
+          if (existing) {
+            throw new Error(
+              `Global surface "${definition.id}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          globalSurfaces.set(definition.id, { ...definition, moduleId })
+        },
         provideBacklogReader(reader) {
           if (backlogReader) {
             throw new Error(
@@ -596,6 +651,14 @@ export function createRendererHost(): RendererKernel {
           const order = a.order - b.order
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
+    },
+    getGlobalSurface(id) {
+      return globalSurfaces.get(id)
+    },
+    getGlobalSurfaces(moduleEnabled) {
+      return [...globalSurfaces.values()]
+        .filter((surface) => !moduleEnabled || moduleEnabled(surface.moduleId))
+        .sort((a, b) => a.id.localeCompare(b.id))
     },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver

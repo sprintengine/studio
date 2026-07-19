@@ -16,7 +16,10 @@ import { SidebarNavButton } from './SidebarNavButton'
 // the surface is closed.
 export function RoadmapNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   const openRoadmapSurface = useWorkspaceStore((s) => s.openRoadmapSurface)
-  const roadmapSurfaceOpen = useWorkspaceStore((s) => s.roadmapSurface.open)
+  // The door is selected while its full-page surface owns the card region
+  // (global-surfaces epic 1704): one selected thing in the sidebar, a door XOR a
+  // project. openRoadmapSurface now routes to that surface, not the old overlay.
+  const roadmapSurfaceActive = useWorkspaceStore((s) => s.activeGlobalSurface === 'roadmap')
   const attention = useRoadmapAttention(true)
   return (
     <SidebarNavButton
@@ -26,7 +29,7 @@ export function RoadmapNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
       ariaLabel="Roadmap"
       tooltip={attention.waiting ? 'Roadmap — waiting on you' : 'Roadmap'}
       tooltipWhenExpanded
-      active={roadmapSurfaceOpen}
+      active={roadmapSurfaceActive}
       indicator={roadmapNavIndicator(attention)}
       onClick={() => openRoadmapSurface()}
     />

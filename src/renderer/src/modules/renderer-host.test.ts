@@ -335,6 +335,55 @@ assert.deepEqual(
 
 console.log('renderer host sidebar nav entry tests passed')
 
+// --- Global surfaces (door-routed full-page surface registry, epic 1704) -------
+
+const surfaceHost = createRendererHost()
+const surfaceComponent = () => {
+  throw new Error('surface component should not be evaluated during registration')
+}
+// The roadmap surface (first-party) and a third-party module's surface register
+// through the same contract — the seam that lets Automations/Reviews (and SDK
+// modules) contribute a full page without editing WorkspaceManager.
+surfaceHost.hostFor('roadmap').registerGlobalSurface({ id: 'roadmap', Component: surfaceComponent })
+surfaceHost.hostFor('acme.compass').registerGlobalSurface({ id: 'compass', Component: surfaceComponent })
+
+assert.equal(
+  surfaceHost.getGlobalSurface('roadmap')?.moduleId,
+  'roadmap',
+  'a global surface records its owning module so the mount can gate on enablement',
+)
+assert.equal(surfaceHost.getGlobalSurface('missing'), undefined, 'an unregistered surface id resolves to undefined')
+assert.throws(
+  () => surfaceHost.hostFor('impostor').registerGlobalSurface({ id: 'roadmap', Component: surfaceComponent }),
+  /Global surface "roadmap" is already registered by module "roadmap"/,
+  'duplicate surface ids fail with an explicit error naming the owner',
+)
+assert.throws(
+  () => surfaceHost.hostFor('roadmap').registerGlobalSurface({ id: '  ', Component: surfaceComponent }),
+  /non-empty string/,
+  'blank surface ids are rejected before registration',
+)
+assert.deepEqual(
+  surfaceHost.getGlobalSurfaces().map((surface) => surface.id),
+  ['compass', 'roadmap'],
+  'global surfaces list in a stable id order',
+)
+// The mount reads getGlobalSurface(id) then gates on the owning module: a
+// disabled module's surface is filtered out reactively, so a stale open flag
+// after a module toggle can never strand the card region on a blank page.
+assert.deepEqual(
+  surfaceHost.getGlobalSurfaces((moduleId) => moduleId !== 'roadmap').map((surface) => surface.id),
+  ['compass'],
+  'a disabled module\'s surface is filtered out reactively',
+)
+assert.deepEqual(
+  surfaceHost.getGlobalSurfaces(() => true).map((surface) => surface.id),
+  ['compass', 'roadmap'],
+  're-enabling restores the surface without re-registration',
+)
+
+console.log('renderer host global surface tests passed')
+
 // --- Notification action providers ---
 
 function notification(overrides: Partial<AppNotification> = {}): AppNotification {

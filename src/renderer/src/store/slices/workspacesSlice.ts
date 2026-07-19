@@ -105,6 +105,40 @@ export function normalizeWorkspaceMode(
   return 'standard'
 }
 
+// One reviewer-state lift for the `review` workspace-type retirement (MC-1708).
+// The review id is the workspace id (unchanged: it keys the on-disk review dir),
+// so a lift is (workspaceRoot, reviewId, state) — everything needed to write the
+// state onto disk beside the change set.
+export type ReviewStateMigration = {
+  reviewId: WorkspaceId
+  workspaceRoot: string
+  state: ReviewWorkspaceState
+}
+
+// The `review` workspace type retired (MC-1708): reviews are instance-level disk
+// objects, so persisted review-mode rows are dropped — but only AFTER their
+// reviewer state is lifted onto disk. This is the pure half: from the persisted
+// workspaces, collect every review-mode row that still carries reviewer state and
+// a project folder, as a lift the caller writes to `<reviewDir>/state.json`
+// before dropping the row. A review row with no `reviewState` (nothing typed yet)
+// or no `folderPath` (no place to write) yields no lift and is safe to drop
+// directly. The reviewer state is carried verbatim — comments (including posted,
+// which stay read-only, and 'moved' held ones) and read progress survive the move
+// exactly as GitHub/the re-run left them.
+export function collectReviewStateMigrations(workspaces: Workspace[]): ReviewStateMigration[] {
+  const migrations: ReviewStateMigration[] = []
+  for (const workspace of workspaces) {
+    if (workspace.mode !== REVIEW_WORKSPACE_MODE) continue
+    if (!workspace.reviewState || !workspace.folderPath) continue
+    migrations.push({
+      reviewId: workspace.id,
+      workspaceRoot: workspace.folderPath,
+      state: workspace.reviewState,
+    })
+  }
+  return migrations
+}
+
 export function defaultWorkspaceFileExplorerState(): WorkspaceFileExplorerState {
   return { expandedPaths: [], selectedPath: null }
 }
@@ -369,7 +403,14 @@ export interface WorkspacesSliceDependencies {
   isPathOrChild: (path: string, parentPath: string) => boolean
 }
 
-type WorkspacesSliceCarrier = WorkspacesSliceState & { appSettings: AppSettings }
+// activeGlobalSurface is owned by the settings slice but cleared here: activating
+// a workspace must return the card region from a door-routed full-page surface to
+// that workspace (the sidebar's one-selected-thing invariant, global-surfaces
+// epic 1704). The combined store carries the field; the carrier widens to reach it.
+type WorkspacesSliceCarrier = WorkspacesSliceState & {
+  appSettings: AppSettings
+  activeGlobalSurface: string | null
+}
 type WorkspacesSliceSet = (mutator: (state: WorkspacesSliceCarrier) => void) => void
 
 function findWorkspaceWindow(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): WorkspaceWindowState | undefined {
@@ -704,6 +745,8 @@ export function createWorkspacesSlice(
         windowState.activeWorkspaceId = workspaceId
         windowState.lastFocusedAt = Date.now()
         state.activeWorkspaceId = workspaceId
+        // Leaving a door-routed full-page surface for a workspace (epic 1704).
+        state.activeGlobalSurface = null
       })
       // Local state is the functional path (storage-event sync still mirrors it
       // to other windows as rollback). When the active selection actually
@@ -1269,6 +1312,8 @@ export function createWorkspacesSlice(
     setActiveWorkspace: (id) =>
       set((state) => {
         state.activeWorkspaceId = id
+        // Leaving a door-routed full-page surface for a workspace (epic 1704).
+        state.activeGlobalSurface = null
         const windowState = findWorkspaceWindow(state, id)
         const seenAt = Date.now()
         if (windowState) {

@@ -201,6 +201,15 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openRoadmapSurface: () => void
   closeRoadmapSurface: () => void
+  // The door-routed full-page surface for this window (global-surfaces epic
+  // 1704): a registered surface id or null when a workspace owns the card
+  // region. Transient/unsynced like roadmapSurface (absent from
+  // extractSettingsFields / partializeWorkspaceStoreState). Opening a door sets
+  // it; activating any workspace clears it — the sidebar's one-selected-thing
+  // invariant.
+  activeGlobalSurface: string | null
+  openGlobalSurface: (surfaceId: string) => void
+  closeGlobalSurface: () => void
   reorderWorkspaces: (orderedIds: WorkspaceId[]) => void
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (
