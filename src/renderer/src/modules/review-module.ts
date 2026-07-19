@@ -41,31 +41,34 @@ let draining = false
 // Drop every persisted review-mode workspace row, but only AFTER its reviewer
 // state is safely on disk. The review id is the workspace id, so each row's state
 // is lifted into its `<reviewDir>/state.json` (the same per-review-id directory
-// its change set and brief already live in) before the row is removed. A row whose
-// lift fails is kept and retried on the next drain, so unposted comments are never
-// lost to a transient write error. A review row with no reviewer state (or no
-// project folder to write into) is dropped directly.
+// its change set and brief already live in) before the row is removed. A row is
+// dropped ONLY once its state is safely on disk (a successful lift) or there was
+// nothing to preserve (no reviewer state). A row that still carries state we could
+// not lift — a transient write error, or a review with no project folder to write
+// into — is KEPT and retried on the next drain, so unposted comments are never
+// silently lost.
 async function drainRetiredReviewWorkspaces(): Promise<void> {
   if (draining) return
   const reviewRows = useWorkspaceStore.getState().workspaces.filter((w) => w.mode === REVIEW_WORKSPACE_MODE)
   if (reviewRows.length === 0) return
   draining = true
   try {
-    const liftFailed = new Set<string>()
+    const lifted = new Set<string>()
     for (const migration of collectReviewStateMigrations(reviewRows)) {
       try {
         const result = await window.api.reviewWriteState(
           { workspaceRoot: migration.workspaceRoot, workspaceId: migration.reviewId },
           migration.state,
         )
-        if (!result.ok) liftFailed.add(migration.reviewId)
+        if (result.ok) lifted.add(migration.reviewId)
       } catch {
-        liftFailed.add(migration.reviewId)
+        // Keep the row; the next drain retries the lift.
       }
     }
     const removeWorkspace = useWorkspaceStore.getState().removeWorkspace
     for (const row of reviewRows) {
-      if (!liftFailed.has(row.id)) removeWorkspace(row.id)
+      // Safe to drop: nothing to preserve, or its state is now on disk.
+      if (!row.reviewState || lifted.has(row.id)) removeWorkspace(row.id)
     }
   } finally {
     draining = false
