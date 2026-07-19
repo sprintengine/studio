@@ -197,6 +197,28 @@ run('a change map over the node cap is rejected', () => {
   assert.match(result.errors.join('\n'), /changeMap\.nodes must have 14 nodes or fewer; got 15/)
 })
 
+run('a change map over the edge cap is rejected', () => {
+  const brief = withChangeMap()
+  brief.changeMap!.edges = Array.from({ length: 21 }, () => ({ from: 'n1', to: 'n2' }))
+  const result = validateReviewBrief(brief)
+  assert.ok(!result.ok)
+  assert.match(result.errors.join('\n'), /changeMap\.edges must have 20 edges or fewer; got 21/)
+})
+
+run('an over-long node label and edge label are rejected, path-qualified', () => {
+  const labelErrors = briefErrors((b) => {
+    b.changeMap = withChangeMap().changeMap
+    b.changeMap!.nodes[0].label = 'x'.repeat(41)
+  })
+  assert.match(labelErrors.join('\n'), /changeMap\.nodes\[0\]\.label must be 40 characters or fewer/)
+
+  const edgeLabelErrors = briefErrors((b) => {
+    b.changeMap = withChangeMap().changeMap
+    b.changeMap!.edges[0].label = 'x'.repeat(17)
+  })
+  assert.match(edgeLabelErrors.join('\n'), /changeMap\.edges\[0\]\.label must be 16 characters or fewer/)
+})
+
 // --- checkBriefMatchesChangeSet ---
 
 run('id mismatch between brief and changeset is caught', () => {

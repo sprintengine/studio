@@ -12,6 +12,7 @@ import { TopBar } from './TopBar'
 import { StepRail } from './StepRail'
 import { StepPane } from './StepPane'
 import { OverviewPane } from './OverviewPane'
+import { ChangeMapView } from './ChangeMapView'
 import { AnnotationsPanel } from './AnnotationsPanel'
 import {
   OVERVIEW_PANE_ID,
@@ -36,8 +37,8 @@ export interface ReviewWalkthroughProps {
   onRequestComment: (path: string, line: number) => void
   onAskGuide: (annotation: ReviewAnnotation) => void
   onRerun: () => void
-  // MC-1685 supplies the change map; T7 reserves the slot.
-  changeMapSlot?: ReactNode
+  // MC-1682 fills this reserved slot under the top bar with the freshness banner.
+  bannerSlot?: ReactNode
 }
 
 // The guided walkthrough — a pure projection of a validated changeset + brief +
@@ -58,9 +59,18 @@ export function ReviewWalkthrough({
   onRequestComment,
   onAskGuide,
   onRerun,
-  changeMapSlot,
+  bannerSlot,
 }: ReviewWalkthroughProps) {
   const steps = useMemo(() => orderedSteps(brief), [brief])
+  // The change map is a projection of the same steps + nav the rail uses; build
+  // it here where both are in scope, and hand it to the Overview's reserved slot.
+  const changeMapSlot = brief.changeMap ? (
+    <ChangeMapView
+      changeMap={brief.changeMap}
+      orderedStepIds={steps.map((step) => step.id)}
+      onNavigate={onSetActivePane}
+    />
+  ) : null
   const rail = useMemo(() => buildRailModel(changeset, brief, readFiles), [changeset, brief, readFiles])
   const fileByPath = useMemo(
     () => new Map<string, ChangeSetFile>(changeset.files.map((file) => [file.path, file])),
@@ -117,6 +127,7 @@ export function ReviewWalkthrough({
         onRerun={onRerun}
         rerunning={rerunning}
       />
+      {bannerSlot}
       <div className="grid min-h-0 flex-1 grid-cols-[244px_minmax(0,1fr)_276px]">
         <StepRail rail={rail} activePaneId={activePaneId} onSelectPane={onSetActivePane} />
         <div ref={centerRef} className="min-w-0 overflow-y-auto px-6 py-5">

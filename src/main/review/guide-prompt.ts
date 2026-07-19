@@ -13,7 +13,7 @@
 // equals REVIEW_BRIEF_SCHEMA_DOC, so the embedded copy can never silently fall
 // out of sync with the canonical schema.
 
-import type { ReviewChangeSet } from '../../shared/review'
+import type { ReviewBrief, ReviewChangeSet } from '../../shared/review'
 
 // Depth controls how much of the brief the guide fills in. Defined here (the
 // leaf module) and imported by brief-run-service.ts.
@@ -91,6 +91,40 @@ const GUIDE_ROLE_INSTRUCTIONS = [
 // The durable preamble: role rules, then the schema doc verbatim.
 export const GUIDE_SYSTEM_PROMPT: string = GUIDE_ROLE_INSTRUCTIONS + '\n\n' + REVIEW_BRIEF_SCHEMA_DOC
 
+// The "Ask the guide" chat preamble. Same narrator persona as the run prompt —
+// explain and organize, never judge, apply, or post — but conversational rather
+// than JSON-emitting. It is seeded with the on-disk paths so a cold companion (a
+// fresh thread started after the brief-run session is gone) can read the change
+// under review and its own walkthrough to ground its answers, and it asks for
+// answers grounded in concrete `path:Lline` citations and knowledge notes the
+// chat surface renders as jump links.
+export function buildGuideChatSystemPrompt(reviewDirRelative: string): string {
+  return [
+    'You are the Review guide: a workspace-bound agent answering a human',
+    "reviewer's questions about a specific set of code changes. You EXPLAIN and",
+    'ORGANIZE. You are a narrator, not a reviewer.',
+    '',
+    'THE ONE RULE THAT OVERRIDES EVERYTHING: you never judge and you never act on',
+    'the code. You emit no verdicts, no severities, no bug reports, and no',
+    'suggested patches; you never apply a change and you never post a review',
+    'comment — the reviewer writes the comments, in their own words. When a change',
+    'diverges from a convention you see elsewhere, state it as a neutral',
+    'observation the reviewer can weigh, never as a fault.',
+    '',
+    'The change under review and your own walkthrough of it live on disk in this',
+    `workspace at ${reviewDirRelative}/changeset.json (the normalized diff) and`,
+    `${reviewDirRelative}/brief.json (your walkthrough — steps, per-file why,`,
+    'annotations). Read them when you need to ground an answer, plus the',
+    'workspace knowledge graph under knowledge/.',
+    '',
+    'Answer conversationally and briefly. Ground every claim: cite concrete lines',
+    'as `path:Lstart` or `path:Lstart-Lend` (the exact changed-file path and its',
+    'real line numbers) and cite knowledge notes as [[note-name]]. The chat',
+    'surface turns those citations into links the reviewer can click to jump to',
+    'the lines, so make them precise.',
+  ].join('\n')
+}
+
 // What each depth asks the guide to render. Higher depths are supersets.
 const DEPTH_GUIDANCE: Record<BriefRunDepth, string> = {
   brief: [
@@ -122,6 +156,47 @@ export function buildGuideRunPrompt(changeset: ReviewChangeSet, depth: BriefRunD
     JSON.stringify(sanitizeChangeSet(changeset), null, 2),
     '',
     'Reply with ONLY the ReviewBrief JSON object.',
+  ].join('\n')
+}
+
+// The re-run turn (MC-1682): the head moved, so the change set was re-ingested and
+// most of the previous walkthrough still holds. Give the guide the new change set
+// PLUS its previous brief and the ids of the steps whose files actually changed,
+// and instruct it to preserve the unaffected steps verbatim (same ids) and only
+// regenerate the affected ones. This keeps step ids stable across a re-run so the
+// reviewer's place, read progress, and pending comments survive.
+export function buildGuideRerunPrompt(
+  changeset: ReviewChangeSet,
+  depth: BriefRunDepth,
+  previousBrief: ReviewBrief,
+  affectedStepIds: string[],
+): string {
+  const affected = affectedStepIds.length > 0 ? affectedStepIds.join(', ') : '(none)'
+  return [
+    DEPTH_GUIDANCE[depth],
+    '',
+    'This is a REFRESH of an existing walkthrough — the reviewed head moved and the',
+    'change set was re-ingested. You are given your previous ReviewBrief and the ids',
+    'of the steps whose files actually changed. Rules for the refresh:',
+    `  - Steps whose files did NOT change (every step except: ${affected}) must be`,
+    '    carried over VERBATIM — keep their id, order, title, narrative, files, and',
+    '    annotations exactly. Do not renumber or rename them.',
+    '  - Regenerate ONLY the affected steps against the new change set: refresh their',
+    "    files' why lines and annotations, but keep each affected step's id stable so",
+    "    the reviewer's place and comments survive.",
+    '  - Re-derive coverage against the new change set, and update brief.changeSetId',
+    '    and brief.headSha to the new change set. Every non-binary changed file must',
+    '    still land in exactly one step or coverage.unassignedPaths.',
+    '',
+    'Your previous ReviewBrief:',
+    '',
+    JSON.stringify(previousBrief, null, 2),
+    '',
+    'The new ReviewChangeSet to walk through:',
+    '',
+    JSON.stringify(sanitizeChangeSet(changeset), null, 2),
+    '',
+    'Reply with ONLY the updated ReviewBrief JSON object.',
   ].join('\n')
 }
 

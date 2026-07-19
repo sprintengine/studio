@@ -116,6 +116,44 @@ run('surfaces an uncovered-files warning when coverage lists them', () => {
   assert.ok(overview.includes('src/legacy/untouched.ts'))
 })
 
+function renderOverview(brief: typeof fixtureBrief): string {
+  return renderToStaticMarkup(
+    <ReviewWalkthrough
+      changeset={fixtureChangeSet}
+      brief={brief}
+      readFiles={new Set()}
+      diffView="side-by-side"
+      activePaneId="overview"
+      monacoTheme="vs-dark"
+      rerunning={false}
+      onSetActivePane={() => {}}
+      onSetDiffView={() => {}}
+      onToggleRead={() => {}}
+      onRequestComment={() => {}}
+      onAskGuide={() => {}}
+      onRerun={() => {}}
+    />,
+  )
+}
+
+run('renders the change map in the Overview, wired to its steps', () => {
+  const overview = renderOverview(fixtureBrief)
+  assert.ok(overview.includes('Change map'))
+  assert.ok(overview.includes('Invitations API'))
+  // Nodes carry their step navigation as keyboard-reachable buttons.
+  assert.ok(overview.includes('role="button"'))
+  assert.ok(overview.includes('Go to step 2'))
+  // deployNote surfaces as the caption.
+  assert.ok(overview.includes('Deploy order:'))
+})
+
+run('a brief without a change map renders the Overview with no map section', () => {
+  const { changeMap: _dropped, ...noMap } = fixtureBrief
+  const overview = renderOverview(noMap as typeof fixtureBrief)
+  assert.ok(overview.includes('What this is.')) // overview still renders
+  assert.ok(!overview.includes('Change map')) // …with no map heading or placeholder
+})
+
 // Reference the fixture so an unused-import refactor can't silently drop it.
 assert.ok(reviewFixture.changeset.files.length === 4)
 

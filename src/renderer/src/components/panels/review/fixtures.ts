@@ -6,6 +6,7 @@
 // rendered surface can be eyeballed against the accepted direction.
 
 import type {
+  ChangeMap,
   ReviewBrief,
   ReviewChangeSet,
   ReviewWorkspaceState,
@@ -212,6 +213,22 @@ export const fixtureBrief: ReviewBrief = {
       annotations: [],
     },
   ],
+  changeMap: {
+    nodes: [
+      { id: 'model', label: 'Invitation model', sublabel: 'prisma/schema.prisma', stepId: 'step-model', kind: 'data' },
+      { id: 'migration', label: 'Migration', sublabel: 'CREATE TABLE Invitation', stepId: 'step-model', kind: 'data' },
+      { id: 'api', label: 'Invitations API', sublabel: 'create · accept · revoke', stepId: 'step-api', kind: 'api' },
+      { id: 'email', label: 'Invite email', sublabel: 'inline send — see step 2', stepId: 'step-api', kind: 'job' },
+      { id: 'tests', label: 'API tests', sublabel: 'expired-token path', stepId: 'step-tests', kind: 'test' },
+    ],
+    edges: [
+      { from: 'migration', to: 'model', label: 'creates' },
+      { from: 'model', to: 'api', label: 'queried by' },
+      { from: 'api', to: 'email', label: 'sends' },
+      { from: 'tests', to: 'api', label: 'covers' },
+    ],
+    deployNote: 'the migration must deploy before the API can query the new table.',
+  },
   knowledgeRefs: [
     { note: 'auth-tokens', reason: 'the single-use-token shape follows the session-token convention' },
     { note: 'billing-seats', reason: 'the seat-limit re-check inside the transaction' },
@@ -246,4 +263,30 @@ export const reviewFixture: ReviewFixture = {
   changeset: fixtureChangeSet,
   brief: fixtureBrief,
   state: fixtureState,
+}
+
+// The mockup's §2 change map, verbatim: six entities across four steps, five
+// labeled relationships, a deploy caption. Used by the layout and ChangeMapView
+// tests to prove the map renders visually equivalent to the accepted direction.
+// Standalone (its stepIds are the mockup's, not the fixture brief's), so it
+// exercises the layout/view directly without a whole brief.
+export const mockupChangeMapStepIds = ['s-model', 's-api', 's-ui', 's-tests']
+
+export const mockupChangeMap: ChangeMap = {
+  nodes: [
+    { id: 'model', label: 'Invitation model', sublabel: 'prisma/schema.prisma', stepId: 's-model', kind: 'data' },
+    { id: 'migration', label: 'Migration', sublabel: 'CREATE TABLE Invitation', stepId: 's-model', kind: 'data' },
+    { id: 'api', label: 'Invitations API', sublabel: 'create · accept · revoke', stepId: 's-api', kind: 'api' },
+    { id: 'email', label: 'Invite email', sublabel: 'inline send — see step 2', stepId: 's-api', kind: 'job' },
+    { id: 'ui', label: 'Members UI', sublabel: 'settings/members page', stepId: 's-ui', kind: 'ui' },
+    { id: 'tests', label: 'API tests', sublabel: 'all three endpoints', stepId: 's-tests', kind: 'test' },
+  ],
+  edges: [
+    { from: 'migration', to: 'model', label: 'creates' },
+    { from: 'model', to: 'api', label: 'queried by' },
+    { from: 'api', to: 'email', label: 'sends' },
+    { from: 'api', to: 'ui', label: 'feeds' },
+    { from: 'tests', to: 'api', label: 'covers' },
+  ],
+  deployNote: 'migration before UI — the members page needs the role column.',
 }
