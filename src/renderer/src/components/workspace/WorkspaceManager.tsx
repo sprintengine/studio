@@ -425,7 +425,7 @@ export default function WorkspaceManager() {
       : railWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
   // Load the Sprint Engine role registry for the active workspace so the spawn
-  // dropdown and Specialist packs settings tab can surface registry-discovered
+  // dropdown and Modules settings tab can surface registry-discovered
   // specialist packs (workspace / user / plugin layers) alongside the bundled
   // pack. In-memory only; re-fetched when the active workspace folder changes.
   const activeWorkspaceFolderPath = activeWorkspace?.folderPath ?? null

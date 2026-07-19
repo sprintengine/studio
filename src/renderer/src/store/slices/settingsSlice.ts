@@ -974,7 +974,7 @@ export interface SettingsSliceState {
   // Discovered Sprint Engine role registry for the active workspace (bundled +
   // workspace/user/plugin layers). In-memory only (re-fetched per workspace,
   // never persisted); powers the registry-discovered specialist packs in the
-  // spawn dropdown and the Specialist packs settings tab. Null until loaded.
+  // spawn dropdown and the Modules settings tab. Null until loaded.
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
   // Live outcome of the deferred first-run agent-config adoption, shown on the
   // first-run overlay. Transient (not persisted via extractSettingsFields) — it

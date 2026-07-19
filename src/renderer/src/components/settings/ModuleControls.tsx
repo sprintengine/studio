@@ -2,10 +2,12 @@ import type { CapabilityCategory, CapabilityManifest, ModuleEnablementOverrides 
 import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS, selectModuleEnabled } from '../../modules'
 import { SettingToggle } from './SettingsAtoms'
 
-// Shared capability-module controls composed by both the Settings → Modules
-// manager and the first-run chooser: a category-grouped toggle list, plus any
-// feature-flagged modules shown as greyed-out "Coming soon" rows. Keeping them
-// here means the two surfaces stay identical.
+// Capability-module controls: the category grouping/labels shared by the
+// Settings → Modules manager and the first-run chooser, plus the chooser's
+// compact toggle list (with feature-flagged modules as greyed-out "Coming
+// soon" rows). The Settings manager renders the richer card surface in
+// ModulesSettingsTab but consumes the same groups so the two surfaces never
+// disagree about what exists or what it's called.
 
 const CATEGORY_ORDER: CapabilityCategory[] = [
   'core',
@@ -37,7 +39,7 @@ function categoryRank(category: CapabilityCategory | undefined): number {
 // Human-readable section header for a category. Known categories use the curated
 // labels above; an unmapped one (e.g. a third-party module's own category) is
 // title-cased rather than shown as a raw id like "my-tools".
-function categoryLabel(category: CapabilityCategory): string {
+export function categoryLabel(category: CapabilityCategory): string {
   const mapped = CATEGORY_LABEL[category]
   if (mapped) return mapped
   const words = category.replace(/[-_]+/g, ' ').trim()
@@ -45,13 +47,13 @@ function categoryLabel(category: CapabilityCategory): string {
 }
 
 // Ids of the feature-flagged modules surfaced as read-only "Coming soon" rows.
-const COMING_SOON_IDS: ReadonlySet<string> = new Set(COMING_SOON_MODULE_MANIFESTS.map((m) => m.id))
+export const COMING_SOON_IDS: ReadonlySet<string> = new Set(COMING_SOON_MODULE_MANIFESTS.map((m) => m.id))
 
 // Computed once: immutable for the session. Groups the active (toggleable)
 // modules together with any "Coming soon" feature-flagged modules, by category.
 // Active modules are listed before coming-soon ones within a category because
 // they are added first.
-const MODULE_CATEGORY_GROUPS: Array<{ category: CapabilityCategory; manifests: CapabilityManifest[] }> =
+export const MODULE_CATEGORY_GROUPS: Array<{ category: CapabilityCategory; manifests: CapabilityManifest[] }> =
   (() => {
     const groups = new Map<CapabilityCategory, CapabilityManifest[]>()
     for (const manifest of [...ACTIVE_RENDERER_MODULE_MANIFESTS, ...COMING_SOON_MODULE_MANIFESTS]) {

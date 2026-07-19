@@ -39,7 +39,6 @@ import { KeyboardShortcutsTab } from './KeyboardShortcutsTab'
 import MobileSettingsTab from './MobileSettingsTab'
 import { ModulesSettingsTab } from './ModulesSettingsTab'
 import { ProviderSettingsTab } from './ProviderSettingsTab'
-import SpecialistPacksTab from './SpecialistPacksTab'
 import { MetaCell, SettingsRow, SettingsSectionTitle, formatNullableDate } from './SettingsAtoms'
 import { ProjectKnowledgeList } from './ProjectKnowledgeList'
 import CliIcon from '../CliIcon'
@@ -55,7 +54,6 @@ import {
   AgentsSettingsIcon,
   ProvidersSettingsIcon,
   RolesSettingsIcon,
-  SpecialistPacksSettingsIcon,
   GithubSettingsIcon,
   KnowledgeGraphSettingsIcon,
   ModulesSettingsIcon,
@@ -136,7 +134,6 @@ type SettingsTabId =
   | 'agents'
   | 'providers'
   | 'roles'
-  | 'specialist-packs'
   | 'knowledge-graph'
   | 'learn'
   | 'mobile'
@@ -160,7 +157,6 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
   { id: 'agents', label: 'Agents', icon: AgentsSettingsIcon },
   { id: 'providers', label: 'Providers', icon: ProvidersSettingsIcon },
   { id: 'roles', label: 'Roles', icon: RolesSettingsIcon },
-  { id: 'specialist-packs', label: 'Specialist packs', icon: SpecialistPacksSettingsIcon },
   { id: 'github', label: 'GitHub', icon: GithubSettingsIcon },
   { id: 'knowledge-graph', label: 'Knowledge graph', icon: KnowledgeGraphSettingsIcon },
   { id: 'modules', label: 'Modules', icon: ModulesSettingsIcon },
@@ -174,7 +170,7 @@ const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: SettingsTabI
 // sections render after these under the trailing 'extensions' group.
 const settingsTabGroups: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: 'app', ids: ['general', 'profile', 'appearance', 'shortcuts'] },
-  { label: 'agents', ids: ['agents', 'providers', 'roles', 'specialist-packs'] },
+  { label: 'agents', ids: ['agents', 'providers', 'roles'] },
   { label: 'workspace', ids: ['github', 'knowledge-graph', 'modules'] },
   { label: 'companion', ids: ['mobile', 'voice-dictation', 'learn'] },
 ]
@@ -211,7 +207,6 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
     || value === 'agents'
     || value === 'providers'
     || value === 'roles'
-    || value === 'specialist-packs'
     || value === 'knowledge-graph'
     || value === 'learn'
     || value === 'mobile'
@@ -220,14 +215,16 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
 }
 
 // The 'updates' and 'telemetry' tabs folded into 'general' (their content now
-// renders as sections on the General page). Map any legacy deep-link that named
-// the old tabs onto 'general' so bookmarked/menu routes still land correctly.
+// renders as sections on the General page), and 'specialist-packs' folded into
+// 'modules'. Map any legacy deep-link that named the old tabs onto their new
+// homes so bookmarked/menu routes still land correctly.
 const GENERAL_FOLDED_SETTINGS_TABS = ['updates', 'telemetry'] as const
 
 function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
   if (initialTab && (GENERAL_FOLDED_SETTINGS_TABS as readonly string[]).includes(initialTab)) {
     return 'general'
   }
+  if (initialTab === 'specialist-packs') return 'modules'
   return initialTab ?? null
 }
 
@@ -2427,8 +2424,6 @@ export default function SettingsPanel({
           </div>
         </div>
       ) : null}
-
-      {activeSettingsTab === 'specialist-packs' ? <SpecialistPacksTab /> : null}
 
       {activeSettingsTab === 'knowledge-graph' ? (
         <div
