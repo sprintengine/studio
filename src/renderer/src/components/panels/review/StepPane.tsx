@@ -1,5 +1,13 @@
-import type { ChangeSetFile, DiffView, ReviewAnnotation, ReviewStep } from '../../../../../shared/review'
+import type {
+  ChangeSetFile,
+  DiffView,
+  ReviewAnchor,
+  ReviewAnnotation,
+  ReviewComment,
+  ReviewStep,
+} from '../../../../../shared/review'
 import { FileCard } from './FileCard'
+import { commentsForFile } from './commentModel'
 
 interface StepPaneProps {
   step: ReviewStep
@@ -12,6 +20,10 @@ interface StepPaneProps {
   onAskGuide: (annotation: ReviewAnnotation) => void
   onOrphans: (path: string, orphans: ReviewAnnotation[]) => void
   registerReveal: (path: string, reveal: ((line: number) => void) | null) => void
+  comments: ReviewComment[]
+  onCreateComment?: (path: string, anchor: ReviewAnchor, body: string) => void
+  onEditComment?: (id: string, body: string) => void
+  onDeleteComment?: (id: string) => void
 }
 
 // The active step's center pane: its narrative, then one file card per assigned
@@ -29,6 +41,10 @@ export function StepPane({
   onAskGuide,
   onOrphans,
   registerReveal,
+  comments,
+  onCreateComment,
+  onEditComment,
+  onDeleteComment,
 }: StepPaneProps) {
   return (
     <div>
@@ -52,6 +68,10 @@ export function StepPane({
             onAskGuide={onAskGuide}
             onOrphans={onOrphans}
             registerReveal={registerReveal}
+            comments={commentsForFile(comments, entry.path)}
+            onCreateComment={onCreateComment}
+            onEditComment={onEditComment}
+            onDeleteComment={onDeleteComment}
           />
         )
       })}

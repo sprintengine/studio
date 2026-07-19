@@ -73,9 +73,11 @@ export class ReviewChangeSetService {
     }
   }
 
-  // Full normalization + atomic persistence. Throws on a bad source or an
-  // internal normalization bug rather than writing an invalid file to disk.
-  async ingest(input: ReviewSourceInput, targetDir: string): Promise<ReviewChangeSet> {
+  // Normalize a source into a validated change set WITHOUT persisting it. This is
+  // the freshness probe (MC-1682): the panel rebuilds the current change set to
+  // compare its head sha + per-file diffs against the walkthrough it already has,
+  // and must not overwrite the on-disk change set the current brief walks.
+  async build(input: ReviewSourceInput): Promise<ReviewChangeSet> {
     const provider = providers.get(input.kind)
     if (!provider) throw new Error(providerMissingMessage(input.kind))
     const build = await provider.build(input)
@@ -84,8 +86,15 @@ export class ReviewChangeSetService {
     if (!validation.ok) {
       throw new Error(`Internal error: produced an invalid change set (${validation.errors[0]}).`)
     }
-    await writeChangeSetAtomic(targetDir, validation.value)
     return validation.value
+  }
+
+  // Full normalization + atomic persistence. Throws on a bad source or an
+  // internal normalization bug rather than writing an invalid file to disk.
+  async ingest(input: ReviewSourceInput, targetDir: string): Promise<ReviewChangeSet> {
+    const changeset = await this.build(input)
+    await writeChangeSetAtomic(targetDir, changeset)
+    return changeset
   }
 
   async read(targetDir: string): Promise<ReviewChangeSetReadResult> {

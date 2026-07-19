@@ -1,6 +1,6 @@
 import React, { Suspense } from 'react'
 
-import type { ChangeSetFile, DiffView, ReviewAnnotation } from '../../../../../shared/review'
+import type { ChangeSetFile, DiffView, ReviewAnchor, ReviewAnnotation, ReviewComment } from '../../../../../shared/review'
 import { fileWhyLine } from './reviewSelectors'
 
 // Monaco lives behind a lazy boundary: it stays out of the eager boot chunk
@@ -21,6 +21,10 @@ interface FileCardProps {
   onAskGuide: (annotation: ReviewAnnotation) => void
   onOrphans: (path: string, orphans: ReviewAnnotation[]) => void
   registerReveal?: (path: string, reveal: ((line: number) => void) | null) => void
+  comments?: ReviewComment[]
+  onCreateComment?: (path: string, anchor: ReviewAnchor, body: string) => void
+  onEditComment?: (id: string, body: string) => void
+  onDeleteComment?: (id: string) => void
 }
 
 function DeltaCounts({ additions, deletions }: { additions: number; deletions: number }) {
@@ -71,6 +75,10 @@ export function FileCard({
   onAskGuide,
   onOrphans,
   registerReveal,
+  comments,
+  onCreateComment,
+  onEditComment,
+  onDeleteComment,
 }: FileCardProps) {
   const displayPath = file.status === 'renamed' && file.oldPath ? `${file.oldPath} → ${file.path}` : file.path
   return (
@@ -107,6 +115,10 @@ export function FileCard({
             onAskGuide={onAskGuide}
             onOrphans={onOrphans}
             registerReveal={registerReveal}
+            comments={comments}
+            onCreateComment={onCreateComment}
+            onEditComment={onEditComment}
+            onDeleteComment={onDeleteComment}
           />
         </Suspense>
       )}

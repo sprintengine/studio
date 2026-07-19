@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
   ChangeSetFile,
   DiffView,
+  ReviewAnchor,
   ReviewAnnotation,
   ReviewBrief,
   ReviewChangeSet,
+  ReviewComment,
 } from '../../../../../shared/review'
+import { Drawer } from '../../ui/Drawer'
 import { TopBar } from './TopBar'
 import { StepRail } from './StepRail'
 import { StepPane } from './StepPane'
 import { OverviewPane } from './OverviewPane'
 import { ChangeMapView } from './ChangeMapView'
 import { AnnotationsPanel } from './AnnotationsPanel'
+import { ReviewTray } from './ReviewTray'
+import { pendingCommentCount } from './commentModel'
+import { anchorRangeLabel } from './anchorLabel'
 import {
   OVERVIEW_PANE_ID,
   buildRailModel,
@@ -21,6 +27,11 @@ import {
   sourceIdentity,
   statsChip,
 } from './reviewSelectors'
+
+// The chat pane pulls the shared conversation projection (and its dependency
+// tree); keep it out of the eager walkthrough chunk and the pure fixture harness,
+// mirroring how the Monaco diff editor is lazily loaded.
+const AskGuidePane = lazy(() => import('./AskGuidePane'))
 
 export interface ReviewWalkthroughProps {
   changeset: ReviewChangeSet
@@ -39,6 +50,17 @@ export interface ReviewWalkthroughProps {
   onRerun: () => void
   // MC-1682 fills this reserved slot under the top bar with the freshness banner.
   bannerSlot?: ReactNode
+  // The human's review (MC-1681). Present together: the comments plus the CRUD
+  // handlers wire the inline composer/threads and the "Your review" tray. Absent
+  // (the pure T7 harness) leaves the surface read-only.
+  comments?: ReviewComment[]
+  onCreateComment?: (path: string, anchor: ReviewAnchor, body: string) => void
+  onEditComment?: (id: string, body: string) => void
+  onDeleteComment?: (id: string) => void
+  // Identity of the guide companion to chat with (MC-1681/MC-1684). Present
+  // together: with both the "Ask the guide" chat opens; absent it stays hidden.
+  workspaceId?: string
+  workspaceRoot?: string
 }
 
 // The guided walkthrough — a pure projection of a validated changeset + brief +
@@ -60,7 +82,23 @@ export function ReviewWalkthrough({
   onAskGuide,
   onRerun,
   bannerSlot,
+  comments = [],
+  onCreateComment,
+  onEditComment,
+  onDeleteComment,
+  workspaceId,
+  workspaceRoot,
 }: ReviewWalkthroughProps) {
+  const commentsEnabled = Boolean(onCreateComment)
+  const chatEnabled = Boolean(workspaceId && workspaceRoot)
+  const [trayOpen, setTrayOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  // A prefill quote for the chat composer; the nonce re-applies the same quote on
+  // a repeat "Ask the guide" click without needing to clear it first.
+  const [chatPrefill, setChatPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined)
+  const prefillNonce = useRef(0)
+  const changedPaths = useMemo(() => changeset.files.map((file) => file.path), [changeset])
+
   const steps = useMemo(() => orderedSteps(brief), [brief])
   // The change map is a projection of the same steps + nav the rail uses; build
   // it here where both are in scope, and hand it to the Overview's reserved slot.
@@ -91,11 +129,49 @@ export function ReviewWalkthrough({
   // annotation); this hook is the reporting sink so the surface stays quiet.
   const handleOrphans = useCallback(() => {}, [])
 
-  const handleJumpTo = useCallback((annotation: ReviewAnnotation) => {
-    const card = centerRef.current?.querySelector<HTMLElement>(`[data-review-file="${annotation.path}"]`)
+  // Scroll a file card into view and reveal a real new-side line inside its diff.
+  // The center pane is the only scroll container, so a card jump plus the editor's
+  // registered reveal fn lands the reader on the exact line.
+  const jumpToLine = useCallback((path: string, line: number) => {
+    const card = centerRef.current?.querySelector<HTMLElement>(`[data-review-file="${path}"]`)
     card?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    revealMapRef.current.get(annotation.path)?.(annotation.anchor.startLine)
+    revealMapRef.current.get(path)?.(line)
   }, [])
+
+  const handleJumpTo = useCallback(
+    (annotation: ReviewAnnotation) => jumpToLine(annotation.path, annotation.anchor.startLine),
+    [jumpToLine],
+  )
+
+  // "Ask the guide" from a note or summary card: open the chat with the anchor
+  // pre-quoted so the question arrives grounded. Falls back to the caller's
+  // handler when the chat is not wired (the pure harness).
+  const handleAskGuide = useCallback(
+    (annotation: ReviewAnnotation) => {
+      if (!chatEnabled) {
+        onAskGuide(annotation)
+        return
+      }
+      prefillNonce.current += 1
+      setChatPrefill({
+        text: `> ${annotation.path} ${anchorRangeLabel(annotation.anchor)}\n\n`,
+        nonce: prefillNonce.current,
+      })
+      setChatOpen(true)
+    },
+    [chatEnabled, onAskGuide],
+  )
+
+  // Jump from a chat citation into the walkthrough: close the chat so the lines
+  // are visible, then reveal them.
+  const handleChatJump = useCallback(
+    (path: string, line: number) => {
+      setChatOpen(false)
+      // Let the drawer begin closing before scrolling the pane underneath.
+      window.requestAnimationFrame(() => jumpToLine(path, line))
+    },
+    [jumpToLine],
+  )
 
   // [ and ] step through the panes (Overview + steps), skipping when focus is
   // inside a code editor so the keys stay usable for typing elsewhere.
@@ -126,6 +202,9 @@ export function ReviewWalkthrough({
         onSetDiffView={onSetDiffView}
         onRerun={onRerun}
         rerunning={rerunning}
+        reviewCount={pendingCommentCount(comments)}
+        onOpenReview={commentsEnabled ? () => setTrayOpen(true) : undefined}
+        onOpenChat={chatEnabled ? () => setChatOpen(true) : undefined}
       />
       {bannerSlot}
       <div className="grid min-h-0 flex-1 grid-cols-[244px_minmax(0,1fr)_276px]">
@@ -141,9 +220,13 @@ export function ReviewWalkthrough({
                 monacoTheme={monacoTheme}
                 onToggleRead={onToggleRead}
                 onRequestComment={onRequestComment}
-                onAskGuide={onAskGuide}
+                onAskGuide={handleAskGuide}
                 onOrphans={handleOrphans}
                 registerReveal={registerReveal}
+                comments={comments}
+                onCreateComment={onCreateComment}
+                onEditComment={onEditComment}
+                onDeleteComment={onDeleteComment}
               />
             ) : (
               <OverviewPane
@@ -156,7 +239,7 @@ export function ReviewWalkthrough({
           </div>
         </div>
         {activeStep ? (
-          <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={onAskGuide} />
+          <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={handleAskGuide} />
         ) : (
           <div className="border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 py-4">
             <span className="mb-2.5 block text-[11px] font-medium text-[color:var(--text-subtle)]">In this step</span>
@@ -166,6 +249,44 @@ export function ReviewWalkthrough({
           </div>
         )}
       </div>
+
+      {commentsEnabled ? (
+        <Drawer
+          open={trayOpen}
+          onClose={() => setTrayOpen(false)}
+          title="Your review"
+          ariaLabel="Your pending review comments"
+          width={440}
+        >
+          <Drawer.Body>
+            <ReviewTray comments={comments} changeset={changeset} />
+          </Drawer.Body>
+        </Drawer>
+      ) : null}
+
+      {chatEnabled && workspaceId && workspaceRoot ? (
+        <Drawer
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          title="Ask the guide"
+          ariaLabel="Ask the review guide about this change"
+          width={440}
+        >
+          <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+            <Suspense
+              fallback={<p className="text-[12px] text-[color:var(--text-subtle)]">Loading the guide chat…</p>}
+            >
+              <AskGuidePane
+                workspaceId={workspaceId}
+                workspaceRoot={workspaceRoot}
+                changedPaths={changedPaths}
+                onJumpToLine={handleChatJump}
+                prefill={chatPrefill}
+              />
+            </Suspense>
+          </div>
+        </Drawer>
+      ) : null}
     </div>
   )
 }

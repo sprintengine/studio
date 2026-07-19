@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DiffEditor, type DiffOnMount, type Monaco } from '@monaco-editor/react'
 import type * as MonacoNs from 'monaco-editor'
 
-import type { DiffView, ReviewAnnotation } from '../../../../../shared/review'
+import type { DiffView, ReviewAnchor, ReviewAnnotation, ReviewComment } from '../../../../../shared/review'
 import { MONO_FONT_STACK } from '../../../utils/fonts'
-import { buildDiffFileModel, type DiffFileModel } from './diffModel'
+import { buildDiffFileModel, editorLineForRealLine, modifiedZoneLineForAnchor, type DiffFileModel } from './diffModel'
 import { placeAnnotations, hoverLinesForAnnotation, type AnnotationPlacement } from './annotationZones'
 import type { ChangeSetFile } from '../../../../../shared/review'
 import { AnnotationRibbon } from './AnnotationRibbon'
+import { CommentThread } from './CommentThread'
+import { CommentComposer } from './CommentComposer'
 
 type DiffEditorInstance = MonacoNs.editor.IStandaloneDiffEditor
 
@@ -25,6 +27,13 @@ interface ReviewDiffEditorProps {
   // Registers a "reveal this real new-side line" fn so a side-panel summary card
   // can jump into the diff. Unregisters on unmount.
   registerReveal?: (path: string, reveal: ((line: number) => void) | null) => void
+  // The human's comments on THIS file. When the create/edit/delete handlers are
+  // present the gutter "+" opens an inline composer and each comment renders as a
+  // thread view zone; without them the surface is read-only (the T7 harness).
+  comments?: ReviewComment[]
+  onCreateComment?: (path: string, anchor: ReviewAnchor, body: string) => void
+  onEditComment?: (id: string, body: string) => void
+  onDeleteComment?: (id: string) => void
 }
 
 interface MountedZone {
@@ -34,11 +43,45 @@ interface MountedZone {
   zoneId: string
 }
 
+// A comment thread or the open composer, rendered as a view zone that tracks the
+// anchored modified-editor line. Keyed so the reconcile effect can add/remove
+// exactly the zones that changed as comments come and go.
+type DynamicDescriptor = { kind: 'thread'; comment: ReviewComment } | { kind: 'composer'; line: number }
+interface DynamicZone {
+  key: string
+  afterLineNumber: number
+  descriptor: DynamicDescriptor
+  domNode: HTMLElement
+  zone: MonacoNs.editor.IViewZone
+  zoneId: string
+}
+
+// Measures its content and reports the height so the host can size the Monaco view
+// zone to exactly fit an interactive thread or composer (which grow as the user
+// types). Holds the callback in a ref so the ResizeObserver subscribes once.
+function MeasuredZone({ onMeasured, children }: { onMeasured: (height: number) => void; children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const cb = useRef(onMeasured)
+  cb.current = onMeasured
+  useLayoutEffect(() => {
+    if (ref.current) cb.current(ref.current.scrollHeight)
+  })
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => cb.current(node.scrollHeight))
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return <div ref={ref}>{children}</div>
+}
+
 // One file card's diff body. The two sides are reconstructed from the changeset
 // hunks (no git read), so it renders identically from a fixture or a live
 // branch. Annotations attach as view zones on the modified editor (both view
-// modes); hover tips ride inline decorations; the comment gutter glyph appears
-// on the hovered changed line.
+// modes); hover tips ride inline decorations; the comment gutter glyph opens an
+// inline composer, and the human's comments render as thread zones anchored by
+// line math — so they land on the right line in side-by-side and inline alike.
 export function ReviewDiffEditor({
   file,
   annotations,
@@ -48,6 +91,10 @@ export function ReviewDiffEditor({
   onAskGuide,
   onOrphans,
   registerReveal,
+  comments = [],
+  onCreateComment,
+  onEditComment,
+  onDeleteComment,
 }: ReviewDiffEditorProps) {
   const model = useMemo<DiffFileModel>(() => buildDiffFileModel(file), [file])
   const editorRef = useRef<DiffEditorInstance | null>(null)
@@ -55,6 +102,10 @@ export function ReviewDiffEditor({
   const hunkIndexRef = useRef(0)
   const commentDecorationsRef = useRef<string[]>([])
   const [zones, setZones] = useState<MountedZone[]>([])
+  const [editorReady, setEditorReady] = useState(false)
+  const [composerLine, setComposerLine] = useState<number | null>(null)
+
+  const commentsEnabled = Boolean(onCreateComment)
 
   const { placements, orphans } = useMemo(() => {
     const placed = placeAnnotations(annotations, model)
@@ -126,8 +177,17 @@ export function ReviewDiffEditor({
     [annotations, model],
   )
 
-  // The comment gutter glyph tracks the hovered changed line; clicking it asks
-  // the caller to open a composer (a no-op prop until MC-1681).
+  // The gutter "+" click routes here: open the inline composer when commenting is
+  // wired, else fall back to the notify-only prop (the read-only harness). Held in
+  // a ref so the Monaco mouse handler, registered once at mount, sees the latest.
+  const requestCommentRef = useRef<(line: number) => void>(() => {})
+  requestCommentRef.current = (real: number) => {
+    if (commentsEnabled) setComposerLine(real)
+    else onRequestComment(file.path, real)
+  }
+
+  // The comment gutter glyph tracks the hovered changed line; clicking it opens a
+  // composer under that line (or notifies the caller in the read-only harness).
   const wireCommentGutter = useCallback(
     (editor: DiffEditorInstance, monaco: Monaco) => {
       const modified = editor.getModifiedEditor()
@@ -156,10 +216,10 @@ export function ReviewDiffEditor({
         const line = event.target.position?.lineNumber
         if (!line || !addLines.has(line)) return
         const real = model.modifiedRealLines[line - 1]
-        if (real !== undefined) onRequestComment(file.path, real)
+        if (real !== undefined) requestCommentRef.current(real)
       })
     },
-    [model, onRequestComment, file.path],
+    [model],
   )
 
   const mountZones = useCallback(
@@ -194,6 +254,82 @@ export function ReviewDiffEditor({
     editor.getModifiedEditor().changeViewZones((accessor) => accessor.layoutZone(mounted.zoneId))
   }, [])
 
+  // ── Dynamic comment/composer zones ────────────────────────────────────────
+  // Comments and the composer come and go, so they live in their own reconciled
+  // set (annotations stay static above). Each thread hangs off the SAME modified-
+  // editor line the anchor math yields — which is independent of the view mode —
+  // so a comment stays on its line across side-by-side ↔ inline.
+  const dynamicZonesRef = useRef<Map<string, DynamicZone>>(new Map())
+  const modelRef = useRef<DiffFileModel | null>(null)
+  const [dynamicZones, setDynamicZones] = useState<DynamicZone[]>([])
+
+  const resizeDynamic = useCallback((key: string, height: number) => {
+    const editor = editorRef.current
+    const zone = dynamicZonesRef.current.get(key)
+    if (!editor || !zone || height <= 0 || zone.zone.heightInPx === height) return
+    zone.zone.heightInPx = height
+    editor.getModifiedEditor().changeViewZones((accessor) => accessor.layoutZone(zone.zoneId))
+  }, [])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || !editorReady) return
+    const modified = editor.getModifiedEditor()
+    const current = dynamicZonesRef.current
+
+    // A new file model means Monaco dropped the old zones with it; forget them so
+    // we do not layout against dead ids.
+    if (modelRef.current !== model) {
+      modelRef.current = model
+      current.clear()
+    }
+
+    const desired: Array<{ key: string; afterLineNumber: number; descriptor: DynamicDescriptor }> = []
+    for (const comment of comments) {
+      const afterLineNumber = modifiedZoneLineForAnchor(model, comment.anchor)
+      if (afterLineNumber === null) continue // out of range: it still shows in the tray
+      desired.push({ key: `thread:${comment.id}`, afterLineNumber, descriptor: { kind: 'thread', comment } })
+    }
+    if (composerLine !== null) {
+      const afterLineNumber = editorLineForRealLine(model, 'new', composerLine)
+      if (afterLineNumber !== null) {
+        desired.push({ key: 'composer', afterLineNumber, descriptor: { kind: 'composer', line: composerLine } })
+      }
+    }
+    const desiredByKey = new Map(desired.map((entry) => [entry.key, entry]))
+
+    modified.changeViewZones((accessor) => {
+      // Remove zones that are gone or whose anchor line moved.
+      for (const [key, zone] of current) {
+        const want = desiredByKey.get(key)
+        if (!want || want.afterLineNumber !== zone.afterLineNumber) {
+          accessor.removeZone(zone.zoneId)
+          current.delete(key)
+        }
+      }
+      // Add new zones; refresh the descriptor on ones that stayed (edited body).
+      for (const entry of desired) {
+        const existing = current.get(entry.key)
+        if (existing) {
+          existing.descriptor = entry.descriptor
+          continue
+        }
+        const domNode = document.createElement('div')
+        domNode.style.width = '100%'
+        domNode.style.zIndex = '6'
+        const zone: MonacoNs.editor.IViewZone = {
+          afterLineNumber: entry.afterLineNumber,
+          afterColumn: 1,
+          heightInPx: 1,
+          domNode,
+        }
+        const zoneId = accessor.addZone(zone)
+        current.set(entry.key, { key: entry.key, afterLineNumber: entry.afterLineNumber, descriptor: entry.descriptor, domNode, zone, zoneId })
+      }
+    })
+    setDynamicZones([...current.values()])
+  }, [comments, composerLine, model, editorReady])
+
   const handleMount = useCallback<DiffOnMount>(
     (editor, monaco) => {
       editorRef.current = editor
@@ -216,6 +352,7 @@ export function ReviewDiffEditor({
         const editorLine = model.modifiedRealLines.indexOf(realLine) + 1
         editor.getModifiedEditor().revealLineInCenter(editorLine > 0 ? editorLine : 1)
       })
+      setEditorReady(true)
     },
     [applyLineNumbers, applyHintDecorations, wireCommentGutter, revealHunk, mountZones, registerReveal, file.path, model],
   )
@@ -273,6 +410,37 @@ export function ReviewDiffEditor({
           mounted.placement.annotation.id,
         ),
       )}
+      {dynamicZones.map((zone) => {
+        const descriptor = zone.descriptor
+        return createPortal(
+          <MeasuredZone onMeasured={(height) => resizeDynamic(zone.key, height)}>
+            {descriptor.kind === 'thread' ? (
+              <CommentThread
+                comment={descriptor.comment}
+                onEdit={onEditComment ?? (() => {})}
+                onDelete={onDeleteComment ?? (() => {})}
+              />
+            ) : (
+              <CommentComposer
+                submitLabel="Add comment"
+                placeholder={`Comment on ${file.path} · L${descriptor.line}…`}
+                hint="Comments collect in Your review and post together."
+                onSubmit={(body) => {
+                  onCreateComment?.(
+                    file.path,
+                    { side: 'new', startLine: descriptor.line, endLine: descriptor.line },
+                    body,
+                  )
+                  setComposerLine(null)
+                }}
+                onCancel={() => setComposerLine(null)}
+              />
+            )}
+          </MeasuredZone>,
+          zone.domNode,
+          zone.key,
+        )
+      })}
     </div>
   )
 }

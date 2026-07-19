@@ -10,7 +10,7 @@
 // here — spawn, retry, interrupt, and JSON extraction all live in the companion
 // service. Node/Electron-main only; the renderer reaches it through review IPC.
 
-import { mkdir, rename, unlink, writeFile } from 'fs/promises'
+import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -27,7 +27,13 @@ import {
   type CompanionValidateResult,
 } from '../companion-agent-service'
 import { ReviewChangeSetService, reviewChangeSetDir } from './changeset-service'
-import { GUIDE_SYSTEM_PROMPT, buildGuideRunPrompt, type BriefRunDepth } from './guide-prompt'
+import {
+  GUIDE_SYSTEM_PROMPT,
+  buildGuideChatSystemPrompt,
+  buildGuideRerunPrompt,
+  buildGuideRunPrompt,
+  type BriefRunDepth,
+} from './guide-prompt'
 
 export type { BriefRunDepth }
 
@@ -58,7 +64,22 @@ export interface ReviewBriefRunInput {
   workspaceId: string
   workspaceRoot: string
   depth: BriefRunDepth
+  // A freshness re-run (MC-1682): the ids of the steps whose files changed since
+  // the previous walkthrough. When present and a previous brief exists on disk,
+  // the run is incremental — unaffected steps are carried over verbatim (stable
+  // ids) and only the affected ones regenerate. Absent = a full first run.
+  affectedStepIds?: string[]
 }
+
+export interface ReviewAskGuideInput {
+  workspaceId: string
+  workspaceRoot: string
+  message: string
+}
+
+// Sending a chat turn to the guide never fails validation (it is free prose, not
+// a brief); it only fails if the guide could not run at all.
+export type ReviewAskResult = { ok: true } | { ok: false; error: string }
 
 // Why a run ended without a brief. `validation` = the guide's output failed the
 // brief validators on every allowed attempt; `guide-error` = the guide could not
@@ -97,7 +118,7 @@ export class ReviewBriefRunService {
   // double validation failure or a guide error the run fails visibly, carrying
   // the errors, and the previous brief.json (if any) is left untouched.
   async start(input: ReviewBriefRunInput): Promise<BriefRunResult> {
-    const { workspaceId, workspaceRoot, depth } = input
+    const { workspaceId, workspaceRoot, depth, affectedStepIds } = input
     const targetDir = reviewChangeSetDir(workspaceRoot, workspaceId)
 
     // One live run per workspace: cancel a run already in flight for it. The
@@ -117,6 +138,15 @@ export class ReviewBriefRunService {
     }
     const changeset = read.changeset
 
+    // A re-run reuses the previous walkthrough so unaffected steps keep their ids.
+    // If the previous brief is missing or unreadable, fall back to a full run
+    // rather than failing — a full walkthrough is always a valid result.
+    const previousBrief = affectedStepIds ? await this.readPreviousBrief(targetDir) : null
+    const prompt =
+      previousBrief && affectedStepIds
+        ? buildGuideRerunPrompt(changeset, depth, previousBrief, affectedStepIds)
+        : buildGuideRunPrompt(changeset, depth)
+
     const handle = this.companionAgents.attach({
       workspaceId,
       agentId: GUIDE_AGENT_ID,
@@ -130,7 +160,7 @@ export class ReviewBriefRunService {
 
     try {
       const brief = await handle.runStructured<ReviewBrief>({
-        prompt: buildGuideRunPrompt(changeset, depth),
+        prompt,
         validate: (raw) => this.validateBrief(raw, changeset),
         retries: 1,
         onPhase: (phase) => this.onCompanionPhase(workspaceId, phase),
@@ -153,6 +183,54 @@ export class ReviewBriefRunService {
   // Cancel a workspace's in-flight guide run. No-op if nothing is running.
   interrupt(workspaceId: string): void {
     if (this.inFlight.has(workspaceId)) this.handles.get(workspaceId)?.interrupt()
+  }
+
+  // "Ask the guide": send one chat turn to the SAME 'review-guide' companion the
+  // brief run used. attach is idempotent on (workspaceId, agentId), so when the
+  // brief-run session is still live this continues that thread with its full
+  // context; when it is gone (a fresh app session, history pruned) the companion
+  // cold-load contract spawns a new session on this first send, seeded with the
+  // chat preamble that points it at the on-disk change + walkthrough. The reply
+  // streams back over the conversation event channel the chat pane already
+  // observes — this only kicks the turn off. The guide answers; it never writes a
+  // comment or touches the code.
+  async ask(input: ReviewAskGuideInput): Promise<ReviewAskResult> {
+    const { workspaceId, workspaceRoot, message } = input
+    const reviewDirRelative = `.multi-code/review/${workspaceId}`
+    const handle = this.companionAgents.attach({
+      workspaceId,
+      agentId: GUIDE_AGENT_ID,
+      name: GUIDE_AGENT_NAME,
+      workspaceRoot,
+      contextRoots: { knowledge: true },
+      systemPrompt: buildGuideChatSystemPrompt(reviewDirRelative),
+    })
+    this.handles.set(workspaceId, handle)
+    try {
+      await handle.send(message)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: messageOf(error) }
+    }
+  }
+
+  // Read the walkthrough currently on disk, to seed an incremental re-run. Any
+  // problem (missing file, bad JSON, invalid shape) returns null so the caller
+  // falls back to a full run — a re-run never fails just because the old brief is
+  // unusable.
+  private async readPreviousBrief(targetDir: string): Promise<ReviewBrief | null> {
+    let raw: string
+    try {
+      raw = await readFile(join(targetDir, BRIEF_FILE), 'utf-8')
+    } catch {
+      return null
+    }
+    try {
+      const parsed = validateReviewBrief(JSON.parse(raw))
+      return parsed.ok ? parsed.value : null
+    } catch {
+      return null
+    }
   }
 
   // Shape + cross-check the guide's JSON. A failure here feeds the errors back to

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ReviewBrief, ReviewChangeSet } from '../../shared/review'
@@ -166,6 +166,9 @@ type StubOptions = {
   // When set for a workspace, runStructured hangs until the handle is
   // interrupted, then rejects — used to test interrupt behavior.
   hangUntilInterrupt?: Set<string>
+  // When provided, each run's prompt is pushed here so a test can assert the
+  // incremental-re-run prompt was chosen.
+  capturedPrompts?: string[]
 }
 
 function makeStubCompanion(opts: StubOptions): {
@@ -196,6 +199,7 @@ function makeStubCompanion(opts: StubOptions): {
         },
         dispose: () => {},
         async runStructured<T>(runOpts: CompanionRunStructuredOptions<T>): Promise<T> {
+          opts.capturedPrompts?.push(runOpts.prompt)
           if (opts.hangUntilInterrupt?.has(spec.workspaceId)) {
             runOpts.onPhase?.('running')
             await new Promise<never>((_resolve, reject) => {
@@ -365,6 +369,53 @@ run('interrupting a run leaves the previous brief.json untouched', async () => {
 
   assert.equal(result.ok, false, 'interrupted run does not succeed')
   assert.equal(readFileSync(briefPath(root), 'utf-8'), before, 'previous brief.json is untouched')
+})
+
+run('a re-run with affectedStepIds reuses the previous brief and builds the incremental prompt', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  // Seed a previous walkthrough on disk (as a first run would have left it).
+  mkdirSync(join(root, '.multi-code', 'review', WORKSPACE_ID), { recursive: true })
+  writeFileSync(briefPath(root), JSON.stringify(validBrief(), null, 2), 'utf-8')
+
+  const capturedPrompts: string[] = []
+  const { service } = makeStubCompanion({ scripted: new Map([[WORKSPACE_ID, [validBrief()]]]), capturedPrompts })
+  const svc = new ReviewBriefRunService(makeDeps(service, fixtureChangeSet(), events))
+
+  const result = await svc.start({
+    workspaceId: WORKSPACE_ID,
+    workspaceRoot: root,
+    depth: 'standard',
+    affectedStepIds: ['step-store'],
+  })
+
+  assert.equal(result.ok, true)
+  const prompt = capturedPrompts.at(-1) ?? ''
+  assert.match(prompt, /This is a REFRESH/, 'chose the incremental re-run prompt')
+  assert.match(prompt, /step-store/, 'names the affected step id')
+  assert.match(prompt, /Your previous ReviewBrief/, 'attaches the previous brief')
+  // The unaffected step id must ride along verbatim for the guide to preserve.
+  assert.match(prompt, /step-view/, 'carries the unaffected step so its id stays stable')
+})
+
+run('a re-run with no previous brief falls back to a full run', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const capturedPrompts: string[] = []
+  const { service } = makeStubCompanion({ scripted: new Map([[WORKSPACE_ID, [validBrief()]]]), capturedPrompts })
+  const svc = new ReviewBriefRunService(makeDeps(service, fixtureChangeSet(), events))
+
+  // affectedStepIds present but no brief.json on disk -> full run, not a crash.
+  const result = await svc.start({
+    workspaceId: WORKSPACE_ID,
+    workspaceRoot: root,
+    depth: 'standard',
+    affectedStepIds: ['step-store'],
+  })
+
+  assert.equal(result.ok, true)
+  const prompt = capturedPrompts.at(-1) ?? ''
+  assert.doesNotMatch(prompt, /This is a REFRESH/, 'fell back to the full-run prompt')
 })
 
 run('GUIDE_SYSTEM_PROMPT embeds the schema doc verbatim and forbids verdict language', () => {

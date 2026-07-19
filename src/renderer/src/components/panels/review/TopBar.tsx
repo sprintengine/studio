@@ -12,6 +12,11 @@ interface TopBarProps {
   onSetDiffView: (view: DiffView) => void
   onRerun: () => void
   rerunning: boolean
+  // "Your review · N" and "Ask the guide" — present only when the container wires
+  // comments / chat (the pure T7 harness omits them, so the buttons don't show).
+  reviewCount?: number
+  onOpenReview?: () => void
+  onOpenChat?: () => void
 }
 
 const DIFF_VIEW_ITEMS: { value: DiffView; label: string }[] = [
@@ -22,7 +27,19 @@ const DIFF_VIEW_ITEMS: { value: DiffView; label: string }[] = [
 // The 46px top bar: change identity on the left, then the reading-effort and
 // stats signals, the persisted view toggle, and Re-run. Complexity is a word,
 // never a color — it signals reading effort without competing for the accent.
-export function TopBar({ title, source, stats, complexity, diffView, onSetDiffView, onRerun, rerunning }: TopBarProps) {
+export function TopBar({
+  title,
+  source,
+  stats,
+  complexity,
+  diffView,
+  onSetDiffView,
+  onRerun,
+  rerunning,
+  reviewCount,
+  onOpenReview,
+  onOpenChat,
+}: TopBarProps) {
   return (
     <div className="flex h-[46px] shrink-0 items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4">
       <span className="shrink-0 text-[14px] font-semibold text-[color:var(--text-strong)]">{title}</span>
@@ -41,6 +58,22 @@ export function TopBar({ title, source, stats, complexity, diffView, onSetDiffVi
         onChange={onSetDiffView}
         className="shrink-0"
       />
+      {onOpenChat ? (
+        <GhostButton onClick={onOpenChat} className="shrink-0">
+          <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">
+            <path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" />
+          </svg>
+          Ask the guide
+        </GhostButton>
+      ) : null}
+      {onOpenReview ? (
+        <GhostButton onClick={onOpenReview} className="shrink-0">
+          Your review
+          {typeof reviewCount === 'number' && reviewCount > 0 ? (
+            <span className="tabular-nums text-[color:var(--text-subtle)]"> · {reviewCount}</span>
+          ) : null}
+        </GhostButton>
+      ) : null}
       <GhostButton onClick={onRerun} disabled={rerunning} className="shrink-0">
         <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
           <path
