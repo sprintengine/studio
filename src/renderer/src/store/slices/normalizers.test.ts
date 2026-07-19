@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { Workspace } from '../../types/workspace'
 import {
   dedupeAutomationsHostWorkspaces,
+  dropRetiredRoadmapWorkspaces,
   mapMigrationWorkspaces,
   normalizeWorkspaceForPartialize,
   preserveNewerSprintEngineAutomationState,
@@ -440,6 +441,26 @@ assert.equal(
     dedupeAutomationsHostWorkspaces([nullA, nullB]).map((w) => w.id),
     ['n-a', 'n-b'],
     'folderless hosts are never deduped',
+  )
+}
+
+// dropRetiredRoadmapWorkspaces — the `roadmap` workspace mode retired (v65,
+// MC-1692). Every list-entry path (migration, merge, recovery, cross-window sync)
+// filters it so a dev-HMR version-stamp cannot resurrect a roadmap-mode row.
+{
+  const roadmap = baseWorkspace({ id: 'ws-roadmap', mode: 'roadmap', folderPath: '/Users/example/project' })
+  const standard = baseWorkspace({ id: 'ws-standard', mode: 'standard' })
+  const sprint = baseWorkspace({ id: 'ws-sprint', mode: 'sprintengine' })
+  assert.deepEqual(
+    dropRetiredRoadmapWorkspaces([standard, roadmap, sprint]).map((w) => w.id),
+    ['ws-standard', 'ws-sprint'],
+    'roadmap-mode rows are dropped, others kept in order',
+  )
+  const noRoadmap = [standard, sprint]
+  assert.equal(
+    dropRetiredRoadmapWorkspaces(noRoadmap),
+    noRoadmap,
+    'no roadmap-mode row → the exact input array is returned by reference (cheap no-op)',
   )
 }
 
