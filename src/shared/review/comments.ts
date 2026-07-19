@@ -26,6 +26,13 @@ export type CommentSync =
   | { state: 'posted'; url: string; postedAt: string }
   | { state: 'failed'; error: string } // stays pending; retry allowed
 
+// Re-anchor status after a freshness re-run (MC-1682). Absent means the anchor
+// still points at live content. 'moved' means the anchored range vanished when
+// the head moved — the comment is kept (never silently dropped) and surfaced for
+// re-review, and the PR sync (MC-1683) refuses to post from this state.
+export const COMMENT_ANCHOR_STATUSES = ['moved'] as const
+export type CommentAnchorStatus = (typeof COMMENT_ANCHOR_STATUSES)[number]
+
 export interface ReviewComment {
   id: string
   path: string
@@ -33,6 +40,7 @@ export interface ReviewComment {
   body: string // markdown, authored by the human
   createdAt: string
   sync: CommentSync
+  anchorStatus?: CommentAnchorStatus // set to 'moved' by a re-run; absent = anchored
 }
 
 export interface ReviewWorkspaceState {
@@ -79,6 +87,7 @@ function validateCommentShape(value: unknown, path: string, errors: string[]): v
   if (typeof value.body !== 'string' || value.body.length === 0) errors.push(`${path}.body must be a non-empty string.`)
   if (!isNonEmptyString(value.createdAt)) errors.push(`${path}.createdAt must be a non-empty string.`)
   validateSync(value.sync, `${path}.sync`, errors)
+  if (value.anchorStatus !== undefined) checkEnum(value.anchorStatus, COMMENT_ANCHOR_STATUSES, `${path}.anchorStatus`, errors)
 }
 
 export function validateReviewComment(input: unknown): CommentValidation {

@@ -174,6 +174,9 @@ interface ReviewComment {
     | { state: 'posting' }
     | { state: 'posted'; url: string; postedAt: string }
     | { state: 'failed'; error: string }   // stays pending; retry allowed
+  anchorStatus?: 'moved'           // set by a freshness re-run when the anchored
+                                   // range vanished; the comment is kept for
+                                   // re-review and never posted from this state
 }
 
 interface ReviewWorkspaceState {

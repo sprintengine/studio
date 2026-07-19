@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import type {
   DiffView,
+  ReviewAnchor,
   ReviewAnnotation,
   ReviewBrief,
   ReviewChangeSet,
@@ -14,7 +15,17 @@ import { InlineNotice } from '../ui/InlineNotice'
 import { PrimaryButton } from '../ui/Buttons'
 import { Spinner } from '../ui/Spinner'
 import { ReviewWalkthrough } from './review/ReviewWalkthrough'
+import { addComment, deleteComment, editComment, newReviewComment } from './review/commentModel'
+import { FreshnessBanner } from './review/FreshnessBanner'
 import { resolveActivePaneId, sourceIdentity } from './review/reviewSelectors'
+import {
+  buildCurrentBanner,
+  buildStaleBanner,
+  computeFreshness,
+  migrateReviewState,
+  reconstructSourceInput,
+} from './review/freshness'
+import { useReviewFreshness } from './review/useReviewFreshness'
 
 // The review workspace surface (MC-1680). It loads the validated triple — the
 // change set (MC-1676), the guide's brief (MC-1679), and the reviewer's own
@@ -66,6 +77,12 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
   const [changesetLoad, setChangesetLoad] = useState<ChangesetLoad>({ phase: 'loading' })
   const [briefLoad, setBriefLoad] = useState<BriefLoad>({ phase: 'idle' })
   const [run, setRun] = useState<RunProgress>({ running: false, phase: null, error: null })
+  // The quiet "current with <sha>" settle line shown after a successful refresh
+  // (mockup §4). Null hides it; it persists until the next stale detection.
+  const [settle, setSettle] = useState<{ headSha?: string; refreshedStepIds: string[] } | null>(null)
+  // Set while a re-run is migrating reviewer state across the new change set id, so
+  // the default-state reset effect below does not clobber the migration mid-swap.
+  const refreshInFlightRef = useRef(false)
 
   const target = useMemo(() => (folderPath ? { workspaceRoot: folderPath, workspaceId } : null), [folderPath, workspaceId])
 
@@ -166,7 +183,10 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
   }, [changeset, storedState])
 
   // Persist the default once so reading progress and view choice survive restart.
+  // A re-run migrates state across the new change set id itself (see `refresh`), so
+  // this reset is suppressed mid-refresh — otherwise it would wipe the migration.
   useEffect(() => {
+    if (refreshInFlightRef.current) return
     if (changeset && (!storedState || storedState.changeSetId !== changeset.id)) {
       setReviewState(workspaceId, defaultReviewState(changeset.id))
     }
@@ -200,6 +220,102 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
 
   const noop = useCallback(() => {}, [])
   const onAskGuide = useCallback((_annotation: ReviewAnnotation) => {}, [])
+
+  // Comment CRUD — the only path by which a comment enters state. The guide never
+  // reaches this; comments come from the composer's create action alone. Each
+  // mutation round-trips through ReviewWorkspaceState (persisted on the workspace
+  // snapshot), so an add/edit/delete survives restart and a guide re-run.
+  const onCreateComment = useCallback(
+    (path: string, anchor: ReviewAnchor, body: string) => {
+      if (!resolvedState) return
+      const comment = newReviewComment({
+        id: crypto.randomUUID(),
+        path,
+        anchor,
+        body,
+        createdAt: new Date().toISOString(),
+        headSha: changeset?.headSha,
+      })
+      patchState({ comments: addComment(resolvedState.comments, comment) })
+    },
+    [resolvedState, patchState, changeset],
+  )
+
+  const onEditComment = useCallback(
+    (id: string, body: string) => {
+      if (!resolvedState) return
+      patchState({ comments: editComment(resolvedState.comments, id, body) })
+    },
+    [resolvedState, patchState],
+  )
+
+  const onDeleteComment = useCallback(
+    (id: string) => {
+      if (!resolvedState) return
+      patchState({ comments: deleteComment(resolvedState.comments, id) })
+    },
+    [resolvedState, patchState],
+  )
+
+  // Freshness: probe whether the reviewed head moved past this walkthrough. Branch
+  // sources key off the git-status snapshot; PR sources probe on reveal (debounced);
+  // patch sources never go stale. The hook never mutates anything.
+  const freshness = useReviewFreshness(folderPath, changeset, brief)
+
+  // Re-run (top bar + banner): re-ingest the source, migrate reviewer state across
+  // the new change set (read progress on unchanged files stays, changed files flip
+  // to unread, comments survive with a 'moved' flag when their file changed), and
+  // regenerate only the affected steps. The old walkthrough stays rendered until
+  // the new brief lands; a failed/interrupted run leaves the old brief + banner
+  // untouched.
+  const refresh = useCallback(async () => {
+    if (!target || !changeset) return
+    const sourceInput = reconstructSourceInput(changeset)
+    // A patch has no upstream to re-ingest, so Re-run just regenerates the
+    // walkthrough against the same change set (a full guide run).
+    if (!sourceInput) {
+      await startRun()
+      return
+    }
+    const oldChangeset = changeset
+    const oldState =
+      storedState && storedState.changeSetId === oldChangeset.id ? storedState : defaultReviewState(oldChangeset.id)
+    setRun({ running: true, phase: 'reading', error: null })
+    setSettle(null)
+    try {
+      const ingested = await window.api.reviewIngestSource(sourceInput, target)
+      if (!ingested.ok) {
+        setRun({ running: false, phase: 'failed', error: ingested.error })
+        return
+      }
+      const newChangeset = ingested.changeset
+      const affectedStepIds = brief ? computeFreshness(oldChangeset, newChangeset, brief).affectedStepIds : []
+      const runResult = await window.api.reviewStartBriefRun({
+        workspaceId,
+        workspaceRoot: target.workspaceRoot,
+        depth: guideConfig?.depth ?? 'standard',
+        affectedStepIds,
+      })
+      if (!runResult.ok) {
+        // The run wrote no brief and did not touch the on-disk brief, so the old
+        // walkthrough is still valid; surface the failure and keep it rendered.
+        setRun({ running: false, phase: 'failed', error: runResult.errors.join('\n') })
+        return
+      }
+      // Success: migrate state, swap the change set in place, and load the new brief.
+      // The reset effect is suppressed across this window so the migration survives.
+      refreshInFlightRef.current = true
+      setReviewState(workspaceId, migrateReviewState(oldState, oldChangeset, newChangeset))
+      setChangesetLoad({ phase: 'ready', changeset: newChangeset })
+      await loadBrief()
+      setRun({ running: false, phase: 'done', error: null })
+      setSettle({ headSha: newChangeset.headSha, refreshedStepIds: affectedStepIds })
+    } catch (error) {
+      setRun({ running: false, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
+    } finally {
+      refreshInFlightRef.current = false
+    }
+  }, [target, changeset, storedState, brief, workspaceId, guideConfig, setReviewState, loadBrief, startRun])
 
   if (changesetLoad.phase === 'loading') {
     return <CenteredState><Spinner /> <span className="ml-2">Loading the change…</span></CenteredState>
@@ -266,6 +382,21 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
     )
   }
 
+  const bannerModel = freshness
+    ? buildStaleBanner(changeset.source, briefLoad.brief, freshness.result)
+    : settle
+      ? buildCurrentBanner(settle.headSha, briefLoad.brief, settle.refreshedStepIds)
+      : null
+
+  const bannerSlot = bannerModel ? (
+    <FreshnessBanner
+      model={bannerModel}
+      refreshing={run.running}
+      refreshPhase={run.phase}
+      onRefresh={refresh}
+    />
+  ) : null
+
   return (
     <ReviewWalkthrough
       changeset={changeset}
@@ -280,7 +411,14 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
       onToggleRead={onToggleRead}
       onRequestComment={noop}
       onAskGuide={onAskGuide}
-      onRerun={startRun}
+      onRerun={refresh}
+      bannerSlot={bannerSlot}
+      comments={resolvedState?.comments ?? []}
+      onCreateComment={onCreateComment}
+      onEditComment={onEditComment}
+      onDeleteComment={onDeleteComment}
+      workspaceId={workspaceId}
+      workspaceRoot={folderPath ?? undefined}
     />
   )
 }
