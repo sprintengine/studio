@@ -394,6 +394,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
     const matched = items.filter((item) => {
+      // Roadmap objects live in the backlog store (backlog/roadmaps/) but are
+      // not backlog work items: the instance-global Roadmap door (MC-1689) is
+      // their surface. Listing them here reads as project-scoped items with
+      // MC ids — exactly the impression the global redesign retired. They stay
+      // in `items` so navigation/reveal still opens the authoring editor.
+      if (isRoadmapContent(item.relativePath, item.rawType)) return false
       // The view lens owns archived visibility (its own option) and the
       // difficulty/criticality triage ranges; search narrows within it.
       if (!matchesBacklogView(item, view)) return false

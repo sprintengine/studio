@@ -52,7 +52,11 @@ export type ClaudeAgentProviderOptions = {
   // Injectable seams for tests; defaults wire the real SDK + CLI detection.
   loadQuery?: () => Promise<SdkQueryFunction>
   resolveExecutable?: (cliRuntimes?: ConversationCliRuntimeOverrides) => Promise<string>
-  buildEnv?: (input: { workspaceId: string; agentId: string; sessionId: string }) => Record<string, string>
+  buildEnv?: (input: {
+    workspaceId: string
+    agentId: string
+    sessionId: string
+  }) => Record<string, string> | Promise<Record<string, string>>
   now?: () => number
 }
 
@@ -228,6 +232,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
     const executablePath = await resolveExecutable(state.cliRuntimes)
     const sdkQuery = await loadQuery()
+    const env = await buildEnv({
+      workspaceId: state.workspaceId,
+      agentId: state.agentId,
+      sessionId: state.sessionId,
+    })
     const inputQueue = new PushStream<SDKUserMessage>()
     const abort = new AbortController()
     const permissionMode = SDK_PERMISSION_MODE_BY_PRESET[state.permissionPreset]
@@ -240,7 +249,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
       ...(state.allowedTools?.length ? { allowedTools: state.allowedTools } : {}),
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      env: buildEnv({ workspaceId: state.workspaceId, agentId: state.agentId, sessionId: state.sessionId }),
+      env,
       abortController: abort,
       canUseTool: (toolName, toolInput, callbackOptions) =>
         handleCanUseTool(state, toolName, toolInput, callbackOptions?.signal),
@@ -600,16 +609,16 @@ export function stripAnthropicAuthEnv(env: Record<string, string>): Record<strin
   return next
 }
 
-function defaultBuildEnv(input: { workspaceId: string; agentId: string; sessionId: string }): Record<string, string> {
-  // Deferred require keeps terminal-launch (and its transitive pty imports)
-  // out of unit tests that only exercise the mapping logic.
-  const { getTerminalEnv, applyAgentIdentityEnv } = require('../terminal-launch') as {
-    getTerminalEnv: () => Record<string, string>
-    applyAgentIdentityEnv: (
-      env: Record<string, string>,
-      identity: { workspaceId: string; agentId: string }
-    ) => Record<string, string>
-  }
+async function defaultBuildEnv(input: {
+  workspaceId: string
+  agentId: string
+  sessionId: string
+}): Promise<Record<string, string>> {
+  // Deferred import keeps terminal-launch (and its transitive electron/pty
+  // imports) out of unit tests that only exercise the mapping logic. It must
+  // be import() — a bare require('../terminal-launch') survives bundling as a
+  // runtime lookup relative to out/main/index.js and fails in the built app.
+  const { getTerminalEnv, applyAgentIdentityEnv } = await import('../terminal-launch')
   const env = applyAgentIdentityEnv(stripAnthropicAuthEnv(getTerminalEnv()), {
     workspaceId: input.workspaceId,
     agentId: input.agentId,

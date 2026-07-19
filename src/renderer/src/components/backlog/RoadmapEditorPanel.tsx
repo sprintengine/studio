@@ -1007,7 +1007,7 @@ function LibraryRail({
   return (
     <aside
       aria-label="Backlog library"
-      className="flex w-[264px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3"
+      className="flex w-[264px] shrink-0 flex-col gap-3 border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3"
     >
       <div className="relative shrink-0">
         <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[color:var(--text-disabled)]">
@@ -1022,7 +1022,7 @@ function LibraryRail({
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
         {groups.length === 0 ? (
           <p className="px-1 py-2 text-[11px] text-[color:var(--text-subtle)]">
             {query.trim() ? 'No matching backlog work.' : 'No backlog work to plan yet.'}

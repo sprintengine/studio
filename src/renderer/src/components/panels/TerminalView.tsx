@@ -47,7 +47,10 @@ import {
   resolveWorktreeSpawnFallback,
 } from '../../utils/workspaceWorktree'
 import {
+  clearAgentLaunchFailed,
+  hasAgentLaunchFailedThisAppSession,
   hasLiveAgentLaunchIntent,
+  markAgentLaunchFailed,
   markAgentSessionMinted,
   resolveAgentColdLoadDecision,
   wasAgentSessionMintedThisAppSession,
@@ -404,7 +407,17 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // time the launch decision runs. The mint registry is what tells them apart,
       // so a brand-new workspace's agent still spawns instead of sitting inert.
       const mintedSessionId = crypto.randomUUID()
-      markAgentSessionMinted(mintedSessionId)
+      // Only a brand-new agent's minted id is allowed to force a spawn (cold-load
+      // rule 5). If THIS agent's launch already failed this session (e.g. a missing
+      // API key), the failure branch cleared its id and we are back here only
+      // because of that clear — do NOT mark the replacement id as minted, or the
+      // decision reads `spawn`, the spawn fails again, and it loops every tick,
+      // spamming a notification each time. Leaving it unmarked lets the next
+      // decision fall through to `inert`: the tab paints "click or type to start"
+      // and waits, and a deliberate start clears the failure marker.
+      if (!hasAgentLaunchFailedThisAppSession(workspaceId, agentId)) {
+        markAgentSessionMinted(mintedSessionId)
+      }
       initialContext.updateAgent(workspaceId, agentId, {
         cliSessionId: mintedSessionId,
         cliHasLaunched: false,
@@ -685,6 +698,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const startInertAgent = () => {
       if (!inertRef.current) return
       inertRef.current = false
+      // A deliberate click/keystroke is the user asking to try again. Drop any
+      // "launch failed this session" marker so the mint branch re-mints normally
+      // and the fresh attempt is allowed to spawn.
+      clearAgentLaunchFailed(workspaceId, agentId)
       const startContext = currentContext()
       startContext.updateAgent(workspaceId, agentId, {
         cliStartRequested: true,
@@ -1155,6 +1172,11 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           ?.cliSessionId
         if (attachedSessionId) return
         if (currentSessionId !== sessionId) return
+        // Record that this agent's launch failed this renderer session BEFORE we
+        // clear the session id below. Clearing it re-enters the mint branch, and
+        // this marker is what stops that branch from minting a fresh spawn-forcing
+        // id — otherwise the failure respawns and re-notifies every effect cycle.
+        markAgentLaunchFailed(workspaceId, agentId)
         failureContext.updateAgent(workspaceId, agentId, {
           cliSessionId: undefined,
           cliStartRequested: false,
@@ -1183,6 +1205,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         }
         return
       }
+
+      // The spawn succeeded — this agent is running again, so any stale
+      // "launch failed this session" marker no longer applies.
+      clearAgentLaunchFailed(workspaceId, agentId)
 
       if (!resumeExistingPty) {
         if (!attachedSessionId) {

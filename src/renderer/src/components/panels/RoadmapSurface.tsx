@@ -510,11 +510,7 @@ function RoadmapEmptyState({
       <div className="mb-1 flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]">
         <RoadmapDoorGlyph />
       </div>
-      <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">Plan what runs while you sleep</h3>
-      <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Line up backlog work from any project in order. Multicode runs it sprint by sprint — you approve, merge, and
-        step in only when it asks.
-      </p>
+      <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">No roadmap yet</h3>
       <button
         type="button"
         onClick={onCreate}
@@ -523,14 +519,9 @@ function RoadmapEmptyState({
       >
         {creating ? 'Creating…' : 'Plan your roadmap'}
       </button>
-      {projectCount > 0 ? (
-        <span className="mt-3 text-[11px] text-[color:var(--text-subtle)]">
-          Pulls from the backlogs of {projectCount === 1 ? 'this project' : `all ${projectCount} projects`} in this
-          Multicode.
-        </span>
-      ) : (
+      {projectCount === 0 ? (
         <span className="mt-3 text-[11px] text-[color:var(--text-subtle)]">Open a project to plan a roadmap.</span>
-      )}
+      ) : null}
     </div>
   )
 }

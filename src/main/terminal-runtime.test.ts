@@ -117,7 +117,8 @@ async function main(): Promise<void> {
     await assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule)
     await assertSprintEngineSpawnSyncsManagedMcpBeforePtySpawn(runtimeModule)
     await assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule)
-    await assertSprintEngineSpawnDisablesOptionalMcpSettings(runtimeModule)
+    await assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeModule)
+    assertSprintEngineLaunchMcpSettingsDerivation(runtimeModule)
     await assertWorktreeSpawnRegistersProjectRootNotWorktreeCwd(runtimeModule)
     await assertMultiRepoSpawnAllowsEveryDeclaredProjectAndNothingElse(runtimeModule)
     assertRegistrationRootDerivation(runtimeModule)
@@ -2077,6 +2078,40 @@ async function assertSprintEngineSpawnReportsThrownHttpMcpSetupFailureWithoutPty
   }
 }
 
+function assertSprintEngineLaunchMcpSettingsDerivation(runtimeModule: RuntimeModule): void {
+  const settings = createOptionalMcpSettings()
+
+  // A roster CLI outside a server's client list is added for the sprint
+  // launch: the sprint provisions whichever CLIs actually run in the worktree.
+  const cursorLaunch = runtimeModule.mcpSettingsForManagedSprintEngineLaunch(settings, 'cursor')
+  assert.equal(cursorLaunch.syncEnabled, true)
+  assert.deepEqual(cursorLaunch.servers.playwright?.clients, ['codex', 'claude-code', 'cursor'])
+  assert.deepEqual(cursorLaunch.servers.github?.clients, ['claude-code', 'cursor'])
+  assert.deepEqual(
+    settings.servers.playwright?.clients,
+    ['codex', 'claude-code'],
+    'derivation must not mutate app MCP settings'
+  )
+
+  // Sync toggled off: connectors stay known-but-disabled so stale managed
+  // entries are pruned, and only the managed Sprint Engine server is written.
+  const syncOff = runtimeModule.mcpSettingsForManagedSprintEngineLaunch(
+    { ...settings, syncEnabled: false },
+    'claude-code'
+  )
+  assert.equal(syncOff.syncEnabled, false)
+  assert.equal(syncOff.servers.playwright?.enabled, false)
+  assert.equal(syncOff.servers.github?.enabled, false)
+
+  // A server the user disabled stays disabled and keeps its client list.
+  const withDisabled = createOptionalMcpSettings()
+  withDisabled.servers.playwright = { ...withDisabled.servers.playwright!, enabled: false }
+  const disabledLaunch = runtimeModule.mcpSettingsForManagedSprintEngineLaunch(withDisabled, 'cursor')
+  assert.equal(disabledLaunch.servers.playwright?.enabled, false)
+  assert.deepEqual(disabledLaunch.servers.playwright?.clients, ['codex', 'claude-code'])
+  assert.equal(disabledLaunch.servers.github?.enabled, true)
+}
+
 function assertRegistrationRootDerivation(runtimeModule: RuntimeModule): void {
   const root = join(tmpdir(), 'project-root')
   const statePath = join(root, '.multi-code', 'sprintengine', 'team', 'run.yaml')
@@ -2655,7 +2690,7 @@ async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeMo
   }
 }
 
-async function assertSprintEngineSpawnDisablesOptionalMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
+async function assertSprintEngineSpawnKeepsEnabledConnectorMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sprint-mcp-filter-'))
   const sprintEngineStatePath = join(workspaceRoot, '.multi-code', 'sprintengine', 'run.yaml')
   const syncInputs: SyncInput[] = []
@@ -2695,9 +2730,13 @@ async function assertSprintEngineSpawnDisablesOptionalMcpSettings(runtimeModule:
     assert.equal(result.ok, true, JSON.stringify(result))
     assert.equal(syncInputs.length, 1)
     assert.deepEqual(syncInputs[0]?.clients, ['claude-code'])
-    assert.equal(syncInputs[0]?.settings.syncEnabled, false)
-    assert.equal(syncInputs[0]?.settings.servers.playwright?.enabled, false)
-    assert.equal(syncInputs[0]?.settings.servers.github?.enabled, false)
+    assert.equal(syncInputs[0]?.settings.syncEnabled, true)
+    assert.equal(
+      syncInputs[0]?.settings.servers.playwright?.enabled,
+      true,
+      'sprint agents get the connectors the user enabled, not a stripped set'
+    )
+    assert.equal(syncInputs[0]?.settings.servers.github?.enabled, true)
     assert.deepEqual(syncInputs[0]?.settings.servers.playwright?.clients, ['codex', 'claude-code'])
     assert.equal(mcpSettings.servers.playwright?.enabled, true, 'launch filtering must not mutate app MCP settings')
     assert.equal(syncInputs[0]?.managedSprintEngine?.statePath, sprintEngineStatePath)

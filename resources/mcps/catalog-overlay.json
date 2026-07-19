@@ -139,6 +139,16 @@
       "recommendedScope": "workspace",
       "riskLevel": "secrets",
       "capabilities": ["Web search", "News", "Images", "LLM context"]
+    },
+    "io-github-chromedevtools/chrome-devtools-mcp": {
+      "id": "chrome-devtools",
+      "category": "Development",
+      "clients": ["codex", "claude"],
+      "defaultClients": ["codex", "claude"],
+      "recommendedScope": "workspace",
+      "riskLevel": "local-command",
+      "auth": "None",
+      "capabilities": ["DevTools debugging", "Performance tracing", "Network inspection"]
     }
   }
 }

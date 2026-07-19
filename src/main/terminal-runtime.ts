@@ -282,18 +282,32 @@ const pendingSprintEngineTerminalTeardowns = new Map<string, { session: Terminal
 
 export const SPRINTENGINE_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
 
-function mcpSettingsForManagedSprintEngineLaunch(settings: McpSettings | undefined): McpSettings {
+/**
+ * A sprint agent's worktree gets the managed Sprint Engine server plus every
+ * connector the user enabled (the sprint wizard's Tools step and the
+ * Connectors surface both write `enabled` + `syncEnabled`). Enabled servers
+ * are extended to the launching CLI even when their client list doesn't name
+ * it: the per-server client list scopes plain workspace syncs, but a sprint
+ * provisions whichever CLIs the roster actually runs. Disabled servers stay in
+ * the map as known-but-inactive so stale managed entries are pruned from the
+ * worktree config.
+ */
+export function mcpSettingsForManagedSprintEngineLaunch(
+  settings: McpSettings | undefined,
+  cli: AgentCli
+): McpSettings {
+  const syncEnabled = settings?.syncEnabled === true
   const servers: McpSettings['servers'] = {}
   for (const [key, server] of Object.entries(settings?.servers ?? {})) {
-    servers[key] = {
-      ...server,
-      enabled: false,
+    if (!syncEnabled || !server.enabled) {
+      servers[key] = { ...server, enabled: false }
+    } else if (server.clients.includes(cli)) {
+      servers[key] = server
+    } else {
+      servers[key] = { ...server, clients: [...server.clients, cli] }
     }
   }
-  return {
-    syncEnabled: false,
-    servers,
-  }
+  return { syncEnabled, servers }
 }
 
 /**
@@ -2763,7 +2777,7 @@ async function spawnTerminalFromIpc(
         const syncResult = await syncMcpConfig({
           workspaceRoot: workingDirectory,
           settings: sprintEngineStatePath
-            ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings)
+            ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings, cli)
             : mcpSettings ?? { syncEnabled: false, servers: {} },
           clients: [cli],
           // A connector launch (connectorLaunch set, paired with the

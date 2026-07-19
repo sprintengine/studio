@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 
 import {
+  clearAgentLaunchFailed,
+  hasAgentLaunchFailedThisAppSession,
   hasLiveAgentLaunchIntent,
+  markAgentLaunchFailed,
   markAgentSessionMinted,
+  resetFailedLaunchAgentsForTest,
   resetMintedAgentSessionsForTest,
   resolveAgentColdLoadDecision,
   wasAgentSessionMintedThisAppSession,
@@ -159,6 +163,61 @@ assert.equal(
   wasAgentSessionMintedThisAppSession('sess-new'),
   false,
   'the mint registry is renderer-session scoped; after a reload nothing counts as minted',
+)
+
+// --- the failed-launch registry: the guard that stops a failed spawn from
+// respawning + re-notifying every effect cycle.
+//
+// A spawn failure (missing API key, spawn error) clears the agent's cliSessionId,
+// which re-enters the mint branch. Without this marker the mint branch marks the
+// replacement id, the decision reads `spawn` again, and the failure loops. The
+// marker is per (workspace, agent), renderer-session scoped like the mint set.
+
+resetFailedLaunchAgentsForTest()
+
+assert.equal(
+  hasAgentLaunchFailedThisAppSession('ws-1', 'agent-kimi'),
+  false,
+  'a fresh agent has no failure on record',
+)
+
+markAgentLaunchFailed('ws-1', 'agent-kimi')
+assert.equal(
+  hasAgentLaunchFailedThisAppSession('ws-1', 'agent-kimi'),
+  true,
+  'a failed launch is recorded for that workspace+agent',
+)
+
+// The marker is scoped to the exact (workspace, agent) pair — a different agent,
+// or the same agent id in another workspace, is unaffected.
+assert.equal(
+  hasAgentLaunchFailedThisAppSession('ws-1', 'agent-claude'),
+  false,
+  'a sibling agent in the same workspace is not marked',
+)
+assert.equal(
+  hasAgentLaunchFailedThisAppSession('ws-2', 'agent-kimi'),
+  false,
+  'the same agent id in another workspace is not marked',
+)
+
+// A deliberate start (click/type) clears the marker so the retry re-mints and is
+// allowed to spawn.
+clearAgentLaunchFailed('ws-1', 'agent-kimi')
+assert.equal(
+  hasAgentLaunchFailedThisAppSession('ws-1', 'agent-kimi'),
+  false,
+  'clearing the marker lets the next launch attempt proceed',
+)
+
+// A reload is a cold load: the registry going empty is correct, matching the mint
+// set's renderer-session scoping.
+markAgentLaunchFailed('ws-1', 'agent-kimi')
+resetFailedLaunchAgentsForTest()
+assert.equal(
+  hasAgentLaunchFailedThisAppSession('ws-1', 'agent-kimi'),
+  false,
+  'the failed-launch registry is renderer-session scoped; a reload clears it',
 )
 
 console.log('terminalColdLoad tests passed')

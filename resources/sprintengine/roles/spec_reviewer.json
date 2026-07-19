@@ -1,0 +1,22 @@
+{
+  "id": "spec_reviewer",
+  "label": "Spec reviewer",
+  "aliases": [
+    "spec-review",
+    "spec-reviewer",
+    "requirements-review",
+    "acceptance-review"
+  ],
+  "summary": "Reviews implementation coverage against requirements and acceptance criteria.",
+  "directives": {
+    "implement": [
+      {
+        "skill": "spec_reviewer"
+      }
+    ]
+  },
+  "sweep": {
+    "focus": "requirements coverage, acceptance criteria, behavior gaps, and missing tests",
+    "when": "the run implements planned work with written requirements, acceptance criteria, or an approved plan"
+  }
+}

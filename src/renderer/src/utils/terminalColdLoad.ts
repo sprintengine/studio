@@ -131,3 +131,36 @@ export function wasAgentSessionMintedThisAppSession(sessionId: string | null | u
 export function resetMintedAgentSessionsForTest(): void {
   mintedSessionIds.clear()
 }
+
+// Agents whose launch FAILED during THIS renderer session (e.g. a missing API
+// key, a spawn error). Renderer-session scoped, exactly like the mint registry.
+//
+// This exists to break a spin loop: on a spawn failure the mounting terminal
+// clears the agent's `cliSessionId`, which drops it back through the mint branch;
+// the mint branch mints a fresh id and marks it minted; `resolveAgentColdLoadDecision`
+// then reads that minted id as `spawn` (rule 5) even though nobody asked for it —
+// and the whole thing repeats every effect cycle, spawning + notifying many times
+// a second. Marking the agent as failed lets the mint branch decline to re-mark a
+// replacement id, so the next decision falls through to `inert` and the tab sits
+// idle until a deliberate start (which clears the marker) instead of respawning.
+const failedLaunchAgents = new Set<string>()
+
+function failedLaunchKey(workspaceId: string, agentId: string): string {
+  return `${workspaceId}::${agentId}`
+}
+
+export function markAgentLaunchFailed(workspaceId: string, agentId: string): void {
+  failedLaunchAgents.add(failedLaunchKey(workspaceId, agentId))
+}
+
+export function clearAgentLaunchFailed(workspaceId: string, agentId: string): void {
+  failedLaunchAgents.delete(failedLaunchKey(workspaceId, agentId))
+}
+
+export function hasAgentLaunchFailedThisAppSession(workspaceId: string, agentId: string): boolean {
+  return failedLaunchAgents.has(failedLaunchKey(workspaceId, agentId))
+}
+
+export function resetFailedLaunchAgentsForTest(): void {
+  failedLaunchAgents.clear()
+}

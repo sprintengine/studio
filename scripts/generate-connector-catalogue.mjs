@@ -79,6 +79,7 @@ const REGISTRY_CONNECTORS = {
   'io-github-snowflake-labs/mcp': 'Data Warehouse', // Snowflake
   'io-github-sonarsource/sonarqube-mcp-server': 'Code Quality', // SonarQube
   'io-github-tavily-ai/tavily-mcp': 'Search', // Tavily
+  'io-github-chromedevtools/chrome-devtools-mcp': 'Development', // Chrome DevTools (Puppeteer-based; pairs with the anthropic/chrome-devtools-mcp skills plugin)
   'io-github-vercel/next-devtools-mcp': 'Development', // Next.js devtools
   'io-github-zoom/zoom-docs': 'Documentation', // Zoom
   // Canonical community servers for major-product gaps
