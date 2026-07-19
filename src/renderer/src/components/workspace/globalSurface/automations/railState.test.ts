@@ -6,7 +6,7 @@ import type {
   AutomationStatus,
   AutomationsInstanceEntry,
 } from '../../../../../../shared/automations/contracts'
-import { automationRailState, projectLabel } from './railState'
+import { SCHEDULER_OFF_NOTICE, automationRailState, enumerationProblemsNotice, projectLabel } from './railState'
 
 function run(name: string, body: () => void): void {
   try {
@@ -92,6 +92,19 @@ run('projectLabel is the folder basename, separator/trailing-slash tolerant', ()
   assert.equal(projectLabel('/work/projects/checkout-service/'), 'checkout-service')
   assert.equal(projectLabel('C:\\work\\billing'), 'billing')
   assert.equal(projectLabel('solo'), 'solo')
+})
+
+// Degraded-state copy is plain-language and never a raw error (quality-audit rule).
+run('the scheduler-off notice is plain language with no raw error / code', () => {
+  assert.ok(SCHEDULER_OFF_NOTICE.includes('scheduler is not running'))
+  assert.ok(SCHEDULER_OFF_NOTICE.includes('run now still execute'), 'reassures that manual runs still work')
+  assert.ok(!/Error|null|undefined|ECONN|\bcode\b/.test(SCHEDULER_OFF_NOTICE), 'no raw error text')
+})
+
+run('the enumeration-failure notice pluralizes and never masks the readable rest', () => {
+  assert.equal(enumerationProblemsNotice(1), 'One project’s automations could not be read and are not listed. The rest are shown.')
+  assert.equal(enumerationProblemsNotice(3), '3 projects’ automations could not be read and are not listed. The rest are shown.')
+  assert.ok(enumerationProblemsNotice(2).includes('The rest are shown'), 'a bad store never masks the readable ones')
 })
 
 console.log('all automations rail-state tests passed')

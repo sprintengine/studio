@@ -5,6 +5,7 @@ import { revealAutomationAgent } from '../../../../hooks/useAutomationRequests'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
+import type { RunTargetRef } from '../../../automations/runTarget'
 import { GhostButton, InlineNotice, OverflowMenu, PointerPopover, PrimaryButton, SidePane, Spinner, useConfirmDialog } from '../../../ui'
 import type { OverflowMenuItem } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
@@ -23,7 +24,7 @@ import {
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { AutomationsRail } from './AutomationsRail'
 import { AutomationSurfaceCanvas } from './AutomationSurfaceCanvas'
-import { automationRailState, projectLabel } from './railState'
+import { SCHEDULER_OFF_NOTICE, automationRailState, enumerationProblemsNotice, projectLabel } from './railState'
 import {
   consumePendingAutomationSurfaceTarget,
   subscribeAutomationSurfaceTarget,
@@ -52,13 +53,21 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   // A create/edit editor plus the store root its writes target (an automation
   // belongs to a project scope, chosen explicitly on create).
   const [editorTarget, setEditorTarget] = useState<{ editor: EditorState; workspaceRoot: string } | null>(null)
-  const [viewerRun, setViewerRun] = useState<AutomationRun | null>(null)
+  // The run whose report is open, WITH the store root it lives under — captured
+  // at open time so switching to another automation (a different project root)
+  // never re-points the open report at the wrong root.
+  const [viewerRun, setViewerRun] = useState<{ run: AutomationRun; workspaceRoot: string } | null>(null)
   // The New-automation target-project chooser popover, anchored to the button.
   const [chooser, setChooser] = useState<{ x: number; y: number } | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  // A deep-link (run notification "Open") latches the automation to select; it
-  // applies once that automation has loaded into the index.
-  const [pendingAutomationId, setPendingAutomationId] = useState<string | null>(null)
+  // A deep-link (run notification "Open") latches the automation AND run to
+  // select; it applies once that automation has loaded into the index, then the
+  // run is scrolled into view in the canvas.
+  const [pendingTarget, setPendingTarget] = useState<RunTargetRef | null>(null)
+  const [focusRunId, setFocusRunId] = useState<string | null>(null)
+  // Bumped each time a target is applied so re-opening the same run's
+  // notification re-triggers the scroll even though the run id is unchanged.
+  const [focusNonce, setFocusNonce] = useState(0)
 
   // A slow clock so relative run times stay honest without churning the rail.
   useEffect(() => {
@@ -100,20 +109,22 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   // named automation is present in the loaded index.
   useEffect(() => {
     const pending = consumePendingAutomationSurfaceTarget()
-    if (pending) setPendingAutomationId(pending.automationId)
+    if (pending) setPendingTarget(pending)
     return subscribeAutomationSurfaceTarget((ref) => {
       consumePendingAutomationSurfaceTarget()
-      setPendingAutomationId(ref.automationId)
+      setPendingTarget(ref)
     })
   }, [])
 
   useEffect(() => {
-    if (!pendingAutomationId) return
-    if (!entries.some((entry) => entry.definition.id === pendingAutomationId)) return
+    if (!pendingTarget) return
+    if (!entries.some((entry) => entry.definition.id === pendingTarget.automationId)) return
     setEditorTarget(null)
-    setSelectedId(pendingAutomationId)
-    setPendingAutomationId(null)
-  }, [pendingAutomationId, entries])
+    setSelectedId(pendingTarget.automationId)
+    setFocusRunId(pendingTarget.runId)
+    setFocusNonce((n) => n + 1)
+    setPendingTarget(null)
+  }, [pendingTarget, entries])
 
   const openChooser = useCallback((anchor: { x: number; y: number }) => {
     clearActionError()
@@ -184,11 +195,13 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       const next = orderedEntries[Math.min(index + 1, orderedEntries.length - 1)] ?? orderedEntries[0]
       setSelectedId(next.definition.id)
       setEditorTarget(null)
+      setFocusRunId(null)
     } else if (event.key === 'k' || event.key === 'ArrowUp') {
       event.preventDefault()
       const prev = orderedEntries[Math.max(index - 1, 0)] ?? orderedEntries[0]
       setSelectedId(prev.definition.id)
       setEditorTarget(null)
+      setFocusRunId(null)
     }
   }, [orderedEntries, selectedId])
 
@@ -237,20 +250,14 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     if (isEngineUnreachable(engineStatus)) {
       banners.push(
         <div key="engine" className="px-5 py-2">
-          <InlineNotice tone="warn">
-            The automation scheduler is not running, so scheduled runs are paused. Automations you run now still execute.
-          </InlineNotice>
+          <InlineNotice tone="warn">{SCHEDULER_OFF_NOTICE}</InlineNotice>
         </div>,
       )
     }
     if (problems.length > 0) {
       banners.push(
         <div key="problems" className="px-5 py-2">
-          <InlineNotice tone="warn">
-            {problems.length === 1
-              ? 'One project’s automations could not be read and are not listed. The rest are shown.'
-              : `${problems.length} projects’ automations could not be read and are not listed. The rest are shown.`}
-          </InlineNotice>
+          <InlineNotice tone="warn">{enumerationProblemsNotice(problems.length)}</InlineNotice>
         </div>,
       )
     }
@@ -263,7 +270,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       entries={orderedEntries}
       selectedId={editorTarget ? null : selectedId}
       now={now}
-      onSelect={(id) => { setSelectedId(id); setEditorTarget(null) }}
+      onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
       onKeyDown={onRailKeyDown}
       onCreate={openChooser}
     />
@@ -296,8 +303,10 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             onEditorSaved={handleEditorSaved}
             selectedEntry={selectedEntry}
             now={now}
+            focusRunId={focusRunId}
+            focusNonce={focusNonce}
             onOpenAgent={onOpenAgent}
-            onViewReport={setViewerRun}
+            onViewReport={(run) => { if (selectedEntry) setViewerRun({ run, workspaceRoot: selectedEntry.workspaceRoot }) }}
             onCreate={openChooser}
             definitionsCount={definitions.length}
           />
@@ -305,9 +314,9 @@ export default function AutomationsGlobalSurface(): JSX.Element {
         {viewerRun ? (
           <SidePane side="right" width="md" ariaLabel="Automation run report">
             <AutomationReportViewer
-              workspaceRoot={selectedEntry?.workspaceRoot ?? ''}
-              reportPaths={extractReportPaths(viewerRun)}
-              pullRequestUrl={viewerRun.pullRequestUrl}
+              workspaceRoot={viewerRun.workspaceRoot}
+              reportPaths={extractReportPaths(viewerRun.run)}
+              pullRequestUrl={viewerRun.run.pullRequestUrl}
               onClose={() => setViewerRun(null)}
             />
           </SidePane>
@@ -361,7 +370,7 @@ function SurfaceStatus({ definition }: { definition: AutomationDefinition }): JS
 // surface's return stays readable.
 function SurfaceBody({
   loadState, loadError, onRetry, hasEntries, editorTarget, providers, onEditorCancel, onEditorSaved,
-  selectedEntry, now, onOpenAgent, onViewReport, onCreate, definitionsCount,
+  selectedEntry, now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate, definitionsCount,
 }: {
   loadState: string
   loadError: string | null
@@ -373,6 +382,8 @@ function SurfaceBody({
   onEditorSaved: (saved: AutomationDefinition) => void
   selectedEntry: AutomationsInstanceEntry | null
   now: number
+  focusRunId: string | null
+  focusNonce: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
   onViewReport: (run: AutomationRun) => void
   onCreate: (anchor: { x: number; y: number }) => void
@@ -412,7 +423,16 @@ function SurfaceBody({
     return <ZeroState onCreate={onCreate} />
   }
   if (selectedEntry) {
-    return <AutomationSurfaceCanvas entry={selectedEntry} now={now} onOpenAgent={onOpenAgent} onViewReport={onViewReport} />
+    return (
+      <AutomationSurfaceCanvas
+        entry={selectedEntry}
+        now={now}
+        focusRunId={focusRunId}
+        focusNonce={focusNonce}
+        onOpenAgent={onOpenAgent}
+        onViewReport={onViewReport}
+      />
+    )
   }
   // Entries exist but none selected (transient) — keep the space calm.
   return (

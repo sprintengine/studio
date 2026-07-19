@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 import { GhostButton, InlineNotice, LifecycleGlyph, Section, Spinner, TruncatedText } from '../../../ui'
 import type { AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
 import { AutomationRunActions } from '../../../panels/AutomationsPanel/AutomationRunActions'
@@ -21,15 +23,30 @@ import { projectLabel } from './railState'
 // to this entry's own store root, so a cross-project surface reads each
 // automation from the project it lives in.
 export function AutomationSurfaceCanvas({
-  entry, now, onOpenAgent, onViewReport,
+  entry, now, focusRunId, focusNonce, onOpenAgent, onViewReport,
 }: {
   entry: AutomationsInstanceEntry
   now: number
+  /** A run to scroll into view and briefly highlight (notification deep link). */
+  focusRunId?: string | null
+  /** Changes on every deep-link apply so re-opening the same run re-fires the scroll. */
+  focusNonce?: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
   onViewReport: (run: AutomationRun) => void
 }): JSX.Element {
   const { definition, workspaceRoot } = entry
   const { runs, state, error, finalizingRunId, reload, finalize } = useAutomationRunHistory(workspaceRoot, definition)
+  const [highlightRunId, setHighlightRunId] = useState<string | null>(null)
+
+  // Scroll the deep-linked run into view once history has loaded, and highlight
+  // it briefly. Instant scroll (no smooth behaviour) so it is reduced-motion safe.
+  useEffect(() => {
+    if (state !== 'ready' || !focusRunId || !runs.some((run) => run.id === focusRunId)) return
+    document.getElementById(`automation-surface-run-${focusRunId}`)?.scrollIntoView({ block: 'nearest' })
+    setHighlightRunId(focusRunId)
+    const timer = window.setTimeout(() => setHighlightRunId(null), 2400)
+    return () => window.clearTimeout(timer)
+  }, [state, focusRunId, focusNonce, runs])
 
   const autonomy = definition.autonomyDefault === 'allow_changes' ? 'can make changes' : 'review only'
 
@@ -62,6 +79,7 @@ export function AutomationSurfaceCanvas({
                   key={run.id}
                   run={run}
                   now={now}
+                  highlighted={run.id === highlightRunId}
                   onOpenAgent={onOpenAgent}
                   onViewReport={onViewReport}
                   onFinalize={finalize}
@@ -96,9 +114,10 @@ function WhatRow({ label, value }: { label: string; value: string }) {
 // One run: shape-coded lifecycle glyph, the plain outcome + relative time, the
 // run's own summary in plain words, and the trailing run affordances (open agent,
 // view report, finalize a stuck run) reused from the folder panel.
-function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }: {
+function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, finalizing }: {
   run: AutomationRun
   now: number
+  highlighted: boolean
   onOpenAgent: (workspaceId: string, agentId?: string) => void
   onViewReport: (run: AutomationRun) => void
   onFinalize: (run: AutomationRun, outcome: 'completed' | 'failed') => void
@@ -106,7 +125,13 @@ function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }:
 }) {
   const stamp = parseTime(run.completedAt) ?? parseTime(run.startedAt) ?? parseTime(run.dueAt)
   return (
-    <li className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0">
+    <li
+      id={`automation-surface-run-${run.id}`}
+      className={[
+        'flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 transition-colors last:border-b-0',
+        highlighted ? 'bg-[color:var(--accent-primary-soft)]' : '',
+      ].join(' ')}
+    >
       <LifecycleGlyph
         state={RUN_LIFECYCLE[run.status]}
         live={run.status === 'running'}

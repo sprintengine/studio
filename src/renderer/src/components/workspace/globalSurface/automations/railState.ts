@@ -47,6 +47,23 @@ export function automationRailState(entry: AutomationsInstanceEntry, now: number
   return { text: `Ran ${when} · passed`, tone: 'good', running: false }
 }
 
+// Plain-language degraded-state copy (quality-audit rule: never a raw error or
+// blank pane). Pure + exported so the exact wording is locked by tests.
+
+// Shown when the automations engine/scheduler is unreachable — scheduled runs
+// are paused, but manual "Run now" still works, so the surface stays usable.
+export const SCHEDULER_OFF_NOTICE =
+  'The automation scheduler is not running, so scheduled runs are paused. Automations you run now still execute.'
+
+// Shown when one or more project stores could not be read (instance index
+// `problems`): the readable automations are still listed, the unreadable ones
+// are named as omitted rather than silently dropped.
+export function enumerationProblemsNotice(count: number): string {
+  return count === 1
+    ? 'One project’s automations could not be read and are not listed. The rest are shown.'
+    : `${count} projects’ automations could not be read and are not listed. The rest are shown.`
+}
+
 // Folder basename of a project root — the label that names which project an
 // automation belongs to, in the rail sub-lines and the surface bar. Trailing
 // separators trimmed; a bare root falls back to the whole value.
