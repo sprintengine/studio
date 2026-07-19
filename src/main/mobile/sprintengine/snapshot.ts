@@ -315,11 +315,20 @@ export class MobileSprintEngineSnapshotService {
       protocolVersion: mobileControlProtocolVersion,
       generatedAt,
       desktopSessionId: request.desktopSessionId,
+      // Content-derived so the phone's If-None-Match (item 1599) matches on an
+      // idle read. It folds NO per-read wall-clock: the top level dropped
+      // `generatedAt`, and each workspace/backlog `updatedAt` — which falls back
+      // to `generatedAt` for an empty or desktop workspace, and is `generatedAt`
+      // outright for switchboard/watchtower — is stripped before hashing. Each
+      // sprint engine contributes its own content-stable sub-version (already
+      // folds tasks, artifacts, automation mode and state mtime, preserving the
+      // MC-1567 invariant); backlog and automations are folded so a backlog-only
+      // or automations-only change still bumps the version.
       snapshotVersion: buildSnapshotVersion({
-        updatedAt: generatedAt,
-        tasks: sprintEngines.flatMap((sprintEngine) => sprintEngine.tasks),
-        artifacts: sprintEngines.flatMap((sprintEngine) => sprintEngine.artifacts),
-        workspaces,
+        sprintEngines: sprintEngines.map((sprintEngine) => sprintEngine.snapshotVersion),
+        workspaces: workspaces.map(withoutReadTimeStamp),
+        backlog: backlog.map(withoutReadTimeStamp),
+        automations,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
       sprintEngines,
@@ -1435,6 +1444,17 @@ function buildSnapshotVersion(value: unknown): string {
     .digest('hex')
     .slice(0, 24)
   return `snap_${digest}`
+}
+
+// Strips the read-time `updatedAt` before a workspace or backlog snapshot feeds
+// the top-level snapshotVersion. That field falls back to `generatedAt` when the
+// snapshot has no content timestamp of its own (empty and desktop workspaces
+// stamp `generatedAt` unconditionally), so folding it verbatim would put per-read
+// wall-clock back into the hash and stop the item-1599 fast path from ever
+// matching. The content that survives is exactly what a real change perturbs.
+function withoutReadTimeStamp<T extends { updatedAt: string }>(value: T): Omit<T, 'updatedAt'> {
+  const { updatedAt: _updatedAt, ...rest } = value
+  return rest
 }
 
 function uniqueResolved(paths: string[]): string[] {

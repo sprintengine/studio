@@ -45,6 +45,10 @@ async function main(): Promise<void> {
   await assertSingleRepoVcsSnapshotIsUnchangedByTheReposList()
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
+  await assertTopLevelSnapshotVersionIsContentStableAcrossReads()
+  await assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion()
+  await assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion()
+  await assertSprintEngineChangeBumpsTopLevelSnapshotVersion()
   await assertAutomationsJoinTheirSprintEngineOnProjectKey()
   await assertCappedAutomationsFitTheRelayResultBudget()
   await assertShedDropsRecentRunsBeforeAnySprintEngine()
@@ -848,6 +852,199 @@ async function assertAutomationsJoinTheirSprintEngineOnProjectKey(): Promise<voi
 
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
   service.shutdown()
+}
+
+// Item 1605: the top-level snapshotVersion is the phone's If-None-Match token
+// (item 1599). It must be content-derived — no per-read wall-clock — or the fast
+// path can never match on an idle read. This reads the SAME on-disk state twice
+// WITHOUT a supplied `generatedAt`, so each read stamps its own `new Date()`; the
+// version must not move. Backlog, an automation, and a watchtower workspace (whose
+// own `updatedAt` is that read's `generatedAt`) are all present, so the read-time
+// stamp is stripped from every collection it could leak through, not just the top.
+async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Stable Version Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [artifact('A1', 'architect_plan', 'approved', 'T1')],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  await writeBacklogFixture(workspaceRoot, 'backlog_stable', 'Stable backlog item')
+  const store = new AutomationsStore(workspaceRoot)
+  await store.createDefinition({
+    id: 'nightly',
+    name: 'Nightly sweep',
+    status: 'enabled',
+    // Interval cadence renders with no timezone suffix, so even the cadence string
+    // carries no wall-clock — the whole automation projection is content-only.
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    action: { kind: 'agent-run', config: { prompt: 'sweep' } },
+    autonomyDefault: 'review_only',
+    nextRunAt: null,
+    lastRunAt: generatedAt,
+    lastRunId: null,
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+  })
+  const service = new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({
+        ok: true,
+        runs: [
+          {
+            schemaVersion: 1,
+            runId: 'run_1',
+            status: 'completed',
+            createdAt: generatedAt,
+            completedAt: generatedAt,
+            workspaceRoot,
+            preset: 'standard',
+            agents: [],
+            counts: { valid: 1, invalid: 0, ingested: 0 },
+          },
+        ],
+      }),
+      readMultiloopStates: async () => [],
+      readRoleCatalog: async () => [],
+    },
+  })
+
+  const include = ['sprintEngines', 'desktopWorkspaces', 'backlog', 'automations'] as const
+  const first = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], include: [...include] })
+  const second = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], include: [...include] })
+  // The two reads stamped different `generatedAt` values (proving the read is
+  // live), yet the content-derived version is byte-identical.
+  assert.notEqual(first.generatedAt, second.generatedAt)
+  assert.equal(second.snapshotVersion, first.snapshotVersion,
+    'the top-level snapshotVersion is content-derived and stable across idle reads')
+  // Sanity: the watchtower workspace really is present, so its read-time updatedAt
+  // was stripped rather than absent.
+  assert.equal(first.workspaces?.some((workspace) => workspace.kind === 'watchtower'), true)
+  service.shutdown()
+}
+
+// A backlog-only change must move the top-level version, or the fast path would
+// serve a phone stale backlog. The read-time `generatedAt` is held fixed so the
+// only moving part is the item's status.
+async function assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Backlog Bump Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  await writeBacklogFixture(workspaceRoot, 'backlog_bump', 'Backlog bump item')
+  const service = backlogAutomationsUnitService()
+
+  const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  await writeFile(
+    join(workspaceRoot, '.multi-code', 'backlog', 'items.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      items: [
+        {
+          id: 'backlog_bump',
+          source: { type: 'file', relativePath: 'backlog/backlog_bump.md' },
+          status: 'in_progress',
+          type: 'feature',
+          metadata: {},
+          links: [],
+          createdAt: generatedAt,
+          updatedAt: generatedAt,
+        },
+      ],
+    }),
+    'utf8'
+  )
+  const after = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+
+  assert.notEqual(after.snapshotVersion, before.snapshotVersion,
+    'a backlog-only change produces a new top-level snapshotVersion')
+  service.shutdown()
+}
+
+// An automations-only change must move the top-level version for the same reason.
+async function assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Automations Bump Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const store = new AutomationsStore(workspaceRootForStatePath(statePath))
+  await store.createDefinition({
+    id: 'nightly',
+    name: 'Nightly sweep',
+    status: 'enabled',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    action: { kind: 'agent-run', config: { prompt: 'sweep' } },
+    autonomyDefault: 'review_only',
+    nextRunAt: null,
+    lastRunAt: generatedAt,
+    lastRunId: null,
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+  })
+  const service = backlogAutomationsUnitService()
+
+  const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  const paused = await store.updateDefinition({
+    id: 'nightly',
+    name: 'Nightly sweep',
+    status: 'paused',
+    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    action: { kind: 'agent-run', config: { prompt: 'sweep' } },
+    autonomyDefault: 'review_only',
+    nextRunAt: null,
+    lastRunAt: generatedAt,
+    lastRunId: null,
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+  })
+  assert.equal(paused.ok, true)
+  const after = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+
+  assert.notEqual(after.snapshotVersion, before.snapshotVersion,
+    'an automations-only change produces a new top-level snapshotVersion')
+  service.shutdown()
+}
+
+// MC-1567 preserved at the top level: a sprint-engine task/status change still
+// moves the top-level version. Read-time `generatedAt` held fixed so the sprint
+// engine content is the only variable.
+async function assertSprintEngineChangeBumpsTopLevelSnapshotVersion(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Engine Bump Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'in_progress', [])],
+    artifacts: [],
+  })
+  const service = backlogAutomationsUnitService()
+
+  const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  await writeFile(statePath, `${JSON.stringify({
+    sprintengine: { name: 'Engine Bump Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  }, null, 2)}\n`, 'utf8')
+  const after = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+
+  assert.notEqual(after.snapshotVersion, before.snapshotVersion,
+    'a sprint-engine task change produces a new top-level snapshotVersion')
+  service.shutdown()
+}
+
+// A snapshot service whose desktop-workspace readers all report empty, so a
+// snapshotVersion-bump test moves only the collection it is exercising.
+function backlogAutomationsUnitService(): MobileSprintEngineSnapshotService {
+  return new MobileSprintEngineSnapshotService({
+    stateReaders: {
+      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
+      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
+      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
+      readMultiloopStates: async () => [],
+      readRoleCatalog: async () => [],
+    },
+  })
 }
 
 // One project's automations, seeded PAST every cap, must still ride the on-demand
