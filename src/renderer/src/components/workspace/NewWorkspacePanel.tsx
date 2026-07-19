@@ -101,9 +101,7 @@ import type { BacklogItem, BacklogScanResult } from '../../utils/backlog'
 import { compareBacklogItems } from '../../utils/backlogTriage'
 import { childrenOfEpic, epicSlug } from '../../utils/backlogEpics'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
-import { basename, folderKey, joinPath, planBasename, markdownTitle, shouldScanDirectory, slugifySiblingProjectId, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
-import { parentPath, samePath } from '../../utils/paths'
-import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../../shared/sprintengine/run-types'
+import { basename, folderKey, planBasename, markdownTitle, toTitleName, inferSourcePlanKind, workspaceRelativePath } from './newWorkspace/helpers'
 import type { CreationMode, ExistingTeam, GuidedBriefHasUi, SprintEnginePath, UnreadableTeam } from './newWorkspace/types'
 import { stepsForMode, type StepId } from './newWorkspace/creationStepFlows'
 import {
@@ -118,7 +116,7 @@ import {
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
-import { CliPermissionPresetRow, PathRadio, type WizardSiblingProject } from './newWorkspace/WizardControls'
+import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
 import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedTeams'
 import {
@@ -591,38 +589,10 @@ export default function NewWorkspacePanel({
   // artifacts), so an untouched or skipped run continues on its own. Manual
   // stays one click away on the run page.
   const [seStartRunner, setSeStartRunner] = useState(true)
+  // A run creates with only its primary project. Sibling projects are no longer
+  // declared up front — an agent brings one into a running sprint on demand via
+  // `sprintengine.vcs.request_repo`, so the wizard offers only the worktree toggle.
   const [seUseWorktrees, setSeUseWorktrees] = useState(false)
-  // "Also changes these projects" (MC-1613): the sibling projects found next to the
-  // chosen folder, and the ids the user picked out of them (none by default). The
-  // set is fixed at creation, so this is creation-time intent only — an existing
-  // team keeps whatever it was created with and the control is read-only.
-  const [seSiblingProjects, setSeSiblingProjects] = useState<WizardSiblingProject[]>([])
-  const [seRepoIds, setSeRepoIds] = useState<string[]>([])
-  // A run can only span projects when each one gets its own worktree — the engine
-  // refuses the pair — so leaving worktree mode drops the extra projects with it
-  // instead of holding a selection that would fail at creation.
-  const handleChangeUseWorktrees = useCallback((value: boolean) => {
-    setSeUseWorktrees(value)
-    if (!value) setSeRepoIds([])
-  }, [])
-  const handleToggleProject = useCallback((id: string, on: boolean) => {
-    setSeRepoIds((current) =>
-      on ? (current.includes(id) ? current : [...current, id]) : current.filter((entry) => entry !== id),
-    )
-  }, [])
-  // What creation actually declares: the picked projects resolved back to the
-  // `{id, root}` the engine takes. Reading through the offered list means a project
-  // that vanished from disk between the scan and Create cannot be declared, and a
-  // selection stranded by worktree mode going off can never be sent.
-  const seDeclaredRepos = useMemo(
-    () =>
-      seUseWorktrees
-        ? seSiblingProjects
-            .filter((project) => seRepoIds.includes(project.id))
-            .map((project) => ({ id: project.id, root: project.root }))
-        : [],
-    [seUseWorktrees, seSiblingProjects, seRepoIds],
-  )
   // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
   // ceiling). Clamped 1-10 at the input and again by the controller. Plain-agents
   // runs default to 2 ("two agents claiming from one task graph", MC-1585);
@@ -994,55 +964,6 @@ export default function NewWorkspacePanel({
       cancelled = true
     }
   }, [])
-
-  // The projects sitting next to the chosen one: sibling directories that are git
-  // repositories in their own right. That is exactly what a run may also change —
-  // the engine takes whole, separate repositories only, and refuses anything inside
-  // this project — so a candidate that fails those rules is never offered rather
-  // than failing at creation. A folder with no such neighbours offers nothing and
-  // the control stays hidden.
-  useEffect(() => {
-    let cancelled = false
-    setSeSiblingProjects([])
-    setSeRepoIds([])
-    const parent = folderPath ? parentPath(folderPath) : null
-    if (!folderPath || !parent || samePath(parent, folderPath)) return undefined
-    void (async () => {
-      try {
-        const entries = await window.api.readdir(parent)
-        if (cancelled) return
-        const candidates = entries.filter(
-          (entry) => entry.isDir && !entry.name.startsWith('.') && shouldScanDirectory(entry.name),
-        )
-        const found: WizardSiblingProject[] = []
-        const usedIds = new Set<string>()
-        for (const entry of candidates) {
-          const root = joinPath(parent, entry.name)
-          if (samePath(root, folderPath)) continue
-          if (!(await window.api.pathExists(joinPath(root, '.git')).catch(() => false))) continue
-          if (cancelled) return
-          // The id is the handle tasks target and must be usable, unique, and never
-          // the reserved name for this project itself. Derive it from the folder
-          // name — the thing the user just read — and disambiguate rather than drop
-          // a real project whose slug happens to collide.
-          const base = slugifySiblingProjectId(entry.name)
-          if (!base) continue
-          let id = base
-          for (let suffix = 2; usedIds.has(id) || id === DEFAULT_SPRINTENGINE_TASK_REPO; suffix += 1) {
-            id = `${base}-${suffix}`
-          }
-          usedIds.add(id)
-          found.push({ id, root: `../${entry.name}`, name: entry.name })
-        }
-        if (!cancelled) setSeSiblingProjects(found)
-      } catch {
-        // No readable parent directory: offer nothing rather than guess.
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [folderPath])
 
   useEffect(() => {
     let cancelled = false
@@ -2530,7 +2451,6 @@ export default function NewWorkspacePanel({
               startRunner: seAutomationMode !== 'manual',
               autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
               useWorktrees: seUseWorktrees,
-              ...(seDeclaredRepos.length > 0 ? { repos: seDeclaredRepos } : {}),
               // Backlog/file sources are referenced in place, never copied.
               sourceReference: true,
               epicChildRelativePaths: seEpicChildRelativePaths ?? undefined,
@@ -2623,7 +2543,6 @@ export default function NewWorkspacePanel({
             startRunner: seAutomationMode !== 'manual',
             autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
             useWorktrees: seUseWorktrees,
-            ...(seDeclaredRepos.length > 0 ? { repos: seDeclaredRepos } : {}),
             cliPermissionPreset,
             rosterSource: architectMode ? 'architect' : 'user',
             // "Workflow steps" + "Final sweeps" panels. Each key is present only
@@ -3405,12 +3324,8 @@ export default function NewWorkspacePanel({
                 // the same number twice would read as two controls.
                 showMaxParallelAgents={seExistingTeam != null || seUseSpecialistRoles}
                 useWorktrees={seUseWorktrees}
-                onChangeUseWorktrees={handleChangeUseWorktrees}
+                onChangeUseWorktrees={setSeUseWorktrees}
                 worktreesDisabled={seExistingTeam != null}
-                projectOptions={seSiblingProjects}
-                selectedProjectIds={seRepoIds}
-                onToggleProject={handleToggleProject}
-                projectsDisabled={seExistingTeam != null}
                 createError={sePlanError}
               />
             )}
