@@ -1,21 +1,23 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
-import { registerReviewWorkspaceType } from './review-workspace-types'
+import { useWorkspaceStore } from '../store/workspaceStore'
+import { collectReviewStateMigrations } from '../store/slices/workspacesSlice'
+import { REVIEW_WORKSPACE_MODE } from '../types/workspace'
 
-// Lazy so the review panel bundle loads only when a review workspace renders it —
-// never while the module is disabled, and never into the eager module-registry
-// graph.
+// Lazy so the review panel bundle loads only when the Reviews surface renders it —
+// never into the eager module-registry graph, and never while the module is
+// disabled.
 const ReviewPanel = React.lazy(() => import('../components/panels/ReviewPanel'))
 
 // Review renderer module. Matches the main-side `review` module id so the single
-// enablement override gates both processes: disabling the module removes the
-// Review workspace type from the creation hub and renders the shared unavailable
-// surface in any open review tab, while the main side stops registering the
-// review ingestion IPC.
+// enablement override gates both processes.
 //
-// Review is a visible workspace TYPE (mode 'review'): the user creates one per
-// change set from the creation hub, landing on the single-surface review panel.
+// Reviews are instance-level objects (MC-1708): the `review` workspace TYPE
+// retired, so this module no longer registers a creatable workspace type. It
+// registers the review panel (mounted full-page by the Reviews surface, MC-1708
+// T6, keyed by review id) and runs the one-time retirement that lifts any
+// persisted `Workspace.reviewState` onto disk and drops the dead review-mode rows.
 export const reviewRendererModule: RendererModule = {
   manifest: {
     id: 'review',
@@ -29,6 +31,60 @@ export const reviewRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('review', ReviewPanel)
-    registerReviewWorkspaceType(host)
+    armReviewWorkspaceRetirement()
   },
+}
+
+let retirementArmed = false
+let draining = false
+
+// Drop every persisted review-mode workspace row, but only AFTER its reviewer
+// state is safely on disk. The review id is the workspace id, so each row's state
+// is lifted into its `<reviewDir>/state.json` (the same per-review-id directory
+// its change set and brief already live in) before the row is removed. A row whose
+// lift fails is kept and retried on the next drain, so unposted comments are never
+// lost to a transient write error. A review row with no reviewer state (or no
+// project folder to write into) is dropped directly.
+async function drainRetiredReviewWorkspaces(): Promise<void> {
+  if (draining) return
+  const reviewRows = useWorkspaceStore.getState().workspaces.filter((w) => w.mode === REVIEW_WORKSPACE_MODE)
+  if (reviewRows.length === 0) return
+  draining = true
+  try {
+    const liftFailed = new Set<string>()
+    for (const migration of collectReviewStateMigrations(reviewRows)) {
+      try {
+        const result = await window.api.reviewWriteState(
+          { workspaceRoot: migration.workspaceRoot, workspaceId: migration.reviewId },
+          migration.state,
+        )
+        if (!result.ok) liftFailed.add(migration.reviewId)
+      } catch {
+        liftFailed.add(migration.reviewId)
+      }
+    }
+    const removeWorkspace = useWorkspaceStore.getState().removeWorkspace
+    for (const row of reviewRows) {
+      if (!liftFailed.has(row.id)) removeWorkspace(row.id)
+    }
+  } finally {
+    draining = false
+  }
+}
+
+// Arm the retirement once per app session: drain immediately, then keep watching
+// the workspace list. Persisted state hydrates asynchronously, and cross-window
+// sync or backup recovery can re-introduce a review-mode row after the first
+// drain — the same reason dropRetiredRoadmapWorkspaces (MC-1692) runs on every
+// list-entry path, adapted here to the lift-before-drop ordering reviews require
+// (roadmap rows had nothing to preserve; review rows carry unposted comments).
+function armReviewWorkspaceRetirement(): void {
+  if (retirementArmed) return
+  retirementArmed = true
+  void drainRetiredReviewWorkspaces()
+  useWorkspaceStore.subscribe((state, prev) => {
+    if (state.workspaces === prev.workspaces) return
+    if (!state.workspaces.some((w) => w.mode === REVIEW_WORKSPACE_MODE)) return
+    void drainRetiredReviewWorkspaces()
+  })
 }

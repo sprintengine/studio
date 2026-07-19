@@ -81,8 +81,12 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
   const guideConfig = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.reviewGuideConfig ?? null,
   )
-  const storedState = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.reviewState ?? null)
-  const setReviewState = useWorkspaceStore((s) => s.setReviewWorkspaceState)
+  // Reviewer state (read progress, view mode, comments) lives on disk beside the
+  // change set (`<reviewDir>/state.json`, MC-1708), keyed by review id — no longer
+  // on the retired `review` workspace's store field. It is loaded once per review
+  // and every mutation is persisted back through review IPC.
+  const [storedState, setStoredState] = useState<ReviewWorkspaceState | null>(null)
+  const [stateLoaded, setStateLoaded] = useState(false)
   const monacoTheme = useMonacoBaseTheme()
 
   const [changesetLoad, setChangesetLoad] = useState<ChangesetLoad>({ phase: 'loading' })
@@ -100,6 +104,45 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
   const refreshInFlightRef = useRef(false)
 
   const target = useMemo(() => (folderPath ? { workspaceRoot: folderPath, workspaceId } : null), [folderPath, workspaceId])
+
+  // Persist the reviewer's state to disk and mirror it locally. Every mutation
+  // (read toggle, view choice, comment CRUD, re-run migration) routes through here
+  // — the disk write is the source of truth that survives restart and a guide
+  // re-run, and the local mirror drives the immediate render.
+  const persistReviewState = useCallback(
+    (next: ReviewWorkspaceState) => {
+      setStoredState(next)
+      if (target) void window.api.reviewWriteState(target, next)
+    },
+    [target],
+  )
+
+  // Load the reviewer's persisted state for this review. Keyed by target so it
+  // reloads if the review identity changes; `stateLoaded` gates the default-state
+  // write below so it never clobbers a state still in flight from disk.
+  useEffect(() => {
+    if (!target) {
+      setStoredState(null)
+      setStateLoaded(true)
+      return
+    }
+    let cancelled = false
+    setStateLoaded(false)
+    void (async () => {
+      try {
+        const result = await window.api.reviewReadState(target)
+        if (cancelled) return
+        setStoredState(result.ok ? result.state : null)
+      } catch {
+        if (!cancelled) setStoredState(null)
+      } finally {
+        if (!cancelled) setStateLoaded(true)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [target])
 
   const loadChangeset = useCallback(async () => {
     if (!target) {
@@ -198,21 +241,24 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
   }, [changeset, storedState])
 
   // Persist the default once so reading progress and view choice survive restart.
-  // A re-run migrates state across the new change set id itself (see `refresh`), so
-  // this reset is suppressed mid-refresh — otherwise it would wipe the migration.
+  // Gated on the disk state having loaded, so it never races the initial read and
+  // clobbers persisted progress. A re-run migrates state across the new change set
+  // id itself (see `refresh`), so this reset is suppressed mid-refresh — otherwise
+  // it would wipe the migration.
   useEffect(() => {
     if (refreshInFlightRef.current) return
+    if (!stateLoaded) return
     if (changeset && (!storedState || storedState.changeSetId !== changeset.id)) {
-      setReviewState(workspaceId, defaultReviewState(changeset.id))
+      persistReviewState(defaultReviewState(changeset.id))
     }
-  }, [changeset, storedState, setReviewState, workspaceId])
+  }, [changeset, storedState, stateLoaded, persistReviewState])
 
   const patchState = useCallback(
     (patch: Partial<ReviewWorkspaceState>) => {
       if (!resolvedState) return
-      setReviewState(workspaceId, { ...resolvedState, ...patch })
+      persistReviewState({ ...resolvedState, ...patch })
     },
-    [resolvedState, setReviewState, workspaceId],
+    [resolvedState, persistReviewState],
   )
 
   const readFiles = useMemo(() => new Set(resolvedState?.readFiles ?? []), [resolvedState])
@@ -348,7 +394,7 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
       // Success: migrate state, swap the change set in place, and load the new brief.
       // The reset effect is suppressed across this window so the migration survives.
       refreshInFlightRef.current = true
-      setReviewState(workspaceId, migrateReviewState(oldState, oldChangeset, newChangeset))
+      persistReviewState(migrateReviewState(oldState, oldChangeset, newChangeset))
       setChangesetLoad({ phase: 'ready', changeset: newChangeset })
       await loadBrief()
       setRun({ running: false, phase: 'done', error: null })
@@ -358,7 +404,7 @@ export default function ReviewPanel({ workspaceId }: { workspaceId: string }) {
     } finally {
       refreshInFlightRef.current = false
     }
-  }, [target, changeset, storedState, brief, workspaceId, guideConfig, setReviewState, loadBrief, startRun])
+  }, [target, changeset, storedState, brief, workspaceId, guideConfig, persistReviewState, loadBrief, startRun])
 
   if (changesetLoad.phase === 'loading') {
     return <CenteredState><Spinner /> <span className="ml-2">Loading the change…</span></CenteredState>
