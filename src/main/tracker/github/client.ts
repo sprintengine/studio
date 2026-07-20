@@ -62,10 +62,9 @@ type GitHubApiComment = {
 }
 
 export const GITHUB_CAPABILITIES: TrackerCapabilities = {
-  // v1 is read-only. Comment write-back is MC-1640 (T10), which implements the
-  // POST and flips this on — matching the Linear provider's deferral. Shipping it
-  // false keeps the capability honest: nothing wired here can post.
-  canComment: false,
+  // Comment write-back (MC-1640 / T10): posts a comment to the issue via the REST
+  // issues-comments endpoint. On for github.com and GHES alike.
+  canComment: true,
   // GitHub has no named workflow transitions — closing/reopening is not a
   // tracker-defined transition list, so tier-2 write-back never applies here.
   canTransition: false,
@@ -141,12 +140,22 @@ export class GitHubTrackerProvider implements TrackerProvider {
     return collected.map((record) => this.normalizeIssue(record, args.connectionId, { includeSlug, comments: [] }))
   }
 
-  async postComment(): Promise<void> {
-    // Read-only in v1; comment write-back is MC-1640 (T10). Rejecting here keeps
-    // the read-only guarantee explicit rather than silently posting.
-    throw new TrackerProviderError('unsupported', 'Posting comments to GitHub is not enabled yet.', {
-      provider: 'github',
-    })
+  // Post a comment to the issue (MC-1640 / T10). Write-back always requires a
+  // credential — an unauthenticated post is impossible on GitHub — so a missing
+  // token surfaces as an honest auth error the engine turns into a visible notice
+  // rather than a silent no-op.
+  async postComment(args: { connectionId: string; externalId: string; body: string }): Promise<void> {
+    const { connection, token } = await this.resolve(args.connectionId)
+    if (!token) {
+      throw new TrackerProviderError('auth', 'A GitHub token is required to post a comment.', {
+        provider: 'github',
+        connectionId: args.connectionId,
+      })
+    }
+    const apiBase = apiBaseFor(connection)
+    const ref = parseExternalId(args.externalId, args.connectionId)
+    const url = `${apiBase}/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/issues/${ref.number}/comments`
+    await this.githubFetch(url, token, args.connectionId, { method: 'POST', body: { body: args.body } })
   }
 
   async transitionIssue(): Promise<void> {
@@ -201,17 +210,28 @@ export class GitHubTrackerProvider implements TrackerProvider {
     return comments
   }
 
-  private async githubFetch(url: string, token: string | undefined, connectionId: string): Promise<Response> {
+  private async githubFetch(
+    url: string,
+    token: string | undefined,
+    connectionId: string,
+    init?: { method?: string; body?: unknown }
+  ): Promise<Response> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'User-Agent': 'multicode-tracker',
       'X-GitHub-Api-Version': '2022-11-28',
     }
     if (token) headers.Authorization = `Bearer ${token}`
+    const requestInit: RequestInit = { headers }
+    if (init?.method) requestInit.method = init.method
+    if (init?.body !== undefined) {
+      headers['Content-Type'] = 'application/json'
+      requestInit.body = JSON.stringify(init.body)
+    }
 
     let response: Response
     try {
-      response = await this.fetchImpl(url, { headers })
+      response = await this.fetchImpl(url, requestInit)
     } catch (err) {
       throw new TrackerProviderError('network', err instanceof Error ? err.message : 'Could not reach GitHub.', {
         provider: 'github',
