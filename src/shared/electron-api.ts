@@ -1264,23 +1264,11 @@ export type TerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; sessionId: string; message: string; exitCode: number }
 
-// Bundled specialist action ids, plus any registry-discovered role id from a
-// dropped-in specialist pack. The `(string & {})` arm preserves autocomplete
-// for the bundled ids while accepting any role id over IPC.
-export type SpecialistActionId =
-  | 'architect'
-  | 'product-strategist'
-  | 'developer'
-  | 'devops-infra'
-  | 'performance'
-  | 'production-readiness-review'
-  | 'cross-platform'
-  | 'blog-writer'
-  | 'qa-test'
-  | 'security-review'
-  | 'frontend-design-review'
-  | 'ui-ux-review'
-  | (string & {})
+// A specialist id is a registry role id (MC-1587: specialists ship as an
+// installable pack, so there is no fixed union of ids). Kept as a named alias
+// so the many IPC-boundary import sites need no churn; mirrors
+// `SpecialistActionId` in `src/shared/sprintengine/agent-state.ts`.
+export type SpecialistActionId = string
 
 export type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
@@ -2897,6 +2885,13 @@ export type ElectronApi = {
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>
   /** Install third-party Sprint Engine roles from a folder into the user-global registry. */
   installUserSprintEngineRoleFolder: (srcDir: string) => Promise<RoleInstallResult>
+  /**
+   * One-time MC-1587 update-migration: install the shipped (un-bundled)
+   * specialist pack into the user-global registry. The renderer owns the
+   * run-once guard and the enabled decision; main copies the pack and
+   * invalidates the role catalog.
+   */
+  installBundledSpecialistPack: () => Promise<RoleInstallResult>
   /** List the roles currently installed in the user-global registry. */
   listUserSprintEngineRoles: () => Promise<UserRoleListResult>
   /** Save (create or overwrite) a user-authored role manifest and its soul (SKILL.md) body. */

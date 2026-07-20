@@ -28,6 +28,7 @@ from sprintengine_core.role_registry import (
     discover_role_registry,
     normalize_role_id,
     role_manifest_payload,
+    session_registry_roots_from_env,
 )
 from sprintengine_core.tool import (
     cmd_handover,
@@ -686,6 +687,12 @@ class SprintEngineMcpServer:
         for raw in payload.get("extraDirs") or []:
             root = self._registry_root_path(raw)
             roots.append({"root": str(root)})
+        if not roots:
+            # No roots configured or supplied: fall back to the app-injected
+            # session registry roots. The managed MCP server inherits the agent
+            # terminal's env, so an installed specialist pack resolves here the
+            # same way it does for `souls get` and the direct-core CLI.
+            roots.extend(session_registry_roots_from_env())
         return roots
 
     def _configured_plugin_registry_roots(self) -> list[dict[str, str]]:

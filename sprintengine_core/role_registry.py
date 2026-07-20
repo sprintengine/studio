@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,16 @@ import yaml
 
 REGISTRY_DIRNAME = ".sprintengine"
 BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "sprintengine"
+
+# Session channel carrying the dynamic plugin/pack registry roots the running app
+# discovered for this process, as JSON: [{"id": "...", "root": "..."}]. Set on
+# agent terminals at spawn (withSprintEngineEnv in src/main/terminal-launch.ts).
+# The specialist roles ship as an installable pack (resources/specialist-pack),
+# not in the bundled root, so a bare `discover_role_registry()` on the direct-core
+# CLI / prompt paths resolves an installed pack only by reading this env — the
+# same channel souls.registry consumes. Absent env → zero extra roots → a raw
+# install correctly resolves no specialists.
+SESSION_REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
 SUPPORTED_TEMPLATE_VARIABLES = frozenset({"role", "role_label", "workspace_root", "run_id"})
 TEMPLATE_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
 
@@ -426,13 +437,58 @@ def role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
     }
 
 
+def session_registry_roots_from_env(
+    env: Mapping[str, str] | None = None,
+) -> list[dict[str, str]]:
+    """Plugin registry roots the app injected via ``SESSION_REGISTRY_ROOTS_ENV``.
+
+    Parses the env's JSON ``[{"id": "...", "root": "..."}]`` into plugin-root
+    mappings (``_normalize_plugin_root`` consumes them), skipping malformed
+    entries rather than failing discovery. The mapping form is intentional: it is
+    JSON-serialisable, so callers that cache-key their discovery on the roots (the
+    MCP role classifier) round-trip it losslessly. Returns an empty list when the
+    env is unset or unparseable, so a raw install resolves no extra roots.
+    """
+    source = os.environ if env is None else env
+    raw = source.get(SESSION_REGISTRY_ROOTS_ENV, "").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    roots: list[dict[str, str]] = []
+    for entry in parsed:
+        if not isinstance(entry, Mapping):
+            continue
+        root = entry.get("root")
+        if not isinstance(root, str) or not root.strip():
+            continue
+        item: dict[str, str] = {"root": root.strip()}
+        plugin_id = entry.get("id")
+        if isinstance(plugin_id, str) and plugin_id.strip():
+            item["id"] = plugin_id.strip()
+        roots.append(item)
+    return roots
+
+
 def discover_role_registry(
     *,
     workspace_root: Path | None = None,
-    plugin_roots: Iterable[Path | str | PluginRegistryRoot | Mapping[str, Any]] = (),
+    plugin_roots: Iterable[Path | str | PluginRegistryRoot | Mapping[str, Any]] | None = None,
     user_root: Path | None = None,
     bundled_root: Path | None = None,
 ) -> RegistryDiscovery:
+    # Omitting plugin_roots reads the app-injected session roots from the
+    # environment, so every bare direct-core discovery (CLI role validation,
+    # prompt composition, sweep resolution) resolves an installed specialist pack.
+    # Callers that pass plugin_roots explicitly (the MCP server from its payload,
+    # the registry-inspection CLI from --extra-dir) opt out of the env and stay
+    # hermetic.
+    if plugin_roots is None:
+        plugin_roots = session_registry_roots_from_env()
     return RoleSkillRegistry(
         workspace_root=workspace_root,
         plugin_roots=plugin_roots,

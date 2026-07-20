@@ -8,6 +8,7 @@
     "slides"
   ],
   "summary": "Creates presentation narratives, slide outlines, and speaker-ready materials.",
+  "icon": "writing",
   "directives": {
     "implement": [
       {

@@ -34,12 +34,13 @@ import { useConversationSessions } from '../../hooks/useConversationSessions'
 import {
   MULTILOOP_ROLES,
   GENERAL_AGENT_ENGINE_KEY,
-  SPECIALIST_ACTIONS,
+  orderSpecialistActions,
   getMultiloopRole,
   getSpecialistAction,
   buildSpecialistSoulStartupPrompt,
   loadMultiloopPrompt,
 } from '../../specialists/specialistActions'
+import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -176,6 +177,8 @@ const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
 const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
+const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
+const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
 
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -336,9 +339,25 @@ export default function WorkspaceManager() {
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const lastSelectedSpecialist = useWorkspaceStore(
-    (s) => s.appSettings.lastSelectedSpecialist ?? SPECIALIST_ACTIONS[0].id
+  const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
+  const disabledSpecialistPacks = useWorkspaceStore(
+    (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_SPECIALIST_PACKS,
   )
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
+  // The installed specialist roster, sourced entirely from the role registry —
+  // empty until a specialist pack is installed. Drives the remembered-specialist
+  // default and the top-bar quick-spawn label/icon (manifest metadata), mirroring
+  // the composer's own roster resolution.
+  const enabledSpecialists = useMemo(
+    () =>
+      orderSpecialistActions(
+        specialistOrder,
+        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
+      ),
+    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
+  )
+  const rememberedSpecialist = useWorkspaceStore((s) => s.appSettings.lastSelectedSpecialist)
+  const lastSelectedSpecialist = rememberedSpecialist ?? enabledSpecialists[0]?.id ?? ''
   const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
   const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
@@ -461,7 +480,9 @@ export default function WorkspaceManager() {
     .map((workspace) => workspace.folderPath)
     .filter((folderPath): folderPath is string => Boolean(folderPath?.trim()))
     .join('\n')
-  const selectedSpecialistAction = getSpecialistAction(lastSelectedSpecialist)
+  const selectedSpecialistAction =
+    enabledSpecialists.find((action) => action.id === lastSelectedSpecialist) ??
+    getSpecialistAction(lastSelectedSpecialist)
   const selectedMultiloopRoleDescriptor = getMultiloopRole(lastSelectedMultiloopRole)
   const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
 

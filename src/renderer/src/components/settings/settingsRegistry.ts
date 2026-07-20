@@ -107,19 +107,27 @@ const PERMISSION_PRESET_OPTIONS: ReadonlyArray<
   { value: 'bypass_all', label: 'Bypass all — accept every prompt' },
 ]
 
+// Preselect options for the "Default specialist action" setting, keyed by
+// registry role id (MC-1587 collapsed the old dashed action-id space —
+// `qa-test`, `security-review`, … — onto the registry role id, so `souls get
+// <id>` resolves directly). This is the same curated-by-role-id pattern as
+// SPECIALIST_DISPLAY_ORDER in specialistActions.ts. Like CLI_OPTIONS, it is a
+// static list: it does not yet narrow to the specialist packs actually
+// installed, so a raw (no-pack) profile still lists these. Registry-sourcing
+// this select is a settings-substrate improvement tracked separately.
 const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
   { value: 'architect', label: 'Architect' },
-  { value: 'product-strategist', label: 'Product strategist' },
+  { value: 'product', label: 'Product strategist' },
   { value: 'developer', label: 'Developer' },
-  { value: 'devops-infra', label: 'DevOps / infrastructure' },
+  { value: 'devops', label: 'DevOps / infrastructure' },
   { value: 'performance', label: 'Performance' },
-  { value: 'production-readiness-review', label: 'Production readiness' },
-  { value: 'cross-platform', label: 'Cross-platform compatibility' },
-  { value: 'blog-writer', label: 'Blog writer' },
-  { value: 'qa-test', label: 'QA / test' },
-  { value: 'security-review', label: 'Security review' },
-  { value: 'frontend-design-review', label: 'Frontend designer' },
-  { value: 'ui-ux-review', label: 'UI/UX review' },
+  { value: 'production_readiness_reviewer', label: 'Production readiness' },
+  { value: 'cross_platform', label: 'Cross-platform compatibility' },
+  { value: 'blog_writer', label: 'Blog writer' },
+  { value: 'tester', label: 'QA / test' },
+  { value: 'security', label: 'Security review' },
+  { value: 'frontend', label: 'Frontend designer' },
+  { value: 'ui_ux_reviewer', label: 'UI/UX review' },
 ]
 
 const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(

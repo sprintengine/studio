@@ -5,6 +5,7 @@
     "devops-infra"
   ],
   "summary": "Handles infrastructure, deployment, CI/CD, and operational reliability.",
+  "icon": "infra",
   "directives": {
     "implement": [
       {

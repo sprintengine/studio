@@ -1,5 +1,5 @@
 import React from 'react'
-import { SpecialistActionIcon } from '../../AppIcons'
+import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
 import { CliModelListbox, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
@@ -99,6 +99,15 @@ export default function AgentComposer({
     (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
   const skillWorkspaceRoot = folderPath ?? activeWorkspaceRoot
+  // Fresh-install discovery: with no specialists installed, the roster's
+  // Specialists section opens the module manager (Settings › Modules), where
+  // installed packs are managed and the marketplace is one step away. Leaves the
+  // composer mounted so a live install repaints the roster on return.
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
+  const openSpecialistMarketplace = React.useCallback(
+    () => openSettingsOverlay({ initialTab: 'modules' }),
+    [openSettingsOverlay],
+  )
 
   React.useEffect(() => {
     const id = requestAnimationFrame(() => searchRef.current?.focus())
@@ -123,10 +132,17 @@ export default function AgentComposer({
     }
   }
 
-  const activeSpecialist =
-    selection.kind === 'specialist' ? getSpecialistAction(selection.specialistId) : null
   const optionId = (row: ComposerRow) => `agent-composer-option-${row.key}`
   const selectedRow = visibleRows.find((row) => rowMatchesSelection(row, selection))
+  // Prefer the registry-sourced action carried on the selected row (manifest
+  // label/icon); fall back to synthesizing from the id when the selected
+  // specialist is no longer in the roster (e.g. its pack was uninstalled).
+  const activeSpecialist =
+    selection.kind === 'specialist'
+      ? selectedRow?.kind === 'specialist'
+        ? selectedRow.action
+        : getSpecialistAction(selection.specialistId)
+      : null
   const quickRows = visibleRows.filter((row) => row.kind === 'terminal' || row.kind === 'general')
   const specialistRows = visibleRows.filter(
     (row): row is Extract<ComposerRow, { kind: 'specialist' }> => row.kind === 'specialist',
@@ -229,7 +245,14 @@ export default function AgentComposer({
                       />
                     ))}
                   </div>
-                ) : null}
+                ) : composer.query.trim() ? null : (
+                  // No specialists installed (only shown for the whole roster, not
+                  // a search that filtered them out): offer the marketplace path.
+                  <div className="border-t border-[color:var(--border-subtle)] pt-1">
+                    <div className="px-2 pb-1 pt-1 text-[10.5px] text-[color:var(--text-subtle)]">Specialists</div>
+                    <GetSpecialistsRow onOpenMarketplace={openSpecialistMarketplace} />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -493,6 +516,29 @@ function ComposerRosterRow({
         {icon}
       </span>
       <TruncatedText as="span" text={label} className="text-[13px]" />
+    </button>
+  )
+}
+
+// Empty-state discovery entry rendered under the Specialists header when no
+// specialist pack is installed. It is an action (opens the module manager),
+// not a spawnable roster option, so it is a plain focusable button outside the
+// listbox's roving selection — reachable by Tab with its own focus-visible ring.
+// The accessible name mirrors the visible label so it does not over-promise a
+// destination (the module manager, not the marketplace directly).
+function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpenMarketplace}
+      aria-label="Get specialist roles"
+      className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+    >
+      <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
+      <TruncatedText as="span" text="Get specialist roles" className="text-[13px]" />
+      <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </button>
   )
 }

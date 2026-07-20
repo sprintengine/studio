@@ -45,19 +45,22 @@ export const WATCHTOWER_REVIEW_SECTORS: WatchtowerReviewSector[] = [
 
 const sectorById = new Map(WATCHTOWER_REVIEW_SECTORS.map((sector) => [sector.id, sector]))
 
-export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<SpecialistActionId, WatchtowerReviewSectorId[]> = {
+// Curated review focus per specialist, keyed by registry role id. Specialists
+// are now sourced from the role registry rather than a fixed action-id union, so
+// a role id with no entry here yields no focus (see `focusSectorsForSpecialist`).
+export const WATCHTOWER_REVIEW_SPECIALIST_FOCUS: Record<string, WatchtowerReviewSectorId[]> = {
   architect: ['architecture_quality', 'code_review', 'documentation'],
-  'product-strategist': ['product_strategy', 'brand_alignment', 'documentation'],
+  product: ['product_strategy', 'brand_alignment', 'documentation'],
   developer: ['code_review', 'architecture_quality', 'performance', 'documentation'],
-  'devops-infra': ['infrastructure', 'cross_platform', 'performance', 'documentation'],
+  devops: ['infrastructure', 'cross_platform', 'performance', 'documentation'],
   performance: ['performance', 'cross_platform'],
-  'production-readiness-review': ['production_readiness', 'infrastructure', 'security', 'performance', 'qa_testing'],
-  'cross-platform': ['cross_platform', 'qa_testing', 'infrastructure', 'accessibility'],
-  'qa-test': ['qa_testing', 'cross_platform', 'accessibility', 'documentation'],
-  'security-review': ['security'],
-  'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
-  'ui-ux-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
-  'blog-writer': ['documentation', 'brand_alignment'],
+  production_readiness_reviewer: ['production_readiness', 'infrastructure', 'security', 'performance', 'qa_testing'],
+  cross_platform: ['cross_platform', 'qa_testing', 'infrastructure', 'accessibility'],
+  tester: ['qa_testing', 'cross_platform', 'accessibility', 'documentation'],
+  security: ['security'],
+  frontend: ['frontend_design', 'accessibility', 'brand_alignment', 'cross_platform'],
+  ui_ux_reviewer: ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
+  blog_writer: ['documentation', 'brand_alignment'],
 }
 
 export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
@@ -66,9 +69,9 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'Lean Code Review',
     description: 'Fast quality pass for code, tests, and performance risk.',
     agents: {
-      'qa-test': ['qa_testing'],
+      tester: ['qa_testing'],
       performance: ['performance'],
-      'production-readiness-review': ['production_readiness'],
+      production_readiness_reviewer: ['production_readiness'],
     },
   },
   {
@@ -76,8 +79,8 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'UI & Brand Alignment',
     description: 'Focused sweep of panels, modals, UI states, copy, and visual treatment against the knowledge-graph brand guidance.',
     agents: {
-      'ui-ux-review': ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
-      'product-strategist': ['brand_alignment', 'product_strategy'],
+      ui_ux_reviewer: ['frontend_design', 'brand_alignment', 'accessibility', 'cross_platform'],
+      product: ['brand_alignment', 'product_strategy'],
     },
   },
   {
@@ -86,8 +89,8 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     description: 'Performance-led review of code, infrastructure, runtime behavior, and regression risk.',
     agents: {
       performance: ['performance', 'cross_platform'],
-      'devops-infra': ['infrastructure', 'performance', 'cross_platform'],
-      'qa-test': ['qa_testing'],
+      devops: ['infrastructure', 'performance', 'cross_platform'],
+      tester: ['qa_testing'],
     },
   },
   {
@@ -95,8 +98,8 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'Security Deep Review',
     description: 'Security-led review with quality and test coverage support.',
     agents: {
-      'security-review': ['security'],
-      'qa-test': ['qa_testing'],
+      security: ['security'],
+      tester: ['qa_testing'],
     },
   },
   {
@@ -104,13 +107,13 @@ export const WATCHTOWER_REVIEW_PRESETS: WatchtowerReviewPreset[] = [
     label: 'Full Product Review',
     description: 'Broad product, UI, quality, security, performance, and operations review.',
     agents: {
-      'product-strategist': ['product_strategy'],
-      'frontend-design-review': ['frontend_design', 'accessibility', 'brand_alignment'],
-      'qa-test': ['qa_testing', 'cross_platform'],
-      'security-review': ['security'],
+      product: ['product_strategy'],
+      frontend: ['frontend_design', 'accessibility', 'brand_alignment'],
+      tester: ['qa_testing', 'cross_platform'],
+      security: ['security'],
       performance: ['performance'],
-      'production-readiness-review': ['production_readiness', 'infrastructure', 'security', 'performance'],
-      'devops-infra': ['infrastructure'],
+      production_readiness_reviewer: ['production_readiness', 'infrastructure', 'security', 'performance'],
+      devops: ['infrastructure'],
     },
   },
   {
@@ -141,27 +144,27 @@ export function defaultSectorsForSpecialist(specialistId: SpecialistActionId): W
   switch (specialistId) {
     case 'architect':
       return ['architecture_quality', 'code_review']
-    case 'product-strategist':
+    case 'product':
       return ['product_strategy']
     case 'developer':
       return ['code_review', 'architecture_quality']
-    case 'devops-infra':
+    case 'devops':
       return ['infrastructure', 'cross_platform']
     case 'performance':
       return ['performance']
-    case 'production-readiness-review':
+    case 'production_readiness_reviewer':
       return ['production_readiness', 'infrastructure', 'security', 'performance']
-    case 'cross-platform':
+    case 'cross_platform':
       return ['cross_platform']
-    case 'qa-test':
+    case 'tester':
       return ['qa_testing', 'cross_platform']
-    case 'security-review':
+    case 'security':
       return ['security']
-    case 'frontend-design-review':
+    case 'frontend':
       return ['frontend_design', 'accessibility', 'brand_alignment']
-    case 'ui-ux-review':
+    case 'ui_ux_reviewer':
       return ['frontend_design', 'brand_alignment', 'accessibility']
-    case 'blog-writer':
+    case 'blog_writer':
       return ['documentation', 'brand_alignment']
     default:
       // Registry-discovered specialists have no curated default sector set.

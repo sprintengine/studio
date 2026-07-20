@@ -586,9 +586,21 @@ export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
 // Persisted specialist-pack enablement: the set of pack ids the user switched
 // off. Keeps only non-empty strings and drops duplicates; an unknown id is
 // harmless (it just has no pack to hide).
-export function normalizeSpecialistPacks(input: unknown): { disabled: string[] } {
-  const raw = (input as { disabled?: unknown } | undefined)?.disabled
-  if (!Array.isArray(raw)) return { disabled: [] }
+// `migratedFallback` is the value for `migratedBundledPack` when the persisted
+// config omits it — false for a returning profile (so the one-time MC-1587
+// migration still evaluates it), true for a fresh profile (so it installs
+// nothing). The caller decides which via the fresh-vs-returning signal;
+// hydration always runs this path, so the default cannot live in
+// defaultAppSettings alone.
+export function normalizeSpecialistPacks(
+  input: unknown,
+  migratedFallback = false,
+): { disabled: string[]; migratedBundledPack: boolean } {
+  const source = input as { disabled?: unknown; migratedBundledPack?: unknown } | undefined
+  const persisted = source?.migratedBundledPack
+  const migratedBundledPack = typeof persisted === 'boolean' ? persisted : migratedFallback
+  const raw = source?.disabled
+  if (!Array.isArray(raw)) return { disabled: [], migratedBundledPack }
   const seen = new Set<string>()
   const disabled: string[] = []
   for (const entry of raw) {
@@ -599,7 +611,7 @@ export function normalizeSpecialistPacks(input: unknown): { disabled: string[] }
       disabled.push(id)
     }
   }
-  return { disabled }
+  return { disabled, migratedBundledPack }
 }
 
 // Persisted "New chat in project" agent choice. A specialist choice is kept as
@@ -851,7 +863,10 @@ export const defaultAppSettings = (): AppSettings => ({
   specialistModelDefaults: {},
   multiloopRoleModelDefaults: {},
   specialistOrder: [],
-  specialistPacks: { disabled: [] },
+  // Pre-hydration base only. The effective flag is resolved in
+  // normalizeAppSettings, which defaults it from the fresh-vs-returning signal
+  // (fresh → true/skip, returning → false/run the one-time MC-1587 migration).
+  specialistPacks: { disabled: [], migratedBundledPack: true },
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
   sprintEngineModelCatalog: [],
   sprintEngineRunSettings: {},
@@ -909,7 +924,14 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
     multiloopRoleModelDefaults: normalizeCliModelSelections(settings?.multiloopRoleModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
-    specialistPacks: normalizeSpecialistPacks(settings?.specialistPacks),
+    // A returning profile (has workspaces, or a persisted modulesChosen — the
+    // same signal `modulesChosen` below uses) that never recorded the migration
+    // defaults to not-yet-migrated so it runs once; a fresh profile defaults to
+    // migrated so it installs nothing.
+    specialistPacks: normalizeSpecialistPacks(
+      settings?.specialistPacks,
+      !(settings?.modulesChosen ?? workspaces.length > 0),
+    ),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
     sprintEngineModelCatalog: normalizeSprintEngineModelCatalog(settings?.sprintEngineModelCatalog),
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
@@ -1035,6 +1057,8 @@ export interface SettingsSliceActions {
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
+  /** Mark the one-time MC-1587 bundled-pack migration as evaluated for this profile. */
+  markBundledSpecialistPackMigrated: () => void
   // Command ids are open strings: shell registry ids plus namespaced module
   // command ids (`<moduleId>.<commandId>`). The Shortcuts tab only offers rows
   // the merged registry currently exposes.
@@ -1397,7 +1421,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         } else {
           disabled.add(id)
         }
-        state.appSettings.specialistPacks = { disabled: [...disabled] }
+        // Preserve migratedBundledPack: a pack toggle must never reset the
+        // one-time migration guard, or a later uninstall would be undone.
+        state.appSettings.specialistPacks = { disabled: [...disabled], migratedBundledPack: current.migratedBundledPack }
+      }),
+
+    markBundledSpecialistPackMigrated: () =>
+      set((state) => {
+        const current = normalizeSpecialistPacks(state.appSettings.specialistPacks)
+        state.appSettings.specialistPacks = { disabled: current.disabled, migratedBundledPack: true }
       }),
 
     // The setters accept any non-empty command id: the Shortcuts tab only

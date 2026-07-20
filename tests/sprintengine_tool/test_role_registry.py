@@ -7,6 +7,11 @@ import pytest
 
 from sprintengine_core.role_registry import SOUL_LEGEND, RoleSkillRegistry, SoulRenderError, discover_role_registry
 
+# The specialist roles ship as an installable pack, not in the bundled root. Tests
+# that exercise a real specialist role point at the pack as an explicit plugin
+# layer (kept hermetic — not the session env the shared conftest sets).
+SPECIALIST_PACK_ROOT = Path(__file__).resolve().parents[2] / "resources" / "specialist-pack"
+
 
 def write_role(
     root: Path,
@@ -44,8 +49,12 @@ def write_skill(root: Path, skill_id: str, body: str | None = None) -> None:
     (skill_dir / "SKILL.md").write_text(body or f"# {skill_id}\n\nBody for {skill_id}.", encoding="utf-8")
 
 
-def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> None:
-    discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
+def test_discovers_production_pack_role_manifest_and_referenced_skill() -> None:
+    discovery = discover_role_registry(
+        workspace_root=Path("/unused/workspace"),
+        plugin_roots=[SPECIALIST_PACK_ROOT],
+        user_root=Path("/unused/user"),
+    )
 
     role = discovery.get_role("qa-test")
     skills = discovery.referenced_skills("tester")
@@ -55,7 +64,7 @@ def test_discovers_production_bundled_role_manifest_and_referenced_skill() -> No
     assert role.id == "tester"
     assert ui_ux_reviewer.id == "ui_ux_reviewer"
     assert production_readiness.id == "production_readiness_reviewer"
-    assert discovery.role_entry("tester").source.layer.name == "bundled"
+    assert discovery.role_entry("tester").source.layer.name == "plugin:0"
     # The manifest soul is the portable identity only; host/Sprint Engine layer
     # skills are composed on at spawn time, not referenced by the manifest.
     assert [skill.id for skill in skills] == ["tester"]
@@ -393,8 +402,8 @@ def test_rendering_missing_or_malformed_skill_fails_direct_render_without_breaki
     assert any(warning.code == "missing_render_skill" for warning in exc_info.value.warnings)
 
 
-def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> None:
-    """Regression: bundled role manifests carry only the portable role identity.
+def test_every_pack_role_manifest_has_expected_shared_skill_boundary() -> None:
+    """Regression: specialist-pack role manifests carry only the portable identity.
 
     Roles are pluggable: a pack ships the role's own directive packs and nothing
     else. The Multicode product layer (Backlog, Knowledge Graph) and the Sprint
@@ -405,9 +414,9 @@ def test_every_bundled_role_manifest_has_expected_shared_skill_boundary() -> Non
     """
     from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 
-    roles_dir = Path(__file__).resolve().parents[2] / "resources" / "sprintengine" / "roles"
+    roles_dir = SPECIALIST_PACK_ROOT / "roles"
     manifests = sorted(roles_dir.glob("*.json"))
-    assert manifests, f"Expected bundled role manifests under {roles_dir}"
+    assert manifests, f"Expected specialist-pack role manifests under {roles_dir}"
 
     layer_skills = set(SPRINTENGINE_SOUL_EXTRA_SKILLS)
     not_identity_only: list[str] = []

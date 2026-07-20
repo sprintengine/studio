@@ -265,8 +265,8 @@ export function parseRoleManifest(source: string): RoleManifestValidationResult 
 }
 
 // Canonical on-disk form for a role manifest: pretty-printed JSON (2-space
-// indent) with a trailing newline, matching the shape the install path writes to
-// resources/sprintengine/roles/*.json. Round-trips through parseRoleManifest.
+// indent) with a trailing newline, matching the on-disk role-manifest shape
+// (e.g. resources/specialist-pack/roles/*.json). Round-trips through parseRoleManifest.
 export function serializeRoleManifest(manifest: RoleManifest): string {
   return `${JSON.stringify(manifest, null, 2)}\n`
 }

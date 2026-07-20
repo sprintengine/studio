@@ -55,6 +55,7 @@ import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/
 import {
   BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES,
   BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES,
+  BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS,
   BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES,
   buildSprintEngineAddMemberOptions,
   buildSprintEngineRosterCountByRole,
@@ -1464,20 +1465,37 @@ assert.equal(getUserDisabledSprintEngineRoleIds({ enabled: {} }).size, 0)
 type FakeRoster = { role: string }[]
 type FakeTask = { role: string; status: SprintEngineTask['status'] }
 
-// AC: bundled fallback constant exists and matches the canonical bundled
-// order. Custom registry roles are not required to appear when no registry
-// is provided.
+// An installed specialist pack: the registry resolves every historical
+// bundled role, in the canonical order. Post un-ship, specialist roles surface
+// in pickers only through the registry, so tests that once leaned on a bundled
+// fallback now model an installed pack explicitly. Sweep roles carry a `sweep`
+// block so registry `isSweep` classification stays exercised.
+const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
+  roles: sprintEngineRoleOrder.map((id) => ({
+    id,
+    label: getSprintEngineRoleLabel(id, null),
+    aliases: [],
+    source: { layer: 'user' },
+    ...(BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS.includes(id) ? { sweep: {} } : {}),
+  })),
+})
+
+// AC: post un-ship the bundled fallback advertises no specialist roles — every
+// specialist role now travels in the installable pack, and the plain `general`
+// agent is spliced in separately. A caller with no registry therefore offers
+// no specialist role that cannot resolve.
 {
   assert.deepEqual(
     [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    ['architect', 'product', 'frontend', 'ui_ux_reviewer', 'developer', 'performance', 'production_readiness_reviewer', 'cross_platform', 'tester', 'security'],
-    'bundled addable roles match historical board list (MC-1542: code/spec/nuclear reviewers retired)',
+    [],
+    'bundled addable roles are empty post un-ship (specialists ship in the pack)',
   )
 }
 
-// AC: `buildSprintEngineAddMemberOptions` returns one option per visible
-// role in canonical order, computes counts from roster + tasks, and falls
-// back to bundled summary copy when no override is provided.
+// AC: `buildSprintEngineAddMemberOptions` returns one option per registry-
+// resolvable role in canonical order, computes counts from roster + tasks, and
+// falls back to bundled summary copy when no override is provided. With the
+// pack installed the registry resolves every specialist role.
 {
   const roster: FakeRoster = [
     { role: 'architect' },
@@ -1489,16 +1507,20 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
     { role: 'developer', status: 'done' },
     { role: 'frontend', status: 'todo' },
   ]
-  const options = buildSprintEngineAddMemberOptions({ roster, tasks })
-  // No registry, no disabled set → bundled order, with the plain `general` agent
-  // spliced in right after `architect` (MC-1585: addable on the board).
+  const options = buildSprintEngineAddMemberOptions({
+    registry: INSTALLED_SPECIALIST_PACK_REGISTRY,
+    roster,
+    tasks,
+  })
+  // Pack installed, no disabled set → canonical order, with the plain `general`
+  // agent spliced in right after `architect` (MC-1585: addable on the board).
   const optionRoles = options.map((option) => option.role)
   assert.equal(optionRoles.includes('general'), true, 'general is an add-member option on the board')
   assert.equal(optionRoles.indexOf('general'), optionRoles.indexOf('architect') + 1, 'general sits right after architect')
   assert.deepEqual(
     optionRoles.filter((role) => role !== 'general'),
-    [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    'the rest of the options preserve bundled role order',
+    [...sprintEngineRoleOrder],
+    'the rest of the options preserve the canonical registry role order',
   )
   const developer = options.find((option) => option.role === 'developer')
   assert.ok(developer)
@@ -1514,6 +1536,27 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(frontend?.openTasksForRole, 1)
   const architect = options.find((option) => option.role === 'architect')
   assert.equal(architect?.label, 'Architect', 'bundled label resolves from registry helper')
+}
+
+// AC1: with no specialist pack installed the roster offers `general` alone and
+// advertises no un-shipped specialist role — not even architect, which now
+// travels in the pack. A loaded-but-empty registry resolves nothing.
+{
+  const emptyRegistry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({ roles: [] })
+  const fromEmptyRegistry = listSprintEngineAddableRoles(emptyRegistry)
+  assert.deepEqual(fromEmptyRegistry, ['general'], 'empty registry offers general alone')
+
+  // No registry object at all degrades to the same general-only roster.
+  const fromNoRegistry = listSprintEngineAddableRoles()
+  assert.deepEqual(fromNoRegistry, ['general'], 'no registry offers general alone')
+
+  // The board option builder mirrors it: general only, no specialist role.
+  const options = buildSprintEngineAddMemberOptions({
+    registry: emptyRegistry,
+    roster: [],
+    tasks: [{ role: 'frontend', status: 'todo' }],
+  })
+  assert.deepEqual(options.map((option) => option.role), ['general'], 'no un-shipped specialist surfaces without a pack')
 }
 
 // AC4: custom registry roles appear in add-member options without rendering
@@ -1555,10 +1598,14 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   )
 }
 
-// AC: disabled-role set hides bundled and custom roles but never architect.
+// AC: with the pack installed, a disabled-role set hides specialist and custom
+// roles but never architect (the registry resolves both, then the disabled set
+// filters all but the protected architect).
 {
   const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
     roles: [
+      { id: 'architect', label: 'Architect', aliases: [], source: { layer: 'user' } },
+      { id: 'frontend', label: 'Frontend', aliases: [], source: { layer: 'user' } },
       { id: 'marketer', label: 'Marketer', aliases: [], source: { layer: 'workspace' } },
     ],
   })
@@ -1570,19 +1617,23 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   })
   const ids = options.map((option) => option.role)
   assert.equal(ids.includes('architect'), true, 'architect survives disabled set')
-  assert.equal(ids.includes('frontend'), false, 'bundled disabled role removed')
+  assert.equal(ids.includes('frontend'), false, 'specialist disabled role removed')
   assert.equal(ids.includes('marketer'), false, 'custom disabled role removed')
 }
 
-// AC: `findFirstUncoveredSprintEngineRole` picks the first role with open
-// tasks but no agent on the roster, in bundled order.
+// AC: `findFirstUncoveredSprintEngineRole` picks the first registry-resolvable
+// role with open tasks but no agent on the roster, in canonical order.
 {
   const tasks: FakeTask[] = [
     { role: 'frontend', status: 'todo' },
     { role: 'developer', status: 'in_progress' },
   ]
   const roster: FakeRoster = [{ role: 'developer' }]
-  const uncovered = findFirstUncoveredSprintEngineRole({ roster, tasks })
+  const uncovered = findFirstUncoveredSprintEngineRole({
+    registry: INSTALLED_SPECIALIST_PACK_REGISTRY,
+    roster,
+    tasks,
+  })
   assert.equal(uncovered, 'frontend', 'uncovered frontend selected over staffed developer')
 }
 
@@ -1590,6 +1641,7 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 // already covered by an active agent.
 {
   const uncovered = findFirstUncoveredSprintEngineRole({
+    registry: INSTALLED_SPECIALIST_PACK_REGISTRY,
     roster: [{ role: 'developer' }],
     tasks: [{ role: 'developer', status: 'todo' }],
   })
@@ -1640,29 +1692,32 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
   assert.equal(uncovered, 'marketer', 'custom enabled registry role is the uncovered default for its open task')
 }
 
-// `buildSprintEngineRosterCountByRole` mirrors the option builder.
+// `buildSprintEngineRosterCountByRole` mirrors the option builder: with the
+// pack installed, zero-count registry roles still appear.
 {
   const counts = buildSprintEngineRosterCountByRole({
+    registry: INSTALLED_SPECIALIST_PACK_REGISTRY,
     roster: [{ role: 'developer' }, { role: 'developer' }, { role: 'architect' }],
     tasks: [],
   })
   assert.equal(counts.developer, 2)
   assert.equal(counts.architect, 1)
-  assert.equal(counts.frontend, 0, 'zero-count bundled roles still appear')
+  assert.equal(counts.frontend, 0, 'zero-count registry roles still appear')
 }
 
-// `listSprintEngineAddableRoles` is the registry-aware list helper used by
-// callers that just need the ordered role ids. MC-1585: the plain `general`
+// `listSprintEngineAddableRoles` is the registry-authoritative list helper used
+// by callers that just need the ordered role ids. MC-1585: the plain `general`
 // agent is spliced in right after `architect` — it is addable everywhere new
-// agents are configured, the wizard AND the live board.
+// agents are configured, the wizard AND the live board. With the pack installed
+// the registry resolves the specialist roles in canonical order.
 {
-  const ids = listSprintEngineAddableRoles()
+  const ids = listSprintEngineAddableRoles(INSTALLED_SPECIALIST_PACK_REGISTRY)
   assert.equal(ids.includes('general'), true, 'general is addable (board + wizard)')
   assert.equal(ids.indexOf('general'), ids.indexOf('architect') + 1, 'general sits right after architect')
   assert.deepEqual(
     ids.filter((role) => role !== 'general'),
-    [...BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES],
-    'the rest of the list keeps the bundled order',
+    [...sprintEngineRoleOrder],
+    'the rest of the list keeps the canonical registry order',
   )
 }
 
@@ -1719,17 +1774,23 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 }
 
 // The plain General is offered as a wizard roster choice (T6 / backlog 131 §7)
-// and — since MC-1585 — on the live board too, surfaced right after `architect`.
+// and — since MC-1585 — on the live board too, surfaced right after `architect`
+// once the pack resolves one. With no pack, general is the sole roster choice.
 {
-  const wizardRoles = listSprintEngineWizardRoles()
+  const wizardRoles = listSprintEngineWizardRoles(INSTALLED_SPECIALIST_PACK_REGISTRY)
   assert.equal(wizardRoles.includes('general'), true, 'general appears as a wizard roster choice')
   assert.equal(
     wizardRoles.indexOf('general'),
     wizardRoles.indexOf('architect') + 1,
     'general is surfaced immediately after architect',
   )
+  assert.deepEqual(
+    listSprintEngineWizardRoles(),
+    ['general'],
+    'general is the sole wizard roster choice when no pack is installed',
+  )
   assert.equal(
-    listSprintEngineAddableRoles().includes('general'),
+    listSprintEngineAddableRoles(INSTALLED_SPECIALIST_PACK_REGISTRY).includes('general'),
     true,
     'general is addable on the live board too (MC-1585)',
   )

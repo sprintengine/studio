@@ -34,26 +34,13 @@ export type MultiloopRole =
 export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine' | 'multiloop'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 
-// Ids of the built-in specialist actions shipped in SPECIALIST_ACTIONS.
-export type BundledSpecialistActionId =
-  | 'architect'
-  | 'product-strategist'
-  | 'developer'
-  | 'devops-infra'
-  | 'performance'
-  | 'production-readiness-review'
-  | 'cross-platform'
-  | 'blog-writer'
-  | 'qa-test'
-  | 'security-review'
-  | 'frontend-design-review'
-  | 'ui-ux-review'
-
-// A specialist id is either a bundled action id or a registry-discovered role id
-// (from a workspace / user / plugin specialist pack). The `(string & {})` arm
-// keeps editor autocomplete for the bundled ids while accepting any registry
-// role id, so dropped-in specialist packs round-trip through prefs and spawns.
-export type SpecialistActionId = BundledSpecialistActionId | (string & {})
+// A specialist id is a registry role id. Specialists ship as an installable
+// pack (not bundled), so there is no fixed union of ids: every specialist —
+// whether from the first-party pack or a workspace/user/plugin registry layer —
+// is keyed by its registry role id, which round-trips through prefs and spawns
+// and renders its soul via `souls get <id>`. Kept as a named alias so the many
+// downstream import sites need no churn.
+export type SpecialistActionId = string
 
 export type McpClientTarget = AgentCli
 export type McpTransport = 'stdio' | 'http' | 'sse'

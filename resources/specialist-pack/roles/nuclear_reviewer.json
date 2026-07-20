@@ -8,6 +8,7 @@
     "maintainability-review"
   ],
   "summary": "Runs a strict maintainability review for structure, abstraction, large-file, and spaghetti-growth risks.",
+  "icon": "nuclear",
   "directives": {
     "implement": [
       {

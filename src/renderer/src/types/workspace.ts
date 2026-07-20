@@ -143,7 +143,6 @@ export type {
   AgentRuntimeKind,
   AgentState,
   AgentStatus,
-  BundledSpecialistActionId,
   McpClientTarget,
   McpRiskLevel,
   McpScope,
@@ -709,11 +708,14 @@ export type AppSettings = {
    */
   specialistOrder: SpecialistActionId[]
   /**
-   * Specialist-pack enablement. Holds the ids of packs the user has switched
-   * off; a pack absent here is enabled. Deselecting the built-in pack removes
-   * its agents from the spawn dropdown (the quick rows always remain).
+   * Specialist-pack enablement. `disabled` holds the ids of packs the user has
+   * switched off; a pack absent there is enabled. `migratedBundledPack` guards
+   * the one-time MC-1587 update-migration that installs the (now un-shipped)
+   * specialist pack for users who had it enabled before it stopped being
+   * bundled: false → the migration still needs to run this profile; true →
+   * already evaluated (a fresh profile defaults to true so it installs nothing).
    */
-  specialistPacks: { disabled: string[] }
+  specialistPacks: { disabled: string[]; migratedBundledPack: boolean }
   sprintEngineRoleSettings: SprintEngineRoleSettings
   /**
    * Global Sprint Engine model catalog: user-entered facts about CLI+model

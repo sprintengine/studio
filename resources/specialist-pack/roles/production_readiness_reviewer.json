@@ -9,6 +9,7 @@
     "launch-readiness"
   ],
   "summary": "Reviews whether a product is ready to release to production with real integrations, deployment, data, observability, rollback, scale, and user setup accounted for.",
+  "icon": "production_readiness",
   "directives": {
     "implement": [
       {

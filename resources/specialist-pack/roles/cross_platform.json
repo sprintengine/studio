@@ -7,6 +7,7 @@
     "platform-compatibility"
   ],
   "summary": "Reviews applications for operating system, browser, device, filesystem, shell, packaging, and runtime compatibility risks.",
+  "icon": "cross_platform",
   "directives": {
     "implement": [
       {

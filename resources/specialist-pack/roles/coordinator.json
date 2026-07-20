@@ -5,6 +5,7 @@
     "multiloop-coordinator"
   ],
   "summary": "Coordinates multi-agent work across Multicode sessions.",
+  "icon": "architecture",
   "directives": {
     "implement": [
       {
