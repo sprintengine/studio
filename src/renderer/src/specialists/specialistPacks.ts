@@ -2,25 +2,19 @@ import type {
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
 } from '../types/workspace'
-import {
-  SPECIALIST_ACTIONS,
-  type SpecialistAction,
-  type SpecialistIcon,
-} from './specialistActions'
+import type { SpecialistAction, SpecialistIcon } from './specialistActions'
 
-// A specialist pack is a named, toggleable group of specialist agents. The
-// built-in roster ships as the "Multicode Specialists" pack; deselecting it
-// removes its agents from the spawn dropdown without ever emptying the menu
-// (the Terminal / General / Conversation quick rows always remain).
+// A specialist pack is a named, toggleable group of specialist agents. Nothing
+// ships bundled: specialists are installed like anything else, so every pack is
+// discovered from the role registry (the first-party pack installs into the
+// user-global registry layer; workspace/plugin layers contribute their own).
+// Not installed → no specialists in any picker, and the menu stays valid because
+// the Terminal / General / Conversation quick rows always remain.
 //
 // Each agent's *soul* is composed from skills by the role registry (see
 // sprintengine_core), and is portable: the Multicode product layer (Backlog,
 // Knowledge Graph) and the Sprint Engine layer are composed on at spawn time,
-// not baked into the soul. Surfacing user/plugin registry packs in this
-// dropdown additionally requires widening the specialist id space (it is keyed
-// by a fixed union today, used by watchtower focus mapping and the main-process
-// soul service); that migration is tracked separately.
-export const BUNDLED_SPECIALIST_PACK_ID = 'multicode-specialists'
+// not baked into the soul.
 
 export type SpecialistPack = {
   id: string
@@ -29,17 +23,6 @@ export type SpecialistPack = {
   /** Built-in packs ship with the app and cannot be uninstalled, only toggled. */
   builtin: boolean
   specialists: SpecialistAction[]
-}
-
-export function getBundledSpecialistPack(): SpecialistPack {
-  return {
-    id: BUNDLED_SPECIALIST_PACK_ID,
-    name: 'Multicode Specialists',
-    description:
-      'The built-in specialist roster shipped with Multicode — architecture, development, review, testing, security, and more.',
-    builtin: true,
-    specialists: SPECIALIST_ACTIONS,
-  }
 }
 
 const SPECIALIST_ICONS: ReadonlySet<SpecialistIcon> = new Set<SpecialistIcon>([
@@ -77,21 +60,18 @@ function registryPackLabel(layer: string): string {
 
 /**
  * Specialist packs discovered from the role registry: every non-bundled-layer
- * role (workspace / user / plugin), grouped into a pack per source layer. Roles
- * whose id overlaps a bundled specialist's soul role are skipped — the bundled
- * pack already represents them (a higher-precedence override still renders
- * through `souls get` at spawn time).
+ * role (workspace / user / plugin), grouped into a pack per source layer. The
+ * `bundled` layer carries only host skills now (no role manifests), so nothing
+ * is skipped — every discovered role surfaces as a specialist.
  */
 export function discoveredSpecialistPacks(
   registry: SprintEngineRoleRegistry | null | undefined,
 ): SpecialistPack[] {
   if (!registry) return []
-  const bundledSoulRoles = new Set(SPECIALIST_ACTIONS.map((action) => action.soulRole))
   const byLayer = new Map<string, SpecialistAction[]>()
   for (const role of Object.values(registry.roles)) {
     const layer = role.source?.layer
     if (!layer || layer === 'bundled') continue
-    if (bundledSoulRoles.has(role.id)) continue
     const list = byLayer.get(layer) ?? []
     list.push(specialistFromRegistryRole(role))
     byLayer.set(layer, list)
@@ -108,19 +88,18 @@ export function discoveredSpecialistPacks(
 }
 
 /**
- * All packs: the bundled pack plus any registry-discovered packs. Pass the
- * loaded role registry to surface dropped-in specialist packs; omit it for the
- * bundled-only roster.
+ * All specialist packs, sourced exclusively from the role registry. With no
+ * registry (or an empty one) this is an empty list — a valid state: no pack
+ * installed means no specialists, and every picker keeps its quick rows.
  */
 export function listSpecialistPacks(
   registry?: SprintEngineRoleRegistry | null,
 ): SpecialistPack[] {
-  return [getBundledSpecialistPack(), ...discoveredSpecialistPacks(registry)]
+  return discoveredSpecialistPacks(registry)
 }
 
-// A pack is enabled unless its id is explicitly recorded as disabled, so a new
-// pack (including the bundled one on first run) defaults to on and an unknown
-// disabled id is harmless.
+// A pack is enabled unless its id is explicitly recorded as disabled, so a newly
+// discovered pack defaults to on and an unknown disabled id is harmless.
 export function isSpecialistPackEnabled(
   disabled: readonly string[] | undefined,
   packId: string,

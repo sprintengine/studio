@@ -123,10 +123,17 @@ export default function AgentComposer({
     }
   }
 
-  const activeSpecialist =
-    selection.kind === 'specialist' ? getSpecialistAction(selection.specialistId) : null
   const optionId = (row: ComposerRow) => `agent-composer-option-${row.key}`
   const selectedRow = visibleRows.find((row) => rowMatchesSelection(row, selection))
+  // Prefer the registry-sourced action carried on the selected row (manifest
+  // label/icon); fall back to synthesizing from the id when the selected
+  // specialist is no longer in the roster (e.g. its pack was uninstalled).
+  const activeSpecialist =
+    selection.kind === 'specialist'
+      ? selectedRow?.kind === 'specialist'
+        ? selectedRow.action
+        : getSpecialistAction(selection.specialistId)
+      : null
   const quickRows = visibleRows.filter((row) => row.kind === 'terminal' || row.kind === 'general')
   const specialistRows = visibleRows.filter(
     (row): row is Extract<ComposerRow, { kind: 'specialist' }> => row.kind === 'specialist',
