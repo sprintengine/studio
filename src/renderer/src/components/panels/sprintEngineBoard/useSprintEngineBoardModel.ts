@@ -81,11 +81,11 @@ export function useSprintEngineBoardModel(input: SprintEngineBoardModelInput): S
 
   const sprintEngineTasks = sprintEngineState?.tasks ?? []
 
-  // Registry-aware add-member options. When the panel loads the Sprint Engine
-  // role registry for the workspace, custom enabled roles surface alongside the
-  // bundled board roles; user-disabled roles are filtered out. With no registry
-  // available, the bundled compatibility fallback (see
-  // `BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES`) still renders.
+  // Registry-authoritative add-member options. The Sprint Engine role registry
+  // for the workspace is the source of addable specialist roles; user-disabled
+  // roles are filtered out. Post un-ship, a role that the registry cannot
+  // resolve is never offered, so with no pack installed only the plain
+  // `general` agent renders here.
   const addMemberOptions = useMemo<SprintEngineAddMemberOption[]>(
     () =>
       buildSprintEngineAddMemberOptions({

@@ -11,22 +11,15 @@ import {
   type SprintEngineAgentRosterItem,
 } from './sprintengine'
 
-// Compatibility fallback: the bundled all-roles list. Use this only when no
-// `SprintEngineRoleRegistry` is available — the registry is the runtime
-// authority for available roles, and bundled constants are last-resort
-// fallbacks per `knowledge/multicode/sprint-engine.md`.
-export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = [
-  'architect',
-  'product',
-  'frontend',
-  'ui_ux_reviewer',
-  'developer',
-  'performance',
-  'production_readiness_reviewer',
-  'cross_platform',
-  'tester',
-  'security',
-]
+// Roles the host bundle can resolve with no specialist pack installed. Post
+// un-ship this is empty: every specialist role — architect included — now
+// travels in the installable pack, and the plain `general` agent is spliced in
+// separately (see `withSprintEngineGeneralRole`), never sourced from here.
+// Kept as the last-resort fallback for callers that hold no
+// `SprintEngineRoleRegistry` at all, so a role that cannot resolve is never
+// advertised. The registry is the runtime authority when present, per
+// `knowledge/multicode/sprint-engine.md`.
+export const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES: readonly SprintEngineRole[] = []
 
 // Bundled summary copy for the live Sprint Engine board's add-member panel.
 // The new-workspace wizard's copy is shorter (see
@@ -175,10 +168,33 @@ function withSprintEngineGeneralRole(roles: SprintEngineRoleId[]): SprintEngineR
   return [...roles.slice(0, insertAt), SPRINT_ENGINE_GENERAL_ROLE_ID, ...roles.slice(insertAt)]
 }
 
-// Registry-aware list of roles that can be added to the Sprint Engine roster,
-// including the plain `general` agent. Falls back to the bundled order when no
-// registry is provided so callers without registry access still render a stable
-// list. `general` is addable everywhere new agents are configured — the wizard
+const BUNDLED_SPRINT_ENGINE_ADDABLE_ROLE_SET: ReadonlySet<SprintEngineRoleId> = new Set(
+  BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES,
+)
+
+// A roster role is offered only when it resolves: from the loaded registry when
+// one is present — an empty registry resolves nothing — or from the bundled
+// fallback set when the caller holds no registry at all. This gates the
+// historical bundled seed that `orderSprintEngineRosterRoles` still emits for
+// canonical ordering: post un-ship a seeded specialist the registry can no
+// longer resolve must not surface in a picker until its pack is installed.
+// `general` is never a registry role; the caller splices it in.
+function resolvesAsAddableRole(
+  role: SprintEngineRoleId,
+  registry: SprintEngineRoleRegistry | null | undefined,
+): boolean {
+  const roles = registry?.roles
+  if (roles) return Object.prototype.hasOwnProperty.call(roles, role)
+  return BUNDLED_SPRINT_ENGINE_ADDABLE_ROLE_SET.has(role)
+}
+
+// Registry-authoritative list of roles that can be added to the Sprint Engine
+// roster, including the plain `general` agent. The registry is the source of
+// available specialist roles; the bundled seed inside
+// `orderSprintEngineRosterRoles` only fixes canonical ordering and is gated to
+// registry-resolvable roles here, so a fresh install with no pack offers
+// `general` alone and an installed pack offers its specialist roles in curated
+// order. `general` is addable everywhere new agents are configured — the wizard
 // AND the live board — because in a general-default run "add another agent"
 // mid-run is the most likely add (MC-1585). The user grows the roster; agents
 // still never do.
@@ -186,7 +202,9 @@ export function listSprintEngineAddableRoles(
   registry?: SprintEngineRoleRegistry | null,
   disabledRoleIds?: ReadonlySet<SprintEngineRoleId> | null,
 ): SprintEngineRoleId[] {
-  return withSprintEngineGeneralRole(orderSprintEngineRosterRoles(registry ?? null, disabledRoleIds ?? null))
+  const ordered = orderSprintEngineRosterRoles(registry ?? null, disabledRoleIds ?? null)
+  const resolvable = ordered.filter((role) => resolvesAsAddableRole(role, registry))
+  return withSprintEngineGeneralRole(resolvable)
 }
 
 // New-workspace wizard roster choices. Identical to the addable-role list now
