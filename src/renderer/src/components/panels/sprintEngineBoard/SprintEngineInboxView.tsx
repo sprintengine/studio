@@ -18,6 +18,9 @@ import { SprintEngineEmptyDetail } from './SprintEngineEmptyDetail'
 import {
   buildSprintEngineStartedFrom,
   sprintEngineCapturedLabel,
+  sprintEngineSeedProvenanceProviderLabel,
+  trackerSeedProvenance,
+  type SprintEngineSeedProvenance,
   type SprintEngineSeedRow,
 } from './sprintEngineStartedFrom'
 
@@ -79,6 +82,17 @@ export function SprintEngineInboxView({
     const map = new Map<string, string>()
     for (const item of backlogScan?.items ?? []) {
       map.set(item.relativePath.toLowerCase(), item.title)
+    }
+    return map
+  }, [backlogScan])
+  // Tracker provenance (native key + issue URL) for proxy-seeded rows (MC-1639),
+  // derived from the backlog scan already loaded above — no extra file reads. A
+  // native (non-proxy) seed contributes nothing, so its row stays unchanged.
+  const provenanceByPath = useMemo(() => {
+    const map = new Map<string, SprintEngineSeedProvenance>()
+    for (const item of backlogScan?.items ?? []) {
+      const provenance = trackerSeedProvenance(item.sourceContent)
+      if (provenance) map.set(item.relativePath.toLowerCase(), provenance)
     }
     return map
   }, [backlogScan])
@@ -410,6 +424,7 @@ export function SprintEngineInboxView({
             // pane for the preview above), so no list row is ever highlighted.
             selectedSeedKey={null}
             backlogStatusByPath={backlogStatusByPath}
+            provenanceByPath={provenanceByPath}
             onOpenSeed={handleOpenSeed}
             onOpenInBacklog={handleOpenInBacklog}
             onBack={() => setSeedSelected(false)}
@@ -491,6 +506,7 @@ function SprintEngineSeededDocumentsPanel({
   seedTitle,
   selectedSeedKey,
   backlogStatusByPath,
+  provenanceByPath,
   onOpenSeed,
   onOpenInBacklog,
   onBack,
@@ -499,6 +515,7 @@ function SprintEngineSeededDocumentsPanel({
   seedTitle: string | null
   selectedSeedKey: string | null
   backlogStatusByPath: Map<string, string>
+  provenanceByPath: Map<string, SprintEngineSeedProvenance>
   onOpenSeed: (row: SprintEngineSeedRow) => void
   onOpenInBacklog: (backlogPath: string) => void
   onBack: () => void
@@ -522,6 +539,7 @@ function SprintEngineSeededDocumentsPanel({
                   ? backlogStatusByPath.get(row.backlogPath.toLowerCase()) === 'completed'
                   : false
               }
+              provenance={row.backlogPath ? provenanceByPath.get(row.backlogPath.toLowerCase()) ?? null : null}
               onOpen={() => onOpenSeed(row)}
               onOpenInBacklog={onOpenInBacklog}
             />
@@ -540,12 +558,14 @@ function SprintEngineSeedRowButton({
   row,
   selected,
   completed,
+  provenance,
   onOpen,
   onOpenInBacklog,
 }: {
   row: SprintEngineSeedRow
   selected: boolean
   completed: boolean
+  provenance: SprintEngineSeedProvenance | null
   onOpen: () => void
   onOpenInBacklog: (backlogPath: string) => void
 }) {
@@ -613,9 +633,29 @@ function SprintEngineSeedRowButton({
                 <span>{capturedLabel}</span>
               </>
             ) : null}
+            {provenance ? (
+              <>
+                <span aria-hidden="true">·</span>
+                {/* Native tracker key, verbatim (mono, tabular) — the provenance
+                    of a proxy-seeded run alongside its backlog path (MC-1639). */}
+                <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">{provenance.nativeKey}</span>
+                <span aria-hidden="true">·</span>
+                <span>{sprintEngineSeedProvenanceProviderLabel(provenance.provider)}</span>
+              </>
+            ) : null}
           </span>
         </span>
       </button>
+      {provenance?.url ? (
+        <button
+          type="button"
+          onClick={() => void window.api.openExternal(provenance.url)}
+          aria-label={`View ${provenance.nativeKey} in ${sprintEngineSeedProvenanceProviderLabel(provenance.provider)}`}
+          className="interactive mr-1 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100 group-focus-within:opacity-100"
+        >
+          View in {sprintEngineSeedProvenanceProviderLabel(provenance.provider)}
+        </button>
+      ) : null}
       {row.backlogPath ? (
         <button
           type="button"

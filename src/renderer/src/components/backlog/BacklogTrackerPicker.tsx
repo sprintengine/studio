@@ -52,6 +52,7 @@ export function BacklogTrackerPicker({
   initialConnectionId,
   issueLinkIndex,
   onMaterialized,
+  onStartSprint,
 }: {
   open: boolean
   onClose: () => void
@@ -61,6 +62,10 @@ export function BacklogTrackerPicker({
   issueLinkIndex: ReadonlySet<string>
   /** Re-scan the backlog so freshly materialized proxy items appear. */
   onMaterialized: () => void | Promise<void>
+  /** One-step "Start sprint" (mockup §2): materialize this one issue and start a
+   *  plan-sourced sprint from its fresh description + comments. Absent → the
+   *  per-row action is not shown (the drawer stays a pure add surface). */
+  onStartSprint?: (issue: NormalizedIssue) => Promise<{ ok: true } | { ok: false; error: string }>
 }): JSX.Element {
   const now = useRelativeNow()
   const [connectionId, setConnectionId] = useState(initialConnectionId)
@@ -71,6 +76,12 @@ export function BacklogTrackerPicker({
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set())
   const [added, setAdded] = useState<ReadonlySet<string>>(() => new Set())
   const [materialize, setMaterialize] = useState<MaterializeState>({ phase: 'idle' })
+  // Per-row one-step start (by externalId): 'starting' while the sprint is being
+  // created, 'running' once it is. A started row locks (like an added one) and
+  // shows a running indicator in place of its Start action. `startNotice`
+  // overrides the footer report with the start result (success or failure).
+  const [sprintState, setSprintState] = useState<ReadonlyMap<string, 'starting' | 'running'>>(() => new Map())
+  const [startNotice, setStartNotice] = useState<{ tone: 'muted' | 'error'; text: string } | null>(null)
 
   const connection = useMemo(
     () => connections.find((entry) => entry.id === connectionId) ?? null,
@@ -120,6 +131,8 @@ export function BacklogTrackerPicker({
     setSelected(new Set())
     setAdded(new Set())
     setMaterialize({ phase: 'idle' })
+    setSprintState(new Map())
+    setStartNotice(null)
   }, [open, initialConnectionId])
 
   // Debounced search on query / connection change while open. Empty query is a
@@ -145,6 +158,7 @@ export function BacklogTrackerPicker({
         return next
       })
       setMaterialize({ phase: 'idle' })
+      setStartNotice(null)
     },
     [],
   )
@@ -154,6 +168,7 @@ export function BacklogTrackerPicker({
   const addToBacklog = useCallback(async () => {
     if (!connection || selectedCount === 0) return
     const externalIds = [...selected]
+    setStartNotice(null)
     setMaterialize({ phase: 'working' })
     const result = await window.api.trackerMaterialize({ workspaceRoot, connectionId: connection.id, externalIds })
     if (!result.ok) {
@@ -183,6 +198,40 @@ export function BacklogTrackerPicker({
     await onMaterialized()
   }, [connection, selected, selectedCount, workspaceRoot, search.issues, onMaterialized])
 
+  // One-step "Start sprint" for a single row (mockup §2): materialize just this
+  // issue and start a sprint from its fresh description + comments. The row locks
+  // and shows a running indicator; a failure surfaces in the footer report and
+  // leaves the row selectable so it can be retried or added normally.
+  const startSprint = useCallback(
+    async (issue: NormalizedIssue) => {
+      if (!onStartSprint || sprintState.get(issue.externalId)) return
+      setSprintState((prev) => new Map(prev).set(issue.externalId, 'starting'))
+      setStartNotice(null)
+      const result = await onStartSprint(issue)
+      if (result.ok) {
+        setSprintState((prev) => new Map(prev).set(issue.externalId, 'running'))
+        setAdded((prev) => new Set(prev).add(issue.externalId))
+        setSelected((prev) => {
+          const next = new Set(prev)
+          next.delete(issue.externalId)
+          return next
+        })
+        setStartNotice({
+          tone: 'muted',
+          text: `${issue.nativeKey} added to the backlog — its sprint is starting from the fresh issue description and comments.`,
+        })
+      } else {
+        setSprintState((prev) => {
+          const next = new Map(prev)
+          next.delete(issue.externalId)
+          return next
+        })
+        setStartNotice({ tone: 'error', text: `Couldn’t start a sprint for ${issue.nativeKey}: ${result.error}` })
+      }
+    },
+    [onStartSprint, sprintState],
+  )
+
   // Switching connection clears the selection: the ticked externalIds belong to
   // the previous connection, so carrying them into a materialize on the new one
   // would add the wrong issues.
@@ -191,6 +240,8 @@ export function BacklogTrackerPicker({
     setSelected(new Set())
     setAdded(new Set())
     setMaterialize({ phase: 'idle' })
+    setSprintState(new Map())
+    setStartNotice(null)
   }, [])
 
   const connectionItems: SelectItem[] = useMemo(
@@ -198,12 +249,17 @@ export function BacklogTrackerPicker({
     [connections],
   )
 
-  const reportText =
-    materialize.phase === 'idle'
+  // The one-step start result takes precedence over the add-report while it is
+  // showing, so a "sprint starting" / start-failure message is never masked by
+  // the ambient "Tick issues…" prompt.
+  const reportText = startNotice
+    ? startNotice.text
+    : materialize.phase === 'idle'
       ? selectedCount > 0
         ? `${selectedCount} ${selectedCount === 1 ? 'issue' : 'issues'} selected.`
         : 'Tick issues to add them to the backlog.'
       : materialize.report
+  const reportIsError = startNotice ? startNotice.tone === 'error' : materialize.phase === 'error'
 
   return (
     <Drawer open={open} onClose={onClose} title="Add from a tracker" ariaLabel="Add issues from a tracker" width={520}>
@@ -262,17 +318,28 @@ export function BacklogTrackerPicker({
           </p>
         ) : (
           <ul className="py-1" role="list">
-            {search.issues.map((issue) => (
-              <IssueRow
-                key={`${issue.provider}:${issue.externalId}`}
-                issue={issue}
-                checked={selected.has(issue.externalId)}
-                locked={isLocked(issue)}
-                lockedLabel={added.has(issue.externalId) ? 'in your backlog' : 'already in your backlog'}
-                now={now}
-                onToggle={() => toggle(issue.externalId)}
-              />
-            ))}
+            {search.issues.map((issue) => {
+              const sprint = sprintState.get(issue.externalId)
+              const lockedLabel = sprint === 'running'
+                ? 'sprint started'
+                : added.has(issue.externalId)
+                  ? 'in your backlog'
+                  : 'already in your backlog'
+              return (
+                <IssueRow
+                  key={`${issue.provider}:${issue.externalId}`}
+                  issue={issue}
+                  checked={selected.has(issue.externalId)}
+                  locked={isLocked(issue)}
+                  lockedLabel={lockedLabel}
+                  now={now}
+                  onToggle={() => toggle(issue.externalId)}
+                  sprint={sprint}
+                  canStartSprint={Boolean(onStartSprint)}
+                  onStartSprint={() => void startSprint(issue)}
+                />
+              )
+            })}
             {search.nextCursor ? (
               <li className="px-3 py-2">
                 <GhostButton
@@ -295,7 +362,7 @@ export function BacklogTrackerPicker({
           role="status"
           aria-live="polite"
           className={`min-w-0 flex-1 text-[12px] leading-[1.4] ${
-            materialize.phase === 'error' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
+            reportIsError ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
           }`}
         >
           {reportText}
@@ -327,11 +394,13 @@ function Monogram({ provider }: { provider: RedactedTrackerConnection['provider'
   )
 }
 
-// One issue row. The whole row is a role=checkbox button (one tab stop, Space/
-// Enter toggles, aria-checked announced); an already-tracked issue is dimmed and
-// disabled, reading "already in your backlog" in place of the updated-ago meta so
-// a locked row never looks like an empty state. The per-row "Start sprint"
-// action is T9, not built here.
+// One issue row. The row is a role=checkbox button (one tab stop, Space/Enter
+// toggles, aria-checked announced); an already-tracked issue is dimmed and
+// disabled, reading its locked label in place of the updated-ago meta so a locked
+// row never looks like an empty state. A hover/focus-revealed "Start sprint"
+// action sits alongside the row button (a sibling, never nested) for the one-step
+// flow (mockup §2); once its sprint is running the row locks and shows a running
+// indicator in the action's place.
 function IssueRow({
   issue,
   checked,
@@ -339,6 +408,9 @@ function IssueRow({
   lockedLabel,
   now,
   onToggle,
+  sprint,
+  canStartSprint,
+  onStartSprint,
 }: {
   issue: NormalizedIssue
   checked: boolean
@@ -346,48 +418,77 @@ function IssueRow({
   lockedLabel: string
   now: number
   onToggle: () => void
+  sprint: 'starting' | 'running' | undefined
+  canStartSprint: boolean
+  onStartSprint: () => void
 }): JSX.Element {
   const chip = trackerIssueStateChip(issue)
   const updatedAgo = formatRelativeMsAgo(issue.updatedAt ? Date.parse(issue.updatedAt) : undefined, now)
+  // The start action shows only on a row that can still be started: one this
+  // session hasn't already locked (added or started) and that isn't already in
+  // the backlog. A started row shows the running indicator instead.
+  const showStartAction = canStartSprint && !locked
   return (
     <li>
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={checked}
-        aria-disabled={locked || undefined}
-        disabled={locked}
-        onClick={locked ? undefined : onToggle}
-        className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
-          locked ? 'cursor-default opacity-55' : 'hover:bg-[color:var(--bg-hover)]'
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border ${
-            checked
-              ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
-              : 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface)]'
+      <div className="group relative flex items-stretch">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={checked}
+          aria-disabled={locked || undefined}
+          disabled={locked}
+          onClick={locked ? undefined : onToggle}
+          className={`flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors ${
+            locked ? 'cursor-default opacity-55' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
         >
-          {checked ? (
-            <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5">
-              <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          ) : null}
-        </span>
-        <span className="w-[76px] shrink-0 truncate font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
-          {issue.nativeKey}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-default)]">{issue.title}</span>
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-          <StatusDot tone={chip.tone} />
-          {chip.label}
-        </span>
-        <span className="w-[112px] shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]">
-          {locked ? lockedLabel : updatedAgo ? `updated ${updatedAgo}` : ''}
-        </span>
-      </button>
+          <span
+            aria-hidden="true"
+            className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border ${
+              checked
+                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
+                : 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface)]'
+            }`}
+          >
+            {checked ? (
+              <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5">
+                <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : null}
+          </span>
+          <span className="w-[76px] shrink-0 truncate font-mono text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            {issue.nativeKey}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-[color:var(--text-default)]">{issue.title}</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+            <StatusDot tone={chip.tone} />
+            {chip.label}
+          </span>
+          <span className="w-[112px] shrink-0 text-right text-[11px] text-[color:var(--text-disabled)]">
+            {locked ? lockedLabel : updatedAgo ? `updated ${updatedAgo}` : ''}
+          </span>
+        </button>
+        {sprint === 'running' ? (
+          <span className="flex shrink-0 items-center gap-1.5 self-center pl-2 pr-3 text-[11px] text-[color:var(--text-muted)]">
+            <StatusDot tone="accent" pulse />
+            Sprint running
+          </span>
+        ) : showStartAction || sprint === 'starting' ? (
+          <button
+            type="button"
+            onClick={onStartSprint}
+            disabled={sprint === 'starting'}
+            aria-label={`Start a sprint from ${issue.nativeKey}`}
+            className={`interactive shrink-0 self-center rounded px-2 py-1 text-[11px] font-medium text-[color:var(--text-muted)] transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+              sprint === 'starting'
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+            }`}
+          >
+            {sprint === 'starting' ? 'Starting…' : 'Start sprint'}
+          </button>
+        ) : null}
+      </div>
     </li>
   )
 }

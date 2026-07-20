@@ -57,7 +57,7 @@ import {
   matchWorkspaceForBacklogRunLink,
   sprintEngineRunLinkForItem,
 } from '../../utils/sprintengineBacklogLinks'
-import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
+import { deriveSprintEngineRunGlyph, sprintEnginePlannerRole } from '../../utils/sprintengine'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
 import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSection'
 import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
@@ -65,7 +65,23 @@ import { FilePreviewPane } from '../ui/FilePreviewPane'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
 import { BacklogTrackerPicker } from '../backlog/BacklogTrackerPicker'
 import { backlogIssueLinkIndex } from '../backlog/backlogTrackerPickerModel'
-import type { RedactedTrackerConnection } from '../../../../shared/electron-api'
+import {
+  matchProxyItemByIssue,
+  startTrackerProxySprint,
+} from '../../utils/sprintengineWorkspaceCreation'
+import {
+  DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+  DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+  resolveInitialSprintEngineRoster,
+} from '../workspace/newWorkspace/savedTeams'
+import { SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS } from '../workspace/newWorkspace/controllers/sprintEngineController'
+import { markdownTitle, workspaceRelativePath } from '../workspace/newWorkspace/helpers'
+import {
+  sprintEngineAutomationInitialStateForMode,
+  sprintEngineAutomationModeForRunOptions,
+} from '../../utils/sprintengineAutomationLifecycle'
+import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
+import type { NormalizedIssue, RedactedTrackerConnection } from '../../../../shared/electron-api'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
@@ -1329,6 +1345,100 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // item (AC: "already in the backlog renders dimmed and non-selectable").
   const issueLinkIndex = useMemo(() => backlogIssueLinkIndex(items), [items])
 
+  // One-step "Start sprint" from a tracker search row (mockup §2, MC-1639): a
+  // single action that materializes the issue, then starts a plan-sourced sprint
+  // from its fresh description + comments and records the run link — the
+  // identical end-state to adding it and running a sprint in two steps. It
+  // composes existing seams (T6 materialize → shared plan-sourced creation →
+  // execution link), never a bespoke pipeline (plan D6). The saved roster is the
+  // user's own configuration; a headless start never invents one.
+  const startSprintFromTrackerIssue = useCallback(
+    async (issue: NormalizedIssue): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (!folderPath) return { ok: false, error: 'Open a project folder first.' }
+      // 1. Materialize the single issue — writes the proxy item fresh from the
+      // tracker. The issue carries its own owning connection id.
+      const materialized = await window.api.trackerMaterialize({
+        workspaceRoot: folderPath,
+        connectionId: issue.connectionId,
+        externalIds: [issue.externalId],
+      })
+      if (!materialized.ok) return { ok: false, error: materialized.error.message }
+      const failure = materialized.failed.find((entry) => entry.externalId === issue.externalId)
+      if (failure) return { ok: false, error: failure.reason }
+      // 2. Re-scan and locate the freshly written proxy item by its issue link.
+      const scanResult = await runScan()
+      const item = scanResult
+        ? matchProxyItemByIssue(scanResult.items, issue.provider, issue.externalId)
+        : null
+      if (!item) {
+        return { ok: false, error: 'Added to the backlog, but the new item could not be located to start a sprint.' }
+      }
+      // 3. Resolve the user's saved roster (never invents a roster) + auto-run mode.
+      const store = useWorkspaceStore.getState()
+      const roleSettings = store.appSettings.sprintEngineRoleSettings
+      const roster = resolveInitialSprintEngineRoster({
+        savedTeams: roleSettings?.savedTeams ?? [],
+        lastSelectedTeamId: roleSettings?.lastSelectedTeamId ?? null,
+        savedRoster: roleSettings?.savedRoster ?? null,
+        defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+        defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+      })
+      const automationMode = sprintEngineAutomationModeForRunOptions({
+        startRunner: true,
+        autoApproveArtifacts: false,
+      })
+      const baseTeamName = slugifySprintEngineName(basename(item.relativePath).replace(/\.(md|html?)$/i, ''))
+      // 4. Create the plan-sourced run from the just-refreshed on-disk item + link it.
+      const result = await startTrackerProxySprint({
+        rootPath: folderPath,
+        baseTeamName,
+        goal: markdownTitle(item.sourceContent) ?? (issue.title.trim() || issue.nativeKey),
+        sourceRelativePath: item.relativePath,
+        sourceContent: item.sourceContent,
+        sourcePlanKind: 'unknown',
+        roleCounts: roster.roleCounts,
+        roleCliDefaults: roster.roleCliDefaults,
+        roleModelOverrides: roster.roleModelOverrides,
+        initialSpawnRoles: [sprintEnginePlannerRole(roster.roleCounts)],
+        sprintEngineAutoState: {
+          ...sprintEngineAutomationInitialStateForMode(automationMode),
+          cliPermissionPreset: 'default',
+          maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
+        },
+        // Null → addWorkspace places the run in the current window (falls back to
+        // the active workspace's window, then primary).
+        workspaceWindowId: null,
+        pathExists: window.api.pathExists,
+        initializeSprintEngineState: window.api.initializeSprintEngineState,
+        recordExecutionLink: async ({ workspaceRoot, sourceRelativePath, teamSlug, statePath }) => {
+          const linked = await window.api.addOrUpdateBacklogLink({
+            workspaceRoot,
+            relativePath: sourceRelativePath,
+            link: {
+              id: `sprint-engine:${teamSlug}`,
+              moduleId: 'sprint-engine',
+              type: 'execution',
+              label: 'Sprint',
+              target: {
+                kind: 'sprintengine.run',
+                id: teamSlug,
+                path: workspaceRelativePath(workspaceRoot, statePath) ?? statePath,
+              },
+              status: 'active',
+            },
+            status: 'in_progress',
+          })
+          if (!linked.ok) throw new Error(linked.message)
+        },
+      })
+      if (!result.ok) return { ok: false, error: result.message }
+      // Re-scan so the new proxy row shows its running-sprint link immediately.
+      await runScan()
+      return { ok: true }
+    },
+    [folderPath, runScan],
+  )
+
   const backlogOverflow = (
     <OverflowMenu
       ariaLabel="Backlog actions"
@@ -1796,6 +1906,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           onMaterialized={async () => {
             await runScan()
           }}
+          onStartSprint={startSprintFromTrackerIssue}
         />
       ) : null}
     </section>
