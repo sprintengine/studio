@@ -10,7 +10,7 @@ import {
 } from '../../specialists/specialistPacks'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../AppIcons'
 import { ConnectorRow, ConnectorSectionHeading } from '../panels/ConnectorsPanel/ConnectorRow'
-import { InboxSearchInput, Switch } from '../ui'
+import { GhostButton, InboxSearchInput, Switch } from '../ui'
 import { mcpMonogram } from './mcpMonogram'
 import { COMING_SOON_IDS, MODULE_CATEGORY_GROUPS, categoryLabel } from './ModuleControls'
 import { ThirdPartyModuleList } from './ThirdPartyModuleList'
@@ -102,10 +102,7 @@ function SpecialistPackCard({
         }
         name={pack.name}
         summary={pack.description}
-        chips={[
-          ...(pack.builtin ? ['Built-in'] : []),
-          `${pack.specialists.length} agent${pack.specialists.length === 1 ? '' : 's'}`,
-        ]}
+        chips={[`${pack.specialists.length} agent${pack.specialists.length === 1 ? '' : 's'}`]}
         selected={expanded}
         onOpen={onToggleExpanded}
         actions={
@@ -149,6 +146,7 @@ export function ModulesSettingsTab() {
     (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED
   )
   const setSpecialistPackEnabled = useWorkspaceStore((s) => s.setSpecialistPackEnabled)
+  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
   const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
   const packs = React.useMemo(
     () => listSpecialistPacks(sprintEngineRoleRegistry),
@@ -217,7 +215,24 @@ export function ModulesSettingsTab() {
         </section>
       ))}
 
-      {visiblePacks.length > 0 ? (
+      {!q && packs.length === 0 ? (
+        <section className="space-y-2">
+          <ConnectorSectionHeading label="Specialist packs" count={0} />
+          <div className="flex flex-col items-start gap-3 border-l-2 border-[color:var(--border-strong)] pl-3">
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              No specialist packs installed. Install one from the marketplace and its agents appear in
+              the spawn menu, alongside the Terminal, General, and Conversation rows.
+            </p>
+            <GhostButton
+              size="md"
+              onClick={() => openConnectorsSurface({ view: 'browse' })}
+              className="h-9"
+            >
+              Browse marketplace
+            </GhostButton>
+          </div>
+        </section>
+      ) : visiblePacks.length > 0 ? (
         <section className="space-y-2">
           <ConnectorSectionHeading label="Specialist packs" count={visiblePacks.length} />
           <div className="flex flex-col gap-2">
