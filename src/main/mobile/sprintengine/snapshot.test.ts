@@ -14,6 +14,8 @@ import { relayResultSummaryMaxBytes, relaySummaryByteLength, summarizeCommandRes
 import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
 import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
+import { createRoadmapOrchestratorStore } from '../../roadmap-orchestrator-store'
+import type { RoadmapLaneRuntime } from '../../../shared/sprintengine/roadmap-orchestrator'
 import {
   automationRecentRunsMax,
   automationRunTextMaxChars,
@@ -49,6 +51,7 @@ async function main(): Promise<void> {
   await assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion()
   await assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion()
   await assertSprintEngineChangeBumpsTopLevelSnapshotVersion()
+  await assertRoadmapParkedOnlyChangeBumpsTopLevelSnapshotVersion()
   await assertAutomationsJoinTheirSprintEngineOnProjectKey()
   await assertCappedAutomationsFitTheRelayResultBudget()
   await assertShedDropsRecentRunsBeforeAnySprintEngine()
@@ -1030,6 +1033,53 @@ async function assertSprintEngineChangeBumpsTopLevelSnapshotVersion(): Promise<v
 
   assert.notEqual(after.snapshotVersion, before.snapshotVersion,
     'a sprint-engine task change produces a new top-level snapshotVersion')
+  service.shutdown()
+}
+
+// A roadmap lane's parked/running state rides the orchestrator sidecar, NOT the
+// backlog statuses (roadmapRider.test.ts's parked case flips parked:true while all
+// referenced items keep their status). So a park is a snapshot change with no
+// backlog/sprint-engine/automations delta. It must still bump the top-level
+// version or the now-live 1599 fast path would serve a phone stale roadmap
+// progress. This also guards that folding roadmaps stays content-stable: the first
+// two idle reads (park unchanged) must agree.
+async function assertRoadmapParkedOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<void> {
+  const statePath = await writeStateFixture({
+    sprintengine: { name: 'Roadmap Bump Sprint Engine', updatedAt: generatedAt },
+    tasks: [task('T1', 'done', [])],
+    artifacts: [],
+  })
+  const workspaceRoot = workspaceRootForStatePath(statePath)
+  const roadmapRef = 'backlog/roadmaps/platform.md'
+  await mkdir(join(workspaceRoot, 'backlog', 'roadmaps'), { recursive: true })
+  await writeFile(join(workspaceRoot, 'backlog', 'roadmaps', 'platform.md'),
+    '---\ntype: roadmap\nstatus: in_progress\nadvance: approve\nmerge: manual\n---\n\n# Platform Roadmap\n\n## Delivery\n- backlog/a.md\n- backlog/b.md\n- backlog/c.md\n', 'utf8')
+  await writeFile(join(workspaceRoot, 'backlog', 'a.md'), '---\nstatus: completed\n---\n\n# Item A\n', 'utf8')
+  await writeFile(join(workspaceRoot, 'backlog', 'b.md'), '---\nstatus: in_progress\n---\n\n# Item B\n', 'utf8')
+  await writeFile(join(workspaceRoot, 'backlog', 'c.md'), '---\nstatus: ready\n---\n\n# Item C\n', 'utf8')
+  const runningLane = new Map<string, RoadmapLaneRuntime>([
+    ['Delivery', { lane: 'Delivery', activeItemRef: 'backlog/b.md', activeTeamSlug: 'team-b' }],
+  ])
+  await createRoadmapOrchestratorStore(workspaceRoot).write(roadmapRef, runningLane)
+  const service = backlogAutomationsUnitService()
+
+  const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  const beforeAgain = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+  // The rider is really present, and folding it is content-stable across idle reads.
+  assert.equal(before.roadmaps?.length, 1, 'the active roadmap yields a rider')
+  assert.equal(beforeAgain.snapshotVersion, before.snapshotVersion,
+    'folding roadmaps is content-stable across idle reads')
+
+  // Park the lane via the sidecar only; every backlog item keeps its status.
+  await createRoadmapOrchestratorStore(workspaceRoot).write(roadmapRef, new Map<string, RoadmapLaneRuntime>([
+    ['Delivery', { lane: 'Delivery', activeItemRef: 'backlog/b.md', activeTeamSlug: 'team-b',
+      parked: { reason: 'run_failed', itemRef: 'backlog/b.md', at: generatedAt } }],
+  ]))
+  const after = await service.readSnapshot({ desktopSessionId: 'desktop_1', statePaths: [statePath], generatedAt })
+
+  assert.equal(after.roadmaps?.[0]?.lanes?.[0]?.parked, true, 'the lane is now parked')
+  assert.notEqual(after.snapshotVersion, before.snapshotVersion,
+    'a roadmap park with no backlog delta still produces a new top-level snapshotVersion')
   service.shutdown()
 }
 

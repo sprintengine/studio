@@ -323,12 +323,19 @@ export class MobileSprintEngineSnapshotService {
       // sprint engine contributes its own content-stable sub-version (already
       // folds tasks, artifacts, automation mode and state mtime, preserving the
       // MC-1567 invariant); backlog and automations are folded so a backlog-only
-      // or automations-only change still bumps the version.
+      // or automations-only change still bumps the version. Roadmap riders are
+      // folded too: a lane's parked/running state comes from the orchestrator
+      // sidecar and can move with NO backlog or sprint-engine delta (see the
+      // parked-lane case in roadmapRider.test.ts), so without this the now-live
+      // fast path would serve a phone stale roadmap progress. Riders carry only
+      // derived progress (done/total/name/running/parked) — no wall-clock — so
+      // they fold verbatim, no read-time strip needed.
       snapshotVersion: buildSnapshotVersion({
         sprintEngines: sprintEngines.map((sprintEngine) => sprintEngine.snapshotVersion),
         workspaces: workspaces.map(withoutReadTimeStamp),
         backlog: backlog.map(withoutReadTimeStamp),
         automations,
+        roadmaps,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
       sprintEngines,
