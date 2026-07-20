@@ -63,6 +63,9 @@ import { BacklogDependenciesSection } from '../backlog/BacklogDependenciesSectio
 import { BacklogMockupsSection } from '../backlog/BacklogMockupsSection'
 import { FilePreviewPane } from '../ui/FilePreviewPane'
 import { BacklogItemSearchPicker } from '../backlog/BacklogItemSearchPicker'
+import { BacklogTrackerPicker } from '../backlog/BacklogTrackerPicker'
+import { backlogIssueLinkIndex } from '../backlog/backlogTrackerPickerModel'
+import type { RedactedTrackerConnection } from '../../../../shared/electron-api'
 import { isRoadmapContent } from '../../../../shared/backlog/roadmap'
 import { BacklogFilterMenu } from '../backlog/BacklogFilterMenu'
 import {
@@ -313,6 +316,29 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // yet (agents render enabled; the send core re-verifies liveness anyway);
   // fetched on every flyout open so a dead session shows as disabled.
   const [agentSessions, setAgentSessions] = useState<TerminalSessionSnapshot[] | null>(null)
+
+  // Connected trackers (redacted; no secret), for the "Add from tracker" entry
+  // point (T7 / MC-1637). Empty by default: a backlog with zero tracker
+  // connections shows nothing new here, so the toolbar stays byte-identical to
+  // today (zero-connection invariance). Re-fetched on window focus so a
+  // connection added in Settings appears without remounting the panel. The open
+  // picker (drawer) is held here so its slide-out animation survives a close.
+  const [trackerConnections, setTrackerConnections] = useState<RedactedTrackerConnection[]>([])
+  const [trackerPicker, setTrackerPicker] = useState<{ connectionId: string; open: boolean } | null>(null)
+  const refreshTrackerConnections = useCallback(async () => {
+    const result = await window.api.trackerListConnections()
+    setTrackerConnections(result.ok ? result.connections : [])
+  }, [])
+  useEffect(() => {
+    void refreshTrackerConnections()
+    const onFocus = (): void => void refreshTrackerConnections()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshTrackerConnections])
+  const closeTrackerPicker = useCallback(
+    () => setTrackerPicker((prev) => (prev ? { ...prev, open: false } : null)),
+    [],
+  )
 
   // Backlog scan data is shared across every workspace on the same project
   // folder (useSharedBacklogScan): N panels on one project run ONE scan and
@@ -1298,6 +1324,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [epicMeta, folderPath, runAction, runScan],
   )
 
+  // `${provider}:${externalId}` for every issue already in the backlog, so the
+  // tracker picker can dim + lock a row for an issue that is already a proxy
+  // item (AC: "already in the backlog renders dimmed and non-selectable").
+  const issueLinkIndex = useMemo(() => backlogIssueLinkIndex(items), [items])
+
   const backlogOverflow = (
     <OverflowMenu
       ariaLabel="Backlog actions"
@@ -1306,6 +1337,16 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         // this secondary entry point stays consistent with the sidebar (MC-1691).
         ...(selectModuleEnabled(moduleOverrides, 'roadmap')
           ? [{ id: 'new-roadmap', label: 'Open Roadmap', onSelect: () => openRoadmapSurface() }]
+          : []),
+        // One "Add from <tracker>" entry per connected tracker (T7). Plain-human
+        // ("Add from Jira · ACME"), never "materialize"/"provider". Absent when no
+        // tracker is connected, so the menu is byte-identical to today.
+        ...(folderPath
+          ? trackerConnections.map((connection) => ({
+              id: `add-from-tracker-${connection.id}`,
+              label: `Add from ${connection.label}`,
+              onSelect: () => setTrackerPicker({ connectionId: connection.id, open: true }),
+            }))
           : []),
         { id: 'refresh', label: 'Refresh backlog', onSelect: () => void runScan(), disabled: loading || !folderPath },
       ]}
@@ -1741,6 +1782,20 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           onFlyoutOpen={refreshAgentSessions}
           onSendToAgent={(item, sessionId) => void sendItemToAgent(item, sessionId)}
           onClose={() => setRowMenu(null)}
+        />
+      ) : null}
+
+      {folderPath && trackerPicker ? (
+        <BacklogTrackerPicker
+          open={trackerPicker.open}
+          onClose={closeTrackerPicker}
+          workspaceRoot={folderPath}
+          connections={trackerConnections}
+          initialConnectionId={trackerPicker.connectionId}
+          issueLinkIndex={issueLinkIndex}
+          onMaterialized={async () => {
+            await runScan()
+          }}
         />
       ) : null}
     </section>
