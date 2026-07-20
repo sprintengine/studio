@@ -4,21 +4,6 @@ import { dirname, join, resolve } from 'path'
 import type { MultiloopRole, SoulPromptResult, SpecialistActionId } from '../shared/electron-api'
 import { getManagedPython, managedPythonSpawnEnv, type ResolvedPython } from './managed-runtime'
 
-const specialistSoulRoles: Record<SpecialistActionId, string> = {
-  architect: 'architect',
-  'product-strategist': 'product',
-  developer: 'developer',
-  'devops-infra': 'devops',
-  performance: 'performance',
-  'cross-platform': 'cross_platform',
-  'blog-writer': 'blog_writer',
-  'frontend-design-review': 'frontend',
-  'ui-ux-review': 'ui_ux_reviewer',
-  'qa-test': 'tester',
-  'security-review': 'security',
-  'production-readiness-review': 'production_readiness_reviewer',
-}
-
 type SoulsCliResult =
   | { ok: true; payload: Record<string, unknown> }
   | { ok: false; message: string }
@@ -136,10 +121,10 @@ async function runSoulsCli(args: string[]): Promise<SoulsCliResult> {
 }
 
 export async function readSpecialistSoul(specialistId: SpecialistActionId): Promise<SoulPromptResult> {
-  // Bundled ids map through specialistSoulRoles; any other id is a registry role
-  // id from a dropped-in specialist pack, used directly. `souls get` reports a
-  // clean error if the role does not resolve.
-  const role = specialistSoulRoles[specialistId as keyof typeof specialistSoulRoles] ?? specialistId
+  // A specialist id is its registry role id, so it is used directly as the role.
+  // The registry resolves any declared alias (e.g. `qa-test` -> `tester`) and
+  // `souls get` reports a clean error if the role does not resolve.
+  const role = specialistId
   if (!role) {
     return {
       ok: false,
