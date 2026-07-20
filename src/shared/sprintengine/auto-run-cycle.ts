@@ -248,6 +248,14 @@ export type SprintEngineAutoRunCycleState = {
    * supervision tick. Cleared when a bootstrap spawn later succeeds.
    */
   bootstrapStallNoticeKeys: Set<string>
+  /**
+   * One "missing CLI selection" diagnostic per (workspace, agent, task), so a
+   * role whose runtime never resolves a CLI surfaces the notice once instead of
+   * on every ~4s supervision tick. Cleared when that candidate later spawns with
+   * a resolved CLI (a fixed config re-arms the notice). Mirrors
+   * `bootstrapStallNoticeKeys`.
+   */
+  missingCliNoticeKeys: Set<string>
 }
 
 export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleState {
@@ -255,6 +263,7 @@ export function createSprintEngineAutoRunCycleState(): SprintEngineAutoRunCycleS
     terminalListIpcLastNoticeAt: new Map(),
     taskScopedRetirementTaskByClockKey: new Map(),
     bootstrapStallNoticeKeys: new Set(),
+    missingCliNoticeKeys: new Set(),
   }
 }
 
@@ -1470,7 +1479,7 @@ export async function spawnAutoRunCandidate(
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>,
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRef<Set<string>>,
-  options: { revealPolicy?: AgentTerminalRevealPolicy } = {}
+  options: { revealPolicy?: AgentTerminalRevealPolicy; missingCliNoticeKeys?: Set<string> } = {}
 ): Promise<'started' | 'failed' | 'skipped'> {
   const currentWorkspace = ports.getWorkspace(workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
@@ -1494,24 +1503,39 @@ export async function spawnAutoRunCandidate(
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
 
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'skipped'
+  const missingCliNoticeKey = `${workspace.id}:${nextRun.agentId}:${nextRun.taskId}`
   if (!selectedCli) {
-    await ports.publishDiagnostic({
-      level: 'error',
-      source: 'terminal',
-      title: 'Roster runner skipped agent',
-      message: 'Sprint agent is missing its CLI selection.',
-      details: [
-        `Workspace: ${workspace.name}`,
-        `Agent: ${nextRun.agentId}`,
-        `Task: ${nextRun.taskId}`,
-      ].join('\n'),
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      agentId: nextRun.agentId,
-      taskId: nextRun.taskId,
-    })
-    return 'failed'
+    // A missing CLI is a per-role CONFIG error, not a spawn failure. Return
+    // 'skipped' (NOT 'failed') so the supervise tick moves on to the sibling
+    // candidates instead of aborting on the first misconfigured role — one role
+    // without a resolved CLI must never freeze every ready task queued behind it
+    // (the 2026-07-19 stall: a CLI-less nuclear_reviewer froze its sibling
+    // spec_reviewer task too). Surface the diagnostic ONCE per (workspace, agent,
+    // task) via the runner's notice set (mirrors bootstrapStallNoticeKeys) rather
+    // than re-publishing on every ~4s supervision tick.
+    const noticeKeys = options.missingCliNoticeKeys
+    if (!noticeKeys || !noticeKeys.has(missingCliNoticeKey)) {
+      noticeKeys?.add(missingCliNoticeKey)
+      await ports.publishDiagnostic({
+        level: 'error',
+        source: 'terminal',
+        title: 'Roster runner skipped agent',
+        message: 'Sprint agent is missing its CLI selection.',
+        details: [
+          `Workspace: ${workspace.name}`,
+          `Agent: ${nextRun.agentId}`,
+          `Task: ${nextRun.taskId}`,
+        ].join('\n'),
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        agentId: nextRun.agentId,
+        taskId: nextRun.taskId,
+      })
+    }
+    return 'skipped'
   }
+  // CLI resolved: clear any stale missing-CLI notice so a later re-break re-warns.
+  options.missingCliNoticeKeys?.delete(missingCliNoticeKey)
   // Resume-aware owner respawn (MC-1444 Phase 2): spawning the previous
   // owner back onto its OWN task after a window disposal relaunches the
   // original conversation (`--resume <token>`) instead of a fresh brief, so the
@@ -1864,6 +1888,7 @@ async function ensureSprintEngineBootstrapAgent(
     cliRuntimes,
     mcpSettings,
     inFlightSpawns,
+    { missingCliNoticeKeys: cycleState.missingCliNoticeKeys },
   )
   if (result === 'failed') return 'failed'
   if (result === 'started') {
@@ -2532,7 +2557,8 @@ export async function superviseRunnerActiveCycle(
       nextRun,
       cliRuntimes,
       mcpSettings,
-      inFlightSpawns
+      inFlightSpawns,
+      { missingCliNoticeKeys: cycleState.missingCliNoticeKeys }
     )
     if (spawnResult === 'failed') return
   }

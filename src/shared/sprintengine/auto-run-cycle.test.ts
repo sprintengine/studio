@@ -257,9 +257,73 @@ async function testTriageActingDoesNotSuppressPoolSpawning(): Promise<void> {
   assert.equal(captured.spawns[0].agentId, 'developer-1', 'the ready developer task got a fresh pool worker')
 }
 
+async function testMissingCliRoleDoesNotFreezeSiblings(): Promise<void> {
+  // Two ready reviewer tasks, siblings with no dependency between them.
+  // `nuclear_reviewer` is absent from `roleRuntimes` (the 2026-07-19 gap: a
+  // sweep role that never got a CLI), so its runtime resolves no CLI;
+  // `spec_reviewer` has one. The CLI-less role must be SKIPPED without aborting
+  // the tick, so the sibling spec_reviewer still spawns the same tick, and its
+  // "missing CLI selection" diagnostic surfaces ONCE across repeated ticks (the
+  // old code returned 'failed', froze the sibling, and re-published every ~4s).
+  const task = (over: Record<string, unknown>) => ({
+    id: 'T', title: '', description: '', role: 'developer', status: 'todo', ownerAgentId: null,
+    dependsOn: [], ownedPaths: [], acceptanceCriteria: [], implementationNotes: [],
+    evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] }, notes: [], comments: [],
+    startedAt: null, completedAt: null, boardColumn: 'ready', ...over,
+  })
+  const state = {
+    name: 'team',
+    goal: '',
+    roleCounts: {},
+    // nuclear_reviewer intentionally absent -> resolveSprintEngineAgentRuntime
+    // returns no CLI for it; spec_reviewer resolves claude-code.
+    roleRuntimes: { spec_reviewer: { cli: 'claude-code' } },
+    sprintEngineAgents: {},
+    events: [],
+    artifacts: [],
+    tasks: [
+      task({ id: 'T-nuclear', title: 'CLI-less review', role: 'nuclear_reviewer' }),
+      task({ id: 'T-spec', title: 'Sibling review', role: 'spec_reviewer' }),
+    ],
+  } as unknown as SprintEngineState
+
+  const workspace = {
+    id: 'workspace-1',
+    name: 'Missing-CLI workspace',
+    folderPath: '/tmp/workspace',
+    agents: {},
+    sprintEngineState: state,
+    sprintEngineAutoState: autoState(),
+    sprintEngineContext: { teamSlug: 'team', statePath: STATE_PATH },
+    memory: { relativeRoot: '' },
+  } as unknown as SprintEngineWorkspaceView
+
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports = makePorts(captured, workspace, [])
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  // Reuse ONE args tuple across two ticks so the shared cycle state (index 1)
+  // carries the missing-CLI notice set between ticks — exercising the dedup.
+  const args = superviseArgs(ports, workspace, cliRuntimes)
+  await superviseWorkspace(...args)
+  await superviseWorkspace(...args)
+
+  assert.ok(
+    captured.spawns.some((s) => (s.agentId ?? '').startsWith('spec_reviewer')),
+    `the CLI-less nuclear_reviewer must not freeze the sibling spec_reviewer; spawns=${JSON.stringify(captured.spawns)}`,
+  )
+  const missingCliDiags = captured.diagnostics.filter((d) => d.title === 'Roster runner skipped agent')
+  assert.equal(
+    missingCliDiags.length,
+    1,
+    `the missing-CLI notice publishes once across ticks (dedup); diagnostics=${JSON.stringify(captured.diagnostics.map((d) => d.title))}`,
+  )
+}
+
 async function main(): Promise<void> {
   await testAThrowingStageDoesNotPreventSpawning()
   await testTriageActingDoesNotSuppressPoolSpawning()
+  await testMissingCliRoleDoesNotFreezeSiblings()
   console.log('auto-run-cycle.test.ts: all tests passed')
 }
 
