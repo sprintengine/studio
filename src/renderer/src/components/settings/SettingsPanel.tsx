@@ -1992,7 +1992,7 @@ export default function SettingsPanel({
         </div>
       ) : null}
 
-      {activeSettingsTab === 'trackers' ? <TrackerConnectionsTab /> : null}
+      {activeSettingsTab === 'trackers' ? <TrackerConnectionsTab workspaceRoot={activeSprintEngineRoot} /> : null}
 
       {activeSettingsTab === 'agents' ? (
         <div

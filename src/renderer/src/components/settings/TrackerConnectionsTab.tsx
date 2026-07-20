@@ -10,6 +10,7 @@ import type {
 import { GhostButton, PrimaryButton, SegmentedControl, Select, StatusDot } from '../ui'
 import type { SelectItem } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
+import { TrackerWriteBackSettings } from './TrackerWriteBackSettings'
 import {
   activeAuthModeSpec,
   canTestDraft,
@@ -130,7 +131,7 @@ function describeProbe(probe: TrackerConnectionProbe): string {
   return probe.reason ?? 'Could not reach this tracker.'
 }
 
-export function TrackerConnectionsTab() {
+export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string | null } = { workspaceRoot: null }) {
   const [connections, setConnections] = useState<RedactedTrackerConnection[] | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
@@ -404,6 +405,21 @@ export function TrackerConnectionsTab() {
           </p>
         ) : null}
       </section>
+
+      {connections && connections.length > 0 ? (
+        <section className="space-y-3">
+          <SettingsSectionTitle>Posting back to trackers</SettingsSectionTitle>
+          <p className="max-w-[68ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
+            Off by default per connection. Sprints always read from your trackers; turn a connection on here to let a
+            running sprint post progress comments — and, where the tracker supports it, move an issue’s status.
+          </p>
+          <div className="space-y-3">
+            {connections.map((connection) => (
+              <TrackerWriteBackSettings key={connection.id} connection={connection} workspaceRoot={workspaceRoot} />
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   )
 }
