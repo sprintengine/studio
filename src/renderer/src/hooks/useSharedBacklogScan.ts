@@ -8,7 +8,9 @@ import {
   type BacklogScanResult,
 } from '../utils/backlog'
 import { hydrateBacklogScanResult } from '../utils/backlogObjects'
+import { collectDanglingMockups } from '../utils/backlogMockups'
 import { formatBacklogDisplayId } from '../../../shared/backlog/item-id'
+import { joinFilePath } from '../utils/paths'
 import { normalizeProjectRootKey } from '../utils/projectKnowledge'
 import type { BacklogItemRecordInput } from '../../../shared/electron-api'
 
@@ -98,7 +100,36 @@ async function defaultBacklogScanRunner(folderPath: string): Promise<BacklogScan
   else if (ensured && !ensured.ok) result = mergeMetadataError(scanned, ensured.message)
   else if (metadataError) result = mergeMetadataError(scanned, metadataError)
   else result = scanned
-  return allocateBacklogItemIds(folderPath, result)
+  return annotateBacklogDanglingMockups(folderPath, await allocateBacklogItemIds(folderPath, result))
+}
+
+// Scan-time mockup-reference validation (MC-1697): the tolerant both-roots check
+// createBacklogItem cannot do itself (it is pure and filesystem-free). For each
+// item that names a mockup — attached or body-detected — probe every candidate
+// root; any reference that resolves to no file is recorded on the item as
+// `danglingMockups` so the panel surfaces a row warning (shown, never dropped).
+// A path-prefix slip that once made a requirement-carrying artifact invisible is
+// now visible in the Backlog. Non-fatal and best-effort: a probe failure leaves
+// the item unannotated (no false "missing" flag) rather than failing the scan,
+// and items naming no mockup do zero filesystem work.
+async function annotateBacklogDanglingMockups(
+  folderPath: string,
+  result: BacklogScanResult,
+): Promise<BacklogScanResult> {
+  if (result.items.length === 0) return result
+  const items = await Promise.all(
+    result.items.map(async (item) => {
+      try {
+        const dangling = await collectDanglingMockups(item, (relativePath) =>
+          adapter.pathExists(joinFilePath(folderPath, relativePath)),
+        )
+        return dangling.length > 0 ? { ...item, danglingMockups: dangling } : item
+      } catch {
+        return item
+      }
+    }),
+  )
+  return { ...result, items } as BacklogScanResult
 }
 
 // Scan-time id allocation (the single allocation authority): hand every scanned

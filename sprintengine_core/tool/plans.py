@@ -101,7 +101,23 @@ def source_item_absolute_path(state_path: Path, item: Dict[str, Any], path_value
     # repository root. Copy sources live under the team folder and resolve via the
     # standard artifact path logic.
     if item.get("origin") == "reference":
-        return (repository_root_for_state(state_path) / path_value).resolve()
+        root = repository_root_for_state(state_path)
+        primary = (root / path_value).resolve()
+        if primary.exists():
+            return primary
+        # Tolerant retry (MC-1697): a reference authored `mockups/x.html` (no
+        # `backlog/` prefix) actually lives at `backlog/mockups/x.html`. A single
+        # missing prefix once made the one artifact carrying the requirement
+        # invisible, and the wrong architecture shipped — so before reporting a
+        # reference missing, retry it under `backlog/`. Only the primary is
+        # returned when neither resolves, so the miss is reported against the
+        # authored path.
+        normalized = str(path_value).replace("\\", "/").lstrip("/")
+        if normalized and not normalized.startswith("backlog/"):
+            fallback = (root / "backlog" / normalized).resolve()
+            if fallback.exists():
+                return fallback
+        return primary
     return artifact_absolute_path(state_path, path_value)
 
 def source_path_for_kind(state: Dict[str, Any], state_path: Path, kind: str) -> Path:
@@ -137,13 +153,27 @@ def refresh_artifact_fingerprint(artifact: Dict[str, Any], state_path: Path) -> 
     artifact["fingerprint"] = fingerprint
     artifact["updatedAt"] = now_iso()
 
-def source_bundle_reference_notes(state: Dict[str, Any]) -> List[str]:
+def source_bundle_reference_notes(state: Dict[str, Any], state_path: Optional[Path] = None) -> List[str]:
     notes: List[str] = []
     for item in source_bundle_items(state):
         kind = str(item.get("kind") or "").strip()
         path = str(item.get("path") or "").strip()
         if not path:
             continue
+        # Dangling-acceptance-reference guard (MC-1697): a reference source whose
+        # path resolves to no file — even after the tolerant `backlog/` retry in
+        # source_item_absolute_path — means the artifact carrying the requirement
+        # may be invisible. Surface it (shown, never dropped) and name the
+        # escalation the architect contract requires, so auto-run never quietly
+        # builds to the spec text when the acceptance reference is gone.
+        if state_path is not None and item.get("origin") == "reference":
+            if not source_item_absolute_path(state_path, item, path).exists():
+                notes.append(
+                    f"WARNING — source reference `{path}` could not be found at the repository root or under "
+                    "`backlog/`. A missing acceptance reference means the spec text may not carry the full intent: "
+                    "raise needs_input(user) before building to the spec text, even under auto-run, rather than "
+                    "assuming the spec is self-sufficient."
+                )
         if kind == "html_mockup":
             notes.append(
                 f"Use source mockup `{path}` as the primary UI reference for relevant frontend/UI tasks. "

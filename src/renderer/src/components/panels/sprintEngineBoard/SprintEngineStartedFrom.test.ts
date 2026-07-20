@@ -7,6 +7,8 @@ import {
   sprintEngineSeedKindLabel,
   sprintEngineSeedMode,
   sprintEngineSeedPreviewKind,
+  sprintEngineSeedProvenanceProviderLabel,
+  trackerSeedProvenance,
 } from './sprintEngineStartedFrom'
 import type { SprintEngineSource, SprintEngineSourceBundleStateItem } from '../../../types/workspace'
 
@@ -254,6 +256,90 @@ assert.equal(sprintEngineSeedKindLabel({ kind: 'unknown', isEpicRoot: false }), 
   assert.ok(
     inspectorSource.includes('title="Artifacts"'),
     'the promoted section is titled plainly ("Artifacts")',
+  )
+}
+
+// 9. Tracker provenance (MC-1639): a proxy item's flat underscore external
+// frontmatter yields the native key + issue URL + provider for the seed row; a
+// native item yields null (its row is unchanged, byte-identical to today).
+{
+  const proxy = [
+    '---',
+    'external_provider: jira',
+    'external_connection: trk-1',
+    'external_id: "10023"',
+    'external_key: PROJ-141',
+    'external_url: https://acme.atlassian.net/browse/PROJ-141',
+    'status: in_progress',
+    '---',
+    '# Relay ledger purge',
+    '',
+    'Body.',
+  ].join('\n')
+  const provenance = trackerSeedProvenance(proxy)
+  assert.deepEqual(
+    provenance,
+    { provider: 'jira', nativeKey: 'PROJ-141', url: 'https://acme.atlassian.net/browse/PROJ-141' },
+    'a proxy item yields provider + native key + issue url',
+  )
+
+  assert.equal(
+    trackerSeedProvenance('# Native item\n\nA plain backlog note.\n'),
+    null,
+    'a native (non-proxy) item yields null provenance',
+  )
+
+  // A proxy whose external block was stripped down to just provider is not a
+  // usable provenance (no native key to show) → null, not a partial chip.
+  assert.equal(
+    trackerSeedProvenance('---\nexternal_provider: github\n---\n# x\n'),
+    null,
+    'provider without a native key yields null',
+  )
+
+  // An unknown provider value is rejected (never rendered as a bogus chip).
+  assert.equal(
+    trackerSeedProvenance('---\nexternal_provider: gitlab\nexternal_key: GL-1\n---\n# x\n'),
+    null,
+    'an unsupported provider yields null',
+  )
+
+  // A missing url is tolerated (key still shows; the row just has no View link).
+  assert.deepEqual(
+    trackerSeedProvenance('---\nexternal_provider: linear\nexternal_key: ENG-7\n---\n# x\n'),
+    { provider: 'linear', nativeKey: 'ENG-7', url: '' },
+    'a proxy without a url still yields the native key, with an empty url',
+  )
+
+  assert.equal(sprintEngineSeedProvenanceProviderLabel('jira'), 'Jira', 'plain provider label')
+  assert.equal(sprintEngineSeedProvenanceProviderLabel('github'), 'GitHub', 'plain provider label')
+  assert.equal(sprintEngineSeedProvenanceProviderLabel('linear'), 'Linear', 'plain provider label')
+}
+
+// 10. Source contract: the Inbox seed row renders tracker provenance (native key
+// + a "View in <provider>" jump-out) for proxy-seeded rows, derived from the
+// backlog scan it already loads (no extra file reads). React-coupled, so pinned
+// on source like the other Inbox behaviours above.
+{
+  const inboxSource = readFileSync(
+    join(process.cwd(), 'src/renderer/src/components/panels/sprintEngineBoard/SprintEngineInboxView.tsx'),
+    'utf8',
+  )
+  assert.ok(
+    inboxSource.includes('trackerSeedProvenance(item.sourceContent)'),
+    'the Inbox derives provenance from the already-loaded backlog scan, not a new read',
+  )
+  assert.ok(
+    inboxSource.includes('provenance={row.backlogPath ? provenanceByPath.get(row.backlogPath.toLowerCase()) ?? null : null}'),
+    'each seed row gets its proxy provenance by backlog path',
+  )
+  assert.ok(
+    inboxSource.includes('window.api.openExternal(provenance.url)'),
+    'the View jump-out opens the tracker issue url',
+  )
+  assert.ok(
+    inboxSource.includes('{provenance.nativeKey}'),
+    'the native tracker key renders verbatim on the seed row',
   )
 }
 

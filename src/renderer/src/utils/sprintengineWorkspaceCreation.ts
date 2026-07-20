@@ -17,7 +17,9 @@ import type {
   SprintEngineStateInitializeInput,
   SprintEngineStateInitializeSource,
   SprintEngineStateInitializeSourceBundleItem,
+  TrackerProviderId,
 } from '../../../shared/electron-api'
+import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
@@ -130,7 +132,17 @@ export function buildSprintEngineRoleRuntimes(
   ])) {
     const model = roleModelOverrides?.[role as SprintEngineRoleId] ?? null
     const cli = roleCliDefaults?.[role as SprintEngineRoleId] ?? null
-    if (model || cli) roleRuntimes[role] = { model, cli }
+    // A recorded role MUST carry a CLI. Sweep roles supplied by the role
+    // registry (e.g. nuclear_reviewer, spec_reviewer) are absent from
+    // DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, so DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
+    // (derived from its keys) has no baseline entry for them. A model-only pick
+    // then reaches here with cli:null and persists into run.yaml `roleRuntimes`
+    // as `{model, cli:null}`, which hard-fails spawnAutoRunCandidate — it has no
+    // 'claude-code' fallback the way reconcileSprintEngineAgents does, so the
+    // roster runner stalls the task (and, via the tick's early return on a failed
+    // spawn, every sibling behind it) and spams the diagnostics log. Default the
+    // CLI whenever an entry is recorded so a runnable role never ships without one.
+    if (model || cli) roleRuntimes[role] = { model, cli: cli ?? 'claude-code' }
   }
   return roleRuntimes
 }
@@ -315,7 +327,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   }
 }
 
-function derivePlanSourcedGoal(sourceContent: string, sourcePath: string): string {
+export function derivePlanSourcedGoal(sourceContent: string, sourcePath: string): string {
   const heading = sourceContent
     .split(/\r?\n/u)
     .map((line) => line.match(/^#{1,3}\s+(.+?)\s*$/u)?.[1]?.trim())
@@ -326,4 +338,181 @@ function derivePlanSourcedGoal(sourceContent: string, sourcePath: string): strin
   const stem = filename.replace(/\.[^.]+$/u, '').trim()
   const normalized = stem.replace(/[-_]+/gu, ' ').replace(/\s+/gu, ' ').trim()
   return normalized || 'Sprint handoff'
+}
+
+// ---------------------------------------------------------------------------
+// Tracker proxy sprint seeding (MC-1639, plan §3.6)
+//
+// A proxy backlog item mirrors an external tracker issue. When a sprint is
+// seeded from one, the architect must read the FRESH issue — its current body
+// and comment thread. Backlog launches are REFERENCE-mode (sourceReference),
+// meaning the architect reads the on-disk file in place (see
+// buildPlanFileSprintEngineHandoffPrompt) rather than an embedded snapshot; so
+// freshness is delivered by refreshing that file through the T6 materialize
+// upsert at seed time, then referencing it — not by composing content in the
+// renderer (which the reference-mode handoff never reads).
+//
+// These are the pure, node-testable pieces of that seam: read a proxy's external
+// identity from frontmatter (to know what to refresh), and locate the on-disk
+// proxy item a one-step materialize just wrote (to reference it). The imperative
+// materialize + create + link glue lives in the Backlog panel and reuses the
+// shared plan-sourced creation path (D6: compose existing seams, never a bespoke
+// sprint-from-tracker pipeline). A native (non-proxy) item never reaches any of
+// this, so its seeding stays byte-identical to today.
+// ---------------------------------------------------------------------------
+
+// The external identity a proxy item carries in its flat underscore frontmatter
+// keys (plan §3.4). provider/connection/id are required to refresh; key/url are
+// best-effort display fields.
+export type ProxyTrackerIdentity = {
+  provider: TrackerProviderId
+  connectionId: string
+  externalId: string
+  nativeKey: string
+  url: string
+}
+
+function isTrackerProviderId(value: string): value is TrackerProviderId {
+  return value === 'github' || value === 'jira' || value === 'linear'
+}
+
+// Read a backlog item's proxy identity from its frontmatter. Returns null for a
+// native (non-proxy) item, or a proxy whose external block was stripped — the
+// caller then takes the byte-identical native seeding path. Underscore keys only
+// (a dotted key does not round-trip the frontmatter charset, plan §3.4).
+export function parseProxyTrackerIdentity(sourceContent: string): ProxyTrackerIdentity | null {
+  const { fields } = parseBacklogFrontmatter(sourceContent)
+  const provider = fields.external_provider?.trim()
+  const connectionId = fields.external_connection?.trim()
+  const externalId = fields.external_id?.trim()
+  if (!provider || !connectionId || !externalId || !isTrackerProviderId(provider)) return null
+  return {
+    provider,
+    connectionId,
+    externalId,
+    nativeKey: fields.external_key?.trim() || '',
+    url: fields.external_url?.trim() || '',
+  }
+}
+
+// Locate the proxy backlog item that mirrors a given issue, by matching its
+// one issue-typed sidecar link (target.kind `<provider>.issue`, target.id the
+// externalId) written by the T6 materializer. Used after a one-step materialize
+// to resolve the freshly written item's on-disk path + content. Pure over a
+// minimal item shape (returns the caller's own item type).
+export function matchProxyItemByIssue<
+  T extends {
+    relativePath: string
+    path: string
+    sourceContent: string
+    links: ReadonlyArray<{ type: string; target?: { kind?: string; id?: string } }>
+  },
+>(items: ReadonlyArray<T>, provider: TrackerProviderId, externalId: string): T | null {
+  const wantedKind = `${provider}.issue`
+  for (const item of items) {
+    for (const link of item.links) {
+      if (link.type !== 'issue') continue
+      if (link.target?.kind === wantedKind && link.target?.id === externalId) return item
+    }
+  }
+  return null
+}
+
+export type StartTrackerProxySprintResult =
+  | { ok: true; teamName: string; teamSlug: string; workspaceId: WorkspaceId }
+  | { ok: false; code: string; message: string }
+
+// The one-step "Start sprint" composition (mockup §2, plan §3.6 + D6): create a
+// plan-sourced run from an already-materialized proxy item, then record the
+// backlog execution link — the identical end-state to materializing and running
+// a sprint in two steps, minus the wizard. It reuses the shared plan-sourced
+// creation path and reference-mode seeding (the on-disk proxy file the caller
+// just refreshed IS the canonical seed); it is NOT a bespoke sprint pipeline.
+// The team name numbers up on a directory collision (a prior launch from the
+// same issue) exactly the way the chained-sprint path does, rather than failing.
+// Ports are injected so this stays unit-testable without window/IPC.
+export async function startTrackerProxySprint(args: {
+  rootPath: string
+  baseTeamName: string
+  goal: string
+  sourceRelativePath: string
+  sourceContent: string
+  sourcePlanKind: SprintEngineSourcePlanKind
+  roleCounts: SprintEngineRoleCounts
+  roleCliDefaults: SprintEngineRoleCliDefaults
+  roleModelOverrides: SprintEngineRoleModelOverrides | null
+  initialSpawnRoles: SprintEngineRoleId[] | null
+  sprintEngineAutoState: Partial<SprintEngineAutoState>
+  workspaceWindowId?: WorkspaceWindowId | null
+  pathExists: (path: string) => boolean | Promise<boolean>
+  initializeSprintEngineState: (
+    input: SprintEngineStateInitializeInput
+  ) => Promise<SprintEngineArtifactCommandResult>
+  recordExecutionLink: (input: {
+    workspaceRoot: string
+    sourceRelativePath: string
+    teamSlug: string
+    statePath: string
+  }) => Promise<void>
+}): Promise<StartTrackerProxySprintResult> {
+  const baseTeamName = args.baseTeamName.trim() || 'Sprint'
+  let teamName = baseTeamName
+  let context = buildPlanSourcedSprintEngineWorkspaceContext(args.rootPath, teamName)
+  for (let suffix = 2; await args.pathExists(context.statePath); suffix += 1) {
+    if (suffix > 100) {
+      return { ok: false, code: 'team_name_exhausted', message: `Could not find a free run name for "${baseTeamName}".` }
+    }
+    teamName = `${baseTeamName} ${suffix}`
+    context = buildPlanSourcedSprintEngineWorkspaceContext(args.rootPath, teamName)
+  }
+
+  let result: PlanSourcedSprintEngineWorkspaceResult
+  try {
+    result = await createPlanSourcedSprintEngineWorkspace({
+      rootPath: args.rootPath,
+      teamName,
+      goal: args.goal,
+      sourcePath: args.sourceRelativePath,
+      sourceContent: args.sourceContent,
+      sourcePlanKind: args.sourcePlanKind,
+      roleCounts: args.roleCounts,
+      roleCliDefaults: args.roleCliDefaults,
+      roleModelOverrides: args.roleModelOverrides,
+      initialSpawnRoles: args.initialSpawnRoles,
+      sprintEngineAutoState: args.sprintEngineAutoState,
+      workspaceWindowId: args.workspaceWindowId,
+      // The proxy file (just refreshed) is the canonical seed, referenced in place.
+      sourceReference: true,
+      pathExists: args.pathExists,
+      initializeSprintEngineState: args.initializeSprintEngineState,
+    })
+  } catch (error) {
+    if (error instanceof PlanSourcedSprintEngineWorkspaceError) {
+      return {
+        ok: false,
+        code: error.code,
+        message: error.message === error.code ? `Sprint run creation failed: ${error.code}.` : error.message,
+      }
+    }
+    return {
+      ok: false,
+      code: 'creation_failed',
+      message: error instanceof Error ? error.message : 'Sprint run creation failed.',
+    }
+  }
+
+  // Best-effort execution link: the run exists on disk regardless, so a failed
+  // link write must never surface as a failed launch (fallback discipline).
+  try {
+    await args.recordExecutionLink({
+      workspaceRoot: args.rootPath,
+      sourceRelativePath: args.sourceRelativePath,
+      teamSlug: result.sprintEngineContext.teamSlug,
+      statePath: result.sprintEngineContext.statePath,
+    })
+  } catch {
+    // Link is bookkeeping; the sprint is already created and running.
+  }
+
+  return { ok: true, teamName, teamSlug: result.sprintEngineContext.teamSlug, workspaceId: result.workspaceId }
 }

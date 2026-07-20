@@ -34,6 +34,7 @@ import { createSprintEngineAutomationService } from './sprintengine-automation-s
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
 import { createSprintPowerManager } from './sprint-power-manager'
 import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
+import { createTrackerWriteBackRuntime } from './tracker/writeback'
 import { computeSprintEngineTokenUsageReport } from './sprintengine-token-usage'
 import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
@@ -248,6 +249,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
     },
   })
+  // Tracker write-back (MC-1640): opt-in comments/transitions posted to the
+  // linked issue as a run progresses. Default off per connection, so with no
+  // tracker connection this is inert (the engine early-outs before any scan). It
+  // has no run-event push channel, so it reconciles: the runtime op broadcast
+  // below wakes it, and it reads fresh run state and posts whatever is newly due.
+  const trackerWriteBack = createTrackerWriteBackRuntime({
+    readProjection: (input) => sprintEngineArtifacts.readProjection(input),
+    logDiagnostic: (event, payload) => {
+      void writeDiagnosticLog({
+        level: 'warning',
+        source: 'sprintengine',
+        title: 'Tracker write-back',
+        message: event,
+        details: JSON.stringify(payload),
+      })
+    },
+  })
   const sprintRuntime = createSprintRuntime({
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -302,6 +320,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         if (window.isDestroyed() || window.webContents.isDestroyed()) continue
         window.webContents.send(SPRINT_RUNTIME_OP_CHANNEL, op)
       }
+      // Every runtime op means a run's state may have moved; wake write-back to
+      // reconcile it against the tracker (debounced, and inert when off).
+      if (op.statePath) trackerWriteBack.notifyRunActivity(op.statePath)
     },
     logDiagnostic: (diagnostic) => writeDiagnosticLog(diagnostic),
   })
@@ -498,6 +519,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     sprintEngineMcpHub,
     sprintPowerManager,
     sprintRuntime,
+    trackerWriteBack,
     terminalRuntime,
     updateService,
     withIpcDiagnostics,

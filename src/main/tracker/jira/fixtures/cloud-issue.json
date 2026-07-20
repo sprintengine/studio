@@ -1,0 +1,34 @@
+{
+  "id": "10023",
+  "key": "PROJ-17",
+  "self": "https://acme.atlassian.net/rest/api/2/issue/10023",
+  "fields": {
+    "summary": "Checkout total ignores currency rounding",
+    "description": "h2. Summary\n\nThe cart *total* is off by one cent for _some_ currencies.\n\nSteps:\n# Add two items priced at {{1.005}}\n# Go to checkout\n# Observe the rounded total\n\nSee the [rounding helper|https://example.com/docs/rounding] and this snippet:\n\n{code:java}\nBigDecimal total = subtotal.setScale(2, RoundingMode.HALF_UP);\n{code}\n\nbq. Reported by finance during the July close.\n\n----\n\n*Workaround:* apply the fix in {{PriceFormatter}}.",
+    "status": {
+      "name": "Ship it",
+      "statusCategory": { "key": "indeterminate", "name": "In Progress" }
+    },
+    "priority": { "name": "High" },
+    "labels": ["billing", "regression"],
+    "assignee": {
+      "accountId": "557058:abc-123",
+      "displayName": "Dana Rivera"
+    },
+    "updated": "2026-07-14T09:12:44.000+0000",
+    "comment": {
+      "comments": [
+        {
+          "author": { "displayName": "Sam Okoro" },
+          "body": "Confirmed on staging. The bug is in {{PriceFormatter.round}}.",
+          "created": "2026-07-14T10:03:00.000+0000"
+        },
+        {
+          "author": { "displayName": "Dana Rivera" },
+          "body": "Picking this up now.",
+          "created": "2026-07-14T11:20:00.000+0000"
+        }
+      ]
+    }
+  }
+}

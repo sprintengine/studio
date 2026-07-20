@@ -1,6 +1,9 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
 import { parseBacklogCsvList, parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
 import { parseBacklogNumericId } from '../../../shared/backlog/item-id'
+// Canonical object-store id, re-exported so existing importers of this module
+// keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
+import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
 import { parseBacklogMockups } from './backlogMockups'
 import type { HighlightColor, SprintEngineSourcePlanKind } from '../types/workspace'
 import {
@@ -141,6 +144,14 @@ export type BacklogItem = {
   // body-prose references are derived separately (backlogMockups.ts), never
   // stored here.
   mockups?: string[]
+  // Mockup references (attached `mockups:` or body-detected) that resolve to no
+  // file on disk after the tolerant both-roots check (MC-1697). Attached by the
+  // async scan-enrichment pass in useSharedBacklogScan — never by the pure,
+  // filesystem-free createBacklogItem — and surfaced as a row warning (shown,
+  // never dropped, mirroring the dangling-prerequisite discipline). `undefined`
+  // when every reference resolves, the item names no mockup, or it was built
+  // without the enrichment pass (e.g. the new-workspace source picker).
+  danglingMockups?: string[]
   highlight?: BacklogHighlight
   metadata: Record<string, unknown>
   links: BacklogItemLink[]
@@ -480,15 +491,10 @@ export function normalizeRelativePath(pathValue: string): string {
   return pathValue.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/')
 }
 
-export function stableBacklogObjectId(relativePath: string): string {
-  const normalized = normalizeRelativePath(relativePath).toLowerCase()
-  let hash = 2166136261
-  for (let index = 0; index < normalized.length; index += 1) {
-    hash ^= normalized.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `backlog_${(hash >>> 0).toString(36)}`
-}
+// Re-export the canonical object-store id so importers of this module keep a
+// stable entry point; the implementation now lives in the shared module used by
+// both processes and the /backlog skill.
+export { stableBacklogObjectId }
 
 // Stable per-item slug = the file's name stem, independent of its directory
 // (e.g. `backlog/epics/auth-revamp.md` -> `auth-revamp`,

@@ -210,3 +210,26 @@ export async function resolveFirstMockupCandidate<T>(
   }
   return null
 }
+
+// The scan-time dangling-reference check (MC-1697): every mockup an item names —
+// attached (`mockups:`) or body-detected — that resolves to no file under either
+// tolerated root. `exists` probes a root-relative path (typically a filesystem
+// existence check); a ref is dangling only when NEITHER candidate root resolves,
+// so the same file authored `mockups/x.html` or `backlog/mockups/x.html` is never
+// falsely flagged. Refs are returned in first-seen order, exactly as
+// collectBacklogMockups surfaces them (so the row warning and the detail-pane
+// "Missing" rows name the same set). Pure of any UI — the caller supplies the
+// probe — so it unit-tests without the filesystem.
+export async function collectDanglingMockups(
+  item: Pick<BacklogItem, 'mockups' | 'sourceContent' | 'relativePath'>,
+  exists: (relativePath: string) => Promise<boolean>,
+): Promise<string[]> {
+  const dangling: string[] = []
+  for (const entry of collectBacklogMockups(item)) {
+    const found = await resolveFirstMockupCandidate(entry.path, async (relativePath) =>
+      (await exists(relativePath)) ? relativePath : null,
+    )
+    if (found === null) dangling.push(entry.path)
+  }
+  return dangling
+}

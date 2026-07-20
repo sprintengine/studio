@@ -39,6 +39,8 @@ Before committing to an architecture, establish the information that matters for
 
 Do not turn guesses into requirements. If uncertainty remains, either ask for a decision or mark the assumption clearly with its risk.
 
+If the plan names a source, mockup, or acceptance reference that cannot be resolved on disk, treat it as a blocking gap rather than building to the spec text alone: a missing reference can mean the artifact carrying the real requirement is invisible. Escalate with needs_input(user) — even under automation — instead of assuming the spec text is self-sufficient.
+
 # Knowledge-Backed Discovery
 For medium, large, user-facing, data-sensitive, cross-system, or ambiguous planning work, run a knowledge-backed discovery loop before writing the final architecture plan.
 

@@ -417,7 +417,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         )
         product_task = product_gate["task"] if product_gate else None
         if product_task:
-            add_unique_values(product_task, "implementationNotes", source_bundle_reference_notes(state))
+            add_unique_values(product_task, "implementationNotes", source_bundle_reference_notes(state, state_path))
         if has_product_plan_source and product_gate:
             seeded_product = import_source_to_team_file(state, state_path, "product_plan", "product-requirements.md")
             if seeded_product:
@@ -435,7 +435,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 product_task["implementationNotes"] = [
                     f"Imported source plan is seeded at `{product_intake_path_artifact_value(state_path)}` if that file did not already exist.",
                     "Preserve existing product-requirements.md edits on repeated init runs.",
-                    *source_bundle_reference_notes(state),
+                    *source_bundle_reference_notes(state, state_path),
                 ]
                 apply_source_context_to_task(product_task, state, state_path)
             refresh_artifact_fingerprint(product_gate["artifact"], state_path)
@@ -456,7 +456,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Preserve existing product-requirements.md edits on repeated init runs.",
             ])
         plan_task = plan_gate["task"]
-        add_unique_values(plan_task, "implementationNotes", source_bundle_reference_notes(state))
+        add_unique_values(plan_task, "implementationNotes", source_bundle_reference_notes(state, state_path))
         if has_architect_plan_source and source_kind_is_reference(state, "architect_plan"):
             # Reference-sourced implementation plan (a backlog item launched in
             # place): the referenced file is the canonical plan. plan.md is NOT
@@ -484,7 +484,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Do not copy valid plan prose into plan.md; the manifest references the plan and records verification, the codebase index, decisions, risks, and the task graph summary.",
                 "Run-scoped material (codebase index, roster adaptation, task graph summary) belongs in the plan.md manifest, not in the referenced plan file.",
                 "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the referenced plan.",
-                *source_bundle_reference_notes(state),
+                *source_bundle_reference_notes(state, state_path),
             ]
             apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
@@ -510,7 +510,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                     "Preserve existing plan.md edits on repeated init runs.",
                     "Before creating task cards, index the current codebase areas affected by the imported plan and record that index in plan.md.",
                     "Review and update only stale or missing parts; do not rewrite valid plan content just because it was imported.",
-                    *source_bundle_reference_notes(state),
+                    *source_bundle_reference_notes(state, state_path),
                 ]
                 apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)
@@ -541,7 +541,7 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
                 "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the design documents.",
                 "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (in worktree mode, editing the copies in their own project's worktree so the flips ride that project's pull request).",
-                *source_bundle_reference_notes(state),
+                *source_bundle_reference_notes(state, state_path),
             ]
             apply_source_context_to_task(plan_task, state, state_path)
             refresh_artifact_fingerprint(plan_gate["artifact"], state_path)

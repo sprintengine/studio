@@ -16,6 +16,7 @@ import { AutomationsStore } from '../../automations/store'
 import { createBacklogItem } from '../../backlog-service'
 import { createRoadmapOrchestratorStore } from '../../roadmap-orchestrator-store'
 import type { RoadmapLaneRuntime } from '../../../shared/sprintengine/roadmap-orchestrator'
+import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
 import {
   automationRecentRunsMax,
   automationRunTextMaxChars,
@@ -712,7 +713,9 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
       schemaVersion: 1,
       items: [
         {
-          id: 'backlog_widget',
+          // The object id is always the canonical path hash; the store loader
+          // re-keys any legacy/mismatched id onto it (reconcileBacklogObjectRecordIds).
+          id: stableBacklogObjectId('backlog/2026-06-11-widget.md'),
           source: { type: 'file', relativePath: 'backlog/2026-06-11-widget.md' },
           status: 'ready',
           type: 'feature',
@@ -724,7 +727,7 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
           updatedAt: generatedAt,
         },
         {
-          id: 'backlog_archived',
+          id: stableBacklogObjectId('backlog/archived/old.md'),
           source: { type: 'file', relativePath: 'backlog/archived/old.md' },
           status: 'archived',
           metadata: {},
@@ -764,7 +767,7 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   assert.equal(backlogWorkspace?.workspacePath, workspaceRoot)
   assert.equal(backlogWorkspace?.items.length, 1)
   const item = backlogWorkspace?.items[0]
-  assert.equal(item?.itemId, 'backlog_widget')
+  assert.equal(item?.itemId, stableBacklogObjectId('backlog/2026-06-11-widget.md'))
   assert.equal(item?.title, 'Ship the widget')
   assert.equal(item?.status, 'ready')
   assert.equal(item?.type, 'feature')
