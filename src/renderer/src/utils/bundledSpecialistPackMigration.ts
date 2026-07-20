@@ -68,6 +68,13 @@ export async function runBundledSpecialistPackMigration(): Promise<void> {
       console.error('[BundledPackMigration] install reported failure', result)
       return
     }
+    if (result.rejected.length > 0) {
+      // Partial install: some first-party manifests were rejected (only possible
+      // if the shipped pack is corrupt). The pack still resolved enough to count
+      // as installed, so we do not block the guard — but a swallowed rejection
+      // would hide a broken build, so surface it explicitly.
+      console.error('[BundledPackMigration] install rejected manifests', result.rejected)
+    }
     useWorkspaceStore.getState().markBundledSpecialistPackMigrated()
     await refreshRoleRegistryAfterInstall()
   } catch (error) {
