@@ -256,9 +256,9 @@ export function BacklogTrackerPicker({
               Couldn’t reach {connection?.label ?? 'this tracker'}: {search.error}
             </InlineNotice>
           </div>
-        ) : search.issues.length === 0 ? (
+        ) : search.phase === 'ready' && search.issues.length === 0 ? (
           <p className="px-3 py-6 text-[12px] text-[color:var(--text-subtle)]">
-            {query.trim() ? 'No issues match your search.' : 'No issues to show yet.'}
+            {query.trim() ? 'No issues match your search.' : 'No open issues found.'}
           </p>
         ) : (
           <ul className="py-1" role="list">
