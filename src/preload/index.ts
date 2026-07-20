@@ -30,6 +30,7 @@ import { soulsApi } from './api/souls'
 import { sprintEngineApi } from './api/sprintengine'
 import { switchboardApi } from './api/switchboard'
 import { terminalApi } from './api/terminal'
+import { trackerApi } from './api/tracker'
 import { updateApi } from './api/update'
 import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
@@ -72,6 +73,7 @@ const api = {
   ...skillPackApi,
   ...sprintEngineApi,
   ...switchboardApi,
+  ...trackerApi,
   ...multiloopApi,
   ...terminalApi,
   ...updateApi,

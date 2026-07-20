@@ -9,6 +9,7 @@
 // re-shapes fields T2 already projects.
 
 import { basename } from '../../../utils/paths'
+import { parseBacklogFrontmatter } from '../../../../../shared/backlog/frontmatter'
 import type { SprintEngineSource, SprintEngineSourceBundleStateItem } from '../../../types/workspace'
 
 // Reference = the original file is read in place (it stays canonical); the run
@@ -204,4 +205,37 @@ function buildSubtitle(
   const noun = primary.backlogPath ? 'backlog item' : primary.kindLabel.toLowerCase()
   const bundleCount = childCount + supportingCount
   return bundleCount > 0 ? `${noun} + ${pluralize(bundleCount, 'file')}` : noun
+}
+
+// Tracker provenance for a "Started from" seed row (MC-1639): the native issue
+// key and tracker URL a proxy backlog item carries in its flat underscore
+// frontmatter (plan §3.4). Pure over the file's own content so the Inbox can
+// show "PROJ-141 · View in Jira" beside a proxy-seeded run without any new data
+// model. Returns null for a native (non-proxy) item — its row is unchanged.
+export type SprintEngineSeedProvenance = {
+  provider: 'github' | 'jira' | 'linear'
+  nativeKey: string
+  url: string
+}
+
+const PROVIDER_LABELS: Record<SprintEngineSeedProvenance['provider'], string> = {
+  github: 'GitHub',
+  jira: 'Jira',
+  linear: 'Linear',
+}
+
+export function sprintEngineSeedProvenanceProviderLabel(
+  provider: SprintEngineSeedProvenance['provider'],
+): string {
+  return PROVIDER_LABELS[provider]
+}
+
+export function trackerSeedProvenance(sourceContent: string): SprintEngineSeedProvenance | null {
+  const { fields } = parseBacklogFrontmatter(sourceContent)
+  const provider = fields.external_provider?.trim()
+  const nativeKey = fields.external_key?.trim()
+  const url = fields.external_url?.trim()
+  if (!provider || !nativeKey) return null
+  if (provider !== 'github' && provider !== 'jira' && provider !== 'linear') return null
+  return { provider, nativeKey, url: url ?? '' }
 }

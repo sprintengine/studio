@@ -569,6 +569,183 @@ export async function createBacklogEpic(input: BacklogCreateEpicInput): Promise<
   }
 }
 
+// --- Tracker proxy items (MC-1637 / plan §3.4) ----------------------------
+//
+// A proxy item is an ordinary backlog file carrying an external issue's identity
+// as flat underscore frontmatter keys, matched on re-materialize by
+// connection + external id so a second pull refreshes the SAME file rather than
+// duplicating it. The tracker owns the file's title heading and body; Multicode
+// owns status/type/triage/epic/dependsOn and the sidecar (links/highlight). The
+// writer here NEVER touches Multicode-owned keys — a refresh rewrites only the
+// tracker-owned body and the external_* frontmatter.
+
+// Sentinel comment marking an injected "issue no longer available" banner, so a
+// later successful refresh (which regenerates the whole body) drops it and
+// re-marking is idempotent.
+const PROXY_UNAVAILABLE_MARKER = '<!--tracker-unavailable-->'
+
+export type ProxyMaterializeInput = {
+  workspaceRoot: string
+  // Tracker-owned identity. `provider` is a plain id (github/jira/linear);
+  // `externalId` is the opaque per-provider id matched on refresh; `externalKey`
+  // is the native display key (PROJ-17); `externalUrl` is the tracker link.
+  provider: string
+  connectionId: string
+  externalId: string
+  externalKey: string
+  externalUrl: string
+  // Composed by the tracker layer (proxy-content.ts): the display title for the
+  // filename slug and the full markdown body (heading + mirror + provenance +
+  // issue body), starting at `# ` and ending with a newline.
+  title: string
+  body: string
+}
+
+export type ProxyMaterializeResult =
+  | { ok: true; outcome: 'added' | 'refreshed'; relativePath: string }
+  | { ok: false; message: string }
+
+// Create or refresh the proxy item for one external issue. On a first pull it
+// writes `backlog/<date>-<provider>-<key>-<slug>.md` with `status: idea` plus the
+// external_* identity; on re-materialize it matches the existing file on
+// connection + external id and rewrites only the body and external_* keys,
+// leaving triage/epic/dependsOn and the sidecar untouched.
+export async function materializeProxyBacklogItem(input: ProxyMaterializeInput): Promise<ProxyMaterializeResult> {
+  const externalId = input.externalId.trim()
+  const connectionId = input.connectionId.trim()
+  if (!externalId || !connectionId) return { ok: false, message: 'A tracker proxy item needs a connection and external id.' }
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const externalUpdates: BacklogFrontmatterUpdates = {
+      external_provider: input.provider,
+      external_connection: connectionId,
+      external_id: externalId,
+      external_key: input.externalKey,
+      external_url: input.externalUrl,
+      // A successful refresh clears any prior unavailable flag.
+      external_unavailable: null,
+    }
+    const body = ensureTrailingNewline(input.body)
+
+    const existing = await findProxyBacklogItemPath(workspace, connectionId, externalId)
+    if (existing) {
+      const target = resolve(join(workspace.root, existing))
+      const content = await readFile(target, 'utf-8')
+      const withFrontmatter = serializeBacklogFrontmatterFields(content, externalUpdates)
+      const next = `${frontmatterBlockOf(withFrontmatter)}\n${body}`
+      if (next !== content) await writeFile(target, next, 'utf-8')
+      return { ok: true, outcome: 'refreshed', relativePath: existing }
+    }
+
+    const store = await loadStore(workspace)
+    const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
+    const base = [
+      backlogTodayPrefix(new Date()),
+      slugifyBacklogTitle(input.provider),
+      slugifyBacklogTitle(input.externalKey),
+      slugifyBacklogTitle(input.title),
+    ].join('-')
+    const relativePath = await uniqueBacklogFilePathFromBase(workspace, base, existingLower)
+    const target = resolve(join(workspace.root, relativePath))
+    if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+    const frontmatter = serializeBacklogFrontmatterFields('', { status: 'idea', ...externalUpdates })
+    await mkdir(dirname(target), { recursive: true })
+    // `wx` fails instead of clobbering if a file appears between the uniqueness
+    // check and the write (concurrent scan).
+    await writeFile(target, `${frontmatter}\n${body}`, { encoding: 'utf-8', flag: 'wx' })
+    return { ok: true, outcome: 'added', relativePath }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+export type ProxyUnavailableInput = {
+  workspaceRoot: string
+  connectionId: string
+  externalId: string
+  // Plain-human provider label for the banner (e.g. "GitHub").
+  providerLabel: string
+  reason: string
+}
+
+export type ProxyUnavailableResult =
+  | { ok: true; found: boolean; relativePath?: string }
+  | { ok: false; message: string }
+
+// Mark an existing proxy whose upstream issue is gone (deleted/404) as visibly
+// unavailable: set the `external_unavailable` frontmatter flag and inject a
+// banner above the last-synced body — never delete the file and never leave it
+// looking silently fresh. Returns found:false when no proxy matches (a brand-new
+// external id that 404s is a caller-side failure, not an unavailable item).
+export async function markProxyBacklogItemUnavailable(input: ProxyUnavailableInput): Promise<ProxyUnavailableResult> {
+  const externalId = input.externalId.trim()
+  const connectionId = input.connectionId.trim()
+  if (!externalId || !connectionId) return { ok: false, message: 'A tracker proxy lookup needs a connection and external id.' }
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const existing = await findProxyBacklogItemPath(workspace, connectionId, externalId)
+    if (!existing) return { ok: true, found: false }
+
+    const target = resolve(join(workspace.root, existing))
+    const content = await readFile(target, 'utf-8')
+    const withFrontmatter = serializeBacklogFrontmatterFields(content, { external_unavailable: input.reason })
+    const parsed = parseBacklogFrontmatter(withFrontmatter)
+    const frontmatterBlock = withFrontmatter.slice(0, withFrontmatter.length - parsed.body.length)
+    const body = parsed.body.includes(PROXY_UNAVAILABLE_MARKER)
+      ? parsed.body
+      : injectProxyUnavailableBanner(parsed.body, input.providerLabel)
+    const next = `${frontmatterBlock}${body}`
+    if (next !== content) await writeFile(target, next, 'utf-8')
+    return { ok: true, found: true, relativePath: existing }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+// Scan the top-level backlog/ folder for the proxy file whose frontmatter
+// external identity matches this connection + external id. Proxy items live at
+// backlog/ root (never epics/roadmaps), so only that folder is scanned.
+async function findProxyBacklogItemPath(
+  workspace: ValidWorkspace,
+  connectionId: string,
+  externalId: string,
+): Promise<string | null> {
+  const relativePaths = await listMarkdownFiles(join(workspace.root, 'backlog'), BACKLOG_PREFIX)
+  for (const relativePath of relativePaths) {
+    let raw: string
+    try {
+      raw = await readFile(join(workspace.root, relativePath), 'utf-8')
+    } catch {
+      continue
+    }
+    const { fields } = parseBacklogFrontmatter(raw)
+    if (fields.external_connection === connectionId && fields.external_id === externalId) return relativePath
+  }
+  return null
+}
+
+// The frontmatter block (through the closing `---` line and its newline) of a
+// serialized document — everything before the body. Used to swap a proxy's body
+// while preserving the Multicode-owned frontmatter byte-for-byte.
+function frontmatterBlockOf(content: string): string {
+  const parsed = parseBacklogFrontmatter(content)
+  return content.slice(0, content.length - parsed.body.length)
+}
+
+function injectProxyUnavailableBanner(body: string, providerLabel: string): string {
+  const banner = `${PROXY_UNAVAILABLE_MARKER}\n> ⚠️ This issue is no longer available in ${providerLabel}. Showing the last synced copy.`
+  const lines = body.split('\n')
+  const headingIndex = lines.findIndex((line) => /^#\s/.test(line))
+  if (headingIndex === -1) return `${banner}\n\n${body}`
+  lines.splice(headingIndex + 1, 0, '', banner)
+  return lines.join('\n')
+}
+
+function ensureTrailingNewline(value: string): string {
+  return value.endsWith('\n') ? value : `${value}\n`
+}
+
 export async function ensureBacklogObjectRecords(
   workspaceRoot: string,
   items: BacklogItemRecordInput[],
@@ -1009,7 +1186,17 @@ async function uniqueBacklogFilePath(
   title: string,
   existingLower: Set<string>,
 ): Promise<string> {
-  const base = `${backlogTodayPrefix(new Date())}-${slugifyBacklogTitle(title)}`
+  return uniqueBacklogFilePathFromBase(workspace, `${backlogTodayPrefix(new Date())}-${slugifyBacklogTitle(title)}`, existingLower)
+}
+
+// Collision-safe `backlog/<base>.md`, appending `-2`, `-3`, … against both the
+// current store and the filesystem. Shared by native-item creation and the proxy
+// writer so both agree on how a duplicate base becomes a distinct filename.
+async function uniqueBacklogFilePathFromBase(
+  workspace: ValidWorkspace,
+  base: string,
+  existingLower: Set<string>,
+): Promise<string> {
   let candidate = `${BACKLOG_PREFIX}${base}.md`
   let index = 2
   while (existingLower.has(candidate.toLowerCase()) || (await backlogFileExists(workspace, candidate))) {
