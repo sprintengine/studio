@@ -322,13 +322,25 @@ async function testTestConnectionSuccessAndFailure(): Promise<void> {
   assert.equal(probe.reason, 'Bad credentials')
 }
 
-async function testWriteBackIsCapabilityGated(): Promise<void> {
-  const provider = makeProvider(routedFetch([]).fetchImpl)
-  assert.deepEqual(provider.capabilities, { canComment: false, canTransition: false, selfHostable: true })
+async function testCommentWriteBackPostsAndTransitionUnsupported(): Promise<void> {
+  // Comment write-back is on (MC-1640 / T10); named transitions never apply.
+  const { fetchImpl, requests } = routedFetch([['/issues/1/comments', ghResponse(201, { id: 12345 })]])
+  const provider = makeProvider(fetchImpl)
+  assert.deepEqual(provider.capabilities, { canComment: true, canTransition: false, selfHostable: true })
+
+  await provider.postComment({ connectionId: GITHUB_COM.id, externalId: 'acme/web#1', body: 'Sprint started' })
+  const posted = requests.find((request) => request.url.includes('/repos/acme/web/issues/1/comments'))
+  assert.ok(posted, 'posted to the issue comments endpoint')
+  assert.equal(posted?.authorization, `Bearer ${PAT}`, 'the credential authorizes the write')
+
+  // Posting without a credential is an honest auth failure, never a silent no-op.
+  const noToken = makeProvider(routedFetch([]).fetchImpl, GITHUB_COM, { ok: false, message: 'No credential configured.' })
   await assert.rejects(
-    () => provider.postComment({ connectionId: GITHUB_COM.id, externalId: 'acme/web#1', body: 'hi' }),
-    (err: unknown) => err instanceof TrackerProviderError && err.kind === 'unsupported'
+    () => noToken.postComment({ connectionId: GITHUB_COM.id, externalId: 'acme/web#1', body: 'hi' }),
+    (err: unknown) => err instanceof TrackerProviderError && err.kind === 'auth'
   )
+
+  // GitHub has no named workflow transitions, so tier-2 write-back never applies.
   await assert.rejects(
     () => provider.transitionIssue({ connectionId: GITHUB_COM.id, externalId: 'acme/web#1', transitionId: 't' }),
     (err: unknown) => err instanceof TrackerProviderError && err.kind === 'unsupported'
@@ -367,7 +379,7 @@ async function main(): Promise<void> {
   await testPublicReadWithoutTokenSendsNoAuthHeader()
   await testUnknownConnectionIsNotConfigured()
   await testTestConnectionSuccessAndFailure()
-  await testWriteBackIsCapabilityGated()
+  await testCommentWriteBackPostsAndTransitionUnsupported()
   console.log('github client.test.ts: all assertions passed')
 }
 
