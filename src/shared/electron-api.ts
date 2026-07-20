@@ -1264,23 +1264,11 @@ export type TerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; sessionId: string; message: string; exitCode: number }
 
-// Bundled specialist action ids, plus any registry-discovered role id from a
-// dropped-in specialist pack. The `(string & {})` arm preserves autocomplete
-// for the bundled ids while accepting any role id over IPC.
-export type SpecialistActionId =
-  | 'architect'
-  | 'product-strategist'
-  | 'developer'
-  | 'devops-infra'
-  | 'performance'
-  | 'production-readiness-review'
-  | 'cross-platform'
-  | 'blog-writer'
-  | 'qa-test'
-  | 'security-review'
-  | 'frontend-design-review'
-  | 'ui-ux-review'
-  | (string & {})
+// A specialist id is a registry role id (MC-1587: specialists ship as an
+// installable pack, so there is no fixed union of ids). Kept as a named alias
+// so the many IPC-boundary import sites need no churn; mirrors
+// `SpecialistActionId` in `src/shared/sprintengine/agent-state.ts`.
+export type SpecialistActionId = string
 
 export type SoulPromptResult =
   | { ok: true; prompt: string; path: string }

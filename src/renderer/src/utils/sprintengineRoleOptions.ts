@@ -222,7 +222,7 @@ export function listSprintEngineWizardRoles(
 // only when no `SprintEngineRoleRegistry` is available — the registry's per-role
 // `isSweep` flag is the runtime authority, mirroring the addable-role fallback
 // policy above. Keep in sync with the `"sweep"` blocks in
-// `resources/sprintengine/roles/*.json`.
+// `resources/specialist-pack/roles/*.json`.
 export const BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS: readonly SprintEngineRoleId[] = [
   'product',
   'ui_ux_reviewer',
