@@ -5,6 +5,7 @@
     "performance-engineer"
   ],
   "summary": "Reviews performance, scalability, and resource-use risks.",
+  "icon": "performance",
   "directives": {
     "implement": [
       {

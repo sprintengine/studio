@@ -8,6 +8,7 @@
     "brand-ui-review"
   ],
   "summary": "Reviews frontend UX, UI consistency, brand alignment, responsive behavior, and visual polish.",
+  "icon": "design_review",
   "directives": {
     "implement": [
       {

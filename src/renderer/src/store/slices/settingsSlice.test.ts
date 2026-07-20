@@ -17,6 +17,7 @@ import {
   normalizeNewChatAgentChoice,
   normalizeSearchExcludes,
   normalizeSpecialistOrder,
+  normalizeSpecialistPacks,
   sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import {
@@ -764,9 +765,11 @@ assert.deepEqual(
 )
 assert.deepEqual(normalizeSpecialistOrder(undefined), [], 'missing order normalizes to empty')
 
-// orderSpecialistActions honors the saved order first, then appends any
-// specialists missing from it (e.g. a newly shipped role) without dropping them.
-const reordered = orderSpecialistActions(['developer', 'architect'])
+// orderSpecialistActions honors the saved order first, then the curated display
+// order, then appends any remaining specialists without dropping them. The
+// roster is registry-sourced now, so the caller supplies the actions.
+const roster = ['tester', 'developer', 'architect'].map((id) => getSpecialistAction(id))
+const reordered = orderSpecialistActions(['developer', 'architect'], roster)
 assert.equal(reordered[0].id, 'developer', 'saved order leads the roster')
 assert.equal(reordered[1].id, 'architect', 'saved order is respected in sequence')
 assert.equal(
@@ -776,8 +779,8 @@ assert.equal(
 )
 assert.equal(
   reordered.length,
-  orderSpecialistActions([]).length,
-  'reordering never adds or drops specialists vs the canonical roster',
+  orderSpecialistActions([], roster).length,
+  'reordering never adds or drops specialists vs the provided roster',
 )
 // MC-1542: the code-review / spec-review / nuclear-review specialists were
 // retired alongside their reviewer souls; their soul-startup-prompt assertions
@@ -850,6 +853,77 @@ assert.deepEqual(
   ).moduleSettings,
   { 'module:demo-module': { count: 2 } },
   'module settings survive the persisted-settings normalization round trip',
+)
+
+// --- MC-1587 bundled specialist-pack migration guard -------------------------
+
+// Fresh profile: defaults skip the migration so nothing installs.
+assert.equal(
+  defaultAppSettings().specialistPacks.migratedBundledPack,
+  true,
+  'fresh profile defaults to migratedBundledPack true so the migration is a no-op',
+)
+
+// A returning profile (persisted specialistPacks without the flag) resolves to
+// false so the one-time migration still evaluates it.
+assert.deepEqual(
+  normalizeSpecialistPacks({ disabled: ['other-pack'] }),
+  { disabled: ['other-pack'], migratedBundledPack: false },
+  'a persisted pack config without the flag reads as not-yet-migrated',
+)
+assert.deepEqual(
+  normalizeSpecialistPacks({ disabled: [], migratedBundledPack: true }),
+  { disabled: [], migratedBundledPack: true },
+  'an explicit migrated flag round-trips',
+)
+assert.deepEqual(
+  normalizeSpecialistPacks(undefined),
+  { disabled: [], migratedBundledPack: false },
+  'missing pack config reads as not-yet-migrated',
+)
+// A returning profile (modulesChosen persisted, or workspaces present) with no
+// recorded migration → flag false so it runs once.
+assert.equal(
+  normalizeAppSettings({ specialistPacks: { disabled: [] }, modulesChosen: true }, []).specialistPacks
+    .migratedBundledPack,
+  false,
+  'normalizeAppSettings defaults a returning profile to not-yet-migrated',
+)
+// A fresh profile (no workspaces, no persisted modulesChosen) → flag true so it
+// installs nothing. This is the load-bearing guard for acceptance: hydration
+// always runs normalizeAppSettings, so the fresh default must resolve here.
+assert.equal(
+  normalizeAppSettings({ specialistPacks: { disabled: [] } }, []).specialistPacks.migratedBundledPack,
+  true,
+  'normalizeAppSettings defaults a fresh profile to already-migrated (installs nothing)',
+)
+// An explicit persisted flag always wins over the fresh-vs-returning fallback.
+assert.equal(
+  normalizeAppSettings({ specialistPacks: { disabled: [], migratedBundledPack: false }, modulesChosen: false }, [])
+    .specialistPacks.migratedBundledPack,
+  false,
+  'a persisted false flag is honored even for a fresh-looking profile',
+)
+
+const packStore = useWorkspaceStore.getState()
+// Toggling a pack must preserve the migration guard (a later uninstall must not
+// be undone by re-running the migration).
+packStore.markBundledSpecialistPackMigrated()
+assert.equal(
+  useWorkspaceStore.getState().appSettings.specialistPacks.migratedBundledPack,
+  true,
+  'markBundledSpecialistPackMigrated sets the guard',
+)
+packStore.setSpecialistPackEnabled('multicode-specialists', false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.specialistPacks.migratedBundledPack,
+  true,
+  'toggling a pack preserves the migration guard',
+)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.specialistPacks.disabled,
+  ['multicode-specialists'],
+  'toggling still records the disabled pack',
 )
 
 console.log('settingsSlice.test.ts: ok')

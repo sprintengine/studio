@@ -5,6 +5,7 @@
     "frontend-design-review"
   ],
   "summary": "Builds and reviews user-facing application experiences.",
+  "icon": "design",
   "directives": {
     "implement": [
       {

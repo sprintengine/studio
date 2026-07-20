@@ -28,6 +28,9 @@ export type SpecialistAction = {
   shortLabel: string
   description: string
   icon: SpecialistIcon
+  // A specialist's id is its registry role id, so `soulRole === id` always. The
+  // field is kept (rather than folded into `id`) so call sites reading a role
+  // for `souls get <role>` stay explicit about intent.
   soulRole: string
   shortcut?: string
 }
@@ -58,109 +61,33 @@ export const MULTILOOP_ROLES: MultiloopRoleDescriptor[] = [
   { role: 'cross_platform', label: 'Cross-platform', shortLabel: 'Compatibility', icon: 'cross_platform' },
 ]
 
-export const SPECIALIST_ACTIONS: SpecialistAction[] = [
-  {
-    id: 'architect',
-    label: 'Architecture Planning',
-    shortLabel: 'Architect',
-    description: 'Create implementation plans, compare approaches, and shape system design.',
-    icon: 'architecture',
-    soulRole: 'architect',
-  },
-  {
-    id: 'product-strategist',
-    label: 'Product Strategist',
-    shortLabel: 'Product Strategist',
-    description: 'Research competitors, evaluate product value, sharpen positioning, and challenge weak strategy.',
-    icon: 'product',
-    soulRole: 'product',
-  },
-  {
-    id: 'developer',
-    label: 'Backend Development',
-    shortLabel: 'Developer',
-    description: 'Build reliable backend, API, data, and server-side implementation work.',
-    icon: 'code',
-    soulRole: 'developer',
-  },
-  {
-    id: 'devops-infra',
-    label: 'DevOps & Infrastructure',
-    shortLabel: 'DevOps',
-    description: 'Review deployment, infrastructure, observability, reliability, and operations.',
-    icon: 'infra',
-    soulRole: 'devops',
-  },
-  {
-    id: 'performance',
-    label: 'Performance Engineer',
-    shortLabel: 'Performance Engineer',
-    description: 'Profile runtime behavior, memory use, CPU hot spots, bundle size, latency, and resource leaks.',
-    icon: 'performance',
-    soulRole: 'performance',
-  },
-  {
-    id: 'production-readiness-review',
-    label: 'Production Readiness Reviewer',
-    shortLabel: 'Production Ready',
-    description: 'Review release readiness across deployment, real integrations, data, observability, rollback, scale, and user setup.',
-    icon: 'production_readiness',
-    soulRole: 'production_readiness_reviewer',
-  },
-  {
-    id: 'cross-platform',
-    label: 'Cross-platform Specialist',
-    shortLabel: 'Compatibility',
-    description: 'Review operating system, browser, device, shell, filesystem, packaging, and runtime compatibility.',
-    icon: 'cross_platform',
-    soulRole: 'cross_platform',
-  },
-  {
-    id: 'frontend-design-review',
-    label: 'Frontend Designer',
-    shortLabel: 'Frontend Designer',
-    description: 'Design and implement polished frontend experiences, UI architecture, accessibility, and responsive behavior.',
-    icon: 'design',
-    soulRole: 'frontend',
-  },
-  {
-    id: 'ui-ux-review',
-    label: 'UI/UX Reviewer',
-    shortLabel: 'UI/UX Reviewer',
-    description: 'Review rendered UX/UI quality, brand alignment, responsive behavior, consistency across screens, and visual artifacts.',
-    icon: 'design_review',
-    soulRole: 'ui_ux_reviewer',
-  },
-  {
-    id: 'blog-writer',
-    label: 'Blog Writer',
-    shortLabel: 'Blog Writer',
-    description: 'Research, draft, edit, and package publish-ready blog posts with natural prose and image direction.',
-    icon: 'writing',
-    soulRole: 'blog_writer',
-  },
-  {
-    id: 'qa-test',
-    label: 'QA and Test Specialist',
-    shortLabel: 'QA Specialist',
-    description: 'Plan test strategy, cover edge cases, verify regressions, and assess release quality.',
-    icon: 'test',
-    soulRole: 'tester',
-  },
-  {
-    id: 'security-review',
-    label: 'Security Specialist',
-    shortLabel: 'Security Specialist',
-    description: 'Inspect vulnerabilities, trust boundaries, secrets, permissions, and risky defaults.',
-    icon: 'shield',
-    soulRole: 'security',
-  },
+// Curated display order for the specialist roster, keyed by registry role id.
+// Specialists no longer ship as a hardcoded catalog — the roster is sourced from
+// the role registry (see specialistPacks.ts), which groups roles by source layer
+// and sorts alphabetically. This list restores a deliberate default ordering for
+// the known first-party roles; any role not listed here (a workspace/user/plugin
+// specialist) is appended after them. It is display-only: it never adds or drops
+// a specialist, only sequences the ones the registry actually surfaces.
+export const SPECIALIST_DISPLAY_ORDER: readonly string[] = [
+  'architect',
+  'product',
+  'developer',
+  'devops',
+  'performance',
+  'production_readiness_reviewer',
+  'cross_platform',
+  'frontend',
+  'ui_ux_reviewer',
+  'blog_writer',
+  'tester',
+  'security',
 ]
 
-// Synthesize a specialist action for a registry-discovered role id (one not in
-// the bundled roster). The id is the registry role id, so its soul is rendered
-// by `souls get <id>`; label/icon fall back to the id until the dropdown joins
-// it with registry metadata for display.
+// Synthesize a specialist action for a registry role id. The id is the registry
+// role id, so its soul is rendered by `souls get <id>`; label/icon fall back to
+// the id and a neutral glyph. Callers that have registry metadata (the pickers,
+// via specialistPacks.ts) prefer that richer action; this is the pure-id
+// fallback for a selected id no longer present in the registry.
 export function synthesizeSpecialistAction(id: string): SpecialistAction {
   return {
     id,
@@ -172,28 +99,31 @@ export function synthesizeSpecialistAction(id: string): SpecialistAction {
   }
 }
 
-// Resolve a specialist id to its action. Bundled ids return their curated entry;
-// any other id is treated as a registry role id so dropped-in specialist packs
-// spawn correctly. Returns the first bundled action only for empty input.
-export function getSpecialistAction(id: SpecialistActionId | string | null | undefined): SpecialistAction {
-  if (!id) return SPECIALIST_ACTIONS[0]
-  return SPECIALIST_ACTIONS.find((action) => action.id === id) ?? synthesizeSpecialistAction(id)
+// Resolve a specialist id to an action shape. Every id is a registry role id, so
+// its soul renders via `souls get <id>`; this synthesizes the shape from the id
+// alone. Rich display metadata (manifest label/icon) comes from the
+// registry-sourced pack list, not from here. Empty input yields a neutral empty
+// placeholder rather than throwing, so a missing selection degrades safely.
+export function getSpecialistAction(id: SpecialistActionId | null | undefined): SpecialistAction {
+  return synthesizeSpecialistAction(id ?? '')
 }
 
 /**
- * Apply a user-defined display order to the specialist roster. IDs in `order`
- * are honored first (in their saved sequence); any specialist missing from the
- * order — e.g. a newly shipped role — is appended in canonical order so the
- * list never loses an entry. Unknown ids in `order` are ignored.
+ * Sequence a specialist roster for display. IDs in `order` (a user-defined
+ * order) are honored first in their saved sequence, then the curated
+ * `SPECIALIST_DISPLAY_ORDER` for known first-party roles, then any remaining
+ * specialists in `actions` order (e.g. a workspace/user/plugin role not in
+ * either list). Every action in `actions` appears exactly once; unknown ids in
+ * the order lists are ignored. Never adds or drops an entry.
  */
 export function orderSpecialistActions(
   order: readonly SpecialistActionId[],
-  actions: readonly SpecialistAction[] = SPECIALIST_ACTIONS,
+  actions: readonly SpecialistAction[],
 ): SpecialistAction[] {
   const byId = new Map(actions.map((action) => [action.id, action]))
   const seen = new Set<SpecialistActionId>()
   const ordered: SpecialistAction[] = []
-  for (const id of order) {
+  for (const id of [...order, ...SPECIALIST_DISPLAY_ORDER]) {
     const action = byId.get(id)
     if (action && !seen.has(id)) {
       ordered.push(action)

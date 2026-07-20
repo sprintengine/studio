@@ -35,7 +35,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
-from sprintengine_core.role_registry import discover_role_registry, normalize_role_id
+from sprintengine_core.role_registry import (
+    discover_role_registry,
+    normalize_role_id,
+    session_registry_roots_from_env,
+)
 
 RoleClassification = str  # "operator" | "architect" | "general" | "owner"
 
@@ -164,10 +168,14 @@ def classify_role(
     normalized = normalize_role_id(str(role or ""))
     if not normalized or normalized == "user":
         return "operator"
+    # With no explicit roots, fall back to the app-injected session registry roots
+    # so the managed MCP server (which inherits the agent terminal's env) resolves
+    # an installed specialist pack the same way the rest of the engine does.
+    roots = tuple(plugin_registry_roots) or tuple(session_registry_roots_from_env())
     return _classify_registry_role(
         normalized,
         str(workspace_root) if workspace_root else None,
-        _registry_roots_key(plugin_registry_roots),
+        _registry_roots_key(roots),
         str(user_root) if user_root else None,
     )
 

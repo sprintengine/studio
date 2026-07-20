@@ -5,6 +5,7 @@
     "security-review"
   ],
   "summary": "Reviews systems for security, privacy, and abuse risks.",
+  "icon": "shield",
   "directives": {
     "implement": [
       {

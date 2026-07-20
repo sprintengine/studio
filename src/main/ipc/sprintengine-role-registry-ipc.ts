@@ -1,4 +1,5 @@
-import type { IpcMain } from 'electron'
+import { app, type IpcMain } from 'electron'
+import { join } from 'path'
 
 import { clearRoleCatalogCache } from '../mobile/sprintengine/role-catalog'
 import {
@@ -36,6 +37,18 @@ async function withRoleCatalogInvalidation<T>(write: Promise<T>): Promise<T> {
   return result
 }
 
+// The shipped specialist-pack source tree (17 role manifests + their soul
+// skills), un-shipped from the bundled registry root in MC-1587. Packaged builds
+// receive it via package.json build.extraResources ('resources/specialist-pack'
+// → 'resources/specialist-pack'), so it resolves under process.resourcesPath;
+// dev checkouts read it from the repo. Its shape is a registry root, so
+// installRoleFolder consumes it directly.
+function bundledSpecialistPackDir(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'resources', 'specialist-pack')
+    : join(app.getAppPath(), 'resources', 'specialist-pack')
+}
+
 export function registerSprintEngineRoleRegistryIpc(ipcMain: IpcMain): void {
   ipcMain.handle(
     'sprintengine:user-roles:install-folder',
@@ -52,6 +65,16 @@ export function registerSprintEngineRoleRegistryIpc(ipcMain: IpcMain): void {
       return withRoleCatalogInvalidation(installRoleFolder(srcDir, defaultUserRoleRegistryRoot()))
     }
   )
+
+  // One-time MC-1587 update-migration: install the un-shipped specialist pack
+  // from the shipped source tree into the user-global root, for users who had
+  // the bundled pack enabled before it stopped being bundled. The renderer owns
+  // the run-once guard (appSettings.specialistPacks.migratedBundledPack) and the
+  // enabled/disabled decision; this handler only performs the copy and
+  // invalidates the role catalog so the session reflects the new roles.
+  ipcMain.handle('sprintengine:specialist-pack:install-bundled', (): Promise<RoleInstallResult> => {
+    return withRoleCatalogInvalidation(installRoleFolder(bundledSpecialistPackDir(), defaultUserRoleRegistryRoot()))
+  })
 
   ipcMain.handle('sprintengine:user-roles:list', (): Promise<UserRoleListResult> => {
     return loadUserRoleManifests(defaultUserRoleRegistryRoot())

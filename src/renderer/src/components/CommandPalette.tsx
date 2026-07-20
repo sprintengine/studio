@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
-import { SPECIALIST_ACTIONS } from '../specialists/specialistActions'
+import { orderSpecialistActions } from '../specialists/specialistActions'
+import { listSpecialistPacks, resolveEnabledSpecialists } from '../specialists/specialistPacks'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
 import type { BuiltinSkill, SkillPackEntry } from '../../../shared/electron-api'
@@ -38,6 +39,10 @@ const groupRank = (group: CommandGroup): number => PALETTE_GROUPS.findIndex((ent
 // With no query, each group shows a short preview rather than its full contents,
 // so the first frame stays calm and scannable instead of dumping every command.
 const PREVIEW_PER_GROUP = 6
+
+// Stable empty fallbacks so store selectors returning a default don't churn refs.
+const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
+const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
 
 interface Command {
   id: string
@@ -103,6 +108,22 @@ export default function CommandPalette({
   const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile, openConnectorsSurface } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
+  const specialistOrder = useWorkspaceStore((state) => state.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
+  const disabledSpecialistPacks = useWorkspaceStore(
+    (state) => state.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_SPECIALIST_PACKS,
+  )
+  const sprintEngineRoleRegistry = useWorkspaceStore((state) => state.sprintEngineRoleRegistry)
+  // Specialist spawn commands are sourced from the role registry, not a bundled
+  // catalog: no installed pack → no specialist rows in the palette (the other
+  // command groups are unaffected).
+  const specialistActions = useMemo(
+    () =>
+      orderSpecialistActions(
+        specialistOrder,
+        resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
+      ),
+    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
+  )
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const shortcutFor = (commandId: string): string | undefined =>
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform) ?? undefined
@@ -373,7 +394,7 @@ export default function CommandPalette({
       })),
       ...(activeWorkspace
         ? [
-            ...SPECIALIST_ACTIONS.map((action): Command => ({
+            ...specialistActions.map((action): Command => ({
               id: `spawn-specialist-${action.id}`,
               label: `Spawn: ${action.label}`,
               description: `${action.shortLabel} specialist with the selected CLI`,
@@ -442,7 +463,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openConnectorsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkillPacks])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openConnectorsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkillPacks, specialistActions])
 
   // Matches are ordered by group so the arrow keys traverse the same top-to-
   // bottom order the grouped list renders in. With no query each group shows a

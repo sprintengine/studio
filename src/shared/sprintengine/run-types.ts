@@ -15,9 +15,11 @@ import type { AgentState } from './agent-state'
 
 export type AgentId = string
 
-// `SprintEngineRole` is the *bundled* Sprint Engine role union shipped under
-// `resources/sprintengine/roles/`. It still types bundled config shapes such
-// as default skill maps, default role counts, and CLI defaults — those are
+// `SprintEngineRole` is the historical first-party Sprint Engine role union.
+// Those manifests now ship in the installable pack at
+// `resources/specialist-pack/roles/` (MC-1587), not the bundled root, but the
+// union is retained because it still types first-party config shapes such as
+// default skill maps, default role counts, and CLI defaults — those are
 // Multicode-owned settings, not pluggable role manifests.
 //
 // Pluggable/projection-facing surfaces (task.role, gate.role, agent.role,

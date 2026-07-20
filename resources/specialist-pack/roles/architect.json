@@ -3,6 +3,7 @@
   "label": "Architect",
   "aliases": [],
   "summary": "Plans production software work and task decomposition.",
+  "icon": "architecture",
   "directives": {
     "implement": [
       {

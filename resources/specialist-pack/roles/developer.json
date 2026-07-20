@@ -3,6 +3,7 @@
   "label": "Developer",
   "aliases": [],
   "summary": "Implements reliable backend and core software changes.",
+  "icon": "code",
   "directives": {
     "implement": [
       {
