@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 
 from sprintengine_core.role_registry import (
-    BUNDLED_REGISTRY_ROOT,
     RegistryDiscovery,
     SoulRenderError,
     discover_role_registry,
@@ -71,14 +70,6 @@ class Soul:
     path: Path | None = None
 
 
-def _bundled_role_ids() -> list[str]:
-    # The canonical bundled role set ships in resources/sprintengine/roles/.
-    # validate_souls() asserts each of these resolves through discovery, so a
-    # dropped or renamed bundled manifest surfaces as a validation error.
-    roles_dir = BUNDLED_REGISTRY_ROOT / "roles"
-    return sorted(path.stem for path in roles_dir.glob("*.json"))
-
-
 def _default_discovery() -> RegistryDiscovery:
     return discover_role_registry(workspace_root=Path.cwd(), plugin_roots=_effective_plugin_roots())
 
@@ -137,14 +128,17 @@ def render_soul(role: str, *, extra_skills: tuple[str, ...] = ()) -> str:
 
 
 def validate_souls() -> list[str]:
+    # Validate whatever the layered registry resolves in this environment: every
+    # discovery warning is an error, and every discovered role must render. The
+    # specialist roles ship as an installable pack (resources/specialist-pack),
+    # not in the bundled root, so validation never asserts a fixed bundled role
+    # set — it passes cleanly with the pack absent (a raw install resolves zero
+    # specialists) and with it present as a registry layer.
     errors: list[str] = []
     discovery = _default_discovery()
     for warning in discovery.warnings:
         source = f" at {warning.path}" if warning.path is not None else ""
         errors.append(f"{warning.code}{source}: {warning.message}")
-    for role_id in _bundled_role_ids():
-        if role_id not in discovery.roles:
-            errors.append(f"{role_id}: missing migrated bundled Soul registry role")
     for role_id in sorted(discovery.roles):
         try:
             discovery.render_soul(role_id, workspace_root=Path.cwd(), run_id=os.environ.get("SPRINTENGINE_RUN_ID", ""))

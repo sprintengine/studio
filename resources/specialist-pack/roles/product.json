@@ -5,6 +5,7 @@
     "product-strategist"
   ],
   "summary": "Shapes product strategy, requirements, and acceptance criteria.",
+  "icon": "product",
   "directives": {
     "implement": [
       {

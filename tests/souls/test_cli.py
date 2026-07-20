@@ -7,12 +7,18 @@ from pathlib import Path
 
 import souls.registry as souls_registry
 from souls.registry import get_soul, render_soul, soul_path, validate_souls
-from sprintengine_core.role_registry import RoleSkillRegistry
+from sprintengine_core.role_registry import BUNDLED_REGISTRY_ROOT, RoleSkillRegistry
 from sprintengine_core.skill_layers import (
     MULTICODE_LAYER_SKILLS,
     SPRINTENGINE_SOUL_EXTRA_SKILLS,
 )
 from sprintengine_core.tool.roles import VALID_ROLES
+
+# The specialist roles ship as an installable pack; the shared tests/conftest.py
+# points the session registry-roots env at it, so `souls` resolves the pack the
+# way an installed environment does. Role manifests now live here, not in the
+# bundled root.
+SPECIALIST_PACK_ROOT = Path(__file__).resolve().parents[2] / "resources" / "specialist-pack"
 
 
 def run_souls(*args: str) -> subprocess.CompletedProcess[str]:
@@ -60,7 +66,7 @@ def test_souls_list_includes_canonical_roles() -> None:
         "release-readiness",
         "launch-readiness",
     ]
-    assert by_role["tester"]["path"].endswith("resources/sprintengine/roles/tester.json")
+    assert by_role["tester"]["path"].endswith("resources/specialist-pack/roles/tester.json")
     assert "souls/prompts" not in by_role["tester"]["path"]
 
 
@@ -77,7 +83,7 @@ def test_souls_get_returns_prompt_for_alias() -> None:
 
     assert payload["ok"] is True
     assert payload["role"] == "tester"
-    assert payload["path"].endswith("resources/sprintengine/roles/tester.json")
+    assert payload["path"].endswith("resources/specialist-pack/roles/tester.json")
     assert "souls/prompts" not in payload["path"]
     assert "principal QA engineer" in payload["content"]
 
@@ -86,7 +92,7 @@ def test_bundled_role_manifests_carry_only_the_portable_implement_pack() -> None
     # A pack ships only the role's own directive packs. Host/Sprint Engine layer
     # skills (Backlog, Knowledge Graph, quality norms) are composed on top at spawn
     # time, never baked into the manifest, so a role stays portable.
-    registry_root = Path("resources/sprintengine")
+    registry_root = Path("resources/specialist-pack")
     manifests = sorted((registry_root / "roles").glob("*.json"))
     assert manifests
 
@@ -168,7 +174,7 @@ def test_souls_get_returns_multiloop_coordinator() -> None:
 
     assert payload["ok"] is True
     assert payload["role"] == "coordinator"
-    assert payload["path"].endswith("resources/sprintengine/roles/coordinator.json")
+    assert payload["path"].endswith("resources/specialist-pack/roles/coordinator.json")
     assert "principal-level coordination agent" in payload["content"]
     assert "Multiloop" not in payload["content"]
     assert "{{final_goal}}" not in payload["content"]
@@ -182,7 +188,7 @@ def test_souls_get_returns_blog_writer_for_alias() -> None:
 
     assert payload["ok"] is True
     assert payload["role"] == "blog_writer"
-    assert payload["path"].endswith("resources/sprintengine/roles/blog_writer.json")
+    assert payload["path"].endswith("resources/specialist-pack/roles/blog_writer.json")
     assert "senior blog writer" in payload["content"]
     assert "Image Generation" in payload["content"]
 
@@ -207,7 +213,7 @@ def test_souls_unknown_role_fails_clearly() -> None:
 def test_souls_path_uses_registry_manifest_for_alias() -> None:
     path = soul_path("qa-test")
 
-    assert path.match("*/resources/sprintengine/roles/tester.json")
+    assert path.match("*/resources/specialist-pack/roles/tester.json")
     assert "souls/prompts" not in path.as_posix()
 
 
@@ -241,18 +247,30 @@ def test_workspace_marketer_soul_renders_through_registry_without_dispatch_role(
     assert "marketer" not in VALID_ROLES
 
 
-def test_validate_requires_migrated_bundled_roles_from_registry(tmp_path: Path, monkeypatch) -> None:
-    discovery = RoleSkillRegistry(
+def test_validate_passes_with_the_pack_absent_and_present(tmp_path: Path, monkeypatch) -> None:
+    # Validation no longer asserts a fixed bundled role set: the specialist roles
+    # ship as an installable pack. A raw install resolves zero specialists and
+    # must validate cleanly.
+    empty = RoleSkillRegistry(
         workspace_root=tmp_path / "workspace",
         user_root=tmp_path / "user",
         bundled_root=tmp_path / "empty-bundled",
     ).discover()
-    monkeypatch.setattr(souls_registry, "_default_discovery", lambda: discovery)
+    monkeypatch.setattr(souls_registry, "_default_discovery", lambda: empty)
+    assert not empty.roles
+    assert validate_souls() == []
 
-    errors = validate_souls()
-
-    assert "developer: missing migrated bundled Soul registry role" in errors
-    assert "tester: missing migrated bundled Soul registry role" in errors
+    # With the pack installed as a registry layer, every resolved specialist still
+    # renders, so validation passes.
+    with_pack = RoleSkillRegistry(
+        workspace_root=tmp_path / "workspace",
+        plugin_roots=[SPECIALIST_PACK_ROOT],
+        user_root=tmp_path / "user",
+        bundled_root=BUNDLED_REGISTRY_ROOT,
+    ).discover()
+    monkeypatch.setattr(souls_registry, "_default_discovery", lambda: with_pack)
+    assert {"developer", "tester", "architect"}.issubset(with_pack.roles)
+    assert validate_souls() == []
 
 
 def test_validate_fails_migrated_role_with_missing_registry_skill(tmp_path: Path, monkeypatch) -> None:

@@ -16,6 +16,11 @@ import pytest
 from sprintengine_core.role_registry import BUNDLED_REGISTRY_ROOT, RoleSkillRegistry
 from sprintengine_core.skill_layers import SPRINTENGINE_SOUL_EXTRA_SKILLS
 
+# Specialist roles ship as an installable pack; resolve it as an explicit plugin
+# layer so the role-identity anchors below are actually checked. The host skills
+# (quality norms, phase packs) stay in the bundled root.
+SPECIALIST_PACK_ROOT = Path(__file__).resolve().parents[2] / "resources" / "specialist-pack"
+
 # Anchor phrases per bundled skill. Every skill referenced by a bundled role
 # manifest must have an entry; the registration test below enforces this.
 SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
@@ -128,8 +133,11 @@ def test_phase_review_base_pack_resolves_through_registry_layering(tmp_path: Pat
 
 @pytest.fixture()
 def bundled_discovery(tmp_path: Path):
+    # Specialist roles resolve from the pack (explicit plugin layer); host skills
+    # from the bundled root — the composition a real dispatch renders.
     return RoleSkillRegistry(
         workspace_root=tmp_path / "workspace",
+        plugin_roots=[SPECIALIST_PACK_ROOT],
         user_root=tmp_path / "user",
         bundled_root=BUNDLED_REGISTRY_ROOT,
     ).discover()

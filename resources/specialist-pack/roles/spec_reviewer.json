@@ -8,6 +8,7 @@
     "acceptance-review"
   ],
   "summary": "Reviews implementation coverage against requirements and acceptance criteria.",
+  "icon": "review",
   "directives": {
     "implement": [
       {

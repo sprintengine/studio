@@ -5,6 +5,7 @@
     "qa-test"
   ],
   "summary": "Validates real product paths and regression coverage.",
+  "icon": "test",
   "directives": {
     "implement": [
       {

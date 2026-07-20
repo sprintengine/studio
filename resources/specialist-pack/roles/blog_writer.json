@@ -7,6 +7,7 @@
     "blogger"
   ],
   "summary": "Writes and edits publishable long-form content.",
+  "icon": "writing",
   "directives": {
     "implement": [
       {
