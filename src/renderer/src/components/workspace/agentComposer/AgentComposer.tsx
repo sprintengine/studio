@@ -100,9 +100,9 @@ export default function AgentComposer({
   )
   const skillWorkspaceRoot = folderPath ?? activeWorkspaceRoot
   // Fresh-install discovery: with no specialists installed, the roster's
-  // Specialists section links to the marketplace (the Modules surface) where
-  // the specialist pack installs. Leaves the composer mounted so a live install
-  // repaints the roster on return.
+  // Specialists section opens the module manager (Settings › Modules), where
+  // installed packs are managed and the marketplace is one step away. Leaves the
+  // composer mounted so a live install repaints the roster on return.
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const openSpecialistMarketplace = React.useCallback(
     () => openSettingsOverlay({ initialTab: 'modules' }),
@@ -521,15 +521,17 @@ function ComposerRosterRow({
 }
 
 // Empty-state discovery entry rendered under the Specialists header when no
-// specialist pack is installed. It is an action (navigates to the marketplace),
+// specialist pack is installed. It is an action (opens the module manager),
 // not a spawnable roster option, so it is a plain focusable button outside the
 // listbox's roving selection — reachable by Tab with its own focus-visible ring.
+// The accessible name mirrors the visible label so it does not over-promise a
+// destination (the module manager, not the marketplace directly).
 function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => void }) {
   return (
     <button
       type="button"
       onClick={onOpenMarketplace}
-      aria-label="Get specialist roles from the marketplace"
+      aria-label="Get specialist roles"
       className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
     >
       <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
