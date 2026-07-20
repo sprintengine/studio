@@ -1,5 +1,5 @@
 import { getSharedTrackerProviderRegistry, type TrackerProviderRegistry } from '../provider-registry'
-import { TrackerWriteBackConfigStore } from './config-store'
+import { getSharedTrackerWriteBackConfigStore, TrackerWriteBackConfigStore } from './config-store'
 import { TrackerWriteBackEngine } from './engine'
 import { TrackerWriteBackLedger } from './ledger'
 import { createProxyItemLookup } from './proxy-item-lookup'
@@ -46,9 +46,12 @@ export type CreateTrackerWriteBackRuntimeOptions = {
 
 export function createTrackerWriteBackRuntime(options: CreateTrackerWriteBackRuntimeOptions): TrackerWriteBackRuntime {
   const registry = options.registry ?? getSharedTrackerProviderRegistry()
-  const configStore = new TrackerWriteBackConfigStore(
-    options.resolveUserDataDir ? { resolveUserDataDir: options.resolveUserDataDir } : {},
-  )
+  // Share the process-wide config store in production so the T11 settings IPC and
+  // this engine read/write one cache; only an injected userData dir (tests) forks
+  // an isolated instance.
+  const configStore = options.resolveUserDataDir
+    ? new TrackerWriteBackConfigStore({ resolveUserDataDir: options.resolveUserDataDir })
+    : getSharedTrackerWriteBackConfigStore()
   const ledger = new TrackerWriteBackLedger(
     options.resolveUserDataDir ? { resolveUserDataDir: options.resolveUserDataDir } : {},
   )

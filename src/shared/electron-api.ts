@@ -122,6 +122,29 @@ export type {
   TrackerTestConnectionResult,
   TrackerTransition,
 } from './tracker/types'
+// Write-back config + IPC contracts (MC-1640): schema owned by T10, IPC surface
+// consumed by the T11 settings UI. Re-exported through the single electron-api
+// surface like the rest of the tracker seam.
+export type {
+  TrackerGetWriteBackConfigInput,
+  TrackerGetWriteBackConfigResult,
+  TrackerListTransitionsInput,
+  TrackerListTransitionsReason,
+  TrackerListTransitionsResult,
+  TrackerSetWriteBackConfigInput,
+  TrackerSetWriteBackConfigResult,
+  TrackerWriteBackCommentEvent,
+  TrackerWriteBackConfig,
+  TrackerWriteBackTransitionEvent,
+} from './tracker/writeback'
+import type {
+  TrackerGetWriteBackConfigInput,
+  TrackerGetWriteBackConfigResult,
+  TrackerListTransitionsInput,
+  TrackerListTransitionsResult,
+  TrackerSetWriteBackConfigInput,
+  TrackerSetWriteBackConfigResult,
+} from './tracker/writeback'
 import type { LayoutTemplateInstallResult, UserLayoutTemplateListResult } from './layouts/template-manifest'
 import type { DesignSystemBrandDemoResolveResult } from './design-system/brand-demo'
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
@@ -2695,6 +2718,9 @@ export type ElectronApi = {
   trackerSearch: (input: TrackerSearchInput) => Promise<TrackerSearchResult>
   trackerFetchIssue: (input: TrackerFetchIssueInput) => Promise<TrackerFetchIssueResult>
   trackerMaterialize: (input: TrackerMaterializeInput) => Promise<TrackerMaterializeResult>
+  trackerGetWriteBackConfig: (input: TrackerGetWriteBackConfigInput) => Promise<TrackerGetWriteBackConfigResult>
+  trackerSetWriteBackConfig: (input: TrackerSetWriteBackConfigInput) => Promise<TrackerSetWriteBackConfigResult>
+  trackerListTransitions: (input: TrackerListTransitionsInput) => Promise<TrackerListTransitionsResult>
   conversationSessionStart: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
   conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>

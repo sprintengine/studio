@@ -125,3 +125,14 @@ function loadElectron(): typeof import('electron') {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   return require('electron')
 }
+
+// Process-wide config-store singleton. The write-back engine (via
+// createTrackerWriteBackRuntime) and the T11 IPC surface MUST share ONE instance:
+// the store caches `byConnection` in memory, so a save through a second instance
+// would leave the engine reconciling against a stale cache until restart. Tests
+// that inject `resolveUserDataDir` construct their own isolated instance instead.
+let sharedConfigStore: TrackerWriteBackConfigStore | null = null
+
+export function getSharedTrackerWriteBackConfigStore(): TrackerWriteBackConfigStore {
+  return (sharedConfigStore ??= new TrackerWriteBackConfigStore())
+}

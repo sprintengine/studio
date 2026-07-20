@@ -10,7 +10,7 @@
 // the user unticks the ones they don't want. Transitions are never guessed — they
 // stay unset until the user maps a run event to a named transition (T11).
 
-import type { TrackerProviderId } from './types'
+import type { TrackerError, TrackerProviderId, TrackerTransition } from './types'
 
 // The three lifecycle moments a comment can mark, and the two a transition can.
 // Comments and transitions are independent axes on the same events.
@@ -103,6 +103,37 @@ export function trackerWriteBackPostKey(input: {
 }): string {
   return `${input.runId}|${input.postKind}|${input.externalId}`
 }
+
+// ---------------------------------------------------------------------------
+// IPC contracts for the T11 settings surface (plan §3.7). Node-free so the
+// preload bridge and renderer import them directly. The config carries NO secret
+// (booleans + named transition ids only), so it round-trips over IPC verbatim.
+// ---------------------------------------------------------------------------
+
+export type TrackerGetWriteBackConfigInput = { connectionId: string }
+
+export type TrackerGetWriteBackConfigResult =
+  | { ok: true; config: TrackerWriteBackConfig }
+  | { ok: false; error: TrackerError }
+
+export type TrackerSetWriteBackConfigInput = { connectionId: string; config: TrackerWriteBackConfig }
+
+export type TrackerSetWriteBackConfigResult = { ok: true } | { ok: false; error: TrackerError }
+
+// The settings surface enumerates a connection's status transitions from the
+// tracker's OWN workflow — never a guessed list. Transitions are per-issue in
+// Jira, so the main process samples a representative already-materialized proxy
+// item on `connectionId` in `workspaceRoot` and reads its transitions. `sampleKey`
+// is that issue's native key (e.g. `PROJ-141`) so the UI can name its source;
+// `null` transitions with a `reason` covers the honest "no issue to sample yet"
+// and "provider can't transition" cases without inventing a workflow.
+export type TrackerListTransitionsInput = { connectionId: string; workspaceRoot: string }
+
+export type TrackerListTransitionsReason = 'no_sample_issue' | 'unsupported'
+
+export type TrackerListTransitionsResult =
+  | { ok: true; transitions: TrackerTransition[]; sampleKey: string | null; reason?: TrackerListTransitionsReason }
+  | { ok: false; error: TrackerError }
 
 // A recorded failure the settings surface (T11) renders as a visible notice on
 // the proxy item. Redacted to the provider's own message — never a stack trace.

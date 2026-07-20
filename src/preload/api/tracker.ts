@@ -6,13 +6,19 @@ import type {
   TrackerAddConnectionResult,
   TrackerFetchIssueInput,
   TrackerFetchIssueResult,
+  TrackerGetWriteBackConfigInput,
+  TrackerGetWriteBackConfigResult,
   TrackerListConnectionsResult,
+  TrackerListTransitionsInput,
+  TrackerListTransitionsResult,
   TrackerMaterializeInput,
   TrackerMaterializeResult,
   TrackerRemoveConnectionInput,
   TrackerRemoveConnectionResult,
   TrackerSearchInput,
   TrackerSearchResult,
+  TrackerSetWriteBackConfigInput,
+  TrackerSetWriteBackConfigResult,
   TrackerTestConnectionInput,
   TrackerTestConnectionResult,
 } from '../../shared/electron-api'
@@ -29,6 +35,15 @@ type TrackerIpcRenderer = {
   invoke(channel: 'tracker:search', input: TrackerSearchInput): Promise<TrackerSearchResult>
   invoke(channel: 'tracker:fetchIssue', input: TrackerFetchIssueInput): Promise<TrackerFetchIssueResult>
   invoke(channel: 'tracker:materialize', input: TrackerMaterializeInput): Promise<TrackerMaterializeResult>
+  invoke(
+    channel: 'tracker:getWriteBackConfig',
+    input: TrackerGetWriteBackConfigInput
+  ): Promise<TrackerGetWriteBackConfigResult>
+  invoke(
+    channel: 'tracker:setWriteBackConfig',
+    input: TrackerSetWriteBackConfigInput
+  ): Promise<TrackerSetWriteBackConfigResult>
+  invoke(channel: 'tracker:listTransitions', input: TrackerListTransitionsInput): Promise<TrackerListTransitionsResult>
 }
 
 export function createTrackerApi(renderer: TrackerIpcRenderer) {
@@ -45,6 +60,12 @@ export function createTrackerApi(renderer: TrackerIpcRenderer) {
       renderer.invoke('tracker:fetchIssue', input),
     trackerMaterialize: (input: TrackerMaterializeInput): Promise<TrackerMaterializeResult> =>
       renderer.invoke('tracker:materialize', input),
+    trackerGetWriteBackConfig: (input: TrackerGetWriteBackConfigInput): Promise<TrackerGetWriteBackConfigResult> =>
+      renderer.invoke('tracker:getWriteBackConfig', input),
+    trackerSetWriteBackConfig: (input: TrackerSetWriteBackConfigInput): Promise<TrackerSetWriteBackConfigResult> =>
+      renderer.invoke('tracker:setWriteBackConfig', input),
+    trackerListTransitions: (input: TrackerListTransitionsInput): Promise<TrackerListTransitionsResult> =>
+      renderer.invoke('tracker:listTransitions', input),
   } satisfies Pick<
     ElectronApi,
     | 'trackerListConnections'
@@ -54,6 +75,9 @@ export function createTrackerApi(renderer: TrackerIpcRenderer) {
     | 'trackerSearch'
     | 'trackerFetchIssue'
     | 'trackerMaterialize'
+    | 'trackerGetWriteBackConfig'
+    | 'trackerSetWriteBackConfig'
+    | 'trackerListTransitions'
   >
 }
 

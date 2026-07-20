@@ -17,6 +17,7 @@ import {
   type TrackerSearchResult,
   type TrackerTestConnectionInput,
   type TrackerTestConnectionResult,
+  type TrackerTransition,
 } from '../../shared/tracker/types'
 
 // Orchestrates the tracker seam behind the IPC surface: connection CRUD delegates
@@ -98,6 +99,28 @@ export class TrackerService {
     return this.withProvider(input.connectionId, async (provider, connectionId) => {
       const issue = await provider.fetchIssue({ connectionId, externalId: input.externalId })
       return { ok: true, issue }
+    })
+  }
+
+  // Enumerate the named workflow transitions a provider offers FROM a real issue
+  // (plan §3.7, MC-1640 tier 2). Capability-gated: a provider without
+  // `canTransition` or without a `listTransitions` implementation returns an
+  // `unsupported` TrackerError so the T11 UI hides the transition tier by
+  // capability, never by a provider name check. Transitions are always read from
+  // the tracker — never guessed.
+  async listTransitions(input: {
+    connectionId: string
+    externalId: string
+  }): Promise<{ ok: true; transitions: TrackerTransition[] } | { ok: false; error: ReturnType<typeof toTrackerError> }> {
+    return this.withProvider(input.connectionId, async (provider, connectionId) => {
+      if (!provider.capabilities.canTransition || !provider.listTransitions) {
+        throw new TrackerProviderError('unsupported', 'This tracker does not support status changes.', {
+          provider: provider.provider,
+          connectionId,
+        })
+      }
+      const transitions = await provider.listTransitions({ connectionId, externalId: input.externalId })
+      return { ok: true, transitions }
     })
   }
 
