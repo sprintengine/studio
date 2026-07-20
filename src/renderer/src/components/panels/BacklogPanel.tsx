@@ -1355,6 +1355,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   const startSprintFromTrackerIssue = useCallback(
     async (issue: NormalizedIssue): Promise<{ ok: true } | { ok: false; error: string }> => {
       if (!folderPath) return { ok: false, error: 'Open a project folder first.' }
+      try {
       // 1. Materialize the single issue — writes the proxy item fresh from the
       // tracker. The issue carries its own owning connection id.
       const materialized = await window.api.trackerMaterialize({
@@ -1435,6 +1436,11 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       // Re-scan so the new proxy row shows its running-sprint link immediately.
       await runScan()
       return { ok: true }
+      } catch (error) {
+        // Failure-isolated: a thrown IPC/creation error becomes a visible result,
+        // never a stuck "starting" row or an unhandled rejection.
+        return { ok: false, error: error instanceof Error ? error.message : 'Could not start the sprint.' }
+      }
     },
     [folderPath, runScan],
   )

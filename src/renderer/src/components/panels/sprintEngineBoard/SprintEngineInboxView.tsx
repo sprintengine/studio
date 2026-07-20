@@ -637,10 +637,10 @@ function SprintEngineSeedRowButton({
               <>
                 <span aria-hidden="true">·</span>
                 {/* Native tracker key, verbatim (mono, tabular) — the provenance
-                    of a proxy-seeded run alongside its backlog path (MC-1639). */}
+                    of a proxy-seeded run alongside its backlog path (MC-1639).
+                    The provider is named by the "View in …" jump-out, not repeated
+                    here. */}
                 <span className="font-mono tabular-nums text-[color:var(--text-subtle)]">{provenance.nativeKey}</span>
-                <span aria-hidden="true">·</span>
-                <span>{sprintEngineSeedProvenanceProviderLabel(provenance.provider)}</span>
               </>
             ) : null}
           </span>
