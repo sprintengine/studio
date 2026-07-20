@@ -21,7 +21,7 @@ The Backlog panel reads item status from the file's frontmatter, so keeping it c
 - **Finished**: set `completed` only when the work is genuinely complete and verified with real evidence. Never for partial work, and never on mocks, fixtures, or disconnected UI state.
 - **Stopping incomplete**: leave the item `in_progress` and report the remaining work — never let it silently look finished or abandoned.
 
-Edit only the frontmatter line you mean to change and leave the document body and every other key untouched. All file paths you write anywhere — notes, replies, evidence — must be project-root-relative (for example `backlog/example.md`), never absolute or machine-specific.
+When the Multicode automation tools are available, use `backlog.create` and `backlog.update` instead of writing frontmatter yourself. Those tools validate the schema and stamp `updated:` programmatically; do not supply or calculate a timestamp. Direct Markdown editing is the fallback only when those tools are unavailable. On that fallback path, edit only the intended frontmatter fields, preserve the body and every other key, and stamp the real current UTC instant returned by `node -p "new Date().toISOString()"` (for example `2026-07-20T18:42:31.123Z`). Never use a date-only value such as `2026-07-20`, and never invent or estimate the time. All file paths you write anywhere — notes, replies, evidence — must be project-root-relative (for example `backlog/example.md`), never absolute or machine-specific.
 
 </what-to-do>
 
@@ -78,17 +78,21 @@ Legacy files may carry a single nested `backlog:` block or the aliases `size` �
 
 ## Updating An Item
 
-The item's markdown file is the source of truth for lifecycle and triage. To change `status`, `type`, `difficulty`, `criticality`, `risk`, or `epic`:
+The item's markdown file is the source of truth for lifecycle and triage. Prefer the `backlog.update` automation tool when available; it validates supplied fields, preserves omitted fields and the body, and records the precise update time itself. Do not pass an `updated` value.
+
+Only when `backlog.update` is unavailable, change `status`, `type`, `difficulty`, `criticality`, `risk`, or `epic` directly:
 
 1. Open the item file under `backlog/` and edit the matching `key: value` line in its frontmatter (add the line if the key is absent; remove the line to clear a field). Use the documented vocabulary values above.
 2. Leave the document body and every other frontmatter key — including unknown keys and their order — untouched. Do not reformat the block.
-3. Optionally set `updated:` to the current ISO-8601 UTC timestamp to float the item in the recently-updated sort.
+3. Set `updated:` to the current full ISO-8601 UTC timestamp from `node -p "new Date().toISOString()"`. It must include the time and seconds; `YYYY-MM-DD` alone is invalid for recency.
 
 There is no `items.json` surgery and no id/hash computation for a status or triage change — those fields no longer live in the object store.
 
 ## Creating An Item
 
-Write a new file `backlog/YYYY-MM-DD-slug.md` (date = today, slug = a short kebab-case title) with a frontmatter block followed by the body:
+Use the `backlog.create` automation tool whenever it is available. Resolve the current `workspaceId` with `workspace.list`, then pass the title, description, and only grounded optional triage fields. The app owns filename collision handling, schema validation, the sidecar record, and the exact `updated` timestamp. Never add an `updated` argument—the tool deliberately does not accept one.
+
+Only when `backlog.create` is unavailable, write a new file `backlog/YYYY-MM-DD-slug.md` (date = today, slug = a short kebab-case title) with a frontmatter block followed by the body:
 
 ```markdown
 ---
@@ -97,6 +101,7 @@ status: idea         # idea | ready | in_progress | needs_input | completed | ar
 difficulty: m        # optional: xs | s | m | l | xl
 criticality: normal  # optional: low | normal | high | critical
 risk: normal         # optional: low | normal | high
+updated: 2026-07-20T18:42:31.123Z  # use the real current UTC instant
 ---
 
 # Short title
@@ -112,7 +117,7 @@ An **epic** groups related items. It is itself a file at `backlog/epics/<slug>.m
 
 - **Assign** an item to an epic: set `epic: <slug>` in the child item's frontmatter.
 - **Remove** an item from its epic: delete its `epic:` line.
-- **Create** an epic: write `backlog/epics/<slug>.md` with `type: epic` and a `# Title`, then set `epic: <slug>` on each member.
+- **Create** an epic: write `backlog/epics/<slug>.md` with `type: epic`, a precise `updated:` UTC timestamp, and a `# Title`, then set `epic: <slug>` on each member.
 - **Enumerate** an epic's children: `grep -l "^epic: <slug>$" backlog/*.md`.
 - **Completion**: an epic is `completed` only when every one of its children is `completed`; never mark an epic `completed` while any child is still open.
 

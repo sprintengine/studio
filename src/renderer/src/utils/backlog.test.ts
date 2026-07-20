@@ -382,7 +382,7 @@ run('an unknown type value is preserved as rawType and treated as a leaf', () =>
   assert.equal(item.isEpic, false)
 })
 
-run('recently-updated recency uses frontmatter updated when present, else file mtime', () => {
+run('recently-updated recency uses precise frontmatter timestamps and falls back for date-only values', () => {
   const dated = createBacklogItem({
     path: '/repo/backlog/dated.md',
     relativePath: 'backlog/dated.md',
@@ -390,6 +390,17 @@ run('recently-updated recency uses frontmatter updated when present, else file m
     stats: { modifiedAtMs: 1000, sizeBytes: 64 },
   })
   assert.equal(dated.modifiedAt, Date.parse('2026-06-26T10:00:00Z'))
+
+  // A date-only value has no honest time-of-day. Date.parse would interpret it
+  // as UTC midnight and make an item created that evening look almost a day
+  // old, so legacy/date-only values use the precise file mtime instead.
+  const dateOnly = createBacklogItem({
+    path: '/repo/backlog/date-only.md',
+    relativePath: 'backlog/date-only.md',
+    sourceContent: '---\nupdated: 2026-06-26\n---\n# Date only',
+    stats: { modifiedAtMs: 2000, sizeBytes: 64 },
+  })
+  assert.equal(dateOnly.modifiedAt, 2000)
 
   // No `updated` (or an unparseable one) falls back to the file mtime.
   const undatedMtime = createBacklogItem({

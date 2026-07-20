@@ -7,6 +7,7 @@ import { parseBacklogFrontmatter } from '../shared/backlog/frontmatter'
 import {
   addOrUpdateBacklogLink,
   createBacklogEpic,
+  createBacklogItem,
   listBacklogItems,
   moveBacklogObjectSource,
   readBacklogItem,
@@ -23,6 +24,8 @@ import {
   updateBacklogTriage,
   updateBacklogType,
 } from './backlog-service'
+
+const PRECISE_ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 async function main(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-backlog-service-'))
@@ -52,6 +55,7 @@ async function main(): Promise<void> {
     assert.equal(statusUpdated.ok, true)
     const afterStatus = await readItem()
     assert.equal(afterStatus.fields.status, 'in_progress')
+    assert.match(afterStatus.fields.updated ?? '', PRECISE_ISO_TIMESTAMP, 'a mutation must stamp a precise UTC instant')
     assert.equal(afterStatus.body, body, 'status write must preserve the document body byte-for-byte')
     // Writing frontmatter must not create or touch the sidecar object store.
     await assert.rejects(() => stat(storePath), /ENOENT/, 'frontmatter writes must not create items.json')
@@ -272,7 +276,7 @@ async function main(): Promise<void> {
     assert.match(rejectedDeps.ok ? '' : rejectedDeps.message, /prerequisite/)
     assert.equal(await readFile(depsPath, 'utf-8'), beforeBadDeps, 'a rejected slug must not mutate the item file')
 
-    // Clearing with an empty list removes the line and round-trips to the original bytes.
+    // Clearing with an empty list removes the line while retaining the mutation timestamp.
     const depsCleared = await updateBacklogDependencies({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/deps.md',
@@ -280,7 +284,9 @@ async function main(): Promise<void> {
     })
     assert.equal(depsCleared.ok, true)
     assert.equal('dependson' in (await readDeps()).fields, false, 'clearing dependsOn must remove the frontmatter line')
-    assert.equal(await readFile(depsPath, 'utf-8'), depsOriginal, 'set then clear is a byte-for-byte round-trip')
+    assert.equal((await readDeps()).fields.custom, 'keep-me')
+    assert.equal((await readDeps()).body, depsBody)
+    assert.match((await readDeps()).fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
 
     // null clears too (the serializer treats an empty string as a set, so the
     // service must pass null, not '').
@@ -291,7 +297,8 @@ async function main(): Promise<void> {
       dependsOn: null,
     })
     assert.equal(nullCleared.ok, true)
-    assert.equal(await readFile(depsPath, 'utf-8'), depsOriginal, 'null clears the line, restoring the original bytes')
+    assert.equal('dependson' in (await readDeps()).fields, false)
+    assert.equal((await readDeps()).body, depsBody)
 
     await rm(depsPath)
 
@@ -329,7 +336,7 @@ async function main(): Promise<void> {
     assert.match(rejectedMock.ok ? '' : rejectedMock.message, /mockup/)
     assert.equal(await readFile(mockPath, 'utf-8'), beforeBadMock, 'a rejected mockup path must not mutate the item file')
 
-    // Clearing with an empty list removes the line and round-trips to the original bytes.
+    // Clearing with an empty list removes the line while retaining the mutation timestamp.
     const mockCleared = await updateBacklogMockups({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/mock.md',
@@ -337,7 +344,9 @@ async function main(): Promise<void> {
     })
     assert.equal(mockCleared.ok, true)
     assert.equal('mockups' in (await readMock()).fields, false, 'clearing mockups must remove the frontmatter line')
-    assert.equal(await readFile(mockPath, 'utf-8'), mockOriginal, 'set then clear is a byte-for-byte round-trip')
+    assert.equal((await readMock()).fields.custom, 'keep-me')
+    assert.equal((await readMock()).body, mockBody)
+    assert.match((await readMock()).fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
 
     await rm(mockPath)
 
@@ -477,6 +486,19 @@ async function main(): Promise<void> {
     }
     assert.equal(persisted.items[0]?.source.relativePath, 'backlog/checkout.md')
 
+    // Main-owned creation paths stamp the exact UTC instant into frontmatter so
+    // recency remains portable instead of depending on checkout-time mtimes.
+    const createdItem = await createBacklogItem({ workspaceRoot: tempRoot, title: 'Precise timestamp' })
+    assert.equal(createdItem.ok, true)
+    const createdItemFile = parseBacklogFrontmatter(
+      await readFile(join(tempRoot, createdItem.ok ? createdItem.relativePath : ''), 'utf-8'),
+    )
+    assert.match(createdItemFile.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
+    const createdItemRecord = createdItem.ok
+      ? createdItem.store.items.find((record) => record.source.relativePath === createdItem.relativePath)
+      : undefined
+    assert.equal(createdItemFile.fields.updated, createdItemRecord?.createdAt)
+
     // Create-epic writes a new concept file under backlog/epics/ with type: epic
     // and the title heading; it never adds an items.json membership record.
     const storeBeforeEpicCreate = await readFile(storePath, 'utf-8')
@@ -486,6 +508,7 @@ async function main(): Promise<void> {
     assert.equal(createdEpic.ok ? createdEpic.relativePath : '', 'backlog/epics/auth-revamp.md')
     const epicFile = parseBacklogFrontmatter(await readFile(join(tempRoot, 'backlog', 'epics', 'auth-revamp.md'), 'utf-8'))
     assert.equal(epicFile.fields.type, 'epic')
+    assert.match(epicFile.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
     assert.match(epicFile.body, /^# Auth Revamp$/m)
     assert.equal(await readFile(storePath, 'utf-8'), storeBeforeEpicCreate, 'creating an epic must not touch items.json')
 

@@ -32,7 +32,7 @@ risk: normal         # low | normal | high   (likelihood it breaks; not effort)
 epic: auth-revamp    # optional; slug of the epic this item belongs to
 dependsOn: a-item, b-item   # optional; comma-separated slugs of prerequisite items
 mockups: backlog/mockups/2026-07-06-x.html   # optional; comma-separated project-relative mockup paths
-updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
+updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently updated" sort
 ---
 ```
 
@@ -95,7 +95,14 @@ updated: 2026-06-26T10:00:00Z   # optional; drives the "recently updated" sort
   mockup links (`Mockup: [x](../mockups/x.html)`) light up the same section
   read-only without being written here. Absolute paths and `..` escapes are
   rejected on write.
-- **updated**: optional ISO-8601 timestamp powering the "recently updated" sort.
+- **updated**: the full ISO-8601 UTC instant of the latest real content or
+  frontmatter mutation, including hours, minutes, and seconds (the canonical
+  writer emits milliseconds). App/API writers own this field and stamp it
+  automatically. Agents should use `backlog.create` / `backlog.update` when the
+  Multicode automation MCP is available and must not supply the timestamp.
+  Direct-file fallback writers obtain it from the runtime; `YYYY-MM-DD` is not
+  a precise timestamp. Legacy date-only values remain readable but the renderer
+  falls back to the file mtime rather than pretending UTC midnight is exact.
 
 Set an axis only when the current context supports a grounded estimate; leave it
 unset rather than guessing. Omitting a field is a calm neutral state, not a

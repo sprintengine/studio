@@ -677,7 +677,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'backlog.create',
     description:
       'Create a Backlog item — or an epic when type is "epic" (epics are grouping files under backlog/epics/). '
-      + 'The item file is written with its lifecycle and triage in frontmatter; new items start as status "idea".',
+      + 'The item file is written with validated lifecycle and triage frontmatter, a server-owned precise updated timestamp, '
+      + 'and collision-safe identity; new items start as status "idea".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -742,7 +743,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       "Update one Backlog item's lifecycle or triage frontmatter: status, type, difficulty, criticality, risk, "
       + 'or epic membership. Pass null to clear a field (status cannot be cleared). Only supplied fields change; '
-      + 'the item body is never touched. Fields apply in a fixed order (status, type, triage, epic) and the first '
+      + 'the item body is never touched and a real change gets a server-owned precise updated timestamp. '
+      + 'Fields apply in a fixed order (status, type, triage, epic) and the first '
       + 'invalid field stops the write — fields earlier in the order stay applied.',
     inputSchema: {
       type: 'object',

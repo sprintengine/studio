@@ -505,6 +505,7 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
     const target = resolve(join(workspace.root, relativePath))
     if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
 
+    const now = new Date().toISOString()
     const frontmatter: Array<[key: string, value: string | undefined]> = [
       ['type', isBacklogType(input.type) ? input.type : undefined],
       ['status', 'idea'],
@@ -512,6 +513,7 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
       ['criticality', isBacklogCriticality(input.criticality) ? input.criticality : undefined],
       ['risk', isBacklogRisk(input.risk) ? input.risk : undefined],
       ['epic', isValidEpicSlug(input.epic) ? input.epic : undefined],
+      ['updated', now],
     ]
     const frontmatterBlock = `---\n${frontmatter
       .filter((entry): entry is [string, string] => entry[1] !== undefined)
@@ -524,7 +526,6 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
     // check and the write.
     await writeFile(target, `${frontmatterBlock}\n${body}`, { encoding: 'utf-8', flag: 'wx' })
 
-    const now = new Date().toISOString()
     const record: BacklogObjectRecord = {
       id: stableBacklogObjectId(relativePath),
       source: { type: 'file', relativePath },
@@ -556,7 +557,7 @@ export async function createBacklogEpic(input: BacklogCreateEpicInput): Promise<
     const target = resolve(join(workspace.root, relativePath))
     if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
 
-    const content = `---\ntype: epic\n---\n# ${title}\n`
+    const content = `---\ntype: epic\nupdated: ${new Date().toISOString()}\n---\n# ${title}\n`
     await mkdir(dirname(target), { recursive: true })
     // `wx` fails instead of clobbering if a file appears between the uniqueness
     // check and the write.
@@ -632,8 +633,11 @@ export async function materializeProxyBacklogItem(input: ProxyMaterializeInput):
       const target = resolve(join(workspace.root, existing))
       const content = await readFile(target, 'utf-8')
       const withFrontmatter = serializeBacklogFrontmatterFields(content, externalUpdates)
-      const next = `${frontmatterBlockOf(withFrontmatter)}\n${body}`
-      if (next !== content) await writeFile(target, next, 'utf-8')
+      const changed = `${frontmatterBlockOf(withFrontmatter)}\n${body}`
+      if (changed !== content) {
+        const next = serializeBacklogFrontmatterFields(changed, { updated: new Date().toISOString() })
+        await writeFile(target, next, 'utf-8')
+      }
       return { ok: true, outcome: 'refreshed', relativePath: existing }
     }
 
@@ -649,7 +653,11 @@ export async function materializeProxyBacklogItem(input: ProxyMaterializeInput):
     const target = resolve(join(workspace.root, relativePath))
     if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
 
-    const frontmatter = serializeBacklogFrontmatterFields('', { status: 'idea', ...externalUpdates })
+    const frontmatter = serializeBacklogFrontmatterFields('', {
+      status: 'idea',
+      ...externalUpdates,
+      updated: new Date().toISOString(),
+    })
     await mkdir(dirname(target), { recursive: true })
     // `wx` fails instead of clobbering if a file appears between the uniqueness
     // check and the write (concurrent scan).
@@ -695,8 +703,11 @@ export async function markProxyBacklogItemUnavailable(input: ProxyUnavailableInp
     const body = parsed.body.includes(PROXY_UNAVAILABLE_MARKER)
       ? parsed.body
       : injectProxyUnavailableBanner(parsed.body, input.providerLabel)
-    const next = `${frontmatterBlock}${body}`
-    if (next !== content) await writeFile(target, next, 'utf-8')
+    const changed = `${frontmatterBlock}${body}`
+    if (changed !== content) {
+      const next = serializeBacklogFrontmatterFields(changed, { updated: new Date().toISOString() })
+      await writeFile(target, next, 'utf-8')
+    }
     return { ok: true, found: true, relativePath: existing }
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
@@ -1064,8 +1075,12 @@ async function writeBacklogFrontmatter(
       throw new Error(`Could not read Backlog item: ${detail}`)
     }
 
-    const next = serializeBacklogFrontmatterFields(content, updates)
-    if (next !== content) {
+    const changed = serializeBacklogFrontmatterFields(content, updates)
+    if (changed !== content) {
+      // Every real content mutation records a portable, second-level-or-better
+      // instant. A date-only value is not precise enough for the row's relative
+      // age and Date.parse would silently anchor it to UTC midnight.
+      const next = serializeBacklogFrontmatterFields(changed, { updated: new Date().toISOString() })
       try {
         await writeFile(target, next, 'utf-8')
       } catch (error) {

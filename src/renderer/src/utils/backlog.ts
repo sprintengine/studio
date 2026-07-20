@@ -157,9 +157,9 @@ export type BacklogItem = {
   links: BacklogItemLink[]
   objectUpdatedAt?: string
   excerpt: string
-  // Effective recency in epoch ms: frontmatter `updated` (ISO) when present and
-  // parseable, else the file mtime. Drives the recently-updated sort and the
-  // row's relative-time label.
+  // Effective recency in epoch ms: frontmatter `updated` when it is a precise
+  // ISO date-time, else the file mtime. Date-only legacy values cannot support
+  // an hour-level relative label, so they deliberately fall back to mtime.
   modifiedAt: number
   // Effective creation time in epoch ms: the object store's `createdAt` (ISO,
   // stamped once when the app first registers the item) when present and
@@ -377,11 +377,14 @@ export function createBacklogItem(input: {
   }
 }
 
-// Recently-updated recency: the frontmatter `updated` timestamp when present and
-// parseable as a date, else the file mtime. Keeps the sort and the row's
-// relative-time anchored to the authored "updated" field when authors set it.
+// Recently-updated recency: the frontmatter `updated` timestamp when it carries
+// a time component and parses as a date, else the file mtime. `YYYY-MM-DD` is a
+// valid calendar date but Date.parse anchors it to UTC midnight; treating that
+// as a precise instant produces misleading labels such as "22h ago" for a file
+// created that evening. New writers stamp full ISO date-times, while this
+// fallback keeps legacy and hand-authored date-only files honest.
 function resolveBacklogRecencyMs(updated: string | undefined, mtimeMs: number): number {
-  if (updated) {
+  if (updated && /^\d{4}-\d{2}-\d{2}T/.test(updated)) {
     const parsed = Date.parse(updated)
     if (!Number.isNaN(parsed)) return parsed
   }

@@ -16,7 +16,7 @@ The Backlog panel reads item status from each item file's **frontmatter** under 
 - **Finished**: set `completed` only when the work is genuinely complete and verified. Never for partial work.
 - **Stopping incomplete**: leave the item `in_progress` and report the remaining work — never let it silently look finished or abandoned.
 
-Edit only the frontmatter line you mean to change; leave the document body and every other key untouched.
+When the Multicode automation tools are available, use `backlog.create` and `backlog.update` instead of writing frontmatter yourself. Those tools validate the schema and stamp `updated:` programmatically; do not supply or calculate a timestamp. Direct Markdown editing is the fallback only when those tools are unavailable. On that fallback path, edit only the intended frontmatter fields, preserve the body and every other key, and stamp the real current UTC instant returned by `node -p "new Date().toISOString()"` (for example `2026-07-20T18:42:31.123Z`). Never use a date-only value such as `2026-07-20`, and never invent or estimate the time.
 
 </what-to-do>
 
@@ -42,17 +42,18 @@ The item file's frontmatter owns lifecycle and triage as flat top-level scalars;
 - `risk`: `low`, `normal`, or `high` — likelihood the work goes sideways, a separate axis from effort.
 - `status`: `idea`, `ready`, `in_progress`, `needs_input`, `completed`, or `archived`.
 - `epic`: slug of the epic this item belongs to (see Epics below).
+- `updated`: the exact UTC instant of the last real content/frontmatter change; full ISO-8601 date-time with seconds, never date-only.
 
 Set an axis only when the current context supports a grounded estimate; leave it unset instead of guessing. Difficulty is normally architect-owned. Criticality follows user or product intent; if you infer it, be conservative and let the user override.
 
-To change any of these, edit the matching `key: value` line in the item's frontmatter and save — add the line to set a field, remove it to clear one — preserving the body and every other key. Legacy aliases (`size` → difficulty, `priority` → criticality, `itemType`/`backlog_type` → type) are still read. There is no `items.json` surgery for a status or triage change.
+Prefer `backlog.update` when that automation tool is available; it validates supplied fields, preserves omitted fields and the body, and stamps the update time itself. Otherwise edit the matching `key: value` line in the item's frontmatter and update `updated:` in the same save — add the line to set a field, remove it to clear one — preserving the body and every other key. Legacy aliases (`size` → difficulty, `priority` → criticality, `itemType`/`backlog_type` → type) are still read. There is no `items.json` surgery for a status or triage change.
 
 ## Epics
 
 An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` with `type: epic`; `<slug>` is the filename stem and its title is the first `# Heading`. Membership is **stored up, derived down** — the only stored relationship is each child's `epic:` field:
 
 - **Assign**: set `epic: <slug>` in the child item's frontmatter. **Remove**: delete that line.
-- **Create**: write `backlog/epics/<slug>.md` with `type: epic` and a `# Title`, then assign members.
+- **Create**: write `backlog/epics/<slug>.md` with `type: epic`, a precise `updated:` UTC timestamp, and a `# Title`, then assign members.
 - **Enumerate children**: `grep -l "^epic: <slug>$" backlog/*.md`.
 - **Completion**: an epic is `completed` only when every one of its children is `completed`.
 
@@ -61,7 +62,7 @@ An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` w
 When a user drags a `backlog/...` item into a terminal and asks you to work it directly, treat the dragged file as the intake brief:
 
 1. Confirm the path is under `backlog/`, read the item, and derive the project-root-relative source path, for example `backlog/example.md`.
-2. Set the item `in_progress` by editing the `status:` line in its frontmatter (add it if absent) before role-specific work begins; leave the body and every other key untouched.
+2. Set the item `in_progress` and refresh its precise `updated:` timestamp in the same frontmatter save before role-specific work begins; leave the body and every other key untouched.
 3. Mark it `needs_input` (with the blocking question stated in your reply) whenever you stop to wait on the user, `in_progress` again on resume, and `completed` only once the real work is complete and verified. Stopping incomplete for any other reason leaves it `in_progress` with the remaining work reported.
 
 ## Recording The Working Agent
