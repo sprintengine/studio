@@ -296,6 +296,11 @@ export type SkillPickerPopoverProps = {
   // Custom trigger (e.g. a panel-header icon button). Defaults to the quiet
   // composer "Skills" chip.
   renderTrigger?: PopoverProps['renderTrigger']
+  // Opt-in inventory filter (default: show every skill). A surface that can only
+  // honor a subset — e.g. a scheduled automation, which installs into a per-run
+  // worktree and so only supports built-in skills — narrows the list here rather
+  // than offering skills it cannot attach.
+  filterSkill?: (skill: WorkspaceSkill) => boolean
 }
 
 // Chip-anchored mode: a trigger opens the popover with its own search input;
@@ -308,12 +313,17 @@ export function SkillPickerPopover({
   onManageSkills,
   placement = 'top-start',
   renderTrigger,
+  filterSkill,
 }: SkillPickerPopoverProps) {
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
   const inventory = useWorkspaceSkills(workspaceRoot, open)
-  const groups = useMemo(() => groupSkills(inventory.skills, query), [inventory.skills, query])
+  const visibleSkills = useMemo(
+    () => (filterSkill ? inventory.skills.filter(filterSkill) : inventory.skills),
+    [inventory.skills, filterSkill],
+  )
+  const groups = useMemo(() => groupSkills(visibleSkills, query), [visibleSkills, query])
 
   const { installingId, pick } = usePickWithInstall(
     workspaceRoot,

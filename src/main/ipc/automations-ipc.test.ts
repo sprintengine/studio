@@ -237,6 +237,7 @@ async function testProviderList(): Promise<void> {
             name: { type: 'string', minLength: 1 },
             prompt: { type: 'string', minLength: 1 },
             connectorId: { type: 'string', minLength: 1 },
+            spawnSkillId: { type: 'string', minLength: 1 },
             includeTriggerContext: { type: 'boolean' },
             requiredIntegrations: {
               type: 'array',

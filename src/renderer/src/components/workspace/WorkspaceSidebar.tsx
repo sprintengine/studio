@@ -1592,7 +1592,13 @@ export default function WorkspaceSidebar({
                       ariaLabel="Sprints"
                       tooltip="Sprints — all projects"
                       tooltipWhenExpanded
-                      active={sprintEnginesAsideOpen}
+                      // The Sprints aside and Connectors surface live on their own
+                      // persisted flags, independent of `activeGlobalSurface`. A door
+                      // surface is the primary selection while open, so these defer to
+                      // it — otherwise both a door row and (a persisted) Sprints row
+                      // would highlight at once. The aside itself stays open; it just
+                      // yields the "selected" idiom to the door.
+                      active={sprintEnginesAsideOpen && !globalSurfaceActive}
                       onClick={() => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)}
                     />
                   ),
@@ -1609,7 +1615,7 @@ export default function WorkspaceSidebar({
                   ariaLabel="Connectors"
                   tooltip="Connectors"
                   tooltipWhenExpanded
-                  active={connectorsSurfaceOpen}
+                  active={connectorsSurfaceOpen && !globalSurfaceActive}
                   onClick={() => openConnectorsSurface()}
                 />
               ),

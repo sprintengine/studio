@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { CliModelPickerButton, Field, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
+import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
+import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { orderSpecialistActions } from '../../../specialists/specialistActions'
@@ -79,7 +81,7 @@ const INTERNAL_CONFIG_KEYS = new Set(['workspaceId', 'folderPath', 'requiredInte
 // Keys owned by a dedicated picker control (agent specialist / model / permission,
 // and the connector target). They are loaded into the form and persisted, but
 // rendered by their picker rather than as generic free-text string fields.
-const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId', 'connectorId'])
+const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId', 'connectorId', 'spawnSkillId'])
 
 // Sentinel option value for "target no connector" — the Select emits a string, so
 // the cleared choice is a real item rather than null, and it maps back to removing
@@ -328,6 +330,32 @@ export function AutomationEditor({
     })
   }, [])
 
+  // Skill attachment — a spawn-agent run can attach a built-in skill (e.g.
+  // `backlog`) that the terminal spawn installs into the run's worktree before
+  // the CLI starts. Only built-in skills are offered: they are the ones that
+  // install into the per-run worktree (a pack/custom skill would not follow the
+  // agent there). Shown only for an action whose schema consumes `spawnSkillId`.
+  const showSkillPicker =
+    !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'spawnSkillId')
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false)
+  // The selected skill's human name for display; config only stores the id, so
+  // this is seeded on pick and falls back to the id when editing a saved run.
+  const [pickedSkillLabel, setPickedSkillLabel] = useState<string | null>(null)
+  const selectedSkillId = form.config.spawnSkillId?.trim() || ''
+  const onPickSkill = useCallback((skill: WorkspaceSkill) => {
+    setPickedSkillLabel(skill.name)
+    setForm((prev) => ({ ...prev, config: { ...prev.config, spawnSkillId: skill.id } }))
+  }, [])
+  const onClearSkill = useCallback(() => {
+    setPickedSkillLabel(null)
+    setForm((prev) => {
+      const config = { ...prev.config }
+      delete config.spawnSkillId
+      return { ...prev, config }
+    })
+  }, [])
+  const onlyBuiltinSkills = useCallback((skill: WorkspaceSkill) => skill.source === 'builtin', [])
+
   // Sprint chaining action (sprint-engine-start): the backlog item and roster
   // fields get dedicated pickers — the shared Backlog search picker and a plain
   // Select over the saved teams — instead of the generic free-text inputs.
@@ -462,6 +490,12 @@ export function AutomationEditor({
       const connectorId = form.config.connectorId?.trim()
       if (connectorId) config.connectorId = connectorId
     }
+    // Attached skill: persist spawnSkillId when one is chosen; a cleared choice
+    // omits the key so the run launches with no attached skill.
+    if (showSkillPicker) {
+      const spawnSkillId = form.config.spawnSkillId?.trim()
+      if (spawnSkillId) config.spawnSkillId = spawnSkillId
+    }
     const draft: AutomationDefinitionDraft = {
       name: form.name.trim(),
       status: form.enabled ? 'enabled' : 'paused',
@@ -499,7 +533,7 @@ export function AutomationEditor({
     } finally {
       setSaving(false)
     }
-  }, [validationError, workspaceRoot, configKeys, form, editor, onSaved, builtTrigger, shouldSendTrigger, showAgentPicker, showConnectorPicker])
+  }, [validationError, workspaceRoot, configKeys, form, editor, onSaved, builtTrigger, shouldSendTrigger, showAgentPicker, showConnectorPicker, showSkillPicker])
 
   const actionItems: SelectItem[] = (providers?.actions ?? []).map((a) => ({
     value: a.kind,
@@ -680,6 +714,52 @@ export function AutomationEditor({
                       : 'Runs the agent against this connector’s isolated worktree and MCP server.'}
                   </span>
                 )}
+              </div>
+            ) : null}
+
+            {/* Skill attachment — a built-in skill installed into the run's
+                worktree at spawn, so the agent can invoke it (e.g. the backlog
+                skill for a nightly "work a backlog item" run). Built-in skills
+                only; a cleared choice launches with no attached skill. */}
+            {showSkillPicker ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12px] font-medium text-[color:var(--text-default)]">Skill</span>
+                {selectedSkillId ? (
+                  <div className="flex items-center gap-1.5">
+                    <code className="min-w-0 flex-1 truncate rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-1 font-mono text-[11px] text-[color:var(--text-muted)]">
+                      {pickedSkillLabel ?? selectedSkillId}
+                    </code>
+                    <GhostButton type="button" onClick={onClearSkill} className="h-6 shrink-0 px-2 text-[11px]">
+                      Clear
+                    </GhostButton>
+                  </div>
+                ) : (
+                  <SkillPickerPopover
+                    open={skillPickerOpen}
+                    onOpenChange={setSkillPickerOpen}
+                    workspaceRoot={workspaceRoot || null}
+                    onPick={onPickSkill}
+                    filterSkill={onlyBuiltinSkills}
+                    placement="bottom-start"
+                    renderTrigger={({ ref, triggerProps, togglePopover }) => (
+                      <button
+                        ref={ref}
+                        type="button"
+                        onClick={togglePopover}
+                        className="flex h-7 w-full items-center justify-between rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)]"
+                        {...triggerProps}
+                      >
+                        Attach a built-in skill…
+                        <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    )}
+                  />
+                )}
+                <span className="text-[11px] text-[color:var(--text-subtle)]">
+                  Installed into the run’s worktree at launch so the agent can invoke it (e.g. the backlog skill).
+                </span>
               </div>
             ) : null}
 

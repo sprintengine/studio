@@ -218,6 +218,7 @@ async function spawnAgent(
     name?: string
     prompt: string
     connectorId?: string
+    spawnSkillId?: string
     resolvedTarget?: SpawnAgentResolvedTarget
   },
   options: LocalAutomationExecutorOptions
@@ -240,6 +241,7 @@ async function spawnAgent(
     specialistId: input.specialistId,
     worktreePath: input.worktreePath,
     connectorId: input.connectorId,
+    spawnSkillId: input.spawnSkillId,
     name: input.name,
     prompt: input.prompt,
   })

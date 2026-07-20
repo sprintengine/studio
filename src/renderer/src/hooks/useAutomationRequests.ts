@@ -494,6 +494,10 @@ async function launchAgent(
           ...(connector.resolved.skillId ? { connectorSkillId: connector.resolved.skillId } : {}),
         }
       : {}),
+    // A built-in skill attached to the automation (e.g. 'backlog'): the terminal
+    // spawn installs it into the run's working directory before the CLI starts.
+    // Independent of the connector's driving skill — both install at spawn.
+    ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
     cliStartupPrompt,
     cliOnboardingPromptSent: false,
     cliHasLaunched: false,

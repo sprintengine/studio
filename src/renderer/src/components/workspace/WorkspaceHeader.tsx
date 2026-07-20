@@ -46,6 +46,16 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   // slots so this header never threads the ~50 workspace/agent props they need.
   identitySlot: React.ReactNode
   actionsSlot: React.ReactNode
+  // True when a global "door" surface (Roadmap, Reviews, Automations) covers the
+  // workspace card. The workspace-scoped left cluster (panel switches + identity)
+  // is chrome for the active workspace — with the card hidden behind a full-page
+  // door it has nothing to act on, so it's replaced by the surface's own bar,
+  // which the surface portals into `surfaceBarSlotRef`. The right-side workspace
+  // controls (Sessions, notifications, spawn) stay — they remain useful on a door.
+  globalSurfaceActive: boolean
+  // Destination for the active door surface's lifted bar (title · status · context
+  // · actions). Filled only while `globalSurfaceActive`.
+  surfaceBarSlotRef: React.Ref<HTMLDivElement>
   attentionQueue: AttentionQueueSurface
   // Null when the sprint-engine module is disabled — the toggle hides entirely.
   sprintEnginesToggle: SprintEnginesToggle | null
@@ -146,6 +156,8 @@ export function WorkspaceHeader<MenuItem extends string>({
   onShowMenu,
   identitySlot,
   actionsSlot,
+  globalSurfaceActive,
+  surfaceBarSlotRef,
   attentionQueue,
   sprintEnginesToggle,
   onOpenDiagnostics,
@@ -167,10 +179,23 @@ export function WorkspaceHeader<MenuItem extends string>({
             <NewAgentButton onClick={onNewAgent} />
           </div>
         ) : null}
-        <div className={`flex shrink-0 items-center gap-0.5 ${sidebarCollapsed ? '' : 'pl-1.5'}`}>
-          <PanelSwitches activeWorkspaceId={activeWorkspaceId} leadingDivider={sidebarCollapsed} />
-        </div>
-        <div className="flex min-w-0 items-center pl-1.5 pr-2">{identitySlot}</div>
+        {/* Workspace-scoped left cluster — replaced by the door surface's own
+            lifted bar while a global door owns the card region, since neither the
+            panel switches nor the identity chips have a live workspace to act on
+            there. The surface portals its bar into the slot div below. */}
+        {globalSurfaceActive ? (
+          <div
+            ref={surfaceBarSlotRef}
+            className="app-no-drag flex min-w-0 flex-1 items-center gap-2.5 pl-1.5 pr-2"
+          />
+        ) : (
+          <>
+            <div className={`flex shrink-0 items-center gap-0.5 ${sidebarCollapsed ? '' : 'pl-1.5'}`}>
+              <PanelSwitches activeWorkspaceId={activeWorkspaceId} leadingDivider={sidebarCollapsed} />
+            </div>
+            <div className="flex min-w-0 items-center pl-1.5 pr-2">{identitySlot}</div>
+          </>
+        )}
       </div>
 
       {/* Right: workspace controls, then the cross-workspace surfaces. */}

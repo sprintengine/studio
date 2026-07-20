@@ -2850,22 +2850,26 @@ async function spawnTerminalFromIpc(
         }
       }
 
-      // Skill-at-spawn: install the named builtin skill into the working
-      // directory so the seeded/prefilled invocation resolves to a present
-      // skill. connectorSkillId (connector chats) and spawnSkillId (the
-      // composer's "+ Skill" attachment) share the install; only connector
-      // launches also get the MCP-config exclusion below. Best-effort like the
-      // debug install — a failure is logged and never blocks the spawn.
-      const skillIdToInstall = connectorSkillId ?? spawnSkillId
-      if (skillIdToInstall && !shellOnly) {
-        if (ensureBuiltinSkillInstalled) {
+      // Skill-at-spawn: install each attached builtin skill into the working
+      // directory so the seeded/prefilled invocation resolves to a present skill.
+      // connectorSkillId (connector chats) and spawnSkillId (the composer's
+      // "+ Skill" attachment, or a scheduled automation's skill) are set
+      // independently, so install every distinct id rather than letting one
+      // shadow the other; only connector launches also get the MCP-config
+      // exclusion below. Best-effort like the debug install — a failure is logged
+      // and never blocks the spawn.
+      const skillIdsToInstall = [...new Set(
+        [connectorSkillId, spawnSkillId].filter((id): id is string => Boolean(id)),
+      )]
+      if (skillIdsToInstall.length > 0 && !shellOnly && ensureBuiltinSkillInstalled) {
+        for (const skillId of skillIdsToInstall) {
           try {
-            await ensureBuiltinSkillInstalled(workingDirectory, skillIdToInstall)
+            await ensureBuiltinSkillInstalled(workingDirectory, skillId)
           } catch (error) {
             logMainPerfEvent('TerminalRuntime', 'connector-skill-install-failed', {
               sessionId,
               cli,
-              connectorSkillId: skillIdToInstall,
+              connectorSkillId: skillId,
               message: getErrorMessage(error),
             })
           }

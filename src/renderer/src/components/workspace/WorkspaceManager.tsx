@@ -98,6 +98,7 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
+import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
@@ -114,8 +115,9 @@ import { attentionQueueBadge, buildAttentionQueueItems } from '../../utils/atten
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
-  recordWorkspaceVisit,
-  stepWorkspaceHistory,
+  recordNavigationVisit,
+  stepNavigationHistory,
+  type NavHistoryEntry,
   type WorkspaceNavigationHistory,
 } from '../../utils/workspaceNavigationHistory'
 import {
@@ -318,6 +320,7 @@ export default function WorkspaceManager() {
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
+  const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -691,6 +694,14 @@ export default function WorkspaceManager() {
     if (!selectModuleEnabled(moduleEnablement, entry.moduleId)) return null
     return entry
   }, [activeGlobalSurface, moduleEnablement])
+
+  // Destination element for the active door surface's lifted bar. The surface
+  // portals its bar (title · status · context · actions) into the WorkspaceHeader
+  // strip via GlobalSurfaceBarSlotContext, collapsing the door's own bar row into
+  // the top strip. A fresh object identity only on element change keeps the
+  // context stable across unrelated re-renders.
+  const [surfaceBarEl, setSurfaceBarEl] = useState<HTMLDivElement | null>(null)
+  const surfaceBarSlot = useMemo(() => ({ el: surfaceBarEl }), [surfaceBarEl])
 
   const openNewWorkspacePanel = useCallback(() => {
     setNewWorkspacePanelInitialState(null)
@@ -2237,19 +2248,38 @@ export default function WorkspaceManager() {
       return true
     }
     if (commandId === 'workspace.history.back' || commandId === 'workspace.history.forward') {
-      // History semantics (the workspace I was just in), not sidebar order —
+      // History semantics (the location I was just in), not sidebar order —
       // sidebar-order cycling stays on workspace.switch.next/previous. Entries
-      // pointing at closed workspaces, workspaces routed to another window, or
-      // the already-active workspace are skipped.
-      const step = stepWorkspaceHistory(
+      // pointing at closed workspaces, workspaces routed to another window, a
+      // door whose module was disabled, or the already-active location are
+      // skipped.
+      const step = stepNavigationHistory(
         workspaceNavigationHistoryRef.current,
         commandId === 'workspace.history.back' ? -1 : 1,
-        (workspaceId) => workspaceId !== windowActiveWorkspaceId && railWorkspaceIdSet.has(workspaceId),
+        (entry) => {
+          if (entry.kind === 'surface') {
+            // Don't re-navigate to the door already showing; require its module
+            // to still be enabled and the surface registered (mirrors the mount).
+            if (activeGlobalSurface === entry.id) return false
+            const surface = getRendererHost().getGlobalSurface(entry.id)
+            return surface !== undefined && selectModuleEnabled(moduleEnablement, surface.moduleId)
+          }
+          // A workspace entry is the current location only when no door overlays
+          // it; otherwise Back from a door to its own underlying workspace is valid.
+          if (!activeGlobalSurface && entry.id === windowActiveWorkspaceId) return false
+          return railWorkspaceIdSet.has(entry.id)
+        },
       )
       if (!step) return false
       workspaceNavigationHistoryRef.current = step.history
       setShowNewWorkspacePanel(false)
-      setActiveWorkspaceForWindow(workspaceWindowId, step.workspaceId)
+      // Opening the door sets the surface without touching the underlying
+      // workspace; activating a workspace clears any open door as a side effect.
+      if (step.entry.kind === 'surface') {
+        openGlobalSurface(step.entry.id)
+      } else {
+        setActiveWorkspaceForWindow(workspaceWindowId, step.entry.id)
+      }
       return true
     }
     if (commandId === 'workspace.switch.next' || commandId === 'workspace.switch.previous') {
@@ -2387,6 +2417,8 @@ export default function WorkspaceManager() {
     sprintEnginesAsideOpen,
     setSprintEnginesAsideOpen,
     windowActiveWorkspaceId,
+    activeGlobalSurface,
+    openGlobalSurface,
     closeWorkspaceById,
     railWorkspaces,
     railWorkspaceIdSet,
@@ -2441,17 +2473,27 @@ export default function WorkspaceManager() {
     runCommand,
   ])
 
-  // Record every activation of this window's active workspace, whatever caused
-  // it (sidebar click, palette, switch commands, sync events). Back/forward
-  // navigation moves the history cursor onto the visited id before activating,
-  // so recordWorkspaceVisit sees it already at the cursor and does not push.
+  // The window's current navigation location: a door surface takes precedence
+  // over the workspace it overlays (the door is what you're looking at), so
+  // opening or leaving a door is itself a visit. Resolves to null only before
+  // anything is active.
+  const currentNavLocation = useMemo<NavHistoryEntry | null>(() => {
+    if (activeGlobalSurfaceEntry && activeGlobalSurface) return { kind: 'surface', id: activeGlobalSurface }
+    if (windowActiveWorkspaceId) return { kind: 'workspace', id: windowActiveWorkspaceId }
+    return null
+  }, [activeGlobalSurfaceEntry, activeGlobalSurface, windowActiveWorkspaceId])
+
+  // Record every change of location, whatever caused it (sidebar click, palette,
+  // switch commands, opening a door, sync events). Back/forward navigation moves
+  // the history cursor onto the visited entry before activating, so
+  // recordNavigationVisit sees it already at the cursor and does not push.
   useEffect(() => {
-    if (!windowActiveWorkspaceId) return
-    workspaceNavigationHistoryRef.current = recordWorkspaceVisit(
+    if (!currentNavLocation) return
+    workspaceNavigationHistoryRef.current = recordNavigationVisit(
       workspaceNavigationHistoryRef.current,
-      windowActiveWorkspaceId,
+      currentNavLocation,
     )
-  }, [windowActiveWorkspaceId])
+  }, [currentNavLocation])
 
   useEffect(() => {
     const onMouseUp = (event: MouseEvent) => {
@@ -2839,6 +2881,8 @@ export default function WorkspaceManager() {
         onNewAgent={openNewWorkspacePanel}
         menuItems={window.api.platform === 'darwin' ? [] : MENU_BAR_ITEMS}
         onShowMenu={(event, label) => void handleShowMenubarMenu(event, label)}
+        globalSurfaceActive={activeGlobalSurfaceEntry !== null}
+        surfaceBarSlotRef={setSurfaceBarEl}
         identitySlot={
           <WorkspaceIdentity
             activeWorkspace={activeWorkspace}
@@ -3051,9 +3095,11 @@ export default function WorkspaceManager() {
             Connectors/Settings deliberately keep their overlay pattern below. */}
         {activeGlobalSurfaceEntry ? (
           <div className="absolute inset-0 z-20 bg-[color:var(--bg-app)]">
-            <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
-              <activeGlobalSurfaceEntry.Component />
-            </React.Suspense>
+            <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
+              <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
+                <activeGlobalSurfaceEntry.Component />
+              </React.Suspense>
+            </GlobalSurfaceBarSlotContext.Provider>
           </div>
         ) : null}
         <SettingsOverlay />

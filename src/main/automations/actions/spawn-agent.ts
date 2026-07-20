@@ -20,6 +20,9 @@ export type SpawnAgentConfig = {
   prompt: string
   requiredIntegrations?: string[]
   connectorId?: string
+  // Built-in skill id installed into the run's working directory at spawn (e.g.
+  // 'backlog'). Built-in skills only — see AutomationRendererRequest.spawnSkillId.
+  spawnSkillId?: string
   includeTriggerContext?: boolean
 }
 
@@ -42,6 +45,7 @@ export type SpawnAgentRuntime = {
     name?: string
     prompt: string
     connectorId?: string
+    spawnSkillId?: string
   }): Promise<{ workspaceId: string; agentId: string; executionId?: string; worktreePath?: string; branch?: string }>
   requireIntegration(id: string): void
 }
@@ -68,6 +72,7 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
         connectorId: { type: 'string', minLength: 1 },
+        spawnSkillId: { type: 'string', minLength: 1 },
         includeTriggerContext: { type: 'boolean' },
         requiredIntegrations: {
           type: 'array',
@@ -114,6 +119,7 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     name: parsed.name ?? runtime.definition.name,
     prompt,
     connectorId: parsed.connectorId,
+    spawnSkillId: parsed.spawnSkillId,
   })
 
   const isolation = launched.worktreePath ? ' in an isolated worktree' : ''
@@ -164,6 +170,7 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     name: optionalString(config.name),
     prompt,
     connectorId: optionalString(config.connectorId),
+    spawnSkillId: optionalString(config.spawnSkillId),
     includeTriggerContext: typeof includeTriggerContext === 'boolean' ? includeTriggerContext : undefined,
     requiredIntegrations: Array.isArray(requiredIntegrations)
       ? requiredIntegrations.map((entry) => entry.trim())

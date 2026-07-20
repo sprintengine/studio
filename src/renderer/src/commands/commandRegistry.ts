@@ -86,7 +86,7 @@ export const COMMAND_REGISTRY = [
     category: 'workspace',
     scopes: ['workspace-navigation'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepWorkspaceHistory(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, visitedWorkspaceId)' },
+    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepNavigationHistory(..., -1) -> setActiveWorkspaceForWindow | openGlobalSurface (per visited entry kind)' },
   }),
   command({
     id: 'workspace.history.forward',
@@ -94,7 +94,7 @@ export const COMMAND_REGISTRY = [
     category: 'workspace',
     scopes: ['workspace-navigation'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepWorkspaceHistory(..., 1) -> setActiveWorkspaceForWindow(workspaceWindowId, visitedWorkspaceId)' },
+    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepNavigationHistory(..., 1) -> setActiveWorkspaceForWindow | openGlobalSurface (per visited entry kind)' },
   }),
   ...Array.from({ length: 9 }, (_, index) => {
     const workspaceNumber = index + 1

@@ -61,6 +61,14 @@ export type AutomationRendererRequest =
        * isolation invariant as a connector chat.
        */
       connectorId?: string
+      /**
+       * Built-in skill id (e.g. 'backlog') to attach to the launched agent. Rides
+       * AgentState.spawnSkillId, so the terminal spawn best-effort installs the
+       * skill into the agent's working directory (the per-run worktree) before the
+       * CLI starts — the same seam the composer's "+ Skill" attachment uses.
+       * Built-in skills only: they are the ones that install into the worktree.
+       */
+      spawnSkillId?: string
     }
   | {
       // Remove a spawned automation agent entirely: kill its terminal, drop its
