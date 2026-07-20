@@ -259,6 +259,9 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           ) : null}
         </span>
         {blocked ? <BlockedBadge /> : dependencyState != null ? <WaitingBadge /> : null}
+        {item.danglingMockups && item.danglingMockups.length > 0 ? (
+          <DanglingMockupBadge refs={item.danglingMockups} />
+        ) : null}
       </div>
       {/* Supporting line: the triage metadata the title displaced — id, size,
           priority — flows from the left, and how long ago the item was touched
@@ -387,6 +390,37 @@ function EpicBlockedCount({ rollup }: { rollup: BacklogEpicBlockedRollup }): JSX
       </svg>
       <span aria-hidden="true" className="tabular-nums">{rollup.blocked} blocked</span>
     </span>
+  )
+}
+
+// Data-integrity warning beside the title: a mockup this item names — attached or
+// referenced in the body — resolves to no file on disk after the tolerant
+// both-roots check (MC-1697). This is the root-cause surface for the failure that
+// motivated the item: a path-prefix slip once hid the one artifact carrying the
+// requirement, so the reference is SHOWN, never silently dropped. A defect, not
+// ordinary sequencing — so it carries the warning tone (not the calm muted tone of
+// Blocked/Waiting) and a triangle glyph; the word "Missing mockup" carries the
+// meaning (never colour alone) and the accessible name spells out which refs and
+// how to fix. Earned — rendered only when a reference actually dangles.
+function DanglingMockupBadge({ refs }: { refs: readonly string[] }): JSX.Element {
+  const label =
+    refs.length === 1
+      ? `Missing mockup: ${refs[0]} was not found on disk — fix the path or remove the reference`
+      : `${refs.length} missing mockups: ${refs.join(', ')} were not found on disk — fix the paths or remove the references`
+  return (
+    <Tooltip content={label} placement="top" wrapperClassName="inline-flex shrink-0">
+      <span
+        role="img"
+        aria-label={label}
+        className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-[color:var(--tone-warn)]"
+      >
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+          <path d="M8 2.75 14.5 13.5h-13z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+          <path d="M8 6.4v3.1M8 11.4h.01" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+        </svg>
+        {refs.length === 1 ? 'Missing mockup' : `${refs.length} missing mockups`}
+      </span>
+    </Tooltip>
   )
 }
 

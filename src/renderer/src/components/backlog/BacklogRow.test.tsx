@@ -820,6 +820,36 @@ run('the new-workspace source picker renders the same shared row interior', () =
   )
 })
 
+// MC-1697: a mockup an item names but that resolves to no file on disk is shown
+// as a row warning, never dropped. The badge reads on the word + warn tone, and
+// its accessible name spells out which refs and how to fix.
+run('a row whose item has danglingMockups renders the Missing-mockup warning badge', () => {
+  const item: BacklogItem = { ...itemWith(), danglingMockups: ['mockups/gone.html'] }
+  const markup = renderToStaticMarkup(<BacklogRowContent item={item} now={NOW} />)
+  assert.match(markup, /Missing mockup/, 'the word carries the meaning, not colour alone')
+  assert.match(markup, /--tone-warn/, 'a dangling reference is a defect, so it uses the warn tone')
+  assert.match(
+    markup,
+    /aria-label="Missing mockup: mockups\/gone\.html was not found on disk[^"]*"/,
+    'the accessible name names the ref and the fix',
+  )
+})
+
+run('a row with two dangling mockups pluralizes and names both refs', () => {
+  const item: BacklogItem = {
+    ...itemWith(),
+    danglingMockups: ['mockups/a.html', 'mockups/b.html'],
+  }
+  const markup = renderToStaticMarkup(<BacklogRowContent item={item} now={NOW} />)
+  assert.match(markup, /2 missing mockups/, 'the visible count pluralizes')
+  assert.match(markup, /mockups\/a\.html, mockups\/b\.html/, 'the accessible name lists every ref')
+})
+
+run('a row with no dangling mockups renders no Missing-mockup badge — the warning is earned', () => {
+  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
+  assert.ok(!markup.includes('Missing mockup'), 'no placeholder warning on a clean row')
+})
+
 if (failures > 0) {
   console.error(`BacklogRow.test.tsx: ${failures} failing`)
   process.exit(1)

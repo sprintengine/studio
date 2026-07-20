@@ -130,7 +130,17 @@ export function buildSprintEngineRoleRuntimes(
   ])) {
     const model = roleModelOverrides?.[role as SprintEngineRoleId] ?? null
     const cli = roleCliDefaults?.[role as SprintEngineRoleId] ?? null
-    if (model || cli) roleRuntimes[role] = { model, cli }
+    // A recorded role MUST carry a CLI. Sweep roles supplied by the role
+    // registry (e.g. nuclear_reviewer, spec_reviewer) are absent from
+    // DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, so DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
+    // (derived from its keys) has no baseline entry for them. A model-only pick
+    // then reaches here with cli:null and persists into run.yaml `roleRuntimes`
+    // as `{model, cli:null}`, which hard-fails spawnAutoRunCandidate — it has no
+    // 'claude-code' fallback the way reconcileSprintEngineAgents does, so the
+    // roster runner stalls the task (and, via the tick's early return on a failed
+    // spawn, every sibling behind it) and spams the diagnostics log. Default the
+    // CLI whenever an entry is recorded so a runnable role never ships without one.
+    if (model || cli) roleRuntimes[role] = { model, cli: cli ?? 'claude-code' }
   }
   return roleRuntimes
 }

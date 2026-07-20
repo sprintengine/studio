@@ -19,6 +19,7 @@ import {
   planBacklogIdAllocation,
 } from '../shared/backlog/item-id'
 import { isRoadmapContent } from '../shared/backlog/roadmap'
+import { reconcileBacklogObjectRecordIds, stableBacklogObjectId } from '../shared/backlog/object-id'
 import type {
   BacklogAddOrUpdateLinkInput,
   BacklogCreateEpicInput,
@@ -1057,7 +1058,10 @@ function normalizeStore(value: unknown): BacklogObjectStore {
   const items = Array.isArray(raw.items)
     ? raw.items.map(normalizeRecord).filter((record): record is BacklogObjectRecord => Boolean(record))
     : []
-  return { schemaVersion: 1, items }
+  // Migrate records keyed by the retired djb2 hash onto the canonical FNV-1a id,
+  // merging any that collapse onto the same id (union links, newest wins). Runs
+  // on every load/save/mutate through this one chokepoint and is idempotent.
+  return { schemaVersion: 1, items: reconcileBacklogObjectRecordIds(items) }
 }
 
 function normalizeRecord(value: unknown): BacklogObjectRecord | null {
@@ -1122,15 +1126,6 @@ function normalizeBacklogLink(value: unknown): BacklogItemLinkPayload | null {
     status: typeof raw.status === 'string' ? raw.status : undefined,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
   }
-}
-
-function stableBacklogObjectId(relativePath: string): string {
-  let hash = 0
-  for (let i = 0; i < relativePath.length; i += 1) {
-    hash = ((hash << 5) - hash) + relativePath.charCodeAt(i)
-    hash |= 0
-  }
-  return `backlog_${(hash >>> 0).toString(36)}`
 }
 
 function normalizeRelativePath(path: string): string {

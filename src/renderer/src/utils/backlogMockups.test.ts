@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   backlogMockupResolutionCandidates,
   collectBacklogMockups,
+  collectDanglingMockups,
   detectBacklogMockupReferences,
   parseBacklogMockups,
 } from './backlogMockups'
@@ -153,8 +154,84 @@ run('backlogMockupResolutionCandidates is empty for an empty ref', () => {
   assert.deepEqual(backlogMockupResolutionCandidates(''), [])
 })
 
-if (failures > 0) {
-  console.error(`backlogMockups.test.ts: ${failures} failing`)
-  process.exit(1)
+// ---- collectDanglingMockups (async, tolerant both-roots existence) ---------
+
+async function runAsync(name: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn()
+    console.log(`ok - ${name}`)
+  } catch (error) {
+    failures += 1
+    console.error(`not ok - ${name}`)
+    console.error(error)
+  }
 }
-console.log('backlogMockups.test.ts: ok')
+
+// An existence probe backed by a fixed set of present root-relative paths.
+const existsIn = (present: readonly string[]) => async (relativePath: string) =>
+  present.includes(relativePath)
+
+async function collectDanglingMockupsTests(): Promise<void> {
+  await runAsync('collectDanglingMockups flags an attached ref that resolves under neither root', async () => {
+    assert.deepEqual(
+      await collectDanglingMockups(
+        { mockups: ['mockups/missing.html'], relativePath: 'backlog/item.md', sourceContent: '# t' },
+        existsIn([]),
+      ),
+      ['mockups/missing.html'],
+    )
+  })
+
+  await runAsync('collectDanglingMockups resolves a backlog/-relative ref authored WITHOUT the prefix', async () => {
+    // The exact failure MC-1697 fixes: `mockups/x.html` authored, file at
+    // `backlog/mockups/x.html`. The backlog/ candidate resolves → not dangling.
+    assert.deepEqual(
+      await collectDanglingMockups(
+        { mockups: ['mockups/x.html'], relativePath: 'backlog/item.md', sourceContent: '# t' },
+        existsIn(['backlog/mockups/x.html']),
+      ),
+      [],
+    )
+  })
+
+  await runAsync('collectDanglingMockups resolves a root-relative ref present as authored', async () => {
+    assert.deepEqual(
+      await collectDanglingMockups(
+        { mockups: ['backlog/mockups/x.html'], relativePath: 'backlog/item.md', sourceContent: '# t' },
+        existsIn(['backlog/mockups/x.html']),
+      ),
+      [],
+    )
+  })
+
+  await runAsync('collectDanglingMockups flags a body-detected mockup mention that dangles', async () => {
+    assert.deepEqual(
+      await collectDanglingMockups(
+        { mockups: undefined, relativePath: 'backlog/item.md', sourceContent: 'Mockup: [x](mockups/gone.html)' },
+        existsIn([]),
+      ),
+      ['mockups/gone.html'],
+    )
+  })
+
+  await runAsync('collectDanglingMockups returns nothing when the item names no mockup', async () => {
+    assert.deepEqual(
+      await collectDanglingMockups(
+        { mockups: undefined, relativePath: 'backlog/item.md', sourceContent: '# Just text' },
+        existsIn([]),
+      ),
+      [],
+    )
+  })
+}
+
+async function main(): Promise<void> {
+  await collectDanglingMockupsTests()
+  if (failures > 0) {
+    console.error(`backlogMockups.test.ts: ${failures} failing`)
+    process.exit(1)
+  }
+  console.log('backlogMockups.test.ts: ok')
+}
+
+void main()
