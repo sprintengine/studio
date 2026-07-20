@@ -251,6 +251,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
+  markBundledSpecialistPackMigrated: () => void
   setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
   setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
   resetCommandKeybindings: (commandId: CommandId) => void

@@ -2897,6 +2897,13 @@ export type ElectronApi = {
   readSprintEngineRegistryRole: (input: SprintEngineRegistryRoleReadInput) => Promise<SprintEngineMcpReadResult>
   /** Install third-party Sprint Engine roles from a folder into the user-global registry. */
   installUserSprintEngineRoleFolder: (srcDir: string) => Promise<RoleInstallResult>
+  /**
+   * One-time MC-1587 update-migration: install the shipped (un-bundled)
+   * specialist pack into the user-global registry. The renderer owns the
+   * run-once guard and the enabled decision; main copies the pack and
+   * invalidates the role catalog.
+   */
+  installBundledSpecialistPack: () => Promise<RoleInstallResult>
   /** List the roles currently installed in the user-global registry. */
   listUserSprintEngineRoles: () => Promise<UserRoleListResult>
   /** Save (create or overwrite) a user-authored role manifest and its soul (SKILL.md) body. */

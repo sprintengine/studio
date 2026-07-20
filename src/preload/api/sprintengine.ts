@@ -35,6 +35,7 @@ import {
   type SprintRuntimeStopReasonPush,
 } from '../../shared/sprintengine/runtime-bridge'
 import type {
+  RoleInstallResult,
   UserRoleDeleteResult,
   UserRoleGetResult,
   UserRoleSaveInput,
@@ -131,6 +132,8 @@ export const sprintEngineApi = {
     ipcRenderer.invoke('sprintengine:token-usage:read', { statePath }),
   installUserSprintEngineRoleFolder: (srcDir: string) =>
     ipcRenderer.invoke('sprintengine:user-roles:install-folder', srcDir),
+  installBundledSpecialistPack: (): Promise<RoleInstallResult> =>
+    ipcRenderer.invoke('sprintengine:specialist-pack:install-bundled'),
   listUserSprintEngineRoles: () => ipcRenderer.invoke('sprintengine:user-roles:list'),
   saveUserSprintEngineRole: (input: UserRoleSaveInput): Promise<UserRoleSaveResult> =>
     ipcRenderer.invoke('sprintengine:user-roles:save', input),
@@ -245,6 +248,7 @@ export const sprintEngineApi = {
   | 'summarizeSprintEngineFeedback'
   | 'readSprintEngineTokenUsage'
   | 'installUserSprintEngineRoleFolder'
+  | 'installBundledSpecialistPack'
   | 'listUserSprintEngineRoles'
   | 'saveUserSprintEngineRole'
   | 'deleteUserSprintEngineRole'
