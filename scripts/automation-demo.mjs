@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// External Multicode automation client. Connects to the app's local automation
-// MCP socket (no Multicode source imports — only the discovery file and the
+// External SprintEngine Studio client. Connects to the app's local MCP socket
+// (no app source imports — only the discovery file and the
 // wire protocol), then drives create-workspace → launch-agent → read-status.
 //
 // Usage:
 //   node scripts/automation-demo.mjs --user-data-dir <dir> [--cli <agentCli>] [--list-only]
 //
-// The discovery file <userData>/automation-server-info.json exists only while
-// the automation server is enabled and running.
+// The discovery file <userData>/sprintengine-studio-mcp-info.json exists only
+// while SprintEngine Studio is running. The old filename remains a fallback.
 
 import { readFileSync } from 'node:fs'
 import { connect } from 'node:net'
@@ -25,13 +25,24 @@ if (!userDataDir) {
   process.exit(2)
 }
 const agentCli = arg('--cli', 'claude-code')
+const folderPath = arg('--folder-path')
 const listOnly = process.argv.includes('--list-only')
 
 let info
 try {
-  info = JSON.parse(readFileSync(join(userDataDir, 'automation-server-info.json'), 'utf8'))
+  let raw
+  for (const filename of ['sprintengine-studio-mcp-info.json', 'automation-server-info.json']) {
+    try {
+      raw = readFileSync(join(userDataDir, filename), 'utf8')
+      break
+    } catch {
+      // Try the next compatibility filename.
+    }
+  }
+  if (!raw) throw new Error('no discovery file found')
+  info = JSON.parse(raw)
 } catch (error) {
-  console.error(`No automation server discovery file in ${userDataDir} — is the automation setting enabled and the app running? (${error.message})`)
+  console.error(`No Studio MCP discovery file in ${userDataDir} — is SprintEngine Studio running? (${error.message})`)
   process.exit(3)
 }
 
@@ -109,12 +120,36 @@ async function main() {
   const created = toolResult(
     await rpc('tools/call', {
       name: 'workspace.create',
-      arguments: { name: `Automation Demo ${new Date().toISOString().slice(11, 19)}` },
+      arguments: {
+        name: `Automation Demo ${new Date().toISOString().slice(11, 19)}`,
+        ...(folderPath ? { folderPath } : {}),
+      },
     }),
     'workspace.create'
   )
   const workspaceId = created.workspace.id
   console.log(`# created workspace ${workspaceId} ("${created.workspace.name}")`)
+
+  if (folderPath) {
+    const backlogCreated = toolResult(
+      await rpc('tools/call', {
+        name: 'backlog.create',
+        arguments: {
+          workspaceId,
+          title: 'Automation-created backlog item',
+          description: 'Created through the SprintEngine Studio MCP acceptance drive.',
+          type: 'feature',
+        },
+      }),
+      'backlog.create'
+    )
+    const backlogPath = backlogCreated.item.relativePath
+    const backlogContent = readFileSync(join(folderPath, backlogPath), 'utf8')
+    if (!/^updated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/m.test(backlogContent)) {
+      throw new Error(`backlog.create did not stamp a precise UTC timestamp in ${backlogPath}`)
+    }
+    console.log(`# backlog.create: ${backlogPath} has a precise server-owned timestamp`)
+  }
 
   const launched = toolResult(
     await rpc('tools/call', { name: 'agent.launch', arguments: { workspaceId, cli: agentCli } }),

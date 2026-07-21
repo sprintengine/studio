@@ -8,7 +8,7 @@
 
 Backlog items are durable work records. Capture the outcome in plain language — the what and why, user impact, reproduction notes for bugs, and any reference needed to understand the request.
 
-The Backlog panel reads item status from each item file's **frontmatter** under `backlog/`, so keeping it current is part of the work, not optional bookkeeping. Whenever the real state of your work changes, set the item's `status` in its frontmatter and save in the same step:
+The Backlog panel reads item status from each item file's **frontmatter** under `backlog/`, so keeping it current is part of the work, not optional bookkeeping. Whenever the real state of your work changes, call `backlog.update` for its `status` in the same step:
 
 - **Starting**: set `in_progress` before role-specific work begins.
 - **Blocked on the user**: set `needs_input` the moment you stop to wait for a decision, missing information, or help only a human can provide — and state the specific question in your reply. A `needs_input` status with no stated question is incomplete.
@@ -16,7 +16,7 @@ The Backlog panel reads item status from each item file's **frontmatter** under 
 - **Finished**: set `completed` only when the work is genuinely complete and verified. Never for partial work.
 - **Stopping incomplete**: leave the item `in_progress` and report the remaining work — never let it silently look finished or abandoned.
 
-When the Multicode automation tools are available, use `backlog.create` and `backlog.update` instead of writing frontmatter yourself. Those tools validate the schema and stamp `updated:` programmatically; do not supply or calculate a timestamp. Direct Markdown editing is the fallback only when those tools are unavailable. On that fallback path, edit only the intended frontmatter fields, preserve the body and every other key, and stamp the real current UTC instant returned by `node -p "new Date().toISOString()"` (for example `2026-07-20T18:42:31.123Z`). Never use a date-only value such as `2026-07-20`, and never invent or estimate the time.
+Use the SprintEngine Studio MCP for every Backlog mutation: `backlog.create`, `backlog.update`, `backlog.assign`, or `backlog.work`. The app validates schema and owns ids, links, collision-safe paths, and exact timestamps; never supply `updated`. Do not edit Backlog Markdown or `.multi-code/backlog/items.json` directly. If the required Studio MCP is unavailable, stop and report that gateway failure rather than mutating raw files.
 
 </what-to-do>
 
@@ -46,14 +46,14 @@ The item file's frontmatter owns lifecycle and triage as flat top-level scalars;
 
 Set an axis only when the current context supports a grounded estimate; leave it unset instead of guessing. Difficulty is normally architect-owned. Criticality follows user or product intent; if you infer it, be conservative and let the user override.
 
-Prefer `backlog.update` when that automation tool is available; it validates supplied fields, preserves omitted fields and the body, and stamps the update time itself. Otherwise edit the matching `key: value` line in the item's frontmatter and update `updated:` in the same save — add the line to set a field, remove it to clear one — preserving the body and every other key. Legacy aliases (`size` → difficulty, `priority` → criticality, `itemType`/`backlog_type` → type) are still read. There is no `items.json` surgery for a status or triage change.
+Mutate lifecycle and triage only with `backlog.update`, passing the project-relative path and only fields that truly change. It preserves omitted fields and the body and stamps the update time. Legacy aliases remain readable inputs, but new tool mutations use the canonical fields. Never edit `items.json` or compute ids.
 
 ## Epics
 
 An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` with `type: epic`; `<slug>` is the filename stem and its title is the first `# Heading`. Membership is **stored up, derived down** — the only stored relationship is each child's `epic:` field:
 
-- **Assign**: set `epic: <slug>` in the child item's frontmatter. **Remove**: delete that line.
-- **Create**: write `backlog/epics/<slug>.md` with `type: epic`, a precise `updated:` UTC timestamp, and a `# Title`, then assign members.
+- **Assign/remove**: update the child's `epic` through `backlog.update`.
+- **Create**: call `backlog.create` with `type: epic`, then assign members through `backlog.update`.
 - **Enumerate children**: `grep -l "^epic: <slug>$" backlog/*.md`.
 - **Completion**: an epic is `completed` only when every one of its children is `completed`.
 
@@ -62,41 +62,11 @@ An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` w
 When a user drags a `backlog/...` item into a terminal and asks you to work it directly, treat the dragged file as the intake brief:
 
 1. Confirm the path is under `backlog/`, read the item, and derive the project-root-relative source path, for example `backlog/example.md`.
-2. Set the item `in_progress` and refresh its precise `updated:` timestamp in the same frontmatter save before role-specific work begins; leave the body and every other key untouched.
+2. Call `backlog.update` with `status: in_progress` before role-specific work begins; the server stamps the exact time and preserves the body.
 3. Mark it `needs_input` (with the blocking question stated in your reply) whenever you stop to wait on the user, `in_progress` again on resume, and `completed` only once the real work is complete and verified. Stopping incomplete for any other reason leaves it `in_progress` with the remaining work reported.
 
 ## Recording The Working Agent
 
-When you pick up a Backlog item by **typing** (e.g. "work on `backlog/foo.md`") rather than dragging it onto your terminal, the app cannot observe the handoff, so record it yourself — this is what lets the Backlog panel link the item to you and shows the Backlog glyph on your terminal.
-
-Do this only when your terminal exposes the agent-identity environment variables (set by Multicode when it launches an agent terminal):
-
-- `MULTICODE_WORKSPACE_ID` and `MULTICODE_AGENT_ID` — required; the durable identity.
-- `MULTICODE_AGENT_NAME` — optional; the display name for the link label.
-
-If `MULTICODE_AGENT_ID` is empty or unset, skip this entirely (you are not a Multicode-launched agent terminal). Never invent the values, and skip it for worktree-isolated work (a worktree edits its own copy of the object store and would fork the link).
-
-The working-agent link is the one piece of state that lives in the object store — links are app-owned, not frontmatter. When you set the item `in_progress`, also upsert a single link into the item's `links` array in `.multi-code/backlog/items.json`, keyed by its fixed `id` (replace the existing entry if present; leave all other links and fields untouched):
-
-```json
-{
-  "id": "agent-runtime:working-agent",
-  "moduleId": "agent-runtime",
-  "type": "agent",
-  "label": "Agent: <MULTICODE_AGENT_NAME, or MULTICODE_AGENT_ID if the name is unset>",
-  "target": { "kind": "agent.terminal", "id": "<MULTICODE_WORKSPACE_ID>/<MULTICODE_AGENT_ID>" },
-  "updatedAt": "<real current ISO-8601 timestamp>"
-}
-```
-
-If the store or item record is missing, create the minimal schema-v1 record — `schemaVersion: 1`, `items: []` if needed, then an item with `id: stableBacklogObjectId(relativePath)`, `source: { type: "file", relativePath }`, `metadata: {}`, `links: []`, `createdAt`, and `updatedAt`. `stableBacklogObjectId` is the FNV-1a hash used by `src/renderer/src/utils/backlog.ts`. Run this command and use its output verbatim:
-
-```bash
-node -e "const p=process.argv[1].replace(/\\\\/g,'/').toLowerCase();let h=2166136261;for(const c of p){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}console.log(JSON.stringify({id:'backlog_'+(h>>>0).toString(36),now:new Date().toISOString()}))" "backlog/<file>"
-```
-
-If `node` is unavailable, apply the same algorithm with any runtime (normalize slashes, lowercase, FNV-1a 32-bit from `2166136261` with multiplier `16777619`, formatted `backlog_${(hash >>> 0).toString(36)}`) — execute it, do not estimate. Do not write `status` or any triage field into this record; lifecycle lives in the file's frontmatter.
-
-The fixed `id` makes this idempotent and most-recent-agent-wins per item. The `agent` link type is lifecycle-neutral: it records who is working the item and never changes item status, so the `status` you set in frontmatter stays authoritative.
+For a typed pickup not already linked by drag/drop or `backlog.work`, call `backlog.assign` with the item path and the real `MULTICODE_AGENT_ID`, using `MULTICODE_AGENT_NAME` as its label when present. Never invent identity; skip attribution when no agent id is exposed. The app owns the object-store link and timestamp.
 
 </supporting-info>

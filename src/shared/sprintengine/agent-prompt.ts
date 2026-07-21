@@ -13,6 +13,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineState,
 } from './run-types'
+import { STUDIO_MCP_SERVER_ID } from '../product-identity'
 
 export function normalizeAgentIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
@@ -153,7 +154,7 @@ export function buildSprintEngineStartupPrompt(
   const roleBoundary = [
     '## Role Boundaries',
     `You are assigned role: ${role}. Only claim work whose sprint \`task.role\` matches \`${role}\`. Do not claim, complete, mark ready, or otherwise advance tasks assigned to any other role. You may read other roles' state via MCP read tools to diagnose blockers.`,
-    'Sprint Engine work runs through the managed `multicode-sprintengine` MCP server in this terminal. If the managed MCP server cannot be reached, stop and surface the failure.',
+    `Sprint Engine work runs through the managed \`${STUDIO_MCP_SERVER_ID}\` MCP server in this terminal. If the managed MCP server cannot be reached, stop and surface the failure.`,
   ].join('\n')
 
   const missingRunNote = commandMode === 'join' && options.sprintEngineStatePath

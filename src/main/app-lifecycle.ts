@@ -85,7 +85,7 @@ export function registerAppLifecycle({
     handleAuthCallback([callbackUrl])
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     app.setAppLogsPath()
 
     // Surface which Python the app resolved; warns when a packaged build missed
@@ -100,10 +100,9 @@ export function registerAppLifecycle({
     registerMulticodeProtocol()
 
     Menu.setApplicationMenu(createAppMenu())
+    // Always-on: one local SprintEngine Studio MCP gateway per app instance.
+    await automationService?.initialize()
     createMainWindow({ diagnosticsEnabled })
-    // Off by default: initialize() only starts the local automation socket
-    // when the persisted setting enables it.
-    void automationService?.initialize()
     // Always-on: start the agent-state reporter socket so launches that follow
     // can install the hook against a live endpoint.
     void agentStateService?.initialize()

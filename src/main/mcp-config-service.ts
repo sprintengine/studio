@@ -33,6 +33,7 @@ import {
 } from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
 import { getPluginById } from './plugin-registry-instance'
+import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 
 export { normalizeMcpClients, normalizeMcpServerConfig }
 export type { McpServerNormalizationOptions }
@@ -175,7 +176,7 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
         level: hasRequired ? 'error' : 'warning',
         client,
         message: hasRequired
-          ? `Plugin "${pluginId}" does not support HTTP MCP config sync; Sprint Engine autonomous mode requires an HTTP MCP-capable plugin with an mcpConfig block.`
+          ? `Plugin "${pluginId}" has no MCP config writer; Studio-launched agents require an mcpConfig block for the app-owned gateway.`
           : `Plugin "${pluginId}" does not declare an mcpConfig block; skipping MCP sync for this CLI.`,
       })
       continue
@@ -186,7 +187,7 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
         level: hasRequired ? 'error' : 'warning',
         client,
         message: hasRequired
-          ? `Plugin "${pluginId}" does not support HTTP MCP servers; Sprint Engine autonomous mode requires HTTP MCP support via capabilities.mcpServers.`
+          ? `Plugin "${pluginId}" does not support managed MCP servers; Studio-launched agents require MCP support via capabilities.mcpServers.`
           : `Plugin "${pluginId}" does not declare MCP server support; skipping MCP sync for this CLI.`,
       })
       continue
@@ -468,7 +469,7 @@ function syncForFormat(input: SyncForFormatInput): {
             level: hasRequired ? 'error' : 'warning',
             client: input.client,
             message: hasRequired
-              ? `MCP sync writer for format "${format}" is not implemented yet; Sprint Engine autonomous mode requires an HTTP MCP-capable config writer with env-backed bearer token support for plugin "${input.plugin.id}".`
+              ? `MCP sync writer for format "${format}" is not implemented yet; Studio-launched agents require a workspace stdio MCP config writer for plugin "${input.plugin.id}".`
               : `MCP sync writer for format "${format}" is not implemented yet; declared in plugin "${input.plugin.id}".`,
           },
         ],
@@ -569,11 +570,54 @@ function syncClaude(input: SyncForFormatInput): {
       nextServers[server.id] = toClaudeServer(server)
     }
     writeFileSync(path, `${JSON.stringify({ ...existing, mcpServers: nextServers }, null, 2)}\n`, 'utf8')
+    if (plugin.binary === 'claude' && workspaceServers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) {
+      const approvalIssue = enableStudioMcpForClaudeWorkspace(workspaceRoot, client)
+      if (approvalIssue) issues.push(approvalIssue)
+    }
   }
   return {
     target: { client, path, serverIds: workspaceServers.map((server) => server.id) },
     issues,
   }
+}
+
+// Claude records project MCP approval separately from `.mcp.json`. The Studio
+// gateway is app-owned and required, so add only that one id to the allow-list;
+// custom MCPs retain Claude's normal consent flow and every unrelated setting
+// is preserved. Z.AI and Kimi Claude use the same Claude binary/config shape.
+function enableStudioMcpForClaudeWorkspace(
+  workspaceRoot: string,
+  client: McpClientTarget
+): McpValidationIssue | null {
+  const settingsPath = join(workspaceRoot, '.claude', 'settings.local.json')
+  const prepared = prepareWritableConfigFile(settingsPath, client)
+  if (!prepared.ok) return prepared.issue
+  let existing: Record<string, unknown> = {}
+  if (prepared.existed && prepared.previous.trim()) {
+    try {
+      existing = JSON.parse(prepared.previous) as Record<string, unknown>
+    } catch {
+      return {
+        level: 'error',
+        client,
+        message: `${settingsPath} is not valid JSON. Fix it before syncing the required Studio MCP server.`,
+      }
+    }
+  }
+  const strings = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+  const withoutManagedIds = (values: string[]): string[] =>
+    values.filter((id) => id !== STUDIO_MCP_SERVER_ID && id !== MANAGED_SPRINTENGINE_MCP_SERVER_ID)
+  const enabled = [...withoutManagedIds(strings(existing.enabledMcpjsonServers)), STUDIO_MCP_SERVER_ID]
+  const disabled = withoutManagedIds(strings(existing.disabledMcpjsonServers))
+  const next: Record<string, unknown> = {
+    ...existing,
+    enabledMcpjsonServers: enabled,
+  }
+  if (disabled.length > 0) next.disabledMcpjsonServers = disabled
+  else delete next.disabledMcpjsonServers
+  writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  return null
 }
 
 function syncOpencode(input: SyncForFormatInput): {

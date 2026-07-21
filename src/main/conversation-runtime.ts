@@ -29,7 +29,7 @@ import {
   type ConversationProviderEventStream,
 } from './providers/mock-conversation-provider'
 import { createOpenAiCompatibleProvider } from './providers/openai-compatible-provider'
-import { createClaudeAgentProvider } from './providers/claude-agent-provider'
+import { CLAUDE_AGENT_PROVIDER_ID, createClaudeAgentProvider } from './providers/claude-agent-provider'
 
 type RuntimeSession = ConversationSessionSummary & {
   workspaceRoot: string
@@ -65,6 +65,9 @@ type ConversationRuntimeOptions = {
   readFile?: typeof readFile
   now?: () => number
   randomId?: () => string
+  prepareStudioMcp?: (input: { workspaceRoot: string; workspaceId: string; agentId: string }) => Promise<
+    { ok: true } | { ok: false; message: string }
+  >
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
@@ -88,6 +91,7 @@ export class ConversationRuntime {
   private readonly readFile: typeof readFile
   private readonly now: () => number
   private readonly randomId: () => string
+  private readonly prepareStudioMcp?: ConversationRuntimeOptions['prepareStudioMcp']
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly listeners = new Set<ConversationRuntimeListener>()
   private eventSequence = 0
@@ -117,6 +121,7 @@ export class ConversationRuntime {
     this.readFile = options.readFile ?? readFile
     this.now = options.now ?? Date.now
     this.randomId = options.randomId ?? (() => Math.random().toString(36).slice(2, 10))
+    this.prepareStudioMcp = options.prepareStudioMcp
     // Startup-time epoch (not randomId — tests inject deterministic id
     // sequences that must not be consumed by construction).
     this.eventEpoch = this.now().toString(36)
@@ -131,6 +136,10 @@ export class ConversationRuntime {
     const validation = await this.validateStartInput(input)
     if (!validation.ok) {
       return { ok: false, message: validation.message }
+    }
+    if (input.providerId === CLAUDE_AGENT_PROVIDER_ID && this.prepareStudioMcp) {
+      const prepared = await this.prepareStudioMcp(input)
+      if (!prepared.ok) return prepared
     }
 
     const sessionId = `conv_${this.randomId()}`

@@ -54,8 +54,8 @@ flags to bound which workspace roots may contain Sprint Engine state paths.
 Use repeated `--extra-dir <registry-root>` flags to add plugin registry roots
 containing `roles/` and `skills/`, and `--user-dir <path>` to override the user
 registry base directory. The server remains a local stdio MCP boundary.
-Multicode-launched autonomous Sprint Engine agents use the managed
-`multicode-sprintengine` MCP server and runtime dispatch; they do not use
+Studio-launched autonomous Sprint Engine agents use the managed
+`sprintengine-studio` MCP gateway (which proxies the module-owned Python hub) and runtime dispatch; they do not use
 `join --watch` for idle polling. Standalone/headless CLI users can still run
 `sprintengine join --role <role> --id <agent-id> --watch`, where the CLI owns
 polling/backoff.

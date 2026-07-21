@@ -33,10 +33,14 @@ AUDITED_TOOLS = {
     "sprintengine.plan.add_dependency",
     "sprintengine.plan.remove_dependency",
     "sprintengine.plan.start_review",
+    "sprintengine.plan.address_reviews",
     "sprintengine.artifact.add",
     "sprintengine.artifact.ready",
     "sprintengine.artifact.approve",
     "sprintengine.artifact.request_changes",
+    "sprintengine.vcs.commit",
+    "sprintengine.vcs.request_repo",
+    "sprintengine.vcs.pr",
 }
 
 MUTATING_TOOLS = AUDITED_TOOLS

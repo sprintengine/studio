@@ -1,15 +1,24 @@
 import assert from 'node:assert/strict'
 import type { BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
+import {
+  AUTOMATION_SERVER_INFO_FILENAME,
+  createAutomationService,
+  resolveSocketPath,
+  STUDIO_MCP_SERVER_INFO_FILENAME,
+} from './automation-service'
 import { createMcpSocketServer, type McpToolRegistration } from './mcp-socket-server'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createRendererAutomationDelegate } from './renderer-delegate'
+import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
+import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
+import { SPRINTENGINE_TOOL_NAMES } from '../../shared/sprintengineToolNames.generated'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
   SprintEngineTaskCommentInput,
@@ -228,11 +237,11 @@ function tool(tools: McpToolRegistration[], name: string): McpToolRegistration {
   return found
 }
 
-async function testSettingsDefaultOffAndRoundTrip(): Promise<void> {
+async function testSettingsDefaultOnAndRoundTrip(): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-settings-'))
   try {
     const missing = readAutomationSettings(dir)
-    assert.equal(missing.settings.enabled, false, 'missing settings file means disabled')
+    assert.equal(missing.settings.enabled, true, 'missing settings file means the Studio MCP is enabled')
     assert.equal(missing.error, null)
 
     writeAutomationSettings(dir, { enabled: true })
@@ -241,11 +250,54 @@ async function testSettingsDefaultOffAndRoundTrip(): Promise<void> {
 
     writeFileSync(join(dir, 'automation-settings.json'), 'not json')
     const malformed = readAutomationSettings(dir)
-    assert.equal(malformed.settings.enabled, false, 'malformed settings fail closed (disabled)')
+    assert.equal(malformed.settings.enabled, true, 'malformed legacy settings cannot disable the Studio MCP')
     assert.match(malformed.error ?? '', /not valid JSON/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+}
+
+async function testStudioGatewayStartsDespiteLegacyDisabledSetting(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-service-'))
+  try {
+    writeAutomationSettings(dir, { enabled: false })
+    const service = createAutomationService({
+      resolveUserDataDir: () => dir,
+      appVersion: '0.0.0-test',
+      resolveBridgeScriptPath: () => BRIDGE_SCRIPT,
+      tools: [],
+      sprintEngineMcpHub: {
+        callRunTool: async () => {
+          throw new Error('unexpected run proxy call')
+        },
+      },
+    })
+    const started = await service.initialize()
+    assert.equal(started.enabled, true)
+    assert.equal(started.running, true)
+    assert.equal(existsSync(join(dir, STUDIO_MCP_SERVER_INFO_FILENAME)), true)
+    assert.equal(existsSync(join(dir, AUTOMATION_SERVER_INFO_FILENAME)), true)
+
+    const compatibilityDisable = await service.setEnabled(false)
+    assert.equal(compatibilityDisable.enabled, true)
+    assert.equal(compatibilityDisable.running, true, 'legacy toggle cannot disable the agent MCP contract')
+    await service.shutdown()
+    assert.equal(existsSync(join(dir, STUDIO_MCP_SERVER_INFO_FILENAME)), false)
+    assert.equal(existsSync(join(dir, AUTOMATION_SERVER_INFO_FILENAME)), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+async function testStudioGatewayEndpointContractAcrossPlatforms(): Promise<void> {
+  const windows = resolveSocketPath('C:\\Users\\test\\AppData\\Roaming\\multicode', 'win32')
+  assert.match(windows, /^\\\\\.\\pipe\\multicode-automation-[a-f0-9]{12}$/)
+  const mac = resolveSocketPath('/Users/test/Library/Application Support/multicode', 'darwin')
+  assert.equal(mac, '/Users/test/Library/Application Support/multicode/automation.sock')
+  const linux = resolveSocketPath('/home/test/.config/multicode', 'linux')
+  assert.equal(linux, '/home/test/.config/multicode/automation.sock')
+  const longLinux = resolveSocketPath(`/home/test/${'nested/'.repeat(20)}multicode`, 'linux', '/tmp')
+  assert.match(longLinux, /^\/tmp\/multicode-automation-[a-f0-9]{12}\.sock$/)
 }
 
 async function testToolListNamesTheToolSurface(): Promise<void> {
@@ -568,11 +620,15 @@ async function testDelegatePreservesWorkspaceModeOnSuccess(): Promise<void> {
 
 async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
   const socketPath = join(mkdtempSync(join(tmpdir(), 'multicode-automation-sock-')), 'automation.sock')
+  let attributedAgentId: string | undefined
   const echoTool: McpToolRegistration = {
     name: 'workspace.list',
     description: 'test tool',
     inputSchema: { type: 'object', properties: {} },
-    handler: async () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { workspaces: [] } }),
+    handler: async (_args, context) => {
+      attributedAgentId = context?.metadata.agentId
+      return { content: [{ type: 'text', text: '{}' }], structuredContent: { workspaces: [] } }
+    },
   }
   const server = createMcpSocketServer({
     socketPath,
@@ -625,6 +681,7 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
       }
     }
 
+    socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'agent-a', workspaceId: 'ws-1' } })}\n`)
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })}\n`)
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`)
@@ -645,6 +702,7 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
 
     const call = byId.get(3) as { result: { structuredContent: { workspaces: unknown[] } } }
     assert.deepEqual(call.result.structuredContent.workspaces, [])
+    assert.equal(attributedAgentId, 'agent-a', 'connection metadata is applied before the first tool call')
 
     const unknownTool = byId.get(4) as { error: { code: number; message: string } }
     assert.equal(unknownTool.error.code, -32602)
@@ -701,13 +759,13 @@ const BRIDGE_SCRIPT = join(process.cwd(), 'resources', 'automation', 'mcp-stdio-
 
 type BridgeExit = { code: number | null; stdoutLines: Array<Record<string, unknown>>; stderr: string }
 
-function spawnBridge(infoPath: string): {
+function spawnBridge(infoPath: string, env: NodeJS.ProcessEnv = process.env): {
   child: ChildProcessWithoutNullStreams
   stdoutLines: Array<Record<string, unknown>>
   stderrChunks: string[]
   exited: Promise<BridgeExit>
 } {
-  const child = spawn(process.execPath, [BRIDGE_SCRIPT, '--info-path', infoPath], { stdio: 'pipe' })
+  const child = spawn(process.execPath, [BRIDGE_SCRIPT, '--info-path', infoPath], { stdio: 'pipe', env })
   const stdoutLines: Array<Record<string, unknown>> = []
   const stderrChunks: string[] = []
   let buffer = ''
@@ -777,6 +835,49 @@ async function testBridgePipesStdioToSocketAndExitsOnServerStop(): Promise<void>
   }
   const exit = await bridge.exited
   assert.equal(exit.code, 0, `bridge exits 0 on server stop (stderr: ${exit.stderr})`)
+  rmSync(dir, { recursive: true, force: true })
+}
+
+async function testConcurrentBridgesKeepResponsesAndAttributionIsolated(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-concurrency-'))
+  const socketPath = join(dir, 'automation.sock')
+  const infoPath = join(dir, STUDIO_MCP_SERVER_INFO_FILENAME)
+  const server = createMcpSocketServer({
+    socketPath,
+    serverName: 'sprintengine-studio',
+    serverVersion: '0.0.0-test',
+    tools: [{
+      name: 'agent.identity',
+      description: 'test attribution',
+      inputSchema: { type: 'object' },
+      handler: async (args, context) => {
+        if (typeof args.delayMs === 'number') await new Promise((resolve) => setTimeout(resolve, args.delayMs as number))
+        const agentId = context?.metadata.agentId ?? 'external-local'
+        return { content: [{ type: 'text', text: agentId }], structuredContent: { agentId } }
+      },
+    }],
+  })
+  await server.start()
+  writeFileSync(infoPath, JSON.stringify({ socketPath, protocol: 'mcp-jsonrpc-ndjson', pid: process.pid }))
+  const first = spawnBridge(infoPath, { ...process.env, MULTICODE_AGENT_ID: 'agent-first' })
+  const second = spawnBridge(infoPath, { ...process.env, MULTICODE_AGENT_ID: 'agent-second' })
+  try {
+    for (const bridge of [first, second]) {
+      bridge.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n`)
+    }
+    first.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent.identity', arguments: { delayMs: 40 } } })}\n`)
+    second.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent.identity', arguments: {} } })}\n`)
+    await waitUntil('two independent bridge responses', () => first.stdoutLines.length >= 2 && second.stdoutLines.length >= 2)
+    const firstCall = first.stdoutLines.find((response) => response.id === 2) as { result: { structuredContent: { agentId: string } } }
+    const secondCall = second.stdoutLines.find((response) => response.id === 2) as { result: { structuredContent: { agentId: string } } }
+    assert.equal(firstCall.result.structuredContent.agentId, 'agent-first')
+    assert.equal(secondCall.result.structuredContent.agentId, 'agent-second')
+  } finally {
+    await server.stop()
+  }
+  const [firstExit, secondExit] = await Promise.all([first.exited, second.exited])
+  assert.equal(firstExit.code, 0)
+  assert.equal(secondExit.code, 0)
   rmSync(dir, { recursive: true, force: true })
 }
 
@@ -1933,8 +2034,100 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'roadmap_approve_failed')
 }
 
+async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promise<void> {
+  const calls: Array<{ runId: string; toolName: string; arguments?: Record<string, unknown> }> = []
+  const appTool: McpToolRegistration = {
+    name: 'workspace.list',
+    description: 'list workspaces',
+    inputSchema: { type: 'object' },
+    handler: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+  }
+  const tools = createStudioGatewayTools({
+    appTools: [appTool],
+    sprintEngineMcpHub: {
+      callRunTool: async (input) => {
+        calls.push(input)
+        return {
+          content: [{ type: 'text', text: 'canonical' }],
+          structuredContent: { ok: true, taskId: 'task-7' },
+        }
+      },
+    },
+  })
+  assert.equal(tools.length, SPRINTENGINE_TOOL_NAMES.length + 1)
+  assert.equal(SPRINTENGINE_TOOL_NAMES.every((name) => tools.some((candidate) => candidate.name === name)), true)
+
+  const runTool = tool(tools, 'sprintengine.task.next')
+  const noRun = await runTool.handler({}, { metadata: { kind: 'studio-agent', agentId: 'agent-a' } })
+  assert.equal(noRun.isError, true)
+  assert.equal((noRun.structuredContent as { error: { code: string } }).error.code, 'no_active_sprint')
+
+  const proxied = await runTool.handler(
+    { role: 'developer' },
+    { metadata: { kind: 'studio-agent', agentId: 'agent-a', sprintRunId: 'run-a' } }
+  )
+  assert.deepEqual(proxied.structuredContent, { ok: true, taskId: 'task-7' })
+  assert.deepEqual(calls, [{ runId: 'run-a', toolName: 'sprintengine.task.next', arguments: { role: 'developer' } }])
+
+  assert.throws(
+    () => createStudioGatewayTools({ appTools: [appTool, appTool], sprintEngineMcpHub: { callRunTool: async () => ({}) } }),
+    /Duplicate SprintEngine Studio MCP tool/
+  )
+  assert.equal(isStudioGatewayMutation('backlog.create'), true)
+  assert.equal(isStudioGatewayMutation('backlog.list'), false)
+  assert.equal(isStudioGatewayMutation('sprintengine.task.publish'), true)
+  assert.equal(isStudioGatewayMutation('sprintengine.vcs.commit'), true)
+  assert.equal(isStudioGatewayMutation('sprintengine.plan.address_reviews'), true)
+  assert.equal(isStudioGatewayMutation('sprintengine.task.list'), false)
+}
+
+async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-audit-'))
+  try {
+    const store = createGatewayAuditStore({ resolveUserDataDir: () => dir, maxBytes: 1024, backups: 2 })
+    for (let index = 0; index < 20; index += 1) {
+      store.record({
+        connection: {
+          kind: 'studio-agent',
+          workspaceId: 'ws-1',
+          agentId: 'agent-a',
+          cliId: 'codex',
+          sprintRunId: 'run-a',
+        },
+        tool: 'backlog.create',
+        durationMs: 7,
+        args: {
+          workspaceId: 'ws-1',
+          relativePath: `backlog/item-${index}.md`,
+          prompt: 'never-log-this-prompt',
+          token: 'never-log-this-token',
+          body: { secret: 'never-log-this-body' },
+        },
+        result: {
+          content: [{ type: 'text', text: 'full tool response is not audited' }],
+          structuredContent: { ok: true, relativePath: `backlog/item-${index}.md`, title: 'not retained' },
+        },
+      })
+    }
+    const path = join(dir, STUDIO_GATEWAY_AUDIT_FILENAME)
+    assert.equal(existsSync(path), true)
+    assert.equal(existsSync(`${path}.1`), true, 'bounded log rotates before unbounded growth')
+    const combined = [path, `${path}.1`, `${path}.2`]
+      .filter(existsSync)
+      .map((candidate) => readFileSync(candidate, 'utf8'))
+      .join('')
+    assert.doesNotMatch(combined, /never-log-this|full tool response|"title"/)
+    assert.match(combined, /"workspaceId":"ws-1"/)
+    assert.match(combined, /"tool":"backlog.create"/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 const tests = [
-  testSettingsDefaultOffAndRoundTrip,
+  testSettingsDefaultOnAndRoundTrip,
+  testStudioGatewayStartsDespiteLegacyDisabledSetting,
+  testStudioGatewayEndpointContractAcrossPlatforms,
   testToolListNamesTheToolSurface,
   testReadToolsAnswerFromSnapshot,
   testReadToolsResolveWorkspaceRootThroughSnapshot,
@@ -1962,8 +2155,11 @@ const tests = [
   testSocketServerSpeaksMcpAndOnlyWhenStarted,
   testStaleSocketFileIsReplacedOnStart,
   testBridgePipesStdioToSocketAndExitsOnServerStop,
+  testConcurrentBridgesKeepResponsesAndAttributionIsolated,
   testBridgeFailsClearlyWithoutDiscoveryFile,
   testBridgeReportsStaleDiscoveryFile,
+  testStudioGatewayMergesCanonicalRunToolsAndRoutesContext,
+  testStudioGatewayAuditIsRedactedAndRotated,
 ]
 
 async function main(): Promise<void> {

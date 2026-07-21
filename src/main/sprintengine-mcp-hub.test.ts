@@ -51,6 +51,14 @@ async function main(): Promise<void> {
   assert.equal(duplicateRegistration.reused, true)
   assert.ok(registration.runToken)
   assert.equal(service.status().activeRunCount, 1)
+  const proxiedHelp = await service.callRunTool({
+    runId: registration.runId,
+    toolName: 'sprintengine.help',
+    arguments: { role: 'architect', agentId: 'architect', topic: 'agent_workflow' },
+  }) as { content?: Array<{ type?: string; text?: string }>; isError?: boolean }
+  assert.notEqual(proxiedHelp.isError, true, 'the main-process run proxy preserves a successful MCP result')
+  assert.equal(proxiedHelp.content?.[0]?.type, 'text')
+  assert.match(proxiedHelp.content?.[0]?.text ?? '', /sprintengine\.agent\.join/)
 
   const concurrentWorkspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mcp-hub-concurrent-'))
   const concurrentTeamDirectory = join(concurrentWorkspaceRoot, '.multi-code', 'sprintengine', 'team')
@@ -172,6 +180,11 @@ async function testGatedHubOwnership(): Promise<void> {
   await assert.rejects(() => failing.ensureStarted(), /Bundled Sprint Engine MCP runtime was not found/)
   assert.deepEqual(spawnFailures, ['Bundled Sprint Engine MCP runtime was not found.'])
   assert.equal(failing.status().state, 'failed')
+  await failing.setModuleEnabled(false)
+  assert.equal(failing.status().state, 'stopped', 'disabling the module stops its Python hub')
+  await assert.rejects(() => failing.ensureStarted(), /Sprint Engine module is disabled/)
+  await failing.setModuleEnabled(true)
+  await assert.rejects(() => failing.ensureStarted(), /Bundled Sprint Engine MCP runtime was not found/)
 }
 
 // The migrated first-party path end to end: the sprint-engine module registers
@@ -225,6 +238,27 @@ async function testKernelOwnedSidecarLifecycle(): Promise<void> {
   assert.ok(registration.runToken, 'a real run registration returns a run token')
   assert.equal(handle.status().state, 'running', 'kernel status reflects the demand-spawned hub')
   assert.equal(kernel.sidecarStatuses()[0].moduleId, 'sprint-engine')
+
+  const beforeDisable = await hub.callRunTool({
+    runId: registration.runId,
+    toolName: 'sprintengine.help',
+    arguments: { role: 'architect', agentId: 'architect', topic: 'agent_workflow' },
+  }) as { isError?: boolean }
+  assert.notEqual(beforeDisable.isError, true)
+  await hub.setModuleEnabled(false)
+  assert.equal(hub.status().state, 'stopped', 'live module disable stops the Python process')
+  await assert.rejects(
+    () => hub.callRunTool({ runId: registration.runId, toolName: 'sprintengine.help' }),
+    /Sprint Engine module is disabled/
+  )
+  await hub.setModuleEnabled(true)
+  const afterReenable = await hub.callRunTool({
+    runId: registration.runId,
+    toolName: 'sprintengine.help',
+    arguments: { role: 'architect', agentId: 'architect', topic: 'agent_workflow' },
+  }) as { isError?: boolean }
+  assert.notEqual(afterReenable.isError, true, 'an existing sprint connection restores its run after live re-enable')
+  assert.equal(hub.status().activeRunCount, 1)
 
   await kernel.runShutdown()
   assert.equal(handle.status().state, 'stopped', 'kernel shutdown stops the hub process')

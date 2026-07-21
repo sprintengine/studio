@@ -2214,10 +2214,10 @@ async function spawnAgentSessionFromDescriptor(input: {
   disposeTerminal(input.descriptor.executionId)
 
   try {
-    if (input.mcpSettings?.syncEnabled && syncMcpConfig && input.descriptor.cli) {
+    if (syncMcpConfig && input.descriptor.cli) {
       const syncResult = await syncMcpConfig({
         workspaceRoot: input.descriptor.cwd || input.workspaceRoot,
-        settings: input.mcpSettings,
+        settings: input.mcpSettings ?? { syncEnabled: false, servers: {} },
         clients: [input.descriptor.cli],
       })
       if (!syncResult.ok) {
@@ -2773,7 +2773,7 @@ async function spawnTerminalFromIpc(
         } satisfies TerminalSpawnResult
       }
 
-      if (!shellOnly && syncMcpConfig && (mcpSettings?.syncEnabled || sprintEngineStatePath)) {
+      if (!shellOnly && syncMcpConfig) {
         const syncResult = await syncMcpConfig({
           workspaceRoot: workingDirectory,
           settings: sprintEngineStatePath

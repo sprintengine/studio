@@ -11,6 +11,7 @@ Usage: python3 scripts/generate_sprintengine_tool_names.py [--check]
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,8 @@ OUTPUT_PATH = REPO_ROOT / "src" / "shared" / "sprintengineToolNames.generated.ts
 
 
 def render_module() -> str:
-    from sprintengine_mcp.schemas import TOOL_SCHEMAS
+    from sprintengine_mcp.auth import MUTATING_TOOLS
+    from sprintengine_mcp.schemas import TOOL_SCHEMAS, list_tool_schemas
 
     names = sorted(TOOL_SCHEMAS)
     lines = [
@@ -32,6 +34,15 @@ def render_module() -> str:
         "] as const",
         "",
         "export type SprintEngineToolName = (typeof SPRINTENGINE_TOOL_NAMES)[number]",
+        "",
+        "// Canonical definitions are generated from the Python MCP owner. The Studio",
+        "// gateway consumes these to advertise run-native tools even before a run",
+        "// exists, without reimplementing schemas in Electron main.",
+        f"export const SPRINTENGINE_TOOL_DEFINITIONS = {json.dumps(list_tool_schemas(), indent=2)} as const",
+        "",
+        "export const SPRINTENGINE_MUTATING_TOOL_NAMES = [",
+        *[f"  '{name}'," for name in sorted(MUTATING_TOOLS)],
+        "] as const",
         "",
     ]
     return "\n".join(lines)

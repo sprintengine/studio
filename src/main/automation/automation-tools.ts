@@ -74,8 +74,8 @@ const CONFIRM_POLL_INTERVAL_MS = 150
 const LAUNCH_PERMISSION_PRESETS = ['default', 'auto_workspace'] as const
 
 // The built-in Backlog skill id backlog.work installs and invokes; the skill
-// contract (agent edits `status:` itself) owns item lifecycle, so the tool only
-// records links (epic decision 7).
+// contract owns item lifecycle through backlog.update, while this handoff tool
+// only launches the agent and records links (epic decision 7).
 const BACKLOG_SKILL_ID = 'backlog'
 
 export type AutomationBackends = {
@@ -874,9 +874,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     }
     return (
       `Work the Backlog item at ${relativePath}. `
-      + 'Track its lifecycle by editing the frontmatter `status:` line: set `in_progress` when you start, '
-      + '`needs_input` (and state the blocking question) if you stop for input, and `completed` only after the '
-      + 'work is real and verified. Leave the body and every other field untouched.'
+      + 'Use the SprintEngine Studio MCP backlog.update tool for every lifecycle change: set `in_progress` when '
+      + 'you start, `needs_input` (and state the blocking question) if you stop for input, and `completed` only '
+      + 'after the work is real and verified. Never edit Backlog Markdown or its object store directly.'
     )
   }
 

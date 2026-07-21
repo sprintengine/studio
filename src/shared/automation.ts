@@ -14,6 +14,7 @@ import type { WorkspaceMode } from '../renderer/src/types/workspace'
 // user-initiated changes. See knowledge/multicode/automation-server.md.
 
 export type AutomationServerStatus = {
+  /** Compatibility field; the Studio gateway is always enabled. */
   enabled: boolean
   running: boolean
   /** Unix socket path (POSIX) or named pipe (Windows) while running. */

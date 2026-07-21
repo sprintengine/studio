@@ -123,6 +123,11 @@ applyModuleEnablementLive = async (overrides) => {
   // Roadmap has no live-loadable main module, so its toggle takes effect through
   // the reconcile gate rather than module load/unload — refresh the resolved set.
   recomputeMainEnablement(overrides)
+  // Sprint Engine's raw IPC registrations are not live-unloaded yet, but its
+  // Python sidecar must honor the toggle immediately: close the spawn gate and
+  // stop any live hub. Re-enabling can reopen an already-registered module;
+  // enabling one that was disabled at startup still takes effect after restart.
+  await services.sprintEngineMcpHub.setModuleEnabled(enabledMainModuleIds.has('sprint-engine'))
   return { ok: true }
 }
 // Automation server ← Automations module: resolved per tool call so a live

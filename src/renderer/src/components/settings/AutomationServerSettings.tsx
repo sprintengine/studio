@@ -1,23 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { AutomationServerStatus } from '../../../../shared/automation'
-import { SettingToggle, SettingsSectionTitle } from './SettingsAtoms'
+import { STUDIO_MCP_SERVER_NAME } from '../../../../shared/product-identity'
+import { SettingsSectionTitle } from './SettingsAtoms'
 
-// Settings → MCPs: the app-automation MCP server toggle (T10 minimal wiring;
-// migrates onto the module settings-section API when T6 lands). Off by
-// default; the server listens on a local socket only, so the visible socket
-// path doubles as the connection instruction for external MCP clients.
+// Settings → MCPs: read-only diagnostics for the always-on SprintEngine Studio
+// MCP gateway. Studio agents receive it automatically; the bridge command is
+// retained for external local MCP clients.
 
 export function AutomationServerSettings() {
   const [status, setStatus] = useState<AutomationServerStatus | null>(null)
-  const [pending, setPending] = useState(false)
 
   const refresh = useCallback(async () => {
     if (typeof window.api.automationGetStatus !== 'function') return
     try {
       setStatus(await window.api.automationGetStatus())
     } catch {
-      // Status stays unknown; the toggle simply does not render.
+      // Status stays unknown; the diagnostics section does not render.
     }
   }, [])
 
@@ -25,27 +24,17 @@ export function AutomationServerSettings() {
     void refresh()
   }, [refresh])
 
-  const setEnabled = useCallback(async (enabled: boolean) => {
-    setPending(true)
-    try {
-      setStatus(await window.api.automationSetEnabled(enabled))
-    } finally {
-      setPending(false)
-    }
-  }, [])
-
   if (!status) return null
 
   return (
     <section className="space-y-2">
       <SettingsSectionTitle>Automation</SettingsSectionTitle>
-      <SettingToggle
-        label="Local automation server"
-        description="Lets local MCP clients create workspaces, launch agents, read status, manage Backlog items, create and run Automations (which can launch agents), and create and monitor Sprint Engine runs in this app. Local socket only, off by default."
-        enabled={status.enabled}
-        disabled={pending}
-        onChange={(next) => void setEnabled(next)}
-      />
+      <div className="space-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <div className="font-medium text-[color:var(--text-default)]">{STUDIO_MCP_SERVER_NAME}</div>
+        <div>
+          Always enabled for Studio-launched agents. It exposes app tools through an owner-only local socket; Sprint Engine's Python runtime still starts only when its module is enabled and a run needs it.
+        </div>
+      </div>
       {status.running && status.socketPath ? (
         <div className="space-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
           <div>
@@ -55,7 +44,7 @@ export function AutomationServerSettings() {
             <div>
               Connect a stdio MCP client (Claude Code, Codex) through the bridge script:{' '}
               <span className="break-all font-mono text-[color:var(--text-default)]">
-                claude mcp add multicode -- node {status.bridgeScriptPath}
+                claude mcp add sprintengine-studio -- node &quot;{status.bridgeScriptPath}&quot;
               </span>
             </div>
           ) : null}

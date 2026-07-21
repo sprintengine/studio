@@ -1,9 +1,10 @@
 # Backlog item schema (v2)
 
-A backlog item is a markdown file under `backlog/`. Its lightweight, human- and
-agent-edited fields live in the file's **frontmatter** and are the source of
-truth there. App-owned churn — stable id/source, star/highlight, links, module
-metadata, and timestamps — lives in the sidecar object store
+A backlog item is a markdown file under `backlog/`. Its lightweight,
+human-editable fields live in the file's **frontmatter** and are the source of
+truth there. Studio-launched agents mutate them only through the validated
+`backlog.create` / `backlog.update` tools. App-owned churn — stable source,
+star/highlight, links, module metadata, and sidecar timestamps — lives in the sidecar object store
 `.multi-code/backlog/items.json` and is merged over the file at scan time.
 
 This split follows Google Cloud's **Open Knowledge Format (OKF) v0.1**: `backlog/`
@@ -46,9 +47,9 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
   display key; the type is conveyed by a glyph, never encoded in the id (the
   Jira/Linear convention). The number is allocated automatically by the app's
   scan-time pass (`ensureBacklogItemIds`), so a hand-authored item can omit it
-  and get one on the next open; an agent that needs to cite an id immediately may
-  allocate the next integer above the current max across `backlog/**`. The
-  pure helpers live in `src/shared/backlog/item-id.ts`.
+  and get one on the next open. Agents never allocate or edit ids; after creation
+  they resolve the app-assigned display id through `backlog.list`. The pure
+  helpers live in `src/shared/backlog/item-id.ts`.
 - **type** (required by OKF): one of `epic`, `feature`, `bug`, `mockup`, `spike`.
   `epic` marks a grouping container (see below). Unknown values are tolerated on
   read and left untouched.

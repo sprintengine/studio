@@ -76,6 +76,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   const multicodeAuth = new MulticodeAuthBridge()
   const mcpConfigService = createMcpConfigService()
+  const resolveStudioMcpBridgeScriptPath = () =>
+    app.isPackaged
+      ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
+      : join(app.getAppPath(), 'resources', 'automation', 'mcp-stdio-bridge.mjs')
   // Spawn ownership of the hub belongs to the sprint-engine capability module
   // (it claims the gate when it registers its sidecar); a disabled module
   // means the hub process cannot start, by explicit error rather than silence.
@@ -118,7 +122,28 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // Conversation-agent runtime (chat sessions, incl. headless Claude child
   // processes). Owned here — not inside the IPC factory — so app shutdown can
   // dispose its child processes and diagnostics can inventory them.
-  const conversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() })
+  const conversationRuntime = new ConversationRuntime({
+    secretStore: getSharedCredentialStore(),
+    prepareStudioMcp: async ({ workspaceRoot }) => {
+      const result = await syncManagedSprintEngineMcpConfig(
+        {
+          workspaceRoot,
+          settings: { syncEnabled: false, servers: {} },
+          clients: ['claude-code'],
+        },
+        {
+          mcpConfigService,
+          sprintEngineMcpHub,
+          studioGateway: () => ({
+            command: process.execPath,
+            bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+            userDataDir: app.getPath('userData'),
+          }),
+        }
+      )
+      return result.ok ? { ok: true } : result
+    },
+  })
   conversationRuntime.startIdleSweep()
 
   // Created before terminalRuntime: the automation service needs the runner
@@ -202,7 +227,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
     },
-    syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, { mcpConfigService, sprintEngineMcpHub }),
+    syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, {
+      mcpConfigService,
+      sprintEngineMcpHub,
+      studioGateway: () => ({
+        command: process.execPath,
+        bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+        userDataDir: app.getPath('userData'),
+      }),
+    }),
     callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
     // Debug Mode: make the `debug` skill present in the session CLI's native
     // skill dir before launch. Check-first so already-installed workspaces skip
@@ -372,20 +405,18 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logDiagnostic: logWorkspaceSyncDiagnostic,
     resolveResumeCapabilities: cliResumeCapabilities,
   })
-  // App-automation MCP surface: reads come from the workspace-sync snapshot
+  // Instance-global SprintEngine Studio MCP surface: reads come from the workspace-sync snapshot
   // and terminal runtime; mutations are delegated to the primary renderer so
-  // they run the same store actions as the UI. Off by default; the persisted
-  // setting gates startServer in automationService.initialize().
+  // they run the same store actions as the UI. The gateway starts with the
+  // app; Python Sprint Engine remains module-owned and lazy.
   const automationDelegate = createRendererAutomationDelegate()
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
     appVersion: app.getVersion(),
     // Dev runs serve the script straight from the repo; packaged builds ship
     // it via the electron-builder extraResources entry (resources/automation).
-    resolveBridgeScriptPath: () =>
-      app.isPackaged
-        ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
-        : join(app.getAppPath(), 'resources', 'automation', 'mcp-stdio-bridge.mjs'),
+    resolveBridgeScriptPath: resolveStudioMcpBridgeScriptPath,
+    sprintEngineMcpHub,
     tools: createAutomationTools({
       getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
       listTerminalSessions: () => terminalRuntime.ipcHandlers.listTerminals(),

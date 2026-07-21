@@ -15,12 +15,13 @@ import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
 // spawns when an agent launches with a managed Sprint Engine run — so its
 // sidecar registers with `startOn: 'demand'`. The module owns the hub's
 // lifecycle through the kernel: it claims spawn ownership (a disabled module
-// means the gate stays closed and the hub process cannot start until the
-// module is re-enabled and the app restarts), spawn failures surface as
-// module-identified notifications, and the kernel's shutdown hook stops the
-// process on quit. Making Sprint Engine fully user-toggleable additionally
-// needs the renderer gating (panels, workspace mode, the always-on auto-run
-// supervisor) and a decision on the guided-brief dependency.
+// means the gate stays closed and the hub process cannot start), spawn failures
+// surface as module-identified notifications, and both live disable and app
+// shutdown stop the process. A module disabled before main registration still
+// needs an app restart after enabling so this ownership hook can be installed.
+// Making Sprint Engine fully live-unloadable additionally needs renderer gating
+// (panels, workspace mode, the always-on auto-run supervisor) and a decision on
+// the guided-brief dependency.
 export const sprintEngineModule: CapabilityModule = {
   manifest: {
     id: 'sprint-engine',

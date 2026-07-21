@@ -32,8 +32,65 @@ async function main(): Promise<void> {
   await testIdleSweepDisposesOnlyTrulyIdleSessions()
   await testShutdownStopsSessionsAndDisposesChildren()
   await testListLiveConversationRootsMapsAdapterInventory()
+  await testClaudeConversationPreparesStudioMcpBeforeSession()
 
   console.log('conversation-runtime tests passed')
+}
+
+async function testClaudeConversationPreparesStudioMcpBeforeSession(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-studio-mcp-'))
+  const prepared: Array<{ workspaceRoot: string; workspaceId: string; agentId: string }> = []
+  const adapter: ConversationProviderAdapter = {
+    id: 'claude-agent',
+    sessions: 'stateful',
+    listModels: () => ['sonnet'],
+    startSession: (input) => [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')],
+    sendTurn: async function* () {},
+    resolveApproval: () => [],
+    interrupt: () => [],
+    stopSession: () => [],
+  }
+  try {
+    const runtime = new ConversationRuntime({
+      adapters: [adapter],
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      prepareStudioMcp: async (input) => {
+        prepared.push({
+          workspaceRoot: input.workspaceRoot,
+          workspaceId: input.workspaceId,
+          agentId: input.agentId,
+        })
+        return { ok: true }
+      },
+    })
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'ws-1',
+      agentId: 'agent-a',
+      providerId: 'claude-agent',
+      modelId: 'sonnet',
+    })
+    assert.equal(started.ok, true)
+    assert.deepEqual(prepared, [{ workspaceRoot, workspaceId: 'ws-1', agentId: 'agent-a' }])
+
+    const blocked = new ConversationRuntime({
+      adapters: [adapter],
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      prepareStudioMcp: async () => ({ ok: false, message: 'Studio MCP config failed.' }),
+    })
+    const refused = await blocked.startSession({
+      workspaceRoot,
+      workspaceId: 'ws-1',
+      agentId: 'agent-b',
+      providerId: 'claude-agent',
+      modelId: 'sonnet',
+    })
+    assert.deepEqual(refused, { ok: false, message: 'Studio MCP config failed.' })
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
 }
 
 // Stateful adapter with the optional lifecycle surface, for idle-sweep and

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 import type { McpSettings } from '../shared/electron-api'
 import type { PluginManifest, PluginMcpConfigFormat } from '../shared/plugin-manifest'
+import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
 import { MANAGED_SPRINTENGINE_MCP_SERVER_ID, createMcpConfigService, type PluginLookup } from './mcp-config-service'
 import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
 import { createPluginRegistry } from './plugin-registry'
@@ -146,6 +147,46 @@ async function main(): Promise<void> {
     type: 'http',
     url: 'https://mcp.sentry.dev/mcp',
   })
+
+  await mkdir(join(workspaceRoot, '.claude'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, '.claude', 'settings.local.json'),
+    JSON.stringify({
+      theme: 'dark',
+      enabledMcpjsonServers: ['user-server', MANAGED_SPRINTENGINE_MCP_SERVER_ID],
+      disabledMcpjsonServers: ['disabled-user-server', STUDIO_MCP_SERVER_ID],
+    }, null, 2),
+    'utf-8'
+  )
+  const studioClaudeResult = service.sync({
+    workspaceRoot,
+    clients: ['claude-code'],
+    settings: {
+      syncEnabled: true,
+      servers: {
+        [STUDIO_MCP_SERVER_ID]: {
+          id: STUDIO_MCP_SERVER_ID,
+          name: 'SprintEngine Studio MCP',
+          transport: 'stdio',
+          command: process.execPath,
+          args: [join(process.cwd(), 'resources', 'automation', 'mcp-stdio-bridge.mjs')],
+          enabled: true,
+          required: true,
+          clients: ['claude-code'],
+          scope: 'workspace',
+          source: 'bundled',
+          riskLevel: 'local-command',
+        },
+      },
+    },
+  })
+  assert.equal(studioClaudeResult.ok, true, JSON.stringify(studioClaudeResult))
+  const claudeLocalSettings = JSON.parse(
+    await readFile(join(workspaceRoot, '.claude', 'settings.local.json'), 'utf-8')
+  ) as Record<string, unknown>
+  assert.equal(claudeLocalSettings.theme, 'dark', 'unrelated Claude settings are preserved')
+  assert.deepEqual(claudeLocalSettings.enabledMcpjsonServers, ['user-server', STUDIO_MCP_SERVER_ID])
+  assert.deepEqual(claudeLocalSettings.disabledMcpjsonServers, ['disabled-user-server'])
 
   // --- OpenCode writer (format 'opencode'): real bundled manifest ---
   const opencodeRoot = join(temp, 'opencode-workspace')
@@ -632,8 +673,8 @@ async function main(): Promise<void> {
   assert.equal(
     noMcpIssues.some((issue) =>
       issue.level === 'error'
-      && issue.message.includes('HTTP MCP config sync')
-      && issue.message.includes('Sprint Engine autonomous mode requires')
+      && issue.message.includes('no MCP config writer')
+      && issue.message.includes('Studio-launched agents require')
     ),
     true,
     `missing-mcpConfig plugin should fail required sync, got: ${JSON.stringify(noMcpIssues)}`
@@ -675,8 +716,8 @@ async function main(): Promise<void> {
   assert.equal(
     noMcpCapabilityIssues.some((issue) =>
       issue.level === 'error'
-      && issue.message.includes('HTTP MCP servers')
-      && issue.message.includes('Sprint Engine autonomous mode requires HTTP MCP support')
+      && issue.message.includes('managed MCP servers')
+      && issue.message.includes('Studio-launched agents require MCP support')
     ),
     true,
     `missing MCP capability should fail required sync, got: ${JSON.stringify(noMcpCapabilityIssues)}`
@@ -718,9 +759,8 @@ async function main(): Promise<void> {
   assert.equal(
     unsupportedFormatIssues.some((issue) =>
       issue.level === 'error'
-      && issue.message.includes('Sprint Engine autonomous mode requires')
-      && issue.message.includes('HTTP MCP-capable config writer')
-      && issue.message.includes('env-backed bearer token support')
+      && issue.message.includes('Studio-launched agents require')
+      && issue.message.includes('workspace stdio MCP config writer')
     ),
     true,
     `unsupported format should fail required sync, got: ${JSON.stringify(unsupportedFormatIssues)}`

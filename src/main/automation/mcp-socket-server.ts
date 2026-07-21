@@ -31,7 +31,20 @@ export type McpToolRegistration = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  handler: (args: Record<string, unknown>) => Promise<McpToolResult>
+  handler: (args: Record<string, unknown>, context?: McpConnectionContext) => Promise<McpToolResult>
+}
+
+export type McpConnectionMetadata = {
+  kind: 'studio-agent' | 'external-local'
+  workspaceId?: string
+  agentId?: string
+  agentName?: string
+  cliId?: string
+  sprintRunId?: string
+}
+
+export type McpConnectionContext = {
+  metadata: McpConnectionMetadata
 }
 
 export type McpSocketServerOptions = {
@@ -39,6 +52,14 @@ export type McpSocketServerOptions = {
   serverName: string
   serverVersion: string
   tools: McpToolRegistration[]
+  onToolCall?: (event: {
+    context: McpConnectionContext
+    tool: string
+    args: Record<string, unknown>
+    durationMs: number
+    result?: McpToolResult
+    error?: unknown
+  }) => void
   log?: (message: string) => void
 }
 
@@ -88,6 +109,7 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     server = null
     for (const socket of sockets) socket.destroy()
     sockets.clear()
+    connectionContexts.clear()
     await new Promise<void>((resolve) => current.close(() => resolve()))
     if (process.platform !== 'win32' && existsSync(options.socketPath)) {
       try {
@@ -102,6 +124,11 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     sockets.add(socket)
     socket.setEncoding('utf8')
     let buffer = ''
+    connectionContexts.set(socket, { metadata: { kind: 'external-local' } })
+    // Preserve request ordering within one stdio bridge. In particular, the
+    // bridge's advisory connection-metadata notification must be applied before
+    // an immediately-following initialize/tools call on the same TCP chunk.
+    let pending = Promise.resolve()
     socket.on('data', (chunk: string) => {
       buffer += chunk
       if (buffer.length > MAX_LINE_BYTES) {
@@ -113,12 +140,18 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
       while (newline !== -1) {
         const line = buffer.slice(0, newline).trim()
         buffer = buffer.slice(newline + 1)
-        if (line) void handleLine(socket, line)
+        if (line) pending = pending.then(() => handleLine(socket, line))
         newline = buffer.indexOf('\n')
       }
     })
-    socket.on('close', () => sockets.delete(socket))
-    socket.on('error', () => sockets.delete(socket))
+    socket.on('close', () => {
+      sockets.delete(socket)
+      connectionContexts.delete(socket)
+    })
+    socket.on('error', () => {
+      sockets.delete(socket)
+      connectionContexts.delete(socket)
+    })
   }
 
   async function handleLine(socket: Socket, line: string): Promise<void> {
@@ -138,7 +171,8 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     const params = isRecord(parsed.params) ? parsed.params : {}
 
     try {
-      const result = await dispatch(parsed.method, params)
+      const context = connectionContexts.get(socket) ?? { metadata: { kind: 'external-local' as const } }
+      const result = await dispatch(parsed.method, params, context)
       if (result.kind === 'no_response') {
         if (!isNotification) respond(socket, { jsonrpc: '2.0', id, result: {} })
         return
@@ -161,8 +195,17 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     | { kind: 'error'; code: number; errorMessage: string }
     | { kind: 'no_response' }
 
-  async function dispatch(method: string, params: Record<string, unknown>): Promise<DispatchOutcome> {
+  const connectionContexts = new Map<Socket, McpConnectionContext>()
+
+  async function dispatch(
+    method: string,
+    params: Record<string, unknown>,
+    context: McpConnectionContext
+  ): Promise<DispatchOutcome> {
     switch (method) {
+      case 'sprintengine.studio/connect':
+        context.metadata = connectionMetadata(params)
+        return { kind: 'no_response' }
       case 'initialize': {
         const requested = typeof params.protocolVersion === 'string' ? params.protocolVersion : FALLBACK_PROTOCOL_VERSION
         return {
@@ -194,8 +237,15 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
         const args = isRecord(params.arguments) ? params.arguments : {}
         // Tool-domain failures (unknown workspace, malformed payload) come back
         // as MCP tool results with isError: true — explicit, never fake success.
-        const result = await tool.handler(args)
-        return { kind: 'result', value: result as unknown as Record<string, unknown> }
+        const startedAt = Date.now()
+        try {
+          const result = await tool.handler(args, context)
+          options.onToolCall?.({ context, tool: name, args, durationMs: Date.now() - startedAt, result })
+          return { kind: 'result', value: result as unknown as Record<string, unknown> }
+        } catch (error) {
+          options.onToolCall?.({ context, tool: name, args, durationMs: Date.now() - startedAt, error })
+          throw error
+        }
       }
       default:
         return { kind: 'error', code: JSONRPC_METHOD_NOT_FOUND, errorMessage: `Method "${method}" is not supported.` }
@@ -206,6 +256,22 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     start,
     stop,
     isRunning: () => server !== null,
+  }
+}
+
+function connectionMetadata(params: Record<string, unknown>): McpConnectionMetadata {
+  const text = (key: string): string | undefined => {
+    const value = params[key]
+    return typeof value === 'string' && value.trim() ? value.trim().slice(0, 256) : undefined
+  }
+  const agentId = text('agentId')
+  return {
+    kind: agentId ? 'studio-agent' : 'external-local',
+    workspaceId: text('workspaceId'),
+    agentId,
+    agentName: text('agentName'),
+    cliId: text('cliId'),
+    sprintRunId: text('sprintRunId'),
   }
 }
 

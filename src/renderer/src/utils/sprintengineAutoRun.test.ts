@@ -5020,7 +5020,7 @@ function testStartupPromptIsMcpNative(): void {
   assert.ok(!prompt.includes('sprintengine.gate.verdict'), 'startup prompt does not inline MCP gate verdict workflow details')
   assert.ok(!prompt.includes('sprintengine.artifact.add'), 'startup prompt does not inline MCP artifact workflow details')
   assert.ok(!prompt.includes('needsInputKind') && !prompt.includes('needsInputReason'), 'startup prompt does not inline needs_input payload details')
-  assert.ok(prompt.includes('multicode-sprintengine'), 'startup prompt names the managed MCP server entry')
+  assert.ok(prompt.includes('sprintengine-studio'), 'startup prompt names the managed MCP server entry')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
     'startup prompt does not instruct the agent to run any sprintengine CLI command'
@@ -5077,7 +5077,7 @@ function testGeneralStartupPromptIsMcpNative(): void {
   assert.ok(!prompt.includes('"statePath"'), 'general startup prompt must not embed statePath in the MCP payload')
   assert.ok(!prompt.includes('"workspaceRoot"'), 'general startup prompt must not embed workspaceRoot in the MCP payload')
   assert.ok(!prompt.includes('/tmp/workspace/.multi-code/sprintengine/team/run.yaml'), 'general startup prompt does not expose the run state path')
-  assert.ok(prompt.includes('multicode-sprintengine'), 'general startup prompt names the managed MCP server entry')
+  assert.ok(prompt.includes('sprintengine-studio'), 'general startup prompt names the managed MCP server entry')
   assert.ok(
     !/sprintengine (join|task|gate|triage|init|handover)/.test(prompt),
     'general startup prompt does not instruct the agent to run any sprintengine CLI command'

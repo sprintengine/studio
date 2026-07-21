@@ -4,6 +4,7 @@ import http from 'http'
 import { resolve } from 'path'
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 import { getManagedPython, managedPythonSpawnEnv } from './managed-runtime'
+import { STUDIO_PRODUCT_NAME } from '../shared/product-identity'
 
 export type SprintEngineMcpHubInfo = {
   url: string
@@ -87,6 +88,14 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
   let cancelPendingStart: (() => void) | null = null
   let stopping = false
   const activeRunsByKey = new Map<string, SprintEngineMcpRunRegistration>()
+  // Keep only the non-secret registration inputs and stable public run ids
+  // across a module stop. Disabling Sprint Engine must kill Python, but an
+  // already-launched sprint agent should reconnect to the same run id after a
+  // live re-enable instead of requiring a terminal relaunch.
+  const knownRunsByKey = new Map<string, {
+    runId: string
+    input: SprintEngineMcpRunRegistrationInput
+  }>()
   const pendingRunsByKey = new Map<string, Promise<SprintEngineMcpRunRegistration>>()
 
   async function ensureStarted(): Promise<SprintEngineMcpHubInfo> {
@@ -126,7 +135,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
     runKey: string,
     input: SprintEngineMcpRunRegistrationInput
   ): Promise<SprintEngineMcpRunRegistration> {
-    const runId = randomBytes(32).toString('base64url')
+    const runId = knownRunsByKey.get(runKey)?.runId ?? randomBytes(32).toString('base64url')
     let response: { runId?: string; runToken?: string }
     try {
       response = await postJson<{ runId?: string; runToken?: string }>(`${hub.url}/runs`, hub.adminToken, {
@@ -159,6 +168,7 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
       throw new Error('Sprint Engine MCP run registration did not return a run token.')
     }
     activeRunsByKey.set(runKey, registration)
+    knownRunsByKey.set(runKey, { runId: registration.runId, input: { ...input } })
     logHubDiagnostic('run-registered', {
       workspaceId: input.workspaceId,
     })
@@ -173,6 +183,9 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
         hadRun = true
       }
     }
+    for (const [key, known] of knownRunsByKey) {
+      if (known.runId === runId) knownRunsByKey.delete(key)
+    }
     if (!runId || !info) return
     try {
       await deleteRun(`${info.url}/runs`, info.adminToken, runId)
@@ -183,8 +196,12 @@ export function createSprintEngineMcpHubService(options: SprintEngineMcpHubOptio
   }
 
   async function callRunTool(input: SprintEngineMcpToolCallInput): Promise<unknown> {
+    let registration = [...activeRunsByKey.values()].find((candidate) => candidate.runId === input.runId)
+    if (!registration) {
+      const known = [...knownRunsByKey.values()].find((candidate) => candidate.runId === input.runId)
+      if (known) registration = await ensureRunRegistered(known.input)
+    }
     if (!info) throw new Error('Sprint Engine MCP hub is not ready.')
-    const registration = [...activeRunsByKey.values()].find((candidate) => candidate.runId === input.runId)
     if (!registration) throw new Error(`Sprint Engine MCP run ${input.runId} is not registered.`)
 
     const initialize = await postMcpJsonRpc(info.url, registration.runToken, {
@@ -392,11 +409,13 @@ export type GatedSprintEngineMcpHubService = SprintEngineMcpHubService & {
    * process never starts, and callers see why instead of a silent fallback.
    */
   claimOwnership(observer: SprintEngineMcpSpawnObserver): void
+  /** Live module toggle: disabling immediately stops Python and closes the spawn gate. */
+  setModuleEnabled(enabled: boolean): Promise<void>
 }
 
 const HUB_UNCLAIMED_MESSAGE =
   'Sprint Engine MCP hub is unavailable because the Sprint Engine module is disabled. ' +
-  'Enable Sprint Engine in Settings → Modules and restart Multicode.'
+  `Enable Sprint Engine in Settings → Modules; restart ${STUDIO_PRODUCT_NAME} if it was disabled when this app session started.`
 
 // Spawn-ownership gate around the hub service. Process management stays in
 // createSprintEngineMcpHubService; this only decides *whether* spawning is
@@ -404,9 +423,10 @@ const HUB_UNCLAIMED_MESSAGE =
 // owning module so they surface as module-identified notifications.
 export function createGatedSprintEngineMcpHub(hub: SprintEngineMcpHubService): GatedSprintEngineMcpHubService {
   let observer: SprintEngineMcpSpawnObserver | null = null
+  let moduleEnabled = false
 
   async function guardSpawn<T>(operation: () => Promise<T>): Promise<T> {
-    if (!observer) throw new Error(HUB_UNCLAIMED_MESSAGE)
+    if (!observer || !moduleEnabled) throw new Error(HUB_UNCLAIMED_MESSAGE)
     try {
       return await operation()
     } catch (error) {
@@ -422,10 +442,15 @@ export function createGatedSprintEngineMcpHub(hub: SprintEngineMcpHubService): G
   return {
     claimOwnership(spawnObserver) {
       observer = spawnObserver
+      moduleEnabled = true
+    },
+    async setModuleEnabled(enabled) {
+      moduleEnabled = enabled && observer !== null
+      if (!moduleEnabled) await hub.stop()
     },
     ensureStarted: () => guardSpawn(() => hub.ensureStarted()),
     ensureRunRegistered: (input) => guardSpawn(() => hub.ensureRunRegistered(input)),
-    callRunTool: (input) => hub.callRunTool(input),
+    callRunTool: (input) => guardSpawn(() => hub.callRunTool(input)),
     unregisterRun: (runId) => hub.unregisterRun(runId),
     stop: () => hub.stop(),
     status: () => hub.status(),
