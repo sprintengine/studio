@@ -53,6 +53,12 @@ export const sprintEngineApi = {
     artifactId: string
   ): Promise<SprintEngineArtifactCommandResult> =>
     ipcRenderer.invoke('sprintengine:artifact:approve', { statePath, artifactId }),
+  approveSprintEngineHumanProof: (
+    statePath: string,
+    taskId: string,
+    artifactId: string
+  ): Promise<SprintEngineArtifactCommandResult> =>
+    ipcRenderer.invoke('sprintengine:proof:approve-human', { statePath, taskId, artifactId }),
   autoApproveSprintEngineArtifact: (
     statePath: string,
     artifactId: string
@@ -211,6 +217,7 @@ export const sprintEngineApi = {
   ElectronApi,
   | 'openSprintEngineArtifact'
   | 'approveSprintEngineArtifact'
+  | 'approveSprintEngineHumanProof'
   | 'autoApproveSprintEngineArtifact'
   | 'requestSprintEngineArtifactChanges'
   | 'initializeSprintEngineState'

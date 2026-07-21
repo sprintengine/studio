@@ -166,6 +166,7 @@ export type SprintEngineArtifactKind =
   | 'production_readiness_review'
   | 'cross_platform_review'
   | 'validation_report'
+  | 'integration_proof'
 
 export type SprintEngineArtifactStatus =
   | 'draft'
@@ -696,11 +697,37 @@ export type SprintEngineSourceBundleStateItem = {
  */
 export const DEFAULT_SPRINTENGINE_TASK_REPO = 'primary'
 
+export type SprintEngineIntegrationProof = {
+  required: boolean
+  taskId?: string
+  mode?: 'app_drive' | 'engine_smoke' | 'human_smoke'
+  status: 'pending' | 'running' | 'needs_human' | 'valid' | 'invalidated'
+  revision: number
+  graphRevision: number
+  verifiedHeads?: Array<{ repo: string; sha: string }>
+  artifactId?: string
+  invalidatedReason?: string
+  exemptionRationale?: string
+  humanApproval?: { approvedAt: string; actor: 'local_user'; evidenceArtifactId: string }
+}
+
+export type SprintEngineIntegrationSeam = {
+  id: string
+  kind: 'ipc' | 'protocol' | 'store' | 'event' | 'service' | 'cross_repo' | 'other'
+  producerTaskId: string
+  consumerTaskIds: string[]
+  acceptanceCritical: boolean
+  disposition: 'connected' | 'dangling'
+  followUp?: { backlogId: number; repo?: string; path?: string }
+  rationale?: string
+}
+
 export type SprintEngineTask = {
   id: string
   title: string
   description: string
   role: SprintEngineRoleId
+  kind?: 'work' | 'integration_proof'
   /**
    * Id of the declared repo this task works in — one task, one git tree, always.
    * `ownedPaths` and every evidence path stay relative to THAT repo's root, so a
@@ -754,6 +781,8 @@ export type SprintEngineTask = {
   /** CLI the recorded `model` belongs to (e.g. `claude-code`). */
   cli?: string | null
   dependsOn: string[]
+  producesSeamIds?: string[]
+  consumesSeamIds?: string[]
   ownedPaths: string[]
   acceptanceCriteria: string[]
   implementationNotes: string[]
@@ -906,6 +935,9 @@ export type SprintEngineState = {
    * every phase runs in-session on the owner's runtime and no extra sessions exist.
    */
   phaseRuntimes?: Record<SprintEngineTaskPhase, SprintEngineAllowedRuntime>
+  /** Additive MC-1742 proof gate; old runs normalize to required=false. */
+  integrationProof?: SprintEngineIntegrationProof
+  integrationSeams?: SprintEngineIntegrationSeam[]
 }
 
 export type SprintEngineRosterSource = 'user' | 'architect'

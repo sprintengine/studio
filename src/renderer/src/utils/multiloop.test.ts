@@ -10,6 +10,7 @@ import {
   getLatestMultiloopEvidenceTasks,
   getMilestoneExecutionArtifacts,
   getMilestoneExecutionTasks,
+  getMilestoneExecutionReadiness,
   getMultiloopTasksForMilestone,
   parseMultiloopStateFileContent,
   sanitizeMultiloopRenderedStateText,
@@ -126,6 +127,7 @@ function multiloopWorkspaceFixture(overrides: Partial<Workspace> = {}): Workspac
 
 function sprintEngineFixture(input: {
   sprintengine?: { name?: string; goal?: string; status?: string; updatedAt?: string; rosterConfigured?: boolean }
+  integrationProof?: Record<string, unknown>
   agents?: Record<string, unknown>
   tasks?: unknown[]
   artifacts?: unknown[]
@@ -144,6 +146,7 @@ function sprintEngineFixture(input: {
       status: input.sprintengine?.status ?? 'executing',
       rosterConfigured: input.sprintengine?.rosterConfigured ?? true,
       updatedAt: input.sprintengine?.updatedAt ?? null,
+      ...(input.integrationProof ? { integrationProof: input.integrationProof } : {}),
     },
     roster: input.agents ?? {},
     tasks: input.tasks ?? [],
@@ -868,14 +871,53 @@ function testMultiloopAutoRunSpawnsCoordinatorWhenLinkedSprintEngineDone() {
         startedAt: null,
         completedAt: null,
       },
+      {
+        id: 'P1',
+        title: 'Prove integrated result',
+        description: '',
+        role: 'tester',
+        kind: 'integration_proof',
+        status: 'done',
+        ownerAgentId: null,
+        dependsOn: ['S1'],
+        ownedPaths: [],
+        acceptanceCriteria: [],
+        implementationNotes: [],
+        evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] },
+        notes: [],
+        startedAt: null,
+        completedAt: null,
+      },
     ],
+    integrationProof: {
+      required: true,
+      taskId: 'P1',
+      mode: 'engine_smoke',
+      status: 'pending',
+      revision: 1,
+      graphRevision: 1,
+    },
     artifacts: [],
     events: [],
   })
 
+  const pendingSelection = selectMultiloopAutoRunCandidates({ state, linkedSprintEngineState, limit: 1 })
+  assert.equal(pendingSelection.reason, 'no-ready-tasks')
+  assert.equal(getMilestoneExecutionReadiness({ state, milestone: getActiveMultiloopMilestone(state), linkedSprintEngineState }), 'ready')
+
+  linkedSprintEngineState.integrationProof = {
+    ...linkedSprintEngineState.integrationProof,
+    required: true,
+    taskId: 'P1',
+    status: 'valid',
+    revision: 1,
+    graphRevision: 1,
+    artifactId: 'A-proof',
+  }
   const selection = selectMultiloopAutoRunCandidates({ state, linkedSprintEngineState, limit: 1 })
 
   assert.equal(selection.reason, 'all-done')
+  assert.equal(getMilestoneExecutionReadiness({ state, milestone: getActiveMultiloopMilestone(state), linkedSprintEngineState }), 'all_done')
   assert.deepEqual(selection.candidates.map((candidate) => candidate.agentId), ['multiloop-coordinator'])
 }
 

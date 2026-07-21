@@ -399,7 +399,7 @@ async function runFailSoftStage<T>(
 export function enterDormancyIfRunComplete(
   ports: Pick<SprintEngineAutoRunCyclePorts, 'enterDormancy'>,
   workspace: Pick<Workspace, 'id' | 'sprintEngineAutoState'>,
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'canceled'>,
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'canceled' | 'integrationProof'>,
   dormancyPorts?: SprintEngineAutoRunDormancyPorts,
 ): boolean {
   if (!isCompletedSprintEngineRun(sprintEngineState) && !isCanceledSprintEngineRun(sprintEngineState)) {

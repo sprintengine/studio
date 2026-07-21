@@ -207,6 +207,13 @@ def mark_task_needs_input_for_artifact(state: Dict[str, Any], task: Dict[str, An
     )
 
 def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
+    from sprintengine_core.tool.integration_proof import is_proof_task
+
+    if is_proof_task(task):
+        # Integration-proof artifacts are evidence, not a generic approval
+        # gate. Only proof.record or the app-only human gesture may complete
+        # the canonical proof task.
+        return False
     linked_artifacts = blocking_artifacts_for_task(state, str(task.get("id")))
     if not linked_artifacts or any(a.get("status") != "approved" for a in linked_artifacts):
         return False
@@ -358,6 +365,11 @@ def resolve_task_input(
     """
     if task.get("status") != "needs_input":
         raise SystemExit("Only needs_input tasks can be resolved.")
+    if complete:
+        from sprintengine_core.tool.integration_proof import is_proof_task
+
+        if is_proof_task(task):
+            raise SystemExit("integration_proof_uses_proof_record: ordinary input resolution cannot complete a proof task.")
     owner_id = str(task.get("ownerAgentId") or "").strip()
     if not complete and not owner_id:
         raise SystemExit("Cannot resume a needs_input task without an owner. Use --complete or release the task.")

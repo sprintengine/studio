@@ -225,6 +225,7 @@ type NormalizedTask = {
   id: string
   title: string
   role: string
+  kind?: 'work' | 'integration_proof'
   status: SprintEngineTaskStatus
   boardColumn?: SprintEngineTaskStatus
   ownerAgentId: string | null
@@ -471,6 +472,7 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     // phone-side dedup can't miss the flip and the stale-snapshot guard can
     // detect a competing mode change.
     automationMode: intentMode ?? null,
+    integrationProof: sprintengine.integrationProof,
   })
 
   return {
@@ -491,6 +493,7 @@ export async function readSprintEngineSnapshot(statePathInput: string): Promise<
     ...(recordSummary(parsed.runSummary ?? parsed.summary) ? { runSummary: recordSummary(parsed.runSummary ?? parsed.summary) } : {}),
     ...(recordSummary(parsed.planReview ?? parsed.planReviewState) ? { planReview: recordSummary(parsed.planReview ?? parsed.planReviewState) } : {}),
     ...(intentMode ? { automationMode: intentMode } : {}),
+    ...(normalizeMobileIntegrationProof(sprintengine.integrationProof) ? { integrationProof: normalizeMobileIntegrationProof(sprintengine.integrationProof) } : {}),
   }
 }
 
@@ -531,6 +534,7 @@ async function readSprintEngineProjectionSnapshot(
     // phone-side dedup can't miss the flip and the stale-snapshot guard can
     // detect a competing mode change.
     automationMode: automationMode ?? null,
+    integrationProof: run.integrationProof,
   })
 
   const startedFrom = buildStartedFrom(run.source ?? projection.source)
@@ -555,6 +559,22 @@ async function readSprintEngineProjectionSnapshot(
     ...(locks ? { locks: { warnings: Array.isArray(locks.warnings) ? locks.warnings : [], locks: Array.isArray(locks.locks) ? locks.locks : [] } } : {}),
     ...(activity.length > 0 ? { activity: { count: activity.length, latest: activity.at(-1) } } : {}),
     ...(counts ? { counts: { ready: numberOrUndefined(counts.ready), needsInput: numberOrUndefined(counts.needsInput) } } : {}),
+    ...(normalizeMobileIntegrationProof(run.integrationProof) ? { integrationProof: normalizeMobileIntegrationProof(run.integrationProof) } : {}),
+  }
+}
+
+function normalizeMobileIntegrationProof(value: unknown): MobileSprintEngineSnapshot['integrationProof'] | undefined {
+  const proof = recordObject(value)
+  if (!proof) return undefined
+  const status = stringOrNull(proof.status)
+  if (!status || !['pending', 'running', 'needs_human', 'valid', 'invalidated'].includes(status)) return undefined
+  const artifactId = stringOrNull(proof.artifactId)
+  const taskId = stringOrNull(proof.taskId)
+  return {
+    required: proof.required === true,
+    status: status as NonNullable<MobileSprintEngineSnapshot['integrationProof']>['status'],
+    ...(taskId ? { taskId } : {}),
+    ...(artifactId ? { artifactId } : {}),
   }
 }
 
@@ -728,6 +748,7 @@ function normalizeTasks(value: unknown): NormalizedTask[] {
       id,
       title: stringOrFallback(record.title, id),
       role: stringOrFallback(record.role, 'developer'),
+      ...(record.kind === 'integration_proof' ? { kind: 'integration_proof' as const } : {}),
       status: normalizeTaskStatus(statusSources.status),
       boardColumn: normalizeOptionalTaskStatus(statusSources.boardColumn),
       ownerAgentId: typeof record.ownerAgentId === 'string' && record.ownerAgentId.trim()
@@ -798,8 +819,19 @@ function sprintEngineWorkspaceStatus(sprintEngine: MobileSprintEngineSnapshot): 
     || sprintEngine.board.review > 0
   ) return 'running'
   if (sprintEngine.board.ready > 0 || sprintEngine.board.todo > 0) return 'idle'
-  if (sprintEngine.board.done > 0) return 'complete'
+  if (sprintEngine.board.done > 0 && mobileSprintEngineIsComplete(sprintEngine)) return 'complete'
   return 'unknown'
+}
+
+export function mobileSprintEngineIsComplete(sprintEngine: MobileSprintEngineSnapshot): boolean {
+  if (sprintEngine.tasks.length === 0) return false
+  if (sprintEngine.tasks.some((task) => task.status !== 'done' && task.status !== 'canceled')) return false
+  const proof = sprintEngine.integrationProof
+  if (!proof?.required) return true
+  return proof.status === 'valid'
+    && Boolean(proof.artifactId)
+    && Boolean(proof.taskId)
+    && sprintEngine.tasks.some((task) => task.taskId === proof.taskId && task.kind === 'integration_proof' && task.status === 'done')
 }
 
 function normalizeArtifacts(value: unknown): MobileSprintEngineArtifactSnapshot[] {
@@ -829,6 +861,7 @@ function toTaskSnapshot(task: NormalizedTask, tasks: NormalizedTask[]): MobileSp
     taskId: task.id,
     title: task.title,
     role: task.role,
+    ...(task.kind ? { kind: task.kind } : {}),
     status,
     ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
     dependsOn: task.dependsOn,

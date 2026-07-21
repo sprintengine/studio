@@ -402,6 +402,9 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task["startedAt"] = None
             task["completedAt"] = None
         if args.status == "done":
+            from sprintengine_core.tool.integration_proof import is_proof_task
+            if is_proof_task(task):
+                raise SystemExit("integration_proof_uses_proof_record: ordinary status cannot complete a proof task.")
             assert_task_can_complete(state, task)
             task["completedAt"] = now_iso()
             if previous_status in {"in_progress", "review", "needs_input"}:
@@ -640,6 +643,28 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
+        from sprintengine_core.tool.integration_proof import is_proof_task, normalize_integration_proof
+        if is_proof_task(task):
+            raise SystemExit("integration_proof_uses_proof_record: proof tasks complete only through proof.record or local human approval.")
+        if "integrationProof" in state and task.get("producesImplementation") and not normalize_integration_proof(state.get("integrationProof")).get("required"):
+            task["status"] = "needs_input"
+            task["completedAt"] = None
+            task["needsInput"] = {
+                "kind": "architect",
+                "reason": "task_scope",
+                "question": "This task is publishing product code, but the plan exempted the run from integration proof.",
+                "suggestedResolution": "Add one integration_proof task, set a proof mode, and update the seam manifest before publishing.",
+                "reportedBy": str(actor),
+                "reportedAt": now_iso(),
+            }
+            recompute_phase(state)
+            event = append_event(state, "integration_proof_exemption_revoked", str(actor), f"{args.task_id} attempted to publish product code under a proof exemption.")
+            return {
+                "ok": False,
+                "error": "integration_proof_required_for_code: planner action is required before product code can publish.",
+                "task": task,
+                "event": event,
+            }
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
         # Guard BEFORE the backstop commit: an orphan is owned by no task, so this

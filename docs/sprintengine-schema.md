@@ -71,6 +71,16 @@ commands.
   once at init from `--required-sweeps-json`; every id is validated against the
   registry's sweep roles, and the key is omitted entirely when none are
   mandated (`RUN_SWEEP_KEYS`, `store.run_required_sweeps`).
+- `integrationProof`: additive run-level proof policy and lifecycle. New runs
+  seed `required: true`; old v4 runs with no field are proof-exempt. A required
+  policy names exactly one `kind: integration_proof` task, its mode, proof and
+  graph revisions, engine-captured repository heads, and current artifact.
+- `integrationSeams`: structured producer/consumer contracts. Code-producing
+  tasks explicitly carry `producesSeamIds` and `consumesSeamIds` (empty arrays
+  are meaningful); plan approval rejects disconnected or inconsistent seams.
+- `integrationGraphFingerprint`: engine-owned digest of non-proof task graph,
+  lifecycle/review obligations, and seam data. Mutations reconcile it under the
+  run lock and invalidate current proof when it changes.
 - `tasks`: compact task graph entries with `id`, `status`, `role`, and
   `dependsOn`. Each graph entry also carries `needsTriage`, defaulting to
   `false` when absent.
@@ -121,6 +131,27 @@ team via `sprintengine.roster.configure`.
 `defaultPhases` (`RUN_PHASE_KEYS`) and `requiredSweeps` (`RUN_SWEEP_KEYS`)
 round-trip through `run.yaml` and re-emit on `projection.run` the same way,
 omitted when absent.
+
+`integrationProof`, `integrationSeams`, and `integrationGraphFingerprint`
+(`RUN_INTEGRATION_PROOF_KEYS`) also round-trip into `projection.run`. They are
+optional within schema v4 so stores created before MC-1742 stay unambiguously
+proof-exempt; no schema bump or destructive migration is needed.
+
+### Integration proof and seams
+
+The proof task is a dynamic barrier, not a static dependency snapshot. It is
+ready only after every non-canceled non-proof task is done and every reviewer
+rework obligation is closed. `sprintengine proof begin` captures all declared
+repository heads. `proof record` accepts a typed JSON artifact only when task,
+seam, command, gate, evidence-path, graph-revision, and head coverage match.
+Any later graph, seam, review, lifecycle, or repository-head change marks proof
+`invalidated`, reopens the same proof task, and clears a stale completed roll-up.
+
+`human_smoke` is the sole partial-evidence path. An agent may request it with a
+concrete blocker, but approval is an app-only Electron IPC gesture that invokes
+managed Python under the run lock. There is no MCP approval verb. Generic task
+status, input-resolution, artifact approval, publish, advance, VCS commit, PR,
+and finalization routes all reject proof bypasses.
 
 ### Store Version Rejection
 

@@ -26,6 +26,15 @@ from .commands.plan import (
     cmd_plan_review_status,
     cmd_plan_start_review,
     cmd_plan_update_task,
+    cmd_plan_set_proof,
+    cmd_plan_upsert_seam,
+    cmd_plan_remove_seam,
+)
+from .commands.proof import (
+    cmd_proof_begin,
+    cmd_proof_record,
+    cmd_proof_request_human,
+    cmd_proof_approve_human,
 )
 from .commands.roster import (
     cmd_roster_configure,

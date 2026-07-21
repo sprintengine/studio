@@ -514,8 +514,14 @@ def with_locked_state(path: Path, handler, *, initial_state: Optional[Dict[str, 
     lock = mutation_lock_for_state(path)
     with lock:
         state = load_mutation_state(path, initial_state=initial_state)
+        # MC-1742: every mutation observes current graph/head freshness under the
+        # same run lock. Lazy import avoids making state.py depend on task modules
+        # during package initialization.
+        from sprintengine_core.tool.integration_proof import reconcile_integration_proof
+        proof_dirty = reconcile_integration_proof(state, path)
         result = handler(state)
-        if result.get("write", True):
+        proof_dirty = reconcile_integration_proof(state, path) or proof_dirty
+        if result.get("write", True) or proof_dirty:
             try:
                 folder_store.sync_state_to_store(path.parent, state, state_path=path)
                 _write_legacy_state_projection(path, state)

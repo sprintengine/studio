@@ -217,6 +217,13 @@ def cmd_handover(args: argparse.Namespace) -> Dict[str, Any]:
         ],
         "artifacts": [],
         "roles": {},
+        "integrationProof": {
+            "required": True,
+            "status": "pending",
+            "revision": 0,
+            "graphRevision": 0,
+        },
+        "integrationSeams": [],
     }
     root_is_reference = bool(source_metadata and source_metadata.get("origin") == "reference")
     if source_metadata and (handover_text.strip() or root_is_reference):
@@ -316,6 +323,13 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             "events": [],
             "artifacts": [],
             "roles": {},
+            "integrationProof": {
+                "required": True,
+                "status": "pending",
+                "revision": 0,
+                "graphRevision": 0,
+            },
+            "integrationSeams": [],
         }
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -786,8 +800,8 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         return folder_store.normalize_runner_policy(state.get("runner"))
 
     def all_tasks_done(state: Dict[str, Any]) -> bool:
-        tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
-        return bool(tasks) and all(task.get("status") == "done" for task in tasks)
+        from sprintengine_core.tool.integration_proof import run_is_complete
+        return run_is_complete(state)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)
@@ -1011,6 +1025,9 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
         if not vcs:
             raise SystemExit("Sprint Engine run is not in worktree mode; nothing to commit.")
         task = find_task(state, args.task_id)
+        from sprintengine_core.tool.integration_proof import is_proof_task
+        if is_proof_task(task):
+            raise SystemExit("integration_proof_read_only: proof tasks may execute products and write run artifacts, but cannot create product commits.")
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         if getattr(args, "summary", None):
             ensure_evidence(task)["summary"] = args.summary
@@ -1171,6 +1188,9 @@ def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
     from sprintengine_core.tool.shell import create_run_pull_request
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        from sprintengine_core.tool.integration_proof import integration_proof_satisfies_completion
+        if "integrationProof" in state and not integration_proof_satisfies_completion(state):
+            raise SystemExit("integration_proof_incomplete: pull-request finalization requires current valid proof.")
         result = create_run_pull_request(
             state,
             args.state,
@@ -1262,6 +1282,12 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
         vcs_repos,
     )
 
+    from sprintengine_core.tool.integration_proof import integration_proof_satisfies_completion
+    if not integration_proof_satisfies_completion(state):
+        return {
+            "blocked": True,
+            "message": "All work tasks are done, but integration proof is missing, stale, or still awaiting human approval.",
+        }
     missing_sweeps = missing_required_sweeps(state)
     if missing_sweeps:
         return {

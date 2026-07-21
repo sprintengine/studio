@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 from typing import Any, Dict
 
 from sprintengine_core import store as folder_store
 from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.artifacts import project_relative_display_path
 from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
-from pathlib import Path
-
 from sprintengine_core.tool.plans import (
     apply_plan_gate_dependency,
     build_address_reviews_prompt,
@@ -46,6 +46,11 @@ from sprintengine_core.tool.tasks import (
     set_unique_list,
     task_dependents,
     task_ids,
+)
+from sprintengine_core.tool.integration_proof import (
+    VALID_PROOF_MODES,
+    normalize_integration_proof,
+    normalize_integration_seams,
 )
 
 def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
@@ -119,6 +124,23 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             task["productFacing"] = False
         if getattr(args, "produces_implementation", False):
             task["producesImplementation"] = True
+        if getattr(args, "kind", None) is not None:
+            if args.kind not in {"work", "integration_proof"}:
+                raise SystemExit("Task kind must be work or integration_proof.")
+            if args.kind == "integration_proof":
+                task["kind"] = args.kind
+                task["phases"] = []
+                task["ownedPaths"] = []
+            else:
+                task.pop("kind", None)
+        if getattr(args, "clear_produces_seams", False):
+            task["producesSeamIds"] = []
+        if getattr(args, "produces_seam", None) is not None:
+            task["producesSeamIds"] = list(dict.fromkeys(args.produces_seam or []))
+        if getattr(args, "clear_consumes_seams", False):
+            task["consumesSeamIds"] = []
+        if getattr(args, "consumes_seam", None) is not None:
+            task["consumesSeamIds"] = list(dict.fromkeys(args.consumes_seam or []))
         if getattr(args, "needs_triage", None) is True:
             task["needsTriage"] = True
         elif getattr(args, "clear_needs_triage", False):
@@ -247,6 +269,93 @@ def cmd_plan_remove_dependency(args: argparse.Namespace) -> Dict[str, Any]:
 
     return with_locked_state(args.state, run)
 
+
+def cmd_plan_set_proof(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        required = bool(args.required)
+        mode = str(getattr(args, "mode", None) or "").strip()
+        task_id = str(getattr(args, "task_id", None) or "").strip()
+        rationale = str(getattr(args, "rationale", None) or "").strip()
+        if required and (mode not in VALID_PROOF_MODES or not task_id):
+            raise SystemExit("Required integration proof needs --mode and --task-id.")
+        if not required and not rationale:
+            raise SystemExit("A proof exemption requires a non-empty rationale.")
+        if not required and any(
+            isinstance(task, dict)
+            and task.get("status") != "canceled"
+            and str(task.get("kind") or "work") != "integration_proof"
+            and bool(task.get("producesImplementation"))
+            for task in state.get("tasks", []) or []
+        ):
+            raise SystemExit("integration_proof_required_for_code: a code-producing run cannot switch to the proof exemption.")
+        if task_id:
+            task = find_task(state, task_id)
+            if str(task.get("kind") or "work") != "integration_proof":
+                raise SystemExit(f"Proof task {task_id} must have kind=integration_proof.")
+        previous = normalize_integration_proof(state.get("integrationProof"))
+        state["integrationProof"] = {
+            "required": required,
+            "status": "pending",
+            "revision": int(previous.get("revision") or 0),
+            "graphRevision": int(previous.get("graphRevision") or 0),
+            **({"taskId": task_id, "mode": mode} if required else {"exemptionRationale": rationale}),
+        }
+        if required:
+            proof_task = find_task(state, task_id)
+            if proof_task.get("status") != "todo":
+                proof_task["status"] = "todo"
+                proof_task["ownerAgentId"] = None
+                proof_task["completedAt"] = None
+                proof_task.pop("lease", None)
+                proof_task.pop("needsInput", None)
+        recompute_phase(state)
+        event = append_event(state, "integration_proof_policy_set", args.actor, f"{args.actor} set integration proof required={required}.")
+        return {"ok": True, "integrationProof": state["integrationProof"], "event": event}
+
+    return with_locked_state(args.state, run)
+
+
+def _seam_from_args(args: argparse.Namespace) -> Dict[str, Any]:
+    raw = getattr(args, "seam", None)
+    if raw is None:
+        raw = getattr(args, "seam_json", None)
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"--seam-json must be valid JSON: {exc}") from exc
+    seams = normalize_integration_seams([raw])
+    if len(seams) != 1:
+        raise SystemExit("Integration seam is missing a valid id, kind, producerTaskId, or disposition.")
+    return seams[0]
+
+
+def cmd_plan_upsert_seam(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        seam = _seam_from_args(args)
+        seams = normalize_integration_seams(state.get("integrationSeams"))
+        replaced = any(candidate["id"] == seam["id"] for candidate in seams)
+        state["integrationSeams"] = [candidate for candidate in seams if candidate["id"] != seam["id"]] + [seam]
+        recompute_phase(state)
+        event = append_event(state, "integration_seam_updated" if replaced else "integration_seam_added", args.actor, f"{args.actor} {'updated' if replaced else 'added'} seam {seam['id']}.")
+        return {"ok": True, "seam": seam, "replaced": replaced, "event": event}
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_plan_remove_seam(args: argparse.Namespace) -> Dict[str, Any]:
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        seam_id = str(args.seam_id or "").strip()
+        seams = normalize_integration_seams(state.get("integrationSeams"))
+        if not any(seam["id"] == seam_id for seam in seams):
+            raise SystemExit(f"Integration seam not found: {seam_id}")
+        state["integrationSeams"] = [seam for seam in seams if seam["id"] != seam_id]
+        recompute_phase(state)
+        event = append_event(state, "integration_seam_removed", args.actor, f"{args.actor} removed seam {seam_id}.")
+        return {"ok": True, "removedSeamId": seam_id, "event": event}
+
+    return with_locked_state(args.state, run)
+
 def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         tasks = state.get("tasks", [])
@@ -357,6 +466,9 @@ update_task = cmd_plan_update_task
 delete_task = cmd_plan_delete_task
 add_dependency = cmd_plan_add_dependency
 remove_dependency = cmd_plan_remove_dependency
+set_proof = cmd_plan_set_proof
+upsert_seam = cmd_plan_upsert_seam
+remove_seam = cmd_plan_remove_seam
 list_tasks = cmd_plan_list
 start_review = cmd_plan_start_review
 review_status = cmd_plan_review_status

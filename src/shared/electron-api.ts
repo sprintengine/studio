@@ -2818,6 +2818,7 @@ export type ElectronApi = {
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void) => () => void
   openSprintEngineArtifact: (statePath: string, artifactPath: string) => Promise<SprintEngineArtifactCommandResult>
   approveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
+  approveSprintEngineHumanProof: (statePath: string, taskId: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   autoApproveSprintEngineArtifact: (statePath: string, artifactId: string) => Promise<SprintEngineArtifactCommandResult>
   requestSprintEngineArtifactChanges: (
     statePath: string,

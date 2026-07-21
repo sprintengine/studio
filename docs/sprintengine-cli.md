@@ -99,6 +99,29 @@ materialization.
 corrections a workflow command cannot express. It is not the normal completion
 path — `publish` and `advance` are.
 
+## Integration Proof
+
+New runs require one canonical `integration_proof` task. It becomes ready only
+after every other non-canceled task is done and reviewer rework is closed. The
+proof owner captures engine-owned freshness before exercising the integrated
+result, then records one typed artifact:
+
+```bash
+sprintengine proof begin --task-id P1 --id tester-1
+sprintengine proof record --task-id P1 --id tester-1 --artifact-path .multi-code/sprintengine/my-run/artifacts/integration-proof.json
+```
+
+Use `proof request-human` only when the artifact names a concrete automation
+blocker and leaves the exact human scenario `partial`. The local app approval
+gesture is intentionally not an MCP tool. `proof approve-human` is a hidden,
+app-managed Python bridge and is not an autonomous-agent workflow.
+
+Planning owns `plan set-proof`, `plan upsert-seam`, and `plan remove-seam`.
+Code tasks must explicitly declare produced and consumed seam ids, even when
+both lists are empty. Plan approval rejects missing consumers, missing
+dependency order, invalid dangling contracts, and acceptance-critical seams
+that the proof task does not name.
+
 ## Roles
 
 Sprint Engine roles are registry-backed. Active role validation resolves role

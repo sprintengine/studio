@@ -328,6 +328,16 @@ class SprintEngineMcpServer:
                 "Close a phase: sprintengine.task.advance with {taskId, id, phase, outcome, summary, findingJson?}.",
                 "Reviewer blocking finding: sprintengine.task.request_changes with {taskId, id, feedback, sourceTaskId?}; a cross-task requester later closes it with sprintengine.task.approve_rework.",
                 *(
+                    ["Canonical integration-proof task: after claim, call sprintengine.proof.begin to capture graph/heads; then publish typed evidence with sprintengine.proof.record, or sprintengine.proof.request_human only for a concrete automation blocker. Ordinary task/artifact completion cannot validate proof."]
+                    if "sprintengine.proof.begin" in help_tools
+                    else []
+                ),
+                *(
+                    ["Plan integration explicitly with sprintengine.plan.set_proof and sprintengine.plan.upsert_seam/remove_seam. Every code task declares producesSeamIds and consumesSeamIds, including empty arrays; plan approval validates the complete manifest."]
+                    if "sprintengine.plan.set_proof" in help_tools
+                    else []
+                ),
+                *(
                     ["Lost reviewer repair: sprintengine.task.reassign_review explicitly replaces approval authority and records why; recover a cross-task source lease first."]
                     if "sprintengine.task.reassign_review" in help_tools
                     else []
@@ -745,7 +755,7 @@ class SprintEngineMcpServer:
                 result.setdefault("state", "idle" if not result.get("claimed") else "blocked")
             else:
                 result.setdefault("state", "dispatched")
-        if tool_name in {"sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.task.status", "sprintengine.task.request_changes", "sprintengine.task.approve_rework", "sprintengine.task.reassign_review"}:
+        if tool_name in {"sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.task.status", "sprintengine.task.request_changes", "sprintengine.task.approve_rework", "sprintengine.task.reassign_review", "sprintengine.proof.begin", "sprintengine.proof.record", "sprintengine.proof.request_human"}:
             next_command = result.get("nextCommand")
             result.setdefault("progression", {"nextCommand": next_command, "state": "continuation_available" if next_command else "idle"})
         return result

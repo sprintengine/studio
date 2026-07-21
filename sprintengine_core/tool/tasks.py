@@ -75,6 +75,9 @@ def publish_task(
     changes enter `phases[0]`, or `done` when the task has no phases. Publish is the
     ONLY tool that enters the walk.
     """
+    from sprintengine_core.tool.integration_proof import is_proof_task
+    if is_proof_task(task):
+        raise SystemExit("integration_proof_uses_proof_record: proof tasks complete only through proof.record or local human approval.")
     previous_status = str(task.get("status") or "")
     if previous_status != "in_progress":
         raise SystemExit("Only in_progress tasks can be published.")
@@ -243,6 +246,9 @@ def advance_task(
     while RECORDING the originating phase, so resolving the input returns it to that
     phase rather than to `in_progress`.
     """
+    from sprintengine_core.tool.integration_proof import is_proof_task
+    if is_proof_task(task):
+        raise SystemExit("integration_proof_uses_proof_record: proof tasks do not use ordinary phase advancement.")
     current_status = str(task.get("status") or "")
     clean_phase = str(phase or "").strip()
     if clean_phase not in VALID_TASK_PHASES:
@@ -367,11 +373,8 @@ def recompute_phase(state: Dict[str, Any]) -> bool:
     if sprintengine.get("canceled"):
         return set_if_changed(sprintengine, "status", "canceled")
     tasks = state.get("tasks", [])
-    if (
-        tasks
-        and all(t.get("status") in {"done", "canceled"} for t in tasks)
-        and not any(open_review_request(t) for t in tasks)
-    ):
+    from sprintengine_core.tool.integration_proof import run_is_complete
+    if run_is_complete(state):
         return set_if_changed(sprintengine, "status", "completed")
     if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks):
         return set_if_changed(sprintengine, "status", "executing")
@@ -441,6 +444,9 @@ def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
     if task.get("status") != "todo" or task.get("ownerAgentId"):
         return False
     if task.get("needsTriage") is True:
+        return False
+    from sprintengine_core.tool.integration_proof import is_proof_task, proof_barrier_open
+    if is_proof_task(task) and not proof_barrier_open(state, str(task.get("id") or "")):
         return False
     for dep_id in task.get("dependsOn", []):
         dep = next((t for t in state.get("tasks", []) if t.get("id") == dep_id), None)
@@ -719,6 +725,16 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         task["productFacing"] = bool(raw.get("productFacing"))
     if "producesImplementation" in raw:
         task["producesImplementation"] = bool(raw.get("producesImplementation"))
+    kind = str(raw.get("kind") or "work").strip()
+    if kind not in {"work", "integration_proof"}:
+        raise SystemExit(f"Task {task_id} kind must be work or integration_proof.")
+    if kind == "integration_proof":
+        task["kind"] = kind
+    for key in ("producesSeamIds", "consumesSeamIds"):
+        if key in raw:
+            if not isinstance(raw.get(key), list):
+                raise SystemExit(f"Task {task_id} {key} must be an array.")
+            task[key] = unique_strings([str(value).strip() for value in raw.get(key) or [] if str(value).strip()])
     source = normalize_task_source(raw.get("source"), task_id)
     if source is not None:
         task["source"] = source
@@ -845,6 +861,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "notes": getattr(args, "task_note", None) or [],
         "startedAt": None,
         "completedAt": None,
+        "kind": getattr(args, "kind", None) or "work",
     }
     if getattr(args, "product_facing", False) and getattr(args, "not_product_facing", False):
         raise SystemExit("--product-facing and --not-product-facing cannot be used together.")
@@ -854,6 +871,13 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["productFacing"] = False
     if getattr(args, "produces_implementation", False):
         raw["producesImplementation"] = True
+    if getattr(args, "produces_seam", None) is not None:
+        raw["producesSeamIds"] = list(getattr(args, "produces_seam") or [])
+    if getattr(args, "consumes_seam", None) is not None:
+        raw["consumesSeamIds"] = list(getattr(args, "consumes_seam") or [])
+    if raw.get("kind") == "integration_proof":
+        raw["ownedPaths"] = []
+        raw["phases"] = []
     if getattr(args, "needs_triage", False):
         raw["needsTriage"] = True
     phases = parse_phases_arg(getattr(args, "phases", None))

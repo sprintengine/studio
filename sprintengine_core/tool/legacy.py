@@ -34,6 +34,7 @@ from sprintengine_core.tool.feedback import *  # noqa: F403,F401
 from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
 from sprintengine_core.tool.plans import *  # noqa: F403,F401
 from sprintengine_core.tool.phase_prompts import *  # noqa: F403,F401
+from sprintengine_core.tool.integration_proof import *  # noqa: F403,F401
 
 
 
@@ -392,6 +393,7 @@ def serve_mcp(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     from sprintengine_core.tool.commands import artifact as artifact_commands
     from sprintengine_core.tool.commands import plan as plan_commands
+    from sprintengine_core.tool.commands import proof as proof_commands
     from sprintengine_core.tool.commands import registry as registry_commands
     from sprintengine_core.tool.commands import roster as roster_commands
     from sprintengine_core.tool.commands import run as run_commands
@@ -765,6 +767,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--note", action="append", default=[], help="Repeatable non-obvious implementation detail the description does not already carry; omit when the description suffices.")
     p.add_argument("--task-note", action="append", default=[], help="Repeatable task note.")
     p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
+    p.add_argument("--kind", choices=["work", "integration_proof"], default="work")
+    p.add_argument("--produces-seam", action="append", default=[], help="Seam id this code task produces; pass none explicitly through MCP with an empty array.")
+    p.add_argument("--consumes-seam", action="append", default=[], help="Seam id this code task consumes; pass none explicitly through MCP with an empty array.")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
     p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
     p.add_argument("--needs-triage", action="store_true", help="Create the task as an architect-triage candidate that is not claimable until cleared.")
@@ -789,6 +794,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task-note", action="append", help="Replace task notes with this repeatable list.")
     p.add_argument("--clear-task-notes", action="store_true")
     p.add_argument("--produces-implementation", action="store_true", help="Mark this task as implementation-producing even when its role is not developer/frontend.")
+    p.add_argument("--kind", choices=["work", "integration_proof"])
+    p.add_argument("--produces-seam", action="append", help="Replace produced seam ids with this repeatable list.")
+    p.add_argument("--clear-produces-seams", action="store_true")
+    p.add_argument("--consumes-seam", action="append", help="Replace consumed seam ids with this repeatable list.")
+    p.add_argument("--clear-consumes-seams", action="store_true")
     p.add_argument("--product-facing", action="store_true", help="Mark this task as requiring product acceptance when product is rostered.")
     p.add_argument("--not-product-facing", action="store_true", help="Persist that this task should not receive product acceptance by default.")
     p.add_argument("--needs-triage", action="store_true", help="Mark the task as an architect-triage candidate that is not claimable until cleared.")
@@ -819,6 +829,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=plan_commands.remove_dependency)
 
+    p = plan_sub.add_parser("set-proof", help="Set the run integration-proof policy and canonical task.")
+    proof_policy = p.add_mutually_exclusive_group(required=True)
+    proof_policy.add_argument("--required", action="store_true")
+    proof_policy.add_argument("--exempt", dest="required", action="store_false")
+    p.add_argument("--task-id")
+    p.add_argument("--mode", choices=sorted(VALID_PROOF_MODES))
+    p.add_argument("--rationale")
+    p.add_argument("--actor", default="architect")
+    p.set_defaults(handler=plan_commands.set_proof)
+
+    p = plan_sub.add_parser("upsert-seam", help="Add or replace one structured integration seam.")
+    p.add_argument("--seam-json", required=True)
+    p.add_argument("--actor", default="architect")
+    p.set_defaults(handler=plan_commands.upsert_seam)
+
+    p = plan_sub.add_parser("remove-seam", help="Remove one integration seam.")
+    p.add_argument("--seam-id", required=True)
+    p.add_argument("--actor", default="architect")
+    p.set_defaults(handler=plan_commands.remove_seam)
+
     p = plan_sub.add_parser("start-review", help="Start a specialist review of the architect plan.")
     p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Stable agent id, e.g. frontend or developer-1.")
@@ -833,6 +863,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = plan_sub.add_parser("list", help="List planned tasks.")
     p.set_defaults(handler=plan_commands.list_tasks)
+
+    # proof
+    proof_p = sub.add_parser("proof", help="Run-level integration proof operations.")
+    proof_sub = proof_p.add_subparsers(dest="action", required=True)
+
+    p = proof_sub.add_parser("begin", help="Capture the current graph revision and repository heads.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True)
+    p.set_defaults(handler=proof_commands.begin)
+
+    p = proof_sub.add_parser("record", help="Validate a typed proof artifact and complete automated proof.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True)
+    p.add_argument("--artifact-path", required=True)
+    p.add_argument("--artifact-id")
+    p.add_argument("--title")
+    p.set_defaults(handler=proof_commands.record)
+
+    p = proof_sub.add_parser("request-human", help="Publish partial evidence and request local-user smoke approval.")
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--id", required=True)
+    p.add_argument("--artifact-path", required=True)
+    p.add_argument("--artifact-id")
+    p.add_argument("--title")
+    p.add_argument("--blocker", required=True)
+    p.set_defaults(handler=proof_commands.request_human)
+
+    p = proof_sub.add_parser("approve-human", help=argparse.SUPPRESS)
+    p.add_argument("--task-id", required=True)
+    p.add_argument("--artifact-id", required=True)
+    p.set_defaults(handler=proof_commands.approve_human)
 
     # artifact
     artifact_p = sub.add_parser("artifact", help="Review artifact operations.")

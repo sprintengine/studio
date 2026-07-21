@@ -676,8 +676,7 @@ function SprintEngineBoardPanelContent({
  // The Summary view only exists once the run is complete; coerce a stale
  // persisted `summary` back to Tasks for incomplete runs so it can't strand.
  const runComplete = Boolean(
- sprintEngineState && sprintEngineState.tasks.length > 0 &&
- sprintEngineState.tasks.every((task) => task.status === 'done')
+ sprintEngineState && isCompletedSprintEngineRun(sprintEngineState)
  )
  const requestedView = fixedView ?? activeView
  const effectiveView: SprintEngineView =

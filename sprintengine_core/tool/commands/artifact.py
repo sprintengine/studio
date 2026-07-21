@@ -36,6 +36,8 @@ from sprintengine_core.tool.tasks import recompute_phase
 def cmd_artifact_add(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         candidate = build_artifact_from_args(args, state, args.state)
+        if candidate.get("kind") == "integration_proof":
+            raise SystemExit("integration_proof_uses_proof_record: register proof evidence with proof.record or proof.request-human.")
         # Reuse an existing non-superseded artifact for the same task + kind +
         # resolved file instead of registering a duplicate that would block
         # auto-approval (e.g. an init placeholder stored as the full plan path
@@ -129,6 +131,8 @@ def set_artifact_ready(
 def cmd_artifact_ready(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         artifact = find_artifact(state, args.artifact_id)
+        if artifact.get("kind") == "integration_proof":
+            raise SystemExit("integration_proof_uses_proof_record: proof evidence cannot use the generic artifact ready route.")
         ready_result = set_artifact_ready(state, artifact, args.id, args.state)
         task = find_task(state, str(artifact.get("taskId")))
         feedback_payload = build_feedback_payload(args, state, args.state, task, args.id)
@@ -172,10 +176,18 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         artifact = find_artifact(state, args.artifact_id)
+        if artifact.get("kind") == "integration_proof":
+            raise SystemExit("integration_proof_uses_proof_record: ordinary artifact approval cannot validate integration proof.")
         if artifact.get("status") == "superseded":
             raise SystemExit("Superseded artifacts cannot be approved.")
         if artifact.get("status") == "draft":
             raise SystemExit("Draft artifacts must be marked ready before approval.")
+
+        if artifact.get("kind") == "architect_plan":
+            from sprintengine_core.tool.integration_proof import validate_integration_plan
+            proof_warnings = validate_integration_plan(state, args.state)
+        else:
+            proof_warnings = []
 
         task = find_task(state, str(artifact.get("taskId")))
         artifact["status"] = "approved"
@@ -211,6 +223,7 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
             "supersededArtifactIds": superseded_artifact_ids,
             "event": event,
             "notification": notification,
+            **({"integrationWarnings": proof_warnings} if proof_warnings else {}),
         }
 
     return with_locked_state(args.state, run)
@@ -222,6 +235,8 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         artifact = find_artifact(state, args.artifact_id)
+        if artifact.get("kind") == "integration_proof":
+            raise SystemExit("integration_proof_uses_proof_record: proof evidence cannot use generic artifact change requests.")
         if artifact.get("status") == "superseded":
             raise SystemExit("Superseded artifacts cannot receive change requests.")
 

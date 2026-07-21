@@ -25,9 +25,15 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.plan.list',
   'sprintengine.plan.read',
   'sprintengine.plan.remove_dependency',
+  'sprintengine.plan.remove_seam',
   'sprintengine.plan.review_status',
+  'sprintengine.plan.set_proof',
   'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
+  'sprintengine.plan.upsert_seam',
+  'sprintengine.proof.begin',
+  'sprintengine.proof.record',
+  'sprintengine.proof.request_human',
   'sprintengine.recover',
   'sprintengine.roles.get',
   'sprintengine.roles.list',
@@ -807,8 +813,27 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "taskNote": {
           "type": "array"
         },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "integration_proof"
+          ]
+        },
         "producesImplementation": {
           "type": "boolean"
+        },
+        "producesSeamIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "consumesSeamIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "needsTriage": {
           "type": "boolean"
@@ -942,6 +967,29 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
+    "name": "sprintengine.plan.remove_seam",
+    "description": "plan remove seam",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "seamId"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "actor": {
+          "type": "string"
+        },
+        "seamId": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "name": "sprintengine.plan.review_status",
     "description": "plan review status",
     "inputSchema": {
@@ -952,6 +1000,44 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "statePath": {
           "type": "string",
           "description": "Run state path; server-resolved, agents normally omit it."
+        }
+      }
+    }
+  },
+  {
+    "name": "sprintengine.plan.set_proof",
+    "description": "plan set proof",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "required"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "actor": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "app_drive",
+            "engine_smoke",
+            "human_smoke"
+          ]
+        },
+        "rationale": {
+          "type": "string"
         }
       }
     }
@@ -1028,7 +1114,32 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "clearTaskNotes": {
           "type": "boolean"
         },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "integration_proof"
+          ]
+        },
         "producesImplementation": {
+          "type": "boolean"
+        },
+        "producesSeamIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "clearProducesSeamIds": {
+          "type": "boolean"
+        },
+        "consumesSeamIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "clearConsumesSeamIds": {
           "type": "boolean"
         },
         "needsTriage": {
@@ -1059,6 +1170,133 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "maximum": 100
         },
         "difficultyReason": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "sprintengine.plan.upsert_seam",
+    "description": "plan upsert seam",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "seam"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "actor": {
+          "type": "string"
+        },
+        "seam": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  {
+    "name": "sprintengine.proof.begin",
+    "description": "proof begin",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        }
+      }
+    }
+  },
+  {
+    "name": "sprintengine.proof.record",
+    "description": "proof record",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "id",
+        "artifactPath"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        },
+        "artifactPath": {
+          "type": "string"
+        },
+        "artifactId": {
+          "type": "string",
+          "description": "Sprint Engine artifact id."
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "sprintengine.proof.request_human",
+    "description": "proof request human",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "id",
+        "artifactPath",
+        "blocker"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        },
+        "artifactPath": {
+          "type": "string"
+        },
+        "artifactId": {
+          "type": "string",
+          "description": "Sprint Engine artifact id."
+        },
+        "title": {
+          "type": "string"
+        },
+        "blocker": {
           "type": "string"
         }
       }
@@ -2604,8 +2842,14 @@ export const SPRINTENGINE_MUTATING_TOOL_NAMES = [
   'sprintengine.plan.address_reviews',
   'sprintengine.plan.delete_task',
   'sprintengine.plan.remove_dependency',
+  'sprintengine.plan.remove_seam',
+  'sprintengine.plan.set_proof',
   'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
+  'sprintengine.plan.upsert_seam',
+  'sprintengine.proof.begin',
+  'sprintengine.proof.record',
+  'sprintengine.proof.request_human',
   'sprintengine.recover',
   'sprintengine.roster.configure',
   'sprintengine.task.advance',

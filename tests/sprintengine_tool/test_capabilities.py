@@ -529,7 +529,10 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
     # MC-1741 adds the two closed-loop review mutations to every owner (phase
     # reviewers and sweep roles share the owner classification), a measured
     # ~0.9k-char increase that cannot be hidden without breaking those agents.
-    assert serialized < 28_500, f"worker tools/list serialized to {serialized} chars"
+    # MC-1742 adds the three proof-owner mutations (~1.2k) because the canonical
+    # proof task can be assigned to any configured worker role. Keep a tight
+    # ceiling around the measured ~29.7k rather than exposing the full catalogue.
+    assert serialized < 30_500, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 
