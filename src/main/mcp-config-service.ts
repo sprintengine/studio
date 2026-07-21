@@ -571,7 +571,12 @@ function syncClaude(input: SyncForFormatInput): {
     }
     writeFileSync(path, `${JSON.stringify({ ...existing, mcpServers: nextServers }, null, 2)}\n`, 'utf8')
     if (plugin.binary === 'claude' && workspaceServers.some((server) => server.id === STUDIO_MCP_SERVER_ID)) {
-      const approvalIssue = enableStudioMcpForClaudeWorkspace(workspaceRoot, client)
+      const approvalIssue = enableStudioMcpForClaudeWorkspace(
+        workspaceRoot,
+        client,
+        path,
+        nextServers[STUDIO_MCP_SERVER_ID],
+      )
       if (approvalIssue) issues.push(approvalIssue)
     }
   }
@@ -585,10 +590,39 @@ function syncClaude(input: SyncForFormatInput): {
 // gateway is app-owned and required, so add only that one id to the allow-list;
 // custom MCPs retain Claude's normal consent flow and every unrelated setting
 // is preserved. Z.AI and Kimi Claude use the same Claude binary/config shape.
+//
+// Claude's approval is keyed by server ID only, so approval must never be
+// granted against content we did not just write: a repo-committed `.mcp.json`
+// squatting on our id would otherwise run an arbitrary command with no consent
+// prompt. Verify the on-disk entry byte-matches the managed config at grant
+// time; the sync path rewrites the entry on every launch, so drift is healed
+// and re-verified per launch (installer command-shape rule, not id-trust).
 function enableStudioMcpForClaudeWorkspace(
   workspaceRoot: string,
-  client: McpClientTarget
+  client: McpClientTarget,
+  mcpJsonPath: string,
+  expectedServer: unknown
 ): McpValidationIssue | null {
+  try {
+    const parsed = JSON.parse(readFileSync(mcpJsonPath, 'utf8')) as Record<string, unknown>
+    const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>
+    const onDisk = servers[STUDIO_MCP_SERVER_ID]
+    if (JSON.stringify(onDisk) !== JSON.stringify(expectedServer)) {
+      return {
+        level: 'error',
+        client,
+        serverId: STUDIO_MCP_SERVER_ID,
+        message: `${mcpJsonPath} does not contain the managed Studio MCP entry that was just written; refusing to pre-approve the server id.`,
+      }
+    }
+  } catch (error) {
+    return {
+      level: 'error',
+      client,
+      serverId: STUDIO_MCP_SERVER_ID,
+      message: `Could not verify ${mcpJsonPath} before approving the Studio MCP server: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
   const settingsPath = join(workspaceRoot, '.claude', 'settings.local.json')
   const prepared = prepareWritableConfigFile(settingsPath, client)
   if (!prepared.ok) return prepared.issue
