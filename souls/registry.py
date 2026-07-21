@@ -9,15 +9,8 @@ from sprintengine_core.role_registry import (
     RegistryDiscovery,
     SoulRenderError,
     discover_role_registry,
+    multicode_user_registry_root,
 )
-
-
-# Canonical Multicode user-level registry root. MUST stay in sync with
-# defaultUserRoleRegistryRoot() in src/main/sprintengine-role-registry.ts
-# (~/.multicode/sprintengine-roles). Discovering it natively here means a
-# user-installed specialist resolves through `souls get` without the app having
-# to inject anything — the spawn menu and the spawn itself look in the same place.
-MULTICODE_USER_REGISTRY_ROOT = Path.home() / ".multicode" / "sprintengine-roles"
 
 # Env var carrying the dynamic plugin registry roots the app discovered for the
 # current session, as JSON: [{"id": "...", "root": "..."}]. Set on agent
@@ -59,7 +52,7 @@ def _effective_plugin_roots() -> list[object]:
     # root — matching the order the app's menu discovery uses
     # (sprintEngineRegistryRootsForRead in src/main/sprintengine-artifacts.ts),
     # so precedence is identical between the menu and `souls get`.
-    return [*_session_plugin_roots(), MULTICODE_USER_REGISTRY_ROOT]
+    return [*_session_plugin_roots(), multicode_user_registry_root()]
 
 
 @dataclass(frozen=True)

@@ -16,12 +16,26 @@ BUNDLED_REGISTRY_ROOT = Path(__file__).resolve().parents[1] / "resources" / "spr
 # Session channel carrying the dynamic plugin/pack registry roots the running app
 # discovered for this process, as JSON: [{"id": "...", "root": "..."}]. Set on
 # agent terminals at spawn (withSprintEngineEnv in src/main/terminal-launch.ts).
-# The specialist roles ship as an installable pack (resources/specialist-pack),
-# not in the bundled root, so a bare `discover_role_registry()` on the direct-core
-# CLI / prompt paths resolves an installed pack only by reading this env — the
-# same channel souls.registry consumes. Absent env → zero extra roots → a raw
-# install correctly resolves no specialists.
+# Plugin roots are dynamic — only the running app knows which plugins are
+# installed — so they must be passed in rather than discovered statically.
 SESSION_REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
+
+# Canonical Multicode user-level registry root, where the app installs the
+# specialist pack and user-added roles. MUST stay in sync with
+# defaultUserRoleRegistryRoot() in src/main/sprintengine-role-registry.ts.
+# Discovered NATIVELY by every bare `discover_role_registry()` (role
+# validation, prompt composition, sweep resolution), matching souls.registry:
+# an installed sweep role must resolve identically whether the engine CLI was
+# spawned by the app, an agent terminal, or a bare shell — otherwise
+# `--required-sweeps-json` rejects roles the spawn menu just offered.
+# The env override exists for hermeticity: tests (and any embedder that must
+# not read the machine's home) point it at a directory they control.
+USER_REGISTRY_ROOT_ENV = "MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT"
+
+
+def multicode_user_registry_root() -> Path:
+    raw = os.environ.get(USER_REGISTRY_ROOT_ENV, "").strip()
+    return Path(raw).expanduser() if raw else Path.home() / ".multicode" / "sprintengine-roles"
 SUPPORTED_TEMPLATE_VARIABLES = frozenset({"role", "role_label", "workspace_root", "run_id"})
 TEMPLATE_PATTERN = re.compile(r"{{\s*([^{}]+?)\s*}}")
 
@@ -482,13 +496,15 @@ def discover_role_registry(
     bundled_root: Path | None = None,
 ) -> RegistryDiscovery:
     # Omitting plugin_roots reads the app-injected session roots from the
-    # environment, so every bare direct-core discovery (CLI role validation,
-    # prompt composition, sweep resolution) resolves an installed specialist pack.
+    # environment AND the canonical user-install root, so every bare direct-core
+    # discovery (CLI role validation, prompt composition, sweep resolution)
+    # resolves an installed specialist pack — same order as souls.registry and
+    # the app's spawn-menu discovery: session roots first, install root last.
     # Callers that pass plugin_roots explicitly (the MCP server from its payload,
-    # the registry-inspection CLI from --extra-dir) opt out of the env and stay
+    # the registry-inspection CLI from --extra-dir) opt out of both and stay
     # hermetic.
     if plugin_roots is None:
-        plugin_roots = session_registry_roots_from_env()
+        plugin_roots = [*session_registry_roots_from_env(), multicode_user_registry_root()]
     return RoleSkillRegistry(
         workspace_root=workspace_root,
         plugin_roots=plugin_roots,

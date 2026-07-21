@@ -29,3 +29,13 @@ if _SPECIALIST_PACK_ROOT.exists() and not os.environ.get(_SESSION_REGISTRY_ROOTS
     os.environ[_SESSION_REGISTRY_ROOTS_ENV] = json.dumps(
         [{"id": "specialist-pack", "root": str(_SPECIALIST_PACK_ROOT)}]
     )
+
+# Bare discovery also searches the machine's canonical user-install root
+# (~/.multicode/sprintengine-roles) natively. Point it at a directory that does
+# not exist so the developer's locally installed roles never leak into suite
+# or subprocess behavior. Mirrors
+# sprintengine_core.role_registry.USER_REGISTRY_ROOT_ENV.
+os.environ.setdefault(
+    "MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT",
+    str(Path(__file__).resolve().parent / ".no-user-registry"),
+)

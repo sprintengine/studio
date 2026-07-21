@@ -484,3 +484,31 @@ def test_bundled_sweep_roles_match_the_shipped_disposition() -> None:
     ]
     for worker in ("architect", "developer", "frontend", "devops", "cross_platform", "coordinator"):
         assert not discovery.get_role(worker).is_sweep, f"{worker} must stay a worker role"
+
+
+def test_bare_discovery_searches_the_user_install_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An installed role resolves through bare discovery with no session env.
+
+    The app installs the specialist pack (and user-added roles) under
+    ~/.multicode/sprintengine-roles; init-time role validation
+    (--required-sweeps-json, --agent role:id) runs through bare
+    discover_role_registry(), so the install root must be discovered natively —
+    otherwise the engine rejects sweep roles the spawn menu just offered.
+    """
+    install_root = tmp_path / "sprintengine-roles"
+    write_role(install_root, "installed_sweeper", sweep={"focus": "installed", "when": "always"})
+    write_skill(install_root, "installed_sweeper")
+    monkeypatch.delenv("MULTICODE_SPRINTENGINE_REGISTRY_ROOTS", raising=False)
+    monkeypatch.setenv("MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT", str(install_root))
+
+    discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
+
+    role = discovery.get_role("installed_sweeper")
+    assert role.is_sweep
+    # Session env roots keep precedence over the install root, and explicit
+    # plugin_roots callers stay hermetic (no install root).
+    hermetic = discover_role_registry(
+        workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"), plugin_roots=[]
+    )
+    with pytest.raises(KeyError):
+        hermetic.get_role("installed_sweeper")

@@ -704,11 +704,20 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
   return new Promise((resolvePromise) => {
     const runtimeRoot = getSprintEngineMcpRuntimeRoot()
     const toolPath = join(runtimeRoot, 'scripts', 'sprintengine_tool.py')
+    // Same registry roots the spawn menu discovers, so init-time role
+    // validation (--required-sweeps-json, --agent role:id) resolves exactly
+    // the roles the menu offered — plugin roots are dynamic and only the
+    // running app knows them (the user-install root the engine now finds
+    // natively; see MULTICODE_USER_REGISTRY_ROOT in role_registry.py).
+    const registryRoots = sprintEngineRegistryRootsForRead()
     const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), [toolPath, ...args], {
       cwd: state.workspaceRoot,
       env: {
         ...process.env,
         PYTHONPATH: [runtimeRoot, state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+        ...(registryRoots.length > 0
+          ? { MULTICODE_SPRINTENGINE_REGISTRY_ROOTS: JSON.stringify(registryRoots) }
+          : {}),
       },
       windowsHide: true,
     })
@@ -845,6 +854,7 @@ function runSprintEngineMcpToolProcess(
     // A tool call carrying a statePath is a call against that run, so the run's
     // declared projects are part of its allowed surface — otherwise an app-side read
     // of a task in a sibling project is refused by the roots, not by the rules.
+    const registryRoots = sprintEngineRegistryRootsForRead()
     const declaredRoots = typeof payload.statePath === 'string' ? sprintEngineDeclaredSiblingRepoRoots(payload.statePath) : []
     const allowedRoots = Array.from(new Set([context.workspaceRoot, ...(context.allowedRoots ?? []), ...declaredRoots]))
     const args = ['-m', 'sprintengine_mcp']
@@ -859,6 +869,9 @@ function runSprintEngineMcpToolProcess(
         PYTHONPATH: [runtimeRoot, context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
         SPRINTENGINE_MCP_USER_ID: actor.id,
         SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
+        ...(registryRoots.length > 0
+          ? { MULTICODE_SPRINTENGINE_REGISTRY_ROOTS: JSON.stringify(registryRoots) }
+          : {}),
       },
       windowsHide: true,
     })

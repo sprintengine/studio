@@ -329,13 +329,14 @@ def test_session_plugin_roots_tolerates_garbage(monkeypatch) -> None:
 
 def test_effective_plugin_roots_includes_canonical_user_root(monkeypatch) -> None:
     monkeypatch.delenv(souls_registry.REGISTRY_ROOTS_ENV, raising=False)
-    assert souls_registry._effective_plugin_roots() == [souls_registry.MULTICODE_USER_REGISTRY_ROOT]
+    user_root = souls_registry.multicode_user_registry_root()
+    assert souls_registry._effective_plugin_roots() == [user_root]
     # Session plugin roots come first, then the canonical user root — matching the
     # app's menu discovery order.
     monkeypatch.setenv(souls_registry.REGISTRY_ROOTS_ENV, json.dumps([{"id": "plug", "root": "/tmp/z"}]))
     assert souls_registry._effective_plugin_roots() == [
         {"id": "plug", "root": "/tmp/z"},
-        souls_registry.MULTICODE_USER_REGISTRY_ROOT,
+        user_root,
     ]
 
 
