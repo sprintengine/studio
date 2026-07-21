@@ -16,7 +16,7 @@ The Backlog panel reads item status from each item file's **frontmatter** under 
 - **Finished**: set `completed` only when the work is genuinely complete and verified. Never for partial work.
 - **Stopping incomplete**: leave the item `in_progress` and report the remaining work — never let it silently look finished or abandoned.
 
-Use the SprintEngine Studio MCP for every Backlog mutation: `backlog.create`, `backlog.update`, `backlog.assign`, or `backlog.work`. The app validates schema and owns ids, links, collision-safe paths, and exact timestamps; never supply `updated`. Do not edit Backlog Markdown or `.multi-code/backlog/items.json` directly. If the required Studio MCP is unavailable, stop and report that gateway failure rather than mutating raw files.
+Creating an item needs no tool: write the markdown file under `backlog/` yourself, with only grounded frontmatter fields and no `id:` or `updated:` line — the app allocates the id on its next scan. For lifecycle and triage mutations on existing items, prefer the SprintEngine Studio MCP tools (`backlog.update`, `backlog.assign`, `backlog.work`): they validate schema, preserve omitted fields, and stamp exact timestamps — never supply `updated`. The tools target the project your agent connection was launched from; pass `projectRoot` only for a different folder. If the Studio MCP is unavailable, edit the frontmatter directly with the same vocabulary and delete the `updated:` line rather than inventing a timestamp. `.multi-code/backlog/items.json` stays app-owned; never edit it.
 
 </what-to-do>
 
@@ -42,7 +42,9 @@ The item file's frontmatter owns lifecycle and triage as flat top-level scalars;
 - `risk`: `low`, `normal`, or `high` — likelihood the work goes sideways, a separate axis from effort.
 - `status`: `idea`, `ready`, `in_progress`, `needs_input`, `completed`, or `archived`.
 - `epic`: slug of the epic this item belongs to (see Epics below).
-- `updated`: the exact UTC instant of the last real content/frontmatter change; full ISO-8601 date-time with seconds, never date-only.
+- `dependsOn`: prerequisite items as one flat comma-separated scalar of file-name-stem slugs (same identifier scheme as `epic:`), e.g. `dependsOn: a-item, b-item`. Only the dependent stores the edge; the app derives blocked/waiting presentation — never write `blocked` as a status. Not covered by `backlog.update`; set it when authoring the file or edit the frontmatter line directly.
+- `mockups`: attached mockups as one flat comma-separated scalar of project-relative, comma-free paths (canonical home `backlog/mockups/`). Absolute paths and `..` escapes are invalid. Also outside `backlog.update`; edit the file directly.
+- `updated`: the exact UTC instant of the last real content/frontmatter change; full ISO-8601 date-time with seconds, never date-only. Tool mutations stamp it; omit it from files you author.
 
 Set an axis only when the current context supports a grounded estimate; leave it unset instead of guessing. Difficulty is normally architect-owned. Criticality follows user or product intent; if you infer it, be conservative and let the user override.
 
@@ -53,7 +55,7 @@ Mutate lifecycle and triage only with `backlog.update`, passing the project-rela
 An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` with `type: epic`; `<slug>` is the filename stem and its title is the first `# Heading`. Membership is **stored up, derived down** — the only stored relationship is each child's `epic:` field:
 
 - **Assign/remove**: update the child's `epic` through `backlog.update`.
-- **Create**: call `backlog.create` with `type: epic`, then assign members through `backlog.update`.
+- **Create**: write `backlog/epics/<slug>.md` with `type: epic` frontmatter and a `# Title` heading, then assign members through `backlog.update`.
 - **Enumerate children**: `grep -l "^epic: <slug>$" backlog/*.md`.
 - **Completion**: an epic is `completed` only when every one of its children is `completed`.
 

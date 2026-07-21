@@ -9,7 +9,8 @@ const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const DEFAULT_BACKUPS = 3
 const SAFE_IDENTIFIER_KEYS = new Set([
   'workspaceId', 'agentId', 'automationId', 'runId', 'sprintId', 'taskId', 'artifactId',
-  'relativePath', 'sourceRelativePath', 'epicId', 'id', 'status', 'type', 'slug', 'repo',
+  'path', 'relativePath', 'sourceRelativePath', 'epicId', 'id', 'status', 'type', 'slug', 'repo',
+  'issue', 'numericId', 'previousNumericId', 'replacements',
 ])
 
 export type GatewayAuditRecord = {

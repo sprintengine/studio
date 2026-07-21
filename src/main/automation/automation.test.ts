@@ -13,7 +13,7 @@ import {
   resolveSocketPath,
   STUDIO_MCP_SERVER_INFO_FILENAME,
 } from './automation-service'
-import { createMcpSocketServer, type McpToolRegistration } from './mcp-socket-server'
+import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistration } from './mcp-socket-server'
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createRendererAutomationDelegate } from './renderer-delegate'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
@@ -138,13 +138,12 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     listAutomationDefinitions: overrides.listAutomationDefinitions ?? (async () => ({ ok: true, values: [] })),
     listAutomationRuns: overrides.listAutomationRuns ?? (async () => ({ ok: true, values: [] })),
     backlogWrite: {
-      createItem: unexpectedCall('createItem'),
-      createEpic: unexpectedCall('createEpic'),
       updateStatus: unexpectedCall('updateStatus'),
       updateType: unexpectedCall('updateType'),
       updateTriage: unexpectedCall('updateTriage'),
       updateEpic: unexpectedCall('updateEpic'),
       addOrUpdateLink: unexpectedCall('addOrUpdateLink'),
+      repairIntegrity: unexpectedCall('repairIntegrity'),
       ...overrides.backlogWrite,
     },
     getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
@@ -237,6 +236,12 @@ function tool(tools: McpToolRegistration[], name: string): McpToolRegistration {
   return found
 }
 
+// The connection context a Studio-launched agent's bridge presents; backlog
+// tools default their target project from this advisory identity.
+function agentContext(workspaceId: string): McpConnectionContext {
+  return { metadata: { kind: 'studio-agent', workspaceId } }
+}
+
 async function testSettingsDefaultOnAndRoundTrip(): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-settings-'))
   try {
@@ -312,9 +317,9 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'automation.run',
       'automation.runs',
       'backlog.assign',
-      'backlog.create',
       'backlog.list',
       'backlog.read',
+      'backlog.repair',
       'backlog.update',
       'backlog.work',
       'roadmap.add_step',
@@ -938,7 +943,8 @@ async function testReadToolsResolveWorkspaceRootThroughSnapshot(): Promise<void>
     })
   )
 
-  const listed = await tool(tools, 'backlog.list').handler({ workspaceId: 'ws-1' })
+  // Backlog reads default to the connection's own workspace — no id argument.
+  const listed = await tool(tools, 'backlog.list').handler({}, agentContext('ws-1'))
   assert.equal(listed.isError, undefined)
   assert.deepEqual(listed.structuredContent, {
     workspaceKey: 'MC',
@@ -951,72 +957,76 @@ async function testReadToolsResolveWorkspaceRootThroughSnapshot(): Promise<void>
   assert.deepEqual(automations.structuredContent, { automations: [] })
   assert.deepEqual(seenRoots, ['/tmp/project-a', '/tmp/project-a'], 'both tools resolve the snapshot folderPath')
 
-  const unknown = await tool(tools, 'backlog.list').handler({ workspaceId: 'nope' })
-  assert.equal(unknown.isError, true)
-  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
+  // An explicit projectRoot addresses any folder directly — external callers
+  // are not gated on the app's workspace registry.
+  const external = await tool(tools, 'backlog.list').handler({ projectRoot: '/tmp/external-clone' })
+  assert.equal(external.isError, undefined, 'projectRoot works without any connection identity')
+  assert.equal(seenRoots[2], '/tmp/external-clone')
 
-  const routing = await tool(tools, 'backlog.list').handler({ workspaceId: 'ws-routing' })
-  assert.equal((routing.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
+  const relative = await tool(tools, 'backlog.list').handler({ projectRoot: 'not/absolute' })
+  assert.equal((relative.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+  // No projectRoot and no resolvable connection workspace ⇒ a clear failure.
+  const bare = await tool(tools, 'backlog.list').handler({})
+  assert.equal((bare.structuredContent as { error: { code: string } }).error.code, 'project_root_required')
+  const unknown = await tool(tools, 'backlog.list').handler({}, agentContext('nope'))
+  assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'project_root_required')
+
+  // A restart-restored routing placeholder still resolves for the very agent
+  // connected from it — the connection itself is the liveness proof.
+  const routing = await tool(tools, 'backlog.list').handler({}, agentContext('ws-routing'))
+  assert.equal(routing.isError, undefined, 'a connected agent may use its restored folder route')
+  assert.equal(seenRoots[3], '/tmp/stale')
 
   const folderless = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-folderless' })
   assert.equal((folderless.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
 }
 
-async function testBacklogCreateRoutesItemsAndEpics(): Promise<void> {
-  const createdItems: Array<Record<string, unknown>> = []
-  const createdEpics: Array<Record<string, unknown>> = []
+async function testBacklogRepairRoutesOnlyValidatedIntegrityOperations(): Promise<void> {
+  const repairs: Array<Record<string, unknown>> = []
   const tools = createAutomationTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       backlogWrite: {
-        createItem: async (input) => {
-          createdItems.push(input)
-          return { ok: true, id: 'backlog_x', relativePath: 'backlog/2026-07-08-new-thing.md', store: { schemaVersion: 1, items: [] } }
-        },
-        createEpic: async (input) => {
-          createdEpics.push(input)
-          return { ok: true, slug: 'new-epic', relativePath: 'backlog/epics/new-epic.md' }
+        repairIntegrity: async (input) => {
+          repairs.push(input)
+          return {
+            ok: true,
+            relativePath: input.relativePath,
+            issue: input.issue,
+            ...(input.issue === 'duplicate_id'
+              ? { previousNumericId: 1741, numericId: 1744 }
+              : { replacements: 1 }),
+          }
         },
       },
     })
   )
-  const create = tool(tools, 'backlog.create')
-
-  const item = await create.handler({
-    workspaceId: 'ws-1',
-    title: 'New thing',
-    description: 'Body.',
-    type: 'feature',
-    difficulty: 'm',
-    risk: 'low',
-    epic: 'things',
-  })
-  assert.equal(item.isError, undefined)
-  assert.deepEqual(item.structuredContent, { item: { relativePath: 'backlog/2026-07-08-new-thing.md' } })
-  assert.deepEqual(createdItems, [
-    {
-      workspaceRoot: '/tmp/project-a',
-      title: 'New thing',
-      description: 'Body.',
-      type: 'feature',
-      difficulty: 'm',
-      criticality: undefined,
-      risk: 'low',
-      epic: 'things',
+  const repair = tool(tools, 'backlog.repair')
+  const repaired = await repair.handler(
+    { path: 'backlog/example.md', issue: 'duplicate_id' },
+    agentContext('ws-1')
+  )
+  assert.equal(repaired.isError, undefined)
+  assert.deepEqual(repairs, [{
+    workspaceRoot: '/tmp/project-a',
+    relativePath: 'backlog/example.md',
+    issue: 'duplicate_id',
+  }])
+  assert.deepEqual(repaired.structuredContent, {
+    repaired: {
+      ok: true,
+      relativePath: 'backlog/example.md',
+      issue: 'duplicate_id',
+      previousNumericId: 1741,
+      numericId: 1744,
     },
-  ])
+  })
 
-  const epic = await create.handler({ workspaceId: 'ws-1', title: 'New epic', type: 'epic' })
-  assert.deepEqual(epic.structuredContent, { epic: { slug: 'new-epic', relativePath: 'backlog/epics/new-epic.md' } })
-  assert.deepEqual(createdEpics, [{ workspaceRoot: '/tmp/project-a', title: 'New epic' }])
-
-  const epicWithTriage = await create.handler({ workspaceId: 'ws-1', title: 'Bad epic', type: 'epic', risk: 'low' })
-  assert.equal(epicWithTriage.isError, true)
-  assert.equal((epicWithTriage.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-
-  const badVocabulary = await create.handler({ workspaceId: 'ws-1', title: 'Bad', difficulty: 'huge' })
-  assert.equal(badVocabulary.isError, true)
-  assert.match((badVocabulary.structuredContent as { error: { message: string } }).error.message, /must be one of/)
+  const invalid = await repair.handler({ path: 'backlog/example.md', issue: 'rewrite_body' }, agentContext('ws-1'))
+  assert.equal(invalid.isError, true)
+  assert.equal((invalid.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  assert.equal(repairs.length, 1, 'invalid repair never reaches the writer')
 }
 
 async function testBacklogUpdateAppliesInOrderAndStopsOnFailure(): Promise<void> {
@@ -1042,21 +1052,18 @@ async function testBacklogUpdateAppliesInOrderAndStopsOnFailure(): Promise<void>
   )
   const update = tool(tools, 'backlog.update')
 
-  const failed = await update.handler({
-    workspaceId: 'ws-1',
-    path: 'backlog/example.md',
-    status: 'in_progress',
-    type: 'feature',
-    epic: null,
-  })
+  const failed = await update.handler(
+    { path: 'backlog/example.md', status: 'in_progress', type: 'feature', epic: null },
+    agentContext('ws-1')
+  )
   assert.equal(failed.isError, true)
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'backlog_update_failed')
   assert.deepEqual(calls, ['status:in_progress', 'type'], 'stops at the first failing write; epic never runs')
 
-  const empty = await update.handler({ workspaceId: 'ws-1', path: 'backlog/example.md' })
+  const empty = await update.handler({ path: 'backlog/example.md' }, agentContext('ws-1'))
   assert.equal((empty.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 
-  const nullStatus = await update.handler({ workspaceId: 'ws-1', path: 'backlog/example.md', status: null })
+  const nullStatus = await update.handler({ path: 'backlog/example.md', status: null }, agentContext('ws-1'))
   assert.equal((nullStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
 }
 
@@ -1081,7 +1088,7 @@ async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
   )
   const assign = tool(tools, 'backlog.assign')
 
-  const assigned = await assign.handler({ workspaceId: 'ws-1', path: 'backlog/example.md', agentId: 'agent-7' })
+  const assigned = await assign.handler({ path: 'backlog/example.md', agentId: 'agent-7' }, agentContext('ws-1'))
   assert.equal(assigned.isError, undefined)
   assert.equal(linked.length, 1)
   const input = linked[0] as {
@@ -1102,8 +1109,24 @@ async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
     { kind: 'agent.terminal', id: 'ws-1/agent-7' }
   )
 
-  const unknownAgent = await assign.handler({ workspaceId: 'ws-1', path: 'backlog/example.md', agentId: 'nope' })
+  const unknownAgent = await assign.handler({ path: 'backlog/example.md', agentId: 'nope' }, agentContext('ws-1'))
   assert.equal((unknownAgent.structuredContent as { error: { code: string } }).error.code, 'unknown_agent')
+
+  // An explicit projectRoot resolves to the open workspace using that folder —
+  // and refuses folders no open workspace uses (agent links need the registry).
+  const byRoot = await assign.handler({
+    projectRoot: '/tmp/project-a',
+    path: 'backlog/example.md',
+    agentId: 'agent-7',
+  })
+  assert.equal(byRoot.isError, undefined, 'projectRoot maps back to the open workspace record')
+  assert.equal(linked.length, 2)
+  const elsewhere = await assign.handler({
+    projectRoot: '/tmp/not-open',
+    path: 'backlog/example.md',
+    agentId: 'agent-7',
+  })
+  assert.equal((elsewhere.structuredContent as { error: { code: string } }).error.code, 'workspace_not_open')
 }
 
 // A minimal LoadedPlugin whose manifest carries just the id + optional
@@ -1145,13 +1168,15 @@ async function testBacklogWorkHandsItemToAgent(): Promise<void> {
     },
   })
 
-  const worked = await tool(harness.tools, 'backlog.work').handler({
-    workspaceId: 'ws-1',
-    path: 'backlog/example.md',
-    cli: 'claude-code',
-    name: 'Scout',
-    instructions: 'Focus on the failing test first.',
-  })
+  const worked = await tool(harness.tools, 'backlog.work').handler(
+    {
+      path: 'backlog/example.md',
+      cli: 'claude-code',
+      name: 'Scout',
+      instructions: 'Focus on the failing test first.',
+    },
+    agentContext('ws-1')
+  )
   assert.equal(worked.isError, undefined, JSON.stringify(worked.structuredContent))
   const result = (worked.structuredContent as {
     worked: { invocation: string; skillEnsured: boolean; assigned: boolean; agentId: string; relativePath: string; warning?: string }
@@ -1191,11 +1216,10 @@ async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> 
     }),
     backlogWrite: { addOrUpdateLink: async () => ({ ok: true, store: { schemaVersion: 1, items: [] } }) },
   })
-  const worked = await tool(fallback.tools, 'backlog.work').handler({
-    workspaceId: 'ws-1',
-    path: 'backlog/example.md',
-    cli: 'mystery-cli',
-  })
+  const worked = await tool(fallback.tools, 'backlog.work').handler(
+    { path: 'backlog/example.md', cli: 'mystery-cli' },
+    agentContext('ws-1')
+  )
   assert.equal(worked.isError, undefined, JSON.stringify(worked.structuredContent))
   const invocation = (worked.structuredContent as { worked: { invocation: string } }).worked.invocation
   assert.match(invocation, /Work the Backlog item at backlog\/example\.md/)
@@ -1210,14 +1234,14 @@ async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> 
     [{ relativePath: 'backlog/archived/old.md', title: 'O', isEpic: false, status: 'ready' as const }, 'backlog/archived/old.md'],
   ] as const) {
     const refuse = launchHarness({ readBacklogItem: async () => ({ ok: true, item, body: '' }) })
-    const refused = await tool(refuse.tools, 'backlog.work').handler({ workspaceId: 'ws-1', path })
+    const refused = await tool(refuse.tools, 'backlog.work').handler({ path }, agentContext('ws-1'))
     assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'backlog_item_not_workable')
     assert.equal(refuse.requests.length, 0, 'a non-workable item is never launched')
   }
 
   // A missing/invalid path is not_found (and never launched).
   const missing = launchHarness({ readBacklogItem: async () => ({ ok: false, message: 'no such item' }) })
-  const notFound = await tool(missing.tools, 'backlog.work').handler({ workspaceId: 'ws-1', path: 'backlog/gone.md' })
+  const notFound = await tool(missing.tools, 'backlog.work').handler({ path: 'backlog/gone.md' }, agentContext('ws-1'))
   assert.equal((notFound.structuredContent as { error: { code: string } }).error.code, 'backlog_item_not_found')
   assert.equal(missing.requests.length, 0)
 }
@@ -1231,11 +1255,10 @@ async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<voi
       body: '',
     }),
   })
-  const refused = await tool(bypass.tools, 'backlog.work').handler({
-    workspaceId: 'ws-1',
-    path: 'backlog/example.md',
-    permissionPreset: 'bypass_all',
-  })
+  const refused = await tool(bypass.tools, 'backlog.work').handler(
+    { path: 'backlog/example.md', permissionPreset: 'bypass_all' },
+    agentContext('ws-1')
+  )
   assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
   assert.equal(bypass.requests.length, 0, 'a refused preset never launches')
 
@@ -1252,11 +1275,10 @@ async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<voi
     }),
     backlogWrite: { addOrUpdateLink: async () => ({ ok: false, message: 'items.json is read-only' }) },
   })
-  const worked = await tool(linkFail.tools, 'backlog.work').handler({
-    workspaceId: 'ws-1',
-    path: 'backlog/example.md',
-    cli: 'claude-code',
-  })
+  const worked = await tool(linkFail.tools, 'backlog.work').handler(
+    { path: 'backlog/example.md', cli: 'claude-code' },
+    agentContext('ws-1')
+  )
   assert.equal(worked.isError, undefined, 'a post-launch link failure is not overall failure')
   const result = (worked.structuredContent as {
     worked: { assigned: boolean; warning?: string; skillEnsured: boolean; agentId: string }
@@ -1895,7 +1917,7 @@ async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
     })
   )
 
-  const read = await tool(tools, 'backlog.read').handler({ workspaceId: 'ws-1', path: 'backlog/gone.md' })
+  const read = await tool(tools, 'backlog.read').handler({ path: 'backlog/gone.md' }, agentContext('ws-1'))
   assert.equal(read.isError, true)
   const readError = (read.structuredContent as { error: { code: string; message: string } }).error
   assert.equal(readError.code, 'backlog_read_failed')
@@ -2073,7 +2095,8 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
     () => createStudioGatewayTools({ appTools: [appTool, appTool], sprintEngineMcpHub: { callRunTool: async () => ({}) } }),
     /Duplicate SprintEngine Studio MCP tool/
   )
-  assert.equal(isStudioGatewayMutation('backlog.create'), true)
+  assert.equal(isStudioGatewayMutation('backlog.update'), true)
+  assert.equal(isStudioGatewayMutation('backlog.repair'), true)
   assert.equal(isStudioGatewayMutation('backlog.list'), false)
   assert.equal(isStudioGatewayMutation('sprintengine.task.publish'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.vcs.commit'), true)
@@ -2132,7 +2155,7 @@ const tests = [
   testReadToolsAnswerFromSnapshot,
   testReadToolsResolveWorkspaceRootThroughSnapshot,
   testReadToolsPassServiceFailuresThrough,
-  testBacklogCreateRoutesItemsAndEpics,
+  testBacklogRepairRoutesOnlyValidatedIntegrityOperations,
   testBacklogUpdateAppliesInOrderAndStopsOnFailure,
   testBacklogAssignBuildsTheCanonicalLink,
   testBacklogWorkHandsItemToAgent,

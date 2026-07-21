@@ -111,8 +111,9 @@ export type BacklogItem = {
   // Stable workspace-global identity from the frontmatter `id:` integer, allocated
   // once and never changed (across re-type/rename/re-triage). The human-facing
   // `<KEY>-<number>` display id is composed at render time from this plus the
-  // workspace key (see src/shared/backlog/item-id.ts). Undefined until the scan-
-  // time allocation pass assigns one (ensureBacklogItemIds).
+  // workspace key (see src/shared/backlog/item-id.ts). Main-owned creation writes
+  // it immediately; hand-authored/captured files receive it from the scan-time
+  // backfill pass (ensureBacklogItemIds).
   numericId?: number
   // The human-facing identifier (`MC-240`), composed from numericId + the
   // workspace key by the scan-time allocation pass. Undefined when the item has

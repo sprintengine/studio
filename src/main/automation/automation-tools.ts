@@ -29,8 +29,6 @@ import type { AutomationDefinition, AutomationRun } from '../../shared/automatio
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,
-  BacklogCreateEpicInput,
-  BacklogCreateEpicResult,
   BacklogCriticalityPayload,
   BacklogDifficultyPayload,
   BacklogEpicInput,
@@ -42,15 +40,19 @@ import type {
   BacklogTypeInput,
   BacklogTypePayload,
 } from '../../shared/electron-api'
-import type { BacklogCreateInput, BacklogCreateResult, BacklogListItemsResult, BacklogReadItemResult } from '../backlog-service'
+import type {
+  BacklogIntegrityRepairInput,
+  BacklogIntegrityRepairResult,
+  BacklogListItemsResult,
+  BacklogReadItemResult,
+} from '../backlog-service'
 import type { AutomationStoreListResult } from '../automations/store'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { RoadmapAppFrontDoor, RoadmapSteerAction } from '../roadmap-orchestrator'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
-import { isValidBacklogSlug } from '../../shared/backlog/frontmatter'
 import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
-import type { McpToolRegistration, McpToolResult } from './mcp-socket-server'
+import type { McpConnectionContext, McpToolRegistration, McpToolResult } from './mcp-socket-server'
 import { createWorkspaceConfirmed } from '../workspace-create'
 
 // The automation tool surface. v1: workspace.create / workspace.list /
@@ -195,13 +197,12 @@ export type AutomationBackends = {
 }
 
 export type BacklogWriteBackends = {
-  createItem(input: BacklogCreateInput): Promise<BacklogCreateResult>
-  createEpic(input: BacklogCreateEpicInput): Promise<BacklogCreateEpicResult>
   updateStatus(input: BacklogStatusInput): Promise<BacklogMutationResult>
   updateType(input: BacklogTypeInput): Promise<BacklogMutationResult>
   updateTriage(input: BacklogTriageInput): Promise<BacklogMutationResult>
   updateEpic(input: BacklogEpicInput): Promise<BacklogMutationResult>
   addOrUpdateLink(input: BacklogAddOrUpdateLinkInput): Promise<BacklogMutationResult>
+  repairIntegrity(input: BacklogIntegrityRepairInput): Promise<BacklogIntegrityRepairResult>
 }
 
 export function createAutomationTools(backends: AutomationBackends): McpToolRegistration[] {
@@ -224,17 +225,92 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
   // Backlog and Automations services speak absolute workspace roots; tools
   // speak workspace ids. Resolution goes through the sync snapshot, so a tool
-  // can only ever reach folders belonging to workspaces open in the app.
+  // can only ever reach app-known folders. A workspace restored from the routing
+  // snapshot is normally read-only until the renderer re-offers its full record.
+  // The exception is a routing placeholder with a live agent terminal: that is
+  // the current Studio-owned session, and rejecting its persisted folder path
+  // would make the gateway unavailable to the very agent it launched.
   function resolveWorkspaceRoot(workspaceId: string): { root: string } | McpToolResult {
     const workspace = findWorkspace(workspaceId)
     if (!workspace) return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
-    if (workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID || !workspace.folderPath) {
+    if (!workspace.folderPath) {
       return failure(
         'workspace_without_folder',
         `Workspace "${workspaceId}" has no usable folder path in this app session; open it in the app first.`
       )
     }
+    if (workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID) {
+      const hasLiveAgent = backends.listTerminalSessions().some(
+        (session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.processAlive
+      )
+      if (!hasLiveAgent) {
+        return failure(
+          'workspace_without_folder',
+          `Workspace "${workspaceId}" has not been restored into this app session; open it in the app first.`
+        )
+      }
+    }
     return { root: workspace.folderPath }
+  }
+
+  // Backlog tools address a project folder, not the workspace registry: the
+  // connection's advisory workspace identity resolves the folder for
+  // Studio-launched agents, and callers outside the app pass an absolute
+  // `projectRoot` instead. There is deliberately no open-workspace gate on the
+  // folder — the socket's trust boundary is the local OS user, and
+  // backlog-service validates the folder itself.
+  function resolveBacklogRoot(
+    args: Record<string, unknown>,
+    context: McpConnectionContext | undefined
+  ): { root: string } | McpToolResult {
+    if (args.projectRoot !== undefined) {
+      if (typeof args.projectRoot !== 'string' || !isAbsolute(args.projectRoot)) {
+        return failure('invalid_arguments', '"projectRoot" must be an absolute path to the project folder.')
+      }
+      return { root: args.projectRoot }
+    }
+    const workspace = connectionWorkspace(context)
+    if (workspace?.folderPath) return { root: workspace.folderPath }
+    return failure(
+      'project_root_required',
+      'This connection has no resolvable workspace to default from; pass "projectRoot" (the absolute path to the project folder).'
+    )
+  }
+
+  function connectionWorkspace(context: McpConnectionContext | undefined): Workspace | null {
+    const workspaceId = context?.metadata.workspaceId
+    return workspaceId ? findWorkspace(workspaceId) : null
+  }
+
+  // backlog.assign and backlog.work additionally need the live app workspace
+  // record (the agent registry and the renderer launch delegate), so they
+  // resolve to the connection's own workspace, or to the open workspace whose
+  // folder matches an explicit projectRoot.
+  function resolveBacklogWorkspace(
+    args: Record<string, unknown>,
+    context: McpConnectionContext | undefined
+  ): { workspace: Workspace; root: string } | McpToolResult {
+    if (args.projectRoot !== undefined) {
+      const resolved = resolveBacklogRoot(args, context)
+      if (!('root' in resolved)) return resolved
+      const workspace =
+        backends.getWorkspaceSyncSnapshot().state.workspaces.find(
+          (candidate) => candidate.folderPath === resolved.root
+        ) ?? null
+      if (!workspace?.folderPath) {
+        return failure(
+          'workspace_not_open',
+          `No open workspace uses the folder "${resolved.root}"; this tool needs that project open in the app.`
+        )
+      }
+      return { workspace, root: workspace.folderPath }
+    }
+    const workspace = connectionWorkspace(context)
+    if (workspace?.folderPath) return { workspace, root: workspace.folderPath }
+    return failure(
+      'project_root_required',
+      'This connection has no resolvable workspace to default from; pass "projectRoot" (the absolute path to the project folder).'
+    )
   }
 
   function workspaceWindowId(workspaceId: string): string | null {
@@ -567,21 +643,28 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  // Backlog tools take no workspace id: the target project defaults to the
+  // folder this agent connection was launched from, and external callers name
+  // a folder directly.
+  const PROJECT_ROOT_PROPERTY = {
+    type: 'string',
+    description:
+      'Absolute path to the project folder. Optional — when omitted, the tool targets the project this agent '
+      + 'connection was launched from. Only needed when calling from outside a Studio-launched agent.',
+  }
+
   const backlogList: McpToolRegistration = {
     name: 'backlog.list',
     description:
-      'List the Backlog items and epics of a workspace (title, display id, status, type, triage axes, epic '
+      "List the project's Backlog items and epics (title, display id, status, type, triage axes, epic "
       + 'membership). Reads item files and frontmatter only — never writes. Archived items are omitted.',
     inputSchema: {
       type: 'object',
-      properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' } },
-      required: ['workspaceId'],
+      properties: { projectRoot: PROJECT_ROOT_PROPERTY },
       additionalProperties: false,
     },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const resolved = resolveWorkspaceRoot(workspaceId)
+    handler: async (args, context) => {
+      const resolved = resolveBacklogRoot(args, context)
       if (!('root' in resolved)) return resolved
       const listed = await backends.listBacklogItems(resolved.root)
       if (!listed.ok) return failure('backlog_unavailable', listed.message)
@@ -593,22 +676,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'backlog.read',
     description:
       'Read one Backlog item: parsed frontmatter fields plus the markdown body. '
-      + 'The path must be a workspace-relative markdown path under backlog/.',
+      + 'The path must be a project-relative markdown path under backlog/.',
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        path: { type: 'string', description: 'Item path relative to the workspace root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        projectRoot: PROJECT_ROOT_PROPERTY,
       },
-      required: ['workspaceId', 'path'],
+      required: ['path'],
       additionalProperties: false,
     },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
+    handler: async (args, context) => {
       const path = requireString(args, 'path')
       if (typeof path !== 'string') return path
-      const resolved = resolveWorkspaceRoot(workspaceId)
+      const resolved = resolveBacklogRoot(args, context)
       if (!('root' in resolved)) return resolved
       const read = await backends.readBacklogItem(resolved.root, path)
       if (!read.ok) return failure('backlog_read_failed', read.message)
@@ -673,71 +754,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const BACKLOG_CRITICALITIES = ['low', 'normal', 'high', 'critical'] as const
   const BACKLOG_RISKS = ['low', 'normal', 'high'] as const
 
-  const backlogCreate: McpToolRegistration = {
-    name: 'backlog.create',
-    description:
-      'Create a Backlog item — or an epic when type is "epic" (epics are grouping files under backlog/epics/). '
-      + 'The item file is written with validated lifecycle and triage frontmatter, a server-owned precise updated timestamp, '
-      + 'and collision-safe identity; new items start as status "idea".',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        title: { type: 'string', description: 'Item title (first heading; also drives the filename slug).' },
-        description: { type: 'string', description: 'Markdown body under the title heading. Ignored for epics.' },
-        type: { type: 'string', enum: [...BACKLOG_TYPES], description: 'Item type; "epic" creates an epic file instead.' },
-        difficulty: { type: 'string', enum: [...BACKLOG_DIFFICULTIES] },
-        criticality: { type: 'string', enum: [...BACKLOG_CRITICALITIES] },
-        risk: { type: 'string', enum: [...BACKLOG_RISKS] },
-        epic: { type: 'string', description: 'Epic slug this item belongs to (not valid when creating an epic).' },
-      },
-      required: ['workspaceId', 'title'],
-      additionalProperties: false,
-    },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
-      const title = requireString(args, 'title')
-      if (typeof title !== 'string') return title
-      const invalid = firstInvalidOptionalString(args, ['description', 'type', 'difficulty', 'criticality', 'risk', 'epic'])
-      if (invalid) return invalid
-      const vocabulary = firstInvalidVocabulary(args, [
-        ['type', BACKLOG_TYPES],
-        ['difficulty', BACKLOG_DIFFICULTIES],
-        ['criticality', BACKLOG_CRITICALITIES],
-        ['risk', BACKLOG_RISKS],
-      ])
-      if (vocabulary) return vocabulary
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
-
-      if (args.epic !== undefined && !isValidBacklogSlug(args.epic)) {
-        return failure('invalid_arguments', '"epic" must be a valid epic slug (letters, digits, dot, underscore, hyphen).')
-      }
-      if (optionalString(args.type) === 'epic') {
-        if (args.epic !== undefined || args.difficulty !== undefined || args.criticality !== undefined || args.risk !== undefined) {
-          return failure('invalid_arguments', 'Epics are grouping files and take no epic/difficulty/criticality/risk fields.')
-        }
-        const created = await backends.backlogWrite.createEpic({ workspaceRoot: resolved.root, title })
-        if (!created.ok) return failure('backlog_create_failed', created.message)
-        return success({ epic: { slug: created.slug, relativePath: created.relativePath } })
-      }
-
-      const created = await backends.backlogWrite.createItem({
-        workspaceRoot: resolved.root,
-        title,
-        description: optionalString(args.description),
-        type: optionalString(args.type),
-        difficulty: optionalString(args.difficulty),
-        criticality: optionalString(args.criticality),
-        risk: optionalString(args.risk),
-        epic: optionalString(args.epic),
-      })
-      if (!created.ok) return failure('backlog_create_failed', created.message)
-      return success({ item: { relativePath: created.relativePath } })
-    },
-  }
-
   const backlogUpdate: McpToolRegistration = {
     name: 'backlog.update',
     description:
@@ -749,8 +765,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        path: { type: 'string', description: 'Item path relative to the workspace root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        projectRoot: PROJECT_ROOT_PROPERTY,
         status: { type: 'string', enum: [...BACKLOG_STATUSES] },
         type: { type: ['string', 'null'], enum: [...BACKLOG_TYPES, null] },
         difficulty: { type: ['string', 'null'], enum: [...BACKLOG_DIFFICULTIES, null] },
@@ -758,12 +774,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         risk: { type: ['string', 'null'], enum: [...BACKLOG_RISKS, null] },
         epic: { type: ['string', 'null'], description: 'Epic slug, or null to remove the item from its epic.' },
       },
-      required: ['workspaceId', 'path'],
+      required: ['path'],
       additionalProperties: false,
     },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
+    handler: async (args, context) => {
       const path = requireString(args, 'path')
       if (typeof path !== 'string') return path
       const fields = ['status', 'type', 'difficulty', 'criticality', 'risk', 'epic'] as const
@@ -776,7 +790,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         }
       }
       if (args.status === null) return failure('invalid_arguments', 'Status cannot be cleared, only changed.')
-      const resolved = resolveWorkspaceRoot(workspaceId)
+      const resolved = resolveBacklogRoot(args, context)
       if (!('root' in resolved)) return resolved
 
       // Apply in a fixed order, stopping at the first failure; the services
@@ -818,6 +832,42 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
+  const backlogRepair: McpToolRegistration = {
+    name: 'backlog.repair',
+    description:
+      'Repair one diagnosed Backlog integrity defect. This is deliberately narrow: replace embedded NUL bytes '
+      + 'with the visible \\0 escape, or reallocate one side of a proven duplicate numeric id to the next free id. '
+      + 'The operation refuses files that do not currently have the named defect.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Item path relative to the project root.' },
+        issue: { type: 'string', enum: ['embedded_nul', 'duplicate_id'] },
+        projectRoot: PROJECT_ROOT_PROPERTY,
+      },
+      required: ['path', 'issue'],
+      additionalProperties: false,
+    },
+    handler: async (args, context) => {
+      const path = requireString(args, 'path')
+      if (typeof path !== 'string') return path
+      const issue = requireString(args, 'issue')
+      if (typeof issue !== 'string') return issue
+      if (issue !== 'embedded_nul' && issue !== 'duplicate_id') {
+        return failure('invalid_arguments', '"issue" must be one of: embedded_nul, duplicate_id.')
+      }
+      const resolved = resolveBacklogRoot(args, context)
+      if (!('root' in resolved)) return resolved
+      const repaired = await backends.backlogWrite.repairIntegrity({
+        workspaceRoot: resolved.root,
+        relativePath: path,
+        issue,
+      })
+      if (!repaired.ok) return failure('backlog_repair_failed', repaired.message)
+      return success({ repaired })
+    },
+  }
+
   const backlogAssign: McpToolRegistration = {
     name: 'backlog.assign',
     description:
@@ -828,28 +878,25 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        path: { type: 'string', description: 'Item path relative to the workspace root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
         agentId: { type: 'string', description: 'Agent id within the workspace (see workspace.status).' },
+        projectRoot: PROJECT_ROOT_PROPERTY,
       },
-      required: ['workspaceId', 'path', 'agentId'],
+      required: ['path', 'agentId'],
       additionalProperties: false,
     },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
+    handler: async (args, context) => {
       const path = requireString(args, 'path')
       if (typeof path !== 'string') return path
       const agentId = requireString(args, 'agentId')
       if (typeof agentId !== 'string') return agentId
-      const workspace = findWorkspace(workspaceId)
-      if (!workspace) return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
+      const resolved = resolveBacklogWorkspace(args, context)
+      if (!('workspace' in resolved)) return resolved
+      const { workspace } = resolved
       const agent = workspace.agents[agentId]
-      if (!agent) return failure('unknown_agent', `Agent "${agentId}" is not known in workspace "${workspaceId}".`)
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
+      if (!agent) return failure('unknown_agent', `Agent "${agentId}" is not known in workspace "${workspace.id}".`)
 
-      const link = buildAgentBacklogLink({ workspaceId, agentId, agentName: agent.name || agentId })
+      const link = buildAgentBacklogLink({ workspaceId: workspace.id, agentId, agentName: agent.name || agentId })
       const written = await backends.backlogWrite.addOrUpdateLink({
         workspaceRoot: resolved.root,
         relativePath: path,
@@ -876,7 +923,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       `Work the Backlog item at ${relativePath}. `
       + 'Use the SprintEngine Studio MCP backlog.update tool for every lifecycle change: set `in_progress` when '
       + 'you start, `needs_input` (and state the blocking question) if you stop for input, and `completed` only '
-      + 'after the work is real and verified. Never edit Backlog Markdown or its object store directly.'
+      + 'after the work is real and verified — the tool stamps the update timestamp for you.'
     )
   }
 
@@ -892,8 +939,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     inputSchema: {
       type: 'object',
       properties: {
-        workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' },
-        path: { type: 'string', description: 'Item path relative to the workspace root, e.g. "backlog/example.md".' },
+        path: { type: 'string', description: 'Item path relative to the project root, e.g. "backlog/example.md".' },
+        projectRoot: PROJECT_ROOT_PROPERTY,
         cli: { type: 'string', description: 'Agent CLI plugin id (for example "claude-code" or "codex"); defaults to the last selected CLI.' },
         name: { type: 'string', description: 'Agent display name.' },
         cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim.' },
@@ -910,20 +957,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         },
         instructions: { type: 'string', description: 'Extra context appended after the skill invocation in the startup prompt.' },
       },
-      required: ['workspaceId', 'path'],
+      required: ['path'],
       additionalProperties: false,
     },
-    handler: async (args) => {
-      const workspaceId = requireString(args, 'workspaceId')
-      if (typeof workspaceId !== 'string') return workspaceId
+    handler: async (args, context) => {
       const path = requireString(args, 'path')
       if (typeof path !== 'string') return path
       const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'cliModel', 'instructions'])
       if (invalid) return invalid
       const options = resolveLaunchOptions(args)
       if ('content' in options) return options
-      const resolved = resolveWorkspaceRoot(workspaceId)
-      if (!('root' in resolved)) return resolved
+      const resolved = resolveBacklogWorkspace(args, context)
+      if (!('workspace' in resolved)) return resolved
+      const workspaceId = resolved.workspace.id
 
       // Read the item and gate on workability: a missing/invalid path is
       // not_found; a completed item or anything under backlog/archived/ is a
@@ -1997,8 +2043,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     agentStatus,
     backlogList,
     backlogRead,
-    backlogCreate,
     backlogUpdate,
+    backlogRepair,
     backlogAssign,
     backlogWork,
     automationList,
@@ -2121,21 +2167,6 @@ function firstInvalidOptionalString(args: Record<string, unknown>, keys: string[
   for (const key of keys) {
     if (args[key] !== undefined && typeof args[key] !== 'string') {
       return failure('invalid_arguments', `"${key}" must be a string when provided.`)
-    }
-  }
-  return null
-}
-
-// The socket server passes tool arguments through unvalidated (inputSchema is
-// documentation for clients), so vocabulary enums are enforced here.
-function firstInvalidVocabulary(
-  args: Record<string, unknown>,
-  checks: Array<[key: string, allowed: readonly string[]]>
-): McpToolResult | null {
-  for (const [key, allowed] of checks) {
-    const value = args[key]
-    if (typeof value === 'string' && !allowed.includes(value)) {
-      return failure('invalid_arguments', `"${key}" must be one of: ${allowed.join(', ')}.`)
     }
   }
   return null

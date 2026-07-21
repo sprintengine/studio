@@ -14,7 +14,7 @@ const APP_MUTATION_TOOLS = new Set([
   'automation.create',
   'automation.run',
   'backlog.assign',
-  'backlog.create',
+  'backlog.repair',
   'backlog.update',
   'backlog.work',
   'roadmap.add_step',

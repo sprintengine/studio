@@ -11,6 +11,7 @@ import {
   listBacklogItems,
   moveBacklogObjectSource,
   readBacklogItem,
+  repairBacklogIntegrity,
   planBacklogStoreMigration,
   readBacklogObjectStore,
   removeBacklogLink,
@@ -493,11 +494,40 @@ async function main(): Promise<void> {
     const createdItemFile = parseBacklogFrontmatter(
       await readFile(join(tempRoot, createdItem.ok ? createdItem.relativePath : ''), 'utf-8'),
     )
+    assert.equal(createdItemFile.fields.id, '1', 'main-owned creation allocates the display id before writing')
     assert.match(createdItemFile.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
     const createdItemRecord = createdItem.ok
       ? createdItem.store.items.find((record) => record.source.relativePath === createdItem.relativePath)
       : undefined
     assert.equal(createdItemFile.fields.updated, createdItemRecord?.createdAt)
+
+    // Concurrent Studio MCP creates share one per-project allocation/write lane:
+    // both the display ids and collision-safe files are unique, and neither
+    // sidecar registration is lost to a stale read-modify-write.
+    const [concurrentA, concurrentB] = await Promise.all([
+      createBacklogItem({ workspaceRoot: tempRoot, title: 'Concurrent create' }),
+      createBacklogItem({ workspaceRoot: tempRoot, title: 'Concurrent create' }),
+    ])
+    assert.equal(concurrentA.ok, true)
+    assert.equal(concurrentB.ok, true)
+    if (concurrentA.ok && concurrentB.ok) {
+      assert.notEqual(concurrentA.relativePath, concurrentB.relativePath)
+      const ids = await Promise.all(
+        [concurrentA.relativePath, concurrentB.relativePath].map(async (relativePath) => {
+          const parsed = parseBacklogFrontmatter(await readFile(join(tempRoot, relativePath), 'utf-8'))
+          return parsed.fields.id
+        })
+      )
+      assert.deepEqual(ids.sort(), ['2', '3'])
+      const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as {
+        items: Array<{ source: { relativePath: string } }>
+      }
+      assert.equal(
+        persisted.items.filter((record) => record.source.relativePath.includes('concurrent-create')).length,
+        2,
+        'both concurrent creates remain registered'
+      )
+    }
 
     // Create-epic writes a new concept file under backlog/epics/ with type: epic
     // and the title heading; it never adds an items.json membership record.
@@ -803,6 +833,64 @@ async function assertLazyMigrationMatrix(): Promise<void> {
   }
 }
 
+async function testBacklogIntegrityRepairsAreNarrowAndIdempotent(): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'multicode-backlog-repair-'))
+  try {
+    await mkdir(join(root, 'backlog'), { recursive: true })
+    await writeFile(join(root, 'backlog', 'keep.md'), '---\nid: 41\n---\n# Keep\n', 'utf-8')
+    await writeFile(join(root, 'backlog', 'duplicate.md'), '---\nid: 41\n---\n# Reallocate\n', 'utf-8')
+    await writeFile(join(root, 'backlog', 'highest.md'), '---\nid: 43\n---\n# Highest\n', 'utf-8')
+    await mkdir(join(root, 'backlog', 'archived'), { recursive: true })
+    await writeFile(join(root, 'backlog', 'archived', 'highest.md'), '---\nid: 45\n---\n# Archived highest\n', 'utf-8')
+    await writeFile(join(root, 'backlog', 'nul.md'), "---\nid: 42\n---\n# NUL\n\nUse the '\0' escape.\n", 'utf-8')
+
+    const nul = await repairBacklogIntegrity({
+      workspaceRoot: root,
+      relativePath: 'backlog/nul.md',
+      issue: 'embedded_nul',
+    })
+    assert.deepEqual(nul, {
+      ok: true,
+      relativePath: 'backlog/nul.md',
+      issue: 'embedded_nul',
+      replacements: 1,
+    })
+    const sanitized = await readFile(join(root, 'backlog', 'nul.md'), 'utf-8')
+    assert.equal(sanitized.includes('\0'), false)
+    assert.match(sanitized, /Use the '\\0' escape\./)
+    assert.match(parseBacklogFrontmatter(sanitized).fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
+    const nulRetry = await repairBacklogIntegrity({
+      workspaceRoot: root,
+      relativePath: 'backlog/nul.md',
+      issue: 'embedded_nul',
+    })
+    assert.equal(nulRetry.ok, false, 'a repaired file is refused rather than rewritten again')
+
+    const duplicate = await repairBacklogIntegrity({
+      workspaceRoot: root,
+      relativePath: 'backlog/duplicate.md',
+      issue: 'duplicate_id',
+    })
+    assert.equal(duplicate.ok, true)
+    assert.deepEqual(duplicate.ok ? {
+      previousNumericId: duplicate.previousNumericId,
+      numericId: duplicate.numericId,
+    } : null, { previousNumericId: 41, numericId: 46 })
+    const repaired = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'duplicate.md'), 'utf-8'))
+    assert.equal(repaired.fields.id, '46', 'allocation includes nested/archived Backlog sources')
+    assert.match(repaired.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
+    assert.equal(parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'keep.md'), 'utf-8')).fields.id, '41')
+    const duplicateRetry = await repairBacklogIntegrity({
+      workspaceRoot: root,
+      relativePath: 'backlog/duplicate.md',
+      issue: 'duplicate_id',
+    })
+    assert.equal(duplicateRetry.ok, false, 'a non-duplicate id cannot be arbitrarily changed')
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
 // Read-only listing/reading for the automation server's backlog tools: files +
 // frontmatter are the whole read model, and neither call may create or touch
 // .multi-code state (an external read tool must not mutate the app's stores).
@@ -879,6 +967,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
 }
 
 main()
+  .then(() => testBacklogIntegrityRepairsAreNarrowAndIdempotent())
   .then(() => testListAndReadBacklogItemsAreReadOnly())
   .catch((error) => {
     console.error(error)

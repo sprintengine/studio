@@ -2,8 +2,9 @@
 
 A backlog item is a markdown file under `backlog/`. Its lightweight,
 human-editable fields live in the file's **frontmatter** and are the source of
-truth there. Studio-launched agents mutate them only through the validated
-`backlog.create` / `backlog.update` tools. App-owned churn — stable source,
+truth there. Anyone — a human, Git, or an agent — creates an item by writing the
+file; existing items are preferably mutated through the validated
+`backlog.update` tool, which stamps precise timestamps. App-owned churn — stable source,
 star/highlight, links, module metadata, and sidecar timestamps — lives in the sidecar object store
 `.multi-code/backlog/items.json` and is merged over the file at scan time.
 
@@ -45,11 +46,12 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
   message, an external dashboard) stays valid. The human-facing identifier shown
   in the panel is `<KEY>-<id>` (e.g. `MC-240`), where `KEY` is the per-workspace
   display key; the type is conveyed by a glyph, never encoded in the id (the
-  Jira/Linear convention). The number is allocated automatically by the app's
-  scan-time pass (`ensureBacklogItemIds`), so a hand-authored item can omit it
-  and get one on the next open. Agents never allocate or edit ids; after creation
-  they resolve the app-assigned display id through `backlog.list`. The pure
-  helpers live in `src/shared/backlog/item-id.ts`.
+  Jira/Linear convention). New files — whether authored by a human, an agent, or
+  Git — simply omit `id:`; the scan-time `ensureBacklogItemIds` pass allocates
+  and writes the number inside the per-project serialized mutation lane. Writers
+  never allocate or edit ids; the app-assigned display id is resolved afterwards
+  through `backlog.list` or the panel. The pure helpers live in
+  `src/shared/backlog/item-id.ts`.
 - **type** (required by OKF): one of `epic`, `feature`, `bug`, `mockup`, `spike`.
   `epic` marks a grouping container (see below). Unknown values are tolerated on
   read and left untouched.
@@ -99,11 +101,12 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
 - **updated**: the full ISO-8601 UTC instant of the latest real content or
   frontmatter mutation, including hours, minutes, and seconds (the canonical
   writer emits milliseconds). App/API writers own this field and stamp it
-  automatically. Agents should use `backlog.create` / `backlog.update` when the
-  Multicode automation MCP is available and must not supply the timestamp.
-  Direct-file fallback writers obtain it from the runtime; `YYYY-MM-DD` is not
-  a precise timestamp. Legacy date-only values remain readable but the renderer
-  falls back to the file mtime rather than pretending UTC midnight is exact.
+  automatically. Agents should use `backlog.update` when the Multicode
+  automation MCP is available and must not supply the timestamp. Direct-file
+  writers (including agent-authored new files) omit the field or delete the
+  stale line instead of estimating one; `YYYY-MM-DD` is not a precise timestamp.
+  Legacy date-only values remain readable but the renderer falls back to the
+  file mtime rather than pretending UTC midnight is exact.
 
 Set an axis only when the current context supports a grounded estimate; leave it
 unset rather than guessing. Omitting a field is a calm neutral state, not a
@@ -131,15 +134,17 @@ machine; when absent it is derived from the workspace folder name and persisted.
 Changing the key only changes the displayed prefix — the stored `id` integer is
 the identity and never moves, so a key rename never rewrites item files.
 
-Allocation is **scan-max + 1** over committed frontmatter: no counter file, no
-daemon. `ensureBacklogItemIds` (main process, invoked from the panel's load flow)
-assigns an id to every item lacking one, oldest-first, and writes it to
-frontmatter — idempotent once every item has one, mirroring the v1→v2 migration.
-Two unmerged branches can mint the same id; that is **detected and surfaced** (a
-panel warning naming the colliding files), never silently renumbered — git merge
-is the arbiter. Imported issues (future importers) keep their provider key
-verbatim and display that instead; the display formatter already accepts an
-external override.
+Allocation is **max + 1** over committed frontmatter: no counter file or remote
+daemon. All main-owned id writers (the scan-time backfill, mobile intake, and
+the renderer create flow) share a per-project FIFO mutation lane, so concurrent
+allocation cannot mint the same id or lose a sidecar registration. The scan pass
+assigns ids to files lacking one oldest-first and stays idempotent once every
+item has one. Two independent Git branches can still mint the same number because
+no local singleton can coordinate separate repositories; that is **detected and
+surfaced** by the panel, never silently rewritten. An explicit `backlog.repair`
+operation may reallocate one side only after proving the duplicate still exists.
+Imported issues (future importers) keep their provider key verbatim and display
+that instead; the display formatter already accepts an external override.
 
 ## Epics (grouping)
 

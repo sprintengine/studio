@@ -132,9 +132,10 @@ async function annotateBacklogDanglingMockups(
   return { ...result, items } as BacklogScanResult
 }
 
-// Scan-time id allocation (the single allocation authority): hand every scanned
-// item with its current frontmatter id to the main process, which mints the next
-// sequential id for any without one and writes it to frontmatter. We merge the
+// Scan-time id backfill for legacy, human-authored, and renderer-captured files:
+// hand every scanned item with its current frontmatter id to main, which shares
+// the same serialized allocation lane as main-owned creation and mints the next
+// sequential id for any without one. We merge the
 // freshly minted ids back onto the items so the panel shows `KEY-n` immediately,
 // without waiting for the watcher re-scan the frontmatter write triggers. A
 // failure is non-fatal — the next scan retries — so the backlog stays usable.

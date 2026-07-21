@@ -12,10 +12,9 @@ import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
 import type { RoadmapAppFrontDoor } from './roadmap-orchestrator'
 import {
   addOrUpdateBacklogLink,
-  createBacklogEpic,
-  createBacklogItem,
   listBacklogItems,
   readBacklogItem,
+  repairBacklogIntegrity,
   updateBacklogEpic,
   updateBacklogStatus,
   updateBacklogTriage,
@@ -428,13 +427,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       listAutomationDefinitions: (workspaceRoot) => new AutomationsStore(workspaceRoot).listDefinitions(),
       listAutomationRuns: (workspaceRoot, automationId) => new AutomationsStore(workspaceRoot).listRuns(automationId),
       backlogWrite: {
-        createItem: createBacklogItem,
-        createEpic: createBacklogEpic,
         updateStatus: updateBacklogStatus,
         updateType: updateBacklogType,
         updateTriage: updateBacklogTriage,
         updateEpic: updateBacklogEpic,
         addOrUpdateLink: addOrUpdateBacklogLink,
+        repairIntegrity: repairBacklogIntegrity,
       },
       getAutomationsFrontDoor: () => resolveAutomationsAppFrontDoor(),
       // The instance roadmap's read + plan + steer surface for the roadmap.* tools;

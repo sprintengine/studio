@@ -74,6 +74,32 @@ const VALID_CRITICALITY = new Set(['low', 'normal', 'high', 'critical'])
 const VALID_RISK = new Set(['low', 'normal', 'high'])
 const VALID_HIGHLIGHT_COLOR = new Set(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
 
+// Every Backlog writer in this process ultimately targets one project folder.
+// Keep id allocation and the writes that depend on it in one FIFO lane per
+// project so two concurrent MCP requests cannot both observe the same max id.
+// Electron's single-instance lock makes this the only app process that can own
+// the gateway; git-branch collisions remain a merge-time concern and continue
+// to be surfaced rather than silently rewritten.
+const backlogMutationTails = new Map<string, Promise<void>>()
+
+async function withBacklogMutationLock<T>(workspace: ValidWorkspace, operation: () => Promise<T>): Promise<T> {
+  const key = workspace.root
+  const previous = backlogMutationTails.get(key) ?? Promise.resolve()
+  let release!: () => void
+  const turn = new Promise<void>((resolveTurn) => {
+    release = resolveTurn
+  })
+  const tail = previous.catch(() => undefined).then(() => turn)
+  backlogMutationTails.set(key, tail)
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+    if (backlogMutationTails.get(key) === tail) backlogMutationTails.delete(key)
+  }
+}
+
 export async function readBacklogObjectStore(workspaceRoot: string): Promise<BacklogReadResult> {
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
@@ -128,56 +154,55 @@ export async function readBacklogWorkspaceKey(workspaceRoot: string): Promise<Ba
   }
 }
 
-// Scan-time id allocation + backfill. The single allocation authority: given
-// every scanned item with its current frontmatter id (or null), mint the next
-// sequential id (scan-max + 1, oldest-first by the sidecar createdAt) for those
-// lacking one and write it into the item's frontmatter. Idempotent — once every
-// item has an id this writes nothing, mirroring the v1→v2 lazy migration. New
-// items (from any surface) self-heal an id here on the next scan, so creation
-// paths never need to allocate.
+// Scan-time id backfill for legacy or hand-authored files. Main-owned creation
+// allocates before writing; this remains the tolerant migration path for files
+// that arrive without an id. It shares the same per-project mutation lane as
+// creation so a scan and an MCP create cannot mint the same number.
 export async function ensureBacklogItemIds(input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult> {
   try {
     const workspace = await validateWorkspaceRoot(input.workspaceRoot)
-    const key = await resolveBacklogWorkspaceKey(workspace)
-    const store = await loadStore(workspace)
-    const createdByPath = new Map<string, string | undefined>()
-    for (const record of store.items) {
-      createdByPath.set(record.source.relativePath.toLowerCase(), record.createdAt)
-    }
-
-    const allocationItems: Array<{ relativePath: string; numericId?: number | null; createdAt?: string }> = []
-    for (const raw of input.items ?? []) {
-      let relativePath: string
-      try {
-        relativePath = validateBacklogRelativePath(raw.relativePath)
-      } catch {
-        // A path that escapes backlog/ is ignored, never written to.
-        continue
+    return await withBacklogMutationLock(workspace, async () => {
+      const key = await resolveBacklogWorkspaceKey(workspace)
+      const store = await loadStore(workspace)
+      const createdByPath = new Map<string, string | undefined>()
+      for (const record of store.items) {
+        createdByPath.set(record.source.relativePath.toLowerCase(), record.createdAt)
       }
-      allocationItems.push({
-        relativePath,
-        numericId: typeof raw.numericId === 'number' ? raw.numericId : null,
-        createdAt: createdByPath.get(relativePath.toLowerCase()),
-      })
-    }
 
-    const assignments = planBacklogIdAllocation(allocationItems)
-    for (const [relativePath, numericId] of Object.entries(assignments)) {
-      const target = resolve(join(workspace.root, relativePath))
-      if (!isPathInside(workspace.root, target)) continue
-      let content: string
-      try {
-        content = await readFile(target, 'utf-8')
-      } catch {
-        // A file that vanished between scan and write is skipped; the next scan
-        // re-evaluates it.
-        continue
+      const allocationItems: Array<{ relativePath: string; numericId?: number | null; createdAt?: string }> = []
+      for (const raw of input.items ?? []) {
+        let relativePath: string
+        try {
+          relativePath = validateBacklogRelativePath(raw.relativePath)
+        } catch {
+          // A path that escapes backlog/ is ignored, never written to.
+          continue
+        }
+        allocationItems.push({
+          relativePath,
+          numericId: typeof raw.numericId === 'number' ? raw.numericId : null,
+          createdAt: createdByPath.get(relativePath.toLowerCase()),
+        })
       }
-      const next = serializeBacklogFrontmatterFields(content, { id: formatBacklogNumericId(numericId) })
-      if (next !== content) await writeFile(target, next, 'utf-8')
-    }
 
-    return { ok: true, key, assignments }
+      const assignments = planBacklogIdAllocation(allocationItems)
+      for (const [relativePath, numericId] of Object.entries(assignments)) {
+        const target = resolve(join(workspace.root, relativePath))
+        if (!isPathInside(workspace.root, target)) continue
+        let content: string
+        try {
+          content = await readFile(target, 'utf-8')
+        } catch {
+          // A file that vanished between scan and write is skipped; the next scan
+          // re-evaluates it.
+          continue
+        }
+        const next = serializeBacklogFrontmatterFields(content, { id: formatBacklogNumericId(numericId) })
+        if (next !== content) await writeFile(target, next, 'utf-8')
+      }
+
+      return { ok: true, key, assignments }
+    })
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }
@@ -459,6 +484,47 @@ async function listMarkdownFiles(dir: string, prefix: string): Promise<string[]>
     .map((entry) => `${prefix}${entry.name}`)
 }
 
+async function listAllBacklogSourcePaths(workspace: ValidWorkspace): Promise<string[]> {
+  const paths: string[] = []
+  await walk(join(workspace.root, 'backlog'))
+  return paths.sort((left, right) => left.localeCompare(right))
+
+  async function walk(directory: string): Promise<void> {
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.multicode-worktrees') {
+          await walk(join(directory, entry.name))
+        }
+        continue
+      }
+      if (!entry.isFile() || !/\.(md|html?)$/i.test(entry.name)) continue
+      paths.push(relative(workspace.root, join(directory, entry.name)).replace(/\\/g, '/'))
+    }
+  }
+}
+
+async function nextBacklogNumericId(workspace: ValidWorkspace): Promise<number> {
+  let max = 0
+  for (const relativePath of await listAllBacklogSourcePaths(workspace)) {
+    let content: string
+    try {
+      content = await readFile(join(workspace.root, relativePath), 'utf-8')
+    } catch {
+      continue
+    }
+    const { fields } = parseBacklogFrontmatter(content)
+    const numericId = parseBacklogNumericId(fields.id)
+    if (numericId !== undefined && numericId > max) max = numericId
+  }
+  return max + 1
+}
+
 // The workspace key without the persist-on-first-read behavior of
 // readBacklogWorkspaceKey — a pure peek for read-only surfaces.
 async function peekBacklogWorkspaceKey(workspace: ValidWorkspace): Promise<string | null> {
@@ -486,57 +552,145 @@ export type BacklogCreateResult =
   | { ok: true; id: string; relativePath: string; store: BacklogObjectStorePayload }
   | { ok: false; message: string }
 
+export type BacklogIntegrityRepairInput = {
+  workspaceRoot: string
+  relativePath: string
+  issue: 'embedded_nul' | 'duplicate_id'
+}
+
+export type BacklogIntegrityRepairResult =
+  | {
+      ok: true
+      relativePath: string
+      issue: BacklogIntegrityRepairInput['issue']
+      replacements?: number
+      previousNumericId?: number
+      numericId?: number
+    }
+  | { ok: false; message: string }
+
 // Creates a brand-new Backlog item (mobile bridge + automation server):
 // writes the real `.md` file AND upserts the items.json record. Filename
 // mirrors the desktop renderer's `${today}-${slug(title)}.md` convention and
 // dedups against the current store. v2-native: lifecycle/triage go into the
 // new file's frontmatter (the source of truth) and the sidecar record stays
 // minimal — seeding lifecycle there would hand the lazy migrator stale
-// defaults to write back later. Invalid axis values are dropped, matching the
-// tolerant mobile intake; strict vocabularies belong to the callers.
+// defaults to write back later. The id is allocated and written in this same
+// main-owned transaction, so callers can cite it immediately and concurrent
+// Studio MCP creates cannot collide. Invalid axis values are dropped, matching
+// the tolerant mobile intake; strict vocabularies belong to the callers.
 export async function createBacklogItem(input: BacklogCreateInput): Promise<BacklogCreateResult> {
   const title = input.title.trim()
   if (!title) return { ok: false, message: 'Enter a title for the new Backlog item.' }
   try {
     const workspace = await validateWorkspaceRoot(input.workspaceRoot)
-    const store = await loadStore(workspace)
-    const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
-    const relativePath = await uniqueBacklogFilePath(workspace, title, existingLower)
+    return await withBacklogMutationLock(workspace, async () => {
+      const store = await loadStore(workspace)
+      const existingLower = new Set(store.items.map((record) => record.source.relativePath.toLowerCase()))
+      const relativePath = await uniqueBacklogFilePath(workspace, title, existingLower)
+      const target = resolve(join(workspace.root, relativePath))
+      if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+
+      const numericId = await nextBacklogNumericId(workspace)
+      const now = new Date().toISOString()
+      const frontmatter: Array<[key: string, value: string | undefined]> = [
+        ['id', formatBacklogNumericId(numericId)],
+        ['type', isBacklogType(input.type) ? input.type : undefined],
+        ['status', 'idea'],
+        ['difficulty', isBacklogDifficulty(input.difficulty) ? input.difficulty : undefined],
+        ['criticality', isBacklogCriticality(input.criticality) ? input.criticality : undefined],
+        ['risk', isBacklogRisk(input.risk) ? input.risk : undefined],
+        ['epic', isValidEpicSlug(input.epic) ? input.epic : undefined],
+        ['updated', now],
+      ]
+      const frontmatterBlock = `---\n${frontmatter
+        .filter((entry): entry is [string, string] => entry[1] !== undefined)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n')}\n---\n`
+      const description = input.description?.trim()
+      const body = description ? `# ${title}\n\n${description}\n` : `# ${title}\n`
+      await mkdir(dirname(target), { recursive: true })
+      // `wx` fails instead of clobbering if a file appears between the uniqueness
+      // check and the write.
+      await writeFile(target, `${frontmatterBlock}\n${body}`, { encoding: 'utf-8', flag: 'wx' })
+
+      const record: BacklogObjectRecord = {
+        id: stableBacklogObjectId(relativePath),
+        source: { type: 'file', relativePath },
+        metadata: {},
+        links: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+      const nextStore = normalizeStore({ schemaVersion: 1, items: [...store.items, record] })
+      await saveStore(workspace, nextStore)
+      return { ok: true, id: record.id, relativePath, store: nextStore }
+    })
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
+}
+
+// Deliberately narrow integrity repair for defects the panel can diagnose but
+// ordinary lifecycle tools must never rewrite. Each operation first proves the
+// named defect still exists; it is therefore safe to retry and cannot be used as
+// a general-purpose Markdown or id editor.
+export async function repairBacklogIntegrity(
+  input: BacklogIntegrityRepairInput
+): Promise<BacklogIntegrityRepairResult> {
+  try {
+    const workspace = await validateWorkspaceRoot(input.workspaceRoot)
+    const relativePath = validateBacklogRelativePath(input.relativePath)
+    if (input.issue !== 'embedded_nul' && input.issue !== 'duplicate_id') {
+      return { ok: false, message: 'Unknown Backlog integrity repair operation.' }
+    }
     const target = resolve(join(workspace.root, relativePath))
     if (!isPathInside(workspace.root, target)) throw new Error('Backlog item path escaped the workspace root.')
+    return await withBacklogMutationLock(workspace, async () => {
+      let content: string
+      try {
+        content = await readFile(target, 'utf-8')
+      } catch {
+        return { ok: false, message: `Backlog item ${relativePath} does not exist in this workspace.` }
+      }
 
-    const now = new Date().toISOString()
-    const frontmatter: Array<[key: string, value: string | undefined]> = [
-      ['type', isBacklogType(input.type) ? input.type : undefined],
-      ['status', 'idea'],
-      ['difficulty', isBacklogDifficulty(input.difficulty) ? input.difficulty : undefined],
-      ['criticality', isBacklogCriticality(input.criticality) ? input.criticality : undefined],
-      ['risk', isBacklogRisk(input.risk) ? input.risk : undefined],
-      ['epic', isValidEpicSlug(input.epic) ? input.epic : undefined],
-      ['updated', now],
-    ]
-    const frontmatterBlock = `---\n${frontmatter
-      .filter((entry): entry is [string, string] => entry[1] !== undefined)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\n')}\n---\n`
-    const description = input.description?.trim()
-    const body = description ? `# ${title}\n\n${description}\n` : `# ${title}\n`
-    await mkdir(dirname(target), { recursive: true })
-    // `wx` fails instead of clobbering if a file appears between the uniqueness
-    // check and the write.
-    await writeFile(target, `${frontmatterBlock}\n${body}`, { encoding: 'utf-8', flag: 'wx' })
+      if (input.issue === 'embedded_nul') {
+        const replacements = content.split('\0').length - 1
+        if (replacements === 0) {
+          return { ok: false, message: `Backlog item ${relativePath} contains no embedded NUL bytes.` }
+        }
+        const sanitized = content.replaceAll('\0', '\\0')
+        const next = serializeBacklogFrontmatterFields(sanitized, { updated: new Date().toISOString() })
+        await writeFile(target, next, 'utf-8')
+        return { ok: true, relativePath, issue: input.issue, replacements }
+      }
 
-    const record: BacklogObjectRecord = {
-      id: stableBacklogObjectId(relativePath),
-      source: { type: 'file', relativePath },
-      metadata: {},
-      links: [],
-      createdAt: now,
-      updatedAt: now,
-    }
-    const nextStore = normalizeStore({ schemaVersion: 1, items: [...store.items, record] })
-    await saveStore(workspace, nextStore)
-    return { ok: true, id: record.id, relativePath, store: nextStore }
+      const { fields } = parseBacklogFrontmatter(content)
+      const previousNumericId = parseBacklogNumericId(fields.id)
+      if (previousNumericId === undefined) {
+        return { ok: false, message: `Backlog item ${relativePath} has no valid numeric id to reallocate.` }
+      }
+      const paths = await listAllBacklogSourcePaths(workspace)
+      let matches = 0
+      for (const candidatePath of paths) {
+        let candidate: string
+        try {
+          candidate = await readFile(join(workspace.root, candidatePath), 'utf-8')
+        } catch {
+          continue
+        }
+        const parsed = parseBacklogFrontmatter(candidate)
+        if (parseBacklogNumericId(parsed.fields.id) === previousNumericId) matches += 1
+      }
+      if (matches < 2) {
+        return { ok: false, message: `Backlog id ${previousNumericId} is no longer duplicated.` }
+      }
+      const numericId = await nextBacklogNumericId(workspace)
+      const withId = serializeBacklogFrontmatterFields(content, { id: formatBacklogNumericId(numericId) })
+      const next = serializeBacklogFrontmatterFields(withId, { updated: new Date().toISOString() })
+      await writeFile(target, next, 'utf-8')
+      return { ok: true, relativePath, issue: input.issue, previousNumericId, numericId }
+    })
   } catch (error) {
     return { ok: false, message: errorMessage(error) }
   }
