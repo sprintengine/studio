@@ -10,6 +10,7 @@ from sprintengine_core.tool.common import path_is_relative_to, unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
 from sprintengine_core.tool.state import *  # noqa: F403,F401
+from sprintengine_core.tool.task_reviews import assert_task_can_complete
 
 def repository_root_for_state(state_path: Path) -> Path:
     starts = [Path.cwd().resolve(), state_path.parent.resolve()]
@@ -210,6 +211,7 @@ def mark_task_done_if_artifacts_approved(state: Dict[str, Any], task: Dict[str, 
     if not linked_artifacts or any(a.get("status") != "approved" for a in linked_artifacts):
         return False
 
+    assert_task_can_complete(state, task)
     task["status"] = "done"
     task.pop("needsInput", None)
     task["completedAt"] = now_iso()
@@ -375,6 +377,7 @@ def resolve_task_input(
     append_task_activity(task, "needs_input", actor, f"Input resolved: {resolution}", {"status": "done" if complete else resume_status})
 
     if complete:
+        assert_task_can_complete(state, task)
         task["status"] = "done"
         task["completedAt"] = now
         supersede_stale_gate_placeholder_on_completion(state, task, actor)

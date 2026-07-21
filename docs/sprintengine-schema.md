@@ -500,9 +500,10 @@ plugin roles participate. There are four classifications:
   the registry cannot resolve. `AGENT_COMMON_TOOLS` only.
 
 A sweep role is an `owner` like any other worker: same tools, same lifecycle. It
-claims its own task, fixes what it finds, and closes its phases with
-`task.advance`. `task.publish` and `task.advance` are the whole lifecycle surface
-in `AGENT_COMMON_TOOLS`; there is no separate reviewer tool set.
+claims its own task, fixes small findings in place, and closes its phases with
+`task.advance`. `task.publish` and `task.advance` own the forward lifecycle;
+`task.request_changes` and `task.approve_rework` form the closed cross-task
+review loop. There is no separate reviewer tool set.
 `artifact.request_changes` is a planner/operator tool (`PLANNING_TOOLS`): the
 human Inbox loop and the architect adjudicate artifacts, and it is not a rework
 channel back onto a task.
@@ -669,9 +670,12 @@ with `path`, `reason`, and optional `risk`.
 
 ## The Phase Walk
 
-One agent owns a task from claim to `done`. It implements, publishes, then
-reviews its own diff in the same session. There is no separate reviewer, no
-claimable review queue, and no route backward through the board.
+One implementation agent normally owns a task from claim to `done`. It
+implements, publishes, then reviews its own diff in the same session. A
+configured independent phase runtime may temporarily own `review`. A phase or
+sweep reviewer can explicitly open `openReviewRequest`, returning the target to
+implementation and requiring the same requester to approve a fresh publish;
+`review` remains non-claimable ordinary queue work.
 
 **Enter the walk — `publish_task`** (`sprintengine_core/tool/tasks.py`). Publish
 records an `implementation_summary` comment (or an `implementation_response` when

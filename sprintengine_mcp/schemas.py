@@ -305,6 +305,38 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             **FEEDBACK_PROPERTIES,
         },
     ),
+    "sprintengine.task.request_changes": object_schema(
+        ["statePath", "taskId", "id", "feedback"],
+        {
+            "taskId": TASK_ID_PROPERTY,
+            "id": AGENT_ID_PROPERTY,
+            "sourceTaskId": {"type": "string", "description": "Owned sweep/final-review source task; omit for phase review."},
+            "feedback": {"type": "string"},
+            "path": {"type": "array", "items": {"type": "string"}},
+            "findingJson": {"type": "array"},
+        },
+    ),
+    "sprintengine.task.approve_rework": object_schema(
+        ["statePath", "taskId", "sourceTaskId", "id", "summary"],
+        {
+            "taskId": TASK_ID_PROPERTY,
+            "sourceTaskId": {"type": "string"},
+            "id": AGENT_ID_PROPERTY,
+            "summary": {"type": "string"},
+        },
+    ),
+    "sprintengine.task.reassign_review": object_schema(
+        ["statePath", "taskId", "id", "reviewerId", "reviewerRole", "reason"],
+        {
+            "taskId": TASK_ID_PROPERTY,
+            "id": AGENT_ID_PROPERTY,
+            "reviewerId": AGENT_ID_PROPERTY,
+            "reviewerRole": ROLE_PROPERTY,
+            "reviewerCli": {"type": "string"},
+            "reviewerModel": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+    ),
     "sprintengine.plan.add_task": object_schema(["statePath", "title", "role"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "dependsOn": {"type": "array"}, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.update_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}, "role": {"type": "string"}, "repo": REPO_PROPERTY, "path": {"type": "array"}, "acceptance": {"type": "array"}, "note": {"type": "array"}, "taskNote": {"type": "array"}, "clearTaskNotes": {"type": "boolean"}, "producesImplementation": {"type": "boolean"}, "needsTriage": {"type": "boolean"}, "clearNeedsTriage": {"type": "boolean"}, "phases": PHASES_PROPERTY, "productFacing": {"type": "boolean"}, "notProductFacing": {"type": "boolean"}, **ARCHITECT_DIFFICULTY_PROPERTIES}),
     "sprintengine.plan.delete_task": object_schema(["statePath", "taskId"], {"actor": {"type": "string"}, "taskId": {"type": "string"}, "unlinkDependents": {"type": "boolean"}}),

@@ -93,6 +93,32 @@ def command_payload_to_namespace(
             needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
         )
         add_feedback_defaults(base, payload)
+    elif tool_name == "sprintengine.task.request_changes":
+        base.update(
+            task_id=payload["taskId"],
+            id=payload["id"],
+            source_task_id=payload.get("sourceTaskId"),
+            feedback=payload["feedback"],
+            path=list(payload.get("path") or []),
+            finding_json=list(payload.get("findingJson") or []),
+        )
+    elif tool_name == "sprintengine.task.approve_rework":
+        base.update(
+            task_id=payload["taskId"],
+            source_task_id=payload["sourceTaskId"],
+            id=payload["id"],
+            summary=payload["summary"],
+        )
+    elif tool_name == "sprintengine.task.reassign_review":
+        base.update(
+            task_id=payload["taskId"],
+            id=payload["id"],
+            reviewer_id=payload["reviewerId"],
+            reviewer_role=payload["reviewerRole"],
+            reviewer_cli=payload.get("reviewerCli"),
+            reviewer_model=payload.get("reviewerModel"),
+            reason=payload["reason"],
+        )
     elif tool_name == "sprintengine.task.note":
         base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])
     elif tool_name == "sprintengine.task.comment":

@@ -14,6 +14,14 @@ from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle, worktree_for_task
 from sprintengine_core.tool.state import *  # noqa: F403,F401
+from sprintengine_core.tool.task_reviews import (
+    assert_task_can_complete,
+    close_review_request,
+    normalize_open_review_request,
+    open_review_request,
+    phase_review_request_for_approval,
+    route_published_rework_to_reapproval,
+)
 
 def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
     """Did this task produce a diff? The one input to publish-time phase routing.
@@ -97,14 +105,21 @@ def publish_task(
         )
 
     produced_changes = task_produced_changes(state, state_path, task)
-    phases = resolve_task_phases(state, task) if produced_changes else []
+    reapproval_request = task.get("openReviewRequest")
+    has_rework_request = isinstance(reapproval_request, dict) and reapproval_request.get("status") == "rework"
+    phases = ["review"] if has_rework_request else (resolve_task_phases(state, task) if produced_changes else [])
     next_status = phases[0] if phases else "done"
+    if next_status == "done":
+        assert_task_can_complete(state, task)
     published_at = now_iso()
     task["lastImplementedByAgentId"] = actor
     task["lastPublishedAt"] = published_at
     task["status"] = next_status
     task.pop("needsInput", None)
-    if next_status == "done":
+    routed_request = route_published_rework_to_reapproval(state, task, actor) if has_rework_request else None
+    if routed_request:
+        next_status = "review"
+    elif next_status == "done":
         task["completedAt"] = published_at
         task["ownerAgentId"] = None
         end_lease(task)
@@ -190,6 +205,11 @@ def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: s
     phase = task_awaiting_phase_session(task)
     if not phase:
         raise SystemExit(f"Task {task.get('id')} is not awaiting a phase session.")
+    expected_agent_id = str(task["awaitingPhaseSession"].get("agentId") or "").strip()
+    if expected_agent_id and expected_agent_id != agent_id:
+        raise SystemExit(
+            f"phase_reviewer_mismatch: {task.get('id')} is reserved for {expected_agent_id}, not {agent_id}."
+        )
     runtime = task["awaitingPhaseSession"].get("runtime") or {}
     task.pop("awaitingPhaseSession", None)
     task["ownerAgentId"] = agent_id
@@ -260,6 +280,7 @@ def advance_task(
         raise SystemExit("--summary is required when advancing a phase.")
 
     now = now_iso()
+    phase_reapproval = phase_review_request_for_approval(task, actor)
     if outcome == "escalate":
         if not needs_input or not str(needs_input.get("question") or "").strip():
             raise SystemExit("An `escalate` outcome requires a needs-input question.")
@@ -296,6 +317,8 @@ def advance_task(
         remaining = phases[phases.index(clean_phase) + 1:] if clean_phase in phases else []
         next_phase = remaining[0] if remaining else None
         next_status = next_phase or "done"
+        if next_status == "done" and not phase_reapproval:
+            assert_task_can_complete(state, task)
         task["status"] = next_status
         task.pop("needsInput", None)
         comment = create_task_comment(
@@ -308,6 +331,8 @@ def advance_task(
             data={"phase": clean_phase, "outcome": outcome},
         )
         if next_status == "done":
+            if phase_reapproval:
+                close_review_request(task, phase_reapproval, actor)
             task["completedAt"] = now
             task["ownerAgentId"] = None
             end_lease(task)
@@ -342,7 +367,11 @@ def recompute_phase(state: Dict[str, Any]) -> bool:
     if sprintengine.get("canceled"):
         return set_if_changed(sprintengine, "status", "canceled")
     tasks = state.get("tasks", [])
-    if tasks and all(t.get("status") in {"done", "canceled"} for t in tasks):
+    if (
+        tasks
+        and all(t.get("status") in {"done", "canceled"} for t in tasks)
+        and not any(open_review_request(t) for t in tasks)
+    ):
         return set_if_changed(sprintengine, "status", "completed")
     if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks):
         return set_if_changed(sprintengine, "status", "executing")
@@ -707,6 +736,12 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     awaiting = raw.get("awaitingPhaseSession")
     if isinstance(awaiting, dict) and str(awaiting.get("phase") or "").strip():
         task["awaitingPhaseSession"] = awaiting
+    review_request = normalize_open_review_request(raw.get("openReviewRequest"))
+    if review_request is not None:
+        task["openReviewRequest"] = review_request
+    preferred_owner = str(raw.get("preferredOwnerAgentId") or "").strip()
+    if preferred_owner:
+        task["preferredOwnerAgentId"] = preferred_owner
     return task
 
 def parse_phases_arg(raw: Any) -> Optional[List[str]]:

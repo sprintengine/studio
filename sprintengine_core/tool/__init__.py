@@ -53,6 +53,8 @@ from .commands.run import (
 )
 from .commands.task import (
     cmd_task_advance,
+    cmd_task_approve_rework,
+    cmd_task_reassign_review,
     cmd_task_claim,
     cmd_task_comment,
     cmd_task_comment_list,
@@ -61,6 +63,7 @@ from .commands.task import (
     cmd_task_next,
     cmd_task_note,
     cmd_task_publish,
+    cmd_task_request_changes,
     cmd_task_refresh_ready,
     cmd_task_release,
     cmd_task_resolve_input,

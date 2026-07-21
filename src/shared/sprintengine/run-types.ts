@@ -723,7 +723,29 @@ export type SprintEngineTask = {
    * claims the task through `task next` (`claim_phase_session`) without rewinding
    * the status. Absent for every task in a run with no `phaseRuntimes`.
    */
-  awaitingPhaseSession?: { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null
+  awaitingPhaseSession?: {
+    phase: SprintEngineTaskPhase
+    runtime: SprintEngineAllowedRuntime
+    /** Present on a closed rework thread: only this stable reviewer may reclaim it. */
+    agentId?: string
+    role?: SprintEngineRoleId
+  } | null
+  /** One durable reviewer-owned rework obligation. Absent outside a closed review loop. */
+  openReviewRequest?: {
+    id: string
+    status: 'rework' | 'awaiting_reapproval' | 'escalated'
+    requestedByAgentId: string
+    requestedByRole: SprintEngineRoleId
+    sourceTaskId: string
+    implementationAgentId?: string
+    cycle: number
+    requestedAt: string
+    reworkedAt?: string
+    feedbackCommentIds: string[]
+    reviewerRuntime?: SprintEngineAllowedRuntime
+  } | null
+  /** Dispatch preference after request-changes; claim legality remains role/repo based. */
+  preferredOwnerAgentId?: string | null
   /** CLI model that worked this task (e.g. `claude-fable-5`, `opus[1m]`),
    *  stamped at claim from the roster's per-role model selection. Retained
    *  through handoff for attribution and per-task usage metrics. Absent when

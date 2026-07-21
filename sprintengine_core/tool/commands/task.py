@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from sprintengine_core import store as folder_store
@@ -68,6 +69,13 @@ from sprintengine_core.tool.tasks import (
     reject_absolute_path_values,
     task_awaiting_phase_session,
     task_is_ready,
+)
+from sprintengine_core.tool.task_reviews import (
+    approve_cross_task_rework,
+    assert_task_can_complete,
+    pending_phase_reapproval_for_reviewer,
+    reassign_review_request,
+    request_task_changes,
 )
 from sprintengine_core.tool.commands.run import auto_mode_continuation
 
@@ -166,6 +174,23 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "write": runtime["dirty"] or expired["dirty"],
                 }
 
+            reserved_target = pending_phase_reapproval_for_reviewer(state, args.id)
+            if reserved_target:
+                phase_dirty = recompute_phase(state)
+                return {
+                    "ok": True,
+                    "claimed": False,
+                    "reason": "review_reapproval_pending",
+                    "message": (
+                        f"{args.id} is reserved to re-approve {reserved_target.get('id')}; "
+                        "do not claim unrelated work while its review request is open."
+                    ),
+                    "task": {"id": reserved_target.get("id"), "status": reserved_target.get("status")},
+                    "agent": agent,
+                    "releasedExpired": expired["released"],
+                    "write": runtime["dirty"] or phase_dirty or expired["dirty"],
+                }
+
             # MC-1543 phase sessions are claimed by task id via `task.claim` (pinned
             # to the exact bound-runtime session the supervisor spawned), NOT
             # auto-grabbed here: matching on role alone let a concurrent CHEAP
@@ -262,6 +287,15 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
                     "phase": claimed_phase["phase"],
                     "prompt": build_phase_respawn_brief(state, args.state, task, claimed_phase["phase"]),
                     "event": event,
+                }
+            reserved_target = pending_phase_reapproval_for_reviewer(state, args.id)
+            if reserved_target and reserved_target.get("id") != task.get("id"):
+                return {
+                    "ok": False,
+                    "error": f"Worker is reserved to re-approve {reserved_target.get('id')}.",
+                    "reason": "review_reapproval_pending",
+                    "task": {"id": task.get("id"), "status": task.get("status")},
+                    "write": False,
                 }
             ensure_role_in_roster(state, str(task.get("role") or ""))
             ensure_task_repo_declared(
@@ -368,6 +402,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             task["startedAt"] = None
             task["completedAt"] = None
         if args.status == "done":
+            assert_task_can_complete(state, task)
             task["completedAt"] = now_iso()
             if previous_status in {"in_progress", "review", "needs_input"}:
                 task["lastImplementedByAgentId"] = str(actor)
@@ -739,6 +774,131 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
         result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
     return result
 
+
+def _structured_findings(values: Any) -> List[Any]:
+    findings: List[Any] = []
+    for value in values or []:
+        if isinstance(value, dict):
+            findings.append(value)
+            continue
+        try:
+            parsed = json.loads(str(value))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"--finding-json must be valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise SystemExit("--finding-json must be a JSON object.")
+        findings.append(parsed)
+    return findings
+
+
+def cmd_task_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
+    """Open or continue one reviewer-owned, closed rework thread."""
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        actor = str(args.id or "").strip()
+        result = request_task_changes(
+            state,
+            args.state,
+            task,
+            actor,
+            args.feedback,
+            source_task_id=getattr(args, "source_task_id", None),
+            paths=list(getattr(args, "path", None) or []),
+            findings=_structured_findings(getattr(args, "finding_json", None)),
+        )
+        recompute_phase(state)
+        event = append_event(
+            state,
+            "task_rework_requested" if result["status"] != "escalated" else "task_rework_escalated",
+            actor,
+            f"{actor} requested changes on {args.task_id} ({result['request']['id']}, cycle {result['request']['cycle']}).",
+            {
+                "taskId": args.task_id,
+                "sourceTaskId": result["request"]["sourceTaskId"],
+                "reviewRequestId": result["request"]["id"],
+                "cycle": result["request"]["cycle"],
+                "status": result["status"],
+            },
+        )
+        return {
+            "ok": True,
+            "task": task,
+            "comment": result["comment"],
+            "reviewRequest": result["request"],
+            "status": result["status"],
+            "event": event,
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_approve_rework(args: argparse.Namespace) -> Dict[str, Any]:
+    """The original cross-task requester approves a fresh rework publish."""
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        actor = str(args.id or "").strip()
+        result = approve_cross_task_rework(state, task, actor, args.source_task_id, args.summary)
+        supersede_stale_gate_placeholder_on_completion(state, task, actor)
+        recompute_phase(state)
+        event = append_event(
+            state,
+            "task_rework_approved",
+            actor,
+            f"{actor} approved {args.task_id} rework ({result['request']['id']}).",
+            {
+                "taskId": args.task_id,
+                "sourceTaskId": args.source_task_id,
+                "reviewRequestId": result["request"]["id"],
+                "cycle": result["request"]["cycle"],
+            },
+        )
+        return {
+            "ok": True,
+            "task": task,
+            "comment": result["comment"],
+            "status": "done",
+            "reviewRequestId": result["request"]["id"],
+            "event": event,
+        }
+
+    return with_locked_state(args.state, run)
+
+
+def cmd_task_reassign_review(args: argparse.Namespace) -> Dict[str, Any]:
+    """Planner explicitly replaces an unrecoverable review requester."""
+
+    def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        task = find_task(state, args.task_id)
+        request = reassign_review_request(
+            state,
+            task,
+            args.id,
+            args.reviewer_id,
+            args.reviewer_role,
+            args.reason,
+            reviewer_cli=getattr(args, "reviewer_cli", None),
+            reviewer_model=getattr(args, "reviewer_model", None),
+        )
+        recompute_phase(state)
+        event = append_event(
+            state,
+            "task_review_reassigned",
+            args.id,
+            f"{args.id} reassigned {args.task_id} review request {request['id']} to {args.reviewer_id}.",
+            {
+                "taskId": args.task_id,
+                "reviewRequestId": request["id"],
+                "reviewerAgentId": args.reviewer_id,
+                "reviewerRole": args.reviewer_role,
+                "reason": args.reason,
+            },
+        )
+        return {"ok": True, "task": task, "reviewRequest": request, "event": event}
+
+    return with_locked_state(args.state, run)
+
 def cmd_task_note(args: argparse.Namespace) -> Dict[str, Any]:
     # Runtime notes flow through task.comments so the body, author, and timestamp
     # appear in the activity feed. task.notes stays reserved for plan-time design
@@ -801,6 +961,9 @@ refresh_ready = cmd_task_refresh_ready
 log = cmd_task_log
 publish = cmd_task_publish
 advance = cmd_task_advance
+request_changes = cmd_task_request_changes
+approve_rework = cmd_task_approve_rework
+reassign_review = cmd_task_reassign_review
 note = cmd_task_note
 
 def comment(args: argparse.Namespace) -> Dict[str, Any]:

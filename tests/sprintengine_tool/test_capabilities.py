@@ -10,8 +10,9 @@ are now `operator | architect | general | owner`, and there is no tool a reviewe
 needs that an owner must not have: one agent owns a task from claim to `done`,
 closing its own phases with `sprintengine.task.advance`. These tests pin that the
 owner surface is exactly `AGENT_COMMON_TOOLS`, that a sweep role gets the same
-surface as any other worker, and that the retired gate / `task.request_changes`
-tool names are unknown rather than merely hidden.
+surface as any other worker, and that the retired gate tool names are unknown
+rather than merely hidden. MC-1741 later restored `task.request_changes` as a
+task-scoped closed rework loop, not as the deleted gate protocol.
 """
 
 from __future__ import annotations
@@ -49,7 +50,6 @@ RETIRED_TOOL_NAMES = (
     "sprintengine.gate.verdict",
     "sprintengine.gate.publish",
     "sprintengine.gate.skip",
-    "sprintengine.task.request_changes",
     "sprintengine.roster.add",
     "sprintengine.roster.retire",
     "sprintengine.roster.replenish",
@@ -154,6 +154,8 @@ def test_listing_matches_capability_table_per_role(tmp_path) -> None:
     assert "sprintengine.plan.add_task" in architect
     assert "sprintengine.summary" in architect
     assert "sprintengine.artifact.request_changes" in architect
+    assert "sprintengine.task.reassign_review" in architect
+    assert "sprintengine.task.reassign_review" not in owner
     assert "sprintengine.join" not in architect
 
     # Run-scoped sessions (no bound role) and stdio keep the full surface.
@@ -189,6 +191,7 @@ def test_general_and_architect_share_one_planning_surface(tmp_path) -> None:
         "sprintengine.task.advance",
         "sprintengine.artifact.request_changes",
         "sprintengine.roster.configure",
+        "sprintengine.task.reassign_review",
     ):
         assert granted in general, granted
     # The deleted roster-growth tools are gone from every surface, not merely hidden.
@@ -523,7 +526,10 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
     # agent-common tool (`vcs.request_repo`, ~0.5k), a real new capability every
     # worker needs, nudging it to 27k. It still guards against regression toward the
     # old ~62k-char full listing.
-    assert serialized < 27_000, f"worker tools/list serialized to {serialized} chars"
+    # MC-1741 adds the two closed-loop review mutations to every owner (phase
+    # reviewers and sweep roles share the owner classification), a measured
+    # ~0.9k-char increase that cannot be hidden without breaking those agents.
+    assert serialized < 28_500, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 

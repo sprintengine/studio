@@ -188,6 +188,9 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.comment.list",
         "sprintengine.task.list",
         "sprintengine.task.advance",
+        "sprintengine.task.request_changes",
+        "sprintengine.task.approve_rework",
+        "sprintengine.task.reassign_review",
         "sprintengine.plan.add_task",
         "sprintengine.plan.update_task",
         "sprintengine.plan.delete_task",
@@ -247,6 +250,9 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.task.comment.list": {"taskId": "T1"},
         "sprintengine.task.list": {},
         "sprintengine.task.advance": {"taskId": "T1", "id": "developer-1", "phase": "review", "outcome": "pass", "summary": "ok"},
+        "sprintengine.task.request_changes": {"taskId": "T1", "id": "developer-2", "feedback": "fix it"},
+        "sprintengine.task.approve_rework": {"taskId": "T1", "sourceTaskId": "T2", "id": "developer-2", "summary": "approved"},
+        "sprintengine.task.reassign_review": {"taskId": "T1", "id": "architect", "reviewerId": "reviewer-2", "reviewerRole": "developer", "reason": "Original reviewer unavailable"},
         "sprintengine.plan.add_task": {"title": "Task", "role": "developer"},
         "sprintengine.plan.update_task": {"taskId": "T1"},
         "sprintengine.plan.delete_task": {"taskId": "T1"},
@@ -298,15 +304,16 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "needsInputKind" in result["markdown"]
     assert "sprintengine.artifact.add" in result["markdown"]
     assert "sprintengine.task.advance" in result["markdown"]
-    assert "You own your task from claim to done" in result["markdown"]
+    assert "Normally you own your task from claim to done" in result["markdown"]
     # MC-1614: the commit an agent reads about is per project, not per run — the
     # lock it names is the task's own project's.
     assert "in your task's project worktree, under that project's commit lock" in result["markdown"]
     assert "sprintengine.vcs.commit" in result["markdown"]
-    # MC-1542: the retired review protocol must not linger in the workflow an
-    # agent reads on every join.
+    # The deleted gate protocol must not linger; MC-1741's task-scoped closed
+    # rework loop is the supported replacement.
     assert "sprintengine.gate." not in result["markdown"]
-    assert "request_changes" not in result["markdown"]
+    assert "sprintengine.task.request_changes" in result["markdown"]
+    assert "sprintengine.task.approve_rework" in result["markdown"]
 
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_tools() -> None:

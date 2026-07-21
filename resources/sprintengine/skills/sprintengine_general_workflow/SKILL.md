@@ -18,7 +18,7 @@ Drive every piece of work through the same loop, in order, before it is done:
 
 ## Finish what you started before taking more
 
-**Carry each task through to `done` before claiming new ready work.** You own a task from claim to done — its review phase is yours, in the same session. A task sitting in `review` is not waiting for another General; it is waiting for you.
+**Carry each task through to `done` before claiming new ready work.** Normally you own its review phase in the same session. If the run explicitly binds review to another runtime, publish releases that phase to the bound reviewer; if you requested changes as that reviewer, your identity stays reserved until you re-approve the rework. Never claim unrelated work while you hold that approval obligation.
 
 ## Keep the team the size the user set
 

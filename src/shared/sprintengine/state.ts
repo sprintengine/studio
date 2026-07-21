@@ -2403,7 +2403,7 @@ export function normalizeSprintEngineAllowedRuntimes(value: unknown): SprintEngi
 // Birth-path with no runtime to spawn on. Returns null when absent.
 export function normalizeSprintEngineAwaitingPhaseSession(
   value: unknown,
-): { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null {
+): { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime; agentId?: string; role?: SprintEngineRoleId } | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
   const phase = record.phase
@@ -2415,7 +2415,52 @@ export function normalizeSprintEngineAwaitingPhaseSession(
   if (!cli) return null
   const model =
     typeof runtimeRecord.model === 'string' && runtimeRecord.model.trim() ? runtimeRecord.model.trim() : null
-  return { phase: phase as SprintEngineTaskPhase, runtime: { cli, model } }
+  const agentId = optionalTrimmedString(record.agentId)
+  const role = normalizeSprintEngineRoleId(record.role)
+  return {
+    phase: phase as SprintEngineTaskPhase,
+    runtime: { cli, model },
+    ...(agentId ? { agentId } : {}),
+    ...(role ? { role } : {}),
+  }
+}
+
+export function normalizeSprintEngineOpenReviewRequest(
+  value: unknown,
+): SprintEngineTask['openReviewRequest'] {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const id = optionalTrimmedString(record.id)
+  const requestedByAgentId = optionalTrimmedString(record.requestedByAgentId)
+  const requestedByRole = normalizeSprintEngineRoleId(record.requestedByRole)
+  const sourceTaskId = optionalTrimmedString(record.sourceTaskId)
+  const requestedAt = optionalTrimmedString(record.requestedAt)
+  const status = record.status
+  const cycle = typeof record.cycle === 'number' && Number.isInteger(record.cycle) && record.cycle > 0
+    ? record.cycle
+    : null
+  if (
+    !id || !requestedByAgentId || !requestedByRole || !sourceTaskId || !requestedAt || !cycle
+    || !['rework', 'awaiting_reapproval', 'escalated'].includes(String(status))
+  ) return null
+  const runtime = normalizeSprintEngineAllowedRuntimes(
+    record.reviewerRuntime ? [record.reviewerRuntime] : [],
+  )?.[0]
+  const implementationAgentId = optionalTrimmedString(record.implementationAgentId)
+  const reworkedAt = optionalTrimmedString(record.reworkedAt)
+  return {
+    id,
+    status: status as 'rework' | 'awaiting_reapproval' | 'escalated',
+    requestedByAgentId,
+    requestedByRole,
+    sourceTaskId,
+    cycle,
+    requestedAt,
+    feedbackCommentIds: stringArray(record.feedbackCommentIds),
+    ...(implementationAgentId ? { implementationAgentId } : {}),
+    ...(reworkedAt ? { reworkedAt } : {}),
+    ...(runtime ? { reviewerRuntime: runtime } : {}),
+  }
 }
 
 export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
@@ -2446,6 +2491,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const folderStatus = optionalTrimmedString(task.folderStatus)
     const taskRecord = task as unknown as Record<string, unknown>
     const awaitingPhaseSession = normalizeSprintEngineAwaitingPhaseSession(taskRecord.awaitingPhaseSession)
+    const openReviewRequest = normalizeSprintEngineOpenReviewRequest(taskRecord.openReviewRequest)
     const phases = normalizeSprintEngineDefaultPhases(taskRecord.phases)
     const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
     const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
@@ -2467,6 +2513,10 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ownerAgentId: task.ownerAgentId ?? null,
       ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
       ...(awaitingPhaseSession ? { awaitingPhaseSession } : {}),
+      ...(openReviewRequest ? { openReviewRequest } : {}),
+      ...(optionalTrimmedString(taskRecord.preferredOwnerAgentId)
+        ? { preferredOwnerAgentId: optionalTrimmedString(taskRecord.preferredOwnerAgentId) }
+        : {}),
       ...(typeof task.model === 'string' && task.model.trim() ? { model: task.model.trim() } : {}),
       ...(typeof task.cli === 'string' && task.cli.trim() ? { cli: task.cli.trim() } : {}),
       dependsOn: stringArray(task.dependsOn),

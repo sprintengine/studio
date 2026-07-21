@@ -62,6 +62,8 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.task.log",
     "sprintengine.task.publish",
     "sprintengine.task.advance",
+    "sprintengine.task.request_changes",
+    "sprintengine.task.approve_rework",
     "sprintengine.task.note",
     "sprintengine.task.comment",
     "sprintengine.task.comment.list",
@@ -85,6 +87,7 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
 
 # Planning/run-administration surface: the architect (and the operator).
 PLANNING_TOOLS: frozenset[str] = frozenset({
+    "sprintengine.task.reassign_review",
     "sprintengine.init",
     "sprintengine.handover",
     "sprintengine.recover",

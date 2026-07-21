@@ -62,13 +62,15 @@ polling/backoff.
 
 ## Single-Owner Task Lifecycle
 
-One agent owns a task from claim to `done`. It implements, publishes, then
-reviews its own diff in the same session; no other agent picks the task up. The
-board columns are `todo → ready → in_progress → review → done`, with
+One implementation agent normally owns a task from claim to `done`. It
+implements, publishes, and reviews its own diff in the same session. A
+configured independent phase runtime may temporarily own `review`; an open
+review request then returns implementation to the worker and reapproval to the
+recorded requester. The board columns are `todo → ready → in_progress → review → done`, with
 `needs_input` as the blocked surface (`ready` is the materialized queue, not a
 semantic status).
 
-Two commands drive the whole lifecycle after the claim:
+Two commands drive the normal forward lifecycle after the claim:
 
 - `sprintengine task publish` records the implementation summary and routes the
   task. It is the only command that enters the phase walk.
@@ -496,6 +498,32 @@ sprintengine task advance --task-id T3 --id developer-1 --phase review --outcome
 sprintengine task advance --task-id T3 --id developer-1 --phase review --outcome pass_with_fixes --summary "Fixed a silent fallback that masked a parse failure; added the missing regression test." --finding-json '{"kind":"code_bug","severity":"high","area":"cli","title":"Silent parse fallback"}'
 sprintengine task advance --task-id T3 --id developer-1 --phase review --outcome escalate --summary "The acceptance criteria contradict the plan's owned-path boundary." --needs-input-kind architect --needs-input-reason task_scope --needs-input-question "Should this task also own the renderer projection types?" --needs-input-suggested-resolution "Add the renderer type file as a scope expansion, or create a follow-up frontend task."
 ```
+
+### `task request-changes` / `task approve-rework`
+
+An independent phase reviewer can return its owned target to implementation:
+
+```bash
+sprintengine task request-changes --task-id T3 --id developer-reviewer-1 --feedback "The IPC handler is wired but the renderer never consumes its result." --path src/main/ipc/example.ts
+```
+
+The target returns to `todo` with its last implementer as a dispatch preference. A re-publish always enters `review`, even with no new diff, and restores the exact requesting phase reviewer; only that reviewer can approve through `task advance`.
+
+A sweep or final-review task requests changes cross-task by naming the active source it owns. The source must depend transitively on the target and cannot complete while the request remains open:
+
+```bash
+sprintengine task request-changes --task-id T3 --source-task-id T9 --id spec_reviewer-1 --feedback "The declared consumer is not wired."
+sprintengine task approve-rework --task-id T3 --source-task-id T9 --id spec_reviewer-1 --summary "Consumer path is connected and the regression passes."
+```
+
+If the stored requester cannot be restored, the planner replaces it explicitly;
+approval authority is never inherited from a role or recovered source lease:
+
+```bash
+sprintengine task reassign-review --task-id T3 --id architect --reviewer-id spec_reviewer-2 --reviewer-role spec_reviewer --reason "Original reviewer session cannot be restored."
+```
+
+`task.log` remains advisory telemetry. Only `task request-changes` changes lifecycle. A missing task, invalid decomposition, or multi-target repair goes directly to planner `needs_input`; repeated rejection beyond the run policy's cycle cap does the same.
 
 Outcomes (`VALID_PHASE_OUTCOMES`):
 

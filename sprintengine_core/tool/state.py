@@ -1053,6 +1053,7 @@ def assign_task(
     model: Optional[str] = None,
     cli: Optional[str] = None,
 ) -> Dict[str, Any]:
+    task.pop("preferredOwnerAgentId", None)
     task["ownerAgentId"] = agent_id
     task["status"] = "in_progress"
     task["startedAt"] = task.get("startedAt") or now_iso()

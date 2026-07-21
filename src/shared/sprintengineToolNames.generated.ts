@@ -40,6 +40,7 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.soul.get',
   'sprintengine.summary',
   'sprintengine.task.advance',
+  'sprintengine.task.approve_rework',
   'sprintengine.task.claim',
   'sprintengine.task.comment',
   'sprintengine.task.comment.list',
@@ -49,7 +50,9 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.task.next',
   'sprintengine.task.note',
   'sprintengine.task.publish',
+  'sprintengine.task.reassign_review',
   'sprintengine.task.release',
+  'sprintengine.task.request_changes',
   'sprintengine.task.resolve_input',
   'sprintengine.task.status',
   'sprintengine.triage.needs_input',
@@ -1686,6 +1689,40 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
+    "name": "sprintengine.task.approve_rework",
+    "description": "task approve rework",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "sourceTaskId",
+        "id",
+        "summary"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "sourceTaskId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "name": "sprintengine.task.claim",
     "description": "task claim",
     "inputSchema": {
@@ -2038,6 +2075,52 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
+    "name": "sprintengine.task.reassign_review",
+    "description": "task reassign review",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "id",
+        "reviewerId",
+        "reviewerRole",
+        "reason"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        },
+        "reviewerId": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        },
+        "reviewerRole": {
+          "type": "string",
+          "description": "Canonical Sprint Engine role id, after registry alias resolution."
+        },
+        "reviewerCli": {
+          "type": "string"
+        },
+        "reviewerModel": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "name": "sprintengine.task.release",
     "description": "task release",
     "inputSchema": {
@@ -2061,6 +2144,49 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "reason": {
           "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "sprintengine.task.request_changes",
+    "description": "task request changes",
+    "inputSchema": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "id",
+        "feedback"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "statePath": {
+          "type": "string",
+          "description": "Run state path; server-resolved, agents normally omit it."
+        },
+        "taskId": {
+          "type": "string",
+          "description": "Sprint Engine task id, for example T3."
+        },
+        "id": {
+          "type": "string",
+          "description": "Stable Sprint Engine agent id, for example developer-1."
+        },
+        "sourceTaskId": {
+          "type": "string",
+          "description": "Owned sweep/final-review source task; omit for phase review."
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "findingJson": {
+          "type": "array"
         }
       }
     }
@@ -2483,13 +2609,16 @@ export const SPRINTENGINE_MUTATING_TOOL_NAMES = [
   'sprintengine.recover',
   'sprintengine.roster.configure',
   'sprintengine.task.advance',
+  'sprintengine.task.approve_rework',
   'sprintengine.task.claim',
   'sprintengine.task.comment',
   'sprintengine.task.log',
   'sprintengine.task.next',
   'sprintengine.task.note',
   'sprintengine.task.publish',
+  'sprintengine.task.reassign_review',
   'sprintengine.task.release',
+  'sprintengine.task.request_changes',
   'sprintengine.task.resolve_input',
   'sprintengine.task.status',
   'sprintengine.triage.needs_input',
