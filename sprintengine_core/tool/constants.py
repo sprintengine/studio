@@ -87,7 +87,6 @@ VALID_ARTIFACT_KINDS = {
     "production_readiness_review",
     "cross_platform_review",
     "validation_report",
-    "integration_proof",
 }
 VALID_ARTIFACT_STATUSES = {"draft", "recorded", "ready_for_review", "approved", "changes_requested", "superseded"}
 # Provenance of an artifact approval: `manual` = a human approved it, `policy` =

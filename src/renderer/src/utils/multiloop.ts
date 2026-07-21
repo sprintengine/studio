@@ -26,7 +26,7 @@ import type {
   SprintEngineState,
   SprintEngineTask,
 } from '../types/workspace'
-import { getSprintEngineTaskBoardColumn, isCompletedSprintEngineRun } from './sprintengine'
+import { getSprintEngineTaskBoardColumn } from './sprintengine'
 
 const currentSchemaVersion = 1
 
@@ -186,11 +186,7 @@ export function getMilestoneExecutionReadiness({
 
   const tasks = getMilestoneExecutionTasks(state, milestone, linkedSprintEngineState)
   if (tasks.length === 0) return milestone.sprintEngine ? 'no_tasks' : 'multiloop_no_tasks'
-  if (milestone.sprintEngine && linkedSprintEngineState) {
-    if (isCompletedSprintEngineRun(linkedSprintEngineState)) return 'all_done'
-  } else if (tasks.every((task) => task.status === 'done')) {
-    return 'all_done'
-  }
+  if (tasks.every((task) => task.status === 'done')) return 'all_done'
 
   const blockers = activeBlockers ?? getActiveMultiloopBlockers(state, milestone.id)
   if (state.loop.status === 'blocked' || milestone.status === 'blocked' || blockers.length > 0) return 'blocked'

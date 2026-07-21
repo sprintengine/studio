@@ -479,7 +479,6 @@ export interface MobileControlTaskSnapshot {
   taskId: string;
   title: string;
   role: string;
-  kind?: "work" | "integration_proof";
   status: "todo" | "ready" | "in_progress" | "review" | "needs_input" | "done" | "canceled";
   ownerAgentId?: string;
   dependsOn: string[];
@@ -662,13 +661,6 @@ export interface MobileControlSprintEngineSnapshot {
   activity?: MobileControlSprintEngineActivitySummary;
   /** Headline counts mirrored from the projection's top-level counts block. */
   counts?: MobileControlSprintEngineCounts;
-  /** Additive completion guard. Absent means a pre-MC-1742 proof-exempt run. */
-  integrationProof?: {
-    required: boolean;
-    taskId?: string;
-    status: "pending" | "running" | "needs_human" | "valid" | "invalidated";
-    artifactId?: string;
-  };
 }
 
 export interface MobileControlWorkspaceSummary {
@@ -1827,22 +1819,8 @@ function validateSprintEngineSnapshot(input: unknown): string | null {
     validateOptionalRecordSummary(sprintEngine.value.planReview, "snapshot.sprintEngine.planReview") ??
     validateOptionalLockState(sprintEngine.value.locks, "snapshot.sprintEngine.locks") ??
     validateOptionalActivitySummary(sprintEngine.value.activity, "snapshot.sprintEngine.activity") ??
-    validateOptionalProjectionCounts(sprintEngine.value.counts, "snapshot.sprintEngine.counts") ??
-    validateOptionalIntegrationProof(sprintEngine.value.integrationProof, "snapshot.sprintEngine.integrationProof")
+    validateOptionalProjectionCounts(sprintEngine.value.counts, "snapshot.sprintEngine.counts")
   );
-}
-
-function validateOptionalIntegrationProof(input: unknown, fieldName: string): string | null {
-  if (input === undefined) return null;
-  const proof = validateObject(input, fieldName);
-  if (proof.ok === false) return proof.error;
-  if (typeof proof.value.required !== "boolean") return `${fieldName}.required must be a boolean`;
-  const status = proof.value.status;
-  if (!["pending", "running", "needs_human", "valid", "invalidated"].includes(String(status))) {
-    return `${fieldName}.status must be a supported integration-proof status`;
-  }
-  return optionalString(proof.value, "artifactId")
-    ?? optionalString(proof.value, "taskId");
 }
 
 function validateOptionalLockState(input: unknown, fieldName: string): string | null {
@@ -1968,7 +1946,6 @@ function validateTaskSnapshot(input: unknown): string | null {
     requireString(task.value, "taskId") ??
     requireString(task.value, "title") ??
     requireString(task.value, "role") ??
-    optionalLiteral(task.value, "kind", ["work", "integration_proof"] as const, "task.kind") ??
     requireLiteral(task.value, "status", taskStatuses) ??
     optionalString(task.value, "ownerAgentId") ??
     requireArray(task.value, "dependsOn") ??

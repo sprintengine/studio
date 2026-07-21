@@ -335,7 +335,7 @@ function buildStartupPrompt(input: {
     `${input.label}: ${input.label} - Fetch the canonical Sprint Engine instructions from the managed Sprint Engine MCP server.`,
     `Worker cwd: ${input.executionCwd}`,
     `Shared sprint state: ${input.statePath}`,
-    `You are assigned role: ${input.role}. Only claim and work sprint tasks whose role exactly matches ${input.role}, and normally carry each one through to done. A configured independent phase reviewer may temporarily own review; a reviewer who requests changes stays reserved until reapproval. Sprint work runs through the managed Sprint Engine MCP server in this terminal.`,
+    `You are assigned role: ${input.role}. Only claim and work sprint tasks whose role exactly matches ${input.role}, and own each one from claim to done. Sprint work runs through the managed Sprint Engine MCP server in this terminal.`,
     'Register this agent with `sprintengine.agent.join`:',
     ['```json', joinPayload, '```'].join('\n'),
     `This session was started for task ${input.taskId}. Claim it with \`sprintengine.task.claim\`:`,

@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
 import { BoardLane, LifecycleGlyph, TaskCard, Tooltip, type Tone } from '../../ui'
 import { SprintEngineRoleIcon } from '../../AppIcons'
+import { SprintEngineIntegrationIcon } from './SprintEngineBoardIcons'
 import type { SprintEngineState, SprintEngineTask, SprintEngineTaskBoardColumn } from '../../../types/workspace'
 import {
   getSprintEngineKanbanEmptyMessage,
@@ -120,6 +121,17 @@ export function SprintEngineTasksKanbanView({
                       // only — surfaced in the inspector, never as card chrome
                       // (a per-card model chip crowded every column).
                       <span className="flex items-center gap-1.5">
+                        {task.kind === 'integration_review' ? (
+                          <Tooltip content="Integration review — proves the pieces work together">
+                            <span
+                              className="text-[color:var(--text-muted)]"
+                              aria-label="Integration review task"
+                              role="img"
+                            >
+                              <SprintEngineIntegrationIcon className="icon-sm" />
+                            </span>
+                          </Tooltip>
+                        ) : null}
                         <Tooltip content={getSprintEngineRoleLabel(task.role)}>
                           <span
                             // design-tokens-allow: role glyph is the one place per the redesign where role tones are retained.

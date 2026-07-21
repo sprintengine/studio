@@ -948,10 +948,6 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
   registerSprintEngineIpc(ipcMain as never, {
     openArtifact: async () => ({ ok: true, data: {} }),
     reviewArtifact: async () => ({ ok: true, data: {} }),
-    approveHumanProof: async (payload) => {
-      calls.push(`proof:${payload.taskId}:${payload.artifactId}`)
-      return { ok: true, data: {} }
-    },
     initializeSprintEngineState: async () => ({ ok: true, data: {} }),
     updateTask: async () => ({ ok: true, data: {} }),
     createTask: async () => ({ ok: true, data: {} }),
@@ -959,12 +955,9 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     resolveTaskInput: async () => ({ ok: true, data: {} }),
     setTaskStatus: async () => ({ ok: true, data: {} }),
     setRunnerMode: async () => ({ ok: true, data: {} }),
-    cancelRun: async () => ({ ok: true, data: {} }),
     createPullRequest: async () => ({ ok: true, data: {} }),
-    mergePullRequest: async () => ({ ok: true, data: {} }),
     refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
     setRoleRuntime: async () => ({ ok: true, data: {} }),
-    enableRole: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),
     readRegistryRoles: async () => {
       calls.push('roles')
@@ -980,9 +973,8 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
 
   await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })
   await handlers.get('sprintengine:registry:role:read')?.(null, { workspaceRoot: '/tmp/workspace', roleId: 'developer' })
-  await handlers.get('sprintengine:proof:approve-human')?.(null, { statePath: '/tmp/workspace/.multi-code/sprintengine/run/run.yaml', taskId: 'P1', artifactId: 'A1' })
 
-  assert.deepEqual(calls, ['roles', 'role', 'proof:P1:A1'])
+  assert.deepEqual(calls, ['roles', 'role'])
 }
 
 void main().catch((error) => {

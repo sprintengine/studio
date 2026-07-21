@@ -14,14 +14,6 @@ from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle, worktree_for_task
 from sprintengine_core.tool.state import *  # noqa: F403,F401
-from sprintengine_core.tool.task_reviews import (
-    assert_task_can_complete,
-    close_review_request,
-    normalize_open_review_request,
-    open_review_request,
-    phase_review_request_for_approval,
-    route_published_rework_to_reapproval,
-)
 
 def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
     """Did this task produce a diff? The one input to publish-time phase routing.
@@ -75,9 +67,6 @@ def publish_task(
     changes enter `phases[0]`, or `done` when the task has no phases. Publish is the
     ONLY tool that enters the walk.
     """
-    from sprintengine_core.tool.integration_proof import is_proof_task
-    if is_proof_task(task):
-        raise SystemExit("integration_proof_uses_proof_record: proof tasks complete only through proof.record or local human approval.")
     previous_status = str(task.get("status") or "")
     if previous_status != "in_progress":
         raise SystemExit("Only in_progress tasks can be published.")
@@ -108,21 +97,14 @@ def publish_task(
         )
 
     produced_changes = task_produced_changes(state, state_path, task)
-    reapproval_request = task.get("openReviewRequest")
-    has_rework_request = isinstance(reapproval_request, dict) and reapproval_request.get("status") == "rework"
-    phases = ["review"] if has_rework_request else (resolve_task_phases(state, task) if produced_changes else [])
+    phases = resolve_task_phases(state, task) if produced_changes else []
     next_status = phases[0] if phases else "done"
-    if next_status == "done":
-        assert_task_can_complete(state, task)
     published_at = now_iso()
     task["lastImplementedByAgentId"] = actor
     task["lastPublishedAt"] = published_at
     task["status"] = next_status
     task.pop("needsInput", None)
-    routed_request = route_published_rework_to_reapproval(state, task, actor) if has_rework_request else None
-    if routed_request:
-        next_status = "review"
-    elif next_status == "done":
+    if next_status == "done":
         task["completedAt"] = published_at
         task["ownerAgentId"] = None
         end_lease(task)
@@ -208,11 +190,6 @@ def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: s
     phase = task_awaiting_phase_session(task)
     if not phase:
         raise SystemExit(f"Task {task.get('id')} is not awaiting a phase session.")
-    expected_agent_id = str(task["awaitingPhaseSession"].get("agentId") or "").strip()
-    if expected_agent_id and expected_agent_id != agent_id:
-        raise SystemExit(
-            f"phase_reviewer_mismatch: {task.get('id')} is reserved for {expected_agent_id}, not {agent_id}."
-        )
     runtime = task["awaitingPhaseSession"].get("runtime") or {}
     task.pop("awaitingPhaseSession", None)
     task["ownerAgentId"] = agent_id
@@ -246,9 +223,6 @@ def advance_task(
     while RECORDING the originating phase, so resolving the input returns it to that
     phase rather than to `in_progress`.
     """
-    from sprintengine_core.tool.integration_proof import is_proof_task
-    if is_proof_task(task):
-        raise SystemExit("integration_proof_uses_proof_record: proof tasks do not use ordinary phase advancement.")
     current_status = str(task.get("status") or "")
     clean_phase = str(phase or "").strip()
     if clean_phase not in VALID_TASK_PHASES:
@@ -286,7 +260,6 @@ def advance_task(
         raise SystemExit("--summary is required when advancing a phase.")
 
     now = now_iso()
-    phase_reapproval = phase_review_request_for_approval(task, actor)
     if outcome == "escalate":
         if not needs_input or not str(needs_input.get("question") or "").strip():
             raise SystemExit("An `escalate` outcome requires a needs-input question.")
@@ -323,8 +296,6 @@ def advance_task(
         remaining = phases[phases.index(clean_phase) + 1:] if clean_phase in phases else []
         next_phase = remaining[0] if remaining else None
         next_status = next_phase or "done"
-        if next_status == "done" and not phase_reapproval:
-            assert_task_can_complete(state, task)
         task["status"] = next_status
         task.pop("needsInput", None)
         comment = create_task_comment(
@@ -337,8 +308,6 @@ def advance_task(
             data={"phase": clean_phase, "outcome": outcome},
         )
         if next_status == "done":
-            if phase_reapproval:
-                close_review_request(task, phase_reapproval, actor)
             task["completedAt"] = now
             task["ownerAgentId"] = None
             end_lease(task)
@@ -373,8 +342,7 @@ def recompute_phase(state: Dict[str, Any]) -> bool:
     if sprintengine.get("canceled"):
         return set_if_changed(sprintengine, "status", "canceled")
     tasks = state.get("tasks", [])
-    from sprintengine_core.tool.integration_proof import run_is_complete
-    if run_is_complete(state):
+    if tasks and all(t.get("status") in {"done", "canceled"} for t in tasks):
         return set_if_changed(sprintengine, "status", "completed")
     if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks):
         return set_if_changed(sprintengine, "status", "executing")
@@ -444,9 +412,6 @@ def task_is_ready(state: Dict[str, Any], task: Dict[str, Any]) -> bool:
     if task.get("status") != "todo" or task.get("ownerAgentId"):
         return False
     if task.get("needsTriage") is True:
-        return False
-    from sprintengine_core.tool.integration_proof import is_proof_task, proof_barrier_open
-    if is_proof_task(task) and not proof_barrier_open(state, str(task.get("id") or "")):
         return False
     for dep_id in task.get("dependsOn", []):
         dep = next((t for t in state.get("tasks", []) if t.get("id") == dep_id), None)
@@ -725,16 +690,10 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
         task["productFacing"] = bool(raw.get("productFacing"))
     if "producesImplementation" in raw:
         task["producesImplementation"] = bool(raw.get("producesImplementation"))
-    kind = str(raw.get("kind") or "work").strip()
-    if kind not in {"work", "integration_proof"}:
-        raise SystemExit(f"Task {task_id} kind must be work or integration_proof.")
-    if kind == "integration_proof":
+    from sprintengine_core.tool.integration import normalize_task_kind
+    kind = normalize_task_kind(raw.get("kind"), task_id)
+    if kind is not None:
         task["kind"] = kind
-    for key in ("producesSeamIds", "consumesSeamIds"):
-        if key in raw:
-            if not isinstance(raw.get(key), list):
-                raise SystemExit(f"Task {task_id} {key} must be an array.")
-            task[key] = unique_strings([str(value).strip() for value in raw.get(key) or [] if str(value).strip()])
     source = normalize_task_source(raw.get("source"), task_id)
     if source is not None:
         task["source"] = source
@@ -752,12 +711,6 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     awaiting = raw.get("awaitingPhaseSession")
     if isinstance(awaiting, dict) and str(awaiting.get("phase") or "").strip():
         task["awaitingPhaseSession"] = awaiting
-    review_request = normalize_open_review_request(raw.get("openReviewRequest"))
-    if review_request is not None:
-        task["openReviewRequest"] = review_request
-    preferred_owner = str(raw.get("preferredOwnerAgentId") or "").strip()
-    if preferred_owner:
-        task["preferredOwnerAgentId"] = preferred_owner
     return task
 
 def parse_phases_arg(raw: Any) -> Optional[List[str]]:
@@ -861,7 +814,6 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "notes": getattr(args, "task_note", None) or [],
         "startedAt": None,
         "completedAt": None,
-        "kind": getattr(args, "kind", None) or "work",
     }
     if getattr(args, "product_facing", False) and getattr(args, "not_product_facing", False):
         raise SystemExit("--product-facing and --not-product-facing cannot be used together.")
@@ -871,13 +823,8 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["productFacing"] = False
     if getattr(args, "produces_implementation", False):
         raw["producesImplementation"] = True
-    if getattr(args, "produces_seam", None) is not None:
-        raw["producesSeamIds"] = list(getattr(args, "produces_seam") or [])
-    if getattr(args, "consumes_seam", None) is not None:
-        raw["consumesSeamIds"] = list(getattr(args, "consumes_seam") or [])
-    if raw.get("kind") == "integration_proof":
-        raw["ownedPaths"] = []
-        raw["phases"] = []
+    if getattr(args, "kind", None):
+        raw["kind"] = getattr(args, "kind")
     if getattr(args, "needs_triage", False):
         raw["needsTriage"] = True
     phases = parse_phases_arg(getattr(args, "phases", None))

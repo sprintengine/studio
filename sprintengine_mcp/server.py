@@ -303,7 +303,7 @@ class SprintEngineMcpServer:
                 "After this help call, call sprintengine.agent.join, then claim work with sprintengine.task.next using {role, id}.",
                 "Work what the claim returns; it resumes your active task or claims the next ready one.",
                 "If the claim returns no work, reply that no work was claimed and stop — Multicode re-engages this terminal when work is ready.",
-                "Normally you own your task from claim to done. A configured independent phase runtime may temporarily transfer review to another agent, and reviewer-requested rework always returns to its recorded requester for approval. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes in your task's project worktree, under that project's commit lock.",
+                "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes in your task's project worktree, under that project's commit lock.",
                 "If your task produced a diff, publish routes it into its review phase and returns your review directive INLINE in the publish response (`nextDirective`). Follow it, fix what you find, then close the phase with sprintengine.task.advance. If it produced no diff, publish lands the task in done.",
                 "After the task is done, stop. Multicode owns dispatch and continuation.",
                 "Headless CLI agents outside the managed runtime use sprintengine.agent.next_directive for routing instead.",
@@ -326,22 +326,6 @@ class SprintEngineMcpServer:
                 "Log evidence: sprintengine.task.log with {taskId, id, summary, file, command, result, scopeExpansionJson}.",
                 "Publish implementation evidence: sprintengine.task.publish with {taskId, id, summary, ...}; in worktree mode this also commits task-scoped changes in the task's project worktree, under that project's commit lock.",
                 "Close a phase: sprintengine.task.advance with {taskId, id, phase, outcome, summary, findingJson?}.",
-                "Reviewer blocking finding: sprintengine.task.request_changes with {taskId, id, feedback, sourceTaskId?}; a cross-task requester later closes it with sprintengine.task.approve_rework.",
-                *(
-                    ["Canonical integration-proof task: after claim, call sprintengine.proof.begin to capture graph/heads; then publish typed evidence with sprintengine.proof.record, or sprintengine.proof.request_human only for a concrete automation blocker. Ordinary task/artifact completion cannot validate proof."]
-                    if "sprintengine.proof.begin" in help_tools
-                    else []
-                ),
-                *(
-                    ["Plan integration explicitly with sprintengine.plan.set_proof and sprintengine.plan.upsert_seam/remove_seam. Every code task declares producesSeamIds and consumesSeamIds, including empty arrays; plan approval validates the complete manifest."]
-                    if "sprintengine.plan.set_proof" in help_tools
-                    else []
-                ),
-                *(
-                    ["Lost reviewer repair: sprintengine.task.reassign_review explicitly replaces approval authority and records why; recover a cross-task source lease first."]
-                    if "sprintengine.task.reassign_review" in help_tools
-                    else []
-                ),
                 "Inspect or manually commit your task's project worktree only when needed: sprintengine.vcs.status and sprintengine.vcs.commit.",
                 "Use sprintengine.task.status as a low-level repair/admin transition when a normal workflow tool cannot represent the correction.",
             ],
@@ -360,7 +344,7 @@ class SprintEngineMcpServer:
                 "Set ready: true only when the artifact must wait for human approval.",
             ],
             "phases": [
-                "Your task walks its `phases` after publish detects a diff. Today the only phase is `review`: normally self-review, or an independent reviewer when the run binds a separate phase session.",
+                "Your task walks its `phases` after publish detects a diff. Today the only phase is `review`: you review the work you just made.",
                 "Close each phase with sprintengine.task.advance and {taskId, id, phase, outcome, summary}. `phase` must equal the task's current status, and only the task's owner may call it.",
                 "outcome: `pass` when you reviewed and found nothing to fix; `pass_with_fixes` when you found issues and fixed them in this session; `escalate` when a plan contradiction, scope change, or product decision blocks you.",
                 "Record what you found (including what you fixed) as categorical telemetry with repeatable findingJson: {kind, severity, area, title?}.",
@@ -755,7 +739,7 @@ class SprintEngineMcpServer:
                 result.setdefault("state", "idle" if not result.get("claimed") else "blocked")
             else:
                 result.setdefault("state", "dispatched")
-        if tool_name in {"sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.task.status", "sprintengine.task.request_changes", "sprintengine.task.approve_rework", "sprintengine.task.reassign_review", "sprintengine.proof.begin", "sprintengine.proof.record", "sprintengine.proof.request_human"}:
+        if tool_name in {"sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.task.status"}:
             next_command = result.get("nextCommand")
             result.setdefault("progression", {"nextCommand": next_command, "state": "continuation_available" if next_command else "idle"})
         return result

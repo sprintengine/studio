@@ -71,16 +71,6 @@ commands.
   once at init from `--required-sweeps-json`; every id is validated against the
   registry's sweep roles, and the key is omitted entirely when none are
   mandated (`RUN_SWEEP_KEYS`, `store.run_required_sweeps`).
-- `integrationProof`: additive run-level proof policy and lifecycle. New runs
-  seed `required: true`; old v4 runs with no field are proof-exempt. A required
-  policy names exactly one `kind: integration_proof` task, its mode, proof and
-  graph revisions, engine-captured repository heads, and current artifact.
-- `integrationSeams`: structured producer/consumer contracts. Code-producing
-  tasks explicitly carry `producesSeamIds` and `consumesSeamIds` (empty arrays
-  are meaningful); plan approval rejects disconnected or inconsistent seams.
-- `integrationGraphFingerprint`: engine-owned digest of non-proof task graph,
-  lifecycle/review obligations, and seam data. Mutations reconcile it under the
-  run lock and invalidate current proof when it changes.
 - `tasks`: compact task graph entries with `id`, `status`, `role`, and
   `dependsOn`. Each graph entry also carries `needsTriage`, defaulting to
   `false` when absent.
@@ -131,27 +121,6 @@ team via `sprintengine.roster.configure`.
 `defaultPhases` (`RUN_PHASE_KEYS`) and `requiredSweeps` (`RUN_SWEEP_KEYS`)
 round-trip through `run.yaml` and re-emit on `projection.run` the same way,
 omitted when absent.
-
-`integrationProof`, `integrationSeams`, and `integrationGraphFingerprint`
-(`RUN_INTEGRATION_PROOF_KEYS`) also round-trip into `projection.run`. They are
-optional within schema v4 so stores created before MC-1742 stay unambiguously
-proof-exempt; no schema bump or destructive migration is needed.
-
-### Integration proof and seams
-
-The proof task is a dynamic barrier, not a static dependency snapshot. It is
-ready only after every non-canceled non-proof task is done and every reviewer
-rework obligation is closed. `sprintengine proof begin` captures all declared
-repository heads. `proof record` accepts a typed JSON artifact only when task,
-seam, command, gate, evidence-path, graph-revision, and head coverage match.
-Any later graph, seam, review, lifecycle, or repository-head change marks proof
-`invalidated`, reopens the same proof task, and clears a stale completed roll-up.
-
-`human_smoke` is the sole partial-evidence path. An agent may request it with a
-concrete blocker, but approval is an app-only Electron IPC gesture that invokes
-managed Python under the run lock. There is no MCP approval verb. Generic task
-status, input-resolution, artifact approval, publish, advance, VCS commit, PR,
-and finalization routes all reject proof bypasses.
 
 ### Store Version Rejection
 
@@ -531,10 +500,9 @@ plugin roles participate. There are four classifications:
   the registry cannot resolve. `AGENT_COMMON_TOOLS` only.
 
 A sweep role is an `owner` like any other worker: same tools, same lifecycle. It
-claims its own task, fixes small findings in place, and closes its phases with
-`task.advance`. `task.publish` and `task.advance` own the forward lifecycle;
-`task.request_changes` and `task.approve_rework` form the closed cross-task
-review loop. There is no separate reviewer tool set.
+claims its own task, fixes what it finds, and closes its phases with
+`task.advance`. `task.publish` and `task.advance` are the whole lifecycle surface
+in `AGENT_COMMON_TOOLS`; there is no separate reviewer tool set.
 `artifact.request_changes` is a planner/operator tool (`PLANNING_TOOLS`): the
 human Inbox loop and the architect adjudicate artifacts, and it is not a rework
 channel back onto a task.
@@ -617,6 +585,14 @@ Task records preserve the existing task card fields:
   retained through handoff.
 - `lastImplementedByAgentId`, `lastPublishedAt`
 - `productFacing`, `producesImplementation` (optional booleans)
+- `kind` (optional; only value: `integration_review`): charter marker for the
+  terminal task that proves the run's pieces work together — build, run the
+  app, exercise the seams between tasks. It is a marker, not machinery: the
+  task claims, publishes, and completes like any other. Plan approval warns
+  (`integrationWarnings`, never blocks) when implementation work is not
+  transitively covered by an integration task, and `plan add-task` warns when
+  implementation lands after the integration task already completed. Absent
+  means ordinary work; `work` normalizes to absent.
 - `startedAt`, `completedAt`
 - `activity`
 
@@ -701,12 +677,9 @@ with `path`, `reason`, and optional `risk`.
 
 ## The Phase Walk
 
-One implementation agent normally owns a task from claim to `done`. It
-implements, publishes, then reviews its own diff in the same session. A
-configured independent phase runtime may temporarily own `review`. A phase or
-sweep reviewer can explicitly open `openReviewRequest`, returning the target to
-implementation and requiring the same requester to approve a fresh publish;
-`review` remains non-claimable ordinary queue work.
+One agent owns a task from claim to `done`. It implements, publishes, then
+reviews its own diff in the same session. There is no separate reviewer, no
+claimable review queue, and no route backward through the board.
 
 **Enter the walk — `publish_task`** (`sprintengine_core/tool/tasks.py`). Publish
 records an `implementation_summary` comment (or an `implementation_response` when

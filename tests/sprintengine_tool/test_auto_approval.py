@@ -285,13 +285,10 @@ def test_renderer_auto_approval_policy_matches_approved_artifact_kinds() -> None
 
     # The same vocabulary is duplicated in the python store contract and the
     # main-process auto-approval gate; drift in any copy silently breaks
-    # artifact review for kinds the other layers accept. Integration proof is
-    # the one valid non-gate artifact: its Python proof command validates it,
-    # and human smoke requires a local app gesture, never auto approval.
+    # artifact review for kinds the other layers accept.
     from sprintengine_core.tool.constants import VALID_ARTIFACT_KINDS
 
-    assert VALID_ARTIFACT_KINDS - {"integration_proof"} == APPROVED_AUTO_APPROVAL_KINDS
-    assert "integration_proof" not in shared_kinds
+    assert VALID_ARTIFACT_KINDS == APPROVED_AUTO_APPROVAL_KINDS
 
     main_source = (repo_root / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
     main_match = re.search(r"const autoApprovableArtifactKinds = new Set\(\[([\s\S]*?)\]\)", main_source)

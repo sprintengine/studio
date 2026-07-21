@@ -179,19 +179,8 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 // is judged identically everywhere. Lives in this leaf module (depended on by
 // projectionRefresh and backlogLinks) so adopting it never reintroduces the
 // projectionRefresh↔backlogLinks import cycle. Accepts any task-bearing shape.
-export function isCompletedSprintEngineRun(
-  state: Pick<SprintEngineState, 'tasks'> & Partial<Pick<SprintEngineState, 'integrationProof'>>,
-): boolean {
-  if (state.tasks.length === 0) return false
-  if (state.tasks.some((task) => task.status !== 'done' && task.status !== 'canceled')) return false
-  if (state.tasks.some((task) => Boolean(task.openReviewRequest))) return false
-  const proof = state.integrationProof
-  if (!proof?.required) return true
-  const proofTask = state.tasks.find((task) => task.id === proof.taskId)
-  return proof.status === 'valid'
-    && Boolean(proof.artifactId)
-    && proofTask?.kind === 'integration_proof'
-    && proofTask.status === 'done'
+export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks'>): boolean {
+  return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
 }
 
 // Canonical "this run was canceled" signal, the sibling to
@@ -341,7 +330,7 @@ function sprintEngineAwaitingMergeLabel(rollup: SprintEngineRepoMergeRollup): st
 }
 
 export function deriveSprintEngineRunGlyph(input: {
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs' | 'canceled' | 'integrationProof'> | null | undefined
+  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'vcs' | 'canceled'> | null | undefined
   autoState: Partial<SprintEngineAutoState> | null | undefined
 }): SprintEngineRunGlyph | null {
   const tasks = input.sprintEngineState?.tasks ?? []
@@ -376,16 +365,13 @@ export function deriveSprintEngineRunGlyph(input: {
   // below renders a static `in_progress` arc — a spinner that looks stuck —
   // instead of the pause glyph. A paused run that has actually finished every
   // task still falls through to `done`.
-  if (runtimeState === 'paused' && !isCompletedSprintEngineRun(input.sprintEngineState ?? { tasks })) {
+  if (runtimeState === 'paused' && !isCompletedSprintEngineRun({ tasks })) {
     return AUTOMATION_RUN_GLYPH.paused ?? null
   }
   if (hasActiveWork) return { state: 'in_progress', live: false, label: 'In progress' }
 
   const hasTasks = tasks.length > 0
-  const runComplete = input.sprintEngineState
-    ? isCompletedSprintEngineRun(input.sprintEngineState)
-    : runtimeState === 'complete'
-  if (runComplete) {
+  if (isCompletedSprintEngineRun({ tasks }) || runtimeState === 'complete') {
     // A worktree run distinguishes merged (filled) from not-yet-merged (outline).
     // A run with no worktree has no branch to merge, so it stays the plain filled
     // "Complete" — never a permanent "unmerged" badge.
@@ -586,7 +572,6 @@ export const sprintEngineArtifactKindLabels: Record<SprintEngineArtifactKind, st
   production_readiness_review: 'Production Readiness Review',
   cross_platform_review: 'Cross-platform Review',
   validation_report: 'Validation Report',
-  integration_proof: 'Integration Proof',
 }
 
 export function sprintEngineArtifactKindLabel(kind: string): string {
@@ -2418,7 +2403,7 @@ export function normalizeSprintEngineAllowedRuntimes(value: unknown): SprintEngi
 // Birth-path with no runtime to spawn on. Returns null when absent.
 export function normalizeSprintEngineAwaitingPhaseSession(
   value: unknown,
-): { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime; agentId?: string; role?: SprintEngineRoleId } | null {
+): { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
   const phase = record.phase
@@ -2430,117 +2415,7 @@ export function normalizeSprintEngineAwaitingPhaseSession(
   if (!cli) return null
   const model =
     typeof runtimeRecord.model === 'string' && runtimeRecord.model.trim() ? runtimeRecord.model.trim() : null
-  const agentId = optionalTrimmedString(record.agentId)
-  const role = normalizeSprintEngineRoleId(record.role)
-  return {
-    phase: phase as SprintEngineTaskPhase,
-    runtime: { cli, model },
-    ...(agentId ? { agentId } : {}),
-    ...(role ? { role } : {}),
-  }
-}
-
-export function normalizeSprintEngineOpenReviewRequest(
-  value: unknown,
-): SprintEngineTask['openReviewRequest'] {
-  if (!value || typeof value !== 'object') return null
-  const record = value as Record<string, unknown>
-  const id = optionalTrimmedString(record.id)
-  const requestedByAgentId = optionalTrimmedString(record.requestedByAgentId)
-  const requestedByRole = normalizeSprintEngineRoleId(record.requestedByRole)
-  const sourceTaskId = optionalTrimmedString(record.sourceTaskId)
-  const requestedAt = optionalTrimmedString(record.requestedAt)
-  const status = record.status
-  const cycle = typeof record.cycle === 'number' && Number.isInteger(record.cycle) && record.cycle > 0
-    ? record.cycle
-    : null
-  if (
-    !id || !requestedByAgentId || !requestedByRole || !sourceTaskId || !requestedAt || !cycle
-    || !['rework', 'awaiting_reapproval', 'escalated'].includes(String(status))
-  ) return null
-  const runtime = normalizeSprintEngineAllowedRuntimes(
-    record.reviewerRuntime ? [record.reviewerRuntime] : [],
-  )?.[0]
-  const implementationAgentId = optionalTrimmedString(record.implementationAgentId)
-  const reworkedAt = optionalTrimmedString(record.reworkedAt)
-  return {
-    id,
-    status: status as 'rework' | 'awaiting_reapproval' | 'escalated',
-    requestedByAgentId,
-    requestedByRole,
-    sourceTaskId,
-    cycle,
-    requestedAt,
-    feedbackCommentIds: stringArray(record.feedbackCommentIds),
-    ...(implementationAgentId ? { implementationAgentId } : {}),
-    ...(reworkedAt ? { reworkedAt } : {}),
-    ...(runtime ? { reviewerRuntime: runtime } : {}),
-  }
-}
-
-export function normalizeSprintEngineIntegrationProof(value: unknown): NonNullable<SprintEngineState['integrationProof']> {
-  const record = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  const status = ['pending', 'running', 'needs_human', 'valid', 'invalidated'].includes(String(record.status))
-    ? String(record.status) as NonNullable<SprintEngineState['integrationProof']>['status']
-    : 'pending'
-  const mode = ['app_drive', 'engine_smoke', 'human_smoke'].includes(String(record.mode))
-    ? String(record.mode) as NonNullable<SprintEngineState['integrationProof']>['mode']
-    : undefined
-  const verifiedHeads = Array.isArray(record.verifiedHeads)
-    ? record.verifiedHeads.flatMap((entry): Array<{ repo: string; sha: string }> => {
-      if (!entry || typeof entry !== 'object') return []
-      const head = entry as Record<string, unknown>
-      const repo = optionalTrimmedString(head.repo)
-      const sha = optionalTrimmedString(head.sha)
-      return repo && sha ? [{ repo, sha }] : []
-    })
-    : []
-  const human = record.humanApproval && typeof record.humanApproval === 'object'
-    ? record.humanApproval as Record<string, unknown>
-    : null
-  const approvedAt = optionalTrimmedString(human?.approvedAt)
-  const evidenceArtifactId = optionalTrimmedString(human?.evidenceArtifactId)
-  return {
-    required: Boolean(record.required),
-    status,
-    revision: typeof record.revision === 'number' && Number.isInteger(record.revision) && record.revision >= 0 ? record.revision : 0,
-    graphRevision: typeof record.graphRevision === 'number' && Number.isInteger(record.graphRevision) && record.graphRevision >= 0 ? record.graphRevision : 0,
-    ...(optionalTrimmedString(record.taskId) ? { taskId: optionalTrimmedString(record.taskId) } : {}),
-    ...(mode ? { mode } : {}),
-    ...(verifiedHeads.length > 0 ? { verifiedHeads } : {}),
-    ...(optionalTrimmedString(record.artifactId) ? { artifactId: optionalTrimmedString(record.artifactId) } : {}),
-    ...(optionalTrimmedString(record.invalidatedReason) ? { invalidatedReason: optionalTrimmedString(record.invalidatedReason) } : {}),
-    ...(optionalTrimmedString(record.exemptionRationale) ? { exemptionRationale: optionalTrimmedString(record.exemptionRationale) } : {}),
-    ...(approvedAt && evidenceArtifactId && human?.actor === 'local_user'
-      ? { humanApproval: { approvedAt, actor: 'local_user' as const, evidenceArtifactId } }
-      : {}),
-  }
-}
-
-export function normalizeSprintEngineIntegrationSeams(value: unknown): NonNullable<SprintEngineState['integrationSeams']> {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((entry): NonNullable<SprintEngineState['integrationSeams']> => {
-    if (!entry || typeof entry !== 'object') return []
-    const record = entry as Record<string, unknown>
-    const id = optionalTrimmedString(record.id)
-    const producerTaskId = optionalTrimmedString(record.producerTaskId)
-    const kind = String(record.kind)
-    const disposition = String(record.disposition)
-    if (!id || !producerTaskId || !['ipc', 'protocol', 'store', 'event', 'service', 'cross_repo', 'other'].includes(kind) || !['connected', 'dangling'].includes(disposition)) return []
-    const follow = record.followUp && typeof record.followUp === 'object' ? record.followUp as Record<string, unknown> : null
-    return [{
-      id,
-      kind: kind as NonNullable<SprintEngineState['integrationSeams']>[number]['kind'],
-      producerTaskId,
-      consumerTaskIds: stringArray(record.consumerTaskIds),
-      acceptanceCritical: Boolean(record.acceptanceCritical),
-      disposition: disposition as 'connected' | 'dangling',
-      ...(optionalTrimmedString(record.rationale) ? { rationale: optionalTrimmedString(record.rationale) } : {}),
-      ...(follow && typeof follow.backlogId === 'number' && Number.isInteger(follow.backlogId)
-        ? { followUp: { backlogId: follow.backlogId, ...(optionalTrimmedString(follow.repo) ? { repo: optionalTrimmedString(follow.repo) } : {}), ...(optionalTrimmedString(follow.path) ? { path: optionalTrimmedString(follow.path) } : {}) } }
-        : {}),
-    }]
-  })
+  return { phase: phase as SprintEngineTaskPhase, runtime: { cli, model } }
 }
 
 export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
@@ -2571,7 +2446,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const folderStatus = optionalTrimmedString(task.folderStatus)
     const taskRecord = task as unknown as Record<string, unknown>
     const awaitingPhaseSession = normalizeSprintEngineAwaitingPhaseSession(taskRecord.awaitingPhaseSession)
-    const openReviewRequest = normalizeSprintEngineOpenReviewRequest(taskRecord.openReviewRequest)
     const phases = normalizeSprintEngineDefaultPhases(taskRecord.phases)
     const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
     const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
@@ -2584,9 +2458,9 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       title: task.title ?? `Task ${index + 1}`,
       description: task.description ?? '',
       role: taskRole,
-      ...(taskRecord.kind === 'integration_proof' ? { kind: 'integration_proof' as const } : {}),
       repo: optionalTrimmedString(task.repo) ?? DEFAULT_SPRINTENGINE_TASK_REPO,
       status,
+      ...(task.kind === 'integration_review' ? { kind: 'integration_review' as const } : {}),
       ...(semanticStatus ? { stateStatus: semanticStatus } : {}),
       ...(boardColumn ? { boardColumn } : {}),
       ...(folderStatus ? { folderStatus } : {}),
@@ -2594,15 +2468,9 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ownerAgentId: task.ownerAgentId ?? null,
       ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
       ...(awaitingPhaseSession ? { awaitingPhaseSession } : {}),
-      ...(openReviewRequest ? { openReviewRequest } : {}),
-      ...(optionalTrimmedString(taskRecord.preferredOwnerAgentId)
-        ? { preferredOwnerAgentId: optionalTrimmedString(taskRecord.preferredOwnerAgentId) }
-        : {}),
       ...(typeof task.model === 'string' && task.model.trim() ? { model: task.model.trim() } : {}),
       ...(typeof task.cli === 'string' && task.cli.trim() ? { cli: task.cli.trim() } : {}),
       dependsOn: stringArray(task.dependsOn),
-      ...(Array.isArray(taskRecord.producesSeamIds) ? { producesSeamIds: stringArray(taskRecord.producesSeamIds) } : {}),
-      ...(Array.isArray(taskRecord.consumesSeamIds) ? { consumesSeamIds: stringArray(taskRecord.consumesSeamIds) } : {}),
       ownedPaths: stringArray(task.ownedPaths),
       acceptanceCriteria: stringArray(task.acceptanceCriteria),
       implementationNotes: stringArray(task.implementationNotes),
@@ -2651,8 +2519,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     events: input.events ?? [],
     tasks,
     artifacts: normalizeSprintEngineArtifacts(input.artifacts),
-    integrationProof: normalizeSprintEngineIntegrationProof(input.integrationProof),
-    integrationSeams: normalizeSprintEngineIntegrationSeams(input.integrationSeams),
     ...(input.projection ? { projection: input.projection } : {}),
     ...(input.locks ? { locks: input.locks } : {}),
     ...(input.creation ? { creation: input.creation } : {}),
@@ -2970,8 +2836,6 @@ export function normalizeSprintEngineProjection(
     events,
     tasks: rawTasks as SprintEngineState['tasks'],
     artifacts: rawArtifacts as SprintEngineState['artifacts'],
-    integrationProof: normalizeSprintEngineIntegrationProof(runRecord.integrationProof),
-    integrationSeams: normalizeSprintEngineIntegrationSeams(runRecord.integrationSeams),
     projection: {
       source: projectionSourceValue(record.source),
       updatedAt: optionalTrimmedString(record.updatedAt) ?? null,
@@ -3192,7 +3056,7 @@ export type SprintEngineBoardRunPhase = 'Planning' | 'Tasked' | 'Running' | 'Com
  * task completion + active runtime agent states, not by surface chrome.
  */
 export function getSprintEngineBoardRunPhase(
-  sprintEngineState: Pick<SprintEngineState, 'tasks' | 'integrationProof'>,
+  sprintEngineState: Pick<SprintEngineState, 'tasks'>,
   runtimeAgents: SprintEngineBoardRuntimeAgentView[],
 ): SprintEngineBoardRunPhase {
   if (isCompletedSprintEngineRun(sprintEngineState)) {

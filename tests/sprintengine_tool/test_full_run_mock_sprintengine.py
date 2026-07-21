@@ -146,16 +146,6 @@ def test_full_run_mock_swarm_covers_phase_walk_review_scheduling_auto_approval_a
         "--acceptance",
         "Selected final reviews are added with skip rationale for unneeded reviews",
     )
-    # This legacy lifecycle harness writes only fixture artifacts and no product
-    # code. New runs default to required proof, so record the explicit non-code
-    # exemption before the architect plan is approved.
-    cli.run(
-        "plan",
-        "set-proof",
-        "--exempt",
-        "--rationale",
-        "Lifecycle-only fixture run produces no product code.",
-    )
 
     plan_artifact = artifact_by_kind(read_state(state_path), "architect_plan")
     write_team_file(state_path, "plan.md", "# Plan\n")

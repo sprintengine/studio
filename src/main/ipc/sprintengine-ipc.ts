@@ -28,12 +28,6 @@ export type SprintEngineArtifactReviewPayload = {
   feedback?: string
 }
 
-export type SprintEngineHumanProofApprovalPayload = {
-  statePath: string
-  taskId: string
-  artifactId: string
-}
-
 export type SprintEngineVcsPayload = {
   statePath: string
 }
@@ -64,7 +58,6 @@ type SprintEngineIpcDependencies = {
     action: SprintEngineArtifactReviewAction,
     mode: SprintEngineArtifactReviewMode
   ): Promise<SprintEngineArtifactCommandResult>
-  approveHumanProof?(payload: SprintEngineHumanProofApprovalPayload): Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
@@ -100,13 +93,6 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
     return deps.reviewArtifact(payload, 'request-changes', 'user')
-  })
-
-  // Deliberately app-only: no Studio MCP contract exposes this mutation. The
-  // renderer can reach it only through a local Electron user gesture.
-  ipcMain.handle('sprintengine:proof:approve-human', async (_, payload: SprintEngineHumanProofApprovalPayload): Promise<SprintEngineArtifactCommandResult> => {
-    if (!deps.approveHumanProof) return { ok: false, message: 'Human proof approval is unavailable.' }
-    return deps.approveHumanProof(payload)
   })
 
   ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult> => {

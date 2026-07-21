@@ -20,7 +20,6 @@ import {
 import {
   buildSprintEngineAgentRosterForState,
   getSprintEngineRoleLabel,
-  isCompletedSprintEngineRun,
   isSprintEngineTaskLaunchable,
 } from './sprintengine'
 
@@ -301,7 +300,8 @@ function selectLinkedSprintEngineAutoRunCandidates({
   }
 
   if (
-    isCompletedSprintEngineRun(sprintEngineState)
+    sprintEngineState.tasks.length > 0
+    && sprintEngineState.tasks.every((task) => task.status === 'done')
     && coordinatorAutoSpawnKey !== activeMilestone.id
     && !occupiedAgentIds.has(buildMultiloopRoleAgentId('coordinator'))
   ) {

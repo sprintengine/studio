@@ -62,3 +62,16 @@ export function SprintEngineSummaryNavIcon({ className }: { className?: string }
     </svg>
   )
 }
+
+// Two branches converging into one node: the integration-review task card
+// marker (kind: integration_review) — the terminal task that proves the run's
+// pieces work together.
+export function SprintEngineIntegrationIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3.25 3.5V6C3.25 7.5 4.5 8 5.75 8H10.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.25 12.5V10C3.25 8.5 4.5 8 5.75 8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.25" />
+    </svg>
+  )
+}

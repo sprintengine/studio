@@ -26,7 +26,6 @@ import type {
   SprintEngineArtifactReviewAction,
   SprintEngineArtifactReviewMode,
   SprintEngineArtifactReviewPayload,
-  SprintEngineHumanProofApprovalPayload,
   SprintEngineProjectionReadPayload,
   SprintEngineVcsMergePayload,
   SprintEngineVcsPayload,
@@ -1153,7 +1152,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     action: SprintEngineArtifactReviewAction,
     mode: SprintEngineArtifactReviewMode
   ): Promise<SprintEngineArtifactCommandResult>
-  approveHumanProof(payload: SprintEngineHumanProofApprovalPayload): Promise<SprintEngineArtifactCommandResult>
   initializeSprintEngineState(payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult>
   updateTask(payload: SprintEngineTaskUpdateInput): Promise<SprintEngineArtifactCommandResult>
   createTask(payload: SprintEngineTaskCreateInput): Promise<SprintEngineArtifactCommandResult>
@@ -1244,46 +1242,6 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
             mode,
             artifactId,
             tool: toolResult.response.result,
-          }),
-        }
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-
-    async approveHumanProof(payload) {
-      try {
-        const state = validateSprintEngineStatePath(payload?.statePath)
-        await requireSprintEngineMcpAuthority(deps)
-        const taskId = resolveSprintEngineTaskId(payload?.taskId)
-        const artifactId = resolveSprintEngineArtifactId(payload?.artifactId)
-        const toolResult = await runSprintEngineCli(state, [
-          '--state',
-          state.statePath,
-          'proof',
-          'approve-human',
-          '--task-id',
-          taskId,
-          '--artifact-id',
-          artifactId,
-        ])
-        if (toolResult.exitCode !== 0) {
-          return {
-            ok: false,
-            message: toolResult.stderr.trim() || toolResult.stdout.trim() || 'Human proof approval failed.',
-            stdout: toolResult.stdout,
-            stderr: toolResult.stderr,
-            exitCode: toolResult.exitCode ?? 'unknown',
-          }
-        }
-        return {
-          ok: true,
-          data: await buildSprintEngineMutationData(state, {
-            action: 'approve-human-proof',
-            actor: 'local_user',
-            taskId,
-            artifactId,
-            tool: parseSprintEngineCliJsonOutput(toolResult.stdout),
           }),
         }
       } catch (error) {

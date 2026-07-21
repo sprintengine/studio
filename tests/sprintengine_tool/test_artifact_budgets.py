@@ -155,11 +155,8 @@ SKILL_BYTE_CEILINGS = {
 # terse contract documentation (the only field docs agents get), and the
 # feedback properties are bare type schemas — nothing left to trim without
 # deleting semantics. This ceiling exists to stop future creep; it ratchets
-# DOWN like the prompt ceilings, never up without an argued exception. MC-1742
-# adds six narrow proof/seam contracts (~3.1k serialized bytes): planners need
-# the structural mutations and any worker may own the canonical proof task.
-# Measured 45.1k after generation; 46k is the new ratchet.
-TOOLS_LIST_BYTE_CEILING = 46_000
+# DOWN like the prompt ceilings, never up without an argued exception.
+TOOLS_LIST_BYTE_CEILING = 42_000
 
 
 def test_serialized_tool_schemas_stay_within_byte_ceiling() -> None:

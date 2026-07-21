@@ -25,15 +25,9 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.plan.list',
   'sprintengine.plan.read',
   'sprintengine.plan.remove_dependency',
-  'sprintengine.plan.remove_seam',
   'sprintengine.plan.review_status',
-  'sprintengine.plan.set_proof',
   'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
-  'sprintengine.plan.upsert_seam',
-  'sprintengine.proof.begin',
-  'sprintengine.proof.record',
-  'sprintengine.proof.request_human',
   'sprintengine.recover',
   'sprintengine.roles.get',
   'sprintengine.roles.list',
@@ -46,7 +40,6 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.soul.get',
   'sprintengine.summary',
   'sprintengine.task.advance',
-  'sprintengine.task.approve_rework',
   'sprintengine.task.claim',
   'sprintengine.task.comment',
   'sprintengine.task.comment.list',
@@ -56,9 +49,7 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.task.next',
   'sprintengine.task.note',
   'sprintengine.task.publish',
-  'sprintengine.task.reassign_review',
   'sprintengine.task.release',
-  'sprintengine.task.request_changes',
   'sprintengine.task.resolve_input',
   'sprintengine.task.status',
   'sprintengine.triage.needs_input',
@@ -813,27 +804,16 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "taskNote": {
           "type": "array"
         },
+        "producesImplementation": {
+          "type": "boolean"
+        },
         "kind": {
           "type": "string",
           "enum": [
             "work",
-            "integration_proof"
-          ]
-        },
-        "producesImplementation": {
-          "type": "boolean"
-        },
-        "producesSeamIds": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "consumesSeamIds": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+            "integration_review"
+          ],
+          "description": "Charter marker: integration_review = the terminal task proving the pieces work together; runs like any other task."
         },
         "needsTriage": {
           "type": "boolean"
@@ -967,29 +947,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
-    "name": "sprintengine.plan.remove_seam",
-    "description": "plan remove seam",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "seamId"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "actor": {
-          "type": "string"
-        },
-        "seamId": {
-          "type": "string"
-        }
-      }
-    }
-  },
-  {
     "name": "sprintengine.plan.review_status",
     "description": "plan review status",
     "inputSchema": {
@@ -1000,44 +957,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "statePath": {
           "type": "string",
           "description": "Run state path; server-resolved, agents normally omit it."
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.plan.set_proof",
-    "description": "plan set proof",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "required"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "actor": {
-          "type": "string"
-        },
-        "required": {
-          "type": "boolean"
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "mode": {
-          "type": "string",
-          "enum": [
-            "app_drive",
-            "engine_smoke",
-            "human_smoke"
-          ]
-        },
-        "rationale": {
-          "type": "string"
         }
       }
     }
@@ -1114,33 +1033,16 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "clearTaskNotes": {
           "type": "boolean"
         },
+        "producesImplementation": {
+          "type": "boolean"
+        },
         "kind": {
           "type": "string",
           "enum": [
             "work",
-            "integration_proof"
-          ]
-        },
-        "producesImplementation": {
-          "type": "boolean"
-        },
-        "producesSeamIds": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "clearProducesSeamIds": {
-          "type": "boolean"
-        },
-        "consumesSeamIds": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "clearConsumesSeamIds": {
-          "type": "boolean"
+            "integration_review"
+          ],
+          "description": "Set or clear the charter marker; work clears it."
         },
         "needsTriage": {
           "type": "boolean"
@@ -1170,133 +1072,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "maximum": 100
         },
         "difficultyReason": {
-          "type": "string"
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.plan.upsert_seam",
-    "description": "plan upsert seam",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "seam"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "actor": {
-          "type": "string"
-        },
-        "seam": {
-          "type": "object"
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.proof.begin",
-    "description": "proof begin",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "id"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "id": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.proof.record",
-    "description": "proof record",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "id",
-        "artifactPath"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "id": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "artifactPath": {
-          "type": "string"
-        },
-        "artifactId": {
-          "type": "string",
-          "description": "Sprint Engine artifact id."
-        },
-        "title": {
-          "type": "string"
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.proof.request_human",
-    "description": "proof request human",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "id",
-        "artifactPath",
-        "blocker"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "id": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "artifactPath": {
-          "type": "string"
-        },
-        "artifactId": {
-          "type": "string",
-          "description": "Sprint Engine artifact id."
-        },
-        "title": {
-          "type": "string"
-        },
-        "blocker": {
           "type": "string"
         }
       }
@@ -1927,40 +1702,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
-    "name": "sprintengine.task.approve_rework",
-    "description": "task approve rework",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "sourceTaskId",
-        "id",
-        "summary"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "sourceTaskId": {
-          "type": "string"
-        },
-        "id": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "summary": {
-          "type": "string"
-        }
-      }
-    }
-  },
-  {
     "name": "sprintengine.task.claim",
     "description": "task claim",
     "inputSchema": {
@@ -2313,52 +2054,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
-    "name": "sprintengine.task.reassign_review",
-    "description": "task reassign review",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "id",
-        "reviewerId",
-        "reviewerRole",
-        "reason"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "id": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "reviewerId": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "reviewerRole": {
-          "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
-        },
-        "reviewerCli": {
-          "type": "string"
-        },
-        "reviewerModel": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string"
-        }
-      }
-    }
-  },
-  {
     "name": "sprintengine.task.release",
     "description": "task release",
     "inputSchema": {
@@ -2382,49 +2077,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "reason": {
           "type": "string"
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.task.request_changes",
-    "description": "task request changes",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "taskId",
-        "id",
-        "feedback"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "taskId": {
-          "type": "string",
-          "description": "Sprint Engine task id, for example T3."
-        },
-        "id": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "sourceTaskId": {
-          "type": "string",
-          "description": "Owned sweep/final-review source task; omit for phase review."
-        },
-        "feedback": {
-          "type": "string"
-        },
-        "path": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "findingJson": {
-          "type": "array"
         }
       }
     }
@@ -2842,27 +2494,18 @@ export const SPRINTENGINE_MUTATING_TOOL_NAMES = [
   'sprintengine.plan.address_reviews',
   'sprintengine.plan.delete_task',
   'sprintengine.plan.remove_dependency',
-  'sprintengine.plan.remove_seam',
-  'sprintengine.plan.set_proof',
   'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
-  'sprintengine.plan.upsert_seam',
-  'sprintengine.proof.begin',
-  'sprintengine.proof.record',
-  'sprintengine.proof.request_human',
   'sprintengine.recover',
   'sprintengine.roster.configure',
   'sprintengine.task.advance',
-  'sprintengine.task.approve_rework',
   'sprintengine.task.claim',
   'sprintengine.task.comment',
   'sprintengine.task.log',
   'sprintengine.task.next',
   'sprintengine.task.note',
   'sprintengine.task.publish',
-  'sprintengine.task.reassign_review',
   'sprintengine.task.release',
-  'sprintengine.task.request_changes',
   'sprintengine.task.resolve_input',
   'sprintengine.task.status',
   'sprintengine.triage.needs_input',

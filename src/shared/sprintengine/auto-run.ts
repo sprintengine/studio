@@ -2239,24 +2239,15 @@ export function pickNextAutoRuns(
       const awaiting = task.awaitingPhaseSession
       if (!awaiting) continue
       if (selectedTaskIds.has(task.id)) continue
-      // An exact requester id may already have been selected for another active
-      // task in this pass. Never create a second session with the same authority;
-      // Python also reserves phase reviewers from new claims while their thread
-      // is open, and this guard handles projections from before that reservation.
-      if (awaiting.agentId && (
-        selectedAgentIds.has(awaiting.agentId)
-        || options.runningAgentIds.has(awaiting.agentId)
-        || hasInFlightSpawn(awaiting.agentId)
-      )) continue
       // Per-task dedup (sanctioned: phase births carry their task): a booting
       // session already birthed for this phase must not be doubled.
       if (unboundLiveWorkers.some((worker) => worker.taskId === task.id)) continue
-      const agentId = awaiting.agentId ?? getNextSprintEngineAgentId(task.role, phaseSessionAgents)
+      const agentId = getNextSprintEngineAgentId(task.role, phaseSessionAgents)
       reserveId(agentId, task.role)
       candidates.push({
         agentId,
         label: labelFor(agentId, agentId),
-        role: awaiting.role ?? task.role,
+        role: task.role,
         taskId: task.id,
         runtimeOverride: awaiting.runtime,
         startupPromptOverride: buildSprintEnginePhaseSessionPrompt(task, agentId, awaiting.phase),

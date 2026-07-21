@@ -93,32 +93,6 @@ def command_payload_to_namespace(
             needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
         )
         add_feedback_defaults(base, payload)
-    elif tool_name == "sprintengine.task.request_changes":
-        base.update(
-            task_id=payload["taskId"],
-            id=payload["id"],
-            source_task_id=payload.get("sourceTaskId"),
-            feedback=payload["feedback"],
-            path=list(payload.get("path") or []),
-            finding_json=list(payload.get("findingJson") or []),
-        )
-    elif tool_name == "sprintengine.task.approve_rework":
-        base.update(
-            task_id=payload["taskId"],
-            source_task_id=payload["sourceTaskId"],
-            id=payload["id"],
-            summary=payload["summary"],
-        )
-    elif tool_name == "sprintengine.task.reassign_review":
-        base.update(
-            task_id=payload["taskId"],
-            id=payload["id"],
-            reviewer_id=payload["reviewerId"],
-            reviewer_role=payload["reviewerRole"],
-            reviewer_cli=payload.get("reviewerCli"),
-            reviewer_model=payload.get("reviewerModel"),
-            reason=payload["reason"],
-        )
     elif tool_name == "sprintengine.task.note":
         base.update(task_id=payload["taskId"], id=payload["id"], note=payload["note"])
     elif tool_name == "sprintengine.task.comment":
@@ -147,10 +121,8 @@ def command_payload_to_namespace(
             acceptance=list(payload.get("acceptance") or []),
             note=list(payload.get("note") or []),
             task_note=list(payload.get("taskNote") or []),
-            kind=payload.get("kind") or "work",
             produces_implementation=bool(payload.get("producesImplementation", False)),
-            produces_seam=list(payload.get("producesSeamIds") or []) if "producesSeamIds" in payload else None,
-            consumes_seam=list(payload.get("consumesSeamIds") or []) if "consumesSeamIds" in payload else None,
+            kind=payload.get("kind"),
             needs_triage=bool(payload.get("needsTriage", False)),
             # `[]` is an explicit "no phases", so presence — not truthiness — decides
             # whether the task overrides the run default.
@@ -175,12 +147,8 @@ def command_payload_to_namespace(
             clear_notes=bool(payload.get("clearNotes", False)),
             task_note=payload.get("taskNote"),
             clear_task_notes=bool(payload.get("clearTaskNotes", False)),
-            kind=payload.get("kind"),
             produces_implementation=bool(payload.get("producesImplementation", False)),
-            produces_seam=list(payload.get("producesSeamIds") or []) if "producesSeamIds" in payload else None,
-            clear_produces_seams=bool(payload.get("clearProducesSeamIds", False)),
-            consumes_seam=list(payload.get("consumesSeamIds") or []) if "consumesSeamIds" in payload else None,
-            clear_consumes_seams=bool(payload.get("clearConsumesSeamIds", False)),
+            kind=payload.get("kind"),
             needs_triage=payload.get("needsTriage") if "needsTriage" in payload else None,
             phases=payload["phases"] if "phases" in payload else None,
             clear_needs_triage=bool(payload.get("clearNeedsTriage", False)),
@@ -193,12 +161,6 @@ def command_payload_to_namespace(
         base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], unlink_dependents=bool(payload.get("unlinkDependents", False)), force=bool(payload.get("force", False)))
     elif tool_name in {"sprintengine.plan.add_dependency", "sprintengine.plan.remove_dependency"}:
         base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], depends_on=list(payload.get("dependsOn") or []), force=bool(payload.get("force", False)))
-    elif tool_name == "sprintengine.plan.set_proof":
-        base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), required=bool(payload["required"]), task_id=payload.get("taskId"), mode=payload.get("mode"), rationale=payload.get("rationale"))
-    elif tool_name == "sprintengine.plan.upsert_seam":
-        base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), seam=payload["seam"])
-    elif tool_name == "sprintengine.plan.remove_seam":
-        base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), seam_id=payload["seamId"])
     elif tool_name == "sprintengine.plan.start_review":
         base.update(role=payload["role"], id=payload["id"])
     elif tool_name == "sprintengine.plan.address_reviews":
@@ -207,10 +169,6 @@ def command_payload_to_namespace(
         pass
     elif tool_name == "sprintengine.artifact.add":
         base.update(actor=payload.get("actor") or _actor_id(actor, "agent"), artifact_id=payload.get("artifactId"), task_id=payload["taskId"], kind=payload["kind"], title=payload["title"], path=payload["path"], created_by=payload.get("createdBy"), recommended_task=list(payload.get("recommendedTask") or []), ready=bool(payload.get("ready", False)))
-    elif tool_name == "sprintengine.proof.begin":
-        base.update(task_id=payload["taskId"], id=payload["id"])
-    elif tool_name in {"sprintengine.proof.record", "sprintengine.proof.request_human"}:
-        base.update(task_id=payload["taskId"], id=payload["id"], artifact_path=payload["artifactPath"], artifact_id=payload.get("artifactId"), title=payload.get("title"), blocker=payload.get("blocker"))
     elif tool_name == "sprintengine.artifact.list":
         base.update(task_id=payload.get("taskId"), kind=payload.get("kind"), status=payload.get("status"))
     elif tool_name == "sprintengine.artifact.ready":

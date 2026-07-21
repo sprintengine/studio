@@ -38,11 +38,6 @@ type WindowApi = {
     statePath: string,
     artifactId: string,
   ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
-  approveSprintEngineHumanProof: (
-    statePath: string,
-    taskId: string,
-    artifactId: string,
-  ) => Promise<{ ok: true; data: unknown } | { ok: false; message: string }>
   requestSprintEngineArtifactChanges: (
     statePath: string,
     artifactId: string,
@@ -311,9 +306,7 @@ export function useSprintEngineBoardArtifactActions(
         message: 'Approving artifact...',
       })
       try {
-        const result = artifact.kind === 'integration_proof'
-          ? await api.approveSprintEngineHumanProof(ensuredStatePath, artifact.taskId, artifact.id)
-          : await api.approveSprintEngineArtifact(ensuredStatePath, artifact.id)
+        const result = await api.approveSprintEngineArtifact(ensuredStatePath, artifact.id)
         if (!result.ok) {
           setArtifactAction(artifact.id, {
             kind: 'approve',

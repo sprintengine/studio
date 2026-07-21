@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { buildSprintEngineAgentRosterForState, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './state'
+import { buildSprintEngineAgentRosterForState, normalizeSprintEngineProjection } from './state'
 
 // A minimal v3 (`projection.workers` + `projection.roster` bridge) projection
 // payload as it lands off disk. The engine derives both the canonical `workers`
@@ -313,50 +313,7 @@ function testCategoricalFindingsSurviveNormalization(): void {
   assert.equal(findings[1].title, 'label only')
 }
 
-function testIntegrationProofRoundTripsAndGuardsCompletion(): void {
-  const doneTask = {
-    id: 'T1', title: 'Done', description: '', role: 'developer', repo: 'primary',
-    status: 'done', ownerAgentId: null, dependsOn: [], ownedPaths: [],
-    acceptanceCriteria: [], implementationNotes: [], notes: [], comments: [],
-    evidence: {}, startedAt: null, completedAt: '2026-07-21T00:00:00Z',
-    producesSeamIds: [], consumesSeamIds: [],
-  }
-  const proofTask = {
-    ...doneTask,
-    id: 'P1', title: 'Prove', kind: 'integration_proof' as const,
-    producesSeamIds: undefined, consumesSeamIds: undefined,
-  }
-  const blocked = normalizeSprintEngineProjection(v3Projection({
-    run: {
-      name: 'Proof run', goal: 'prove it', status: 'executing',
-      integrationProof: { required: true, taskId: 'P1', mode: 'engine_smoke', status: 'pending', revision: 0, graphRevision: 0 },
-      integrationSeams: [{ id: 'S1', kind: 'service', producerTaskId: 'T1', consumerTaskIds: ['T2'], acceptanceCritical: true, disposition: 'connected' }],
-    },
-    tasks: [doneTask, proofTask],
-  }))
-  assert.ok(blocked)
-  assert.equal(blocked.tasks[0].producesSeamIds?.length, 0, 'explicit empty seam declarations survive')
-  assert.equal(blocked.integrationSeams?.[0].id, 'S1')
-  assert.equal(isCompletedSprintEngineRun(blocked), false, 'pending required proof blocks a done graph')
-
-  const valid = normalizeSprintEngineProjection(v3Projection({
-    run: {
-      name: 'Proof run', goal: 'prove it', status: 'completed',
-      integrationProof: { required: true, taskId: 'P1', mode: 'engine_smoke', status: 'valid', revision: 1, graphRevision: 0, artifactId: 'A1' },
-    },
-    tasks: [doneTask, proofTask],
-  }))
-  assert.ok(valid)
-  assert.equal(isCompletedSprintEngineRun(valid), true)
-
-  const oldRun = normalizeSprintEngineProjection(v3Projection({ tasks: [doneTask] }))
-  assert.ok(oldRun)
-  assert.equal(oldRun.integrationProof?.required, false, 'old projections normalize to a proof exemption')
-  assert.equal(isCompletedSprintEngineRun(oldRun), true)
-}
-
 testCategoricalFindingsSurviveNormalization()
-testIntegrationProofRoundTripsAndGuardsCompletion()
 testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()

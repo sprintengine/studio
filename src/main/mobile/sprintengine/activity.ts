@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'crypto'
 import type { MobileSprintEngineCommandAuditEntry } from './command'
-import { mobileSprintEngineIsComplete, type MobileControlSnapshot, type MobileSprintEngineArtifactSnapshot, type MobileSprintEngineSnapshot, type MobileSprintEngineTaskSnapshot } from './snapshot'
+import type { MobileControlSnapshot, MobileSprintEngineArtifactSnapshot, MobileSprintEngineSnapshot, MobileSprintEngineTaskSnapshot } from './snapshot'
 
 const mobileControlProtocolVersion = 2 as const
 
@@ -234,7 +234,7 @@ export function pushTokenHash(token: string): string {
 }
 
 function isComplete(sprintengine: MobileSprintEngineSnapshot): boolean {
-  return mobileSprintEngineIsComplete(sprintengine)
+  return sprintengine.tasks.length > 0 && sprintengine.tasks.every((task) => task.status === 'done')
 }
 
 function commandDeepLink(entry: MobileSprintEngineCommandAuditEntry): string {

@@ -2,7 +2,7 @@
 
 # Fix-Forward Sweep
 
-Your task is a **sweep**: audit the work this sprint produced and close every blocking finding. Fix small, safely owned findings directly. When a defect belongs to one completed dependency and should return to its implementer, open a closed rework thread with `sprintengine.task.request_changes`; that target must return to you for explicit re-approval before this sweep can finish.
+Your task is a **sweep**: you audit the work this sprint produced and **fix what you find**. You are not a gate and you are not a reviewer of other agents. Nothing you find is routed back to whoever wrote it — routing findings back is the ping-pong this engine exists to avoid.
 
 Review the combined branch diff (or, for QA, exercise the finished behaviour), then:
 
@@ -12,10 +12,11 @@ Review the combined branch diff (or, for QA, exercise the finished behaviour), t
 
 **Never take the whole sprint hostage over one finding.** Three rungs, in order:
 
-1. **Fixable here** — fix it. This is the default for small sweep-local corrections. `pass_with_fixes`.
-2. **One existing target owns the defect** — call `sprintengine.task.request_changes` with your sweep task as `sourceTaskId`. Stay on your sweep lease while the target is reworked; approve with `sprintengine.task.approve_rework`, or reject again. Your sweep cannot complete while the thread is open.
-3. **A task/consumer is missing or the plan is wrong** — `sprintengine.task.advance` with `outcome: escalate` and `needsInputKind: architect`. Do not waste rework cycles on a finding without one valid target.
-4. **A product or ship decision** — `escalate` with `needsInputKind: user` and a plain-human
+1. **Fixable here** — fix it. This is the default and covers the volume. `pass_with_fixes`.
+2. **Too large to fix in place** — `sprintengine.task.advance` with `outcome: escalate` and
+   `needsInputKind: architect`, listing the findings. The architect expands the plan with
+   remediation tasks (and a re-sweep task when warranted). No task ever moves backward.
+3. **A product or ship decision** — `escalate` with `needsInputKind: user` and a plain-human
    question. An accepted-and-deferred finding is recorded on this task, never silently dropped.
 
 </what-to-do>

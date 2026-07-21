@@ -4,7 +4,6 @@ import { dirname, join } from 'path'
 import { tmpdir } from 'os'
 import {
   MobileSprintEngineSnapshotService,
-  mobileSprintEngineIsComplete,
   readSprintEngineSnapshot,
   sanitizeMobileSnapshotForRelay,
 } from './snapshot'
@@ -41,7 +40,6 @@ const requiredMutationCommands = [
 void main()
 
 async function main(): Promise<void> {
-  assertMobileCompletionRequiresCanonicalProofTask()
   await assertFixtureSnapshotMatchesDesktopBoardCounts()
   await assertMigratedProjectionSnapshotIsPreferred()
   await assertReviewProjectionSnapshotExposesReviewContext()
@@ -73,22 +71,6 @@ async function main(): Promise<void> {
   await assertPublishingIsThrottled()
   await assertAutomationIntentSidecarWinsOverRunnerHeuristic()
   await assertAutomationIntentSidecarSurfacesOnStateFallback()
-}
-
-function assertMobileCompletionRequiresCanonicalProofTask(): void {
-  const snapshot = {
-    tasks: [{ taskId: 'T1', kind: 'work', status: 'done' }],
-    integrationProof: {
-      required: true,
-      taskId: 'T1',
-      status: 'valid',
-      artifactId: 'A1',
-    },
-  } as unknown as Parameters<typeof mobileSprintEngineIsComplete>[0]
-  assert.equal(mobileSprintEngineIsComplete(snapshot), false)
-  snapshot.tasks.push({ taskId: 'P1', kind: 'integration_proof', status: 'done' } as typeof snapshot.tasks[number])
-  snapshot.integrationProof!.taskId = 'P1'
-  assert.equal(mobileSprintEngineIsComplete(snapshot), true)
 }
 
 async function assertAutomationIntentSidecarWinsOverRunnerHeuristic(): Promise<void> {

@@ -26,15 +26,6 @@ from .commands.plan import (
     cmd_plan_review_status,
     cmd_plan_start_review,
     cmd_plan_update_task,
-    cmd_plan_set_proof,
-    cmd_plan_upsert_seam,
-    cmd_plan_remove_seam,
-)
-from .commands.proof import (
-    cmd_proof_begin,
-    cmd_proof_record,
-    cmd_proof_request_human,
-    cmd_proof_approve_human,
 )
 from .commands.roster import (
     cmd_roster_configure,
@@ -62,8 +53,6 @@ from .commands.run import (
 )
 from .commands.task import (
     cmd_task_advance,
-    cmd_task_approve_rework,
-    cmd_task_reassign_review,
     cmd_task_claim,
     cmd_task_comment,
     cmd_task_comment_list,
@@ -72,7 +61,6 @@ from .commands.task import (
     cmd_task_next,
     cmd_task_note,
     cmd_task_publish,
-    cmd_task_request_changes,
     cmd_task_refresh_ready,
     cmd_task_release,
     cmd_task_resolve_input,

@@ -226,21 +226,8 @@ def build_phase_directive(
     base_pack = _registry_skill_body(registry, phase_base_pack_skill_id(phase))
     open_feedback_count = len(open_feedback_comments(task))
 
-    independent_review = (
-        normalize_role_id(phase) == "review"
-        and str(task.get("ownerAgentId") or "").strip()
-        and str(task.get("lastImplementedByAgentId") or "").strip()
-        and str(task.get("ownerAgentId") or "").strip() != str(task.get("lastImplementedByAgentId") or "").strip()
-    )
-    header = (
-        "You are independently reviewing another agent's implementation. "
-        "Approve it with `sprintengine.task.advance`, or return blocking findings with "
-        "`sprintengine.task.request_changes`; rework must return to you for re-approval."
-        if independent_review
-        else phase_header(phase)
-    )
     sections: List[str] = [
-        f"# {header}",
+        f"# {phase_header(phase)}",
         "",
         f"Task: `{task.get('id')}` - {task.get('title')}",
         f"Phase: `{phase}`",

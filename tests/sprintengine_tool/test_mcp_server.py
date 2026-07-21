@@ -188,17 +188,11 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.task.comment.list",
         "sprintengine.task.list",
         "sprintengine.task.advance",
-        "sprintengine.task.request_changes",
-        "sprintengine.task.approve_rework",
-        "sprintengine.task.reassign_review",
         "sprintengine.plan.add_task",
         "sprintengine.plan.update_task",
         "sprintengine.plan.delete_task",
         "sprintengine.plan.add_dependency",
         "sprintengine.plan.remove_dependency",
-        "sprintengine.plan.set_proof",
-        "sprintengine.plan.upsert_seam",
-        "sprintengine.plan.remove_seam",
         "sprintengine.plan.start_review",
         "sprintengine.plan.review_status",
         "sprintengine.plan.address_reviews",
@@ -209,9 +203,6 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.artifact.ready",
         "sprintengine.artifact.approve",
         "sprintengine.artifact.request_changes",
-        "sprintengine.proof.begin",
-        "sprintengine.proof.record",
-        "sprintengine.proof.request_human",
         "sprintengine.vcs.status",
         "sprintengine.vcs.commit",
         "sprintengine.vcs.request_repo",
@@ -256,17 +247,11 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.task.comment.list": {"taskId": "T1"},
         "sprintengine.task.list": {},
         "sprintengine.task.advance": {"taskId": "T1", "id": "developer-1", "phase": "review", "outcome": "pass", "summary": "ok"},
-        "sprintengine.task.request_changes": {"taskId": "T1", "id": "developer-2", "feedback": "fix it"},
-        "sprintengine.task.approve_rework": {"taskId": "T1", "sourceTaskId": "T2", "id": "developer-2", "summary": "approved"},
-        "sprintengine.task.reassign_review": {"taskId": "T1", "id": "architect", "reviewerId": "reviewer-2", "reviewerRole": "developer", "reason": "Original reviewer unavailable"},
         "sprintengine.plan.add_task": {"title": "Task", "role": "developer"},
         "sprintengine.plan.update_task": {"taskId": "T1"},
         "sprintengine.plan.delete_task": {"taskId": "T1"},
         "sprintengine.plan.add_dependency": {"taskId": "T1", "dependsOn": ["T0"]},
         "sprintengine.plan.remove_dependency": {"taskId": "T1", "dependsOn": ["T0"]},
-        "sprintengine.plan.set_proof": {"required": True, "taskId": "P1", "mode": "engine_smoke"},
-        "sprintengine.plan.upsert_seam": {"seam": {"id": "S1", "kind": "service", "producerTaskId": "T1", "consumerTaskIds": ["T2"], "acceptanceCritical": True, "disposition": "connected"}},
-        "sprintengine.plan.remove_seam": {"seamId": "S1"},
         "sprintengine.plan.start_review": {"role": "developer", "id": "developer-1"},
         "sprintengine.plan.review_status": {},
         "sprintengine.plan.address_reviews": {},
@@ -276,9 +261,6 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.artifact.ready": {"artifactId": "A1", "id": "developer-1"},
         "sprintengine.artifact.approve": {"artifactId": "A1", "id": "product"},
         "sprintengine.artifact.request_changes": {"artifactId": "A1", "id": "product", "feedback": "revise"},
-        "sprintengine.proof.begin": {"taskId": "P1", "id": "developer-1"},
-        "sprintengine.proof.record": {"taskId": "P1", "id": "developer-1", "artifactPath": "artifacts/proof.json"},
-        "sprintengine.proof.request_human": {"taskId": "P1", "id": "developer-1", "artifactPath": "artifacts/proof.json", "blocker": "Confirm native window behavior."},
         "sprintengine.vcs.status": {},
         "sprintengine.vcs.commit": {"taskId": "T1", "id": "developer-1"},
         "sprintengine.vcs.request_repo": {"root": "../multicode-mobile", "id": "developer-1"},
@@ -316,16 +298,15 @@ def test_mcp_help_returns_versioned_agent_workflow_without_state_path() -> None:
     assert "needsInputKind" in result["markdown"]
     assert "sprintengine.artifact.add" in result["markdown"]
     assert "sprintengine.task.advance" in result["markdown"]
-    assert "Normally you own your task from claim to done" in result["markdown"]
+    assert "You own your task from claim to done" in result["markdown"]
     # MC-1614: the commit an agent reads about is per project, not per run — the
     # lock it names is the task's own project's.
     assert "in your task's project worktree, under that project's commit lock" in result["markdown"]
     assert "sprintengine.vcs.commit" in result["markdown"]
-    # The deleted gate protocol must not linger; MC-1741's task-scoped closed
-    # rework loop is the supported replacement.
+    # MC-1542: the retired review protocol must not linger in the workflow an
+    # agent reads on every join.
     assert "sprintengine.gate." not in result["markdown"]
-    assert "sprintengine.task.request_changes" in result["markdown"]
-    assert "sprintengine.task.approve_rework" in result["markdown"]
+    assert "request_changes" not in result["markdown"]
 
 
 def test_mcp_v1_contract_schemas_include_planned_lifecycle_tools() -> None:

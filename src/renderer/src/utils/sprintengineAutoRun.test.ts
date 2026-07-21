@@ -141,8 +141,6 @@ async function main(): Promise<void> {
   testPickNextAutoRunsReusesPlanningIdAcrossSequentialTasks()
   testPickNextAutoRunsDefersReworkToLiveBoundOwner()
   testPickNextAutoRunsBirthsPhaseSessionOnBoundRuntime()
-  testPickNextAutoRunsRestoresRequestingPhaseReviewer()
-  testPickNextAutoRunsDoesNotDuplicateBusyRequestingReviewer()
   testPickNextAutoRunsSkipsAwaitingPhaseSessionAlreadyPending()
   testPickNextAutoRunsMintsDistinctIdsForTwoPhaseSessions()
   testPickNextAutoRunsIgnoresAwaitingMarkerWhenOwnerStillBound()
@@ -5767,55 +5765,6 @@ function testPickNextAutoRunsBirthsPhaseSessionOnBoundRuntime(): void {
     birth.startupPromptOverride && birth.startupPromptOverride.includes('T-phase'),
     'the Birth prompt names the specific task id so a cheap session cannot grab it',
   )
-}
-
-function testPickNextAutoRunsRestoresRequestingPhaseReviewer(): void {
-  const awaitingTask = task({
-    id: 'T-reapproval',
-    role: 'developer',
-    status: 'review',
-    boardColumn: 'review',
-    ownerAgentId: null,
-    lastImplementedByAgentId: 'developer-1',
-    awaitingPhaseSession: {
-      phase: 'review',
-      runtime: { cli: 'claude-code', model: 'claude-fable-5' },
-      agentId: 'developer-reviewer-7',
-      role: 'developer',
-    },
-  })
-  const candidates = pickNextAutoRuns(
-    workspaceFixture(),
-    sprintEngineStateFixture({ tasks: [awaitingTask] }),
-    pickInput(),
-  )
-
-  assert.equal(candidates.length, 1)
-  assert.equal(candidates[0]?.agentId, 'developer-reviewer-7', 're-approval restores the exact requesting reviewer')
-  assert.equal(candidates[0]?.runtimeOverride?.model, 'claude-fable-5')
-}
-
-function testPickNextAutoRunsDoesNotDuplicateBusyRequestingReviewer(): void {
-  const awaitingTask = task({
-    id: 'T-reapproval-busy',
-    role: 'developer',
-    status: 'review',
-    boardColumn: 'review',
-    ownerAgentId: null,
-    awaitingPhaseSession: {
-      phase: 'review',
-      runtime: { cli: 'claude-code', model: 'claude-fable-5' },
-      agentId: 'developer-reviewer-7',
-      role: 'developer',
-    },
-  })
-  const candidates = pickNextAutoRuns(
-    workspaceFixture(),
-    sprintEngineStateFixture({ tasks: [awaitingTask] }),
-    pickInput({ runningAgentIds: new Set(['developer-reviewer-7']) }),
-  )
-
-  assert.equal(candidates.length, 0, 'an exact requester id is never spawned twice')
 }
 
 function testPickNextAutoRunsSkipsAwaitingPhaseSessionAlreadyPending(): void {
