@@ -18,6 +18,7 @@ async function main(): Promise<void> {
   await testSurvivesReload()
   await testEvictsGoneRunsAndAgedLegacyEntriesOnLoad()
   await testDropConnectionClearsOnlyThatConnection()
+  await testFailedStatePathsForRetry()
 
   console.log('tracker-writeback-ledger tests passed')
 }
@@ -127,10 +128,28 @@ async function testDropConnectionClearsOnlyThatConnection(): Promise<void> {
   assert.equal((await ledger.listNotices()).length, 0)
 }
 
-function postMeta(key: string, message?: string, overrides?: { connectionId?: string }) {
+// failedStatePaths drives the notices "Retry now": the DISTINCT run state paths a
+// connection has failing posts under, excluding posted entries and other
+// connections, so retry reconciles exactly the stuck runs.
+async function testFailedStatePathsForRetry(): Promise<void> {
+  const ledger = new TrackerWriteBackLedger({ resolveUserDataDir: () => '/ud', files: memoryFs().adapter })
+  await ledger.recordFailure(postMeta('a', 'boom', { connectionId: 'conn-x', statePath: '/ws/run-a/run.yaml' }))
+  // Same run, another failing post → the path is not duplicated.
+  await ledger.recordFailure(postMeta('a2', 'boom', { connectionId: 'conn-x', statePath: '/ws/run-a/run.yaml' }))
+  await ledger.recordFailure(postMeta('b', 'boom', { connectionId: 'conn-x', statePath: '/ws/run-b/run.yaml' }))
+  // A posted entry and another connection's failure must not appear.
+  await ledger.markPosted(postMeta('c', undefined, { connectionId: 'conn-x', statePath: '/ws/run-c/run.yaml' }))
+  await ledger.recordFailure(postMeta('d', 'boom', { connectionId: 'conn-y', statePath: '/ws/run-d/run.yaml' }))
+
+  const paths = (await ledger.failedStatePaths('conn-x')).sort()
+  assert.deepEqual(paths, ['/ws/run-a/run.yaml', '/ws/run-b/run.yaml'])
+  assert.deepEqual(await ledger.failedStatePaths('conn-z'), [])
+}
+
+function postMeta(key: string, message?: string, overrides?: { connectionId?: string; statePath?: string }) {
   return {
     key,
-    statePath: '/ws/team/run.yaml',
+    statePath: overrides?.statePath ?? '/ws/team/run.yaml',
     connectionId: overrides?.connectionId ?? 'conn-1',
     externalId: 'ext-1',
     provider: 'github' as const,
