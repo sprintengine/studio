@@ -805,6 +805,21 @@ export type AppSettings = {
    * Turning this off restores the terminal transport for every role.
    */
   guidedBriefConversationSessions: boolean
+  /**
+   * The review the user last opened in the Reviews door, so reopening the door
+   * restores it instead of snapping to the attention-first first row. Both the
+   * review id and its owning project root are stored, because review ids are
+   * only unique within a project. Cleared when the remembered review is absent
+   * from a freshly loaded index (deleted externally). `null` means fall back to
+   * attention-first auto-select. See ReviewsGlobalSurface.
+   */
+  lastSelectedReview: LastSelectedReview | null
+}
+
+/** A remembered Reviews-door selection: a review id scoped to its project root. */
+export type LastSelectedReview = {
+  reviewId: string
+  workspaceRoot: string
 }
 
 export type PendingAgentConfigAdoption = {

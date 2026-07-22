@@ -9,6 +9,7 @@ import type {
   PendingAgentConfigAdoption,
   CliRuntimeSettings,
   KeybindingSettings,
+  LastSelectedReview,
   LearningSettings,
   McpServerConfig,
   McpSettings,
@@ -562,6 +563,19 @@ export function normalizeConversationModel(
   return { providerId, modelId }
 }
 
+// Persisted last-opened Reviews-door selection. Keeps only a well-formed pair
+// (both ids non-empty); anything else — legacy absence, a half-written blob —
+// resets to null so the door falls back to attention-first auto-select.
+export function normalizeLastSelectedReview(
+  input: LastSelectedReview | null | undefined,
+): LastSelectedReview | null {
+  if (!input || typeof input !== 'object') return null
+  const reviewId = typeof input.reviewId === 'string' ? input.reviewId.trim() : ''
+  const workspaceRoot = typeof input.workspaceRoot === 'string' ? input.workspaceRoot.trim() : ''
+  if (!reviewId || !workspaceRoot) return null
+  return { reviewId, workspaceRoot }
+}
+
 // Persisted specialist menu order. Keeps only known ids and drops duplicates;
 // missing ids are resolved against the canonical roster at render time, so an
 // incomplete or stale list is safe to store.
@@ -854,6 +868,7 @@ export const defaultAppSettings = (): AppSettings => ({
   skillPacks: defaultSkillPackSettings(),
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
+  lastSelectedReview: null,
   lastSelectedSpecialist: 'architect',
   lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
@@ -920,6 +935,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
+    lastSelectedReview: normalizeLastSelectedReview(settings?.lastSelectedReview),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
@@ -1058,6 +1074,8 @@ export interface SettingsSliceActions {
   removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
+  /** Remember (or clear with `null`) the review last opened in the Reviews door. */
+  setLastSelectedReview: (selection: LastSelectedReview | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
@@ -1339,6 +1357,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedConversationModel: (selection) =>
       set((state) => {
         state.appSettings.lastSelectedConversationModel = normalizeConversationModel(selection)
+      }),
+
+    setLastSelectedReview: (selection) =>
+      set((state) => {
+        state.appSettings.lastSelectedReview = normalizeLastSelectedReview(selection)
       }),
 
     setLastSelectedSpecialist: (specialistId) =>

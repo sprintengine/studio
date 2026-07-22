@@ -1,5 +1,6 @@
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import { REVIEW_STATE_PRESENTATION, type ReviewProgressState } from '../../../../../../shared/review/review-state'
+import type { LastSelectedReview } from '../../../../types/workspace'
 import type { Tone } from '../../../ui/tokens'
 
 // Pure projections for the Reviews-door rail (MC-1708 T6, mockup §4). Each review
@@ -63,4 +64,42 @@ export function orderReviewRail(entries: ReviewIndexEntry[]): ReviewRailRow[] {
     .map((entry, index) => ({ row: reviewRailRow(entry), index }))
     .sort((a, b) => STATUS_ORDER[a.row.status] - STATUS_ORDER[b.row.status] || a.index - b.index)
     .map((wrapped) => wrapped.row)
+}
+
+export interface ReviewAutoSelectDecision {
+  /** The review the door should open, or null when the index holds none. */
+  select: LastSelectedReview | null
+  /** True when `remembered` named a review this index does not have, so the
+   *  stored preference is dead and must be cleared. */
+  clearRemembered: boolean
+}
+
+// Which review a freshly loaded door opens when the reviewer has not chosen one
+// this session (MC-1785). The remembered review wins while it is still in the
+// index — matched on BOTH ids, because review ids are only unique within a
+// project. A remembered review the index does not have was deleted externally:
+// the door falls back to the first (attention-ordered) row and reports that the
+// dead preference should be cleared, so it can never pin a review that is gone.
+export function resolveReviewAutoSelect(
+  entries: readonly ReviewIndexEntry[],
+  rows: readonly ReviewRailRow[],
+  remembered: LastSelectedReview | null,
+): ReviewAutoSelectDecision {
+  const match = remembered
+    ? entries.find(
+        (entry) =>
+          entry.reviewId === remembered.reviewId && entry.workspaceRoot === remembered.workspaceRoot,
+      )
+    : undefined
+  if (match) {
+    return {
+      select: { reviewId: match.reviewId, workspaceRoot: match.workspaceRoot },
+      clearRemembered: false,
+    }
+  }
+  const first = rows[0]
+  return {
+    select: first ? { reviewId: first.reviewId, workspaceRoot: first.workspaceRoot } : null,
+    clearRemembered: remembered !== null,
+  }
 }

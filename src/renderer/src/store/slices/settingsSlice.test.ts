@@ -997,4 +997,47 @@ assert.equal(
   'setGuidedBriefConversationSessions(false) opts out',
 )
 
+// The Reviews door's remembered selection (MC-1785). Reached through
+// useWorkspaceStore, so this also pins the setter's dual declaration — a setter
+// missing from the WorkspaceStore interface would not typecheck here.
+const reviewStore = useWorkspaceStore.getState()
+assert.equal(
+  defaultAppSettings().lastSelectedReview,
+  null,
+  'a fresh profile remembers no review, so the door auto-selects attention-first',
+)
+reviewStore.setLastSelectedReview({ reviewId: 'rv_b', workspaceRoot: '/proj/multicode' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.lastSelectedReview,
+  { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
+  'the opened review is remembered with its owning project root',
+)
+reviewStore.setLastSelectedReview(null)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.lastSelectedReview,
+  null,
+  'clearing a dead preference stores null',
+)
+// A half-written pair cannot survive: either id missing means there is nothing
+// to restore, so hydration falls back to attention-first rather than a partial.
+reviewStore.setLastSelectedReview({ reviewId: 'rv_b', workspaceRoot: '  ' })
+assert.equal(
+  useWorkspaceStore.getState().appSettings.lastSelectedReview,
+  null,
+  'a pair missing its project root normalizes away',
+)
+assert.deepEqual(
+  normalizeAppSettings(
+    { lastSelectedReview: { reviewId: ' rv_b ', workspaceRoot: ' /proj/multicode ' } } as never,
+    [],
+  ).lastSelectedReview,
+  { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
+  'hydration trims a persisted pair',
+)
+assert.equal(
+  normalizeAppSettings({ lastSelectedReview: { reviewId: 'rv_b' } } as never, []).lastSelectedReview,
+  null,
+  'hydration drops a persisted pair that lost its project root',
+)
+
 console.log('settingsSlice.test.ts: ok')

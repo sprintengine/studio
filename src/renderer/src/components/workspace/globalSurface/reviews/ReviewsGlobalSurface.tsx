@@ -11,7 +11,7 @@ import { SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { ReviewsRail } from './ReviewsRail'
 import { ReviewChangeForm } from './ReviewChangeForm'
-import { orderReviewRail } from './reviewRailModel'
+import { orderReviewRail, resolveReviewAutoSelect } from './reviewRailModel'
 import { buildReviewsSurfaceBar } from './ReviewSurfaceBar'
 
 // How often the open door re-scans the review index so the rail's states stay
@@ -39,6 +39,11 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   // open in two windows is scanned once.
   const roots = useReviewProjectRoots()
   const back = useSurfaceBackNav()
+
+  // The door unmounts on close, so the last-opened review is remembered in
+  // persisted settings rather than component state — reopening restores it.
+  const lastSelectedReview = useWorkspaceStore((state) => state.appSettings.lastSelectedReview)
+  const setLastSelectedReview = useWorkspaceStore((state) => state.setLastSelectedReview)
 
   const [index, setIndex] = useState<IndexPhase>({ phase: 'loading' })
   const [selected, setSelected] = useState<SelectedReview | null>(null)
@@ -75,14 +80,17 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   const rows = useMemo(() => orderReviewRail(entries), [entries])
   const selectedEntry = selected ? entries.find((entry) => entry.reviewId === selected.reviewId) ?? null : null
 
-  // First load with reviews and nothing chosen: open the first one (the rail is
-  // ordered attention-first). Never overrides an explicit selection, so a just-
-  // created review stays selected across the reload that brings it into the list.
+  // First load with nothing chosen: reopen the remembered review when the index
+  // still has it, else fall back to the first row (the rail is ordered
+  // attention-first) and drop the dead preference. Never overrides an explicit
+  // selection, so a just-created review stays selected across the reload that
+  // brings it into the list.
   useEffect(() => {
-    if (index.phase !== 'ready' || creating || selected || rows.length === 0) return
-    const first = rows[0]
-    setSelected({ reviewId: first.reviewId, workspaceRoot: first.workspaceRoot })
-  }, [index.phase, creating, selected, rows])
+    if (index.phase !== 'ready' || creating || selected) return
+    const decision = resolveReviewAutoSelect(entries, rows, lastSelectedReview)
+    if (decision.clearRemembered) setLastSelectedReview(null)
+    if (decision.select) setSelected(decision.select)
+  }, [index.phase, creating, selected, rows, entries, lastSelectedReview, setLastSelectedReview])
 
   const session = useReviewSession({
     reviewId: selected?.reviewId ?? null,
@@ -107,8 +115,12 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   const onSelect = useCallback((reviewId: string) => {
     setCreating(false)
     const row = rows.find((r) => r.reviewId === reviewId)
-    if (row) setSelected({ reviewId: row.reviewId, workspaceRoot: row.workspaceRoot })
-  }, [rows])
+    if (row) {
+      const next = { reviewId: row.reviewId, workspaceRoot: row.workspaceRoot }
+      setSelected(next)
+      setLastSelectedReview(next)
+    }
+  }, [rows, setLastSelectedReview])
 
   const onNewReview = useCallback(() => setCreating(true), [])
 
@@ -116,9 +128,10 @@ export default function ReviewsGlobalSurface(): JSX.Element {
     (review: SelectedReview) => {
       setCreating(false)
       setSelected(review)
+      setLastSelectedReview(review)
       void reload()
     },
-    [reload],
+    [reload, setLastSelectedReview],
   )
 
   const onCancelCreate = useCallback(() => setCreating(false), [])

@@ -36,6 +36,7 @@ import type {
   AgentConfigAdoptionResult,
   AgentConversationRuntime,
   AppSettings,
+  LastSelectedReview,
   PendingAgentConfigAdoption,
   UsageTelemetrySettings,
   VoiceDictationSettings,
@@ -241,6 +242,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   removeSkillPack: (id: string) => void
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
+  setLastSelectedReview: (selection: LastSelectedReview | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
