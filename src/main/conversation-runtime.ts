@@ -50,6 +50,9 @@ type RuntimeSession = ConversationSessionSummary & {
   // All approval request ids currently unresolved on a stateful turn (the
   // provider can hold several permission callbacks open at once).
   pendingApprovalRequestIds: Set<string>
+  // Serializes continuation-channel events (post-`result` turns the provider
+  // opens outside a sendTurn) so their persistence and broadcast stay ordered.
+  continuationTail: Promise<void>
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   allowedTools?: string[]
@@ -163,6 +166,7 @@ export class ConversationRuntime {
       stateful,
       turnLockRequestId: null,
       pendingApprovalRequestIds: new Set(),
+      continuationTail: Promise.resolve(),
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
@@ -174,7 +178,16 @@ export class ConversationRuntime {
     const resumeSessionId = stateful
       ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
       : undefined
-    await this.emitAll(session, validation.adapter.startSession({ ...session, resumeSessionId }))
+    await this.emitAll(
+      session,
+      validation.adapter.startSession({
+        ...session,
+        resumeSessionId,
+        // Continuation channel: the adapter opens a mirror turn here when its
+        // child resumes after a `result` (background subagents completing).
+        onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
+      })
+    )
     session.status = 'ready'
     session.updatedAt = this.now()
     return { ok: true, session: this.toSummary(session) }
@@ -557,6 +570,46 @@ export class ConversationRuntime {
       session.updatedAt = this.now()
     } else if (event.type === 'turn_failed' || event.type === 'turn_completed') {
       session.pendingApprovalRequestIds.clear()
+    }
+  }
+
+  // The session-scoped continuation channel: a stateful adapter pushes events
+  // here when its child resumes after a `result` with no open sendTurn (e.g. a
+  // background subagent completed and the model issued another tool call). Runs
+  // outside any sendTurn IPC, so the composer stays free to end the prior turn.
+  // Serialized through session.continuationTail to keep persistence ordered.
+  private enqueueContinuationEvent(session: RuntimeSession, event: ConversationEvent): void {
+    session.continuationTail = session.continuationTail
+      .catch(() => undefined)
+      .then(() => this.processContinuationEvent(session, event))
+  }
+
+  private async processContinuationEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
+    if (session.status === 'stopped') return
+    const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    if (turnId && session.canceledTurnIds.has(turnId)) return
+    // First sight of a continuation turn: open a mirror in session state so its
+    // events survive suppression and its approvals track through the normal
+    // pendingRequestId path. A concurrently-completing sendTurn will see its own
+    // turnId no longer active and skip its post-loop reset, so this stands.
+    if (event.type === 'turn_started' && turnId && turnId !== session.activeTurnId) {
+      session.activeTurnId = turnId
+      session.activeTurnAbort = null
+      session.turnLockRequestId = null
+      session.pendingRequestId = null
+      session.pendingApprovalRequestIds.clear()
+      session.status = 'active'
+      session.updatedAt = this.now()
+    }
+    await this.emit(session, event, turnId ? { turnId } : {})
+    if (turnId && session.activeTurnId === turnId && (event.type === 'turn_completed' || event.type === 'turn_failed')) {
+      session.activeTurnId = null
+      session.activeTurnAbort = null
+      session.turnLockRequestId = null
+      session.pendingRequestId = null
+      session.pendingApprovalRequestIds.clear()
+      session.status = event.type === 'turn_completed' ? 'ready' : 'failed'
+      session.updatedAt = this.now()
     }
   }
 

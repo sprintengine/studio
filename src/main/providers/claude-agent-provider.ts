@@ -32,6 +32,7 @@ import type {
 import type {
   ConversationProviderAdapter,
   ConversationProviderLiveSession,
+  ConversationSessionEventSink,
   MockAdapterApprovalInput,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
@@ -103,9 +104,27 @@ type SessionState = {
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
+  // Session-scoped continuation channel (set at startSession). When the child
+  // resumes after a `result` with no open `sendTurn`, post-`result` events —
+  // and any approval they raise — flow to the runtime over this sink via a
+  // lazily opened continuation turn instead of being dropped/denied.
+  onSessionEvent: ConversationSessionEventSink | null
+  // Monotonic counter for continuation-turn ids, unique within the session.
+  continuationSequence: number
   lastActivityAt: number
   stderrTail: string
 }
+
+// Event types that belong to a turn (carry a turnId and must be suppressed by
+// the runtime when they do not match the active turn). Everything else is
+// session-scoped and needs no turn to be delivered.
+const SESSION_SCOPED_EVENT_TYPES = new Set<ConversationEvent['type']>([
+  'session_started',
+  'session_ready',
+  'session_closed',
+  'session_updated',
+  'user_message',
+])
 
 // Minimal push-based async iterable: producers push/end, one consumer drains.
 class PushStream<T> implements AsyncIterable<T> {
@@ -153,13 +172,62 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   function deliver(state: SessionState, events: ConversationEvent[]): void {
     for (const event of events) {
-      if (state.turn) {
-        state.turn.queue.push(event)
-      } else if (event.type === 'session_updated') {
-        state.pendingSessionEvents.push(event)
+      // Post-`result` turn-scoped activity with no open `sendTurn`: open a
+      // continuation turn so the event (and any approval it raises) reaches the
+      // runtime instead of being dropped. Requires the session channel.
+      if (!state.turn && state.onSessionEvent && !SESSION_SCOPED_EVENT_TYPES.has(event.type)) {
+        ensureContinuationTurn(state)
       }
-      // Non-session events with no open turn stream have nowhere to go (the
-      // turn they belonged to was interrupted); drop them.
+      if (state.turn) {
+        // Events mapped before the continuation turn existed carry no turnId;
+        // stamp the continuation id so the runtime attaches them to its mirror.
+        state.turn.queue.push(withContinuationTurnId(event, state.turn.turnId))
+      } else if (event.type === 'session_updated') {
+        // A resume-cursor update between turns: ride the session channel if it
+        // is open, else buffer for the next turn start.
+        if (state.onSessionEvent) state.onSessionEvent(event)
+        else state.pendingSessionEvents.push(event)
+      }
+      // Non-session events with no open turn and no channel have nowhere to go
+      // (the turn they belonged to was interrupted); drop them.
+    }
+  }
+
+  // Lazily open a continuation turn for post-`result` activity. Reuses the
+  // per-turn machinery (queue, approval sequencing) so handleCanUseTool and
+  // deliver are unchanged; a background drain forwards the queue to the session
+  // channel. Returns null when no session channel is available.
+  function ensureContinuationTurn(state: SessionState): ActiveTurn | null {
+    if (state.turn) return state.turn
+    if (!state.onSessionEvent) return null
+    state.continuationSequence += 1
+    const turnId = `${state.sessionId}_cont_${state.continuationSequence}`
+    const turn: ActiveTurn = {
+      turnId,
+      requestId: `approval_${turnId}`,
+      approvalSequence: 0,
+      queue: new PushStream<ConversationEvent>(),
+    }
+    state.turn = turn
+    state.lastActivityAt = now()
+    // Announce the turn first so the runtime opens its mirror before any
+    // content or approval events arrive over the channel.
+    turn.queue.push(eventFor(state, 'turn_started', { turnId }))
+    void drainContinuationTurn(state, turn)
+    return turn
+  }
+
+  async function drainContinuationTurn(state: SessionState, turn: ActiveTurn): Promise<void> {
+    try {
+      for await (const event of turn.queue) state.onSessionEvent?.(event)
+    } finally {
+      if (state.turn === turn) {
+        state.turn = null
+        // A permission still open when the continuation ends must not leave the
+        // child blocked forever.
+        resolveAllPendingPermissions(state, { approved: false })
+      }
+      state.lastActivityAt = now()
     }
   }
 
@@ -273,7 +341,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     toolInput: Record<string, unknown>,
     signal?: AbortSignal
   ): Promise<PermissionResult> {
-    const turn = state.turn
+    // A tool that fires after the turn's `result` (e.g. once a background
+    // subagent completes and the model resumes) has no open turn. Open a
+    // continuation turn so its approval card reaches the UI instead of being
+    // auto-denied; deny only when there is no session channel to carry it.
+    const turn = state.turn ?? ensureContinuationTurn(state)
     if (!turn) return { behavior: 'deny', message: 'Conversation turn is not active.' }
     turn.approvalSequence += 1
     const requestId = turn.approvalSequence === 1 ? turn.requestId : `${turn.requestId}_${turn.approvalSequence}`
@@ -360,6 +432,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         turn: null,
         pendingPermissions: new Map(),
         pendingSessionEvents: [],
+        onSessionEvent: input.onSessionEvent ?? null,
+        continuationSequence: 0,
         lastActivityAt: now(),
         stderrTail: '',
       }
@@ -540,6 +614,17 @@ function parseAskUserQuestions(toolInput: Record<string, unknown>): Conversation
 
 function readPlanText(toolInput: Record<string, unknown>): string {
   return typeof toolInput.plan === 'string' ? toolInput.plan : ''
+}
+
+// Stamp a continuation turn id onto a turn-scoped event that was mapped before
+// the continuation turn existed (its payload.turnId is absent). Session-scoped
+// events and events that already carry a turnId are returned unchanged, so the
+// normal per-turn path is a no-op.
+function withContinuationTurnId(event: ConversationEvent, turnId: string): ConversationEvent {
+  if (SESSION_SCOPED_EVENT_TYPES.has(event.type)) return event
+  const current = event.payload?.turnId
+  if (typeof current === 'string' && current) return event
+  return { ...event, payload: { ...(event.payload ?? {}), turnId } }
 }
 
 // Spawn the SDK-computed command ourselves so the child PID lands on the

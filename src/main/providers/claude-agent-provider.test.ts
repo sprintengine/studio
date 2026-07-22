@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   await testAbortSignalEndsTheTurnStream()
   await testSpawnFailureSurfacesAsTurnFailed()
   await testDisposeChildKeepsSessionAndCursorForRespawn()
+  await testToolAfterResultOpensContinuationInsteadOfDenying()
 
   console.log('claude-agent-provider tests passed')
 }
@@ -649,6 +650,78 @@ async function testDisposeChildKeepsSessionAndCursorForRespawn(): Promise<void> 
   const closed = await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
   assert.deepEqual(closed.map((event) => event.type), ['session_closed'])
   assert.equal(adapter.listLiveSessions().length, 0)
+}
+
+// 1775: a tool the long-lived child invokes AFTER the turn `result` (the model
+// resuming once a background subagent completes) must not be auto-denied. With
+// a session-scoped continuation channel, handleCanUseTool opens a continuation
+// turn and the approval card flows to the runtime; resolveApproval answers it.
+async function testToolAfterResultOpensContinuationInsteadOfDenying(): Promise<void> {
+  const gate = createDeferred<void>()
+  const decisions: Array<Record<string, unknown>> = []
+  const { adapter } = createAdapter(async (_userMessage, context) => {
+    // The turn completes and its sendTurn stream ends.
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    // The child keeps working: only once the test has confirmed the turn
+    // resolved does a post-`result` tool fire (a background subagent completed).
+    await gate.promise
+    const canUseTool = context.options.canUseTool as (
+      toolName: string,
+      input: Record<string, unknown>,
+      options: { signal?: AbortSignal }
+    ) => Promise<Record<string, unknown>>
+    decisions.push(await canUseTool('Bash', { command: 'ls' }, {}))
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+  })
+
+  const continuation: ConversationEvent[] = []
+  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+
+  const turnEvents = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+  assert.equal(turnEvents.at(-1)?.type, 'turn_completed', 'the turn resolves at `result`, freeing the composer')
+
+  // Now let the post-`result` tool fire; its approval card must reach the
+  // continuation channel rather than being denied.
+  gate.resolve()
+  const requestId = await waitForContinuationEvent(continuation, 'approval_requested')
+  assert.deepEqual(
+    continuation.slice(0, 2).map((event) => event.type),
+    ['turn_started', 'approval_requested'],
+    'the continuation announces its turn before the approval card'
+  )
+  const contTurnId = continuation[0]?.payload?.turnId
+  assert.equal(typeof contTurnId === 'string' && contTurnId.includes('_cont_'), true)
+
+  await collect(
+    adapter.resolveApproval({ ...SESSION_INPUT, turnId: contTurnId as string, requestId, approved: true }) as ConversationEvent[]
+  )
+  await waitForContinuationEvent(continuation, 'turn_completed')
+
+  assert.equal(decisions[0]?.behavior, 'allow', 'the post-`result` tool was approved, not auto-denied')
+  assert.deepEqual(
+    continuation.map((event) => event.type),
+    ['turn_started', 'approval_requested', 'approval_resolved', 'usage_updated', 'turn_completed']
+  )
+  assert.equal(continuation.find((event) => event.type === 'approval_resolved')?.payload?.approved, true)
+
+  await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+}
+
+function createDeferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+async function waitForContinuationEvent(events: ConversationEvent[], type: ConversationEvent['type']): Promise<string> {
+  for (let i = 0; i < 200; i += 1) {
+    const match = events.find((event) => event.type === type)
+    if (match) return typeof match.payload?.requestId === 'string' ? match.payload.requestId : ''
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  throw new Error(`Timed out waiting for continuation ${type}`)
 }
 
 main().catch((err) => {

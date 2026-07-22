@@ -61,7 +61,26 @@ export type MockAdapterSessionInput = {
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   allowedTools?: string[]
+  // Session-scoped continuation channel (provider → runtime), set on
+  // startSession for stateful adapters whose child outlives a single turn. A
+  // long-lived agent legitimately keeps working after the SDK `result` that
+  // ends a `sendTurn` — most often when a background subagent (the Task tool)
+  // completes and the model resumes to issue more tool calls or an
+  // AskUserQuestion. Those events have no open `sendTurn` generator to carry
+  // them; the adapter pushes them here instead. Contract: the adapter opens a
+  // *continuation turn* by emitting `turn_started` with a fresh turnId, streams
+  // its events (content, tool calls, `approval_requested`), and closes it with
+  // `turn_completed`/`turn_failed`. The runtime mirrors that turn in its
+  // session state and broadcasts through its normal event path, so an approval
+  // card raised on this channel surfaces and resolves through the unchanged
+  // respondToRequest → resolveApproval path. Absent for stateless adapters.
+  onSessionEvent?: ConversationSessionEventSink
 }
+
+// Callback the runtime hands a stateful adapter to deliver continuation-turn
+// events outside a `sendTurn` generator. Fire-and-forget: the runtime serializes
+// and persists internally, so the adapter never awaits it.
+export type ConversationSessionEventSink = (event: ConversationEvent) => void
 
 export type ConversationMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 

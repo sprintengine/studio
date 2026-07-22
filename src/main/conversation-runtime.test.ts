@@ -11,6 +11,7 @@ import type { ProviderSecretStore } from './secret-store'
 import type {
   ConversationMessage,
   ConversationProviderAdapter,
+  ConversationSessionEventSink,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from './providers/mock-conversation-provider'
@@ -26,6 +27,7 @@ async function main(): Promise<void> {
   await testInterruptSuppressesLateAsyncProviderEvents()
   await testStopSessionSuppressesLateAsyncProviderEvents()
   await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
+  await testToolAfterTurnResultResolvesThroughContinuationChannel()
   await testStatefulProviderResumeCursorReadFromTranscript()
   await testReadTranscriptClosesUnfinishedTurns()
   await testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession()
@@ -500,6 +502,136 @@ async function testStatefulProviderMidTurnApprovalAndNoHistoryReplay(): Promise<
     const second = await respondAgain
     assert.equal(second.ok, true)
     assert.deepEqual(capture.messages, [undefined, undefined])
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// A stateful adapter whose child keeps working after the turn `result`. The
+// sendTurn completes and its IPC resolves; only later — when a background
+// subagent completes and the model raises a tool approval — does the adapter
+// push events on the session-scoped continuation channel, exactly the 1775
+// scenario. `raiseBackgroundTool` stands in for that delayed resumption. The
+// approval must surface (not auto-deny) and resolve through respondToRequest.
+function createContinuationProvider(capture: {
+  base: MockAdapterSessionInput | null
+  sink: ConversationSessionEventSink | null
+  resolved: Array<{ requestId: string; approved: boolean }>
+}): ConversationProviderAdapter {
+  const contTurnId = 'cont_turn_1'
+  return {
+    id: 'continuation-provider',
+    sessions: 'stateful',
+    listModels: () => ['continuation-model'],
+    startSession(input) {
+      capture.base = input
+      capture.sink = input.onSessionEvent ?? null
+      return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+    },
+    async *sendTurn(input: MockAdapterTurnInput) {
+      yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+      yield runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: 'launching background agents' })
+      yield runtimeEvent(input, 'turn_completed', { turnId: input.turnId })
+    },
+    resolveApproval(input) {
+      capture.resolved.push({ requestId: input.requestId, approved: input.approved })
+      const sink = capture.sink
+      if (sink) {
+        sink(runtimeEvent(input, 'approval_resolved', { turnId: contTurnId, requestId: input.requestId, approved: input.approved }))
+        sink(runtimeEvent(input, 'content_delta', { turnId: contTurnId, text: input.approved ? 'ran ls' : 'skipped' }))
+        sink(runtimeEvent(input, 'turn_completed', { turnId: contTurnId }))
+      }
+      return []
+    },
+    interrupt(input) {
+      return [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })]
+    },
+    stopSession(input) {
+      return [runtimeEvent(input, 'session_closed')]
+    },
+  }
+}
+
+async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+  try {
+    const capture: {
+      base: MockAdapterSessionInput | null
+      sink: ConversationSessionEventSink | null
+      resolved: Array<{ requestId: string; approved: boolean }>
+    } = { base: null, sink: null, resolved: [] }
+    const runtime = new ConversationRuntime({
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [createContinuationProvider(capture)],
+    })
+    const events: ConversationEvent[] = []
+    runtime.onEvent((event) => events.push(event))
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'continuation-provider',
+      modelId: 'continuation-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    const sessionId = started.session.sessionId
+
+    const sent = await runtime.sendTurn({ sessionId, message: 'investigate' })
+    assert.equal(sent.ok, true)
+    if (!sent.ok) return
+    // The per-turn IPC resolved at `result`, freeing the composer — the child's
+    // later work does not hold it open.
+    assert.equal(sent.session.status, 'ready')
+
+    // Later, a background subagent completes and the model raises a tool
+    // approval over the continuation channel. It reaches the UI instead of
+    // being auto-denied.
+    const base = capture.base
+    const sink = capture.sink
+    assert.ok(base && sink, 'the adapter received a session-scoped continuation sink')
+    if (!base || !sink) return
+    sink(runtimeEvent(base, 'turn_started', { turnId: 'cont_turn_1' }))
+    sink(
+      runtimeEvent(base, 'approval_requested', {
+        turnId: 'cont_turn_1',
+        requestId: 'cont_req_1',
+        action: 'Bash',
+        summary: 'Bash: ls',
+      })
+    )
+    await waitForEventType(events, 'approval_requested')
+    const request = events.find((event) => event.type === 'approval_requested')
+    assert.equal(request?.payload?.requestId, 'cont_req_1')
+    await waitForStatus(runtime, 'workspace', 'awaiting_approval')
+
+    // The answer routes back through the unchanged respond-to-request path.
+    const responded = await runtime.respondToRequest({ sessionId, requestId: 'cont_req_1', approved: true })
+    assert.equal(responded.ok, true)
+    await waitForStatus(runtime, 'workspace', 'ready')
+
+    assert.deepEqual(capture.resolved, [{ requestId: 'cont_req_1', approved: true }], 'the tool was answered, not auto-denied')
+    assert.deepEqual(
+      events.map((event) => event.type),
+      [
+        'session_started',
+        'session_ready',
+        'user_message',
+        'turn_started',
+        'content_delta',
+        'turn_completed',
+        'turn_started',
+        'approval_requested',
+        'approval_resolved',
+        'content_delta',
+        'turn_completed',
+      ]
+    )
+    // Nothing was denied and the session is usable again.
+    assert.equal(events.some((event) => event.type === 'turn_failed'), false)
+    const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
+    assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }
@@ -1102,6 +1234,23 @@ async function waitForEvent(events: string[], type: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
   throw new Error(`Timed out waiting for ${type}`)
+}
+
+async function waitForEventType(events: ConversationEvent[], type: ConversationEventType): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    if (events.some((event) => event.type === type)) return
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  throw new Error(`Timed out waiting for ${type}`)
+}
+
+async function waitForStatus(runtime: ConversationRuntime, workspaceId: string, status: string): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    const listed = runtime.listSessions({ workspaceId })
+    if (listed.ok && listed.sessions[0]?.status === status) return
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  throw new Error(`Timed out waiting for session status ${status}`)
 }
 
 async function readLastEvent(workspaceRoot: string, workspaceId: string, agentId: string): Promise<Record<string, any>> {
