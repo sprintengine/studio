@@ -2319,7 +2319,7 @@ function SprintEngineBoardPanelContent({
  <span className="text-[color:var(--text-muted)]">for</span>
  {expansion.tasks.map((task, index) => (
  <React.Fragment key={task.id}>
- {index > 0 ? <span className="text-[color:var(--text-disabled)]">·</span> : null}
+ {index > 0 ? <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span> : null}
  <button
  type="button"
  onClick={() => showAutomationRuntimeTask(task.id)}
