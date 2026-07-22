@@ -10,32 +10,50 @@ const SPRINT_ENGINE_VIEW_STORAGE_KEY = 'multicode-sprintengine-view'
 
 const DEFAULT_VIEW: SprintEngineView = 'inbox'
 
+// Run view state is keyed by run identity — the `statePath` — not by workspace.
+// A run opened from its resident workspace and from the Sprints door (a bare
+// statePath, no workspace) therefore reads ONE shared record, so the active view
+// does not diverge between the two mounts (mirrors backlogViewStore's
+// project-key normalization). The caller passes the run key; a pre-init sprint
+// workspace with no statePath yet falls back to a `ws:<id>` key upstream.
 interface SprintEngineViewStore {
-  viewByWorkspace: Record<string, SprintEngineView>
-  setView: (workspaceId: string, view: SprintEngineView) => void
+  viewByRun: Record<string, SprintEngineView>
+  setView: (runKey: string, view: SprintEngineView) => void
+}
+
+// Normalize the run key the same way the run store keys its records, so a
+// statePath and its workspace-mount equivalent collapse to one entry.
+function runViewKey(runKey: string): string {
+  return runKey.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
 export const useSprintEngineViewStore = create<SprintEngineViewStore>()(
   persist(
     immer((set) => ({
-      viewByWorkspace: {},
-      setView: (workspaceId, view) =>
+      viewByRun: {},
+      setView: (runKey, view) =>
         set((state) => {
-          state.viewByWorkspace[workspaceId] = view
+          const key = runViewKey(runKey)
+          if (!key) return
+          state.viewByRun[key] = view
         }),
     })),
     {
       name: SPRINT_ENGINE_VIEW_STORAGE_KEY,
-      version: 1,
+      // v2: re-keyed from workspaceId to run identity (statePath). Legacy v1
+      // per-workspace entries are dropped rather than migrated — the active view
+      // is a transient reading preference that resets to the default.
+      version: 2,
+      migrate: () => ({ viewByRun: {} }),
     },
   ),
 )
 
 export function selectSprintEngineView(
   state: SprintEngineViewStore,
-  workspaceId: string,
+  runKey: string,
 ): SprintEngineView {
-  const view = state.viewByWorkspace[workspaceId]
+  const view = state.viewByRun[runViewKey(runKey)]
   // `summary` is only valid when the run is complete; the board coerces a stale
   // `summary` to a default view in that case (see `effectiveView`).
   return view === 'inbox' || view === 'roster' || view === 'tasks' || view === 'summary'

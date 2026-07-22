@@ -6,6 +6,10 @@ import {
   type SprintEngineView,
 } from '../../store/sprintEngineViewStore'
 import {
+  sprintRunHandleFromWorkspace,
+  type SprintRunHandle,
+} from '../../store/sprintRunStoreSlice'
+import {
  CliModelPickerButton,
  CloseIconButton,
  OverflowMenu,
@@ -50,7 +54,6 @@ import type {
  SprintEngineState,
  SprintEngineTask,
  SprintEngineTaskBoardColumn,
- Workspace,
 } from '../../types/workspace'
 import { consumePendingRevealTarget, subscribeRevealTarget } from '../../utils/revealTarget'
 import { SprintEngineRoleIcon } from '../AppIcons'
@@ -545,12 +548,23 @@ export function SprintEngineSettingsPopover({
  )
 }
 
+// Workspace-prop adapter: the FlexLayout `'sprintengine'` panel and every host
+// that mounts the board by workspace id. It resolves the run handle FROM the
+// resident workspace (state, context, and the workspace-scoped projection
+// setter) and hands it to `SprintRunBoard`, which is workspace-agnostic. The
+// Sprints door mounts the same `SprintRunBoard` with a handle built from a bare
+// statePath instead (see sprintRunStoreSlice / SprintRunBoard.tsx).
 export default function SprintEngineBoardPanel(props: Props) {
  const workspace = useWorkspaceStore(
  (s) => s.workspaces.find((w) => w.id === props.workspaceId) ?? null
  )
+ const applyState = useWorkspaceStore((s) => s.setSprintEngineState)
+ const handle = useMemo(
+ () => (workspace ? sprintRunHandleFromWorkspace(workspace, applyState) : null),
+ [workspace, applyState],
+ )
 
- if (!workspace?.sprintEngineState) {
+ if (!handle) {
  return (
  <div className="flex h-full items-center justify-center bg-[color:var(--bg-surface)] text-sm text-[color:var(--text-disabled)]">
  Sprint workspace data is missing.
@@ -559,25 +573,39 @@ export default function SprintEngineBoardPanel(props: Props) {
  }
 
  return (
- <SprintEngineBoardPanelContent
- {...props}
- workspace={workspace}
- sprintEngineState={workspace.sprintEngineState}
+ <SprintRunBoard
+ handle={handle}
+ fixedView={props.fixedView}
+ fixedTasksLayout={props.fixedTasksLayout}
  />
  )
 }
 
-function SprintEngineBoardPanelContent({
- workspaceId,
+// The run board and its satellites, consuming a `SprintRunHandle` rather than a
+// `workspaceId`, so one component serves both the workspace mount and the
+// Sprints door mount. Read paths (tasks, roster, inbox, task graph, inspector)
+// come from the handle. Workspace-only actions (open terminals, launch/kill
+// sessions, add members, folder relink, automation controls) read the live
+// workspace resolved from `handle.workspaceId` and degrade to disabled when the
+// run has no resident workspace.
+export function SprintRunBoard({
+ handle,
  fixedView,
  fixedTasksLayout,
- workspace,
- sprintEngineState,
-}: Props & {
- workspace: Workspace
- sprintEngineState: SprintEngineState
+}: {
+ handle: SprintRunHandle
+ fixedView?: SprintEngineView
+ fixedTasksLayout?: SprintEngineTasksLayout
 }) {
-  const setSprintEngineState = useWorkspaceStore((s) => s.setSprintEngineState)
+  // `''` when the run has no resident workspace: workspace-store lookups by that
+  // id resolve to nothing (degraded, never a crash), and workspace-scoped store
+  // setters no-op against it — they are only ever invoked behind actions the UI
+  // disables when the workspace is absent.
+  const workspaceId = handle.workspaceId ?? ''
+  const sprintEngineState = handle.sprintEngineState
+  const workspace = useWorkspaceStore((s) =>
+    handle.workspaceId ? s.workspaces.find((w) => w.id === handle.workspaceId) ?? null : null,
+  )
   const setSprintEngineAutomationMode = useWorkspaceStore((s) => s.setSprintEngineAutomationMode)
   const applySprintEngineAutomationEvent = useWorkspaceStore((s) => s.applySprintEngineAutomationEvent)
   const setSprintEngineCliPermissionPreset = useWorkspaceStore((s) => s.setSprintEngineCliPermissionPreset)
@@ -649,11 +677,15 @@ function SprintEngineBoardPanelContent({
  // lives in a small persisted store keyed by workspace id rather than local
  // state. The `fixedView` prop still wins when WorkspaceLayout pins a view
  // through the defensive legacy renderers.
- const activeView = useSprintEngineViewStore((state) => selectSprintEngineView(state, workspaceId))
+ // Run view state is keyed by run identity so the workspace mount and the door
+ // mount of one run share it. Falls back to a workspace-scoped key for a
+ // pre-init sprint workspace that has no statePath yet.
+ const runViewKey = handle.statePath || (workspaceId ? `ws:${workspaceId}` : '')
+ const activeView = useSprintEngineViewStore((state) => selectSprintEngineView(state, runViewKey))
  const setSprintEngineView = useSprintEngineViewStore((state) => state.setView)
  const setActiveView = useCallback(
- (view: SprintEngineView) => setSprintEngineView(workspaceId, view),
- [setSprintEngineView, workspaceId],
+ (view: SprintEngineView) => setSprintEngineView(runViewKey, view),
+ [setSprintEngineView, runViewKey],
  )
  // The Tasks tab carries an inline layout switcher (Graph / Kanban). The
  // selection is persisted across tab switches so jumping away and back
@@ -700,7 +732,19 @@ function SprintEngineBoardPanelContent({
  message: 'Waiting for a sprint workspace folder.',
  })
 
- const sprintEngineContext = workspace?.sprintEngineContext ?? null
+ // From the handle: identical to `workspace.sprintEngineContext` for a workspace
+ // mount, and the statePath-resolved context for a door mount.
+ const sprintEngineContext = handle.sprintEngineContext
+ // Applies a freshly-read projection to the board's displayed state via the
+ // handle (workspace store for a workspace mount, run-store slice for a door
+ // mount). The artifact-actions hook calls this with a leading workspace id it
+ // no longer needs, so the id is ignored here.
+ const applyProjectionToRun = useCallback(
+ (_workspaceId: string, next: SprintEngineState | null) => {
+ if (next) handle.setSprintEngineState(next)
+ },
+ [handle],
+ )
  // The Summary view only exists once the run is complete; coerce a stale
  // persisted `summary` back to Tasks for incomplete runs so it can't strand.
  const runComplete = Boolean(sprintEngineState && isCompletedSprintEngineRun(sprintEngineState))
@@ -1108,7 +1152,31 @@ function SprintEngineBoardPanelContent({
  if (dir) setFolderPath(workspaceId, dir)
  }
  const refreshSprintEngineState = async () => {
- if (!folderPath || manualRefreshBusy) return
+ if (manualRefreshBusy) return
+
+ // Door mount (no resident workspace): re-read the projection through the run
+ // handle. The workspace mount below owns the folder-scoped, dormancy-aware
+ // refresh; the handle-only path is a plain projection re-read with no
+ // lifecycle action.
+ if (!workspace) {
+ if (!handle.refresh) return
+ setManualRefreshBusy(true)
+ setSyncState({ status: 'syncing', message: 'Refreshing sprint state...' })
+ try {
+ await handle.refresh()
+ setSyncState({ status: 'live', message: 'Refreshed sprint state from projection.json' })
+ } catch (error) {
+ setSyncState({
+ status: 'error',
+ message: error instanceof Error ? error.message : 'Failed to refresh sprint state.',
+ })
+ } finally {
+ setManualRefreshBusy(false)
+ }
+ return
+ }
+
+ if (!folderPath) return
 
  setManualRefreshBusy(true)
  setSyncState({ status: 'syncing', message: 'Refreshing sprint state...' })
@@ -1187,7 +1255,10 @@ function SprintEngineBoardPanelContent({
  setRequestChangesDialog,
  requestChangesDialog,
  setSyncState,
- setSprintEngineState,
+ // Route the post-steering projection apply through the handle: the workspace
+ // store for a workspace mount, the run-store slice for a door mount. The hook
+ // still calls this with a leading workspace id (ignored here).
+ setSprintEngineState: applyProjectionToRun,
  openFile,
  refreshSprintEngineState,
  api: window.api,
@@ -1952,10 +2023,10 @@ function SprintEngineBoardPanelContent({
  // role; other roles wait until the real projection has claimable work for
  // that role, so an eager roster selection cannot join an empty/uninitialized
  // store and fail before planning has created tasks.
- const hasInitialSpawnIntent = Boolean(workspace.sprintEngineInitialSpawnAgentIds?.length)
+ const hasInitialSpawnIntent = Boolean(workspace?.sprintEngineInitialSpawnAgentIds?.length)
  useEffect(() => {
  if (!hasInitialSpawnIntent) return
- const readyAgentIds = (workspace.sprintEngineInitialSpawnAgentIds ?? []).filter((agentId) => {
+ const readyAgentIds = (workspace?.sprintEngineInitialSpawnAgentIds ?? []).filter((agentId) => {
  const rosterAgent = rosterById[agentId]
  if (getLiveAgentTerminalSession(agentId)) return true
  if (!rosterAgent) return false
@@ -1980,7 +2051,7 @@ function SprintEngineBoardPanelContent({
  rosterById,
  startAgentTerminalWhenReady,
  sprintEngineState,
- workspace.sprintEngineInitialSpawnAgentIds,
+ workspace?.sprintEngineInitialSpawnAgentIds,
  workspaceId,
  ])
 
@@ -2426,6 +2497,26 @@ function SprintEngineBoardPanelContent({
  </Section>
  ) : null
 
+ // Door mount with no resident workspace (a historical run whose workspace was
+ // removed): the run is fully readable and live steering still works, but the
+ // actions that need a live workspace — opening agent terminals, launching or
+ // killing sessions, adding members, relinking the folder — cannot run and are
+ // disabled. A plain-word notice says so rather than leaving them silently
+ // inert. Never rendered for the workspace mount, so that mount is unchanged.
+ const workspaceRemovedBanner = !handle.workspaceId ? (
+ <div
+ role="status"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ >
+ <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+ <StatusDot tone="neutral" className="self-center" />
+ <span className="text-[color:var(--text-muted)]">
+ This sprint’s workspace was removed. You can read the run and review its work; opening agent terminals and launching sessions aren’t available.
+ </span>
+ </div>
+ </div>
+ ) : null
+
  return (
  <div className="relative flex h-full flex-col overflow-hidden bg-[color:var(--bg-surface)] text-[color:var(--text-strong)]">
  {runHero}
@@ -2435,6 +2526,7 @@ function SprintEngineBoardPanelContent({
  </div>
 
  {boardFreshnessBanner}
+ {workspaceRemovedBanner}
  {projectionBanner}
  {repoExpansionBanner}
  {runCompleteBanner}
