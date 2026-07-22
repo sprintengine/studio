@@ -15,6 +15,7 @@ import type {
   ReviewChangeSetReadResult,
   ReviewIngestResult,
   ReviewListResult,
+  ReviewMatchPrProjectResult,
   ReviewPostReviewInput,
   ReviewPostReviewResult,
   ReviewProbeResult,
@@ -29,10 +30,11 @@ import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-
 import { enumerateReviews } from '../review/review-index'
 import { readReviewState, writeReviewState } from '../review/review-state-store'
 import type { ReviewBriefRunService } from '../review/brief-run-service'
-// Side-effect import: registers the 'pull-request' source provider (MC-1678) so
-// the service can ingest GitHub PR URLs. The local branch/patch providers register
-// from within changeset-service itself.
-import '../review/providers/github-pr-provider'
+// Named import that also runs the module's side effect: registering the
+// 'pull-request' source provider (MC-1678) so the service can ingest GitHub PR URLs
+// (the local branch/patch providers register from within changeset-service itself),
+// plus the PR-project matcher (MC-1787) the match-pr-project handler calls.
+import { matchPrProjectRoots } from '../review/providers/github-pr-provider'
 import {
   defaultReviewSyncDeps,
   postReview,
@@ -152,6 +154,26 @@ export function registerReviewIpc(
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
   })
+
+  // Infer which open project a pasted PR URL belongs to (MC-1787), so the creation
+  // form does not force an up-front project pick. `matches` is exactly the passed
+  // roots whose git remote points at the same repository; zero matches is a valid,
+  // non-error answer the form renders as "create without a project". The result
+  // echoes only roots the caller supplied — no git remote URL or foreign path leaks.
+  ipcMain.handle(
+    'review:match-pr-project',
+    async (_event, url: string, roots: string[]): Promise<ReviewMatchPrProjectResult> => {
+      try {
+        const matches = await matchPrProjectRoots(
+          typeof url === 'string' ? url : '',
+          Array.isArray(roots) ? roots : []
+        )
+        return { ok: true, matches }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
 
   // Freshness probe (MC-1682): rebuild the current change set without persisting
   // it, so the panel can detect that the reviewed head moved and which steps that

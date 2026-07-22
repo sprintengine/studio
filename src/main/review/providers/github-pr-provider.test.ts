@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { validateReviewChangeSet } from '../../../shared/review'
+import { parsePullRequestUrl, validateReviewChangeSet } from '../../../shared/review'
 import { registerReviewSourceProvider, ReviewChangeSetService } from '../changeset-service'
 import {
   createGithubPrProvider,
   defaultResolveToken,
+  matchPrProjectRoots,
+  parseGitRemoteRef,
+  readProjectRemoteUrls,
+  remoteMatchesPullRequest,
   type FetchLike,
   type FetchResponseLike,
   type GhRunner,
@@ -243,6 +248,117 @@ run('the enterprise token is never handed to an unconfigured or mismatched host'
       else process.env[key] = saved[key]
     }
   }
+})
+
+// --- PR-project inference (MC-1787) ---
+
+run('parseGitRemoteRef handles the https, ssh, scp, git:// and .git-suffix forms', () => {
+  const expected = { host: 'github.com', owner: 'acme', repo: 'app' }
+  assert.deepEqual(parseGitRemoteRef('https://github.com/acme/app.git'), expected)
+  assert.deepEqual(parseGitRemoteRef('https://github.com/acme/app'), expected)
+  assert.deepEqual(parseGitRemoteRef('http://github.com/acme/app'), expected)
+  assert.deepEqual(parseGitRemoteRef('git@github.com:acme/app.git'), expected)
+  assert.deepEqual(parseGitRemoteRef('ssh://git@github.com/acme/app.git'), expected)
+  assert.deepEqual(parseGitRemoteRef('ssh://git@github.com:22/acme/app.git'), expected)
+  assert.deepEqual(parseGitRemoteRef('git://github.com/acme/app.git'), expected)
+})
+
+run('parseGitRemoteRef lower-cases host and owner/repo, and drops embedded credentials', () => {
+  assert.deepEqual(parseGitRemoteRef('git@GitHub.com:Acme/App.git'), {
+    host: 'github.com',
+    owner: 'acme',
+    repo: 'app',
+  })
+  // A user:token@ authority in an https remote must never survive into the ref.
+  assert.deepEqual(parseGitRemoteRef('https://user:ghp_secret@ghe.example.com/Team/Service.git'), {
+    host: 'ghe.example.com',
+    owner: 'team',
+    repo: 'service',
+  })
+})
+
+run('parseGitRemoteRef rejects non-remotes: empty, a Windows path, and junk', () => {
+  assert.equal(parseGitRemoteRef(''), null)
+  assert.equal(parseGitRemoteRef('   '), null)
+  assert.equal(parseGitRemoteRef('C:\\Users\\me\\repo'), null)
+  assert.equal(parseGitRemoteRef('not a url'), null)
+  assert.equal(parseGitRemoteRef('https://github.com/acme'), null) // no repo segment
+})
+
+run('remoteMatchesPullRequest compares host + owner/repo case-insensitively', () => {
+  const pr = parsePullRequestUrl('https://GitHub.com/Acme/App/pull/9')
+  assert.ok(pr && !('unsupported' in pr))
+  if (pr && !('unsupported' in pr)) {
+    assert.equal(remoteMatchesPullRequest({ host: 'github.com', owner: 'acme', repo: 'app' }, pr), true)
+    assert.equal(remoteMatchesPullRequest({ host: 'github.com', owner: 'acme', repo: 'other' }, pr), false)
+    assert.equal(remoteMatchesPullRequest({ host: 'gitlab.com', owner: 'acme', repo: 'app' }, pr), false)
+  }
+})
+
+run('matchPrProjectRoots returns the one root whose remote matches', async () => {
+  const remotes: Record<string, string[]> = {
+    '/proj/app': ['git@github.com:acme/app.git'],
+    '/proj/other': ['https://github.com/acme/other.git'],
+  }
+  const matches = await matchPrProjectRoots(
+    'https://github.com/acme/app/pull/5',
+    ['/proj/app', '/proj/other'],
+    async (root) => remotes[root] ?? []
+  )
+  assert.deepEqual(matches, ['/proj/app'])
+})
+
+run('matchPrProjectRoots returns every matching root (two checkouts of one repo)', async () => {
+  const matches = await matchPrProjectRoots(
+    'https://github.com/acme/app/pull/5',
+    ['/proj/a', '/proj/b', '/proj/a'], // duplicate root is de-duplicated
+    async () => ['ssh://git@github.com/acme/app.git']
+  )
+  assert.deepEqual(matches, ['/proj/a', '/proj/b'])
+})
+
+run('matchPrProjectRoots returns [] when no remote matches', async () => {
+  const matches = await matchPrProjectRoots(
+    'https://github.com/acme/app/pull/5',
+    ['/proj/other'],
+    async () => ['git@github.com:acme/unrelated.git']
+  )
+  assert.deepEqual(matches, [])
+})
+
+run('matchPrProjectRoots yields [] for a non-PR or unsupported URL without reading remotes', async () => {
+  let read = false
+  const reader = async (): Promise<string[]> => {
+    read = true
+    return []
+  }
+  assert.deepEqual(await matchPrProjectRoots('not a pr url', ['/proj/a'], reader), [])
+  assert.deepEqual(
+    await matchPrProjectRoots('https://bitbucket.org/team/repo/pull-requests/1', ['/proj/a'], reader),
+    []
+  )
+  assert.equal(read, false)
+})
+
+run('readProjectRemoteUrls reads a real repo LC_ALL=C-pinned and matchPrProjectRoots resolves it', async () => {
+  const repo = makeTempDir()
+  const git = (args: string[]): void => {
+    execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' })
+  }
+  git(['init', '-q'])
+  git(['remote', 'add', 'origin', 'git@github.com:Acme/App.git'])
+  git(['remote', 'add', 'upstream', 'https://github.com/acme/upstream.git'])
+
+  const urls = await readProjectRemoteUrls(repo)
+  assert.ok(urls.includes('git@github.com:Acme/App.git'))
+  assert.ok(urls.includes('https://github.com/acme/upstream.git'))
+
+  // A non-repo directory is a clean non-match, never a throw.
+  assert.deepEqual(await readProjectRemoteUrls(makeTempDir()), [])
+
+  // End-to-end through the real git reader: the origin remote resolves the root.
+  const matches = await matchPrProjectRoots('https://github.com/acme/app/pull/7', [repo])
+  assert.deepEqual(matches, [repo])
 })
 
 async function main(): Promise<void> {

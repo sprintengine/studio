@@ -10,6 +10,7 @@ import type {
   ReviewChangeSetReadResult,
   ReviewIngestResult,
   ReviewListResult,
+  ReviewMatchPrProjectResult,
   ReviewPostReviewInput,
   ReviewPostReviewResult,
   ReviewProbeResult,
@@ -43,6 +44,8 @@ export const reviewApi = {
   reviewWriteState: (target: ReviewTarget, state: ReviewWorkspaceState): Promise<ReviewStateWriteResult> =>
     ipcRenderer.invoke('review:write-state', target, state),
   reviewList: (roots: string[]): Promise<ReviewListResult> => ipcRenderer.invoke('review:list', roots),
+  reviewMatchPrProject: (url: string, roots: string[]): Promise<ReviewMatchPrProjectResult> =>
+    ipcRenderer.invoke('review:match-pr-project', url, roots),
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
     const handler = (_: IpcRendererEvent, event: ReviewBriefRunEvent) => cb(event)
     ipcRenderer.on('review:brief-run-event', handler)
@@ -61,5 +64,6 @@ export const reviewApi = {
   | 'reviewReadState'
   | 'reviewWriteState'
   | 'reviewList'
+  | 'reviewMatchPrProject'
   | 'onReviewBriefRunEvent'
 >

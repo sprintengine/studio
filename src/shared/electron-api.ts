@@ -2435,6 +2435,17 @@ export type ReviewListResult =
   | { ok: true; reviews: ReviewIndexEntry[] }
   | { ok: false; error: string }
 
+// PR-project inference (MC-1787). Given a pasted pull-request URL and the caller's
+// known open project roots, `matches` is exactly the roots whose git remote points
+// at the same repository (host + owner/repo, case-insensitive; ssh and https forms).
+// Zero matches is a valid answer, not an error — the form still creates the review,
+// with the reviewer picking a project. `matches` is always a subset of the roots the
+// caller supplied, so the result never carries a git remote URL or any path the
+// caller did not already hold.
+export type ReviewMatchPrProjectResult =
+  | { ok: true; matches: string[] }
+  | { ok: false; error: string }
+
 // Scan-time id allocation: the renderer hands the main process every scanned
 // item with its current frontmatter id (or null), and the service writes the
 // next sequential id into the frontmatter of those without one. `assignments`
@@ -3080,5 +3091,6 @@ export type ElectronApi = {
   reviewReadState: (target: ReviewTarget) => Promise<ReviewStateReadResult>
   reviewWriteState: (target: ReviewTarget, state: ReviewWorkspaceState) => Promise<ReviewStateWriteResult>
   reviewList: (roots: string[]) => Promise<ReviewListResult>
+  reviewMatchPrProject: (url: string, roots: string[]) => Promise<ReviewMatchPrProjectResult>
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => () => void
 }

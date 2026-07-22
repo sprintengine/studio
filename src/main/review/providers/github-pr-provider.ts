@@ -28,6 +28,7 @@ import {
   type ReviewSourceProvider,
 } from '../changeset-service'
 import { parsePatch } from '../patch-parse'
+import { runGitCommand } from '../../git-utils'
 
 const execFileAsync = promisify(execFile)
 
@@ -481,6 +482,114 @@ function pickEnv(...names: string[]): string | null {
     if (value) return value
   }
   return null
+}
+
+// PR-project inference (MC-1787). A pasted pull-request URL identifies a repo by
+// host + owner/repo; the same triple, read from each open project's git remotes,
+// tells us which local checkout (if any) that PR belongs to — so a reviewer who
+// pastes a URL never has to pick a project up front. Ingestion itself never needs a
+// local checkout (it fetches over gh/REST); this only resolves *where* the review
+// is stored and which workspace the guide runs in.
+
+export interface RemoteRepoRef {
+  host: string
+  owner: string
+  repo: string
+}
+
+// Parse a git remote URL into { host, owner, repo }. Handles every form `git
+// remote` stores: https/http/ssh/git:// URLs and the scp-like `git@host:owner/repo`
+// shorthand, with or without a trailing `.git`. Host and owner/repo are lower-cased
+// so matching is case-insensitive. Returns null for anything that does not resolve
+// to a host plus an owner/repo pair (so a malformed remote is a non-match, never a
+// throw). A user:token@ prefix is dropped with the rest of the URL authority — a
+// credential embedded in a remote never reaches the result.
+export function parseGitRemoteRef(rawRemote: string): RemoteRepoRef | null {
+  const trimmed = rawRemote.trim()
+  if (!trimmed) return null
+  // A scp-like remote carries no scheme: `[user@]host:owner/repo`. Guard against a
+  // Windows drive path (`C:\repo`) that would otherwise misparse as host `c`.
+  if (!trimmed.includes('://')) {
+    if (/^[a-zA-Z]:[\\/]/.test(trimmed)) return null
+    const scp = /^(?:[^@/]+@)?([^/:]+):(.+)$/.exec(trimmed)
+    return scp ? refFromHostAndPath(scp[1], scp[2]) : null
+  }
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return null
+  }
+  // hostname drops any `user[:token]@` authority and the port.
+  return refFromHostAndPath(url.hostname, url.pathname)
+}
+
+function refFromHostAndPath(host: string, path: string): RemoteRepoRef | null {
+  const normalizedHost = host.trim().toLowerCase()
+  if (!normalizedHost) return null
+  const segments = path
+    .replace(/\.git$/i, '')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+  if (segments.length < 2) return null
+  return {
+    host: normalizedHost,
+    owner: segments[segments.length - 2].toLowerCase(),
+    repo: segments[segments.length - 1].toLowerCase(),
+  }
+}
+
+// The parsed PR URL's host already comes lower-cased from parsePullRequestUrl;
+// owner/repo are lower-cased on both sides here so the compare is case-insensitive.
+export function remoteMatchesPullRequest(remote: RemoteRepoRef, pr: ParsedPullRequest): boolean {
+  return (
+    remote.host === pr.host.toLowerCase() &&
+    remote.owner === pr.owner.toLowerCase() &&
+    remote.repo === pr.repo.toLowerCase()
+  )
+}
+
+// Read every configured remote URL for a project root. `runGitCommand` pins
+// LC_ALL=C ([[git-panel-operations-v2]]); `git config --get-regexp` exits non-zero
+// when the directory is not a repo or has no remotes, which we treat as "no remotes"
+// (an empty list, a non-match) rather than an error that aborts inference.
+export async function readProjectRemoteUrls(root: string): Promise<string[]> {
+  const result = await runGitCommand(root, ['config', '--get-regexp', '^remote\\..*\\.url$'])
+  if (!result.ok) return []
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => {
+      const space = line.indexOf(' ')
+      return space === -1 ? '' : line.slice(space + 1).trim()
+    })
+    .filter((value) => value.length > 0)
+}
+
+// Return exactly the given roots whose git remote points at the same repository as
+// the pasted PR URL — one, many, or zero. A non-PR or unsupported URL yields no
+// matches (not an error). Roots are de-duplicated and their order is preserved; the
+// git reader is injected so the match logic is unit-testable without spawning git.
+export async function matchPrProjectRoots(
+  url: string,
+  roots: readonly string[],
+  readRemoteUrls: (root: string) => Promise<string[]> = readProjectRemoteUrls
+): Promise<string[]> {
+  const parsed = parsePullRequestUrl(url)
+  if (!parsed || 'unsupported' in parsed) return []
+  const matches: string[] = []
+  const seen = new Set<string>()
+  for (const root of roots) {
+    if (typeof root !== 'string' || root.length === 0 || seen.has(root)) continue
+    seen.add(root)
+    const remoteUrls = await readRemoteUrls(root)
+    const matched = remoteUrls.some((remoteUrl) => {
+      const ref = parseGitRemoteRef(remoteUrl)
+      return ref !== null && remoteMatchesPullRequest(ref, parsed)
+    })
+    if (matched) matches.push(root)
+  }
+  return matches
 }
 
 function defaultDeps(): GithubPrProviderDeps {
