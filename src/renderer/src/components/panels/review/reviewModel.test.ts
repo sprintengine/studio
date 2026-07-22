@@ -12,6 +12,7 @@ import {
   editorLineForRealLine,
   modifiedZoneLineForAnchor,
 } from './diffModel'
+import { commentableLines } from './commentGutter'
 import { placeAnnotations, hoverLinesForAnnotation } from './annotationZones'
 import {
   buildRailModel,
@@ -85,6 +86,16 @@ run('modifiedZoneLineForAnchor snaps an old-side deletion to the prior modified 
   const model = buildDiffFileModel(apiFile)
   // Old line 63 is the deleted findFirst row; the prior context (old 62) is modified line 1.
   assert.equal(modifiedZoneLineForAnchor(model, { side: 'old', startLine: 63, endLine: 63 }), 1)
+})
+
+run('commentableLines credits added+context to the new side and removed to the old side', () => {
+  const model = buildDiffFileModel(apiFile)
+  // New side: the context row (62) plus the four adds (63..66) map to editor rows 1..5.
+  const news = [...commentableLines(model, 'new').entries()].sort((a, b) => a[0] - b[0])
+  assert.deepEqual(news, [[1, 62], [2, 63], [3, 64], [4, 65], [5, 66]])
+  // Old side: only the deleted row (old line 63) at original editor row 2 — the
+  // context line is a new-side "+" and is deliberately not offered again here.
+  assert.deepEqual([...commentableLines(model, 'old').entries()], [[2, 63]])
 })
 
 run('placeAnnotations splits in-range zones from out-of-range orphans + warns once', () => {

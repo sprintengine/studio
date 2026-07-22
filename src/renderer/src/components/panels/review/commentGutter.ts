@@ -20,7 +20,8 @@ type DiffEditorInstance = MonacoNs.editor.IStandaloneDiffEditor
 // Editor-line -> real source line, for the lines commentable on one side. Context
 // lines are credited to the new side only, so every line has exactly one "+":
 // added → modified editor, removed → original editor, context → modified editor.
-function commentableLines(model: DiffFileModel, side: AnchorSide): Map<number, number> {
+// Exported for the review-model unit test; the wiring below is Monaco-coupled.
+export function commentableLines(model: DiffFileModel, side: AnchorSide): Map<number, number> {
   const map = new Map<number, number>()
   for (const row of model.rows) {
     if (side === 'new' && (row.kind === 'add' || row.kind === 'context') && row.modifiedEditorLine && row.newLine) {
