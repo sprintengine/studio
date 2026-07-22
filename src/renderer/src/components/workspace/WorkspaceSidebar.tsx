@@ -1245,7 +1245,7 @@ export default function WorkspaceSidebar({
               if (event.key === 'Escape') setRenamingId(null)
               event.stopPropagation()
             }}
-            className="min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-1.5 py-0 text-[13px] text-[color:var(--text-strong)] focus:outline-none"
+            className={`min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0 text-[13px] text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           />
         ) : (
           <span
@@ -1300,7 +1300,7 @@ export default function WorkspaceSidebar({
             ) : null}
             {showRecencyText ? (
               <span
-                className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+                className="text-[10.5px] tabular-nums text-[color:var(--text-subtle)]"
                 title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
                 aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
               >
@@ -1807,7 +1807,7 @@ export default function WorkspaceSidebar({
                   <Icon className="icon-xs pointer-events-none shrink-0 text-[color:var(--text-subtle)]" />
                   <span className="min-w-0 flex-1 truncate">{`New ${model.label.toLowerCase()}`}</span>
                   {model.id === 'standard' ? (
-                    <kbd className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">Ctrl+T</kbd>
+                    <kbd className="shrink-0 font-mono text-[10.5px] text-[color:var(--text-disabled)]">Ctrl+T</kbd>
                   ) : null}
                 </button>
               )

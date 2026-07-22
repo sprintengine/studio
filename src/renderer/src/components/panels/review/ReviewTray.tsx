@@ -55,7 +55,7 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
   if (comments.length === 0) {
     return (
       <p className="px-1 py-2 text-[12px] leading-5 text-[color:var(--text-subtle)]">
-        No comments yet. Hover a changed line in the walkthrough and click <span className="font-medium text-[color:var(--accent-primary)]">+</span> to leave one — they collect here as one review.
+        No comments yet. Hover any line in the walkthrough — added or removed — and click <span className="font-medium text-[color:var(--accent-primary)]">+</span> to leave one; they collect here as one review.
       </p>
     )
   }

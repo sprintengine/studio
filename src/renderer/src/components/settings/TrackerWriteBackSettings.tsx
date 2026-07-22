@@ -53,6 +53,7 @@ export function TrackerWriteBackSettings({
 }) {
   const [config, setConfig] = useState<TrackerWriteBackConfig | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [configNonce, setConfigNonce] = useState(0)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [transitions, setTransitions] = useState<TransitionsState>(INITIAL_TRANSITIONS)
   // Write-back failures for THIS connection (T18). Only read while posting is on —
@@ -78,7 +79,14 @@ export function TrackerWriteBackSettings({
     return () => {
       cancelled = true
     }
-  }, [connection.id])
+  }, [connection.id, configNonce])
+
+  // Retry the config load after a failure: clear the error so the loading state
+  // shows again, then re-run the effect.
+  const reloadConfig = useCallback(() => {
+    setLoadError(null)
+    setConfigNonce((value) => value + 1)
+  }, [])
 
   // Read the connection's real transitions once the tier is visible and the
   // master switch is on — deferred until the user actually reaches for them.
@@ -180,7 +188,17 @@ export function TrackerWriteBackSettings({
   if (loadError) {
     return (
       <ConnectionFrame connection={connection}>
-        <InlineNotice tone="error">Couldn’t load write-back settings: {loadError}</InlineNotice>
+        <InlineNotice
+          tone="error"
+          title="Couldn’t load these posting settings."
+          hint="This is usually temporary."
+          detail={loadError}
+          action={
+            <GhostButton size="md" onClick={reloadConfig}>
+              Try again
+            </GhostButton>
+          }
+        />
       </ConnectionFrame>
     )
   }
@@ -259,7 +277,17 @@ export function TrackerWriteBackSettings({
                 <fieldset className="border-0 p-0">
                   <legend className={GROUP_TITLE_CLASS}>Change the issue’s status when…</legend>
                   {transitions.phase === 'error' ? (
-                    <InlineNotice tone="warn">Couldn’t read this tracker’s statuses: {transitions.error}</InlineNotice>
+                    <InlineNotice
+                      tone="warn"
+                      title="Couldn’t read this tracker’s statuses."
+                      hint="Status changes are paused; comments still post."
+                      detail={transitions.error}
+                      action={
+                        <GhostButton size="md" onClick={() => setTransitions(INITIAL_TRANSITIONS)}>
+                          Try again
+                        </GhostButton>
+                      }
+                    />
                   ) : transitions.reason === 'no_sample_issue' ? (
                     <p className="max-w-[52ch] text-[12px] leading-[1.5] text-[color:var(--text-subtle)]">
                       Add an issue from this tracker to your backlog first — its own statuses populate these options, so
@@ -293,7 +321,19 @@ export function TrackerWriteBackSettings({
                 </fieldset>
               ) : null}
 
-              {saveError ? <InlineNotice tone="warn">Couldn’t save: {saveError}</InlineNotice> : null}
+              {saveError ? (
+                <InlineNotice
+                  tone="error"
+                  title="Couldn’t save your posting settings."
+                  hint="Your last change wasn’t saved."
+                  detail={saveError}
+                  action={
+                    <GhostButton size="md" onClick={() => void persist(config)}>
+                      Try again
+                    </GhostButton>
+                  }
+                />
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -303,7 +343,7 @@ export function TrackerWriteBackSettings({
             What your team sees {sampleLabel}
           </div>
           {!config.enabled ? (
-            <p className="text-[13px] text-[color:var(--text-subtle)]">Nothing — write-back is off.</p>
+            <p className="text-[13px] text-[color:var(--text-subtle)]">Nothing — posting updates is off.</p>
           ) : preview.length === 0 ? (
             <p className="text-[13px] leading-[1.5] text-[color:var(--text-subtle)]">
               No comments will be posted.

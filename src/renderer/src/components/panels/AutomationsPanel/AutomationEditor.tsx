@@ -644,7 +644,7 @@ export function AutomationEditor({
                             {selectedSpecialist ? selectedSpecialist.shortLabel : 'General agent'}
                           </span>
                           <span className="block truncate text-[11px] text-[color:var(--text-subtle)]">
-                            {selectedSpecialist ? selectedSpecialist.description : 'No soul — runs the prompt as written'}
+                            {selectedSpecialist ? selectedSpecialist.description : 'No persona — runs the prompt as written'}
                           </span>
                         </span>
                         <svg className="icon-sm shrink-0 text-[color:var(--text-muted)]" viewBox="0 0 20 20" fill="none" aria-hidden="true">

@@ -388,7 +388,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       ariaLabel="Roadmap"
       bar={bar}
       attention={attention}
-      rail={hasRoadmaps ? rail : undefined}
+      rail={hasRoadmaps || error ? rail : undefined}
       onBack={back.onBack}
       canGoBack={back.canGoBack}
     >
@@ -641,7 +641,7 @@ function RoadmapDraftCanvas({
         <div className="flex flex-col gap-1">
           <h3 className="text-[14px] font-semibold text-[color:var(--text-strong)]">Draft roadmap</h3>
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            This plan isn’t running yet. Make it active to have the orchestrator work it, one sprint at a time.
+            This plan isn’t running yet. Make it active to have Multicode work it, one sprint at a time.
           </p>
         </div>
         <RoadmapVocabulary />

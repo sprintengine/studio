@@ -58,7 +58,7 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
   if (props.kind === 'loading') {
     return (
       <div className="flex h-full w-full items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
-        <Spinner size={14} label={props.label} />
+        <Spinner size={14} />
         {props.label}
       </div>
     )

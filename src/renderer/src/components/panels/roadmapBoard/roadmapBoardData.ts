@@ -105,6 +105,10 @@ export function useRoadmapBoard(): RoadmapBoardData {
   const [refreshing, setRefreshing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
+  // Once the board has loaded good content, a later read failure is treated as a
+  // transient background-refresh blip: keep last-good rather than blanking a
+  // running board to an error/draft view. Only the first load surfaces an error.
+  const loadedOnceRef = useRef(false)
 
   const reload = useCallback(() => setNonce((value) => value + 1), [])
 
@@ -133,11 +137,16 @@ export function useRoadmapBoard(): RoadmapBoardData {
         const result = await window.api.readRoadmapStates()
         if (cancelled) return
         if (!result.ok) {
-          setError(result.message)
-          setStates([])
-          setContentByRef(new Map())
+          // First load: surface the failure. Background refresh after a good load:
+          // keep last-good content so a transient blip doesn't blank the board.
+          if (!loadedOnceRef.current) {
+            setError(result.message)
+            setStates([])
+            setContentByRef(new Map())
+          }
           return
         }
+        loadedOnceRef.current = true
         setError(null)
         setStates(result.roadmaps)
         // Read each roadmap file so the board can show its lane entries (the state
@@ -159,7 +168,7 @@ export function useRoadmapBoard(): RoadmapBoardData {
         }
         if (!cancelled) setContentByRef(contents)
       } catch (loadError) {
-        if (!cancelled) {
+        if (!cancelled && !loadedOnceRef.current) {
           setError(loadError instanceof Error ? loadError.message : String(loadError))
           setStates([])
         }
