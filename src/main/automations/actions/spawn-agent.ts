@@ -247,9 +247,28 @@ function triggerContextBlock(
 }
 
 function cappedTriggerJson(payload: Record<string, unknown>): string {
-  const json = JSON.stringify(payload, null, 2)
+  // Neutralize any run of 3+ backticks so a payload value cannot break out of the
+  // launch prompt's ```json fence. Backticks live only inside JSON string values,
+  // and the Unicode escape they are rewritten to stays a valid JSON escape, so the
+  // block remains parseable JSON. Escaping before truncation keeps the marker safe too.
+  const json = JSON.stringify(payload, null, 2).replace(
+    /`{3,}/g,
+    (run) => '\\u0060'.repeat(run.length),
+  )
   if (Buffer.byteLength(json, 'utf8') <= TRIGGER_CONTEXT_MAX_BYTES) return json
-  return `${json.slice(0, TRIGGER_CONTEXT_MAX_BYTES)}\n[truncated]`
+  return `${truncateUtf8(json, TRIGGER_CONTEXT_MAX_BYTES)}\n[truncated]`
+}
+
+// Truncate to at most maxBytes of UTF-8 without splitting a multibyte character.
+// Slicing by string length counts UTF-16 code units, so a non-ASCII payload would
+// overshoot the byte cap the comment on TRIGGER_CONTEXT_MAX_BYTES promises; cut on
+// the encoded buffer and back off any trailing continuation byte instead.
+function truncateUtf8(text: string, maxBytes: number): string {
+  const buf = Buffer.from(text, 'utf8')
+  if (buf.length <= maxBytes) return text
+  let end = maxBytes
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1
+  return buf.toString('utf8', 0, end)
 }
 
 export function fingerprintPrompt(prompt: string): string {

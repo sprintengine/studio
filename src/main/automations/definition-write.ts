@@ -8,6 +8,8 @@ import type {
   AutomationTriggerProvider,
   AutomationsResult,
 } from '../../shared/automations/contracts'
+import { SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND } from '../../shared/automations/contracts'
+import { SPRINT_ENGINE_START_ACTION_KIND } from './actions/sprint-engine'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import { projectFoldersFromWorkspaceSyncSnapshot } from './engine'
 import {
@@ -346,6 +348,17 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     return fail('invalid_input', 'Automation definition disableAfterRun must be a boolean.')
   }
   const disableAfterRun = input.disableAfterRun as boolean | undefined
+  // A run-landed → sprint-start chain that leaves "run once" unspecified defaults
+  // to fire-once: without it an A↔B pair of these automations ping-pongs unbounded
+  // (each landed run re-fires the other, and the per-run self-trigger guard only
+  // catches a sprint that recreates its OWN watched team). An explicit value —
+  // including false — still wins, so the default is opt-out, not a lock.
+  const effectiveDisableAfterRun =
+    disableAfterRun === undefined
+    && trigger.value.kind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
+    && action.value.kind === SPRINT_ENGINE_START_ACTION_KIND
+      ? true
+      : disableAfterRun
   const id = trimmedString(input.id)
   return ok({
     ...(id ? { id } : {}),
@@ -359,7 +372,7 @@ export function parseDefinitionDraft(input: unknown): AutomationsResult<Automati
     // stamped by the host (module service) or absent (user records) — a
     // caller-supplied owner is ignored, never trusted.
     ...(runInWorktree === undefined ? {} : { runInWorktree }),
-    ...(disableAfterRun === undefined ? {} : { disableAfterRun }),
+    ...(effectiveDisableAfterRun === undefined ? {} : { disableAfterRun: effectiveDisableAfterRun }),
   })
 }
 

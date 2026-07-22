@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { CliModelPickerButton, Field, GhostButton, InlineNotice, Popover, PrimaryButton, Select, type SelectItem, Switch } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'
@@ -295,6 +295,20 @@ export function AutomationEditor({
     })
     return () => { cancelled = true }
   }, [])
+
+  // A run-landed → sprint-start chain defaults "Run once, then pause" ON: left
+  // firing forever, an A↔B pair of these ping-pongs unbounded (each landed run
+  // re-fires the other). The default follows the selected pair only until the user
+  // touches the toggle, so it stays a default, not a lock; edit mode seeds the
+  // toggle from the stored definition and never re-applies it here.
+  const disableAfterRunTouchedRef = useRef(false)
+  useEffect(() => {
+    if (editor.mode !== 'create' || disableAfterRunTouchedRef.current) return
+    const isChainPair =
+      form.triggerKind === SPRINT_ENGINE_RUN_LANDED_TRIGGER_KIND
+      && form.actionKind === 'sprint-engine-start'
+    setForm((prev) => (prev.disableAfterRun === isChainPair ? prev : { ...prev, disableAfterRun: isChainPair }))
+  }, [editor.mode, form.triggerKind, form.actionKind])
 
   const selectedConnectorId = form.config.connectorId ?? NO_CONNECTOR
   const installedMcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
@@ -810,6 +824,12 @@ export function AutomationEditor({
                     items={sprintTeamItems}
                   />
                 </Field>
+                <p className="text-[11px] leading-relaxed text-[color:var(--text-subtle)]">
+                  Starts a new sprint each time the watched sprint finishes and lands. Deleting
+                  and recreating the watched sprint counts as a fresh landing, so it starts again.
+                  To stop two chained automations from restarting each other, chains default to
+                  “Run once, then pause” — turn that off below to keep it firing.
+                </p>
               </>
             ) : null}
 
@@ -872,7 +892,12 @@ export function AutomationEditor({
             <Switch
               id="automation-run-once"
               checked={form.disableAfterRun}
-              onChange={(next) => update('disableAfterRun', next)}
+              onChange={(next) => {
+                // Mark the toggle user-owned so the chain default effect stops
+                // overriding it, then apply the choice.
+                disableAfterRunTouchedRef.current = true
+                update('disableAfterRun', next)
+              }}
               ariaLabel="Run once, then pause this automation"
             />
             Run once, then pause

@@ -34,6 +34,7 @@ import {
   createPlanSourcedSprintEngineWorkspace,
 } from '../utils/sprintengineWorkspaceCreation'
 import { sprintEnginePlannerRole } from '../utils/sprintengine'
+import { resolveChainedSprintTeamName } from '../utils/chainedSprintTeamName'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -245,31 +246,19 @@ async function createPlanSourcedSprint(
   // basename), and a team dir with that slug may already exist — a prior wizard
   // launch from the same item, or an earlier fire of a recurring chain. A
   // collision must not hard-fail the chain (the trigger event is dedupe-marked,
-  // so a failed fire never retries): number the team the way a user would until
-  // the slug is free.
+  // so a failed fire never retries): the resolver refuses a self-trigger loop up
+  // front, then numbers the team the way a user would until the slug is free.
   const baseTeamName = request.name?.trim() || toTitleName(planBasename(normalizedSourcePath))
-  let teamName = baseTeamName
-  let context = buildPlanSourcedSprintEngineWorkspaceContext(request.folderPath, teamName)
-  for (let suffix = 2; await window.api.pathExists(context.statePath); suffix += 1) {
-    if (suffix > 100) {
-      return {
-        ok: false,
-        code: 'sprint_team_name_exhausted',
-        message: `Could not find a free team directory name for "${baseTeamName}" after 100 attempts.`,
-      }
-    }
-    teamName = `${baseTeamName} ${suffix}`
-    context = buildPlanSourcedSprintEngineWorkspaceContext(request.folderPath, teamName)
+  const resolvedTeam = await resolveChainedSprintTeamName({
+    baseTeamName,
+    refuseTeamSlug: request.refuseTeamSlug,
+    buildContext: (name) => buildPlanSourcedSprintEngineWorkspaceContext(request.folderPath, name),
+    stateExists: (statePath) => window.api.pathExists(statePath),
+  })
+  if (!resolvedTeam.ok) {
+    return { ok: false, code: resolvedTeam.code, message: resolvedTeam.message }
   }
-  // Self-trigger loop guard: a chained sprint recreating the watched team dir
-  // would re-fire its own trigger forever.
-  if (request.refuseTeamSlug && context.teamSlug === request.refuseTeamSlug.trim()) {
-    return {
-      ok: false,
-      code: 'sprint_self_trigger',
-      message: `Chained sprint "${teamName}" would reuse the watched team directory "${context.teamSlug}"; give the chained sprint a different name.`,
-    }
-  }
+  const teamName = resolvedTeam.teamName
 
   const startRunner = request.startRunner === true
   const automationMode = sprintEngineAutomationModeForRunOptions({

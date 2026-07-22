@@ -139,6 +139,60 @@ function assertOversizePayloadTruncated(): void {
   assert.ok(prompt.length < 10_000, 'truncated prompt stays bounded')
 }
 
+// Extract the JSON that sits inside the ```json fence, and whether the fence is
+// intact (exactly its own open + close — no extra ``` smuggled in by the payload).
+function readFencedJsonBlock(prompt: string): { block: string; fenceRuns: number } {
+  const open = '```json\n'
+  const start = prompt.indexOf(open)
+  assert.notEqual(start, -1, 'json fence opens')
+  const contentStart = start + open.length
+  const end = prompt.indexOf('\n```', contentStart)
+  assert.notEqual(end, -1, 'json fence closes')
+  return {
+    block: prompt.slice(contentStart, end),
+    // '```json' contributes one run, the closing '```' another: an unbroken fence
+    // has exactly two. A raw ``` from the payload would push this to 3+.
+    fenceRuns: prompt.split('```').length - 1,
+  }
+}
+
+function assertPayloadFenceIsNeutralized(): void {
+  const note = 'before ``` after'
+  const prompt = composeSpawnAgentPrompt({
+    userPrompt: 'React.',
+    autonomy: 'allow_changes',
+    automationId: 'auto-1',
+    runId: 'run-7',
+    includeTriggerContext: true,
+    triggerPayload: { note },
+  })
+  const { block, fenceRuns } = readFencedJsonBlock(prompt)
+  assert.equal(fenceRuns, 2, 'a payload ``` cannot break out of the json fence')
+  assert.ok(!block.includes('```'), 'the raw triple-backtick is escaped out of the block')
+  // The block is still valid JSON and round-trips to the original value.
+  assert.equal((JSON.parse(block) as { note: string }).note, note, 'escaped block parses back to the payload')
+}
+
+function assertMultibytePayloadTruncatesByBytes(): void {
+  // '你' is 3 UTF-8 bytes: 10k of them is ~30 KB, far over the 8 KB cap. Slicing by
+  // string length (UTF-16 code units) would keep ~24 KB of bytes; the byte-accurate
+  // cut must keep the fenced JSON at or under 8 KB and never split a character.
+  const prompt = composeSpawnAgentPrompt({
+    userPrompt: 'React.',
+    autonomy: 'allow_changes',
+    automationId: 'auto-1',
+    runId: 'run-7',
+    includeTriggerContext: true,
+    triggerPayload: { blob: '你'.repeat(10_000) },
+  })
+  const marker = '\n[truncated]'
+  const { block } = readFencedJsonBlock(prompt)
+  assert.ok(block.endsWith(marker), 'oversize multibyte payload carries the truncation marker')
+  const jsonPart = block.slice(0, block.length - marker.length)
+  assert.ok(Buffer.byteLength(jsonPart, 'utf8') <= 8192, 'the fenced JSON is capped by BYTES, not code units')
+  assert.ok(!jsonPart.includes('�'), 'the byte cut never splits a multibyte character')
+}
+
 function stubRuntime(triggerPayload: Record<string, unknown> | undefined, captured: { prompt: string }): SpawnAgentRuntime {
   return {
     definition: { id: 'auto-1', name: 'Nightly', autonomyDefault: 'allow_changes' } as unknown as AutomationDefinition,
@@ -187,6 +241,8 @@ async function main(): Promise<void> {
   assertTriggerContextOnEmbedsPayload()
   assertManualRunPayloadIncludedAsIs()
   assertOversizePayloadTruncated()
+  assertPayloadFenceIsNeutralized()
+  assertMultibytePayloadTruncatesByBytes()
   await assertExecutorThreadsPayloadWhenOptedIn()
   await assertRunSkillLoopPassesFlagThrough()
   console.log('automations spawn-agent prompt tests passed')
