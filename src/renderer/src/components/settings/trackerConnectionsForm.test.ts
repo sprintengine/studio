@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
-import type { RedactedTrackerConnection, TrackerProviderId } from '../../../../shared/electron-api'
+import type { RedactedTrackerConnection, TrackerError, TrackerProviderId } from '../../../../shared/electron-api'
+import { presentError, type FailureClass } from '../ui/errorPresentation'
 import {
   activeAuthModeSpec,
   canTestDraft,
@@ -12,6 +13,7 @@ import {
   draftBlockedReason,
   draftTestKey,
   draftToAddConnectionInput,
+  presentTrackerError,
   providerHasAuthModeChoice,
   trackerProviderFormSpec,
   TRACKER_PROVIDER_FORM_SPECS,
@@ -176,6 +178,56 @@ test('host label falls back to the provider default when no baseUrl is stored', 
   assert.equal(connectionHostLabel(connection({ provider: 'github', baseUrl: 'ghe.acme.net' })), 'ghe.acme.net')
   assert.equal(connectionHostLabel(connection({ provider: 'linear', baseUrl: null })), 'linear.app')
   assert.equal(connectionHostLabel(connection({ provider: 'jira', baseUrl: 'https://acme.atlassian.net' })), 'https://acme.atlassian.net')
+})
+
+// --- Humanized errors: raw provider messages stay behind "Show details" -------
+
+function trackerError(overrides: Partial<TrackerError> = {}): TrackerError {
+  return { kind: 'unknown', message: 'boom', ...overrides }
+}
+
+test('presentError pairs every failure class with a plain sentence and an action', () => {
+  const classes: FailureClass[] = ['auth', 'rate_limit', 'network', 'not_found', 'validation', 'permission', 'unknown']
+  for (const failure of classes) {
+    const presented = presentError(failure)
+    assert.ok(presented.title.length > 0, `${failure} has a title`)
+    assert.ok(presented.hint.length > 0, `${failure} has a hint`)
+    // No raw error jargon leaks into the human copy.
+    assert.doesNotMatch(presented.title + presented.hint, /ENOENT|HTTP|zod|TypeError|\bError:/i)
+  }
+})
+
+test('presentError folds the subject into network/not_found and honours retry-after', () => {
+  assert.equal(presentError('network', { subject: 'Jira' }).title, 'Couldn’t reach Jira.')
+  assert.equal(presentError('network').title, 'Couldn’t connect.')
+  assert.equal(presentError('not_found', { subject: 'GitHub' }).title, 'GitHub couldn’t be found.')
+  assert.match(presentError('rate_limit', { retryAfterSeconds: 30 }).hint, /30 seconds/)
+  assert.doesNotMatch(presentError('rate_limit').hint, /\d/)
+})
+
+test('presentTrackerError humanizes each kind and keeps the raw message as detail', () => {
+  const cases: Array<[TrackerError['kind'], RegExp]> = [
+    ['auth', /didn’t accept this connection/],
+    ['rate_limit', /Too many requests/],
+    ['network', /Couldn’t reach GitHub/],
+    ['not_found', /wasn’t found in GitHub/],
+    ['not_configured', /No GitHub connection is set up/],
+    ['unsupported', /doesn’t support this action/],
+    ['unknown', /Something went wrong/],
+  ]
+  for (const [kind, titlePattern] of cases) {
+    const presented = presentTrackerError(trackerError({ kind, provider: 'github', message: 'ENOENT: raw dump' }))
+    assert.match(presented.title, titlePattern, `${kind} title`)
+    // The raw string is preserved for Show details, never in the plain sentence.
+    assert.equal(presented.detail, 'ENOENT: raw dump')
+    assert.doesNotMatch(presented.title + presented.hint, /ENOENT/)
+  }
+})
+
+test('presentTrackerError degrades gracefully without a provider or message', () => {
+  const presented = presentTrackerError(trackerError({ kind: 'auth', provider: undefined, message: '   ' }))
+  assert.equal(presented.title, 'That connection was refused.')
+  assert.equal(presented.detail, 'No further detail was reported.')
 })
 
 let failures = 0

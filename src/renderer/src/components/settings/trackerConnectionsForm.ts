@@ -13,8 +13,11 @@ import type {
   TrackerAuthMode,
   TrackerConnectionDraft,
   TrackerConnectionStatus,
+  TrackerError,
+  TrackerErrorKind,
   TrackerProviderId,
 } from '../../../../shared/electron-api'
+import { presentError, type PresentedError } from '../ui/errorPresentation'
 import type { Tone } from '../ui/tokens'
 
 // How a connection on a given auth mode is credentialed. `selfHosted` marks the
@@ -308,4 +311,62 @@ export function connectionHostLabel(connection: RedactedTrackerConnection): stri
 
 export function trackerProviderMonogram(provider: TrackerProviderId): string {
   return trackerProviderFormSpec(provider).monogram
+}
+
+// ---------------------------------------------------------------------------
+// Humanized tracker errors (T13 / backlog 1732). The IPC boundary hands the
+// renderer a structural `kind` plus the provider's raw message; the old
+// describeTrackerError returned that raw message verbatim, so ENOENT / HTTP
+// bodies / URL-parse dumps leaked into the UI. This maps the kind onto the
+// shared error card — a plain sentence + suggested action — and keeps the raw
+// message as `detail`, shown only behind InlineNotice's "Show details"
+// disclosure. Consumed by the connections tab and by T18 (write-back notices).
+// ---------------------------------------------------------------------------
+
+export type PresentedTrackerError = PresentedError & {
+  // The provider's raw message. Technical — render only behind "Show details".
+  detail: string
+}
+
+// A few kinds read better with a tracker-specific sentence than the generic
+// copy (there is no generic "you haven't set this up yet" class); the rest flow
+// through the shared presentError() with the provider name as the subject.
+function trackerErrorCard(
+  kind: TrackerErrorKind,
+  provider: string | undefined,
+  retryAfterSeconds: number | undefined,
+): PresentedError {
+  switch (kind) {
+    case 'auth':
+      return {
+        title: provider ? `${provider} didn’t accept this connection.` : 'That connection was refused.',
+        hint: 'Check the credentials in Settings → Trackers, then test it again.',
+      }
+    case 'not_configured':
+      return {
+        title: provider ? `No ${provider} connection is set up yet.` : 'No tracker connection is set up yet.',
+        hint: 'Add one in Settings → Trackers, then try again.',
+      }
+    case 'unsupported':
+      return {
+        title: provider ? `${provider} doesn’t support this action.` : 'This tracker doesn’t support this action.',
+        hint: 'Try a different tracker for this.',
+      }
+    case 'not_found':
+      return {
+        title: provider ? `That wasn’t found in ${provider}.` : 'That wasn’t found.',
+        hint: 'It may have been moved or deleted. Refresh to see the latest.',
+      }
+    case 'rate_limit':
+    case 'network':
+    default:
+      // rate_limit / network / unknown share the generic copy verbatim.
+      return presentError(kind, { subject: provider, retryAfterSeconds })
+  }
+}
+
+export function presentTrackerError(error: TrackerError): PresentedTrackerError {
+  const provider = error.provider ? trackerProviderFormSpec(error.provider).label : undefined
+  const detail = error.message.trim() || 'No further detail was reported.'
+  return { ...trackerErrorCard(error.kind, provider, error.retryAfterSeconds), detail }
 }
