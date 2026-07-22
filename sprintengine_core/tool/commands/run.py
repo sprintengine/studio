@@ -1135,6 +1135,9 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     )
 
     snapshot = load_mutation_state(args.state)
+    # Snapshot check fails fast before provisioning; the locked append below
+    # re-checks so a cancel that races this call still refuses the store write.
+    refuse_if_run_canceled(snapshot, "vcs.request_repo")
     vcs = get_run_vcs(snapshot)
     if not vcs:
         raise SystemExit(
@@ -1178,6 +1181,7 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     ensure_repo_worktree(workspace_root, adopt_target if adopt_target is not None else candidate)
 
     def append_entry(state: Dict[str, Any]) -> Dict[str, Any]:
+        refuse_if_run_canceled(state, "vcs.request_repo")
         vcs = get_run_vcs(state)
         # Materialize the list shape before appending so a pre-`repos` store keeps its
         # primary as entry zero instead of being replaced by the sibling alone.

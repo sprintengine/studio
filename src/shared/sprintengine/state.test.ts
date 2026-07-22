@@ -343,6 +343,43 @@ function testMergeRollupOpenSiblingHoldsAllMergedFalse(): void {
   )
 }
 
+function testMergeRollupZeroCommitSiblingHasNoBranchToMerge(): void {
+  // A fully provisioned sibling that delivered NOTHING (no commit on the run
+  // branch, no PR — e.g. its only task was canceled, which is terminal under
+  // MC-1749) has no branch to merge. The engine skips it (`vcs.pr` reports
+  // `no_commits`) so its PR state can never advance; counting it would hold
+  // `allMerged` false forever and wedge run-landed chaining + roadmap advance.
+  const state = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: null, status: 'ready' },
+  ])
+  const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
+  assert.ok(rollup)
+  assert.deepEqual(
+    { total: rollup.total, merged: rollup.merged, unmerged: rollup.unmerged, allMerged: rollup.allMerged },
+    { total: 1, merged: 1, unmerged: 0, allMerged: true },
+    'a zero-commit no-PR sibling is not a branch left to merge',
+  )
+  // A sibling with commits but no PR yet still counts — it has a branch to land.
+  const committed = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: 'abc123', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', lastCommitSha: 'def456' },
+  ])
+  const committedRollup = deriveSprintEngineRepoMergeRollup(committed?.vcs)
+  assert.equal(committedRollup?.allMerged, false, 'a committed-but-unmerged sibling still holds the run open')
+}
+
+function testMergeRollupRunThatDeliveredNothingStaysUnlanded(): void {
+  // Every leg delivered nothing: there is no landing to report, so the rollup
+  // stays fail-closed rather than reading all-merged on an empty run.
+  const state = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', lastCommitSha: null },
+  ])
+  const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
+  assert.ok(rollup)
+  assert.equal(rollup.allMerged, false, 'a run with nothing to merge never reads all-merged')
+}
+
 function testMergeRollupSingleRepoAndNullVcs(): void {
   // A single-repo run rolls up to total 1 — the flat field's answer.
   const single = mergeRollupState([
@@ -435,5 +472,7 @@ testVcsReposUnresolvableEntriesDropped()
 testMergeRollupCountsDroppedDeclaredEntryAsUnmerged()
 testMergeRollupAllMergedWhenEveryDeclaredRepoMerged()
 testMergeRollupOpenSiblingHoldsAllMergedFalse()
+testMergeRollupZeroCommitSiblingHasNoBranchToMerge()
+testMergeRollupRunThatDeliveredNothingStaysUnlanded()
 testMergeRollupSingleRepoAndNullVcs()
 console.log('sprintengine state tests passed')

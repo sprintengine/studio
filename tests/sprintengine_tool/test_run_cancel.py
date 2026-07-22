@@ -190,13 +190,16 @@ def test_join_reports_canceled_run(tmp_path) -> None:
     assert payload["action"] == "canceled"
 
 
-def test_task_status_on_canceled_run_honors_the_terminal_guard(tmp_path) -> None:
-    # Canceled tasks are terminal like done ones (MC-1749, fix-forward): even on
-    # a canceled run the low-level task.status transition refuses to resurrect
-    # them — the repair for canceled work is a new task, not a reopen. The one
-    # sanctioned reopen stays the human done -> in_progress send-back.
+def test_task_status_on_canceled_run_is_refused(tmp_path) -> None:
+    # Cancel is terminal (MC-1749, fix-forward): task.status joins the refused
+    # writer set on a canceled run. Anything less leaves two holes — a
+    # same-status `--status done` re-send reaches the commit sweep and lands a
+    # commit on the canceled branch, and the human send-back reopens a task no
+    # other writer can move again (permanently in_progress). The repair for
+    # canceled work is a new task, not a reopen.
     fixture = _canceled_team(tmp_path)
     rejected = fixture.cli.run_failure(
         "task", "status", "--task-id", "T2", "--status", "todo", "--id", "user"
     )
-    assert "terminal" in rejected.stdout + rejected.stderr
+    assert "canceled" in rejected.stdout + rejected.stderr
+    assert "refused" in rejected.stdout + rejected.stderr

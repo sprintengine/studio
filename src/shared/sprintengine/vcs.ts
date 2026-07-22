@@ -29,13 +29,16 @@ function optionalTrimmedString(value: unknown): string | undefined {
  * rolls up to exactly what the flat field said.
  */
 export type SprintEngineRepoMergeRollup = {
-  /** Repos the run declared; always ≥ 1 for a worktree run. */
+  /**
+   * Repos with a branch to merge: every declared repo except surviving entries
+   * that delivered nothing (no commit on the run branch, no pull request).
+   */
   total: number
-  /** Declared repos whose pull request has merged. */
+  /** Counted repos whose pull request has merged. */
   merged: number
-  /** Declared repos still waiting to merge — `total - merged`. */
+  /** Counted repos still waiting to merge — `total - merged`. */
   unmerged: number
-  /** True only when every declared repo's pull request has merged. */
+  /** True only when every counted repo's pull request has merged. */
   allMerged: boolean
 }
 
@@ -48,17 +51,29 @@ export function deriveSprintEngineRepoMergeRollup(
   // carry only the flat fields until the next projection lands. That block IS the
   // one repo such a run has, so it rolls up as a one-entry list rather than
   // reporting "no branch to merge" and downgrading the glyph to plain Complete.
-  const repos = Array.isArray(vcs.repos) && vcs.repos.length > 0
+  const survivors = Array.isArray(vcs.repos) && vcs.repos.length > 0
     ? vcs.repos
-    : [{ pullRequestState: vcs.pullRequestState ?? null }]
-  // Count against what the run DECLARED, not the survivors the normalizer kept.
-  // A declared repo that dropped out (partially provisioned, hand-edited) leaves
-  // fewer entries in `repos` than were declared; counting only survivors would
-  // let `allMerged` flip true with that declared branch still unmerged. Fail
-  // closed: the dropped entries stay uncounted-as-merged, so they read unmerged.
-  const total = Math.max(vcs.declaredRepoCount ?? 0, repos.length)
-  const merged = repos.filter((repo) => repo.pullRequestState === 'merged').length
-  return { total, merged, unmerged: total - merged, allMerged: merged === total }
+    : [{ pullRequestState: vcs.pullRequestState ?? null, lastCommitSha: vcs.lastCommitSha ?? null }]
+  // A surviving entry with no commit on the run branch and no pull request has
+  // no branch to merge. The engine already accounts for it that way — `vcs.pr`
+  // skips it as `no_commits`, its PR state can never advance, and merge
+  // ordering treats it as "in nobody's way" — and a canceled sibling task is
+  // terminal (MC-1749), so a zero-commit leg is a routine end state. Counting
+  // it as forever-unmerged would hold `allMerged` false for good, wedging
+  // run-landed chaining and roadmap advancement on a run the engine considers
+  // delivered.
+  const mustMerge = survivors.filter(
+    (repo) => repo.pullRequestState != null || optionalTrimmedString(repo.lastCommitSha ?? undefined) !== undefined,
+  )
+  // Declared repos the normalizer DROPPED (partially provisioned, hand-edited)
+  // stay fail-closed: they cannot be inspected, so they keep reading unmerged
+  // rather than letting `allMerged` flip true off the survivors alone.
+  const dropped = Math.max(0, (vcs.declaredRepoCount ?? 0) - survivors.length)
+  const total = mustMerge.length + dropped
+  const merged = mustMerge.filter((repo) => repo.pullRequestState === 'merged').length
+  // `total === 0` (a run that delivered nothing anywhere) stays fail-closed:
+  // there is no landing to report, so it must not read as all-merged.
+  return { total, merged, unmerged: total - merged, allMerged: total > 0 && merged === total }
 }
 
 /**

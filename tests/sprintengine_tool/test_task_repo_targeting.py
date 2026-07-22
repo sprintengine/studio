@@ -150,7 +150,12 @@ def test_retarget_moves_the_lease_while_the_task_is_being_worked(tmp_path: Path)
     # Task and lease moved together: worker and binding stay consistent.
     moved = get_task(read_state(fixture.state_path), "T1")
     assert folder_store.task_repo(moved) == "mobile"
-    assert task_lease(moved)["repo"] == "mobile"
+    lease = task_lease(moved)
+    assert lease["repo"] == "mobile"
+    # Only the repo moves: re-minting would refresh the heartbeat and hide a dead
+    # worker from the expiry sweep.
+    assert lease["heartbeatAt"] == claimed_lease["heartbeatAt"]
+    assert lease["workerId"] == "developer-1"
 
 
 def test_retarget_succeeds_once_the_task_is_released(tmp_path: Path) -> None:

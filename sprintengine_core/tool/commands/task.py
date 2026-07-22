@@ -329,6 +329,12 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        # Canceled runs refuse this writer like every other one: a same-status
+        # `--status done` re-send would otherwise reach the commit sweep and land
+        # a commit on the canceled run's branch, and the human send-back would
+        # reopen a task no writer can ever move again (publish/advance/log all
+        # refuse), wedging it in_progress for good.
+        refuse_if_run_canceled(state, "task.status")
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         previous_status = task.get("status")

@@ -641,11 +641,13 @@ assert.deepEqual(
   { state: 'done_unmerged', live: false, label: 'Ready for review · 1 project left to merge' },
 )
 // Nothing merged yet: the count names every project still out, and pluralizes.
+// The no-PR mobile leg carries a commit — a leg with neither commit nor PR has
+// no branch to merge and would (correctly) drop out of the count.
 assert.deepEqual(
   deriveSprintEngineRunGlyph({
     sprintEngineState: {
       tasks: [boardTask('done')],
-      vcs: multiRepoVcs(repo('primary', 'open'), repo('mobile', null), repo('multiauth', 'open')),
+      vcs: multiRepoVcs(repo('primary', 'open'), { ...repo('mobile', null), lastCommitSha: 'abc123' }, repo('multiauth', 'open')),
     },
     autoState: manualIdle,
   }),
