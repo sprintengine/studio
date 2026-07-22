@@ -405,14 +405,27 @@ def release_task_from_owner(state: Dict[str, Any], task: Dict[str, Any], actor: 
         raise SystemExit(
             f"Only owned tasks ({', '.join(sorted(ACTIVE_TASK_STATUSES))}) can be released."
         )
-    previous_owner_id = str(task.get("ownerAgentId") or "").strip()
+    # A published-then-stranded task has already cleared ownerAgentId; the
+    # implementer stamp is then the truthful "who held this" (MC-1751).
+    previous_owner_id = (
+        str(task.get("ownerAgentId") or "").strip()
+        or str(task.get("lastImplementedByAgentId") or "").strip()
+    )
     task["ownerAgentId"] = None
+    # Release severs EVERY worker binding (MC-1751): the retained implementer
+    # stamp is what the revive path and the pool's bound-owner defer key on, so
+    # keeping it left released tasks associated with a seat that (under
+    # per_task) can never claim again — the T11 wedge. History stays in the
+    # activity log and the RELEASED note; the record itself reads as
+    # never-claimed so a fresh mint picks it up like any other ready task.
+    task.pop("lastImplementedByAgentId", None)
     task["status"] = "todo"
     task["startedAt"] = None
     task["completedAt"] = None
     task.pop("needsInput", None)
     task.setdefault("notes", []).append(f"RELEASED by {actor}: {reason}")
     append_task_activity(task, "status_change", actor, f"Task released: {reason}", {"status": "todo"})
+    end_lease(task)
     return {"previousOwnerAgentId": previous_owner_id or None, "status": "todo"}
 
 def reopen_task_for_artifact_changes(state: Dict[str, Any], task: Dict[str, Any]) -> str:

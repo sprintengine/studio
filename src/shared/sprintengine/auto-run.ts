@@ -1528,7 +1528,12 @@ export function planSprintEngineDispatch(input: {
     const taskAwaitsOwner = (taskId: string, agentId: string): boolean => {
       const task = taskById.get(taskId)
       if (!task) return false
-      if (task.status === 'review' || task.status === 'needs_input') return true
+      // Owner-qualified for EVERY owner-held status (MC-1751): an unowned
+      // review/needs_input task awaits triage or the pool, not this agent —
+      // the unqualified check revived developer-4 for a task nobody owned.
+      if (task.status === 'review' || task.status === 'needs_input') {
+        return task.ownerAgentId === agentId
+      }
       return task.status === 'in_progress' && task.ownerAgentId === agentId
     }
     // Pass 1: a managed roster id whose retained `lastOwnedTaskId` is claimable
@@ -1707,8 +1712,23 @@ export function planSprintEngineDispatch(input: {
         })
         continue
       }
-      if (!isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
-      if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) continue
+      // Skip-reason instrumentation (MC-1751): every kept-alive idle agent
+      // states WHY each pass, so a retirement stall is diagnosable from the
+      // perf log instead of another live post-mortem.
+      const skipRetire = (reason: string): void => {
+        plan.skips.push({
+          event: 'idle-retire-skipped',
+          data: { agentId, role: runtimeAgent.role, reason },
+        })
+      }
+      if (!isUnclaimedIdleRuntimeAgent(runtimeAgent)) {
+        skipRetire('not-unclaimed-idle')
+        continue
+      }
+      if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) {
+        skipRetire('architect-triage-work')
+        continue
+      }
       // Task-scoped workers (MC-1444) only ever wake for their own task, so the
       // claimable-work skip below no longer parks them on unrelated ready tasks
       // — a completed worker retires even while its role has a full queue; fresh
@@ -1724,7 +1744,10 @@ export function planSprintEngineDispatch(input: {
         new Set(),
         restrictToTaskId,
         sprintEngineWorkerRepoId(sprintEngineState, agentId)
-      )) continue
+      )) {
+        skipRetire('wake-candidate-available')
+        continue
+      }
       const idleClockKey = sprintEngineIdleClockKey(workspace, agentId)
       // Task-scoped terminal state: the worker's own task is finished, so its
       // session has nothing left to return for. Retires without the 5-minute
@@ -1759,9 +1782,15 @@ export function planSprintEngineDispatch(input: {
         ? AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS
         : AUTO_RUN_RETIREMENT_COOLDOWN_MS
       const retiredAt = input.retirementCooldown?.get(idleClockKey)
-      if (retiredAt !== undefined && now - retiredAt < cooldownMs) continue
+      if (retiredAt !== undefined && now - retiredAt < cooldownMs) {
+        skipRetire('retirement-cooldown')
+        continue
+      }
       const since = input.idleClock.get(idleClockKey)
-      if (!since) continue
+      if (!since) {
+        skipRetire('no-idle-clock-entry')
+        continue
+      }
       if (taskScopedComplete) {
         // Departed permanently: its task is done and new work goes to fresh
         // sessions. Tear the panel down (record + remove) rather than kill it in
@@ -1790,7 +1819,10 @@ export function planSprintEngineDispatch(input: {
         })
         continue
       }
-      if (now - since < AUTO_RUN_IDLE_RETIREMENT_MS) continue
+      if (now - since < AUTO_RUN_IDLE_RETIREMENT_MS) {
+        skipRetire('inside-idle-window')
+        continue
+      }
       // Window disposal: the owner still holds its task (single-owner tasks stay
       // with their owner from claim to `done`), so keep its resume state — the
       // respawn that finishes `review`, answers a `needs_input` hold, or picks up

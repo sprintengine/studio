@@ -129,6 +129,29 @@ def test_publish_commit_failure_leaves_the_task_unpublished(tmp_path, monkeypatc
     assert record_after.get("completedAt") in (None, "")
 
 
+def test_release_severs_worker_bindings_and_names_the_implementer(tmp_path) -> None:
+    """MC-1751: a released task must read as never-claimed (fresh mint picks it
+    up) — and the release event names who actually held the work, even when
+    publish already cleared ownerAgentId (the T11 stranding shape)."""
+    record = task("T1", "Stranded implementation", "developer", "needs_input")
+    record["ownerAgentId"] = None
+    record["lastImplementedByAgentId"] = "developer-4"
+    record["startedAt"] = "2026-07-08T00:00:00Z"
+    fixture = create_team(tmp_path, "release-severs-bindings", [record])
+
+    payload = fixture.cli.run(
+        "task", "release", "--task-id", "T1", "--id", "architect",
+        "--reason", "Repo binding corrected; releasing to the pool.",
+    )
+
+    assert payload["ok"] is True
+    released = get_task(read_state(fixture.state_path), "T1")
+    assert released["status"] in ("todo", "ready")
+    assert released["ownerAgentId"] is None
+    assert "lastImplementedByAgentId" not in released
+    assert payload["transition"]["previousOwnerAgentId"] == "developer-4"
+
+
 def test_setting_the_same_terminal_status_is_not_a_transition(tmp_path) -> None:
     # Idempotent re-set (done -> done) is allowed: it is not a reopen, and the
     # completion stamping path re-runs harmlessly.
