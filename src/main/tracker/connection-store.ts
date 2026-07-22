@@ -259,7 +259,23 @@ function normalizeEnvVar(envVar: string | null | undefined): string | null {
 function normalizeBaseUrl(provider: TrackerProviderId, baseUrl: string | null): string | null {
   if (provider === 'linear') return null
   const trimmed = baseUrl?.trim()
-  return trimmed ? trimmed : null
+  if (!trimmed) return null
+  if (provider === 'github') return normalizeGithubBaseUrl(trimmed)
+  return trimmed
+}
+
+// Canonicalizes a GitHub host into the REST API base the client fetches against.
+// github.com in any form (bare, scheme-prefixed, trailing slash) carries no
+// override and resolves to https://api.github.com downstream, so it becomes null.
+// Any other host is a GitHub Enterprise Server whose v3 API lives at
+// https://<host>/api/v3; a value already in that shape normalizes to itself.
+function normalizeGithubBaseUrl(host: string): string | null {
+  const authority = host
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/\/+$/, '')
+  if (!authority || authority.toLowerCase() === 'github.com') return null
+  return `https://${authority}/api/v3`
 }
 
 const AUTH_MODES_BY_PROVIDER: Record<TrackerProviderId, ReadonlyArray<TrackerConnection['authMode']>> = {

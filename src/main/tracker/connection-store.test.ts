@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 
+import {
+  defaultDraftForProvider,
+  draftToAddConnectionInput,
+} from '../../renderer/src/components/settings/trackerConnectionsForm'
 import { TrackerConnectionStore, type TrackerConnectionStoreOptions } from './connection-store'
+import { GitHubTrackerProvider } from './github/client'
 
 // Verifies the connection store's acceptance-critical behavior (MC-1633):
 // connection CRUD, per-connection secret resolution keyed by connection id, the
@@ -22,6 +27,8 @@ async function main(): Promise<void> {
   await testCapabilityGating()
   await testDraftConnectionIsTransient()
   await testValidationRejectsBadShapes()
+  await testGithubBaseUrlNormalization()
+  await testDefaultGithubFormConnectionReachesApiGithubCom()
 
   console.log('tracker-connection-store tests passed')
 }
@@ -199,6 +206,58 @@ async function testValidationRejectsBadShapes(): Promise<void> {
   await assert.rejects(
     store.add({ provider: 'linear', baseUrl: 'https://nope', authMode: 'linear_key', label: 'Linear' }),
     /no server address/
+  )
+}
+
+// github.com (bare/scheme/trailing slash) carries no override ⇒ stored as null
+// (the client resolves it to https://api.github.com); any other host is a GHES
+// server whose stored base is its https://<host>/api/v3 REST endpoint.
+async function testGithubBaseUrlNormalization(): Promise<void> {
+  const store = createStore({ encryptionAvailable: true })
+  const cases: Array<[input: string | null, stored: string | null]> = [
+    ['github.com', null],
+    ['https://github.com', null],
+    ['https://github.com/', null],
+    ['GitHub.com', null],
+    ['ghe.example.com', 'https://ghe.example.com/api/v3'],
+    ['https://ghe.example.com/api/v3', 'https://ghe.example.com/api/v3'],
+  ]
+  for (const [input, stored] of cases) {
+    const created = await store.add({ provider: 'github', baseUrl: input, authMode: 'github_pat', label: `gh ${input}` })
+    assert.equal((await store.getConnection(created.id))?.baseUrl, stored, `baseUrl ${input} ⇒ ${stored}`)
+  }
+}
+
+// End-to-end: the settings form's default GitHub draft, submitted through the
+// real form transform and stored, must make the client fetch api.github.com —
+// not the bare "github.com" host that threw a URL parse error before T4.
+async function testDefaultGithubFormConnectionReachesApiGithubCom(): Promise<void> {
+  const store = createStore({ encryptionAvailable: true })
+  const draft = { ...defaultDraftForProvider('github'), label: 'github.com', secret: 'ghp_default_host' }
+  const created = await store.add(draftToAddConnectionInput(draft))
+  assert.equal((await store.getConnection(created.id))?.baseUrl, null, 'default host stored as no-override')
+
+  const requests: string[] = []
+  const fetchImpl = (async (input: unknown) => {
+    requests.push(String(input))
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ total_count: 0, items: [] }),
+      text: async () => '{"total_count":0,"items":[]}',
+    } as unknown as Response
+  }) as unknown as typeof fetch
+
+  const provider = new GitHubTrackerProvider({
+    connections: { getConnection: (id) => store.getConnection(id), resolveSecret: (id) => store.resolveSecret(id) },
+    fetchImpl,
+  })
+  await provider.searchIssues({ connectionId: created.id, query: 'alerting' })
+
+  assert.ok(
+    requests[0]?.startsWith('https://api.github.com/search/issues'),
+    `default-host GitHub connection must reach api.github.com, got ${requests[0]}`
   )
 }
 

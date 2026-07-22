@@ -82,9 +82,11 @@ test('Linear draft always submits a null baseUrl even if a host was typed', () =
   assert.equal(draftToAddConnectionInput(draft).baseUrl, null)
 })
 
-test('GitHub github.com submits the host string; GHES submits its host', () => {
+test('GitHub default host submits null (no override); a GHES host submits its host', () => {
   const gh = { ...defaultDraftForProvider('github'), label: 'GH', secret: 't' }
-  assert.equal(draftToAddConnectionInput(gh).baseUrl, 'github.com')
+  // The prefilled github.com default means "use the provider default", not a
+  // self-hosted override — submitting the bare host is what broke the client.
+  assert.equal(draftToAddConnectionInput(gh).baseUrl, null)
   const ghes = { ...gh, baseUrl: 'ghe.acme.net' }
   assert.equal(draftToAddConnectionInput(ghes).baseUrl, 'ghe.acme.net')
 })

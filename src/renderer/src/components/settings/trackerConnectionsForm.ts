@@ -191,17 +191,30 @@ export function providerHasAuthModeChoice(provider: TrackerProviderId): boolean 
 }
 
 // Normalizes the editable draft into the write-only IPC input. baseUrl collapses
-// to null for cloud-only providers (Linear); everything else is trimmed.
+// to null for cloud-only providers and for the untouched default host; a typed
+// self-hosted host passes through for the main-side store to canonicalize.
 export function draftToAddConnectionInput(draft: TrackerConnectionFormDraft): TrackerAddConnectionInput {
   const spec = trackerProviderFormSpec(draft.provider)
-  const trimmedHost = draft.baseUrl.trim()
   return {
     provider: draft.provider,
-    baseUrl: spec.selfHostable ? (trimmedHost ? trimmedHost : null) : null,
+    baseUrl: submittedBaseUrl(spec, draft.baseUrl),
     authMode: draft.authMode,
     label: draft.label.trim(),
     secret: draft.secret,
   }
+}
+
+// The base URL a connection submits. Cloud-only providers (Linear) never carry
+// one. A self-hostable provider submits null when the field is empty or still
+// holds the prefilled default host (github.com) — that is "use the provider's
+// default endpoint", not a self-hosted override, and submitting the bare host
+// string is exactly what breaks the client. A genuinely typed host passes
+// through; the main-side store turns it into the REST API base.
+function submittedBaseUrl(spec: TrackerProviderFormSpec, rawHost: string): string | null {
+  if (!spec.selfHostable) return null
+  const host = rawHost.trim()
+  if (!host || host === spec.server?.defaultValue) return null
+  return host
 }
 
 export function draftToTestConnectionDraft(draft: TrackerConnectionFormDraft): TrackerConnectionDraft {
