@@ -52,11 +52,14 @@ import {
   draftContainsRef,
   draftFromRoadmap,
   moveEntry,
+  newRoadmapFileContent,
   normalizeRoadmapPath,
   removeEntry,
   roadmapProjectAlias,
   type RoadmapDraft,
 } from '../shared/backlog/roadmapAuthoring'
+import { serializeBacklogFrontmatterFields } from '../shared/backlog/frontmatter'
+import { slugify } from '../shared/paths'
 import {
   buildRoadmapBoardModel,
   skipRoadmapEntry,
@@ -833,6 +836,83 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     return { ok: true }
   }
 
+  // Make one roadmap file the single active plan (epic 1687 D1): promote the target
+  // to `ready`, then demote every OTHER active-status roadmap to `idea`. The order is
+  // load-bearing — the target is made active BEFORE any demote, so a write failure
+  // mid-operation can only ever leave TWO active files (a recoverable warning
+  // loadActiveRoadmap resolves by newest id), never ZERO. Frontmatter-only writes;
+  // the body stays byte-stable. Reconciles so the orchestrator adopts the new plan.
+  async function activateRoadmap(input: { roadmapRef: string }): Promise<{ ok: boolean; message?: string }> {
+    const homeRoot = ports.getHomeProjectRoot()
+    if (!homeRoot) return { ok: false, message: 'No home project is configured for this Multicode.' }
+    const targetRef = normalizeRoadmapPath(input.roadmapRef)
+    let roadmaps: RoadmapBacklogItem[]
+    try {
+      roadmaps = (await ports.listBacklogItems(homeRoot)).filter((item) => item.isRoadmap)
+    } catch (error) {
+      return { ok: false, message: errorMessage(error) }
+    }
+    const target = roadmaps.find((item) => normalizeRoadmapPath(item.relativePath) === targetRef)
+    if (!target) return { ok: false, message: 'That roadmap file no longer exists.' }
+    try {
+      // Promote first: the one write that must land before anything is demoted.
+      if (!ACTIVE_ROADMAP_STATUSES.has(target.status)) {
+        await writeRoadmapStatusFile(homeRoot, target.relativePath, 'ready')
+      }
+      for (const candidate of roadmaps) {
+        if (normalizeRoadmapPath(candidate.relativePath) === targetRef) continue
+        if (ACTIVE_ROADMAP_STATUSES.has(candidate.status)) {
+          await writeRoadmapStatusFile(homeRoot, candidate.relativePath, 'idea')
+        }
+      }
+    } catch (error) {
+      return { ok: false, message: errorMessage(error) }
+    }
+    await reconcile()
+    return { ok: true }
+  }
+
+  // Create a new DRAFT roadmap (status idea, so nothing runs until it is made active):
+  // atomically write the file in the home project, or — when no home is set yet — in
+  // the caller's chosen OPEN project (the IPC handler then adopts that as the home).
+  // Refuses to overwrite an existing file (fallback discipline). Returns the written
+  // project root so the handler knows which project to set as home.
+  async function createRoadmap(
+    input: { projectRoot: string; name: string },
+  ): Promise<{ ok: true; roadmapRef: string; projectRoot: string } | { ok: false; message: string }> {
+    const name = input.name.trim()
+    if (!name) return { ok: false, message: 'A roadmap name is required.' }
+    const homeRoot = ports.getHomeProjectRoot()
+    // A configured home wins — the roadmap is instance-global; otherwise the caller's
+    // project must be an open workspace, never a silent fallback.
+    const projectRoot = homeRoot ?? input.projectRoot
+    if (!homeRoot) {
+      const known = new Set(ports.listWorkspaceRoots().map(normalizeRoot))
+      if (!known.has(normalizeRoot(input.projectRoot))) {
+        return { ok: false, message: 'Open the project first, then create a roadmap in it.' }
+      }
+    }
+    const relativePath = `backlog/roadmaps/${roadmapDatePrefix(ports.now())}-${slugify(name)}.md`
+    if ((await ports.readRoadmapFile(projectRoot, relativePath)) !== null) {
+      return { ok: false, message: 'A roadmap with that name already exists here. Pick a different name.' }
+    }
+    try {
+      await ports.writeRoadmapFile(projectRoot, relativePath, newRoadmapFileContent(name))
+    } catch (error) {
+      return { ok: false, message: errorMessage(error) }
+    }
+    return { ok: true, roadmapRef: normalizeRoadmapPath(relativePath), projectRoot }
+  }
+
+  // Write a roadmap file's frontmatter status, body byte-stable. Throws when the file
+  // cannot be read, so activateRoadmap aborts before it demotes anything.
+  async function writeRoadmapStatusFile(homeRoot: string, relativePath: string, status: 'ready' | 'idea'): Promise<void> {
+    const content = await ports.readRoadmapFile(homeRoot, relativePath)
+    if (content === null) throw new Error(`The roadmap file ${relativePath} could not be read.`)
+    const next = serializeBacklogFrontmatterFields(content, { status })
+    if (next !== content) await ports.writeRoadmapFile(homeRoot, relativePath, next)
+  }
+
   // Load the active roadmap plus its raw on-disk content, for a plan edit. The
   // content is the exact bytes composeRoadmapSaveContent/skipRoadmapEntry edit.
   async function loadForEdit(): Promise<{ entry: RoadmapEntry; content: string } | { error: string }> {
@@ -986,8 +1066,17 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     removeStep,
     reorderStep,
     skipStep,
+    activateRoadmap,
+    createRoadmap,
     steerLane,
   }
+}
+
+// The date prefix for a new roadmap file name (local date, matching the surface's
+// author-facing filename convention). Derived from the injected clock so tests pin it.
+function roadmapDatePrefix(now: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
 // The single active roadmap: the newest roadmap-flagged file (highest backlog id,

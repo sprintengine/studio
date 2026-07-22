@@ -11,9 +11,13 @@ import type {
   SprintEngineAutomationWriteResult,
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
+  RoadmapActivateInput,
+  RoadmapCreateInput,
+  RoadmapCreateResult,
   RoadmapHomeResult,
   RoadmapLaneCommandInput,
   RoadmapLaneCommandResult,
+  RoadmapSkipStepInput,
   RoadmapStatesReadResult,
   SprintEngineRegistryRoleReadInput,
   SprintEngineRegistryRolesReadInput,
@@ -201,6 +205,12 @@ export const sprintEngineApi = {
   getRoadmapHomeProject: (): Promise<RoadmapHomeResult> => ipcRenderer.invoke('roadmap:home:get'),
   setRoadmapHomeProject: (path: string | null): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:home:set', { path }),
+  activateRoadmap: (input: RoadmapActivateInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:activate', input),
+  skipRoadmapStep: (input: RoadmapSkipStepInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:step:skip', input),
+  createRoadmap: (input: RoadmapCreateInput): Promise<RoadmapCreateResult> =>
+    ipcRenderer.invoke('roadmap:create', input),
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void): (() => void) => {
     const ch = SPRINT_RUNTIME_OP_CHANNEL
     const handler = (_: IpcRendererEvent, op: SprintRuntimeOp) => cb(op)
@@ -236,6 +246,9 @@ export const sprintEngineApi = {
   | 'pauseRoadmapLane'
   | 'getRoadmapHomeProject'
   | 'setRoadmapHomeProject'
+  | 'activateRoadmap'
+  | 'skipRoadmapStep'
+  | 'createRoadmap'
   | 'onSprintRuntimeOp'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'

@@ -1670,6 +1670,13 @@ export type RoadmapStatesReadResult =
   | { ok: false; message: string }
 // The home-project setting (D1): which project's repo holds the instance roadmap.
 export type RoadmapHomeResult = { path: string | null }
+// The plan-file mutations the steering surface drives (MC-1718), each one atomic
+// main-process op. Activate/skip reuse the lane-command result; create returns the
+// new draft's roadmap ref.
+export type RoadmapActivateInput = { roadmapRef: string }
+export type RoadmapSkipStepInput = { ref: string; reason: string }
+export type RoadmapCreateInput = { projectRoot: string; name: string }
+export type RoadmapCreateResult = { ok: true; roadmapRef: string } | { ok: false; message: string }
 
 export type SprintEngineProjectionReadResult =
   // `token` is a cheap file-change fingerprint (mtime:size) the caller can pass
@@ -2877,6 +2884,12 @@ export type ElectronApi = {
   getRoadmapHomeProject: () => Promise<RoadmapHomeResult>
   /** Set (or clear, with null) the home project; triggers a reconcile (MC-1689). */
   setRoadmapHomeProject: (path: string | null) => Promise<RoadmapLaneCommandResult>
+  /** Make a draft the single active roadmap: promote-then-demote in one atomic op (MC-1718). */
+  activateRoadmap: (input: RoadmapActivateInput) => Promise<RoadmapLaneCommandResult>
+  /** Skip a step off the active roadmap's plan in one atomic op (MC-1718). */
+  skipRoadmapStep: (input: RoadmapSkipStepInput) => Promise<RoadmapLaneCommandResult>
+  /** Create a new draft roadmap, adopting its project as the home when none is set (MC-1718). */
+  createRoadmap: (input: RoadmapCreateInput) => Promise<RoadmapCreateResult>
   /** Operator edit of one role's cli/model mid-run; merges into the run's canonical roleRuntimes. */
   setSprintEngineRoleRuntime: (input: SprintEngineRosterRuntimeInput) => Promise<SprintEngineArtifactCommandResult>
   enableSprintEngineRole: (input: SprintEngineRosterEnableInput) => Promise<SprintEngineArtifactCommandResult>

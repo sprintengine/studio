@@ -475,3 +475,142 @@ test('skipStep removes a step and records an audit comment; steerLane pauses a l
   assert.equal(lane(h)?.parked?.reason, 'paused')
   assert.equal(h.audits.at(-1)?.action, 'pause')
 })
+
+// --- activate / create: single atomic plan-file mutations (MC-1718) --------------
+
+const ACTIVE_STATUSES = new Set(['ready', 'in_progress', 'needs_input'])
+const parseStatus = (content: string): string => /^status:\s*(\S+)/m.exec(content)?.[1] ?? 'idea'
+// A roadmap file with no steps: the mutation ops touch only frontmatter, and an
+// empty body keeps the trailing reconcile a harmless no-op.
+const roadmapFileWith = (status: string, id: number): string =>
+  `---\ntype: roadmap\nstatus: ${status}\nid: ${id}\nadvance: approve\nmerge: manual\n---\n\n`
+
+// A harness for the plan-file mutations. Roadmap files live in one map keyed by
+// relative path; their status is parsed back out of the on-disk content, so a write
+// is observed exactly as the next read would see it. `failWriteOn` injects a write
+// failure to drive the failure-mid-operation invariant.
+function mutationHarness(options: {
+  files?: Record<string, { status: string; id: number }>
+  home?: string | null
+  roots?: string[]
+  failWriteOn?: (relativePath: string) => boolean
+}): {
+  ports: RoadmapOrchestratorPorts
+  statusOf: (relativePath: string) => string
+  exists: (relativePath: string) => boolean
+  contentOf: (relativePath: string) => string | undefined
+  activeCount: () => number
+} {
+  const home = options.home === undefined ? ROOT : options.home
+  const contents = new Map<string, string>()
+  for (const [rel, file] of Object.entries(options.files ?? {})) contents.set(rel, roadmapFileWith(file.status, file.id))
+  const idByRef = new Map(Object.entries(options.files ?? {}).map(([rel, file]) => [rel, file.id]))
+
+  const ports: RoadmapOrchestratorPorts = {
+    getHomeProjectRoot: () => home,
+    listWorkspaceRoots: () => options.roots ?? [ROOT],
+    listBacklogItems: async (root) =>
+      root === home
+        ? [...contents.entries()].map(([relativePath, content]): RoadmapBacklogItem => ({
+            relativePath,
+            status: parseStatus(content) as RoadmapBacklogItem['status'],
+            isRoadmap: true,
+            ...(idByRef.has(relativePath) ? { numericId: idByRef.get(relativePath) } : {}),
+          }))
+        : [],
+    readRoadmapFile: async (_root, relativePath) => contents.get(relativePath) ?? null,
+    writeRoadmapFile: async (_root, relativePath, content) => {
+      if (options.failWriteOn?.(relativePath)) throw new Error(`disk full writing ${relativePath}`)
+      contents.set(relativePath, content)
+    },
+    appendAudit: async () => undefined,
+    resolveExecutionLink: async () => null,
+    observeRun: async () => null,
+    mergePullRequest: async () => ({ ok: true }),
+    startSprint: async () => ({ ok: true }),
+    abandonRun: async () => undefined,
+    readLaneRuntime: async () => new Map(),
+    writeLaneRuntime: async () => undefined,
+    notify: () => undefined,
+    logDiagnostic: () => undefined,
+    now: () => new Date('2026-07-18T12:00:00Z'),
+  }
+
+  return {
+    ports,
+    statusOf: (relativePath) => parseStatus(contents.get(relativePath) ?? ''),
+    exists: (relativePath) => contents.has(relativePath),
+    contentOf: (relativePath) => contents.get(relativePath),
+    activeCount: () => [...contents.values()].filter((content) => ACTIVE_STATUSES.has(parseStatus(content))).length,
+  }
+}
+
+test('activateRoadmap promotes the target and demotes every other active roadmap', async () => {
+  const h = mutationHarness({
+    files: {
+      'backlog/roadmaps/current.md': { status: 'ready', id: 1 },
+      'backlog/roadmaps/draft.md': { status: 'idea', id: 2 },
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const result = await orchestrator.activateRoadmap({ roadmapRef: 'backlog/roadmaps/draft.md' })
+  assert.equal(result.ok, true)
+  assert.equal(h.statusOf('backlog/roadmaps/draft.md'), 'ready')
+  assert.equal(h.statusOf('backlog/roadmaps/current.md'), 'idea')
+  assert.equal(h.activeCount(), 1)
+})
+
+// The load-bearing invariant (MC-1718): a write failure mid-operation must never
+// strand ZERO active roadmaps. Promote-then-demote means the target is active
+// before any demote, so a failed demote leaves TWO active (recoverable), never none.
+test('activateRoadmap: a demote failure never strands zero active roadmaps', async () => {
+  const h = mutationHarness({
+    files: {
+      'backlog/roadmaps/current.md': { status: 'ready', id: 1 },
+      'backlog/roadmaps/draft.md': { status: 'idea', id: 2 },
+    },
+    // Fail the demote of the previously-active roadmap, after the target is promoted.
+    failWriteOn: (relativePath) => relativePath === 'backlog/roadmaps/current.md',
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const result = await orchestrator.activateRoadmap({ roadmapRef: 'backlog/roadmaps/draft.md' })
+  assert.equal(result.ok, false)
+  // The target was made active first, so it survives the failure...
+  assert.equal(h.statusOf('backlog/roadmaps/draft.md'), 'ready')
+  // ...and there is always at least one active roadmap — never zero.
+  assert.ok(h.activeCount() >= 1, `expected >= 1 active roadmap, got ${h.activeCount()}`)
+})
+
+test('activateRoadmap rejects an unknown roadmap and a Multicode with no home', async () => {
+  const missing = mutationHarness({ files: { 'backlog/roadmaps/a.md': { status: 'ready', id: 1 } } })
+  const one = createRoadmapOrchestrator(missing.ports)
+  assert.equal((await one.activateRoadmap({ roadmapRef: 'backlog/roadmaps/gone.md' })).ok, false)
+  assert.equal(missing.statusOf('backlog/roadmaps/a.md'), 'ready')
+
+  const noHome = mutationHarness({ home: null })
+  assert.equal((await createRoadmapOrchestrator(noHome.ports).activateRoadmap({ roadmapRef: 'x.md' })).ok, false)
+})
+
+test('createRoadmap writes a draft, refuses an overwrite, and validates the project', async () => {
+  const h = mutationHarness({})
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const created = await orchestrator.createRoadmap({ projectRoot: ROOT, name: 'My Plan' })
+  assert.equal(created.ok, true)
+  assert.ok(created.ok && /^backlog\/roadmaps\/\d{4}-\d{2}-\d{2}-my-plan\.md$/.test(created.roadmapRef))
+  assert.ok(created.ok && h.exists(created.roadmapRef))
+  // A fresh draft is idle, never active.
+  assert.ok(created.ok && parseStatus(h.contentOf(created.roadmapRef) ?? '') === 'idea')
+
+  // Same name again → refused, not silently overwritten.
+  const again = await orchestrator.createRoadmap({ projectRoot: ROOT, name: 'My Plan' })
+  assert.equal(again.ok, false)
+
+  // No home set + a project that is not an open workspace → refused (fallback discipline).
+  const noHome = mutationHarness({ home: null, roots: [ROOT] })
+  const rejected = await createRoadmapOrchestrator(noHome.ports).createRoadmap({ projectRoot: '/w/unopened', name: 'X' })
+  assert.equal(rejected.ok, false)
+  assert.ok(!noHome.exists('backlog/roadmaps/2026-07-18-x.md'))
+})
