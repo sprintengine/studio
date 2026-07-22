@@ -57,6 +57,8 @@ import { SprintEngineRoleIcon } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { selectAgentCliCatalog } from '../workspace/newWorkspace/cliRuntimeOptions'
 import type { PluginModelCatalog } from '../../../../shared/plugin-manifest'
+import { DEFAULT_SPRINTENGINE_TASK_REPO, type SprintEngineVcsRepo } from '../../../../shared/sprintengine/run-types'
+import { sprintEngineRepoDisplayName } from '../../../../shared/backlog/sprintengine-links'
 import { useSprintEngineTokenUsage } from '../../hooks/useSprintEngineTokenUsage'
 import {
  bracketedTerminalPaste,
@@ -193,6 +195,23 @@ type PendingRosterMemberSpawn = {
 }
 
 type SprintEngineTasksLayout = 'graph' | 'kanban'
+
+// The actor the engine stamps on init-time worktree provisioning. A
+// `run_worktree_ready` event under any other actor is an agent that expanded the
+// run into a sibling project mid-flight via vcs.request_repo (backlog 1714), so a
+// non-system actor is what tells an on-demand expansion apart from a project
+// declared at run creation.
+const SPRINT_ENGINE_SYSTEM_ACTOR = 'sprintengine'
+
+// One agent-initiated mid-run repo expansion, resolved for display: the sibling
+// repo entry, the agent that brought it in, its human-facing project name, and
+// the tasks now targeting that repo.
+type SprintEngineRepoExpansion = {
+  repo: SprintEngineVcsRepo
+  actor: string
+  displayName: string
+  tasks: SprintEngineTask[]
+}
 
 // Model field for the spawn/recovery dialogs. Rendered only when the selected
 // CLI's plugin declares modelSelection; "Default" means the CLI's own default
@@ -660,6 +679,10 @@ function SprintEngineBoardPanelContent({
  const [addMemberError, setAddMemberError] = useState<string | null>(null)
  const [pendingRosterMemberSpawns, setPendingRosterMemberSpawns] = useState<PendingRosterMemberSpawn[]>([])
  const pendingRosterMemberSpawnInFlightRef = useRef<Set<string>>(new Set())
+ // Repo-expansion ids already announced into the diagnostics feed this run.
+ // `null` until the first projection is observed so pre-existing expansions seed
+ // the set instead of replaying as fresh notifications (reset on run switch).
+ const announcedExpansionsRef = useRef<Set<string> | null>(null)
  const [manualRefreshBusy, setManualRefreshBusy] = useState(false)
  const [confirmCancelSprint, setConfirmCancelSprint] = useState(false)
  const [cancelSprintBusy, setCancelSprintBusy] = useState(false)
@@ -727,6 +750,9 @@ function SprintEngineBoardPanelContent({
  setPendingAutomationMode(null)
  setPendingRosterMemberSpawns([])
  pendingRosterMemberSpawnInFlightRef.current.clear()
+ // Re-seed the expansion announcer for the new run so its already-recorded
+ // expansions don't replay as fresh diagnostics on switch.
+ announcedExpansionsRef.current = null
  }, [sprintEngineContext?.statePath])
 
  const sprintEngineTasks = sprintEngineState?.tasks ?? []
@@ -1002,6 +1028,36 @@ function SprintEngineBoardPanelContent({
          ? 'Ready for review'
          : 'Complete'
      : sprintEngineAutomationRuntimeLabels[automationRuntimeState]
+ // Agent-initiated mid-run repo expansions (backlog 1714, visibility only). A
+ // worktree run can pull in a sibling project on demand via vcs.request_repo; the
+ // engine appends a `run_worktree_ready` event whose actor is the requesting
+ // agent, and the sibling entry lands in `vcs.repos`. Cross-referencing the two
+ // isolates the agent-brought siblings (init logs the same event under the
+ // system actor) and attributes each to the tasks now targeting it. Presentation
+ // only — derived from projection state already on hand, adding no gate.
+ const repoExpansions = useMemo<SprintEngineRepoExpansion[]>(() => {
+   const siblings = (sprintEngineState.vcs?.repos ?? []).filter(
+     (repo) => repo.id !== DEFAULT_SPRINTENGINE_TASK_REPO && repo.root !== '.',
+   )
+   if (siblings.length === 0) return []
+   const expansionEvents = sprintEngineState.events.filter(
+     (event) => event.type === 'run_worktree_ready' && event.actor !== SPRINT_ENGINE_SYSTEM_ACTOR,
+   )
+   if (expansionEvents.length === 0) return []
+   return siblings.flatMap((repo) => {
+     // The event names the project in single quotes; testing the known id against
+     // the message avoids parsing an id back out of engine-owned copy.
+     const event = expansionEvents.find((entry) => entry.message.includes(`'${repo.id}'`))
+     if (!event) return []
+     return [{
+       repo,
+       actor: event.actor,
+       displayName: sprintEngineRepoDisplayName({ workspaceRoot: folderPath ?? '', root: repo.root }),
+       tasks: sprintEngineState.tasks.filter((task) => task.repo === repo.id),
+     }]
+   })
+ }, [sprintEngineState.vcs, sprintEngineState.events, sprintEngineState.tasks, folderPath])
+
  const projectionUnavailable = sprintEngineState.projection?.source === 'unavailable'
  const projectionErrorMessage = sprintEngineState.projection?.errorMessage
  const lockWarnings = sprintEngineState.locks?.warnings ?? []
@@ -1459,6 +1515,37 @@ function SprintEngineBoardPanelContent({
  const name = agents[agentId]?.name
  return name && name !== fallback ? name : ''
  }
+
+ // Announce each newly-observed repo expansion once into the run diagnostics
+ // feed. The first observation seeds the announced set silently so expansions
+ // that predate opening the board don't replay as fresh notifications; only
+ // expansions that appear afterward emit. publishDiagnostic also dedups a rapid
+ // repeat, but the ref is what makes the announcement once-per-expansion.
+ useEffect(() => {
+ const announced = announcedExpansionsRef.current
+ if (announced === null) {
+ announcedExpansionsRef.current = new Set(repoExpansions.map((expansion) => expansion.repo.id))
+ return
+ }
+ for (const expansion of repoExpansions) {
+ if (announced.has(expansion.repo.id)) continue
+ announced.add(expansion.repo.id)
+ const taskId = expansion.tasks[0]?.id
+ const actorLabel = agents[expansion.actor]?.name ?? expansion.actor
+ publishDiagnosticSync({
+ level: 'info',
+ source: 'sprintengine',
+ title: 'Sprint expanded into another project',
+ message: taskId
+ ? `${actorLabel} brought ${expansion.displayName} into this run for ${taskId}.`
+ : `${actorLabel} brought ${expansion.displayName} into this run.`,
+ workspaceId,
+ workspaceName: workspace?.name,
+ agentId: expansion.actor,
+ ...(taskId ? { taskId, navigationTarget: { kind: 'task', ref: taskId } } : {}),
+ })
+ }
+ }, [repoExpansions, agents, workspaceId, workspace?.name])
 
  const enqueuePendingRosterMemberSpawn = (pending: PendingRosterMemberSpawn) => {
  setPendingRosterMemberSpawns((current) => {
@@ -2211,6 +2298,46 @@ function SprintEngineBoardPanelContent({
  </div>
  ) : null
 
+ // Mid-run repo expansions surfaced as a calm run-state line: which sibling
+ // project an agent brought in, and the task(s) now working there. Discovering
+ // this late through a stray pull request is the gap backlog 1714 closes; the
+ // task refs deep-link into the inspector. Hidden entirely when the run never
+ // expanded.
+ const repoExpansionBanner = repoExpansions.length > 0 ? (
+ <div
+ role="status"
+ className="shrink-0 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5"
+ >
+ <ul className="flex flex-col gap-1">
+ {repoExpansions.map((expansion) => (
+ <li key={expansion.repo.id} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+ <StatusDot tone="neutral" className="self-center" />
+ <span className="text-[color:var(--text-muted)]">Expanded into</span>
+ <span className="font-mono text-[11px] text-[color:var(--text-strong)]">{expansion.displayName}</span>
+ {expansion.tasks.length > 0 ? (
+ <>
+ <span className="text-[color:var(--text-muted)]">for</span>
+ {expansion.tasks.map((task, index) => (
+ <React.Fragment key={task.id}>
+ {index > 0 ? <span className="text-[color:var(--text-disabled)]">·</span> : null}
+ <button
+ type="button"
+ onClick={() => showAutomationRuntimeTask(task.id)}
+ aria-label={`Open ${task.id} ${task.title}`}
+ className="interactive rounded-[3px] px-0.5 font-mono tabular-nums text-[11px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ >
+ {task.id}
+ </button>
+ </React.Fragment>
+ ))}
+ </>
+ ) : null}
+ </li>
+ ))}
+ </ul>
+ </div>
+ ) : null
+
  // Visible freshness signal for the manual refresh lifecycle and the debug
  // auto-sync escape. The sr-only region above is the single screen-reader
  // channel, so this banner is decorative (`aria-hidden`) to avoid a duplicate
@@ -2286,6 +2413,7 @@ function SprintEngineBoardPanelContent({
 
  {boardFreshnessBanner}
  {projectionBanner}
+ {repoExpansionBanner}
  {runCompleteBanner}
  {folderStatusBanner}
 
