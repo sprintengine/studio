@@ -9,6 +9,7 @@ import type {
 import type {
   ConversationEvent,
   ConversationProviderTestResult,
+  ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationStartSessionResult,
 } from '../../shared/conversation-runtime'
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
   await testRegistersProviderTestChannel()
   await testRegistersSecretChannels()
   await testRegistersSessionChannelsAndEventSubscription()
+  await testSendTurnValidatesImageAttachments()
   await testFailureIsExplicit()
 
   console.log('conversation-ipc tests passed')
@@ -274,6 +276,77 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
     'respond:conv_1:approval_1:true',
     'stop:conv_1',
   ])
+}
+
+// The send-turn boundary guards image attachments: valid images pass through
+// (with a server-derived byteLength), bad media type / size / encoding / count
+// are rejected with a clear message before the runtime is touched.
+async function testSendTurnValidatesImageAttachments(): Promise<void> {
+  const captured: ConversationSendTurnInput[] = []
+  const ipcMain = createIpcMain()
+  registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
+    listProviders: async () => ({ ok: true, providers: [] }),
+    testProvider: async () => ({ ok: false, status: { providerId: 'mock', state: 'missing_key', message: 'unused' } }),
+    getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+    setSecret: async () => ({ ok: false, message: 'unused' }),
+    clearSecret: async () => ({ ok: false, message: 'unused' }),
+    ...runtimeHandlerStubs(),
+    sendTurn: async (input) => {
+      captured.push(input)
+      return { ok: true, session: SENT_SESSION }
+    },
+  })
+  const sendTurn = ipcMain.handlers.get('conversation:sessions:send-turn')
+
+  // A valid PNG attachment flows through; byteLength is derived from the data.
+  const okResult = await sendTurn?.(null, {
+    sessionId: 'conv_1',
+    message: 'look',
+    attachments: [{ id: 'img-1', mediaType: 'image/png', dataBase64: 'Zm9v', name: 'shot.png', byteLength: 999 }],
+  })
+  assert.deepEqual(okResult, { ok: true, session: SENT_SESSION })
+  assert.equal(captured.length, 1)
+  assert.deepEqual(captured[0]?.attachments, [
+    {
+      id: 'img-1',
+      mediaType: 'image/png',
+      dataBase64: 'Zm9v',
+      name: 'shot.png',
+      byteLength: 3,
+    },
+  ])
+
+  // Image-only sends (empty text) are allowed at the boundary; the runtime owns
+  // the payload-required check.
+  await sendTurn?.(null, {
+    sessionId: 'conv_1',
+    message: '',
+    attachments: [{ id: 'img-2', mediaType: 'image/jpeg', dataBase64: 'YmFy' }],
+  })
+  assert.equal(captured[1]?.attachments?.length, 1)
+
+  const rejects: Array<[string, unknown]> = [
+    ['bad media type', [{ id: 'x', mediaType: 'image/tiff', dataBase64: 'Zm9v' }]],
+    ['non-base64 data', [{ id: 'x', mediaType: 'image/png', dataBase64: 'not base64!!' }]],
+    ['oversized image', [{ id: 'x', mediaType: 'image/png', dataBase64: 'A'.repeat(8 * 1024 * 1024) }]],
+    ['too many attachments', Array.from({ length: 17 }, (_, i) => ({ id: `x${i}`, mediaType: 'image/png', dataBase64: 'Zm9v' }))],
+    ['non-array attachments', { id: 'x', mediaType: 'image/png', dataBase64: 'Zm9v' }],
+  ]
+  for (const [label, attachments] of rejects) {
+    const result = (await sendTurn?.(null, { sessionId: 'conv_1', message: 'hi', attachments })) as { ok: boolean }
+    assert.equal(result.ok, false, `expected rejection: ${label}`)
+  }
+}
+
+const SENT_SESSION = {
+  sessionId: 'conv_1',
+  workspaceId: 'workspace',
+  agentId: 'agent',
+  providerId: 'mock-provider',
+  modelId: 'mock-model',
+  status: 'ready' as const,
+  createdAt: 1,
+  updatedAt: 1,
 }
 
 function createConversationSender(sent: { channel: string; payload: unknown }[]): {

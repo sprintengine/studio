@@ -1,6 +1,7 @@
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationPermissionPreset,
 } from '../../shared/conversation-runtime'
 
@@ -82,12 +83,21 @@ export type MockAdapterSessionInput = {
 // and persists internally, so the adapter never awaits it.
 export type ConversationSessionEventSink = (event: ConversationEvent) => void
 
-export type ConversationMessage = { role: 'system' | 'user' | 'assistant'; content: string }
+// `attachments` is structural parity with the turn input; v1 does not persist
+// or replay it in history, so the runtime never populates it here.
+export type ConversationMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  attachments?: ConversationImageAttachment[]
+}
 
 export type MockAdapterTurnInput = MockAdapterSessionInput & {
   turnId: string
   requestId: string
   message: string
+  // Images attached to this turn (D3). Live-only; vision-capable adapters
+  // compose them into the provider request, others ignore them.
+  attachments?: ConversationImageAttachment[]
   // Full chat history including the current user turn, in send order. Providers
   // that support multi-turn context send this; absent for legacy/mock callers,
   // who fall back to the single `message`.

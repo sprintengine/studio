@@ -14,6 +14,7 @@ import type {
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationInterruptInput,
   ConversationProvidersListInput,
   ConversationListSessionsInput,
@@ -452,6 +453,65 @@ function parseTranscriptInput(input: unknown):
   return { ok: true, input: { workspaceRoot, workspaceId, agentId } }
 }
 
+// Image attachments accepted on a send-turn. The set mirrors the base64 image
+// media types the Claude Agent SDK (and the Anthropic API) accept; anything
+// else is rejected at the boundary rather than failing deep in the provider.
+const ALLOWED_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+// Per-image decoded-byte ceiling (matches the Anthropic API's ~5 MB image
+// limit). The renderer downscales before sending; oversized images are
+// rejected here with a clear error so nothing silently truncates.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+// A generous per-turn cap so a runaway paste cannot push an unbounded payload
+// through IPC; well above any realistic manual attach count.
+const MAX_ATTACHMENTS_PER_TURN = 16
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
+
+// Decoded byte length of a base64 string without allocating the buffer.
+function base64ByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  return Math.floor((base64.length * 3) / 4) - padding
+}
+
+function parseImageAttachments(raw: unknown):
+  | { ok: true; attachments: ConversationImageAttachment[] }
+  | { ok: false; message: string } {
+  if (!Array.isArray(raw)) return { ok: false, message: 'attachments must be an array when present.' }
+  if (raw.length > MAX_ATTACHMENTS_PER_TURN) {
+    return { ok: false, message: `A turn can carry at most ${MAX_ATTACHMENTS_PER_TURN} attachments.` }
+  }
+  const attachments: ConversationImageAttachment[] = []
+  for (const entry of raw) {
+    if (!isObject(entry)) return { ok: false, message: 'Each attachment must be an object.' }
+    const { id, mediaType, dataBase64, name, byteLength } = entry
+    if (typeof id !== 'string' || !id.trim()) return { ok: false, message: 'Attachment id is required.' }
+    if (typeof mediaType !== 'string' || !ALLOWED_IMAGE_MEDIA_TYPES.has(mediaType)) {
+      return { ok: false, message: 'Attachments must be PNG, JPEG, WebP, or GIF images.' }
+    }
+    if (typeof dataBase64 !== 'string' || !dataBase64 || !BASE64_PATTERN.test(dataBase64) || dataBase64.length % 4 !== 0) {
+      return { ok: false, message: 'Attachment image data must be base64-encoded.' }
+    }
+    if (name !== undefined && typeof name !== 'string') {
+      return { ok: false, message: 'Attachment name must be a string when present.' }
+    }
+    // Trust the decoded length over the client-supplied byteLength for the guard.
+    const decodedBytes = base64ByteLength(dataBase64)
+    if (decodedBytes > MAX_IMAGE_BYTES) {
+      return { ok: false, message: 'Each attached image must be 5 MB or smaller.' }
+    }
+    if (byteLength !== undefined && typeof byteLength !== 'number') {
+      return { ok: false, message: 'Attachment byteLength must be a number when present.' }
+    }
+    attachments.push({
+      id,
+      mediaType,
+      dataBase64,
+      ...(typeof name === 'string' ? { name } : {}),
+      byteLength: decodedBytes,
+    })
+  }
+  return { ok: true, attachments }
+}
+
 function parseSendTurnInput(input: unknown):
   | { ok: true; input: ConversationSendTurnInput }
   | { ok: false; message: string } {
@@ -461,12 +521,19 @@ function parseSendTurnInput(input: unknown):
   if ('localTurnId' in input && input.localTurnId !== undefined && typeof input.localTurnId !== 'string') {
     return { ok: false, message: 'localTurnId must be a string when present.' }
   }
+  let attachments: ConversationImageAttachment[] | undefined
+  if ('attachments' in input && input.attachments !== undefined) {
+    const parsed = parseImageAttachments(input.attachments)
+    if (!parsed.ok) return parsed
+    if (parsed.attachments.length > 0) attachments = parsed.attachments
+  }
   return {
     ok: true,
     input: {
       sessionId: session.input.sessionId,
       message: input.message,
       ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
+      ...(attachments ? { attachments } : {}),
     },
   }
 }

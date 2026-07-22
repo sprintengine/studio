@@ -91,6 +91,19 @@ export type ConversationTranscriptResult =
   | { ok: true; events: ConversationEvent[] }
   | { ok: false; message: string }
 
+// An image the user attached to a turn, carried live to a vision-capable
+// provider as a base64 content block. `dataBase64` is the raw base64 payload
+// (no data: URI prefix); `mediaType` is the image MIME type. v1 is live-only:
+// attachments reach the provider on the turn they are sent but are not
+// persisted to or replayed from the JSONL transcript.
+export type ConversationImageAttachment = {
+  id: string
+  mediaType: string
+  dataBase64: string
+  name?: string
+  byteLength: number
+}
+
 export type ConversationSendTurnInput = {
   sessionId: string
   message: string
@@ -98,6 +111,10 @@ export type ConversationSendTurnInput = {
   // back on the persisted `user_message` event so the projection can replace
   // the optimistic entry with the authoritative one deterministically.
   localTurnId?: string
+  // Images attached to this turn. Live-only in v1 and honored only by
+  // vision-capable providers (currently the claude-agent provider); other
+  // providers ignore them, so no image block is ever sent to them.
+  attachments?: ConversationImageAttachment[]
 }
 
 export type ConversationInterruptInput = {

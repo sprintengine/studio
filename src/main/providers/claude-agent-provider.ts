@@ -26,6 +26,7 @@ import type {
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationQuestion,
 } from '../../shared/conversation-runtime'
@@ -487,7 +488,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
       state.inputQueue?.push({
         type: 'user',
-        message: { role: 'user', content: input.message },
+        message: { role: 'user', content: buildUserMessageContent(input.message, input.attachments) },
         parent_tool_use_id: null,
         session_id: state.providerSessionId ?? '',
       })
@@ -614,6 +615,27 @@ function parseAskUserQuestions(toolInput: Record<string, unknown>): Conversation
 
 function readPlanText(toolInput: Record<string, unknown>): string {
   return typeof toolInput.plan === 'string' ? toolInput.plan : ''
+}
+
+// Compose the SDK user-message content. Text-only turns keep the plain string
+// shape (unchanged path); when images are attached, the content becomes a
+// multimodal block array — the text block (when present) followed by one base64
+// `image` block per attachment. Media types are already validated at the IPC
+// boundary, so they are trusted here.
+export function buildUserMessageContent(
+  message: string,
+  attachments: ConversationImageAttachment[] | undefined
+): SDKUserMessage['message']['content'] {
+  if (!attachments || attachments.length === 0) return message
+  const blocks: Record<string, unknown>[] = []
+  if (message) blocks.push({ type: 'text', text: message })
+  for (const attachment of attachments) {
+    blocks.push({
+      type: 'image',
+      source: { type: 'base64', media_type: attachment.mediaType, data: attachment.dataBase64 },
+    })
+  }
+  return blocks as unknown as SDKUserMessage['message']['content']
 }
 
 // Stamp a continuation turn id onto a turn-scoped event that was mapped before

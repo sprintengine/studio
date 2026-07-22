@@ -199,7 +199,9 @@ export class ConversationRuntime {
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     if (session.pendingRequestId) return { ok: false, message: 'Conversation turn is awaiting approval.' }
     const message = input.message.trim()
-    if (!message) return { ok: false, message: 'Conversation turn message is required.' }
+    const attachments = input.attachments ?? []
+    // A turn needs some payload: either text or at least one image attachment.
+    if (!message && attachments.length === 0) return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
@@ -230,9 +232,20 @@ export class ConversationRuntime {
     const messages: ConversationMessage[] | undefined = session.stateful
       ? undefined
       : [...session.history, { role: 'user', content: message }]
+    // Attachments are carried live into the turn call; only vision-capable
+    // adapters read them. They are not persisted into history (v1 is
+    // live-only), so history and JSONL replay stay text-only.
     const events = await this.emitAll(
       session,
-      adapter.sendTurn({ ...session, turnId, requestId, message, messages, signal: turnAbort.signal }),
+      adapter.sendTurn({
+        ...session,
+        turnId,
+        requestId,
+        message,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        messages,
+        signal: turnAbort.signal,
+      }),
       { turnId }
     )
     const currentSession = this.sessions.get(input.sessionId)

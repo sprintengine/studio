@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 import {
+  buildUserMessageContent,
   CLAUDE_AGENT_PROVIDER_ID,
   CLAUDE_AGENT_SESSION_ENV_KEY,
   createClaudeAgentProvider,
@@ -16,8 +17,10 @@ import type { MockAdapterTurnInput } from './mock-conversation-provider'
 async function main(): Promise<void> {
   testSummarizeToolInput()
   testStripAnthropicAuthEnv()
+  testBuildUserMessageContent()
   testMapSdkMessageCoversCanonicalShapes()
   await testTurnStreamsDeltasToolsUsageAndCompletion()
+  await testImageAttachmentsBecomeMultimodalContent()
   await testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit()
   await testCanUseToolApprovalFlowApproveAndDeny()
   await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
@@ -177,6 +180,30 @@ function testStripAnthropicAuthEnv(): void {
   for (const key of STRIPPED_ANTHROPIC_AUTH_ENV_KEYS) assert.equal(key in stripped, false)
   assert.equal(stripped.PATH, '/usr/bin')
   assert.equal(stripped.MULTICODE_WORKSPACE_ID, 'workspace')
+}
+
+// Text-only turns keep the plain-string content shape (unchanged path);
+// attaching images turns it into a multimodal block array — text first, then a
+// base64 image block per attachment.
+function testBuildUserMessageContent(): void {
+  assert.equal(buildUserMessageContent('hello', undefined), 'hello')
+  assert.equal(buildUserMessageContent('hello', []), 'hello')
+
+  const withImage = buildUserMessageContent('look', [
+    { id: 'a1', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 3 },
+  ])
+  assert.deepEqual(withImage, [
+    { type: 'text', text: 'look' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+  ])
+
+  // An image-only send (no text) drops the text block entirely.
+  const imageOnly = buildUserMessageContent('', [
+    { id: 'a1', mediaType: 'image/jpeg', dataBase64: 'BBBB', byteLength: 3 },
+  ])
+  assert.deepEqual(imageOnly, [
+    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } },
+  ])
 }
 
 function testMapSdkMessageCoversCanonicalShapes(): void {
@@ -354,6 +381,37 @@ async function testTurnStreamsDeltasToolsUsageAndCompletion(): Promise<void> {
   assert.equal(live[0]?.hasChildProcess, true)
   assert.equal(live[0]?.providerSessionId, 's1')
   assert.equal(live[0]?.turnActive, false)
+}
+
+// A turn carrying attachments must reach the SDK as a multimodal user message:
+// the text block plus one base64 image block per attachment.
+async function testImageAttachmentsBecomeMultimodalContent(): Promise<void> {
+  let capturedContent: unknown
+  const { adapter } = createAdapter((userMessage, context) => {
+    capturedContent = (userMessage.message as { content: unknown }).content
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's-img',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+  })
+
+  await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+  const events = await collect(
+    adapter.sendTurn(
+      turnInput({
+        message: 'describe this',
+        attachments: [{ id: 'img-1', mediaType: 'image/png', dataBase64: 'Zm9v', byteLength: 3 }],
+      })
+    ) as AsyncIterable<ConversationEvent>
+  )
+  assert.deepEqual(events.map((event) => event.type), ['turn_started', 'session_updated', 'usage_updated', 'turn_completed'])
+  assert.deepEqual(capturedContent, [
+    { type: 'text', text: 'describe this' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'Zm9v' } },
+  ])
 }
 
 async function testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit(): Promise<void> {
