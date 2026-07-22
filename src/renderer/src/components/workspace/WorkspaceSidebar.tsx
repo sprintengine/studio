@@ -3,7 +3,6 @@ import {
   NewChatIcon,
   SprintEngineMarkIcon,
   SprintEngineWorkspaceTypeIcon,
-  WorkspaceTypeIcon,
   resolveEnabledWorkspaceType,
 } from '../AppIcons'
 import { buildModeModels } from './newWorkspace/modeModels'
@@ -20,6 +19,8 @@ import {
 import type { ModuleEnablementOverrides } from '../../../../shared/modules/manifest'
 import {
   ContextMenu,
+  Field,
+  Input,
   LifecycleGlyph,
   MenuDivider,
   AgentWorkingDots,
@@ -58,7 +59,7 @@ import {
 } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import { deriveWorkspaceRunGlyph, workspaceHasRunGlyphProvider } from '../../utils/workspaceRunGlyph'
+import { deriveWorkspaceRunGlyph } from '../../utils/workspaceRunGlyph'
 import { isCanceledSprintEngineRun, isCompletedSprintEngineRun } from '../../utils/sprintengine'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { publishDiagnostic } from '../../utils/diagnostics'
@@ -291,11 +292,6 @@ function activeRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementO
   return `border-l-[4px] ${accent.border} ${accent.bg} ${accent.text} ${accent.shadow}`
 }
 
-function collapsedActiveRowClass(workspace: Workspace, moduleOverrides: ModuleEnablementOverrides): string {
-  const accent = rowAccent(workspace, moduleOverrides)
-  return `${accent.bg} ${accent.text} ${accent.collapsedShadow}`
-}
-
 // Class fragment applied to inactive rows that have a highlight color set, so
 // the user spots their highlighted workspaces at a glance even when not active.
 // The colored left rail plus a dimmed full-width tint of the same hue — the
@@ -434,6 +430,7 @@ function ShowOlderRow({
           <svg
             viewBox="0 0 16 16"
             fill="none"
+            aria-hidden="true"
             className={`icon-xs shrink-0 text-[color:var(--text-disabled)] transition-transform ${
               revealed > 0 ? '' : '-rotate-90'
             }`}
@@ -565,6 +562,54 @@ export default function WorkspaceSidebar({
 
   const renameInputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  // Roving-tabindex tree: `rovingKey` is the row (by its render key) that holds
+  // the single tab stop. Arrow/Home/End move focus between the treeitems that
+  // are actually in the DOM (folded/collapsed rows are absent), so navigation
+  // follows what the user sees. treeRef scopes the query to this tree.
+  const treeRef = useRef<HTMLElement>(null)
+  const [rovingKey, setRovingKey] = useState<string | null>(null)
+
+  const getTreeRows = useCallback((): HTMLElement[] => {
+    const root = treeRef.current
+    if (!root) return []
+    return Array.from(root.querySelectorAll<HTMLElement>('[role="treeitem"]'))
+  }, [])
+
+  const handleTreeRowKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>, workspaceId: WorkspaceId) => {
+      // Only the row itself steers the tree; keys from a focused child control
+      // (rename input, row-action buttons) keep their own behavior.
+      if (event.target !== event.currentTarget) return
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        onSelectWorkspace(workspaceId)
+        return
+      }
+      if (
+        event.key !== 'ArrowDown'
+        && event.key !== 'ArrowUp'
+        && event.key !== 'Home'
+        && event.key !== 'End'
+      ) {
+        return
+      }
+      const rows = getTreeRows()
+      if (rows.length === 0) return
+      event.preventDefault()
+      const currentIndex = rows.indexOf(event.currentTarget)
+      let nextIndex = currentIndex
+      if (event.key === 'ArrowDown') nextIndex = currentIndex + 1
+      else if (event.key === 'ArrowUp') nextIndex = currentIndex - 1
+      else if (event.key === 'Home') nextIndex = 0
+      else if (event.key === 'End') nextIndex = rows.length - 1
+      nextIndex = Math.max(0, Math.min(nextIndex, rows.length - 1))
+      const target = rows[nextIndex]
+      if (!target) return
+      target.focus()
+      setRovingKey(target.dataset.rowKey ?? null)
+    },
+    [getTreeRows, onSelectWorkspace]
+  )
   // True while the user is dragging the resize handle — suppresses the width
   // glide so the rail tracks the pointer instead of lagging behind a 150ms
   // transition.
@@ -738,6 +783,28 @@ export default function WorkspaceSidebar({
     },
     [activeWorkspaceId, activityByWorkspaceId]
   )
+
+  // Seed / repair the single tab stop. When no row owns it (first paint) or the
+  // owning row has left the DOM (folder collapsed, workspace closed), hand it to
+  // the active row if present, else the first row.
+  useEffect(() => {
+    const rows = getTreeRows()
+    if (rows.length === 0) return
+    if (rovingKey && rows.some((el) => el.dataset.rowKey === rovingKey)) return
+    const activeRow = rows.find((el) => el.getAttribute('aria-current') === 'true')
+    setRovingKey((activeRow ?? rows[0]).dataset.rowKey ?? null)
+  }, [
+    getTreeRows,
+    rovingKey,
+    railWorkspaces,
+    groups,
+    starredWorkspaces,
+    collapsedFolders,
+    revealedStaleFolders,
+    starredCollapsed,
+    activeWorkspaceId,
+    globalSurfaceActive,
+  ])
 
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
@@ -1074,35 +1141,17 @@ export default function WorkspaceSidebar({
       ? formatRelativeMs(recency.idleSince, now)
       : ''
     const showRecencyText =
-      !sidebarCollapsed
-      && !runGlyph
+      !runGlyph
       && activity === 'idle'
       && !!recency
       && !recency.hasRunning
       && !!idleRecencyText
-    // Collapsed rows keep the corner-dot idiom (a 16px glyph doesn't fit as an
-    // overlay on the 20px icon); it derives from the same rollup so the two
-    // presentations agree. Only the attention states earn the corner dot.
-    const collapsedDot = runGlyph
-      ? runGlyph.state === 'needs_input'
-        ? { tone: 'warn' as Tone, pulse: true }
-        : runGlyph.state === 'failed'
-          ? { tone: 'error' as Tone, pulse: false }
-          : null
-      : // A run-glyph-owning row (a Sprint Engine run) with no glyph is genuinely
-        // resting: its provider already decided "no run signal" from sprint state,
-        // so the terminal-derived tone must not relight it. Provider-less rows keep
-        // the terminal dot idiom.
-        workspaceHasRunGlyphProvider(workspace)
-        ? null
-        : tone
     const folderMissing = workspace.folderMissing === true
     const starred = isStarred(workspace.highlight)
     // "Hot": at least one resident (live-PTY) agent — instant to switch into.
     // Bolded below so suspended/exited workspaces read as the quieter state.
     const resident = residentWorkspaceIds.has(workspace.id)
     const highlighted = hasHighlightOverride(workspace.highlight)
-    const accent = rowAccent(workspace, moduleOverrides)
     const dropMark =
       dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id
         ? dropIndicator.position
@@ -1110,15 +1159,16 @@ export default function WorkspaceSidebar({
     const isTabDropTarget =
       tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
-    // Collapsed rows hide the name text, so it has to live somewhere reachable:
-    // as the row's accessible name (aria-label) and as the hover tooltip below.
-    const collapsedLabel = `${workspace.name}${
-      workspace.folderPath ? ` · ${folderDisplayName(workspace.folderPath)}` : ''
-    }`
 
-    const row = (
+    return (
       <div
         key={rowKey}
+        data-row-key={rowKey}
+        // Roving tabindex: exactly one treeitem is in the tab order at a time,
+        // and Arrow/Home/End move focus between rows (handleTreeRowKeyDown).
+        tabIndex={rovingKey === rowKey ? 0 : -1}
+        onFocus={() => setRovingKey(rowKey)}
+        onKeyDown={(event) => handleTreeRowKeyDown(event, workspace.id)}
         draggable={!renamingId}
         onDragStart={(event) => handleRowDragStart(event, workspace, fKey)}
         onDragOver={(event) => {
@@ -1155,17 +1205,10 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        aria-label={sidebarCollapsed ? collapsedLabel : undefined}
-        className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md text-[13px] transition-colors ${
-          sidebarCollapsed
-            ? 'justify-center px-0'
-            : 'border-l-[4px] border-l-transparent pl-[26px] pr-1.5'
-        } ${
+        className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-[13px] transition-colors ${FOCUS_RING_CLASS} ${
           active
-            ? sidebarCollapsed
-              ? collapsedActiveRowClass(workspace, moduleOverrides)
-              : activeRowClass(workspace, moduleOverrides)
-            : highlighted && !sidebarCollapsed
+            ? activeRowClass(workspace, moduleOverrides)
+            : highlighted
               ? `${inactiveHighlightClass(workspace)} text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]`
               : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]'
         } ${folderMissing ? 'opacity-70' : ''}`}
@@ -1185,209 +1228,144 @@ export default function WorkspaceSidebar({
           />
         ) : null}
 
-        {/* Expanded rows drop the workspace-type icon chip so the title starts
-            flush with the row's content edge — in the narrow sidebar the chip
-            cost ~28px that the name needs more. Mode identity survives in the
-            colored left rail / accent (active + highlighted rows) and the
-            trailing run glyph; the collapsed icon rail keeps the glyph because
-            there it IS the row. Sprint rows are the one exception: they carry
-            the small sprint glyph inline (below) so a sprint reads as a sprint
-            at a glance. */}
-        {sidebarCollapsed ? (
+        {/* The title starts flush with the row's content edge — the
+            workspace-type icon chip is dropped so the name gets the width. Mode
+            identity survives in the colored left rail / accent (active +
+            highlighted rows), the trailing run glyph, and the inline sprint
+            mark below. */}
+        {renamingId === workspace.id ? (
+          <input
+            ref={renameInputRef}
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onBlur={commitRename}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitRename()
+              if (event.key === 'Escape') setRenamingId(null)
+              event.stopPropagation()
+            }}
+            className="min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-1.5 py-0 text-[13px] text-[color:var(--text-strong)] focus:outline-none"
+          />
+        ) : (
           <span
-            className={`flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded-md transition-colors ${
-              active || highlighted ? accent.chip : ''
-            }`}
+            className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
           >
-            <WorkspaceTypeIcon
-              mode={workspace.mode}
-              moduleOverrides={moduleOverrides}
-              className={`h-4 w-4 ${accent.glyph}`}
-            />
-          </span>
-        ) : null}
-
-        {!sidebarCollapsed && (
-          <>
-            {renamingId === workspace.id ? (
-              <input
-                ref={renameInputRef}
-                value={renameValue}
-                onChange={(event) => setRenameValue(event.target.value)}
-                onBlur={commitRename}
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') commitRename()
-                  if (event.key === 'Escape') setRenamingId(null)
-                  event.stopPropagation()
-                }}
-                className="min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-1.5 py-0 text-[13px] text-[color:var(--text-strong)] focus:outline-none"
-              />
-            ) : (
-              <span
-                className={`flex min-w-0 flex-1 items-center gap-1.5 ${folderMissing ? 'line-through decoration-[color:var(--text-subtle)]' : ''}`}
-              >
-                {starred ? (
-                  <StarGlyph
-                    filled
-                    className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                    label="Starred"
-                  />
-                ) : null}
-                {workspace.mode === 'sprintengine' ? (
-                  <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
-                ) : null}
-                <TruncatedText
-                  as="span"
-                  text={workspace.name}
-                  className={`min-w-0 flex-1 ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
-                />
-                {resident ? <span className="sr-only"> (agents resident)</span> : null}
-              </span>
-            )}
-
-            {folderMissing ? (
-              <svg
+            {starred ? (
+              <StarGlyph
+                filled
                 className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-label="Folder missing"
-              >
-                <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                <path d="M8 6V9M8 11.5V11.51" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-              </svg>
+                label="Starred"
+              />
             ) : null}
-
-            <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
-              <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0">
-                {runGlyph && runGlyphLabel ? (
-                  <Tooltip content={runGlyphLabel}>
-                    <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-                  </Tooltip>
-                ) : null}
-                {/* Active work earns the three-dot working marker; the other
-                    attention states keep the tone dot. */}
-                {!runGlyph && tone ? (
-                  activity === 'working' ? (
-                    <AgentWorkingDots label={activityLabel(activity)} />
-                  ) : (
-                    <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
-                  )
-                ) : null}
-                {showRecencyText ? (
-                  <span
-                    className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
-                    title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
-                    aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
-                  >
-                    {idleRecencyText}
-                  </span>
-                ) : null}
-              </span>
-              <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-                <Tooltip content="More actions">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setContextMenu({
-                        workspaceId: workspace.id,
-                        x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                        y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                      })
-                    }}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-                    aria-label="Workspace actions"
-                  >
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs">
-                      <circle cx="3.5" cy="8" r="1.2" />
-                      <circle cx="8" cy="8" r="1.2" />
-                      <circle cx="12.5" cy="8" r="1.2" />
-                    </svg>
-                  </button>
-                </Tooltip>
-                <Tooltip content="Close workspace">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      handleClose(workspace.id)
-                    }}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
-                    aria-label={`Close ${workspace.name}`}
-                  >
-                    <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-                      <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                </Tooltip>
-              </span>
-            </span>
-          </>
+            {workspace.mode === 'sprintengine' ? (
+              <SprintEngineMarkIcon className="icon-xs shrink-0 text-[color:var(--tool-sprintengine-ink)]" />
+            ) : null}
+            <TruncatedText
+              as="span"
+              text={workspace.name}
+              className={`min-w-0 flex-1 ${resident ? 'font-semibold text-[color:var(--text-strong)]' : ''}`}
+            />
+            {resident ? <span className="sr-only"> (agents resident)</span> : null}
+          </span>
         )}
 
-        {sidebarCollapsed && collapsedDot ? (
-          <span className="absolute right-1 top-1">
-            <StatusDot tone={collapsedDot.tone} pulse={collapsedDot.pulse} />
-          </span>
-        ) : null}
-
-        {sidebarCollapsed && starred ? (
-          <span
-            className="absolute right-0.5 bottom-0.5 text-[8px] leading-none text-[color:var(--tone-warn)]"
-            aria-hidden="true"
+        {folderMissing ? (
+          <svg
+            className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-label="Folder missing"
           >
-            ★
-          </span>
+            <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            <path d="M8 6V9M8 11.5V11.51" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
         ) : null}
 
-        {sidebarCollapsed && highlighted && !active ? (
-          <span
-            className={`absolute inset-y-1 left-0 w-[2px] rounded-r ${getHighlightSwatch(workspace.highlight!.color!).border.replace('border-l-', 'bg-')}`}
-            aria-hidden="true"
-          />
-        ) : null}
+        <span className="relative ml-auto flex h-5 min-w-[44px] shrink-0 items-center justify-end">
+          <span className="inline-flex items-center gap-1 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+            {runGlyph && runGlyphLabel ? (
+              <Tooltip content={runGlyphLabel}>
+                <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+              </Tooltip>
+            ) : null}
+            {/* Active work earns the three-dot working marker; the other
+                attention states keep the tone dot. */}
+            {!runGlyph && tone ? (
+              activity === 'working' ? (
+                <AgentWorkingDots label={activityLabel(activity)} />
+              ) : (
+                <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
+              )
+            ) : null}
+            {showRecencyText ? (
+              <span
+                className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+                title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
+                aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
+              >
+                {idleRecencyText}
+              </span>
+            ) : null}
+          </span>
+          {/* Hover-and-focus-revealed row actions: keyboard focus surfaces them
+              (group-focus-within) so they are reachable and never a focus trap
+              on an invisible control. */}
+          <span className="pointer-events-none absolute inset-y-0 right-0 inline-flex items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+            <Tooltip content="More actions">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setContextMenu({
+                    workspaceId: workspace.id,
+                    x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                    y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                  })
+                }}
+                className={`inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                aria-label="Workspace actions"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+                  <circle cx="3.5" cy="8" r="1.2" />
+                  <circle cx="8" cy="8" r="1.2" />
+                  <circle cx="12.5" cy="8" r="1.2" />
+                </svg>
+              </button>
+            </Tooltip>
+            <Tooltip content="Close workspace">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  handleClose(workspace.id)
+                }}
+                className={`inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                aria-label={`Close ${workspace.name}`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
+          </span>
+        </span>
       </div>
     )
-
-    // Collapsed: the name isn't visible inline, so a styled tooltip surfaces it
-    // on hover. `right` keeps it clear of the narrow rail; the presentation-role
-    // wrapper keeps the tree → treeitem relationship intact.
-    if (sidebarCollapsed) {
-      return (
-        <Tooltip
-          key={rowKey}
-          content={collapsedLabel}
-          placement="right"
-          wrapperClassName="block"
-          wrapperRole="presentation"
-        >
-          {row}
-        </Tooltip>
-      )
-    }
-
-    return row
   }
 
-  // Renders a folder's workspace rows. In the collapsed icon rail every row is
-  // shown (no fold — it is already a compact strip). In the expanded sidebar,
-  // rows untouched for 5+ days collapse behind a single "Show N older"
-  // disclosure at the bottom of the folder, Cursor-style. Manual order is
-  // preserved within both the recent and folded groups.
+  // Renders a folder's workspace rows. Rows untouched for 5+ days collapse
+  // behind a single "Show N older" disclosure at the bottom of the folder,
+  // Cursor-style. Manual order is preserved within both the recent and folded
+  // groups. `folderBodyId` lets the folder header's toggle button own an
+  // aria-controls pointing at the body it expands/collapses.
   const renderFolderBody = (
     group: FolderGroup,
     visibleWorkspaces: Workspace[],
-    folderCollapsed: boolean
+    folderCollapsed: boolean,
+    folderBodyId: string
   ) => {
-    if (folderCollapsed && !sidebarCollapsed) return null
-    if (sidebarCollapsed) {
-      return (
-        <div className="border-b border-[color:var(--bg-hover)] pb-1.5 last:border-b-0">
-          {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
-        </div>
-      )
-    }
+    if (folderCollapsed) return null
 
     const { recent, stale } = partitionWorkspacesByRecency(visibleWorkspaces, now, isWorkspacePinned)
 
@@ -1397,7 +1375,7 @@ export default function WorkspaceSidebar({
     // folded; it just shows in place.
     if (stale.length < 2) {
       return (
-        <div>
+        <div id={folderBodyId}>
           {visibleWorkspaces.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         </div>
       )
@@ -1407,7 +1385,7 @@ export default function WorkspaceSidebar({
     const olderListId = `ws-older-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
 
     return (
-      <div>
+      <div id={folderBodyId}>
         {recent.map((workspace) => renderWorkspaceRow(workspace, group.key))}
         <div
           id={olderListId}
@@ -1484,7 +1462,7 @@ export default function WorkspaceSidebar({
        * header over the content, not here.
        */}
       {chromeSlot}
-      <div className={`mt-1 flex flex-col gap-1.5 ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}>
+      <div className="mx-2 mt-1 flex flex-col gap-1.5">
         {/* Instance-level top-nav cluster. Every door carries an explicit `order`
             — the shell's own built-ins (Create=0, Sprints=20, Connectors=30)
             alongside module-contributed doors (Automations=10 and Roadmap=40, from
@@ -1503,39 +1481,7 @@ export default function WorkspaceSidebar({
             {
               id: 'create',
               order: 0,
-              node: sidebarCollapsed ? (
-                <>
-                  <SidebarNavButton
-                    collapsed={sidebarCollapsed}
-                    dropActive={tabDropTarget?.kind === 'new'}
-                    icon={<NewChatIcon className="icon-xs pointer-events-none shrink-0" />}
-                    label={tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
-                    ariaLabel="New chat"
-                    tooltip="New chat"
-                    onClick={onNewChat}
-                    onDragOver={handleTabDragOverNew}
-                    onDragLeave={handleTabDragLeaveNew}
-                    onDrop={handleTabDropOnNew}
-                  />
-                  <SidebarNavButton
-                    collapsed={sidebarCollapsed}
-                    icon={
-                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
-                        <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                      </svg>
-                    }
-                    label="New…"
-                    ariaLabel="New…"
-                    tooltip="New… (Ctrl+T for workspace)"
-                    onClick={(event) => {
-                      // Anchor to the button, not the pointer — a keyboard-activated
-                      // click reports clientX/Y of 0,0.
-                      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-                      setCreateMenu({ x: rect.right, y: rect.top })
-                    }}
-                  />
-                </>
-              ) : (
+              node: (
                 <div className="flex items-stretch gap-px">
                   <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
                     <button
@@ -1567,7 +1513,7 @@ export default function WorkspaceSidebar({
                       }}
                       className={`flex h-[30px] w-[26px] shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
                     >
-                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0">
+                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0" aria-hidden="true">
                         <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                       </svg>
                     </button>
@@ -1642,7 +1588,7 @@ export default function WorkspaceSidebar({
 
       <div
         aria-hidden="true"
-        className={`my-2 h-px bg-[color:var(--border-subtle)] ${sidebarCollapsed ? 'mx-1.5' : 'mx-2'}`}
+        className="mx-2 my-2 h-px bg-[color:var(--border-subtle)]"
       />
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
@@ -1656,22 +1602,15 @@ export default function WorkspaceSidebar({
           labels (pl-4 + 14px icon slot + gap-1.5), workspace-row content
           (mx-1.5 + 4px rail + pl-[26px]) and the fold row's chevron
           (mx-1.5 + pl-[30px]). Keep these in step when touching any one. */}
-      <nav className="flex-1 overflow-y-auto pb-2" role="tree">
-        {starredWorkspaces.length > 0 && sidebarCollapsed ? (
-          <section className="relative" aria-label="Starred workspaces">
-            {starredWorkspaces.map((workspace) =>
-              renderWorkspaceRow(workspace, folderKey(workspace.folderPath), { keyPrefix: 'starred-' })
-            )}
-            <div aria-hidden="true" className="mx-2 my-1.5 h-px bg-[color:var(--border-subtle)]" />
-          </section>
-        ) : null}
-        {starredWorkspaces.length > 0 && !sidebarCollapsed ? (
+      <nav ref={treeRef} className="flex-1 overflow-y-auto pb-2" role="tree">
+        {starredWorkspaces.length > 0 ? (
           <section className="relative pt-1" aria-label="Starred workspaces">
-            <header
-              onClick={() =>
-                setStarredCollapsed((prev) => !prev)
-              }
-              className="group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
+            <button
+              type="button"
+              onClick={() => setStarredCollapsed((prev) => !prev)}
+              aria-expanded={!starredCollapsed}
+              aria-controls="ws-starred-body"
+              className={`group/folder relative flex h-[26px] w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               {/* One icon slot, Cursor-style: the star at rest, the collapse
                   chevron swapped in on hover — no dedicated chevron column, so
@@ -1684,6 +1623,7 @@ export default function WorkspaceSidebar({
                 <svg
                   viewBox="0 0 16 16"
                   fill="none"
+                  aria-hidden="true"
                   className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
                     starredCollapsed ? '-rotate-90' : ''
                   }`}
@@ -1694,12 +1634,14 @@ export default function WorkspaceSidebar({
               <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
-            </header>
-            {!starredCollapsed
-              ? starredWorkspaces.map((workspace) =>
-                  renderWorkspaceRow(workspace, folderKey(workspace.folderPath), { keyPrefix: 'starred-' })
-                )
-              : null}
+            </button>
+            <div id="ws-starred-body" hidden={starredCollapsed}>
+              {!starredCollapsed
+                ? starredWorkspaces.map((workspace) =>
+                    renderWorkspaceRow(workspace, folderKey(workspace.folderPath), { keyPrefix: 'starred-' })
+                  )
+                : null}
+            </div>
           </section>
         ) : null}
         {groups.map((group) => {
@@ -1709,49 +1651,57 @@ export default function WorkspaceSidebar({
           // never moves it. The stale-fold below still partitions by the 5-day
           // threshold; this only sets the order within the recent and folded
           // groups.
-          const visibleWorkspaces = sortWorkspacesByActivity(
-            sidebarCollapsed
-              ? group.workspaces.filter((workspace) => !isStarred(workspace.highlight))
-              : group.workspaces
-          )
-          if (sidebarCollapsed && visibleWorkspaces.length === 0) return null
+          const visibleWorkspaces = sortWorkspacesByActivity(group.workspaces)
+          const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
           const dropMark =
             dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key
               ? dropIndicator.position
               : null
           return (
             <section key={group.key} className="relative pt-1">
-              {!sidebarCollapsed && (
-                <header
-                  draggable
-                  onDragStart={(event) => handleFolderDragStart(event, group.key)}
-                  onDragOver={(event) => handleFolderDragOver(event, group.key)}
-                  onDrop={(event) => handleFolderDrop(event, group.key)}
-                  onDragEnd={handleDragEnd}
-                  onClick={(event) => {
-                    if ((event.target as HTMLElement).closest('[data-folder-overflow]')) return
+              {/* The header container carries drag + context-menu; the disclosure
+                  itself is a real button (aria-expanded / aria-controls) so the
+                  folder is keyboard-operable, with the overflow control as a
+                  sibling rather than a nested interactive element. */}
+              <header
+                draggable
+                onDragStart={(event) => handleFolderDragStart(event, group.key)}
+                onDragOver={(event) => handleFolderDragOver(event, group.key)}
+                onDrop={(event) => handleFolderDrop(event, group.key)}
+                onDragEnd={handleDragEnd}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
+                }}
+                className={`group/folder relative flex h-[26px] select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
+                  group.missing ? 'text-[color:var(--tone-warn)]' : ''
+                }`}
+              >
+                {dropMark === 'before' ? (
+                  <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+                ) : null}
+                {dropMark === 'after' ? (
+                  <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() =>
                     setCollapsedFolders((prev) => ({ ...prev, [group.key]: !collapsed }))
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault()
-                    setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
-                  }}
-                  className={`group/folder relative flex h-[26px] cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${
-                    group.missing ? 'text-[color:var(--tone-warn)] hover:text-[color:var(--tone-warn)]' : ''
-                  }`}
+                  }
+                  aria-expanded={!collapsed}
+                  aria-controls={folderBodyId}
+                  title={group.fullPath ?? 'Workspaces with no folder'}
+                  className={`flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 pl-4 text-left transition-colors hover:text-[color:var(--text-default)] ${
+                    group.missing ? 'hover:text-[color:var(--tone-warn)]' : ''
+                  } ${FOCUS_RING_CLASS}`}
                 >
-                  {dropMark === 'before' ? (
-                    <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
-                  ) : null}
-                  {dropMark === 'after' ? (
-                    <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
-                  ) : null}
                   {/* One icon slot, Cursor-style: the folder glyph at rest, the
                       collapse chevron swapped in on hover. */}
                   <span className="relative flex h-[14px] w-[14px] shrink-0 items-center justify-center">
                     <svg
                       viewBox="0 0 16 16"
                       fill="none"
+                      aria-hidden="true"
                       className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
                     >
                       <path
@@ -1763,6 +1713,7 @@ export default function WorkspaceSidebar({
                     <svg
                       viewBox="0 0 16 16"
                       fill="none"
+                      aria-hidden="true"
                       className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
                         collapsed ? '-rotate-90' : ''
                       }`}
@@ -1770,43 +1721,39 @@ export default function WorkspaceSidebar({
                       <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </span>
-                  <span
-                    className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]"
-                    title={group.fullPath ?? 'Workspaces with no folder'}
-                  >
+                  <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
                     {group.displayName}
                   </span>
-                  {group.missing ? (
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--tone-warn)]">
-                      <StatusDot tone="warn" label="Folder missing" />
-                      Missing
-                    </span>
-                  ) : null}
-                  <Tooltip content="Folder actions">
-                    <button
-                      type="button"
-                      data-folder-overflow="true"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setFolderMenu({
-                          folderKey: group.key,
-                          x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
-                          y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
-                        })
-                      }}
-                      className="ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100"
-                      aria-label="Folder actions"
-                    >
-                      <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs">
-                        <circle cx="3.5" cy="8" r="1.2" />
-                        <circle cx="8" cy="8" r="1.2" />
-                        <circle cx="12.5" cy="8" r="1.2" />
-                      </svg>
-                    </button>
-                  </Tooltip>
-                </header>
-              )}
-              {renderFolderBody(group, visibleWorkspaces, collapsed)}
+                </button>
+                {group.missing ? (
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--tone-warn)]">
+                    <StatusDot tone="warn" label="Folder missing" />
+                    Missing
+                  </span>
+                ) : null}
+                <Tooltip content="Folder actions">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setFolderMenu({
+                        folderKey: group.key,
+                        x: (event.currentTarget as HTMLElement).getBoundingClientRect().right,
+                        y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
+                      })
+                    }}
+                    className={`ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
+                    aria-label={`Folder actions: ${group.displayName}`}
+                  >
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
+                      <circle cx="3.5" cy="8" r="1.2" />
+                      <circle cx="8" cy="8" r="1.2" />
+                      <circle cx="12.5" cy="8" r="1.2" />
+                    </svg>
+                  </button>
+                </Tooltip>
+              </header>
+              {renderFolderBody(group, visibleWorkspaces, collapsed, folderBodyId)}
             </section>
           )
         })}
@@ -2125,18 +2072,14 @@ export default function WorkspaceSidebar({
                     onClose={() => setConfirmDelete(null)}
                   />
                   <ModalBody>
-                    <label className="block">
-                      <span className="mb-1.5 block text-[12px] font-medium text-[color:var(--text-default)]">
-                        Type the workspace name to confirm
-                      </span>
-                      <input
+                    <Field label="Type the workspace name to confirm" htmlFor="ws-delete-confirm-name">
+                      <Input
                         autoFocus
                         value={deleteTypedName}
                         onChange={(event) => setDeleteTypedName(event.target.value)}
                         placeholder={workspace.name}
-                        className="h-9 w-full rounded bg-[color:var(--bg-surface-raised)] px-2.5 text-[13px] text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-disabled)] focus:ring-1 focus:ring-[color:var(--border-focus)]"
                       />
-                    </label>
+                    </Field>
                   </ModalBody>
                   <ModalFooter>
                     <ModalButton onClick={() => setConfirmDelete(null)}>Cancel</ModalButton>
