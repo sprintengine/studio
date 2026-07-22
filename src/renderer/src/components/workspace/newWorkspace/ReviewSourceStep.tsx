@@ -8,7 +8,7 @@ import { type AgentCliCatalogOption } from './cliRuntimeOptions'
 // live detection card, and walkthrough context (knowledge graph, guide runtime,
 // depth). Extracted from NewWorkspacePanel to arrest that file's growth; the
 // step is fully prop-driven, so behavior is unchanged.
-type ReviewProbeState =
+export type ReviewProbeState =
   | { status: 'idle' }
   | { status: 'probing' }
   | { status: 'ok'; probe: ReviewSourceProbe }

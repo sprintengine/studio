@@ -7,7 +7,7 @@ import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { createReviewTemplate } from '../../modules/review-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
-import type { GitBranchSnapshot, ReviewSourceInput, ReviewSourceProbe } from '../../../../shared/electron-api'
+import type { GitBranchSnapshot, ReviewSourceInput } from '../../../../shared/electron-api'
 import type {
   AgentCli,
   AgentId,
@@ -119,7 +119,7 @@ import {
   stepWithinFlow,
 } from './newWorkspace/stepNavigation'
 import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
-import { ReviewSourceStep } from './newWorkspace/ReviewSourceStep'
+import { ReviewSourceStep, type ReviewProbeState } from './newWorkspace/ReviewSourceStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
@@ -693,9 +693,7 @@ export default function NewWorkspacePanel({
   const [reviewPatchText, setReviewPatchText] = useState('')
   const [reviewPatchLabel, setReviewPatchLabel] = useState('')
   // The live source probe (review:detect-source) for the current fields.
-  const [reviewProbe, setReviewProbe] = useState<
-    { status: 'idle' } | { status: 'probing' } | { status: 'ok'; probe: ReviewSourceProbe } | { status: 'error'; message: string }
-  >({ status: 'idle' })
+  const [reviewProbe, setReviewProbe] = useState<ReviewProbeState>({ status: 'idle' })
   const [reviewKgEnabled, setReviewKgEnabled] = useState(true)
   const [reviewGuideCli, setReviewGuideCli] = useState<AgentCli>(
     () => useWorkspaceStore.getState().appSettings.lastSelectedCli ?? 'claude-code',
