@@ -1,6 +1,6 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../../../shared/electron-api'
 import { parseBacklogCsvList, parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
-import { parseBacklogNumericId } from '../../../shared/backlog/item-id'
+import { deriveDefaultBacklogKey, isValidBacklogKey, parseBacklogNumericId } from '../../../shared/backlog/item-id'
 // Canonical object-store id, re-exported so existing importers of this module
 // keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
 import { stableBacklogObjectId } from '../../../shared/backlog/object-id'
@@ -499,6 +499,31 @@ export function normalizeRelativePath(pathValue: string): string {
 // stable entry point; the implementation now lives in the shared module used by
 // both processes and the /backlog skill.
 export { stableBacklogObjectId }
+
+// The relative path of a project's Backlog display-key config, under the
+// app-owned `.multi-code/` sidecar. The `key:` inside prefixes every item's
+// human id (`MC-240`); the cross-project read model resolves it per project so
+// aggregated rows never collide (`MA-112` beside `MC-1758`).
+export const BACKLOG_CONFIG_RELATIVE_PATH = '.multi-code/backlog/config.json'
+
+// Resolve a project's Backlog display key from its `config.json` contents,
+// falling back to the name-derived default when the file is absent, unreadable,
+// or carries no valid key. Read-only and pure (the raw JSON is supplied by the
+// caller): unlike the main-process resolver behind `ensureBacklogItemIds`, it
+// never persists a derived default — the aggregate read model only reads. Mirrors
+// the mobile snapshot resolver (src/main/mobile/sprintengine/backlog.ts) so a
+// project's key reads identically wherever it is surfaced.
+export function resolveBacklogDisplayKey(configJson: string | null | undefined, projectName: string): string {
+  if (configJson) {
+    try {
+      const parsed = JSON.parse(configJson) as { key?: unknown }
+      if (isValidBacklogKey(parsed.key)) return parsed.key
+    } catch {
+      // Malformed config: fall back to the derived default rather than failing.
+    }
+  }
+  return deriveDefaultBacklogKey(projectName)
+}
 
 // Stable per-item slug = the file's name stem, independent of its directory
 // (e.g. `backlog/epics/auth-revamp.md` -> `auth-revamp`,
