@@ -20,13 +20,11 @@ import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import type { RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
-import { buildRoadmapRail, roadmapProgress, skipRoadmapEntry } from '../../../../../shared/sprintengine/roadmap-surface'
-import { serializeBacklogFrontmatterFields } from '../../../../../shared/backlog/frontmatter'
+import { buildRoadmapRail, roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { GhostButton, PrimaryButton, Section, useConfirmDialog } from '../../ui'
-import { newRoadmapFileContent } from '../../backlog/roadmapAuthoring'
-import { backlogRootPath, normalizeRelativePath } from '../../../utils/backlog'
-import { basename, joinFilePath, samePath, slugify } from '../../../utils/paths'
+import { normalizeRelativePath } from '../../../utils/backlog'
+import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
 import { StatusDot } from '../../ui/StatusDot'
@@ -160,11 +158,12 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     [commandInput, dialog, runLaneCommand],
   )
 
-  // Skip removes the step from the roadmap file (the source of truth) in the home
-  // project; the orchestrator advances past the removed step on its next reconcile.
+  // Skip removes the step from the active roadmap's file (the source of truth) in one
+  // main-process op; the orchestrator advances past the removed step on its next
+  // reconcile. Skip is only ever offered on the active roadmap's tracks, so the op
+  // derives the target roadmap itself — the component carries only intent + error.
   const handleSkip = useCallback(
-    async (roadmap: LoadedRoadmap, lane: string, unit: RoadmapBoardUnit) => {
-      if (!homePath) return
+    async (lane: string, unit: RoadmapBoardUnit) => {
       const reason = await dialog.prompt({
         title: `Skip “${unit.title}”?`,
         body: 'This removes the step from this track so the roadmap moves past it. Tell us why — it is recorded in the roadmap file.',
@@ -177,15 +176,13 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       if (reason === null) return
       setBusyLane(lane)
       try {
-        const absolute = joinFilePath(homePath, roadmap.roadmapRef)
-        const content = await window.api.readfile(absolute)
-        const next = skipRoadmapEntry(content, unit.ref, reason.trim(), new Date().toISOString().slice(0, 10))
-        if (next !== content) {
-          await window.api.writefile(absolute, next)
-        } else {
+        const result = await window.api.skipRoadmapStep({ ref: unit.ref, reason: reason.trim() })
+        if (!result.ok) {
           await dialog.confirm({
             title: 'That step could not be skipped',
-            body: 'This step was not found in the roadmap file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
+            body:
+              result.message ??
+              'This step was not found in the roadmap file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
             confirmLabel: 'OK',
           })
         }
@@ -194,7 +191,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         reload()
       }
     },
-    [homePath, dialog, reload],
+    [dialog, reload],
   )
 
   // Reveal a backlog file in its project's Backlog panel. Cross-project safe: the
@@ -264,44 +261,32 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     if (!name) return
     setCreating(true)
     try {
-      const roadmapsDir = await window.api.ensureDir(backlogRootPath(projectRoot), 'roadmaps')
-      const fileName = `${todayPrefix()}-${slugify(name)}.md`
-      const newPath = await window.api.createFile(roadmapsDir, fileName)
-      await window.api.writefile(newPath, newRoadmapFileContent(name))
-      if (!homePath) {
-        const set = await window.api.setRoadmapHomeProject(projectRoot)
-        if (!set.ok) {
-          await dialog.confirm({
-            title: 'Could not set the home project',
-            body: set.message ?? 'The roadmap home project could not be saved.',
-            confirmLabel: 'OK',
-          })
-          return
-        }
+      // One main-process op writes the draft file and, when this Multicode has no home
+      // project yet, adopts this one — no sequential renderer file IO to strand.
+      const result = await window.api.createRoadmap({ projectRoot, name })
+      if (!result.ok) {
+        await dialog.confirm({
+          title: 'Could not create the roadmap',
+          body: result.message,
+          confirmLabel: 'OK',
+        })
+        return
       }
-      const newRef = normalizeRelativePath(`backlog/roadmaps/${fileName}`)
       reload()
-      setSelectedRef(newRef)
-      setPlanningRef(newRef)
-    } catch (createError) {
-      await dialog.confirm({
-        title: 'Could not create the roadmap',
-        body: createError instanceof Error ? createError.message : String(createError),
-        confirmLabel: 'OK',
-      })
+      setSelectedRef(result.roadmapRef)
+      setPlanningRef(result.roadmapRef)
     } finally {
       setCreating(false)
     }
   }, [dialog, homePath, reload])
 
-  // Make a draft the single active roadmap (epic 1687 D1): promote it to `ready`
-  // and demote every OTHER active-status roadmap to `idea`, so exactly one file is
-  // active and the orchestrator's newest-id pick is never ambiguous. Frontmatter-
-  // only writes (body byte-stable); the orchestrator adopts the new plan on its
-  // next reconcile. An explicit, confirmed action — never a silent switch.
+  // Make a draft the single active roadmap (epic 1687 D1): one main-process op
+  // promotes it to `ready` and demotes every OTHER active-status roadmap to `idea`,
+  // atomically and in an order that can never strand zero active roadmaps. The
+  // component keeps only the confirm-intent and error display. An explicit,
+  // confirmed action — never a silent switch.
   const handleMakeActive = useCallback(
     async (file: RoadmapFileSummary) => {
-      if (!homePath) return
       const demoting = roadmapFiles.filter(
         (candidate) => candidate.roadmapRef !== file.roadmapRef && ACTIVE_ROADMAP_STATUSES.has(candidate.status),
       )
@@ -309,30 +294,29 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         title: `Make “${file.title}” the active roadmap?`,
         body:
           demoting.length > 0
-            ? `The orchestrator runs one roadmap at a time. “${demoting[0].title}” becomes a draft — its running sprints finish, but nothing new starts on it until you make it active again.`
-            : 'The orchestrator will start working this roadmap, one sprint at a time.',
+            ? `Multicode runs one roadmap at a time. “${demoting[0].title}” becomes a draft — its running sprints finish, but nothing new starts on it until you make it active again.`
+            : 'Multicode will start working this roadmap, one sprint at a time.',
         confirmLabel: 'Make active',
       })
       if (!ok) return
       setActivating(true)
       try {
-        for (const candidate of demoting) {
-          await writeRoadmapStatus(homePath, candidate.roadmapRef, 'idea')
+        const result = await window.api.activateRoadmap({ roadmapRef: file.roadmapRef })
+        if (result.ok) {
+          setSelectedRef(file.roadmapRef)
+        } else {
+          await dialog.confirm({
+            title: 'Could not make this roadmap active',
+            body: result.message ?? 'The roadmap could not be made active.',
+            confirmLabel: 'OK',
+          })
         }
-        await writeRoadmapStatus(homePath, file.roadmapRef, 'ready')
-        setSelectedRef(file.roadmapRef)
-      } catch (activateError) {
-        await dialog.confirm({
-          title: 'Could not make this roadmap active',
-          body: activateError instanceof Error ? activateError.message : String(activateError),
-          confirmLabel: 'OK',
-        })
       } finally {
         setActivating(false)
         reload()
       }
     },
-    [dialog, homePath, reload, roadmapFiles],
+    [dialog, reload, roadmapFiles],
   )
 
   // --- Derived view model ---------------------------------------------------
@@ -543,7 +527,7 @@ function RoadmapTracks({
   onPause: (roadmapRef: string, lane: string) => void
   onResume: (roadmapRef: string, lane: string) => void
   onMerge: (roadmapRef: string, lane: string) => void
-  onSkip: (roadmap: LoadedRoadmap, lane: string, unit: RoadmapBoardUnit) => void
+  onSkip: (lane: string, unit: RoadmapBoardUnit) => void
   onEditPlan: (roadmapRef: string) => void
   onOpenRun: (statePath: string) => void
 }): JSX.Element {
@@ -564,7 +548,7 @@ function RoadmapTracks({
     onPause: (lane) => onPause(roadmap.roadmapRef, lane),
     onResume: (lane) => onResume(roadmap.roadmapRef, lane),
     onMerge: (lane) => onMerge(roadmap.roadmapRef, lane),
-    onSkip: (lane, unit) => onSkip(roadmap, lane, unit),
+    onSkip: (lane, unit) => onSkip(lane, unit),
     onEditPlan: () => onEditPlan(roadmap.roadmapRef),
     onOpenRun,
     busyLane,
@@ -737,21 +721,6 @@ function RoadmapDoorGlyph(): JSX.Element {
   )
 }
 
-// Write a roadmap file's frontmatter status, preserving the body byte-for-byte
-// (the shared serializer's hard contract). Used by Make active to promote/demote.
-async function writeRoadmapStatus(homePath: string, roadmapRef: string, status: 'ready' | 'idea'): Promise<void> {
-  const absolute = joinFilePath(homePath, roadmapRef)
-  const content = await window.api.readfile(absolute)
-  const next = serializeBacklogFrontmatterFields(content, { status })
-  if (next !== content) await window.api.writefile(absolute, next)
-}
-
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
-}
-
-function todayPrefix(): string {
-  const date = new Date()
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
