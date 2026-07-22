@@ -436,7 +436,7 @@ function TrustFileListing({ files }: { files: string[] }) {
   const hiddenCount = files.length - visible.length
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--text-subtle)]">
+      <div className="text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
         Adds {files.length} skill{files.length === 1 ? '' : 's'} to the workspace
       </div>
       <ul className="mt-1 space-y-0.5">

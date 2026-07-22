@@ -228,37 +228,22 @@ function ReasoningSegment({
   value: string | undefined
   onSelect: (cli: AgentCli, reasoning: string | null) => void
 }) {
-  const active = value ?? defaultLevel
+  const active = value ?? defaultLevel ?? levels[0]?.id
+  if (active === undefined) return null
   return (
     <div className="mb-1.5 ml-8 mr-2">
-      <div className="pb-1 pt-1.5 text-[9.5px] font-semibold uppercase tracking-[0.07em] text-[color:var(--text-subtle)]">
+      <div className="pb-1 pt-1.5 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
         Reasoning effort
       </div>
-      <div
-        role="radiogroup"
-        aria-label="Reasoning effort"
-        className="inline-flex w-fit gap-0.5 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5"
-      >
-        {levels.map((level) => {
-          const isActive = level.id === active
-          return (
-            <button
-              key={level.id}
-              type="button"
-              role="radio"
-              aria-checked={isActive}
-              onClick={() => onSelect(cli, level.id === defaultLevel ? null : level.id)}
-              className={`rounded-[3px] px-2 py-0.5 text-[10.5px] transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)] ${
-                isActive
-                  ? 'bg-[color:var(--accent-primary-soft-strong)] font-semibold text-[color:var(--accent-primary)]'
-                  : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
-              }`}
-            >
-              {level.label ?? level.id}
-            </button>
-          )
-        })}
-      </div>
+      <SegmentedControl
+        ariaLabel="Reasoning effort"
+        size="sm"
+        items={levels.map((level) => ({ value: level.id, label: level.label ?? level.id }))}
+        value={active}
+        // Picking the CLI's declared default clears the override (null) so
+        // ordinary launches pass no effort flag; any other level persists.
+        onChange={(next) => onSelect(cli, next === defaultLevel ? null : next)}
+      />
     </div>
   )
 }
@@ -374,7 +359,7 @@ export function CliModelListbox({
       {hostedOptions.length > 0 ? (
         <>
           <div aria-hidden="true" className="mx-1 my-1.5 h-px bg-[color:var(--border-subtle)]" />
-          <div className="px-2 pb-0.5 pt-1 text-[9.5px] font-semibold uppercase tracking-[0.07em] text-[color:var(--text-subtle)]">
+          <div className="px-2 pb-0.5 pt-1 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
             Models via Claude Code
           </div>
           {hostedOptions.map((option, index) => renderGroup(option, index))}

@@ -7,7 +7,7 @@ import type {
   TrackerError,
   TrackerProviderId,
 } from '../../../../shared/electron-api'
-import { GhostButton, PrimaryButton, SegmentedControl, Select, StatusDot } from '../ui'
+import { Field, GhostButton, InlineNotice, Input, OutlineButton, PrimaryButton, SegmentedControl, Select, StatusDot } from '../ui'
 import type { SelectItem } from '../ui'
 import { SettingsSectionTitle } from './SettingsAtoms'
 import { TrackerWriteBackSettings } from './TrackerWriteBackSettings'
@@ -22,18 +22,13 @@ import {
   draftTestKey,
   draftToAddConnectionInput,
   draftToTestConnectionDraft,
+  presentTrackerError,
   providerHasAuthModeChoice,
   TRACKER_PROVIDER_FORM_SPECS,
   trackerProviderFormSpec,
   trackerProviderMonogram,
   type TrackerConnectionFormDraft,
 } from './trackerConnectionsForm'
-
-const INPUT_CLASS =
-  'h-8 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)]'
-
-const FIELD_LABEL_CLASS = 'mb-1 block text-[12px] font-medium text-[color:var(--text-muted)]'
-const FIELD_HELP_CLASS = 'mt-1 text-[12px] leading-[1.4] text-[color:var(--text-subtle)]'
 
 // The outcome of the most recent "Test connection" round-trip, tied to the exact
 // draft content that produced it (via `testKey`) so any later edit invalidates
@@ -100,30 +95,16 @@ function ConnectionRow({
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {status.recovery !== 'none' ? (
-          <GhostButton
-            size="md"
-            onClick={onRecover}
-            disabled={busy}
-            className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-          >
+          <OutlineButton size="md" onClick={onRecover} disabled={busy}>
             {recoverLabel}
-          </GhostButton>
+          </OutlineButton>
         ) : null}
-        <GhostButton
-          size="md"
-          onClick={onRemove}
-          disabled={busy}
-          className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-        >
+        <OutlineButton size="md" onClick={onRemove} disabled={busy}>
           Remove
-        </GhostButton>
+        </OutlineButton>
       </div>
     </div>
   )
-}
-
-function describeTrackerError(error: TrackerError): string {
-  return error.message
 }
 
 function describeProbe(probe: TrackerConnectionProbe): string {
@@ -133,7 +114,7 @@ function describeProbe(probe: TrackerConnectionProbe): string {
 
 export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string | null } = { workspaceRoot: null }) {
   const [connections, setConnections] = useState<RedactedTrackerConnection[] | null>(null)
-  const [listError, setListError] = useState<string | null>(null)
+  const [listError, setListError] = useState<TrackerError | null>(null)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
 
   const [provider, setProvider] = useState<TrackerProviderId>('github')
@@ -155,7 +136,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
       setListError(null)
     } else {
       setConnections([])
-      setListError(describeTrackerError(result.error))
+      setListError(result.error)
     }
   }, [])
 
@@ -189,7 +170,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
     if (result.ok) {
       setTest({ phase: 'done', testKey, ok: result.probe.ok, message: describeProbe(result.probe) })
     } else {
-      setTest({ phase: 'done', testKey, ok: false, message: describeTrackerError(result.error) })
+      setTest({ phase: 'done', testKey, ok: false, message: presentTrackerError(result.error).title })
     }
   }, [draft])
 
@@ -204,7 +185,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
         setAddedMessage(`Added ${result.connection.label}. It now appears in the list above.`)
         await refreshConnections()
       } else {
-        setTest({ phase: 'done', testKey: currentKey, ok: false, message: describeTrackerError(result.error) })
+        setTest({ phase: 'done', testKey: currentKey, ok: false, message: presentTrackerError(result.error).title })
       }
     } finally {
       setAddPending(false)
@@ -216,7 +197,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
       setRowBusyId(connectionId)
       try {
         const result = await window.api.trackerRemoveConnection({ connectionId })
-        if (!result.ok) setListError(describeTrackerError(result.error))
+        if (!result.ok) setListError(result.error)
         await refreshConnections()
       } finally {
         setRowBusyId(null)
@@ -260,9 +241,15 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
         </p>
 
         {listError ? (
-          <p role="alert" className="text-[12px] leading-5 text-[color:var(--tone-warn)]">
-            Couldn’t load your connections: {listError}
-          </p>
+          <InlineNotice
+            tone="error"
+            {...presentTrackerError(listError)}
+            action={
+              <GhostButton size="md" onClick={() => void refreshConnections()}>
+                Try again
+              </GhostButton>
+            }
+          />
         ) : null}
 
         {connections === null ? (
@@ -297,21 +284,16 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
         />
 
         {spec.selfHostable && spec.server ? (
-          <div>
-            <label htmlFor={hostInputId} className={FIELD_LABEL_CLASS}>
-              {spec.server.label}
-            </label>
-            <input
-              id={hostInputId}
+          <Field label={spec.server.label} htmlFor={hostInputId} help={spec.server.help}>
+            <Input
               value={draft.baseUrl}
               onChange={(event) => patchDraft({ baseUrl: event.target.value })}
               placeholder={spec.server.placeholder}
               autoComplete="off"
               spellCheck={false}
-              className={INPUT_CLASS}
+              className="font-mono"
             />
-            <p className={FIELD_HELP_CLASS}>{spec.server.help}</p>
-          </div>
+          </Field>
         ) : spec.cloudOnlyNote ? (
           <p className="rounded-md bg-[color:var(--bg-hover)] px-3 py-2.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
             {spec.cloudOnlyNote}
@@ -319,8 +301,8 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
         ) : null}
 
         {providerHasAuthModeChoice(provider) ? (
-          <div>
-            <div className={FIELD_LABEL_CLASS}>Where does this Jira run?</div>
+          <div className="flex flex-col gap-1.5">
+            <Field.Label>Where does this Jira run?</Field.Label>
             <Select
               ariaLabel="Where does this Jira run?"
               items={authModeItems}
@@ -332,45 +314,35 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
           </div>
         ) : null}
 
-        <div>
-          <label htmlFor={nameInputId} className={FIELD_LABEL_CLASS}>
-            Name
-          </label>
-          <input
-            id={nameInputId}
+        <Field label="Name" htmlFor={nameInputId}>
+          <Input
             value={draft.label}
             onChange={(event) => patchDraft({ label: event.target.value })}
             placeholder={`${spec.label} — your team`}
             autoComplete="off"
-            className={INPUT_CLASS}
+            className="font-mono"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label htmlFor={tokenInputId} className={FIELD_LABEL_CLASS}>
-            {authModeSpec.tokenLabel}
-          </label>
-          <input
-            id={tokenInputId}
+        <Field label={authModeSpec.tokenLabel} htmlFor={tokenInputId} help={authModeSpec.tokenHelp}>
+          <Input
             type="password"
             value={draft.secret}
             onChange={(event) => patchDraft({ secret: event.target.value })}
             placeholder={authModeSpec.tokenLabel}
             autoComplete="off"
-            className={INPUT_CLASS}
+            className="font-mono"
           />
-          <p className={FIELD_HELP_CLASS}>{authModeSpec.tokenHelp}</p>
-        </div>
+        </Field>
 
         <div className="flex flex-wrap items-center gap-3 pt-1">
-          <GhostButton
+          <OutlineButton
             size="md"
             onClick={() => void runTest()}
             disabled={test.phase === 'testing' || !canTestDraft(draft)}
-            className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             {test.phase === 'testing' ? 'Testing…' : 'Test connection'}
-          </GhostButton>
+          </OutlineButton>
 
           <span role="status" aria-live="polite" className="min-w-0 flex-1 text-[12px]">
             {test.phase === 'testing' ? (

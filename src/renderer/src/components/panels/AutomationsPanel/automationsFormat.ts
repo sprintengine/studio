@@ -22,6 +22,9 @@ import {
   type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
 import { WEEKDAY_SHORT, formatAtDatetime, scheduleCadenceSummary } from '../../../../../shared/automations/cadence'
+import { TRACKER_PROVIDER_LABEL } from '../../../../../shared/tracker/provider-label'
+import type { TrackerProviderId } from '../../../../../shared/tracker/types'
+import { relativeFromNow } from '../../../utils/relativeTime'
 
 // Re-exported so the editor (AutomationEditor.tsx, TriggerFields.tsx) keeps
 // importing the canonical trigger-kind constants and cadence copy from this
@@ -76,22 +79,15 @@ export const RUN_STATUS_LABEL: Record<AutomationRunStatus, string> = {
 // Time + cadence formatting
 // ---------------------------------------------------------------------------
 
-const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-
 export function parseTime(value: string | null | undefined): number | null {
   if (!value) return null
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : null
 }
 
-export function relativeFromNow(at: number, now: number): string {
-  const deltaSec = Math.round((at - now) / 1000)
-  const abs = Math.abs(deltaSec)
-  if (abs < 60) return RELATIVE.format(deltaSec, 'second')
-  if (abs < 3600) return RELATIVE.format(Math.round(deltaSec / 60), 'minute')
-  if (abs < 86400) return RELATIVE.format(Math.round(deltaSec / 3600), 'hour')
-  return RELATIVE.format(Math.round(deltaSec / 86400), 'day')
-}
+// Direction-aware relative time now lives in the shared relativeTime util; kept
+// re-exported here so existing automations callers import it from one place.
+export { relativeFromNow }
 
 export function absoluteTime(at: number): string {
   return new Date(at).toLocaleString(undefined, {
@@ -162,19 +158,20 @@ export function cadenceSummary(trigger: AutomationDefinition['trigger']): string
 }
 
 // Config-specific repo-event detail for the list's supporting line ('GitHub
-// created', 'Jira created, updated', 'Any source'). Null when the config is
-// unreadable so the row falls back to the family label alone.
-const REPO_EVENT_PROVIDER_DETAIL: Record<string, string> = {
-  github: 'GitHub',
-  jira: 'Jira',
-  any: 'Any source',
+// created', 'Jira created, updated', 'Any source'). Provider names come from the
+// shared tracker-provider label table; 'any' is an automations-only pseudo-
+// provider handled here. Null when the config is unreadable so the row falls
+// back to the family label alone.
+function repoEventProviderDetailLabel(provider: string): string {
+  if (provider === 'any') return 'Any source'
+  return TRACKER_PROVIDER_LABEL[provider as TrackerProviderId] ?? provider
 }
 
 function repoEventDetail(config: unknown): string | null {
   if (!config || typeof config !== 'object') return null
   const record = config as Record<string, unknown>
   const provider = typeof record.provider === 'string' ? record.provider : 'any'
-  const label = REPO_EVENT_PROVIDER_DETAIL[provider] ?? provider
+  const label = repoEventProviderDetailLabel(provider)
   const events = Array.isArray(record.eventTypes)
     ? record.eventTypes.filter((e): e is string => e === 'created' || e === 'updated')
     : []

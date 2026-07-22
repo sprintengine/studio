@@ -1,7 +1,7 @@
-import { TONE_COLOR_VAR, type Tone } from './tokens'
+import { STATUS_TONE_COLOR_VAR, type StatusTone } from './tokens'
 
 type StatusDotProps = {
-  tone: Tone
+  tone: StatusTone
   /** Adds the existing `status-dot-pulse` animation. Reduced-motion is honored
    *  globally in index.css. Use sparingly — only for live indicators. */
   pulse?: boolean
@@ -24,7 +24,7 @@ export function StatusDot({ tone, pulse = false, label, size = 6, className }: S
       style={{
         width: size,
         height: size,
-        backgroundColor: TONE_COLOR_VAR[tone],
+        backgroundColor: STATUS_TONE_COLOR_VAR[tone],
       }}
     />
   )

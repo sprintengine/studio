@@ -22,3 +22,19 @@ export function formatRelativeMsAgo(ms: number | null | undefined, now: number):
   if (!short) return ''
   return `${short} ago`
 }
+
+// Spelled-out, direction-aware relative time ("in 2 minutes" / "2 hours ago"),
+// backed by Intl.RelativeTimeFormat. Distinct from the terse formatters above:
+// this one keeps both directions (the automations panel shows future next-run
+// times) and reads as a sentence fragment. Kept here so all relative-time
+// formatting lives in one module rather than being re-implemented per surface.
+const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+export function relativeFromNow(at: number, now: number): string {
+  const deltaSec = Math.round((at - now) / 1000)
+  const abs = Math.abs(deltaSec)
+  if (abs < 60) return RELATIVE.format(deltaSec, 'second')
+  if (abs < 3600) return RELATIVE.format(Math.round(deltaSec / 60), 'minute')
+  if (abs < 86400) return RELATIVE.format(Math.round(deltaSec / 3600), 'hour')
+  return RELATIVE.format(Math.round(deltaSec / 86400), 'day')
+}

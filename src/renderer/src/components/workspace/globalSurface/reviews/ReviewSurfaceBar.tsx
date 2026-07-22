@@ -1,4 +1,5 @@
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
+import { REVIEW_STATE_PRESENTATION } from '../../../../../../shared/review/review-state'
 import { GhostButton, PrimaryButton } from '../../../ui/Buttons'
 import { SegmentedControl } from '../../../ui/SegmentedControl'
 import { StatusDot } from '../../../ui/StatusDot'
@@ -51,10 +52,11 @@ function ReviewStatusChip({ session, entry }: { session: ReviewSession; entry: R
     session.changeset !== null
       ? hasPostedComments(session.comments) && session.pendingComments === 0
       : entry !== null && entry.postedComments > 0 && entry.pendingComments === 0
+  const state = REVIEW_STATE_PRESENTATION[posted ? 'posted' : 'in-progress']
   return (
     <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
-      <StatusDot tone={posted ? 'good' : 'accent'} label={posted ? 'Posted' : 'In progress'} />
-      {posted ? 'Posted' : 'In progress'}
+      <StatusDot tone={state.tone} label={state.label} />
+      {state.label}
     </span>
   )
 }

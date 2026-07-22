@@ -158,8 +158,8 @@ export type InstallFlowView = {
   // Real verified permissions to disclose at the trust prompt — never
   // fabricated. `null` outside the trust prompt; `[]` is a real "no access" list.
   permissions: CapabilityPermission[] | null
-  // Real content listing to disclose at the trust prompt (Claude Code plugin
-  // skill folders); null when the trust decision is permission-shaped.
+  // Real content listing to disclose at the trust prompt, for Claude Code
+  // plugin skill folders; null when the trust decision is permission-shaped.
   files: string[] | null
   // The commit the file listing came from; the trust-install passes it back so
   // the install fetches exactly the disclosed content. Trust prompt only.

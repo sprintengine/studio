@@ -1,4 +1,5 @@
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
+import { REVIEW_STATE_PRESENTATION, type ReviewProgressState } from '../../../../../../shared/review/review-state'
 import type { Tone } from '../../../ui/tokens'
 
 // Pure projections for the Reviews-door rail (MC-1708 T6, mockup §4). Each review
@@ -7,7 +8,7 @@ import type { Tone } from '../../../ui/tokens'
 // IPC — the rail rows and their tones derive here so a fixed index produces a
 // deterministic rail and the state-line rules are unit-testable on their own.
 
-export type ReviewRailStatus = 'draft' | 'in-progress' | 'posted'
+export type ReviewRailStatus = ReviewProgressState
 
 export interface ReviewRailRow {
   reviewId: string
@@ -27,17 +28,20 @@ export interface ReviewRailRow {
 export function reviewRailRow(entry: ReviewIndexEntry): ReviewRailRow {
   const base = { reviewId: entry.reviewId, workspaceRoot: entry.workspaceRoot, title: entry.title }
   if (!entry.hasWalkthrough) {
-    return { ...base, status: 'draft', tone: 'neutral', stateLine: `${entry.projectName} · draft`, dotLabel: 'Draft — no walkthrough yet' }
+    const p = REVIEW_STATE_PRESENTATION.draft
+    return { ...base, status: 'draft', tone: p.tone, stateLine: `${entry.projectName} · draft`, dotLabel: p.dotLabel }
   }
   if (entry.postedComments > 0 && entry.pendingComments === 0) {
-    return { ...base, status: 'posted', tone: 'good', stateLine: `${entry.projectName} · posted`, dotLabel: 'Posted to the pull request' }
+    const p = REVIEW_STATE_PRESENTATION.posted
+    return { ...base, status: 'posted', tone: p.tone, stateLine: `${entry.projectName} · posted`, dotLabel: p.dotLabel }
   }
+  const p = REVIEW_STATE_PRESENTATION['in-progress']
   return {
     ...base,
     status: 'in-progress',
-    tone: 'accent',
+    tone: p.tone,
     stateLine: `${entry.projectName} · ${readProgressLabel(entry)}`,
-    dotLabel: 'In progress',
+    dotLabel: p.dotLabel,
   }
 }
 

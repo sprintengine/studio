@@ -4,6 +4,13 @@
 
 export type Tone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
 
+// Status vocabulary is one wider than the emphasis tones: `merged` is a status a
+// dot can carry (a landed PR), never an emphasis a Select option or button asks
+// for, so it lives here rather than widening `Tone`. Backed by --tone-merged
+// (the GitHub-borrowed merged purple), a single base value with no per-theme
+// override so "merged" stays recognisable across themes.
+export type StatusTone = Tone | 'merged'
+
 export type ToolIdentity = 'switchboard' | 'watchtower' | 'sprintengine' | 'multiloop'
 
 export const TONE_COLOR_VAR: Record<Tone, string> = {
@@ -12,6 +19,11 @@ export const TONE_COLOR_VAR: Record<Tone, string> = {
   good: 'var(--tone-good)',
   warn: 'var(--tone-warn)',
   error: 'var(--tone-error)',
+}
+
+export const STATUS_TONE_COLOR_VAR: Record<StatusTone, string> = {
+  ...TONE_COLOR_VAR,
+  merged: 'var(--tone-merged)',
 }
 
 export const TONE_SOFT_VAR: Record<Tone, string> = {

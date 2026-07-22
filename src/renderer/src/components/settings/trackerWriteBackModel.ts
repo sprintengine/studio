@@ -11,17 +11,13 @@ import type {
   TrackerWriteBackTransitionEvent,
 } from '../../../../shared/electron-api'
 import { pullRequestComment, runCompletedComment, runStartedComment } from '../../../../shared/tracker/writeback-messages'
+import { trackerProviderLabel } from '../../../../shared/tracker/provider-label'
 
-// Human provider names for the master-switch copy ("never write to Jira"). Falls
-// back to a neutral word so an unknown provider still reads plainly.
-const PROVIDER_NAME: Record<TrackerProviderId, string> = {
-  github: 'GitHub',
-  jira: 'Jira',
-  linear: 'Linear',
-}
-
+// Human provider name for the master-switch copy ("never write to Jira"), from
+// the shared provider-label table. Falls back to a neutral word so an unknown
+// provider still reads plainly.
 export function providerDisplayName(provider: TrackerProviderId): string {
-  return PROVIDER_NAME[provider] ?? 'the tracker'
+  return trackerProviderLabel(provider)
 }
 
 // The master-switch subtitle: off names what write-back does NOT do (read-only);
@@ -52,7 +48,7 @@ export function showsTransitionTier(capabilities: TrackerCapabilities | undefine
   return capabilities?.canTransition === true
 }
 
-// Build a status <select>'s options from the tracker's OWN transitions plus the
+// Build a status picker's options from the tracker's OWN transitions plus the
 // explicit "leave it alone" default. `value === ''` is the null mapping.
 export function transitionSelectOptions(
   transitions: ReadonlyArray<TrackerTransition>,

@@ -10,6 +10,7 @@
 
 import { basename } from '../../../utils/paths'
 import { parseBacklogFrontmatter } from '../../../../../shared/backlog/frontmatter'
+import { TRACKER_PROVIDER_LABEL } from '../../../../../shared/tracker/provider-label'
 import type { SprintEngineSource, SprintEngineSourceBundleStateItem } from '../../../types/workspace'
 
 // Reference = the original file is read in place (it stays canonical); the run
@@ -218,16 +219,10 @@ export type SprintEngineSeedProvenance = {
   url: string
 }
 
-const PROVIDER_LABELS: Record<SprintEngineSeedProvenance['provider'], string> = {
-  github: 'GitHub',
-  jira: 'Jira',
-  linear: 'Linear',
-}
-
 export function sprintEngineSeedProvenanceProviderLabel(
   provider: SprintEngineSeedProvenance['provider'],
 ): string {
-  return PROVIDER_LABELS[provider]
+  return TRACKER_PROVIDER_LABEL[provider]
 }
 
 export function trackerSeedProvenance(sourceContent: string): SprintEngineSeedProvenance | null {

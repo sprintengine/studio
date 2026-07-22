@@ -5,9 +5,9 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import {
   Drawer,
-  GhostButton,
   InboxSearchInput,
   InlineNotice,
+  OutlineButton,
   PrimaryButton,
   Select,
   StatusDot,
@@ -342,14 +342,13 @@ export function BacklogTrackerPicker({
             })}
             {search.nextCursor ? (
               <li className="px-3 py-2">
-                <GhostButton
+                <OutlineButton
                   size="md"
                   onClick={() => void runSearch(connectionId, query.trim(), search.nextCursor)}
                   disabled={search.loadingMore}
-                  className="border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 >
                   {search.loadingMore ? 'Loading…' : 'Load more'}
-                </GhostButton>
+                </OutlineButton>
               </li>
             ) : null}
           </ul>

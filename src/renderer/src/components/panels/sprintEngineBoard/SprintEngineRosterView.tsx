@@ -3,10 +3,12 @@ import {
   CliModelListbox,
   CliModelPickerButton,
   ContextMenu,
+  GhostButton,
   LifecycleGlyph,
   MenuDivider,
   MenuFlyoutItem,
   MenuItem,
+  OutlineButton,
   Popover,
   StatusDot,
   TruncatedText,
@@ -299,15 +301,9 @@ export function SprintEngineRosterView({
             placement="bottom-end"
             surfaceClassName="w-[240px] p-1 text-[12px]"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
-              <button
-                ref={ref}
-                type="button"
-                onClick={togglePopover}
-                className="interactive inline-flex h-[26px] items-center gap-1.5 rounded border border-[color:var(--border-default)] px-2.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-                {...triggerProps}
-              >
+              <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
                 <span aria-hidden="true">＋</span> Add a role
-              </button>
+              </OutlineButton>
             )}
           >
             <div role="none">
@@ -334,15 +330,9 @@ export function SprintEngineRosterView({
             placement="bottom-end"
             surfaceClassName="w-[240px] p-1 text-[12px]"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
-              <button
-                ref={ref}
-                type="button"
-                onClick={togglePopover}
-                className="interactive inline-flex h-[26px] items-center gap-1.5 rounded border border-[color:var(--border-default)] px-2.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-                {...triggerProps}
-              >
+              <OutlineButton ref={ref} size="xs" onClick={togglePopover} {...triggerProps}>
                 <span aria-hidden="true">＋</span> Add an agent
-              </button>
+              </OutlineButton>
             )}
           >
             <div role="none">
@@ -551,29 +541,28 @@ export function SprintEngineRosterView({
               </span>
             ) : null}
             {offerRestart ? (
-              <button
-                type="button"
+              <OutlineButton
+                size="xs"
                 onClick={() => onRestartAgent(agent.id)}
                 aria-label={`Restart ${displayName} on the new model`}
-                className="interactive inline-flex h-6 items-center rounded border border-[color:var(--border-default)] px-2 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
               >
                 Restart
-              </button>
+              </OutlineButton>
             ) : null}
             {hasLiveTerminal ? (
-              <button
-                type="button"
+              <GhostButton
+                size="xs"
                 onClick={() => onOpenAgent(agent.id)}
                 aria-label={`Open ${displayName} terminal`}
-                className="interactive inline-flex h-6 items-center rounded px-2 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-focus-within:opacity-100 group-hover:opacity-100"
+                className="opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
               >
                 Open
-              </button>
+              </GhostButton>
             ) : (
               // A seat that is actionable right now keeps its action visible
               // without hover.
-              <button
-                type="button"
+              <OutlineButton
+                size="xs"
                 onClick={() => onSpawnAgent(agent.id)}
                 disabled={spawnPending}
                 aria-label={
@@ -583,10 +572,9 @@ export function SprintEngineRosterView({
                       ? `Resume ${displayName}`
                       : `Spawn ${displayName}`
                 }
-                className="interactive inline-flex h-6 items-center rounded border border-[color:var(--border-default)] px-2 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-default disabled:opacity-50"
               >
                 {spawnPending ? 'Starting…' : resumable ? 'Resume' : 'Spawn'}
-              </button>
+              </OutlineButton>
             )}
             <button
               type="button"

@@ -18,7 +18,16 @@ type SegmentedControlProps<V extends string = string> = {
   items: SegmentedControlItem<V>[]
   value: V
   onChange: (value: V) => void
+  /** `md` (default) is the form-control size; `sm` is the dense variant for
+   *  inline sub-controls inside compact popovers (the runtime picker's
+   *  reasoning-effort segment). */
+  size?: 'sm' | 'md'
   className?: string
+}
+
+const SEGMENT_SIZE: Record<'sm' | 'md', string> = {
+  sm: 'h-[26px] px-2.5 text-[11px]',
+  md: 'h-[30px] px-3.5 text-[12px]',
 }
 
 export function SegmentedControl<V extends string = string>({
@@ -26,6 +35,7 @@ export function SegmentedControl<V extends string = string>({
   items,
   value,
   onChange,
+  size = 'md',
   className,
 }: SegmentedControlProps<V>) {
   const groupRef = useRef<HTMLDivElement | null>(null)
@@ -79,7 +89,7 @@ export function SegmentedControl<V extends string = string>({
               if (!checked) onChange(item.value)
             }}
             className={`
-              interactive h-[30px] px-3.5 text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS}
+              interactive ${SEGMENT_SIZE[size]} font-medium transition-colors ${FOCUS_RING_CLASS}
               ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
               ${checked
                 ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'

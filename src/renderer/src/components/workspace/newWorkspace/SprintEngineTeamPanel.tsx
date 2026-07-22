@@ -25,7 +25,7 @@ import {
   listSprintEngineWizardWorkRoles,
   sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
-import { CliModelPickerButton, Field, Popover, RoleAvatar, SegmentedControl, Switch } from '../../ui'
+import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import { sprintEngineTeamNameTaken } from './savedTeams'
 
@@ -439,14 +439,9 @@ function SavedTeamsMenu({
             <button type="button" onClick={close} className={`${itemClass} w-auto`}>
               Cancel
             </button>
-            <button
-              type="button"
-              disabled={!canSubmit}
-              onClick={submitName}
-              className="h-7 rounded-[5px] bg-[color:var(--accent-primary)] px-2.5 text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:cursor-not-allowed disabled:opacity-45"
-            >
+            <PrimaryButton disabled={!canSubmit} onClick={submitName}>
               {editing === 'renaming' ? 'Rename' : 'Save'}
-            </button>
+            </PrimaryButton>
           </div>
         </div>
       ) : (
