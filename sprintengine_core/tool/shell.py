@@ -10,8 +10,41 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from sprintengine_core.tool.constants import VALID_VCS_STATUSES
 from sprintengine_core.tool.paths import project_relative_path, resolve_vcs_path, workspace_root_for_state_path
+
+# The repo-entry model and the cross-repo merge-order graph were extracted from this
+# module (backlog 1737); shell.py is the git/gh subprocess layer that sits above them.
+# The names below are imported for this module's own use AND re-exported so that
+# `shell.<name>` stays a stable surface for callers and tests that predate the split.
+# New code imports from repo_model / merge_graph directly.
+from sprintengine_core.tool.repo_model import (  # noqa: F401
+    PRIMARY_REPO_ID,
+    PRIMARY_REPO_ROOT,
+    VALID_PULL_REQUEST_STATES,
+    get_run_vcs,
+    parse_repo_declaration,
+    parse_repo_declarations,
+    repo_for_task,
+    set_repo_last_commit_sha,
+    set_repo_pull_request,
+    set_repo_status,
+    set_vcs_last_commit_sha,
+    set_vcs_status,
+    vcs_repos,
+    _optional_str,
+    _repo_entry,
+    _set_repo_field,
+)
+from sprintengine_core.tool.merge_graph import (  # noqa: F401
+    assert_no_repo_dependency_cycle,
+    cross_repo_merge_edges,
+    repo_dependency_cycle,
+    repo_merge_order,
+    _repos_that_must_merge_first,
+    _state_tasks,
+    _structural_merge_predecessors,
+)
+
 
 def run_command_checked(cwd: Path, args: List[str], *, allow_failure: bool = False, timeout: int = 120) -> subprocess.CompletedProcess[str]:
     try:
@@ -80,296 +113,7 @@ def safe_branch_component(value: str) -> str:
     return component or "run"
 
 
-def get_run_vcs(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    vcs = state.get("sprintengine", {}).get("vcs")
-    return vcs if isinstance(vcs, dict) and vcs.get("mode") == "run_worktree" else None
-
-
-# Entry zero of `vcs.repos` is the run's primary repo: the workspace itself, so its
-# root is the workspace-relative ".". Sibling repos are appended after it.
-PRIMARY_REPO_ID = "primary"
-PRIMARY_REPO_ROOT = "."
-
-# A sibling repo id names a directory on disk (`worktree-<id>`) and is typed by
-# humans into task cards, so it stays to the characters a path and a task field can
-# both carry without quoting.
-SIBLING_REPO_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
-
-# The repo-entry fields a store must carry for the engine to resolve a tree at all.
-# Absent or blank means a corrupt store, not a legacy one: the pre-`repos` shape has
-# no `repos` key whatsoever and is derived from the flat block instead.
-_REQUIRED_REPO_KEYS = ("id", "root", "worktreePath", "branchName")
-
-# Merge states one repo's pull request can be in. `open` until GitHub says the PR
-# merged or closed, or the branch lands in its base; the other two are terminal.
-VALID_PULL_REQUEST_STATES = {"open", "merged", "closed"}
-
-# The per-repo fields the primary repo also stores flat on `vcs`, because the app,
-# the mobile snapshot, and the PR surfaces still read them there.
-_PRIMARY_MIRRORED_KEYS = ("status", "lastCommitSha", "pullRequestUrl", "pullRequestState", "pullRequestError")
-
-
-def _optional_str(value: Any) -> Optional[str]:
-    return value if isinstance(value, str) and value.strip() else None
-
-
-def _repo_entry(
-    *,
-    repo_id: str,
-    root: str,
-    worktree_path: str,
-    branch_name: str,
-    base_ref: Optional[str],
-    status: Optional[str],
-    last_commit_sha: Optional[str],
-    pull_request_url: Optional[str] = None,
-    pull_request_state: Optional[str] = None,
-    pull_request_error: Optional[str] = None,
-) -> Dict[str, Any]:
-    """One declared repo. The single site that spells the entry shape.
-
-    A run spanning two projects opens one pull request per project, so the PR fields
-    belong to the repo that owns the branch they describe (MC-1612), not to the run.
-    """
-    return {
-        "id": repo_id,
-        "root": root,
-        "worktreePath": worktree_path,
-        "branchName": branch_name,
-        "baseRef": base_ref,
-        "status": status if status in VALID_VCS_STATUSES else "not_created",
-        "lastCommitSha": last_commit_sha if isinstance(last_commit_sha, str) else None,
-        "pullRequestUrl": _optional_str(pull_request_url),
-        "pullRequestState": pull_request_state if pull_request_state in VALID_PULL_REQUEST_STATES else None,
-        "pullRequestError": _optional_str(pull_request_error),
-    }
-
-
-def _normalized_repo_entry(raw: Any, index: int) -> Dict[str, Any]:
-    if not isinstance(raw, dict):
-        raise SystemExit(f"Sprint Engine run store is corrupt: vcs.repos[{index}] is not a mapping.")
-    missing = [key for key in _REQUIRED_REPO_KEYS if not str(raw.get(key) or "").strip()]
-    if missing:
-        raise SystemExit(
-            f"Sprint Engine run store is corrupt: vcs.repos[{index}] is missing {', '.join(missing)}. "
-            "Delete the team folder and re-run the sprint."
-        )
-    base_ref = str(raw.get("baseRef") or "").strip()
-    return _repo_entry(
-        repo_id=str(raw["id"]).strip(),
-        root=str(raw["root"]).strip(),
-        worktree_path=str(raw["worktreePath"]).strip(),
-        branch_name=str(raw["branchName"]).strip(),
-        base_ref=base_ref or None,
-        status=raw.get("status"),
-        last_commit_sha=raw.get("lastCommitSha"),
-        pull_request_url=raw.get("pullRequestUrl"),
-        pull_request_state=raw.get("pullRequestState"),
-        pull_request_error=raw.get("pullRequestError"),
-    )
-
-
-def _primary_repo_entry_from_flat(vcs: Dict[str, Any]) -> Dict[str, Any]:
-    """The primary repo entry a pre-`repos` store describes with its flat fields."""
-    base_ref = str(vcs.get("baseRef") or "").strip()
-    return _repo_entry(
-        repo_id=PRIMARY_REPO_ID,
-        root=PRIMARY_REPO_ROOT,
-        worktree_path=str(vcs.get("worktreePath") or "").strip(),
-        branch_name=str(vcs.get("branchName") or "").strip(),
-        base_ref=base_ref or None,
-        status=vcs.get("status"),
-        last_commit_sha=vcs.get("lastCommitSha"),
-        pull_request_url=vcs.get("pullRequestUrl"),
-        pull_request_state=vcs.get("pullRequestState"),
-        pull_request_error=vcs.get("pullRequestError"),
-    )
-
-
-def vcs_repos(vcs: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """The repos a run declares, from either shape the store may carry.
-
-    A run created before `vcs.repos` (MC-1611) describes its one repo with the flat
-    `worktreePath`/`branchName`/... fields on `vcs`; it reads back here as the
-    one-entry list a single-repo run has always semantically been, so callers only
-    ever handle the list. Entry zero is always the primary repo.
-    """
-    if not isinstance(vcs, dict):
-        return []
-    raw_repos = vcs.get("repos")
-    if not isinstance(raw_repos, list) or not raw_repos:
-        return [_primary_repo_entry_from_flat(vcs)]
-    return [_normalized_repo_entry(raw, index) for index, raw in enumerate(raw_repos)]
-
-
-def _stored_primary_repo(vcs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The mutable stored entry zero, when the store carries the list shape."""
-    repos = vcs.get("repos")
-    if isinstance(repos, list) and repos and isinstance(repos[0], dict):
-        return repos[0]
-    return None
-
-
-def _stored_repo(vcs: Dict[str, Any], repo_id: str) -> Optional[Dict[str, Any]]:
-    """The mutable stored entry for one declared repo, by id.
-
-    :func:`vcs_repos` hands out normalized copies, so a writer that must persist
-    reaches for the stored dict here instead.
-    """
-    for repo in vcs.get("repos") or []:
-        if isinstance(repo, dict) and str(repo.get("id") or "").strip() == repo_id:
-            return repo
-    return None
-
-
-def _set_repo_field(vcs: Dict[str, Any], repo_id: str, key: str, value: Any) -> None:
-    """Write one field of one declared repo, on every shape that stores it.
-
-    The primary's fields are also the run's flat `vcs.*` fields — what the app, the
-    mobile snapshot, and the PR surfaces still read — so a primary write lands on the
-    flat block and on entry zero of `repos`, and the two cannot drift while both
-    exist. A sibling's fields are its own entry alone, so work in one project never
-    reports itself as what the primary tree is doing.
-    """
-    if repo_id == PRIMARY_REPO_ID:
-        if key in _PRIMARY_MIRRORED_KEYS:
-            vcs[key] = value
-        repo = _stored_primary_repo(vcs)
-    else:
-        repo = _stored_repo(vcs, repo_id)
-    if repo is not None:
-        repo[key] = value
-
-
-def set_vcs_status(vcs: Dict[str, Any], status: str) -> None:
-    """Record the primary repo's worktree status on both shapes that store it."""
-    _set_repo_field(vcs, PRIMARY_REPO_ID, "status", status)
-
-
-def set_vcs_last_commit_sha(vcs: Dict[str, Any], sha: Optional[str]) -> None:
-    """Record the primary repo's last commit on both shapes that store it."""
-    _set_repo_field(vcs, PRIMARY_REPO_ID, "lastCommitSha", sha)
-
-
-def set_repo_status(vcs: Dict[str, Any], repo_id: str, status: str) -> None:
-    """Record one declared repo's worktree status."""
-    _set_repo_field(vcs, repo_id, "status", status)
-
-
-def set_repo_last_commit_sha(vcs: Dict[str, Any], repo_id: str, sha: Optional[str]) -> None:
-    """Record one declared repo's last commit."""
-    _set_repo_field(vcs, repo_id, "lastCommitSha", sha)
-
-
-def set_repo_pull_request(
-    vcs: Dict[str, Any],
-    repo_id: str,
-    *,
-    url: Optional[str],
-    state: Optional[str],
-    error: Optional[str],
-) -> None:
-    """Record one repo's pull-request outcome: its url, merge state, and last failure.
-
-    Written together because they are one fact — a repo has a pull request, or it has
-    a reason it has none — and writing them apart is how a store ends up claiming an
-    open pull request and a stale failure at the same time.
-    """
-    _set_repo_field(vcs, repo_id, "pullRequestUrl", url)
-    _set_repo_field(vcs, repo_id, "pullRequestState", state)
-    _set_repo_field(vcs, repo_id, "pullRequestError", error)
-
-
-def repo_field_baseline(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """A per-repo copy of the vcs fields, taken before a network phase runs.
-
-    Paired with :func:`persist_resolved_vcs` to carry only what the network phase
-    actually changed onto freshly-loaded state, so a field an unrelated writer touched
-    concurrently is never overwritten with a stale value.
-    """
-    vcs = get_run_vcs(state)
-    return {repo["id"]: dict(repo) for repo in vcs_repos(vcs)} if vcs else {}
-
-
-def persist_resolved_vcs(
-    fresh: Dict[str, Any],
-    resolved: Dict[str, Any],
-    *,
-    baseline: Dict[str, Dict[str, Any]],
-    since_event_index: int,
-) -> None:
-    """Carry a network phase's resolved vcs outcome onto freshly-loaded run state.
-
-    The pull-request, merge, and pr-status handlers do their git and ``gh`` work
-    outside the run mutation lock, against a snapshot, then take the lock only to write
-    what they resolved (see the ``vcs_*`` handlers in ``commands/run.py``). Only the
-    fields the network phase actually changed from ``baseline`` are copied, and the
-    events it logged are re-appended onto the fresh events list — so a ``vcs.commit``
-    that raced the network phase on the same repo keeps its own ``lastCommitSha`` and
-    ``status`` rather than being clobbered by a stale snapshot value.
-    """
-    from sprintengine_core.tool.state import append_event
-
-    fresh_vcs = get_run_vcs(fresh)
-    resolved_vcs = get_run_vcs(resolved)
-    if fresh_vcs is not None and resolved_vcs is not None:
-        for resolved_repo in vcs_repos(resolved_vcs):
-            repo_id = resolved_repo["id"]
-            if _stored_repo(fresh_vcs, repo_id) is None:
-                continue
-            before = baseline.get(repo_id, {})
-            for key, value in resolved_repo.items():
-                if key != "id" and before.get(key) != value:
-                    _set_repo_field(fresh_vcs, repo_id, key, value)
-    for event in resolved.get("events", [])[since_event_index:]:
-        if not isinstance(event, dict):
-            continue
-        extra = {k: v for k, v in event.items() if k not in ("id", "timestamp", "type", "actor", "message")}
-        append_event(
-            fresh,
-            str(event.get("type") or ""),
-            str(event.get("actor") or "sprintengine"),
-            str(event.get("message") or ""),
-            extra or None,
-        )
-
-
-def parse_repo_declaration(value: str) -> Dict[str, str]:
-    """One `--repo <id>=<path>` declaration, parsed but not yet resolved on disk.
-
-    Syntax only: whether the path is a real git repo is decided against the
-    workspace in :func:`_declared_sibling_entries`, which is the only place that
-    knows where the run lives.
-    """
-    raw = str(value or "").strip()
-    repo_id, separator, root = (part.strip() for part in raw.partition("="))
-    if not separator or not repo_id or not root:
-        raise SystemExit(
-            f"--repo must be <name>=<path>, for example --repo mobile=../multicode-mobile. Got: {raw or '(empty)'}"
-        )
-    if not SIBLING_REPO_ID_PATTERN.match(repo_id):
-        raise SystemExit(
-            f"--repo name {repo_id!r} is not usable: use lowercase letters, digits, dots, dashes, or underscores, "
-            "starting with a letter or digit, for example 'mobile'."
-        )
-    if repo_id == PRIMARY_REPO_ID:
-        raise SystemExit(
-            f"--repo name {PRIMARY_REPO_ID!r} is reserved for this project itself; give the other project a different name."
-        )
-    return {"id": repo_id, "root": root}
-
-
-def parse_repo_declarations(values: List[str]) -> List[Dict[str, str]]:
-    declared: List[Dict[str, str]] = []
-    for value in values or []:
-        repo = parse_repo_declaration(value)
-        if any(existing["id"] == repo["id"] for existing in declared):
-            raise SystemExit(f"--repo {repo['id']} was declared twice; each project needs its own name.")
-        declared.append(repo)
-    return declared
-
-
-def _declared_sibling_root(workspace_root: Path, repo_id: str, raw_root: str) -> Path:
+def declared_sibling_root(workspace_root: Path, repo_id: str, raw_root: str) -> Path:
     """Resolve one declared sibling root, or abort with a plain-language reason.
 
     A run may only span whole, separate git repositories: a path that is not a
@@ -413,7 +157,7 @@ def _declared_sibling_root(workspace_root: Path, repo_id: str, raw_root: str) ->
     return root
 
 
-def _declared_sibling_entries(
+def declared_sibling_entries(
     workspace_root: Path,
     state_path: Path,
     declared: List[Dict[str, str]],
@@ -432,7 +176,7 @@ def _declared_sibling_entries(
     roots: Dict[str, str] = {}
     for repo in declared:
         repo_id = repo["id"]
-        root = _declared_sibling_root(workspace_root, repo_id, repo["root"])
+        root = declared_sibling_root(workspace_root, repo_id, repo["root"])
         if str(root) in roots:
             raise SystemExit(f"Projects {roots[str(root)]!r} and {repo_id!r} both point at {root}; declare each project once.")
         roots[str(root)] = repo_id
@@ -448,7 +192,7 @@ def _declared_sibling_entries(
     return entries
 
 
-def _ensure_repo_worktree(workspace_root: Path, repo: Dict[str, Any], *, start_point: Optional[str] = None) -> None:
+def ensure_repo_worktree(workspace_root: Path, repo: Dict[str, Any], *, start_point: Optional[str] = None) -> None:
     """Create (or adopt) one declared repo's run worktree and record it ready.
 
     Raises rather than recording a failed status: a run that cannot get a tree for
@@ -522,7 +266,7 @@ def ensure_run_worktree(
     # A run's repo set is fixed at creation, so a re-entry with no fresh declaration
     # keeps the siblings already stored rather than dropping them.
     siblings = (
-        _declared_sibling_entries(workspace_root, state_path, repos, branch=branch)
+        declared_sibling_entries(workspace_root, state_path, repos, branch=branch)
         if repos
         else vcs_repos(vcs)[1:]
     )
@@ -544,7 +288,7 @@ def ensure_run_worktree(
     # able to reach the projects it declares would strand every task targeting the
     # rest of them.
     for repo in vcs["repos"]:
-        _ensure_repo_worktree(
+        ensure_repo_worktree(
             workspace_root,
             repo,
             start_point=start_point if repo["id"] == PRIMARY_REPO_ID else None,
@@ -562,31 +306,6 @@ def _repo_worktree(state_path: Path, repo: Dict[str, Any]) -> Optional[Path]:
     if not isinstance(value, str) or not value.strip():
         return None
     return resolve_vcs_path(workspace_root_for_state_path(state_path), value)
-
-
-def repo_for_task(state: Dict[str, Any], task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The declared repo entry a task's changes belong in, None outside worktree mode.
-
-    A task's repo is validated against the run's declared repos when it is created
-    and again when it is claimed (``ensure_task_repo_declared``), so a stored task
-    naming an undeclared repo means the run store and the declaration disagree.
-    That fails loudly here rather than falling back to the primary tree, which
-    would commit one project's paths into another.
-    """
-    from sprintengine_core import store as folder_store
-
-    vcs = get_run_vcs(state)
-    if not vcs:
-        return None
-    repos = vcs_repos(vcs)
-    repo_id = folder_store.task_repo(task)
-    for repo in repos:
-        if repo["id"] == repo_id:
-            return repo
-    raise SystemExit(
-        f"Task {task.get('id')} targets project {repo_id!r}, which this sprint does not work in. "
-        f"This sprint's projects are: {', '.join(repo['id'] for repo in repos)}."
-    )
 
 
 def worktree_for_task(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> Optional[Path]:
@@ -928,119 +647,6 @@ def _repo_display_name(workspace_root: Path, repo: Dict[str, Any]) -> str:
     root = str(repo.get("root") or "")
     name = workspace_root.resolve().name if root == PRIMARY_REPO_ROOT else Path(root).name
     return name or str(repo.get("id") or "project")
-
-
-def _state_tasks(state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return [task for task in (state.get("tasks") or []) if isinstance(task, dict)]
-
-
-def cross_repo_merge_edges(tasks: List[Dict[str, Any]]) -> List[List[str]]:
-    """``[producer, consumer]`` repo pairs implied by cross-repo task dependencies.
-
-    A task in one project depending on a task in another says the other project's
-    pull request must land first — otherwise the consumer merges against work that is
-    not on its base yet. Dependencies inside one project say nothing about merge
-    order: a single pull request carries both ends.
-
-    Takes the tasks rather than the run state so the planner can ask the same
-    question of a plan it is only considering.
-    """
-    from sprintengine_core import store as folder_store
-
-    repo_by_task = {str(task.get("id") or ""): folder_store.task_repo(task) for task in tasks}
-    edges: List[List[str]] = []
-    for task in tasks:
-        consumer = folder_store.task_repo(task)
-        for dependency in task.get("dependsOn") or []:
-            producer = repo_by_task.get(str(dependency))
-            if producer and producer != consumer and [producer, consumer] not in edges:
-                edges.append([producer, consumer])
-    return edges
-
-
-def repo_dependency_cycle(tasks: List[Dict[str, Any]]) -> List[str]:
-    """One loop in the repo merge order these tasks induce, or ``[]`` when there is none.
-
-    The task graph being acyclic does not make the REPO graph acyclic: a mobile task
-    waiting on a desktop task and a desktop task waiting on a different mobile task are
-    two perfectly orderable tasks whose projects each have to merge before the other.
-    No merge order exists for that run, and nothing downstream can invent one — so it
-    is refused where it is authored (:func:`assert_no_repo_dependency_cycle`).
-
-    Returned as the loop a person can read, first repo repeated at the end
-    (``["mobile", "primary", "mobile"]``).
-    """
-    successors: Dict[str, List[str]] = {}
-    for producer, consumer in cross_repo_merge_edges(tasks):
-        successors.setdefault(producer, []).append(consumer)
-
-    settled: set[str] = set()
-
-    def walk(repo_id: str, path: List[str]) -> List[str]:
-        if repo_id in path:
-            return [*path[path.index(repo_id) :], repo_id]
-        if repo_id in settled:
-            return []
-        for consumer in successors.get(repo_id, []):
-            found = walk(consumer, [*path, repo_id])
-            if found:
-                return found
-        settled.add(repo_id)
-        return []
-
-    for repo_id in successors:
-        cycle = walk(repo_id, [])
-        if cycle:
-            return cycle
-    return []
-
-
-def assert_no_repo_dependency_cycle(tasks: List[Dict[str, Any]]) -> None:
-    """Refuse a plan whose projects would each have to merge before the other.
-
-    Raises with the loop named, because "there is a cycle" is not something the author
-    can act on: they need to know which two pieces of work are pointing at each other.
-    """
-    cycle = repo_dependency_cycle(tasks)
-    if not cycle:
-        return
-    raise SystemExit(
-        "This would make the projects wait on each other: " + " → ".join(cycle) + ". "
-        "Each step is work in one project that builds on work in another, so that other project "
-        "has to merge first — and around this loop every project is waiting for the next one, so "
-        "none of them could ever merge. Depend on the work in one direction only, or move one of "
-        "the tasks into the project it depends on."
-    )
-
-
-def repo_merge_order(state: Dict[str, Any], repo_ids: List[str]) -> List[str]:
-    """The given repos in the order their pull requests must merge.
-
-    Producers before consumers, declaration order breaking every tie so the same run
-    always states the same order. Repo-level dependency cycles are rejected at plan
-    time; if one reaches here anyway, the repos it traps keep their declaration order
-    rather than being dropped — an order a reviewer can question beats a body that
-    silently omits a pull request.
-    """
-    edges = [
-        edge
-        for edge in cross_repo_merge_edges(_state_tasks(state))
-        if edge[0] in repo_ids and edge[1] in repo_ids
-    ]
-    remaining = list(repo_ids)
-    ordered: List[str] = []
-    while remaining:
-        free = [
-            repo_id
-            for repo_id in remaining
-            if not any(consumer == repo_id and producer in remaining for producer, consumer in edges)
-        ]
-        if not free:
-            ordered.extend(remaining)
-            break
-        ordered.append(free[0])
-        remaining.remove(free[0])
-    return ordered
 
 
 def _companion_pull_request_lines(
@@ -1496,48 +1102,6 @@ def cleanup_merged_worktree(state: Dict[str, Any], state_path: Path) -> Dict[str
 # only method that leaves the branch tip an ancestor of its base, which is the signal
 # `_refresh_repo_pull_request_state` falls back on when GitHub cannot be reached.
 VALID_MERGE_METHODS = {"merge", "squash", "rebase"}
-
-
-def _structural_merge_predecessors(state: Dict[str, Any], repos: List[Dict[str, Any]], repo_id: str) -> List[str]:
-    """Every project this one's work transitively builds on, from the task graph alone.
-
-    Structural only: derived from cross-repo task edges, with no reference to any
-    project's current pull-request state. The merge command probes exactly this set
-    (plus the merging repo) rather than every project, so a single-repo merge — or a
-    merge of a project nothing else feeds — makes one `gh` probe, not one per project.
-    """
-    known = {repo["id"] for repo in repos}
-    producers: Dict[str, List[str]] = {}
-    for producer, consumer in cross_repo_merge_edges(_state_tasks(state)):
-        if producer in known and consumer in known:
-            producers.setdefault(consumer, []).append(producer)
-
-    required: List[str] = []
-    pending = [repo_id]
-    while pending:
-        for producer in producers.get(pending.pop(), []):
-            if producer not in required:
-                required.append(producer)
-                pending.append(producer)
-    return required
-
-
-def _repos_that_must_merge_first(state: Dict[str, Any], repos: List[Dict[str, Any]], repo_id: str) -> List[str]:
-    """Every project this one's pull request has to wait for, in merge order.
-
-    Transitive: mobile waiting on desktop waiting on shared means mobile waits for
-    shared too, even though no task of mobile's names one of shared's. A project that
-    delivered nothing (no pull request and no commits) is not in anyone's way.
-    """
-    required = _structural_merge_predecessors(state, repos, repo_id)
-    by_id = {repo["id"]: repo for repo in repos}
-    unmerged = [
-        candidate
-        for candidate in required
-        if by_id[candidate].get("pullRequestState") != "merged"
-        and (_optional_str(by_id[candidate].get("pullRequestUrl")) or _optional_str(by_id[candidate].get("lastCommitSha")))
-    ]
-    return [candidate for candidate in repo_merge_order(state, [repo["id"] for repo in repos]) if candidate in unmerged]
 
 
 def _merge_order_refusal(workspace_root: Path, repos: List[Dict[str, Any]], repo: Dict[str, Any], blockers: List[str]) -> str:

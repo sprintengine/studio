@@ -25,7 +25,7 @@ from sprintengine_core.tool.plans import (
     safe_review_filename,
 )
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle
+from sprintengine_core.tool.merge_graph import assert_no_repo_dependency_cycle
 from sprintengine_core.tool.state import (
     active_lease_worker,
     append_event,

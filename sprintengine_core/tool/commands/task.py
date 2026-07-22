@@ -658,7 +658,8 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         # (a raised SystemExit discards the state write in with_locked_state, so a
         # commit made here would otherwise persist in git but go unrecorded in the
         # run store).
-        from sprintengine_core.tool.shell import get_run_vcs, task_scoped_orphaned_dirty_paths
+        from sprintengine_core.tool.repo_model import get_run_vcs
+        from sprintengine_core.tool.shell import task_scoped_orphaned_dirty_paths
         if get_run_vcs(state):
             orphaned = task_scoped_orphaned_dirty_paths(state, args.state, task)
             if orphaned:

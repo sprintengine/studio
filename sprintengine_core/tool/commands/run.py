@@ -40,7 +40,8 @@ from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
-from sprintengine_core.tool.shell import ensure_run_worktree, get_run_vcs, parse_repo_declarations
+from sprintengine_core.tool.repo_model import get_run_vcs, parse_repo_declarations
+from sprintengine_core.tool.shell import ensure_run_worktree
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
@@ -1010,7 +1011,8 @@ def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
     top-level fields already said.
     """
     from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
-    from sprintengine_core.tool.shell import git_status_short, vcs_repos
+    from sprintengine_core.tool.repo_model import vcs_repos
+    from sprintengine_core.tool.shell import git_status_short
 
     state = load_mutation_state(args.state)
     vcs = get_run_vcs(state)
@@ -1043,9 +1045,9 @@ def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
+    from sprintengine_core.tool.repo_model import repo_for_task
     from sprintengine_core.tool.shell import (
         commit_run_worktree_paths,
-        repo_for_task,
         worktree_for_task,
         worktree_orphaned_dirty_paths,
     )
@@ -1105,9 +1107,9 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
 def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     """Bring a new sibling project into a running worktree-mode sprint on demand.
 
-    Reuses init's own provisioning path verbatim — `_declared_sibling_entries`
+    Reuses init's own provisioning path verbatim — `declared_sibling_entries`
     (which runs the T5 blast-radius gate) to build the entry and
-    `_ensure_repo_worktree` to create or adopt its tree — then appends the entry to
+    `ensure_repo_worktree` to create or adopt its tree — then appends the entry to
     `vcs.repos`. The tree is provisioned OUTSIDE the run mutation lock (git worktree
     add / fetch is the slow part, and must not stall a concurrent task.next /
     vcs.commit); the lock is taken only to append the resolved entry after re-checking
@@ -1117,11 +1119,10 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     existing tree and returns success rather than a duplicate-id error (D5 idempotency).
     """
     from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
+    from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
     from sprintengine_core.tool.shell import (
-        _declared_sibling_entries,
-        _ensure_repo_worktree,
-        get_run_vcs,
-        vcs_repos,
+        declared_sibling_entries,
+        ensure_repo_worktree,
     )
 
     snapshot = load_mutation_state(args.state)
@@ -1141,8 +1142,8 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     branch = str(snapshot_repos[0].get("branchName") or "").strip()
 
     # Build the candidate entry through init's own path — this runs the T5 gate
-    # (`_declared_sibling_root`) and spells the entry shape in one place.
-    [candidate] = _declared_sibling_entries(
+    # (`declared_sibling_root`) and spells the entry shape in one place.
+    [candidate] = declared_sibling_entries(
         workspace_root, args.state, [{"id": repo_id, "root": raw_root}], branch=branch
     )
     candidate_root = resolve_vcs_path(workspace_root, candidate["root"]).resolve()
@@ -1162,7 +1163,7 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     # Create or adopt the tree at the candidate's deterministic worktree path, outside
     # the lock. Idempotent: a re-issue (or a prior attempt that failed mid-provision)
     # adopts the existing tree.
-    _ensure_repo_worktree(workspace_root, candidate)
+    ensure_repo_worktree(workspace_root, candidate)
 
     def append_entry(state: Dict[str, Any]) -> Dict[str, Any]:
         vcs = get_run_vcs(state)
@@ -1197,7 +1198,7 @@ def _requested_repo_id(explicit: Optional[str], raw_root: str) -> str:
     tool-provisioned repo and a wizard-declared one carry ids a path and a task
     field can both hold without quoting.
     """
-    from sprintengine_core.tool.shell import PRIMARY_REPO_ID, SIBLING_REPO_ID_PATTERN
+    from sprintengine_core.tool.repo_model import PRIMARY_REPO_ID, SIBLING_REPO_ID_PATTERN
 
     candidate = str(explicit or "").strip() or Path(raw_root).expanduser().name.strip().lower()
     if not candidate:
@@ -1234,7 +1235,8 @@ def _vcs_request_repo_result(
 
 
 def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import create_run_pull_request, persist_resolved_vcs, repo_field_baseline
+    from sprintengine_core.tool.repo_model import persist_resolved_vcs, repo_field_baseline
+    from sprintengine_core.tool.shell import create_run_pull_request
 
     # Push branches and open pull requests OUTSIDE the run mutation lock: a slow remote
     # must not stall a concurrent task.next / vcs.commit waiting on the same lock. The
@@ -1261,7 +1263,8 @@ def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_vcs_pr_merge(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import merge_repo_pull_request, persist_resolved_vcs, repo_field_baseline
+    from sprintengine_core.tool.repo_model import persist_resolved_vcs, repo_field_baseline
+    from sprintengine_core.tool.shell import merge_repo_pull_request
 
     # Probe/merge/cleanup run outside the lock; only the resolved state is written under
     # it (T7 / backlog 1724).
@@ -1284,14 +1287,13 @@ def cmd_vcs_pr_merge(args: argparse.Namespace) -> Dict[str, Any]:
 
 
 def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import (
-        cleanup_merged_worktree,
+    from sprintengine_core.tool.repo_model import (
         get_run_vcs,
         persist_resolved_vcs,
-        refresh_run_pull_request_state,
         repo_field_baseline,
         vcs_repos,
     )
+    from sprintengine_core.tool.shell import cleanup_merged_worktree, refresh_run_pull_request_state
 
     # The 30s poll's `gh pr view` / `git fetch` per project runs outside the lock; the
     # lock is taken only to write refreshed states and worktree cleanup (T7 / 1724).
@@ -1347,12 +1349,8 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
     changes owned by no task, the run is blocked rather than declared done over an
     incomplete tree.
     """
-    from sprintengine_core.tool.shell import (
-        commit_task_changes_if_needed,
-        get_run_vcs,
-        run_orphaned_dirty_paths,
-        vcs_repos,
-    )
+    from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
+    from sprintengine_core.tool.shell import commit_task_changes_if_needed, run_orphaned_dirty_paths
 
     missing_sweeps = missing_required_sweeps(state)
     if missing_sweeps:

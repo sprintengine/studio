@@ -12,7 +12,7 @@ from sprintengine_core import store as folder_store
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso
 from sprintengine_core.tool.roles import configured_role_ids, require_configured_role
-from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
+from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
 
 
 def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:

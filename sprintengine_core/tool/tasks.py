@@ -12,7 +12,8 @@ from sprintengine_core.tool.common import unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import now_iso, workspace_root_for_state_path
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle, worktree_for_task
+from sprintengine_core.tool.merge_graph import assert_no_repo_dependency_cycle
+from sprintengine_core.tool.shell import worktree_for_task
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 
 def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> bool:
@@ -30,8 +31,8 @@ def task_produced_changes(state: Dict[str, Any], state_path: Path, task: Dict[st
     When the answer cannot be determined (no git repository at all), this returns
     True: routing to review is the failure-safe direction.
     """
+    from sprintengine_core.tool.repo_model import get_run_vcs
     from sprintengine_core.tool.shell import (
-        get_run_vcs,
         task_scoped_dirty_paths,
         workspace_is_git_repository,
     )

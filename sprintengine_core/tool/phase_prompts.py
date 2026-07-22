@@ -23,7 +23,7 @@ from sprintengine_core.role_registry import (
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import project_relative_path, workspace_root_for_state_path
 from sprintengine_core.tool.plans import plan_path_for_state, plan_prompt_path
-from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
+from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
 from sprintengine_core.tool.tasks import ensure_evidence
 
 # Worker execution-workspace discipline is emitted from ONE template site so the
