@@ -1,5 +1,5 @@
 import type { SprintEngineCliPermissionPreset } from './electron-api'
-import type { WorkspaceMode } from '../renderer/src/types/workspace'
+import type { WorkspaceMode } from './workspace-mode'
 
 // Multicode app-automation surface: shared contracts between the main-process
 // MCP server, the preload bridge, and the renderer delegate.

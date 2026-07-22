@@ -90,7 +90,7 @@ export function applySprintEngineAutomationStopReason(
     // `workspace_removed` is unconditional — removing the workspace IS intent.
     if (
       reason === 'agent_terminal_closed'
-      && !sprintEngineAgentHasLiveRunWork(workspace?.sprintEngineState, workspace?.sprintEngineAutoState, context.agentId)
+      && !sprintEngineAgentHasLiveRunWork(workspace?.sprintEngineState, context.agentId)
     ) {
       logPerfEvent('SprintEngineAutoRun', 'terminal-close-ignored-no-live-work', {
         workspaceId,

@@ -19,7 +19,7 @@ import {
   SPRINT_ENGINE_PR_TARGET_KIND,
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
-import type { ProxyTrackerIdentity } from '../utils/sprintengineWorkspaceCreation'
+import type { ProxyTrackerIdentity } from '../utils/sprintengineTrackerSeeding'
 import type { SprintEngineRoleCliDefaults, SprintEngineRoleId, SprintEngineState, Workspace } from '../types/workspace'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
@@ -223,7 +223,7 @@ export const sprintEngineRendererModule: RendererModule = {
         // (plan §3.6). A native item skips this entirely, keeping its seeding
         // byte-identical to today. Refresh failure falls back to the saved copy
         // with a visible notice — the launch is never blocked.
-        const { parseProxyTrackerIdentity } = await import('../utils/sprintengineWorkspaceCreation')
+        const { parseProxyTrackerIdentity } = await import('../utils/sprintengineTrackerSeeding')
         const identity = parseProxyTrackerIdentity(sourceContent)
         if (identity) {
           const refreshed = await refreshProxyItemForSeed(context.workspaceRoot, identity)

@@ -17,9 +17,9 @@ import type {
   SprintEngineStateInitializeInput,
   SprintEngineStateInitializeSource,
   SprintEngineStateInitializeSourceBundleItem,
-  TrackerProviderId,
 } from '../../../shared/electron-api'
-import { parseBacklogFrontmatter } from '../../../shared/backlog/frontmatter'
+import { derivePlanSourcedGoal } from './sprintengineTrackerSeeding'
+import { resolveChainedSprintTeamName } from './chainedSprintTeamName'
 import {
   buildSprintEngineAgentRosterForState,
   buildSprintEngineRosterCommandArgs,
@@ -327,95 +327,54 @@ export async function createPlanSourcedSprintEngineWorkspace({
   }
 }
 
-export function derivePlanSourcedGoal(sourceContent: string, sourcePath: string): string {
-  const heading = sourceContent
-    .split(/\r?\n/u)
-    .map((line) => line.match(/^#{1,3}\s+(.+?)\s*$/u)?.[1]?.trim())
-    .find((title): title is string => Boolean(title))
-  if (heading) return heading
+export type LaunchPlanSourcedSprintResult =
+  | { ok: true; teamName: string; result: PlanSourcedSprintEngineWorkspaceResult }
+  | { ok: false; code: string; message: string }
 
-  const filename = sourcePath.replace(/\\/g, '/').split('/').pop() ?? ''
-  const stem = filename.replace(/\.[^.]+$/u, '').trim()
-  const normalized = stem.replace(/[-_]+/gu, ' ').replace(/\s+/gu, ' ').trim()
-  return normalized || 'Sprint handoff'
-}
+// The one-step plan-sourced sprint launch composition shared by every non-wizard
+// entry path — the tracker-proxy "Start sprint" button (startTrackerProxySprint)
+// and the automations `sprint.create` chain (useAutomationRequests). It owns the
+// two pieces those paths used to duplicate: the self-trigger-guarded team-name
+// numbering (resolveChainedSprintTeamName) and the create + error mapping, behind
+// one stable `sprint_*` error vocabulary — so the entry paths cannot drift apart
+// on collision handling or failure codes (the shape that produced MC-1716). The
+// caller supplies the per-launch creation args (roster, autoState, worktree
+// options) through `buildArgs`, and owns any post-create bookkeeping such as the
+// backlog execution link.
+export async function launchPlanSourcedSprint(input: {
+  rootPath: string
+  baseTeamName: string
+  // A chained sprint must not recreate the team directory it was triggered from;
+  // omitted by launches with no such loop risk (the tracker-proxy button).
+  refuseTeamSlug?: string
+  stateExists: (statePath: string) => boolean | Promise<boolean>
+  buildArgs: (teamName: string) => PlanSourcedSprintEngineWorkspaceArgs
+}): Promise<LaunchPlanSourcedSprintResult> {
+  const resolved = await resolveChainedSprintTeamName({
+    baseTeamName: input.baseTeamName,
+    refuseTeamSlug: input.refuseTeamSlug,
+    buildContext: (name) => buildPlanSourcedSprintEngineWorkspaceContext(input.rootPath, name),
+    stateExists: (statePath) => Promise.resolve(input.stateExists(statePath)),
+  })
+  if (!resolved.ok) return { ok: false, code: resolved.code, message: resolved.message }
 
-// ---------------------------------------------------------------------------
-// Tracker proxy sprint seeding (MC-1639, plan §3.6)
-//
-// A proxy backlog item mirrors an external tracker issue. When a sprint is
-// seeded from one, the architect must read the FRESH issue — its current body
-// and comment thread. Backlog launches are REFERENCE-mode (sourceReference),
-// meaning the architect reads the on-disk file in place (see
-// buildPlanFileSprintEngineHandoffPrompt) rather than an embedded snapshot; so
-// freshness is delivered by refreshing that file through the T6 materialize
-// upsert at seed time, then referencing it — not by composing content in the
-// renderer (which the reference-mode handoff never reads).
-//
-// These are the pure, node-testable pieces of that seam: read a proxy's external
-// identity from frontmatter (to know what to refresh), and locate the on-disk
-// proxy item a one-step materialize just wrote (to reference it). The imperative
-// materialize + create + link glue lives in the Backlog panel and reuses the
-// shared plan-sourced creation path (D6: compose existing seams, never a bespoke
-// sprint-from-tracker pipeline). A native (non-proxy) item never reaches any of
-// this, so its seeding stays byte-identical to today.
-// ---------------------------------------------------------------------------
-
-// The external identity a proxy item carries in its flat underscore frontmatter
-// keys (plan §3.4). provider/connection/id are required to refresh; key/url are
-// best-effort display fields.
-export type ProxyTrackerIdentity = {
-  provider: TrackerProviderId
-  connectionId: string
-  externalId: string
-  nativeKey: string
-  url: string
-}
-
-function isTrackerProviderId(value: string): value is TrackerProviderId {
-  return value === 'github' || value === 'jira' || value === 'linear'
-}
-
-// Read a backlog item's proxy identity from its frontmatter. Returns null for a
-// native (non-proxy) item, or a proxy whose external block was stripped — the
-// caller then takes the byte-identical native seeding path. Underscore keys only
-// (a dotted key does not round-trip the frontmatter charset, plan §3.4).
-export function parseProxyTrackerIdentity(sourceContent: string): ProxyTrackerIdentity | null {
-  const { fields } = parseBacklogFrontmatter(sourceContent)
-  const provider = fields.external_provider?.trim()
-  const connectionId = fields.external_connection?.trim()
-  const externalId = fields.external_id?.trim()
-  if (!provider || !connectionId || !externalId || !isTrackerProviderId(provider)) return null
-  return {
-    provider,
-    connectionId,
-    externalId,
-    nativeKey: fields.external_key?.trim() || '',
-    url: fields.external_url?.trim() || '',
-  }
-}
-
-// Locate the proxy backlog item that mirrors a given issue, by matching its
-// one issue-typed sidecar link (target.kind `<provider>.issue`, target.id the
-// externalId) written by the T6 materializer. Used after a one-step materialize
-// to resolve the freshly written item's on-disk path + content. Pure over a
-// minimal item shape (returns the caller's own item type).
-export function matchProxyItemByIssue<
-  T extends {
-    relativePath: string
-    path: string
-    sourceContent: string
-    links: ReadonlyArray<{ type: string; target?: { kind?: string; id?: string } }>
-  },
->(items: ReadonlyArray<T>, provider: TrackerProviderId, externalId: string): T | null {
-  const wantedKind = `${provider}.issue`
-  for (const item of items) {
-    for (const link of item.links) {
-      if (link.type !== 'issue') continue
-      if (link.target?.kind === wantedKind && link.target?.id === externalId) return item
+  try {
+    const result = await createPlanSourcedSprintEngineWorkspace(input.buildArgs(resolved.teamName))
+    return { ok: true, teamName: resolved.teamName, result }
+  } catch (error) {
+    if (error instanceof PlanSourcedSprintEngineWorkspaceError) {
+      return {
+        ok: false,
+        code: `sprint_${error.code.replace(/-/g, '_')}`,
+        message: error.message === error.code ? `Sprint run creation failed: ${error.code}.` : error.message,
+      }
+    }
+    return {
+      ok: false,
+      code: 'sprint_creation_failed',
+      message: error instanceof Error ? error.message : 'Sprint run creation failed.',
     }
   }
-  return null
 }
 
 export type StartTrackerProxySprintResult =
@@ -455,20 +414,11 @@ export async function startTrackerProxySprint(args: {
     statePath: string
   }) => Promise<void>
 }): Promise<StartTrackerProxySprintResult> {
-  const baseTeamName = args.baseTeamName.trim() || 'Sprint'
-  let teamName = baseTeamName
-  let context = buildPlanSourcedSprintEngineWorkspaceContext(args.rootPath, teamName)
-  for (let suffix = 2; await args.pathExists(context.statePath); suffix += 1) {
-    if (suffix > 100) {
-      return { ok: false, code: 'team_name_exhausted', message: `Could not find a free run name for "${baseTeamName}".` }
-    }
-    teamName = `${baseTeamName} ${suffix}`
-    context = buildPlanSourcedSprintEngineWorkspaceContext(args.rootPath, teamName)
-  }
-
-  let result: PlanSourcedSprintEngineWorkspaceResult
-  try {
-    result = await createPlanSourcedSprintEngineWorkspace({
+  const launch = await launchPlanSourcedSprint({
+    rootPath: args.rootPath,
+    baseTeamName: args.baseTeamName.trim() || 'Sprint',
+    stateExists: args.pathExists,
+    buildArgs: (teamName) => ({
       rootPath: args.rootPath,
       teamName,
       goal: args.goal,
@@ -485,21 +435,10 @@ export async function startTrackerProxySprint(args: {
       sourceReference: true,
       pathExists: args.pathExists,
       initializeSprintEngineState: args.initializeSprintEngineState,
-    })
-  } catch (error) {
-    if (error instanceof PlanSourcedSprintEngineWorkspaceError) {
-      return {
-        ok: false,
-        code: error.code,
-        message: error.message === error.code ? `Sprint run creation failed: ${error.code}.` : error.message,
-      }
-    }
-    return {
-      ok: false,
-      code: 'creation_failed',
-      message: error instanceof Error ? error.message : 'Sprint run creation failed.',
-    }
-  }
+    }),
+  })
+  if (!launch.ok) return { ok: false, code: launch.code, message: launch.message }
+  const { result } = launch
 
   // Best-effort execution link: the run exists on disk regardless, so a failed
   // link write must never surface as a failed launch (fallback discipline).
@@ -514,5 +453,5 @@ export async function startTrackerProxySprint(args: {
     // Link is bookkeeping; the sprint is already created and running.
   }
 
-  return { ok: true, teamName, teamSlug: result.sprintEngineContext.teamSlug, workspaceId: result.workspaceId }
+  return { ok: true, teamName: launch.teamName, teamSlug: result.sprintEngineContext.teamSlug, workspaceId: result.workspaceId }
 }

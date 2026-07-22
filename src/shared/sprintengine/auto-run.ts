@@ -964,6 +964,285 @@ function getSprintEngineAssignmentActivityAt(
   return activityAt
 }
 
+// An in-progress claim whose owner may need recovering: the (agent, role, task)
+// triple the recovery pass groups its work by.
+type SprintEngineRecoveryClaim = { agentId: string; role: SprintEngineRoleId; taskId: string }
+
+// The shared context the recovery pass (claimed-work respawns + departed-owner
+// revivals) reads. Both halves share one `respawn:` ledger, cap, and sweep, so
+// they take the same context and thread `claims`/`plannedRespawnAgentIds`
+// between them. `planRespawn` records the engagement into `plan` and
+// `engagedAgentIds` exactly as the inline pass did.
+type SprintEngineRecoveryDispatchContext = {
+  workspace: SprintEngineWorkspaceView
+  sprintEngineState: SprintEngineState
+  now: number
+  continuationLedger: ReadonlyMap<string, SprintEngineDispatchAttempt>
+  sessionRepoIds?: ReadonlyMap<string, string>
+  liveAgentIds: ReadonlySet<string>
+  engagedAgentIds: ReadonlySet<string>
+  plan: SprintEngineDispatchPlan
+  planRespawn: (respawn: SprintEngineDispatchRespawnAction) => void
+}
+
+/**
+ * Respawn the managed roster terminal of every in-progress claim whose owner has
+ * no live session. Claimed work whose claimant has no live terminal can never be
+ * re-engaged by a paste, and with zero live agents server-side claim expiry never
+ * runs — after an app restart this deadlocks the run. Returns the claims it
+ * considered and the ids it planned a respawn for, so the departed-owner revival
+ * pass (which shares the one `respawn:` ledger, cap, and sweep) can skip them and
+ * preserve the unified retry budget.
+ */
+function planSprintEngineClaimedWorkRespawns(
+  ctx: SprintEngineRecoveryDispatchContext,
+): { claims: SprintEngineRecoveryClaim[]; plannedRespawnAgentIds: Set<string> } {
+  const { workspace, sprintEngineState, now, plan, planRespawn, liveAgentIds, engagedAgentIds } = ctx
+  const claims: SprintEngineRecoveryClaim[] = []
+  for (const task of sprintEngineState.tasks) {
+    if (task.status !== 'in_progress' || !task.ownerAgentId) continue
+    claims.push({ agentId: task.ownerAgentId, role: task.role, taskId: task.id })
+  }
+
+  const plannedRespawnAgentIds = new Set<string>()
+  for (const claim of claims) {
+    if (plannedRespawnAgentIds.has(claim.agentId) || engagedAgentIds.has(claim.agentId)) continue
+    if (liveAgentIds.has(claim.agentId)) continue
+    const respawnData = {
+      agentId: claim.agentId,
+      role: claim.role,
+      taskId: claim.taskId,
+    }
+    // Only Multicode-managed roster agents can be respawned; headless CLI
+    // claimants have no renderer-owned terminal to recover.
+    if (!workspace.agents[claim.agentId]) {
+      plan.skips.push({ event: 'respawn-skipped-unmanaged-claimant', data: respawnData })
+      continue
+    }
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[claim.agentId]
+    if (
+      !runtimeAgent
+      || runtimeAgent.status === 'retired'
+      || runtimeAgent.status === 'needs_input'
+      || runtimeAgent.status === 'done'
+    ) {
+      plan.skips.push({
+        event: 'respawn-skipped-agent-status',
+        data: { ...respawnData, status: runtimeAgent?.status ?? 'missing' },
+      })
+      continue
+    }
+    plannedRespawnAgentIds.add(claim.agentId)
+    const key = sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId)
+    const previous = ctx.continuationLedger.get(key)
+    if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
+      plan.skips.push({
+        event: 'respawn-retry-limit-reached',
+        data: { ...respawnData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
+      })
+      continue
+    }
+    if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+    planRespawn({
+      agentId: claim.agentId,
+      label: workspace.agents[claim.agentId]?.name ?? claim.agentId,
+      role: claim.role,
+      taskId: claim.taskId,
+      key,
+      data: respawnData,
+      diagnostic: {
+        title: 'Respawned a sprint agent for claimed work',
+        message: `${claim.role} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
+        details: [
+          `Workspace: ${workspace.name}`,
+          `Agent: ${claim.agentId} (${claim.role})`,
+          `Task: ${claim.taskId}`,
+          `Respawn attempts before this one: ${previous?.attempts ?? 0}`,
+        ].join('\n'),
+        taskId: claim.taskId,
+      },
+    })
+  }
+  return { claims, plannedRespawnAgentIds }
+}
+
+/**
+ * Revive a DEPARTED owner for the task that is still waiting for it.
+ * Liveness is derived, not stored (T1): a departed agent reads as plain
+ * `idle`, so revival can no longer key off a `left`/`dead` status. Instead it
+ * keys off task OWNERSHIP — a NO-live-agent role and a managed roster id
+ * whose retained `lastOwnedTaskId` is either a claimable ready task (it was
+ * released back to the queue) or a task the id still owns: respawn that id so
+ * its fresh session resumes the original conversation. Under single-owner
+ * tasks (MC-1542) "still owns" spans the whole publish→done tail — `review`
+ * (owner reviewing its own diff), `needs_input` (owner-bound hold), and
+ * `in_progress` re-bound by a human rework request. The in-progress case is
+ * already covered by the claimed-work respawn above (which runs first and
+ * records `plannedRespawnAgentIds`); it stays in the predicate so a claim
+ * that pass skipped is not silently dropped here. A fresh ready task with no
+ * prior owner is minted a never-owned id by the candidate picker instead. This
+ * shares the one `respawn:` ledger + retry-limit + retry-interval machinery
+ * (the unified recovery cap). Scoped to roles with NO live agent: a role whose
+ * agent is merely busy/stalled is a capacity/restart concern handled by other
+ * paths, not a revival.
+ */
+function planSprintEngineDepartedOwnerRevivals(
+  ctx: SprintEngineRecoveryDispatchContext,
+  claims: SprintEngineRecoveryClaim[],
+  plannedRespawnAgentIds: Set<string>,
+): void {
+  const { workspace, sprintEngineState, now, plan, planRespawn, liveAgentIds, engagedAgentIds } = ctx
+  // Covered groups, keyed like demand ((role, repo) — MC-1610). A live agent
+  // only covers work in ITS OWN tree: since `task.next` filters by the
+  // session's repo, a live desktop developer can never claim a mobile task, so
+  // treating the role alone as covered would leave a departed mobile owner
+  // unrevived while the pool pass defers its task to it — starving the task
+  // until the unrelated desktop session happens to die. A single-repo run has
+  // one key per role, exactly as before.
+  const liveDemandKeys = new Set<string>()
+  for (const liveId of liveAgentIds) {
+    const liveRole = sprintEngineState.sprintEngineAgents[liveId]?.role
+    if (liveRole) {
+      liveDemandKeys.add(sprintEngineDemandKey({
+        role: liveRole,
+        repo: sprintEngineWorkerRepoId(sprintEngineState, liveId, ctx.sessionRepoIds?.get(liveId)),
+      }))
+    }
+  }
+  const claimableWakeTaskIds = new Set<string>()
+  for (const task of sprintEngineState.tasks) {
+    if (isSprintEngineTaskLaunchable(task, sprintEngineState)) claimableWakeTaskIds.add(task.id)
+  }
+  const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
+  // A task still bound to `agentId` and waiting on it to act: the owner keeps
+  // its task from claim to `done`, so every non-terminal owner-held status
+  // qualifies.
+  const taskAwaitsOwner = (taskId: string, agentId: string): boolean => {
+    const task = taskById.get(taskId)
+    if (!task) return false
+    if (task.status === 'review' || task.status === 'needs_input') return true
+    return task.status === 'in_progress' && task.ownerAgentId === agentId
+  }
+  // Pass 1: a managed roster id whose retained `lastOwnedTaskId` is claimable
+  // ready work or still owner-bound, and whose role has no live agent, is a
+  // revival target — no status read on the agent, pure owner affinity. Keyed
+  // off the agent (not one task per role) so a fresh ready task sharing the
+  // role can't mask a departed owner's task. One revival per role per pass for
+  // storm safety; a same-role second departed owner is recovered on a later
+  // pass (once the first is live). Collected first so the sweep below knows
+  // which revival keys are active.
+  const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
+  // One revival per demand group per pass, not per role: a mobile revival must
+  // not consume the pass's only slot for a departed desktop owner, since
+  // neither can ever claim the other's work.
+  const plannedRevivalKeys = new Set<string>()
+  for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
+    // Revival is for DEPARTED ids only: a live id has a session already, and
+    // respawning it would dispose the very terminal it is working in. Kept as
+    // its own guard, per agent id — the group check below answers a different
+    // question ("is this work already covered?"), and conflating the two is
+    // what let a live planner be revived for another repo's ready task.
+    if (liveAgentIds.has(agentId)) continue
+    if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
+    if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
+    // Owner affinity: revive the id for its own retained task when that task is
+    // claimable ready work, or is still waiting on this owner.
+    const ownTaskId = runtimeAgent.lastOwnedTaskId
+    let reviveTaskId = ownTaskId
+      && (claimableWakeTaskIds.has(ownTaskId) || taskAwaitsOwner(ownTaskId, agentId))
+      ? ownTaskId
+      : null
+    // Planning roles (architect/general) are persistent, not task-scoped: one
+    // architect drives the whole sprint, so a departed planner is revived under
+    // its SAME id for the NEXT ready task of its role, not only its own task
+    // (MC-1454). Keeps the id stable across sequential planning tasks so no
+    // architect-N is minted while it is away.
+    if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
+      // Skip work whose group already has a live agent: a planner following its
+      // role across repos (MC-1610) must be revived for a tree that has nobody
+      // in it, not for one another planning session is already serving.
+      reviveTaskId = sprintEngineState.tasks.find((candidate) =>
+        candidate.role === runtimeAgent.role
+        && claimableWakeTaskIds.has(candidate.id)
+        && !liveDemandKeys.has(sprintEngineDemandKey(candidate))
+      )?.id ?? null
+    }
+    if (!reviveTaskId) continue
+    // Liveness is judged against the group the revived session would actually
+    // work in — the repo of the task it is being revived FOR — because that is
+    // the queue a live agent would have to share to make this revival
+    // redundant.
+    const reviveTask = taskById.get(reviveTaskId)
+    const reviveKey = sprintEngineDemandKey({
+      role: runtimeAgent.role,
+      repo: sprintEngineSessionRepoId(reviveTask?.repo),
+    })
+    if (liveDemandKeys.has(reviveKey)) continue // a live agent in that tree will claim it
+    if (plannedRevivalKeys.has(reviveKey)) continue // one revival per group per pass
+    plannedRevivalKeys.add(reviveKey)
+    revivalTargets.push({ role: runtimeAgent.role, work: { taskId: reviveTaskId }, agentId })
+  }
+
+  // Unified recovery sweep (MC-1592): claimed-work respawns and departed-owner
+  // revivals share the one `respawn:` namespace, so a single sweep frees the
+  // budget of any recovery target that is no longer active this pass (work
+  // resolved, or the role acquired a live agent) while preserving the retry
+  // cap of every still-active target — claims AND revivals. Keeping a spent
+  // target's entry is deliberate: a broken CLI that spawns and immediately
+  // exits must keep consuming the same capped budget, not reset it on every
+  // short-lived "alive" observation.
+  const activeRecoveryKeys = new Set([
+    ...claims.map((claim) => sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId)),
+    ...revivalTargets.map((target) => sprintEngineRespawnLedgerKey(workspace, target.work, target.agentId)),
+  ])
+  ctx.continuationLedger.forEach((_, ledgerKey) => {
+    const workKey = getSprintEngineContinuationMessageWorkKey(workspace, ledgerKey)
+    if (!workKey || !workKey.startsWith('respawn:')) return
+    if (!activeRecoveryKeys.has(ledgerKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key: ledgerKey })
+  })
+
+  // Pass 2: plan each revival, capped by the retry limit + retry interval on
+  // the shared `respawn:` ledger key (the unified recovery cap).
+  for (const { role, work, agentId: reviveAgentId } of revivalTargets) {
+    const respawnData = {
+      agentId: reviveAgentId,
+      role,
+      taskId: work.taskId,
+      reason: 'revive-departed-worker-for-own-task',
+    }
+    const key = sprintEngineRespawnLedgerKey(workspace, work, reviveAgentId)
+    const previous = ctx.continuationLedger.get(key)
+    if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
+      plan.skips.push({
+        event: 'revive-retry-limit-reached',
+        data: { ...respawnData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
+      })
+      continue
+    }
+    if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
+    plannedRespawnAgentIds.add(reviveAgentId)
+    planRespawn({
+      agentId: reviveAgentId,
+      label: workspace.agents[reviveAgentId]?.name ?? reviveAgentId,
+      role,
+      taskId: work.taskId,
+      key,
+      data: respawnData,
+      diagnostic: {
+        title: 'Revived a departed sprint agent for its own task',
+        message: `${role} still has work to finish on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
+        details: [
+          `Workspace: ${workspace.name}`,
+          `Agent: ${reviveAgentId} (${role})`,
+          `Task: ${work.taskId}`,
+          `Revive attempts before this one: ${previous?.attempts ?? 0}`,
+        ].join('\n'),
+        taskId: work.taskId,
+      },
+    })
+  }
+}
+
 /**
  * The reconciler core: one pure pass that decides every re-engagement action
  * for live terminals — durable-dispatch reconcile prompts, ready-task wake
@@ -1417,243 +1696,23 @@ export function planSprintEngineDispatch(input: {
     // desired-pool loop covers it with a fresh session. Claimed work whose
     // claimant has no live terminal can never be re-engaged by a paste, and with
     // zero live agents server-side claim expiry never runs — after an app
-    // restart this deadlocks the run. Both the claimed-work respawn and the
-    // departed-owner revival below share ONE `respawn:` ledger, cap, and sweep
-    // (the unified retry cap), so recovery is one resume-then-expire path.
-    const liveAgentIds = new Set([...input.runningAgentIds, ...input.idleAgentIds])
-    const claims: Array<{ agentId: string; role: SprintEngineRoleId; taskId: string }> = []
-    for (const task of sprintEngineState.tasks) {
-      if (task.status !== 'in_progress' || !task.ownerAgentId) continue
-      claims.push({ agentId: task.ownerAgentId, role: task.role, taskId: task.id })
+    // restart this deadlocks the run. Both halves below share ONE `respawn:`
+    // ledger, cap, and sweep (the unified retry cap), so recovery is one
+    // resume-then-expire path; the claimed-work pass runs first and hands its
+    // `claims` + `plannedRespawnAgentIds` to the revival pass.
+    const recoveryCtx: SprintEngineRecoveryDispatchContext = {
+      workspace,
+      sprintEngineState,
+      now,
+      continuationLedger: input.continuationLedger,
+      sessionRepoIds: input.sessionRepoIds,
+      liveAgentIds: new Set([...input.runningAgentIds, ...input.idleAgentIds]),
+      engagedAgentIds,
+      plan,
+      planRespawn,
     }
-
-    const plannedRespawnAgentIds = new Set<string>()
-    for (const claim of claims) {
-      if (plannedRespawnAgentIds.has(claim.agentId) || engagedAgentIds.has(claim.agentId)) continue
-      if (liveAgentIds.has(claim.agentId)) continue
-      const respawnData = {
-        agentId: claim.agentId,
-        role: claim.role,
-        taskId: claim.taskId,
-      }
-      // Only Multicode-managed roster agents can be respawned; headless CLI
-      // claimants have no renderer-owned terminal to recover.
-      if (!workspace.agents[claim.agentId]) {
-        plan.skips.push({ event: 'respawn-skipped-unmanaged-claimant', data: respawnData })
-        continue
-      }
-      const runtimeAgent = sprintEngineState.sprintEngineAgents[claim.agentId]
-      if (
-        !runtimeAgent
-        || runtimeAgent.status === 'retired'
-        || runtimeAgent.status === 'needs_input'
-        || runtimeAgent.status === 'done'
-      ) {
-        plan.skips.push({
-          event: 'respawn-skipped-agent-status',
-          data: { ...respawnData, status: runtimeAgent?.status ?? 'missing' },
-        })
-        continue
-      }
-      plannedRespawnAgentIds.add(claim.agentId)
-      const key = sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId)
-      const previous = input.continuationLedger.get(key)
-      if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
-        plan.skips.push({
-          event: 'respawn-retry-limit-reached',
-          data: { ...respawnData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
-        })
-        continue
-      }
-      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-      planRespawn({
-        agentId: claim.agentId,
-        label: workspace.agents[claim.agentId]?.name ?? claim.agentId,
-        role: claim.role,
-        taskId: claim.taskId,
-        key,
-        data: respawnData,
-        diagnostic: {
-          title: 'Respawned a sprint agent for claimed work',
-          message: `${claim.role} owns in-progress task ${claim.taskId} but its terminal is not running. Respawning the terminal so the claim can resume.`,
-          details: [
-            `Workspace: ${workspace.name}`,
-            `Agent: ${claim.agentId} (${claim.role})`,
-            `Task: ${claim.taskId}`,
-            `Respawn attempts before this one: ${previous?.attempts ?? 0}`,
-          ].join('\n'),
-          taskId: claim.taskId,
-        },
-      })
-    }
-
-    // Revive a DEPARTED owner for the task that is still waiting for it.
-    // Liveness is derived, not stored (T1): a departed agent reads as plain
-    // `idle`, so revival can no longer key off a `left`/`dead` status. Instead it
-    // keys off task OWNERSHIP — a NO-live-agent role and a managed roster id
-    // whose retained `lastOwnedTaskId` is either a claimable ready task (it was
-    // released back to the queue) or a task the id still owns: respawn that id so
-    // its fresh session resumes the original conversation. Under single-owner
-    // tasks (MC-1542) "still owns" spans the whole publish→done tail — `review`
-    // (owner reviewing its own diff), `needs_input` (owner-bound hold), and
-    // `in_progress` re-bound by a human rework request. The in-progress case is
-    // already covered by the claimed-work respawn above (which runs first and
-    // records `plannedRespawnAgentIds`); it stays in the predicate so a claim
-    // that pass skipped is not silently dropped here. A fresh ready task with no
-    // prior owner is minted a never-owned id by the candidate picker instead. This
-    // shares the one `respawn:` ledger + retry-limit + retry-interval machinery
-    // (the unified recovery cap). Scoped to roles with NO live agent: a role whose
-    // agent is merely busy/stalled is a capacity/restart concern handled by other
-    // paths, not a revival.
-    // Covered groups, keyed like demand ((role, repo) — MC-1610). A live agent
-    // only covers work in ITS OWN tree: since `task.next` filters by the
-    // session's repo, a live desktop developer can never claim a mobile task, so
-    // treating the role alone as covered would leave a departed mobile owner
-    // unrevived while the pool pass defers its task to it — starving the task
-    // until the unrelated desktop session happens to die. A single-repo run has
-    // one key per role, exactly as before.
-    const liveDemandKeys = new Set<string>()
-    for (const liveId of liveAgentIds) {
-      const liveRole = sprintEngineState.sprintEngineAgents[liveId]?.role
-      if (liveRole) {
-        liveDemandKeys.add(sprintEngineDemandKey({
-          role: liveRole,
-          repo: sprintEngineWorkerRepoId(sprintEngineState, liveId, input.sessionRepoIds?.get(liveId)),
-        }))
-      }
-    }
-    const claimableWakeTaskIds = new Set<string>()
-    for (const task of sprintEngineState.tasks) {
-      if (isSprintEngineTaskLaunchable(task, sprintEngineState)) claimableWakeTaskIds.add(task.id)
-    }
-    const taskById = new Map(sprintEngineState.tasks.map((task) => [task.id, task]))
-    // A task still bound to `agentId` and waiting on it to act: the owner keeps
-    // its task from claim to `done`, so every non-terminal owner-held status
-    // qualifies.
-    const taskAwaitsOwner = (taskId: string, agentId: string): boolean => {
-      const task = taskById.get(taskId)
-      if (!task) return false
-      if (task.status === 'review' || task.status === 'needs_input') return true
-      return task.status === 'in_progress' && task.ownerAgentId === agentId
-    }
-    // Pass 1: a managed roster id whose retained `lastOwnedTaskId` is claimable
-    // ready work or still owner-bound, and whose role has no live agent, is a
-    // revival target — no status read on the agent, pure owner affinity. Keyed
-    // off the agent (not one task per role) so a fresh ready task sharing the
-    // role can't mask a departed owner's task. One revival per role per pass for
-    // storm safety; a same-role second departed owner is recovered on a later
-    // pass (once the first is live). Collected first so the sweep below knows
-    // which revival keys are active.
-    const revivalTargets: Array<{ role: SprintEngineRoleId; work: { taskId: string }; agentId: string }> = []
-    // One revival per demand group per pass, not per role: a mobile revival must
-    // not consume the pass's only slot for a departed desktop owner, since
-    // neither can ever claim the other's work.
-    const plannedRevivalKeys = new Set<string>()
-    for (const [agentId, runtimeAgent] of Object.entries(sprintEngineState.sprintEngineAgents)) {
-      // Revival is for DEPARTED ids only: a live id has a session already, and
-      // respawning it would dispose the very terminal it is working in. Kept as
-      // its own guard, per agent id — the group check below answers a different
-      // question ("is this work already covered?"), and conflating the two is
-      // what let a live planner be revived for another repo's ready task.
-      if (liveAgentIds.has(agentId)) continue
-      if (plannedRespawnAgentIds.has(agentId) || engagedAgentIds.has(agentId)) continue
-      if (!workspace.agents[agentId]) continue // unmanaged claimant — nothing to spawn
-      // Owner affinity: revive the id for its own retained task when that task is
-      // claimable ready work, or is still waiting on this owner.
-      const ownTaskId = runtimeAgent.lastOwnedTaskId
-      let reviveTaskId = ownTaskId
-        && (claimableWakeTaskIds.has(ownTaskId) || taskAwaitsOwner(ownTaskId, agentId))
-        ? ownTaskId
-        : null
-      // Planning roles (architect/general) are persistent, not task-scoped: one
-      // architect drives the whole sprint, so a departed planner is revived under
-      // its SAME id for the NEXT ready task of its role, not only its own task
-      // (MC-1454). Keeps the id stable across sequential planning tasks so no
-      // architect-N is minted while it is away.
-      if (!reviveTaskId && isSprintEnginePlanningRole(runtimeAgent.role)) {
-        // Skip work whose group already has a live agent: a planner following its
-        // role across repos (MC-1610) must be revived for a tree that has nobody
-        // in it, not for one another planning session is already serving.
-        reviveTaskId = sprintEngineState.tasks.find((candidate) =>
-          candidate.role === runtimeAgent.role
-          && claimableWakeTaskIds.has(candidate.id)
-          && !liveDemandKeys.has(sprintEngineDemandKey(candidate))
-        )?.id ?? null
-      }
-      if (!reviveTaskId) continue
-      // Liveness is judged against the group the revived session would actually
-      // work in — the repo of the task it is being revived FOR — because that is
-      // the queue a live agent would have to share to make this revival
-      // redundant.
-      const reviveTask = taskById.get(reviveTaskId)
-      const reviveKey = sprintEngineDemandKey({
-        role: runtimeAgent.role,
-        repo: sprintEngineSessionRepoId(reviveTask?.repo),
-      })
-      if (liveDemandKeys.has(reviveKey)) continue // a live agent in that tree will claim it
-      if (plannedRevivalKeys.has(reviveKey)) continue // one revival per group per pass
-      plannedRevivalKeys.add(reviveKey)
-      revivalTargets.push({ role: runtimeAgent.role, work: { taskId: reviveTaskId }, agentId })
-    }
-
-    // Unified recovery sweep (MC-1592): claimed-work respawns and departed-owner
-    // revivals share the one `respawn:` namespace, so a single sweep frees the
-    // budget of any recovery target that is no longer active this pass (work
-    // resolved, or the role acquired a live agent) while preserving the retry
-    // cap of every still-active target — claims AND revivals. Keeping a spent
-    // target's entry is deliberate: a broken CLI that spawns and immediately
-    // exits must keep consuming the same capped budget, not reset it on every
-    // short-lived "alive" observation.
-    const activeRecoveryKeys = new Set([
-      ...claims.map((claim) => sprintEngineRespawnLedgerKey(workspace, claim, claim.agentId)),
-      ...revivalTargets.map((target) => sprintEngineRespawnLedgerKey(workspace, target.work, target.agentId)),
-    ])
-    input.continuationLedger.forEach((_, ledgerKey) => {
-      const workKey = getSprintEngineContinuationMessageWorkKey(workspace, ledgerKey)
-      if (!workKey || !workKey.startsWith('respawn:')) return
-      if (!activeRecoveryKeys.has(ledgerKey)) plan.ledgerDeletes.push({ ledger: 'continuation', key: ledgerKey })
-    })
-
-    // Pass 2: plan each revival, capped by the retry limit + retry interval on
-    // the shared `respawn:` ledger key (the unified recovery cap).
-    for (const { role, work, agentId: reviveAgentId } of revivalTargets) {
-      const respawnData = {
-        agentId: reviveAgentId,
-        role,
-        taskId: work.taskId,
-        reason: 'revive-departed-worker-for-own-task',
-      }
-      const key = sprintEngineRespawnLedgerKey(workspace, work, reviveAgentId)
-      const previous = input.continuationLedger.get(key)
-      if (promptRetryLimitReached(previous, AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES)) {
-        plan.skips.push({
-          event: 'revive-retry-limit-reached',
-          data: { ...respawnData, attempts: previous?.attempts ?? 0, maxRetries: AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES },
-        })
-        continue
-      }
-      if (previous && now - previous.sentAt < AUTO_RUN_ROLE_CONTINUATION_RETRY_MS) continue
-      plannedRespawnAgentIds.add(reviveAgentId)
-      planRespawn({
-        agentId: reviveAgentId,
-        label: workspace.agents[reviveAgentId]?.name ?? reviveAgentId,
-        role,
-        taskId: work.taskId,
-        key,
-        data: respawnData,
-        diagnostic: {
-          title: 'Revived a departed sprint agent for its own task',
-          message: `${role} still has work to finish on ${work.taskId} but its terminal is not running. Reviving the id that last owned the task so its session resumes.`,
-          details: [
-            `Workspace: ${workspace.name}`,
-            `Agent: ${reviveAgentId} (${role})`,
-            `Task: ${work.taskId}`,
-            `Revive attempts before this one: ${previous?.attempts ?? 0}`,
-          ].join('\n'),
-          taskId: work.taskId,
-        },
-      })
-    }
+    const { claims, plannedRespawnAgentIds } = planSprintEngineClaimedWorkRespawns(recoveryCtx)
+    planSprintEngineDepartedOwnerRevivals(recoveryCtx, claims, plannedRespawnAgentIds)
   }
 
   if (

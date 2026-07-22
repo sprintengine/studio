@@ -182,7 +182,12 @@ export type BundledWorkspaceMode =
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
   | typeof REVIEW_WORKSPACE_MODE
 
-export type WorkspaceMode = typeof STANDARD_WORKSPACE_MODE | (string & {})
+// Lifted to the shared layer so shared contracts can name the mode without
+// importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
+// Imported here (so this module's own references resolve) and re-exported so
+// every existing `WorkspaceMode` import site keeps resolving through here.
+import type { WorkspaceMode } from '../../../shared/workspace-mode'
+export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
 

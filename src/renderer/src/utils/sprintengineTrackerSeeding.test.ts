@@ -5,7 +5,7 @@ import {
   derivePlanSourcedGoal,
   matchProxyItemByIssue,
   parseProxyTrackerIdentity,
-} from './sprintengineWorkspaceCreation'
+} from './sprintengineTrackerSeeding'
 
 // Regression coverage for the tracker sprint-seeding seam (MC-1639 / plan §3.6),
 // which shipped in T9 with no test of its own. These three pure functions decide

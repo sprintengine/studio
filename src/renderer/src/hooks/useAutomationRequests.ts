@@ -28,13 +28,8 @@ import {
   toTitleName,
   workspaceRelativePath,
 } from '../components/workspace/newWorkspace/helpers'
-import {
-  PlanSourcedSprintEngineWorkspaceError,
-  buildPlanSourcedSprintEngineWorkspaceContext,
-  createPlanSourcedSprintEngineWorkspace,
-} from '../utils/sprintengineWorkspaceCreation'
+import { launchPlanSourcedSprint } from '../utils/sprintengineWorkspaceCreation'
 import { sprintEnginePlannerRole } from '../utils/sprintengine'
-import { resolveChainedSprintTeamName } from '../utils/chainedSprintTeamName'
 import {
   sprintEngineAutomationInitialStateForMode,
   sprintEngineAutomationModeForRunOptions,
@@ -249,25 +244,17 @@ async function createPlanSourcedSprint(
   // so a failed fire never retries): the resolver refuses a self-trigger loop up
   // front, then numbers the team the way a user would until the slug is free.
   const baseTeamName = request.name?.trim() || toTitleName(planBasename(normalizedSourcePath))
-  const resolvedTeam = await resolveChainedSprintTeamName({
-    baseTeamName,
-    refuseTeamSlug: request.refuseTeamSlug,
-    buildContext: (name) => buildPlanSourcedSprintEngineWorkspaceContext(request.folderPath, name),
-    stateExists: (statePath) => window.api.pathExists(statePath),
-  })
-  if (!resolvedTeam.ok) {
-    return { ok: false, code: resolvedTeam.code, message: resolvedTeam.message }
-  }
-  const teamName = resolvedTeam.teamName
-
   const startRunner = request.startRunner === true
   const automationMode = sprintEngineAutomationModeForRunOptions({
     startRunner,
     autoApproveArtifacts: request.autoApproveArtifacts === true,
   })
-  let result
-  try {
-    result = await createPlanSourcedSprintEngineWorkspace({
+  const launch = await launchPlanSourcedSprint({
+    rootPath: request.folderPath,
+    baseTeamName,
+    refuseTeamSlug: request.refuseTeamSlug,
+    stateExists: window.api.pathExists,
+    buildArgs: (teamName) => ({
       rootPath: request.folderPath,
       teamName,
       goal: request.goal,
@@ -291,23 +278,12 @@ async function createPlanSourcedSprint(
       sourceReference: true,
       pathExists: window.api.pathExists,
       initializeSprintEngineState: window.api.initializeSprintEngineState,
-    })
-  } catch (error) {
-    if (error instanceof PlanSourcedSprintEngineWorkspaceError) {
-      return {
-        ok: false,
-        code: `sprint_${error.code.replace(/-/g, '_')}`,
-        message: error.message === error.code
-          ? `Sprint run creation failed: ${error.code}.`
-          : error.message,
-      }
-    }
-    return {
-      ok: false,
-      code: 'sprint_creation_failed',
-      message: error instanceof Error ? error.message : 'Sprint run creation failed.',
-    }
+    }),
+  })
+  if (!launch.ok) {
+    return { ok: false, code: launch.code, message: launch.message }
   }
+  const { result } = launch
 
   // Record the Backlog execution link so the item shows the running sprint and
   // its lifecycle flips to in_progress — the same link the wizard's backlog

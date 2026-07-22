@@ -189,17 +189,17 @@ const liveWorkState = {
   ] as never,
 }
 assert.equal(
-  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'developer-1'),
+  sprintEngineAgentHasLiveRunWork(liveWorkState,'developer-1'),
   true,
   'an active claimant close is an intervention'
 )
 assert.equal(
-  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'developer-2'),
+  sprintEngineAgentHasLiveRunWork(liveWorkState,'developer-2'),
   false,
   'a worker whose task is in its publish→verdict window is routine teardown — MC-1444 disposes it by design'
 )
 assert.equal(
-  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'tester-1'),
+  sprintEngineAgentHasLiveRunWork(liveWorkState,'tester-1'),
   true,
   'an agent whose owned task needs input still has a live session worth protecting'
 )
@@ -210,12 +210,12 @@ assert.equal(
 // case tested deleted gate machinery (MC-1542 single-owner tasks — currentGateId
 // no longer exists; a task in its review phase is held via currentTaskId).
 assert.equal(
-  sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), 'frontend'),
+  sprintEngineAgentHasLiveRunWork(liveWorkState,'frontend'),
   true,
   'an active dispatch counts as live work before the claim lands'
 )
-assert.equal(sprintEngineAgentHasLiveRunWork(liveWorkState, baseAutoState(), undefined), false)
-assert.equal(sprintEngineAgentHasLiveRunWork(null, baseAutoState(), 'developer-1'), false)
+assert.equal(sprintEngineAgentHasLiveRunWork(liveWorkState, undefined), false)
+assert.equal(sprintEngineAgentHasLiveRunWork(null, 'developer-1'), false)
 
 // The dormancy bit: only the terminal `complete` runtime state is dormant. Every
 // other lifecycle state — including a finished-but-not-yet-reconciled run stuck in

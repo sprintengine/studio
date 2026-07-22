@@ -9,7 +9,6 @@
  * renderer-specific shapes (`Workspace`, `SprintEngineState`) live here.
  */
 import type {
-  SprintEngineAutoState,
   SprintEngineState,
   Workspace,
 } from '../types/workspace'
@@ -60,7 +59,6 @@ export function isSprintEngineWorkspaceDormant(
  */
 export function sprintEngineAgentHasLiveRunWork(
   sprintEngineState: Pick<SprintEngineState, 'sprintEngineAgents' | 'tasks'> | null | undefined,
-  _autoState: Partial<SprintEngineAutoState> | null | undefined,
   agentId: string | undefined,
 ): boolean {
   if (!agentId || !sprintEngineState) return false
