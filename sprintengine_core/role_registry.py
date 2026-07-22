@@ -504,7 +504,19 @@ def discover_role_registry(
     # the registry-inspection CLI from --extra-dir) opt out of both and stay
     # hermetic.
     if plugin_roots is None:
-        plugin_roots = [*session_registry_roots_from_env(), multicode_user_registry_root()]
+        # Existence-check the env-derived roots. The app injects session roots for
+        # whatever it believes is installed, and the canonical user-install root
+        # is always searched — but either may name a directory that is not on disk
+        # (a pack the app recorded but never unpacked, or the user root before the
+        # first install). A missing root contributes nothing, and dropping it here
+        # keeps discovery honest instead of leaning on the per-subdirectory
+        # `.exists()` skips deep inside the walk; it also means a hermetic caller
+        # can neutralize a root by pointing the env at a path that does not exist.
+        plugin_roots = [
+            root
+            for root in (*session_registry_roots_from_env(), multicode_user_registry_root())
+            if _normalize_plugin_root(root).root.exists()
+        ]
     return RoleSkillRegistry(
         workspace_root=workspace_root,
         plugin_roots=plugin_roots,

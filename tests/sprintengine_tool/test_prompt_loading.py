@@ -314,6 +314,40 @@ def test_phase_respawn_brief_caps_evidence_and_diff_lists(tmp_path) -> None:
     assert "Acceptance: CLI exposes the feature." in brief
 
 
+def test_respawn_description_returns_short_briefs_verbatim() -> None:
+    # A description that fits the cap is the worker's full operating brief and must
+    # pass through untouched — no elision marker, so a revived owner does not read
+    # a truncation warning on a complete card.
+    from sprintengine_core.tool.phase_prompts import RESPAWN_TEXT_LIMIT, _respawn_description
+
+    short = "Wire the reviewed feature into the real CLI path."
+    assert _respawn_description({"id": "T1", "description": short}) == short
+
+    # Exactly at the limit is still "fits" (<=), so it also rides verbatim.
+    at_limit = "D" * RESPAWN_TEXT_LIMIT
+    result = _respawn_description({"id": "T1", "description": at_limit})
+    assert result == at_limit
+    assert "description truncated" not in result
+
+
+def test_respawn_description_marks_truncation_and_names_the_card() -> None:
+    # Over the cap, the brief must carry an honest elision marker naming the task
+    # id so the owner fetches the complete card instead of working a silently
+    # truncated scope. The full body must NOT survive inline.
+    from sprintengine_core.tool.phase_prompts import RESPAWN_TEXT_LIMIT, _respawn_description
+
+    body = "D" * (RESPAWN_TEXT_LIMIT + 500)
+    result = _respawn_description({"id": "T-cold", "description": body})
+
+    assert body not in result
+    assert result.startswith("D" * (RESPAWN_TEXT_LIMIT - 3))
+    assert result.count("...") == 1
+    assert (
+        'description truncated — `sprintengine.task.get` with `{taskId: "T-cold"}` '
+        "returns the complete card; read it before working)"
+    ) in result
+
+
 def test_phase_directive_is_composed_from_the_shared_review_base_pack(tmp_path) -> None:
     """The base pack is resolved through the role registry, so a workspace can
     shadow `sprintengine_phase_review` and change the review lens run-wide."""

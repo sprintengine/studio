@@ -22,6 +22,29 @@ def write_team_file(fixture, relative_path: str, content: str = "# Artifact\n") 
     path.write_text(content, encoding="utf-8")
 
 
+def test_stamp_implementer_from_owner_records_the_departing_owner() -> None:
+    # The artifact-approval and input-resolution done-writers complete a task on
+    # the user's action and then clear ownerAgentId, so the truthful implementer
+    # is the owner being cleared. Stamp it, or the projection's worker derivation
+    # forgets the worker entirely (the ghost-seat stall, 2026-07-16).
+    from sprintengine_core.tool.artifacts import stamp_implementer_from_owner
+
+    owned = {"ownerAgentId": "product-fixture"}
+    stamp_implementer_from_owner(owned)
+    assert owned["lastImplementedByAgentId"] == "product-fixture"
+
+
+def test_stamp_implementer_from_owner_is_a_noop_without_an_owner() -> None:
+    # An ownerless done gate genuinely has no implementer, so nothing is stamped —
+    # the key must not be invented (a blank/whitespace owner is the same as none).
+    from sprintengine_core.tool.artifacts import stamp_implementer_from_owner
+
+    for empty in (None, "", "   "):
+        task_record = {"ownerAgentId": empty}
+        stamp_implementer_from_owner(task_record)
+        assert "lastImplementedByAgentId" not in task_record
+
+
 def test_artifact_add_ready_approve_and_request_changes_cover_lifecycle_statuses(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

@@ -113,32 +113,38 @@ def test_vcs_repos_round_trips_through_sync_and_projection(tmp_path) -> None:
 
 
 def test_worktree_discipline_emitted_from_single_template_site() -> None:
-    # AC2: the worktree-discipline text has one source. Both the no-worktree and
-    # shared-worktree prompts compose from `_execution_workspace_discipline_block`,
-    # so the shared header and owned-paths rules are written exactly once.
-    source = Path(phase_prompts.__file__).read_text(encoding="utf-8")
-    for line in (
-        "## Execution Workspace Discipline",
-        "- Treat task-owned paths as the primary edit surface and collision boundary.",
-        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
-    ):
-        assert source.count(line) == 1, f"discipline line duplicated (not single-sourced): {line!r}"
-
-    # Both public blocks still emit the shared discipline through the one template.
+    # AC2 (behavioral): the worktree-discipline text has one source. Both the
+    # no-worktree and shared-worktree prompts compose from
+    # `_execution_workspace_discipline_block`, so each RENDERED block carries the
+    # shared header and rules exactly once. Assert on the builders' output — what
+    # a worker actually receives — not on occurrence counts in the module source,
+    # so the guard survives rewording or a template refactor and still fails if a
+    # builder ever duplicates or drops the discipline.
     plan_block = phase_prompts.worker_plan_worktree_block()
-    assert "## Execution Workspace Discipline" in plan_block
-    assert "- Do not create Sprint Engine worktrees." in plan_block
 
     vcs_state = base_state("alpha", [])
     vcs_state["sprintengine"]["vcs"] = _vcs_with_repos()
     worktree_block = phase_prompts.worker_execution_workspace_block(
         vcs_state, Path("/tmp/ws/.multi-code/sprintengine/alpha/run.yaml")
     )
-    assert "## Execution Workspace Discipline" in worktree_block
+
+    # The shared discipline lines every execution-workspace prompt must carry,
+    # each exactly once: present proves the template ran; not-duplicated proves a
+    # single emit site. Both properties together are the single-source guarantee,
+    # observed through behavior instead of source-text structure.
+    shared_lines = (
+        "## Execution Workspace Discipline",
+        "- Treat task-owned paths as the primary edit surface and collision boundary.",
+        "- The canonical plan is normally `.multi-code/sprintengine/<team>/plan.md`; do not use any other `plan.md` found by search.",
+    )
+    for line in shared_lines:
+        assert plan_block.count(line) == 1, f"plan block must emit {line!r} exactly once"
+        assert worktree_block.count(line) == 1, f"worktree block must emit {line!r} exactly once"
+
+    # Variant-specific lines confirm these are two distinct builders funnelling
+    # through the one shared template rather than the same output twice.
+    assert "- Do not create Sprint Engine worktrees." in plan_block
     assert "## Committing Your Work" in worktree_block
-    # The shared owned-paths rule is byte-identical in both — proof of one source.
-    shared = "- Treat task-owned paths as the primary edit surface and collision boundary."
-    assert shared in plan_block and shared in worktree_block
 
 
 def _worktree_block_for(vcs: dict) -> str:
