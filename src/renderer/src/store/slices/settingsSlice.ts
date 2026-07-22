@@ -855,6 +855,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
   lastSelectedSpecialist: 'architect',
+  lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
   lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
@@ -916,6 +917,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
+    lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
     lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
@@ -1048,6 +1050,7 @@ export interface SettingsSliceActions {
   setLastSelectedCli: (cli: AgentCli) => void
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
+  setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
@@ -1332,6 +1335,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedSpecialist: (specialistId) =>
       set((state) => {
         state.appSettings.lastSelectedSpecialist = specialistId
+      }),
+
+    setLastSpawnWasGeneral: (value) =>
+      set((state) => {
+        state.appSettings.lastSpawnWasGeneral = value
       }),
 
     setLastNewChatAgent: (choice) =>
