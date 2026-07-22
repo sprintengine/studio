@@ -40,7 +40,6 @@ async function main(): Promise<void> {
   type ReviewPostReviewResult = import('../../../../../shared/electron-api').ReviewPostReviewResult
   type ReviewCommentPostOutcome = import('../../../../../shared/electron-api').ReviewCommentPostOutcome
 
-  const TARGET = { workspaceRoot: '/repo', workspaceId: 'r1' }
   const pending = (id: string, path: string, line: number, body: string): ReviewComment => ({
     id,
     path,

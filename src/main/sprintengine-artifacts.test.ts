@@ -634,6 +634,13 @@ async function testReadRegistryRolesUsesMcpTool(): Promise<void> {
 
 async function testReadRegistryRolesPassesLoadedPluginSoulsRoots(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-sprintengine-plugin-bridge-'))
+  // Isolate the user home so the native user-install registry root
+  // (~/.multicode/sprintengine-roles) never leaks a real machine's dir into the
+  // discovered roots — the temp workspace has no such directory.
+  const prevHome = process.env.HOME
+  const prevUserProfile = process.env.USERPROFILE
+  process.env.HOME = workspaceRoot
+  process.env.USERPROFILE = workspaceRoot
   const pluginRoot = join(workspaceRoot, 'plugins', 'writer-plugin')
   const soulsRoot = join(pluginRoot, 'sprintengine-souls')
   await mkdir(join(soulsRoot, 'roles'), { recursive: true })
@@ -676,6 +683,10 @@ async function testReadRegistryRolesPassesLoadedPluginSoulsRoots(): Promise<void
     assert.deepEqual(calls[0]?.context.allowedRoots, [soulsRoot])
   } finally {
     __resetPluginRegistryForTest()
+    if (prevHome === undefined) delete process.env.HOME
+    else process.env.HOME = prevHome
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = prevUserProfile
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 }
@@ -958,6 +969,9 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     createPullRequest: async () => ({ ok: true, data: {} }),
     refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
     setRoleRuntime: async () => ({ ok: true, data: {} }),
+    cancelRun: async () => ({ ok: true, data: {} }),
+    mergePullRequest: async () => ({ ok: true, data: {} }),
+    enableRole: async () => ({ ok: true, data: {} }),
     readProjection: async () => ({ ok: true, data: null }),
     readRegistryRoles: async () => {
       calls.push('roles')

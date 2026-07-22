@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { ReviewAnnotation, ChangeSetFile } from '../../../../../shared/review'
+import type { ReviewAnnotation } from '../../../../../shared/review'
 import {
   validateReviewChangeSet,
   validateReviewBrief,

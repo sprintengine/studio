@@ -664,7 +664,7 @@ async function testDormantCanceledRefreshRecolorsLinkOnRoutineTick(): Promise<vo
     items: [{
       id: 'backlog_refresh',
       source: { type: 'file' as const, relativePath: 'backlog/refresh.md' },
-      status: 'in_progress',
+      status: 'in_progress' as const,
       metadata: {},
       links: [{
         id: 'sprint-engine:unified-refresh',

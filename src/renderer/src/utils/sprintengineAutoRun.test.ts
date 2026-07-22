@@ -364,6 +364,7 @@ function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
     startedAt: null,
     completedAt: null,
     boardColumn: 'review',
+    repo: 'primary',
     ...overrides,
   }
 }
@@ -2094,7 +2095,8 @@ function testTaskScopedLifecycleExemptsPlanningRoles(): void {
       'developer',
       'developer-1',
       new Set(),
-      'T-x'
+      'T-x',
+      'primary'
     ),
     undefined,
     'the restriction excludes every task but the agent\'s own'

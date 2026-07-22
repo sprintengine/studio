@@ -300,7 +300,7 @@ function createConversationSender(sent: { channel: string; payload: unknown }[])
 async function testFailureIsExplicit(): Promise<void> {
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
-    listProviders: () => {
+    listProviders: async () => {
       throw new Error('provider registry load failed')
     },
     testProvider: async () => ({ ok: false, status: { providerId: 'openai-compatible', state: 'missing_key', message: 'unused' } }),
@@ -324,7 +324,7 @@ async function testFailureIsExplicit(): Promise<void> {
 
 function runtimeHandlerStubs(): Pick<
   ConversationIpcHandlers,
-  'listProviderModels' | 'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'stopSession' | 'listSessions' | 'onEvent'
+  'listProviderModels' | 'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'stopSession' | 'listSessions' | 'readTranscript' | 'onEvent'
 > {
   return {
     listProviderModels: async () => ({ ok: true, models: [] }),
@@ -334,6 +334,7 @@ function runtimeHandlerStubs(): Pick<
     respondToRequest: async () => ({ ok: false, message: 'unused' }),
     stopSession: async () => ({ ok: false, message: 'unused' }),
     listSessions: () => ({ ok: true, sessions: [] }),
+    readTranscript: async () => ({ ok: false, message: 'unused' }),
     onEvent: () => () => undefined,
   }
 }

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { join } from 'node:path'
 
 import {
   SPRINT_ENGINE_RUN_COMPLETED_TRIGGER_KIND,
@@ -21,7 +20,6 @@ import {
 // synchronous prologue instead of throwing.
 const WORKSPACE_ROOT = '/repo'
 const TEAM = 'team-a'
-const STATE_PATH = join(WORKSPACE_ROOT, '.multi-code', 'sprintengine', TEAM, 'run.yaml')
 // One step past the completion confirmation window, to advance the clock between
 // the arming poll and the confirming poll.
 const CONFIRM_STEP_MS = COMPLETED_CONFIRMATION_MS + 1_000

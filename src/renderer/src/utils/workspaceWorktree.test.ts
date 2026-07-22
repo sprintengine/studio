@@ -64,11 +64,11 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     worktree: { branch: 'spike/parser' },
   })
   const resolved = resolveWorkspaceWorktree(ws)
+  assert.equal(resolved?.repoId, undefined, 'a non-sprint worktree workspace declares no repo set')
   assert.deepEqual(resolved, {
     gitRoot: '/Users/example/wt/parser-spike',
     branch: 'spike/parser',
   })
-  assert.equal(resolved?.repoId, undefined, 'a non-sprint worktree workspace declares no repo set')
 }
 
 // 3. Sprint vcs takes precedence over an explicit marker (a worktree-mode sprint

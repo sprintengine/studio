@@ -6,6 +6,7 @@ import {
   SPRINT_ENGINE_WORKSPACE_MODE,
   STANDARD_WORKSPACE_MODE,
   SWITCHBOARD_WORKSPACE_MODE,
+  REVIEW_WORKSPACE_MODE,
   type BundledWorkspaceMode,
 } from '../types/workspace'
 import { isAutomationsHostWorkspace, isHiddenFromRail } from './workspaceVisibility'
@@ -34,6 +35,9 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   // host workspaces are rail-hidden background runtime containers — never a
   // Projects-list row, switch target, or palette result.
   [AUTOMATIONS_HOST_WORKSPACE_MODE]: true,
+  // Review is an instance-level door surface, but its host workspace is not
+  // rail-hidden (only automations hosts are).
+  [REVIEW_WORKSPACE_MODE]: false,
 }
 
 const BUNDLED_MODES = Object.keys(EXPECTED_HIDDEN) as BundledWorkspaceMode[]

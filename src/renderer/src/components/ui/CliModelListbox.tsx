@@ -3,6 +3,7 @@ import CliIcon from '../CliIcon'
 import { Popover } from './Popover'
 import { Tooltip } from './Tooltip'
 import { TruncatedText } from './TruncatedText'
+import { SegmentedControl } from './SegmentedControl'
 import type { AgentCli } from '../../types/workspace'
 import type { PluginModelCatalog, PluginReasoningCatalog } from '../../../../shared/plugin-manifest'
 

@@ -884,7 +884,7 @@ assert.deepEqual(
 // A returning profile (modulesChosen persisted, or workspaces present) with no
 // recorded migration → flag false so it runs once.
 assert.equal(
-  normalizeAppSettings({ specialistPacks: { disabled: [] }, modulesChosen: true }, []).specialistPacks
+  normalizeAppSettings({ specialistPacks: { disabled: [] } as unknown as { disabled: string[]; migratedBundledPack: boolean }, modulesChosen: true }, []).specialistPacks
     .migratedBundledPack,
   false,
   'normalizeAppSettings defaults a returning profile to not-yet-migrated',
@@ -893,7 +893,7 @@ assert.equal(
 // installs nothing. This is the load-bearing guard for acceptance: hydration
 // always runs normalizeAppSettings, so the fresh default must resolve here.
 assert.equal(
-  normalizeAppSettings({ specialistPacks: { disabled: [] } }, []).specialistPacks.migratedBundledPack,
+  normalizeAppSettings({ specialistPacks: { disabled: [] } as unknown as { disabled: string[]; migratedBundledPack: boolean } }, []).specialistPacks.migratedBundledPack,
   true,
   'normalizeAppSettings defaults a fresh profile to already-migrated (installs nothing)',
 )

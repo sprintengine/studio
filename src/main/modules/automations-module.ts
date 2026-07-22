@@ -163,12 +163,15 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       // The instance roadmap lives in a designated HOME PROJECT (D1), recorded as
       // an app-level setting under userData. The orchestrator reads it every
       // reconcile; the creation flow (MC-1689) sets it over the home IPC below.
-      const userDataDir = app.getPath('userData')
+      // Resolved lazily: module construction must not require the Electron app
+      // (headless module-lifecycle tests load this with no app). Each roadmap
+      // home-path read already happens per reconcile/IPC, so a getter is free.
+      const resolveUserDataDir = (): string => app.getPath('userData')
       const roadmapOrchestrator = createRoadmapOrchestrator(
         createRoadmapOrchestratorPorts({
           frontDoors: sprintEngineFrontDoors,
           delegateToRenderer: (request) => automationDelegate.request(request),
-          getHomeProjectRoot: () => readRoadmapHomeProjectPath(userDataDir),
+          getHomeProjectRoot: () => readRoadmapHomeProjectPath(resolveUserDataDir()),
           // All open roots — used to resolve a `projects:` alias path to a known
           // workspace root (an unresolvable alias parks the lane `unknown_project`).
           getWorkspaceRoots: () =>
@@ -179,8 +182,8 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         }),
       )
       registerRoadmapOrchestratorIpc(host.ipcMain, roadmapOrchestrator, {
-        getHomeProjectPath: () => readRoadmapHomeProjectPath(userDataDir),
-        setHomeProjectPath: (path) => writeRoadmapHomeProjectPath(userDataDir, path),
+        getHomeProjectPath: () => readRoadmapHomeProjectPath(resolveUserDataDir()),
+        setHomeProjectPath: (path) => writeRoadmapHomeProjectPath(resolveUserDataDir(), path),
       })
       // Expose the instance roadmap's read + plan + steer surface to app-level
       // callers (the automation server's roadmap.* tools), resolved lazily like the

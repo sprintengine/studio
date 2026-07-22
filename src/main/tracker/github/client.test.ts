@@ -342,7 +342,7 @@ async function testCommentWriteBackPostsAndTransitionUnsupported(): Promise<void
 
   // GitHub has no named workflow transitions, so tier-2 write-back never applies.
   await assert.rejects(
-    () => provider.transitionIssue({ connectionId: GITHUB_COM.id, externalId: 'acme/web#1', transitionId: 't' }),
+    () => provider.transitionIssue(),
     (err: unknown) => err instanceof TrackerProviderError && err.kind === 'unsupported'
   )
 }

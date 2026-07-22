@@ -123,7 +123,7 @@ function bufferMemoryFs(): NonNullable<TrackerConnectionStoreOptions['files']> {
 }
 
 // The write-back stores' adapter is string-backed with rename.
-function stringMemoryFs() {
+function stringMemoryFs(): { mkdir: any; readFile: any; writeFile: any; rename: any } {
   const files = new Map<string, string>()
   return {
     mkdir: async () => undefined,

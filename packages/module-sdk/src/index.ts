@@ -81,6 +81,7 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'switchboard',
   'multiloop',
   'sprint-engine',
+  'review',
   'automations',
   'roadmap',
   'mobile-relay',
@@ -422,6 +423,15 @@ export type AutomationDefinition = {
    * automations keep running in a worktree.
    */
   runInWorktree?: boolean
+  /**
+   * Run once, then pause: after one triggered fire (schedule due-run, skipped
+   * overdue run, webhook or polling trigger event) the definition transitions to
+   * `status: 'paused'`; re-enabling arms it again. A manual "Run now" never
+   * consumes the shot — the flag means "after one *triggered* fire". Absent ⇒
+   * false. Works for every trigger kind; orthogonal to the `at` cadence's own
+   * natural exhaustion.
+   */
+  disableAfterRun?: boolean
   nextRunAt: string | null
   lastRunAt: string | null
   lastRunId: string | null
@@ -438,6 +448,7 @@ export type AutomationDefinitionDraft = {
   action: { kind: ActionKind; config: unknown }
   autonomyDefault: AutomationDefinition['autonomyDefault']
   runInWorktree?: boolean
+  disableAfterRun?: boolean
   /**
    * Owning module for drafts created through the SDK's scoped Automations
    * service. Optional echo of the creating module's own id — a draft claiming
@@ -762,7 +773,7 @@ export type WorkspaceTypeDefinition = {
 // ── Backlog contributions ────────────────────────────────────────────────────
 
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
-export type BacklogItemLinkStatus = 'active' | 'completed' | 'failed' | 'unknown'
+export type BacklogItemLinkStatus = 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
 
 export type BacklogItemLink = {
   id: string

@@ -1546,7 +1546,7 @@ type BacklogStoreItem = {
   source: { relativePath: string }
   status?: string
   metadata?: Record<string, unknown>
-  links?: Array<{ id: string; type: string; target: { kind: string; id: string; path?: string; url?: string } }>
+  links?: Array<{ id: string; type: string; label: string; target: { kind: string; id: string; path?: string; url?: string } }>
 }
 
 async function readBacklogStoreItems(workspaceRoot: string): Promise<BacklogStoreItem[]> {

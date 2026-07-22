@@ -45,7 +45,6 @@ function run(name: string, body: () => void): void {
 function item(partial: Partial<BacklogItem> & { relativePath: string }): BacklogItem {
   return {
     id: partial.relativePath,
-    relativePath: partial.relativePath,
     title: partial.title ?? partial.relativePath,
     status: partial.status ?? 'ready',
     isEpic: partial.isEpic ?? false,

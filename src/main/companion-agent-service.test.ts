@@ -144,6 +144,11 @@ function createDeferred(): { promise: Promise<void>; resolve(): void } {
   return { promise, resolve }
 }
 
+function okSessions<T>(result: { ok: true; sessions: T[] } | { ok: false; message: string }): T[] {
+  if (!result.ok) throw new Error(result.message)
+  return result.sessions
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 async function testAttachIsAbsentAndDoesNotSpawn(): Promise<void> {
@@ -154,7 +159,7 @@ async function testAttachIsAbsentAndDoesNotSpawn(): Promise<void> {
     const handle = service.attach({ ...SPEC_BASE, workspaceRoot })
     assert.equal(handle.status(), 'absent')
     assert.deepEqual(runtime.listSessions({ workspaceId: 'workspace' }).ok, true)
-    assert.equal(runtime.listSessions({ workspaceId: 'workspace' }).sessions.length, 0)
+    assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 0)
     service.dispose()
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
@@ -293,14 +298,14 @@ async function testInterruptLeavesSessionReusable(): Promise<void> {
     gate.resolve()
     await assert.rejects(runPromise)
 
-    const sessionIdAfterInterrupt = runtime.listSessions({ workspaceId: 'workspace' }).sessions[0]?.sessionId
+    const sessionIdAfterInterrupt = okSessions(runtime.listSessions({ workspaceId: 'workspace' }))[0]?.sessionId
 
     // The session survives: a new run reuses the same session and completes.
     const gate2 = createDeferred()
     gate2.resolve()
     const value = await handle.runStructured({ prompt: 'Again.', validate: (raw) => ({ ok: true, value: raw }) })
     assert.deepEqual(value, { done: true })
-    const sessionIdAfterReuse = runtime.listSessions({ workspaceId: 'workspace' }).sessions[0]?.sessionId
+    const sessionIdAfterReuse = okSessions(runtime.listSessions({ workspaceId: 'workspace' }))[0]?.sessionId
     assert.equal(sessionIdAfterReuse, sessionIdAfterInterrupt)
     service.dispose()
   } finally {
@@ -340,21 +345,19 @@ async function testDisposeEndsSessionAndReattachWorks(): Promise<void> {
     const service = companionService(runtime)
     const handle = service.attach({ ...SPEC_BASE, workspaceRoot })
     await handle.runStructured({ prompt: 'Go.', validate: (raw) => ({ ok: true, value: raw }) })
-    const firstSessionId = runtime.listSessions({ workspaceId: 'workspace' }).sessions[0]?.sessionId
+    const firstSessionId = okSessions(runtime.listSessions({ workspaceId: 'workspace' }))[0]?.sessionId
     assert.ok(firstSessionId)
 
     handle.dispose()
     assert.equal(handle.status(), 'absent')
     // The underlying session is stopped (best-effort, next tick).
-    await waitFor(() => runtime.listSessions({ workspaceId: 'workspace' }).sessions[0]?.status === 'stopped')
+    await waitFor(() => okSessions(runtime.listSessions({ workspaceId: 'workspace' }))[0]?.status === 'stopped')
 
     // Re-attach after dispose works and spawns a fresh session.
     const reattached = service.attach({ ...SPEC_BASE, workspaceRoot })
     assert.equal(reattached.status(), 'absent')
     await reattached.runStructured({ prompt: 'Again.', validate: (raw) => ({ ok: true, value: raw }) })
-    const secondSessionId = runtime
-      .listSessions({ workspaceId: 'workspace' })
-      .sessions.find((session) => session.status !== 'stopped')?.sessionId
+    const secondSessionId = okSessions(runtime.listSessions({ workspaceId: 'workspace' })).find((session) => session.status !== 'stopped')?.sessionId
     assert.ok(secondSessionId)
     assert.notEqual(secondSessionId, firstSessionId)
     service.dispose()
@@ -431,11 +434,11 @@ async function testColdLoadPersistedRecordDoesNotSpawnUntilIntent(): Promise<voi
 
     // Reopened cold: no session spawned, status absent.
     assert.equal(handle.status(), 'absent')
-    assert.equal(runtime.listSessions({ workspaceId: 'workspace' }).sessions.length, 0)
+    assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 0)
 
     // First live intent spawns.
     await handle.runStructured({ prompt: 'Go.', validate: (raw) => ({ ok: true, value: raw }) })
-    assert.equal(runtime.listSessions({ workspaceId: 'workspace' }).sessions.length, 1)
+    assert.equal(okSessions(runtime.listSessions({ workspaceId: 'workspace' })).length, 1)
     assert.equal(handle.status(), 'ready')
     service.dispose()
   } finally {

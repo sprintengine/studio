@@ -44,6 +44,10 @@ async function main(): Promise<void> {
       calls.push({ method: 'fetchIssue', input })
       return { ok: false, error: { kind: 'not_found', message: 'gone' } }
     },
+    listTransitions: async (input) => {
+      calls.push({ method: 'listTransitions', input })
+      return { ok: true, transitions: [] }
+    },
   }
 
   const ipcMain = createIpcMain()
