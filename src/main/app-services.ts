@@ -37,6 +37,7 @@ import { createTrackerWriteBackRuntime } from './tracker/writeback'
 import { computeSprintEngineTokenUsageReport } from './sprintengine-token-usage'
 import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
+import { createSprintEngineRunnerLog } from './sprintengine-runner-log'
 import { resolveMemoryRoot } from './memory-graph'
 import { listPluginRegistryEntries } from './plugin-registry-instance'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
@@ -363,8 +364,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // renderer used to inject its own logger; with scheduling in main, wire the
   // seam to main perf diagnostics so supervise/spawn/retire events — the
   // primary debugging surface for this subsystem — stay observable.
+  // Phase 3 (MC-1754): the same events also land in the owning run's on-disk
+  // `runner/runner-log.jsonl`, so a runner incident is reconstructable from
+  // files alone — console perf logging is diagnostics-flag-gated and gone
+  // with the process.
+  const sprintRunnerLog = createSprintEngineRunnerLog(
+    (workspaceId) => sprintRuntimeRef?.resolveRunnerLogTarget(workspaceId) ?? null
+  )
   setSprintEngineAutoRunPerfLogger((scope, event, payload) => {
     logMainPerfEvent(scope, event, payload ?? {})
+    sprintRunnerLog.write(scope, event, payload ?? {})
   })
 
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
