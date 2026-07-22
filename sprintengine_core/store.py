@@ -802,6 +802,16 @@ def sync_state_to_store(team_dir: Path, state: dict[str, Any], *, state_path: Pa
         roster_configured=bool(state.get("sprintengine", {}).get("rosterConfigured")),
     )
     validate_acyclic_task_graph([task for task in state.get("tasks", []) or [] if isinstance(task, dict)])
+    if state_path is not None:
+        # Git-truth repo reconciliation (MC-1752). Never blocks a state write:
+        # a missing git binary, an unprovisioned worktree, or any probe failure
+        # simply leaves the entry as it was.
+        try:
+            from sprintengine_core.tool.shell import reconcile_repo_commit_state_from_git
+
+            reconcile_repo_commit_state_from_git(state, state_path)
+        except Exception:
+            pass
     with FolderLock(team_dir / READY_QUEUE_LOCK_FILE):
         pending_dispatch_records = [
             record for record in state.pop("_dispatchRecords", []) if isinstance(record, dict)

@@ -28,6 +28,7 @@ from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle
 from sprintengine_core.tool.state import (
     append_event,
+    append_task_activity,
     ensure_role_in_roster,
     ensure_task_repo_declared,
     find_task,
@@ -56,7 +57,15 @@ def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
         task = build_task_from_args(args, state)
         apply_plan_gate_dependency(task, state, Path(args.state))
         from sprintengine_core.tool.integration import stale_integration_review_warning
-        stale_warning = stale_integration_review_warning(state, task)
+        from sprintengine_core.tool.state import repo_binding_lint_warning
+        warnings = [
+            warning
+            for warning in (
+                stale_integration_review_warning(state, task),
+                repo_binding_lint_warning(state, task),
+            )
+            if warning
+        ]
         state.setdefault("tasks", []).append(task)
         recompute_phase(state)
         event = append_event(state, "task_added", args.actor, f"{args.actor} added {task['id']}: {task['title']}.")
@@ -64,7 +73,7 @@ def cmd_plan_add_task(args: argparse.Namespace) -> Dict[str, Any]:
             "ok": True,
             "task": task,
             "event": event,
-            **({"warnings": [stale_warning]} if stale_warning else {}),
+            **({"warnings": warnings} if warnings else {}),
         }
 
     return with_locked_state(args.state, run)
@@ -75,7 +84,69 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         task = find_task(state, args.task_id)
-        ensure_task_can_be_replanned(task, args.force)
+        try:
+            ensure_task_can_be_replanned(task, args.force)
+        except SystemExit:
+            # Planner repo retarget (MC-1752): the repo binding is operational
+            # routing, not plan content. The planning role may correct a
+            # mis-bound repo on a started task — the exact stranding the
+            # post-merge-hardening T11 hit — as a repo-ONLY, audited update.
+            # Everything else on a started task still requires --force.
+            planning_role = resolve_planning_role(state)
+            actor = str(args.actor or "")
+            actor_is_planner = actor == planning_role or actor.startswith(f"{planning_role}-")
+            if getattr(args, "repo", None) is None or not actor_is_planner:
+                raise
+            other_field_requested = any([
+                args.title is not None,
+                args.description is not None,
+                args.clear_description,
+                args.role is not None,
+                args.clear_paths,
+                args.path,
+                args.clear_acceptance,
+                args.acceptance,
+                args.clear_notes,
+                args.note,
+                args.clear_task_notes,
+                args.task_note,
+                args.product_facing,
+                args.not_product_facing,
+                getattr(args, "produces_implementation", False),
+                getattr(args, "kind", None) is not None,
+                getattr(args, "needs_triage", None) is True,
+                getattr(args, "clear_needs_triage", False),
+                getattr(args, "phases", None) is not None,
+                getattr(args, "difficulty_pct", None) is not None,
+            ])
+            if other_field_requested:
+                raise SystemExit(
+                    f"Task {task.get('id')} has already started: only its repo binding can be "
+                    "retargeted without --force. Send the repo change on its own."
+                )
+            previous_repo = str(task.get("repo") or "primary")
+            new_repo = ensure_task_repo_declared(
+                state, args.repo, context=f"Task {task.get('id') or args.task_id}"
+            )
+            task["repo"] = new_repo
+            lease = task_lease(task)
+            if lease is not None:
+                lease["repo"] = new_repo
+            append_task_activity(
+                task,
+                "status_change",
+                actor,
+                f"{actor} retargeted {args.task_id} repo {previous_repo} -> {new_repo} on a started task.",
+                {"repo": new_repo, "previousRepo": previous_repo, "reason": "planner_repo_retarget"},
+            )
+            recompute_phase(state)
+            event = append_event(
+                state,
+                "task_updated",
+                actor,
+                f"{actor} retargeted {args.task_id} repo {previous_repo} -> {new_repo}.",
+            )
+            return {"ok": True, "task": task, "event": event, "repoRetargeted": True}
 
         if args.title is not None:
             title = args.title.strip()

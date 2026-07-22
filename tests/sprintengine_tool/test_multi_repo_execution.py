@@ -194,10 +194,11 @@ def test_publish_guard_ignores_an_orphan_in_a_project_the_task_does_not_touch(tm
     assert published["ok"] is True
 
 
-def test_owned_paths_do_not_excuse_the_same_path_in_another_project(tmp_path) -> None:
-    # ownedPaths are repo-relative: a primary task owning app/screen.ts says nothing
-    # about the mobile tree's app/screen.ts, which is owned by nobody and would be
-    # dropped from the run.
+def test_owned_paths_excuse_the_same_path_in_another_project(tmp_path) -> None:
+    # MC-1752 (sweep model): a task's ownedPaths count in EVERY declared tree —
+    # the commit sweep commits its in-scope changes wherever it worked, so the
+    # mobile tree's app/screen.ts is owned work in flight, not an orphan.
+    # (Pre-sweep, ownership was per-repo and this exact shape stranded T11.)
     fixture, _, _ = _two_project_run(tmp_path)
     fixture.cli.run(
         "plan", "add-task", "--title", "Primary screen", "--role", "developer",
@@ -207,7 +208,10 @@ def test_owned_paths_do_not_excuse_the_same_path_in_another_project(tmp_path) ->
     _write(fixture.team_dir / "worktree-mobile", "app/screen.ts", "export const screen = 1\n")
 
     mobile = next(repo for repo in state["sprintengine"]["vcs"]["repos"] if repo["id"] == "mobile")
-    assert shell.worktree_orphaned_dirty_paths(state, fixture.state_path, mobile) == ["app/screen.ts"]
+    assert shell.worktree_orphaned_dirty_paths(state, fixture.state_path, mobile) == []
+    # A genuinely unowned file is still an orphan.
+    _write(fixture.team_dir / "worktree-mobile", "app/stray.ts", "export const stray = 1\n")
+    assert shell.worktree_orphaned_dirty_paths(state, fixture.state_path, mobile) == ["app/stray.ts"]
 
 
 def test_run_completion_blocks_on_an_orphan_in_any_declared_project(tmp_path) -> None:
@@ -415,3 +419,133 @@ def test_vcs_status_for_a_single_project_run_is_unchanged(tmp_path) -> None:
     assert status["dirtyFiles"] == ["?? src/"]
     assert [repo["id"] for repo in status["repos"]] == ["primary"]
     assert status["repos"][0]["dirtyFiles"] == status["dirtyFiles"]
+
+
+# --- MC-1752: cross-repo commit sweep, git-truth reconciliation, retarget ----
+
+
+def test_misbound_task_work_in_a_sibling_tree_is_swept_and_credited(tmp_path) -> None:
+    """The T11 stranding, fixed: a task bound to `primary` whose real work
+    landed in the sibling tree. The sweep commits it there, credits the task
+    (producedChanges), and stamps the sibling repo entry."""
+    fixture, _, sibling = _two_project_run(tmp_path)
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Prune the ledger", "--role", "developer",
+        "--task-id", "T1", "--path", "app/ledger.ts",  # bound primary (default) — the mis-binding
+    )
+    _close_plan_gate(fixture)
+    _claim(fixture, "T1", "developer-1")
+
+    # The agent worked the SIBLING tree; the bound primary tree stays clean.
+    _write(fixture.team_dir / "worktree-mobile", "app/ledger.ts", "export const pruned = true\n")
+
+    published = fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-1",
+        "--summary", "Pruned the ledger.",
+    )
+    assert published["ok"] is True
+    assert published["producedChanges"] is True
+    assert published["committed"] is True
+
+    mobile_worktree = fixture.team_dir / "worktree-mobile"
+    head = _git(mobile_worktree, "show", "--name-only", "--format=", "HEAD").stdout.split()
+    assert head == ["app/ledger.ts"]
+
+    state = read_state(fixture.state_path)
+    task = next(t for t in state["tasks"] if t["id"] == "T1")
+    assert task["evidence"]["commits"], "the sibling commit is credited to the task"
+    assert list(task["evidence"]["commitsByRepo"].keys()) == ["mobile"]
+    mobile = next(repo for repo in state["sprintengine"]["vcs"]["repos"] if repo["id"] == "mobile")
+    assert mobile["lastCommitSha"]
+    assert mobile["status"] == "committed"
+
+
+def test_raw_git_commits_are_reconciled_into_the_repo_entry(tmp_path) -> None:
+    """A raw `git commit` in a declared worktree (no engine involvement) becomes
+    visible in repos[] on the next state sync — no more invisible sibling work."""
+    fixture, _, _ = _two_project_run(tmp_path)
+    mobile_worktree = fixture.team_dir / "worktree-mobile"
+    _write(mobile_worktree, "app/raw.ts", "export const raw = 1\n")
+    _git(mobile_worktree, "add", "app/raw.ts")
+    _git(mobile_worktree, "commit", "-m", "raw commit outside the engine")
+
+    # Any locked mutation syncs the store; a plan note is the cheapest.
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Unrelated", "--role", "developer", "--task-id", "T9",
+    )
+
+    state = read_state(fixture.state_path)
+    mobile = next(repo for repo in state["sprintengine"]["vcs"]["repos"] if repo["id"] == "mobile")
+    assert mobile["lastCommitSha"], "the raw commit is folded into the repo entry"
+    assert mobile["status"] == "committed"
+
+
+def test_planner_can_retarget_a_started_tasks_repo_with_an_audit_trail(tmp_path) -> None:
+    fixture, _, _ = _two_project_run(tmp_path)
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Mobile work", "--role", "developer",
+        "--task-id", "T1", "--path", "app/x.ts",
+    )
+    _close_plan_gate(fixture)
+    _claim(fixture, "T1", "developer-1")  # started: normally not replannable
+
+    payload = fixture.cli.run(
+        "plan", "update-task", "--task-id", "T1", "--repo", "mobile", "--actor", "architect",
+    )
+    assert payload["ok"] is True
+    assert payload["repoRetargeted"] is True
+
+    state = read_state(fixture.state_path)
+    task = next(t for t in state["tasks"] if t["id"] == "T1")
+    assert task["repo"] == "mobile"
+    assert any(
+        entry.get("data", {}).get("reason") == "planner_repo_retarget"
+        or "retargeted" in str(entry.get("message") or "")
+        for entry in task.get("activity", [])
+    ), "the retarget is audited on the task"
+
+
+def test_non_planner_cannot_retarget_a_started_task(tmp_path) -> None:
+    fixture, _, _ = _two_project_run(tmp_path)
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Mobile work", "--role", "developer",
+        "--task-id", "T1", "--path", "app/x.ts",
+    )
+    _close_plan_gate(fixture)
+    _claim(fixture, "T1", "developer-1")
+
+    failure = fixture.cli.run_failure(
+        "plan", "update-task", "--task-id", "T1", "--repo", "mobile", "--actor", "developer-1",
+    )
+    assert "already started" in failure.stderr
+
+
+def test_repo_retarget_rejects_mixed_field_updates_on_started_tasks(tmp_path) -> None:
+    fixture, _, _ = _two_project_run(tmp_path)
+    fixture.cli.run(
+        "plan", "add-task", "--title", "Mobile work", "--role", "developer",
+        "--task-id", "T1", "--path", "app/x.ts",
+    )
+    _close_plan_gate(fixture)
+    _claim(fixture, "T1", "developer-1")
+
+    failure = fixture.cli.run_failure(
+        "plan", "update-task", "--task-id", "T1", "--repo", "mobile",
+        "--title", "New title", "--actor", "architect",
+    )
+    assert "only its repo binding" in failure.stderr
+
+
+def test_plan_add_task_warns_on_repo_mention_binding_mismatch(tmp_path) -> None:
+    fixture, _, _ = _two_project_run(tmp_path)
+    payload = fixture.cli.run(
+        "plan", "add-task", "--title", "mobile: prune the relay ledger", "--role", "developer",
+        "--task-id", "T1",
+    )
+    assert any("bound to repo 'primary'" in warning for warning in payload.get("warnings", []))
+
+    clean = fixture.cli.run(
+        "plan", "add-task", "--title", "mobile: prune the relay ledger", "--role", "developer",
+        "--task-id", "T2", "--repo", "mobile",
+    )
+    assert not any("bound to repo" in warning for warning in clean.get("warnings", []))
