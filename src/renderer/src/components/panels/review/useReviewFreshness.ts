@@ -55,6 +55,10 @@ export function useReviewFreshness(
       if (!result.ok) return
       const verdict = computeFreshness(changeset, result.changeset, brief)
       setFreshness(verdict.headMoved ? { result: verdict, probedChangeset: result.changeset } : null)
+    } catch {
+      // Same posture for a rejected probe (transport/IPC error): a background
+      // staleness check must never throw into the surface. Swallow and keep the
+      // current walkthrough; the next reveal or git-status change re-probes.
     } finally {
       probingRef.current = false
     }

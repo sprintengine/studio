@@ -11,6 +11,7 @@ import type {
   ReviewComment,
 } from '../../../../../shared/review'
 import { Drawer } from '../../ui/Drawer'
+import { KbdChord } from '../../ui/KbdChord'
 import { TopBar } from './TopBar'
 import { StepRail } from './StepRail'
 import { StepPane } from './StepPane'
@@ -222,13 +223,18 @@ export function ReviewWalkthrough({
     [jumpToLine],
   )
 
-  // [ and ] step through the panes (Overview + steps), skipping when focus is
-  // inside a code editor so the keys stay usable for typing elsewhere.
+  // [ and ] step through the panes (Overview + steps), skipping when focus is in a
+  // text field or code editor so the keys insert the character while the reviewer
+  // is typing (comment composer, guide chat, Monaco) instead of switching panes.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== '[' && event.key !== ']') return
       const target = event.target as HTMLElement | null
-      if (target && (target.closest('.monaco-editor') || target.isContentEditable)) return
+      if (
+        target &&
+        (target.isContentEditable || target.closest('input, textarea, select, .monaco-editor'))
+      )
+        return
       const current = paneOrder.indexOf(activePaneId)
       if (current === -1) return
       const next = event.key === ']' ? current + 1 : current - 1
@@ -281,6 +287,7 @@ export function ReviewWalkthrough({
         <div className="grid h-full grid-cols-[210px_minmax(0,1fr)] @[940px]:grid-cols-[244px_minmax(0,1fr)_276px]">
           <StepRail rail={rail} activePaneId={activePaneId} onSelectPane={onSetActivePane} />
           <div ref={centerRef} className="min-w-0 overflow-y-auto px-6 py-5">
+            <ShortcutHints inStep={Boolean(activeStep)} commentsEnabled={commentsEnabled} />
             <div key={activePaneId} className="review-pane-enter">
               {activeStep ? (
                 <StepPane
@@ -346,7 +353,7 @@ export function ReviewWalkthrough({
           ariaLabel="Ask the review guide about this change"
           width={440}
         >
-          <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+          <Drawer.Body className="flex flex-col">
             <Suspense
               fallback={<p className="text-[12px] text-[color:var(--text-subtle)]">Loading the guide chat…</p>}
             >
@@ -358,8 +365,39 @@ export function ReviewWalkthrough({
                 prefill={chatPrefill}
               />
             </Suspense>
-          </div>
+          </Drawer.Body>
         </Drawer>
+      ) : null}
+    </div>
+  )
+}
+
+// The primary/alt modifiers named for the platform (safe when window is absent, as
+// in static render), so the header chords match the keys the reviewer presses.
+const IS_MAC = typeof window !== 'undefined' && window.api?.platform === 'darwin'
+const PRIMARY_KEY = IS_MAC ? 'Cmd' : 'Ctrl'
+const ALT_KEY = IS_MAC ? 'Option' : 'Alt'
+
+// The discoverable-shortcut header for the reading column: the keys that were
+// previously invisible and only learned by accident. One quiet row, not per-file
+// chrome. Pane-nav is always live; the diff-only keys (hunks, comment) show only
+// on a step pane, and the comment chord only when commenting is wired.
+function ShortcutHints({ inStep, commentsEnabled }: { inStep: boolean; commentsEnabled: boolean }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-end gap-x-3.5 gap-y-1 text-[11px] text-[color:var(--text-subtle)]">
+      <span className="inline-flex items-center gap-1">
+        <KbdChord keys={['[']} />
+        <KbdChord keys={[']']} /> panes
+      </span>
+      {inStep ? (
+        <span className="inline-flex items-center gap-1">
+          <KbdChord keys={['F7']} /> hunks
+        </span>
+      ) : null}
+      {inStep && commentsEnabled ? (
+        <span className="inline-flex items-center gap-1">
+          <KbdChord keys={[PRIMARY_KEY, ALT_KEY, 'C']} /> comment
+        </span>
       ) : null}
     </div>
   )

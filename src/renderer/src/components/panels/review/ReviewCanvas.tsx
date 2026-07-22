@@ -20,7 +20,22 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Element {
   const { status, changeset, run } = session
 
-  if (status === 'idle' || status === 'loading') {
+  // No review is selected — an explicit resting state, not a spinner that would
+  // otherwise read as "loading…" forever when nothing is being loaded at all.
+  if (status === 'idle') {
+    return (
+      <CenteredState>
+        <div className="max-w-md text-center">
+          <h3 className="mb-1.5 text-[15px] font-semibold text-[color:var(--text-strong)]">No review selected</h3>
+          <p className="text-[12.5px] leading-5 text-[color:var(--text-muted)]">
+            Choose a review from the list to open its walkthrough.
+          </p>
+        </div>
+      </CenteredState>
+    )
+  }
+
+  if (status === 'loading') {
     return (
       <CenteredState>
         <Spinner /> <span className="ml-2">Loading the change…</span>

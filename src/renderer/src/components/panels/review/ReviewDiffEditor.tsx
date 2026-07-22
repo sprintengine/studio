@@ -5,14 +5,21 @@ import type * as MonacoNs from 'monaco-editor'
 
 import type { DiffView, ReviewAnchor, ReviewAnnotation, ReviewComment } from '../../../../../shared/review'
 import { MONO_FONT_STACK } from '../../../utils/fonts'
-import { buildDiffFileModel, editorLineForRealLine, modifiedZoneLineForAnchor, type DiffFileModel } from './diffModel'
+import { buildDiffFileModel, modifiedZoneLineForAnchor, type DiffFileModel } from './diffModel'
 import { placeAnnotations, hoverLinesForAnnotation, type AnnotationPlacement } from './annotationZones'
 import type { ChangeSetFile } from '../../../../../shared/review'
 import { AnnotationRibbon } from './AnnotationRibbon'
 import { CommentThread } from './CommentThread'
 import { CommentComposer } from './CommentComposer'
+import { wireCommentGutter } from './commentGutter'
 
 type DiffEditorInstance = MonacoNs.editor.IStandaloneDiffEditor
+
+// Human label for the line a composer is anchored to — names the removed side
+// explicitly so the reviewer knows a comment lands on the old file, not the new.
+function composerAnchorLabel(anchor: ReviewAnchor): string {
+  return anchor.side === 'old' ? `removed line ${anchor.startLine}` : `line ${anchor.startLine}`
+}
 
 interface ReviewDiffEditorProps {
   file: ChangeSetFile
@@ -45,8 +52,9 @@ interface MountedZone {
 
 // A comment thread or the open composer, rendered as a view zone that tracks the
 // anchored modified-editor line. Keyed so the reconcile effect can add/remove
-// exactly the zones that changed as comments come and go.
-type DynamicDescriptor = { kind: 'thread'; comment: ReviewComment } | { kind: 'composer'; line: number }
+// exactly the zones that changed as comments come and go. The composer carries the
+// full anchor (side + line) so it can open on a removed line, not just an added one.
+type DynamicDescriptor = { kind: 'thread'; comment: ReviewComment } | { kind: 'composer'; anchor: ReviewAnchor }
 interface DynamicZone {
   key: string
   afterLineNumber: number
@@ -100,10 +108,9 @@ export function ReviewDiffEditor({
   const editorRef = useRef<DiffEditorInstance | null>(null)
   const hunksRef = useRef<MonacoNs.editor.ILineChange[]>([])
   const hunkIndexRef = useRef(0)
-  const commentDecorationsRef = useRef<string[]>([])
   const [zones, setZones] = useState<MountedZone[]>([])
   const [editorReady, setEditorReady] = useState(false)
-  const [composerLine, setComposerLine] = useState<number | null>(null)
+  const [composerAnchor, setComposerAnchor] = useState<ReviewAnchor | null>(null)
 
   const commentsEnabled = Boolean(onCreateComment)
 
@@ -179,63 +186,12 @@ export function ReviewDiffEditor({
 
   // The gutter "+" click routes here: open the inline composer when commenting is
   // wired, else fall back to the notify-only prop (the read-only harness). Held in
-  // a ref so the Monaco mouse handler, registered once at mount, sees the latest.
-  const requestCommentRef = useRef<(line: number) => void>(() => {})
-  requestCommentRef.current = (real: number) => {
-    if (commentsEnabled) setComposerLine(real)
-    else onRequestComment(file.path, real)
+  // a ref so the Monaco mouse handlers, registered once at mount, see the latest.
+  const requestCommentRef = useRef<(anchor: ReviewAnchor) => void>(() => {})
+  requestCommentRef.current = (anchor: ReviewAnchor) => {
+    if (commentsEnabled) setComposerAnchor(anchor)
+    else onRequestComment(file.path, anchor.startLine)
   }
-
-  // The comment gutter glyph tracks the hovered changed line; clicking it opens a
-  // composer under that line (or notifies the caller in the read-only harness).
-  const wireCommentGutter = useCallback(
-    (editor: DiffEditorInstance, monaco: Monaco) => {
-      const modified = editor.getModifiedEditor()
-      const addLines = new Set(
-        model.rows.filter((row) => row.kind === 'add' && row.modifiedEditorLine).map((row) => row.modifiedEditorLine as number),
-      )
-      const clear = () => {
-        commentDecorationsRef.current = modified.deltaDecorations(commentDecorationsRef.current, [])
-      }
-      modified.onMouseMove((event) => {
-        const line = event.target.position?.lineNumber
-        if (!line || !addLines.has(line)) {
-          clear()
-          return
-        }
-        commentDecorationsRef.current = modified.deltaDecorations(commentDecorationsRef.current, [
-          {
-            range: new monaco.Range(line, 1, line, 1),
-            options: { glyphMarginClassName: 'review-comment-glyph', glyphMarginHoverMessage: { value: 'Comment on this line' } },
-          },
-        ])
-      })
-      modified.onMouseLeave(() => clear())
-      modified.onMouseDown((event) => {
-        if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return
-        const line = event.target.position?.lineNumber
-        if (!line || !addLines.has(line)) return
-        const real = model.modifiedRealLines[line - 1]
-        if (real !== undefined) requestCommentRef.current(real)
-      })
-
-      // Keyboard route to the same composer, so leaving a comment is not mouse-only:
-      // a Monaco action (Cmd/Ctrl+Alt+C, and listed in the editor command palette)
-      // opens the composer at the cursor line when it is a commentable changed line.
-      modified.addAction({
-        id: 'review-comment-on-line',
-        label: 'Comment on this line',
-        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyC],
-        run: (ed) => {
-          const line = ed.getPosition()?.lineNumber
-          if (!line || !addLines.has(line)) return
-          const real = model.modifiedRealLines[line - 1]
-          if (real !== undefined) requestCommentRef.current(real)
-        },
-      })
-    },
-    [model],
-  )
 
   const mountZones = useCallback(
     (editor: DiffEditorInstance) => {
@@ -311,20 +267,21 @@ export function ReviewDiffEditor({
       if (afterLineNumber === null) continue // out of range: it still shows in the tray
       desired.push({ key: `thread:${comment.id}`, afterLineNumber, descriptor: { kind: 'thread', comment } })
     }
-    if (composerLine !== null) {
-      const afterLineNumber = editorLineForRealLine(model, 'new', composerLine)
+    if (composerAnchor !== null) {
+      const afterLineNumber = modifiedZoneLineForAnchor(model, composerAnchor)
       if (afterLineNumber !== null) {
-        desired.push({ key: 'composer', afterLineNumber, descriptor: { kind: 'composer', line: composerLine } })
+        desired.push({ key: 'composer', afterLineNumber, descriptor: { kind: 'composer', anchor: composerAnchor } })
       }
     }
 
     // Skip the Monaco reconcile when nothing that affects a zone changed. The
-    // signature folds in each thread's body + sync state so an edit still repaints.
+    // signature folds in each thread's body + sync state so an edit still repaints,
+    // and the composer's anchor so re-targeting it to another line repositions it.
     const signature = JSON.stringify(
       desired.map((entry) =>
         entry.descriptor.kind === 'thread'
           ? [entry.key, entry.afterLineNumber, entry.descriptor.comment.body, entry.descriptor.comment.sync.state]
-          : [entry.key, entry.afterLineNumber],
+          : [entry.key, entry.afterLineNumber, entry.descriptor.anchor.side, entry.descriptor.anchor.startLine],
       ),
     )
     if (!modelChanged && signature === zoneSigRef.current) return
@@ -362,14 +319,14 @@ export function ReviewDiffEditor({
       }
     })
     setDynamicZones([...current.values()])
-  }, [comments, composerLine, model, editorReady])
+  }, [comments, composerAnchor, model, editorReady])
 
   const handleMount = useCallback<DiffOnMount>(
     (editor, monaco) => {
       editorRef.current = editor
       applyLineNumbers(editor)
       applyHintDecorations(editor, monaco)
-      wireCommentGutter(editor, monaco)
+      wireCommentGutter(editor, monaco, model, (anchor) => requestCommentRef.current(anchor))
       editor.getModifiedEditor().onDidChangeModelContent(() => applyLineNumbers(editor))
       editor.onDidUpdateDiff(() => {
         hunksRef.current = editor.getLineChanges() ?? []
@@ -388,7 +345,7 @@ export function ReviewDiffEditor({
       })
       setEditorReady(true)
     },
-    [applyLineNumbers, applyHintDecorations, wireCommentGutter, revealHunk, mountZones, registerReveal, file.path, model],
+    [applyLineNumbers, applyHintDecorations, revealHunk, mountZones, registerReveal, file.path, model],
   )
 
   useEffect(() => {
@@ -457,17 +414,14 @@ export function ReviewDiffEditor({
             ) : (
               <CommentComposer
                 submitLabel="Add comment"
-                placeholder={`Comment on ${file.path} · L${descriptor.line}…`}
+                placeholder={`Comment on ${file.path}…`}
+                anchorLabel={composerAnchorLabel(descriptor.anchor)}
                 hint="Comments collect in Your review and post together."
                 onSubmit={(body) => {
-                  onCreateComment?.(
-                    file.path,
-                    { side: 'new', startLine: descriptor.line, endLine: descriptor.line },
-                    body,
-                  )
-                  setComposerLine(null)
+                  onCreateComment?.(file.path, descriptor.anchor, body)
+                  setComposerAnchor(null)
                 }}
-                onCancel={() => setComposerLine(null)}
+                onCancel={() => setComposerAnchor(null)}
               />
             )}
           </MeasuredZone>,

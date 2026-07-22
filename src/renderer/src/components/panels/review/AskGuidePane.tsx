@@ -2,7 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useCompanionAgent } from '../../../hooks/useCompanionAgent'
 import { PrimaryButton } from '../../ui/Buttons'
+import { KbdChord } from '../../ui/KbdChord'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { GuideChatThread } from './GuideChatThread'
+
+// The primary (submit) modifier named for the platform, matching the comment
+// composer's chord. Safe when window is absent (static render).
+const PRIMARY_KEY =
+  typeof window !== 'undefined' && window.api?.platform === 'darwin' ? 'Cmd' : 'Ctrl'
 
 // The guide companion the walkthrough was built from — one per workspace. Sending
 // binds to this same session (main-side attach is idempotent on this key), so the
@@ -82,24 +89,31 @@ export function AskGuidePane({ workspaceId, workspaceRoot, changedPaths, onJumpT
         </p>
       ) : null}
 
-      <div className="mt-2 flex items-end gap-2 border-t border-[color:var(--border-subtle)] pt-2.5">
-        <textarea
-          ref={inputRef}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              void send()
-            }
-          }}
-          placeholder="Ask about any line, step, or decision…"
-          rows={2}
-          className="min-h-[36px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)]"
-        />
-        <PrimaryButton onClick={() => void send()} disabled={!draft.trim() || sending} className="shrink-0">
-          {sending ? 'Sending…' : 'Send'}
-        </PrimaryButton>
+      <div className="mt-2 border-t border-[color:var(--border-subtle)] pt-2.5">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                void send()
+              }
+            }}
+            placeholder="Ask about any line, step, or decision…"
+            rows={2}
+            className={`min-h-[36px] flex-1 resize-none rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[12.5px] leading-5 text-[color:var(--text-strong)] focus:border-[color:var(--border-focus)] ${FOCUS_RING_CLASS}`}
+          />
+          <PrimaryButton onClick={() => void send()} disabled={!draft.trim() || sending} className="shrink-0">
+            {sending ? 'Sending…' : 'Send'}
+          </PrimaryButton>
+        </div>
+        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-[color:var(--text-subtle)]">
+          <KbdChord keys={[PRIMARY_KEY, 'Enter']} /> send
+          <span className="mx-1 text-[color:var(--text-disabled)]">·</span>
+          <KbdChord keys={['Shift', 'Enter']} /> new line
+        </p>
       </div>
     </div>
   )

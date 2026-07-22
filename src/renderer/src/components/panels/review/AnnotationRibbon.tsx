@@ -59,6 +59,17 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
           disabled={!expandable}
           className={`block w-full text-left text-[13px] leading-5 text-[color:var(--text-default)] ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
         >
+          {expandable ? (
+            <svg
+              viewBox="0 0 16 16"
+              className="icon-xs mr-1 inline-block shrink-0 align-[-1px] text-[color:var(--text-subtle)] transition-transform"
+              style={{ transform: open ? 'rotate(90deg)' : 'none' }}
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : null}
           <span className="font-medium text-[color:var(--text-strong)]">{annotation.title}</span>
           <span className="text-[color:var(--text-default)]"> — {annotation.summary}</span>
           <span className="ml-2 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">
