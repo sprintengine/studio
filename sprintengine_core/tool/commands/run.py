@@ -1294,12 +1294,13 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
     # which project to look in.
     orphaned = run_orphaned_dirty_paths(state, state_path)
     if orphaned:
+        orphan_list = ", ".join(f"{entry['repo']}: {entry['path']}" for entry in orphaned)
         return {
             "blocked": True,
             "orphanedByRepo": orphaned,
             "message": (
                 "All tasks are done but the run worktrees have changes owned by no task and uncommitted: "
-                f"{', '.join(f'{entry['repo']}: {entry['path']}' for entry in orphaned)}. These would be missing "
+                f"{orphan_list}. These would be missing "
                 "from a pull request. Add them to a task's ownedPaths and commit (`sprintengine vcs commit`), "
                 "or remove them, then complete again."
             ),
