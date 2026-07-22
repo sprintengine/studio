@@ -146,7 +146,11 @@ def _publish(fixture, *, produced: bool, phases=None):
             if phases is not None:
                 get_task(state, "T1")["phases"] = phases
             record = get_task(state, "T1")
-            return {"result": publish_task(state, fixture.state_path, record, "developer-1", "done it")}
+            return {"result": publish_task(
+                state, fixture.state_path, record, "developer-1", "done it",
+                # MC-1753: the analysis-only exit is explicit for default-phase tasks.
+                no_changes_ok=not produced,
+            )}
 
         return mutate(fixture, run)
     finally:
@@ -472,6 +476,8 @@ def _publish_args(state_path: Path, summary: str):
         summary_data_json = None
         actual_difficulty_pct = None
         actual_difficulty_reason = ""
+        # MC-1753: these fixtures publish analysis-only completions.
+        no_changes_ok = True
 
     Args.summary = summary
     return Args()

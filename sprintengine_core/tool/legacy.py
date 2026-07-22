@@ -696,6 +696,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
     p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this handoff.")
     p.add_argument("--summary-data-json", help="Structured implementation summary JSON object.")
+    p.add_argument(
+        "--no-changes-ok",
+        dest="no_changes_ok",
+        action="store_true",
+        default=False,
+        help=(
+            "Explicitly complete a task that produced NO committed changes (analysis/"
+            "verification-only deliverable). Without it, a no-changes publish is rejected — "
+            "silent no-op completions hide work stranded uncommitted or in the wrong tree."
+        ),
+    )
     add_implementer_difficulty_arguments(p)
     p.set_defaults(handler=task_commands.publish)
 

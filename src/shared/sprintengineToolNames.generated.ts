@@ -2042,6 +2042,10 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "summaryDataJson": {
           "type": "string"
         },
+        "noChangesOk": {
+          "type": "boolean",
+          "description": "Explicitly complete a task that produced NO committed changes (analysis/verification-only deliverable). Without it a no-changes publish is rejected."
+        },
         "actualDifficultyPct": {
           "type": "integer",
           "minimum": 0,

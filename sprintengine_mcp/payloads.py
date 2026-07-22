@@ -83,6 +83,7 @@ def command_payload_to_namespace(
             summary=payload["summary"],
             path=list(payload.get("path") or payload.get("file") or []),
             summary_data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("summaryDataJson"),
+            no_changes_ok=bool(payload.get("noChangesOk", False)),
         )
         add_implementer_difficulty_defaults(base, payload)
     elif tool_name == "sprintengine.task.advance":

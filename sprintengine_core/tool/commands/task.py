@@ -648,9 +648,20 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             getattr(args, "actual_difficulty_pct", None),
             getattr(args, "actual_difficulty_reason", "") or "",
         )
-        result = publish_task(state, args.state, task, str(actor), args.summary, paths=args.path or [], data=summary_data)
+        result = publish_task(
+            state, args.state, task, str(actor), args.summary,
+            paths=args.path or [], data=summary_data,
+            no_changes_ok=bool(getattr(args, "no_changes_ok", False)),
+        )
         recompute_phase(state)
-        event = append_event(state, "task_published", str(actor), f"{actor} published {args.task_id} to {result['nextStatus']}.")
+        # The analysis-only exit is loud everywhere it surfaces (MC-1753): the
+        # event says so, and a feedback row still lands so the metrics stream
+        # keeps one row per completed task.
+        no_changes_suffix = " (no changes — analysis-only)" if result.get("completionKind") == "no_changes" else ""
+        event = append_event(
+            state, "task_published", str(actor),
+            f"{actor} published {args.task_id} to {result['nextStatus']}{no_changes_suffix}.",
+        )
         continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor))
         # The owner is in-session and mid-tool-call: hand it the phase directive here
         # rather than pasting into its terminal. There is no third delivery channel
@@ -664,6 +675,41 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             if result["nextStatus"] != "done" and not awaiting
             else None
         )
+        # Post-commit leftover check (MC-1753): after the sweep, in-scope dirty
+        # paths anywhere mean a commit path failed — surface it loudly.
+        from sprintengine_core.tool.shell import _task_in_scope_dirty_paths, vcs_repos
+        leftover_dirty: List[str] = []
+        if get_run_vcs(state):
+            for repo in vcs_repos(get_run_vcs(state)):
+                for path in _task_in_scope_dirty_paths(state, args.state, task, repo):
+                    leftover_dirty.append(f"{repo.get('id')}:{path}")
+        no_changes_record = None
+        if result.get("completionKind") == "no_changes":
+            from pathlib import Path as _Path
+
+            from sprintengine_core.tool.constants import FEEDBACK_SCHEMA_VERSION
+            from sprintengine_core.tool.feedback import difficulty_snapshot, observed_task_metrics
+            team_slug = str(state.get("sprintengine", {}).get("name") or _Path(args.state).parent.name)
+            no_changes_record = {
+                "schema_version": FEEDBACK_SCHEMA_VERSION,
+                "run_id": team_slug,
+                "team_slug": team_slug,
+                "task_id": str(task.get("id") or args.task_id),
+                "agent_id": str(actor),
+                "role": str(task.get("role") or ""),
+                "task_title": task.get("title") or "",
+                "captured_at": now_iso(),
+                "source": "publish_no_changes",
+                "scores": {},
+                "counts": {},
+                "observed": observed_task_metrics(task),
+                "phase": "review",
+                "phase_outcome": "pass",
+                "no_changes": True,
+            }
+            difficulty = difficulty_snapshot(task)
+            if difficulty:
+                no_changes_record["difficulty"] = difficulty
         return {
             "ok": True,
             "task": task,
@@ -672,15 +718,29 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             "previousStatus": result["previousStatus"],
             "producedChanges": result["producedChanges"],
             "phases": result["phases"],
+            **({"completionKind": result["completionKind"]} if result.get("completionKind") else {}),
             **({"awaitingPhaseSession": awaiting} if awaiting else {}),
             **({"nextDirective": next_directive} if next_directive else {}),
+            **({
+                "warnings": [
+                    "In-scope changes remain uncommitted after publish "
+                    f"({', '.join(leftover_dirty[:10])}) — a commit path failed; "
+                    "run sprintengine vcs commit and investigate."
+                ],
+            } if leftover_dirty else {}),
             "committed": bool(commit_sha),
             "commitSha": commit_sha,
             "event": event,
+            "_noChangesFeedbackRecord": no_changes_record,
             **(continuation or {}),
         }
 
-    return with_locked_state(args.state, run)
+    result = with_locked_state(args.state, run)
+    feedback_record = result.pop("_noChangesFeedbackRecord", None)
+    if feedback_record:
+        result["feedbackRecorded"] = True
+        result["feedbackMetricsPath"] = append_feedback_record(args.state, feedback_record)
+    return result
 
 
 def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
