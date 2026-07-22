@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { GitBranchSnapshot, ReviewSourceInput, ReviewSourceProbe } from '../../../../../../shared/electron-api'
+import type {
+  GitBranchSnapshot,
+  ReviewMatchPrProjectResult,
+  ReviewSourceInput,
+  ReviewSourceProbe,
+} from '../../../../../../shared/electron-api'
 import { InlineNotice, Select } from '../../../ui'
 import { PrimaryButton, GhostButton } from '../../../ui/Buttons'
 import { SegmentedControl } from '../../../ui/SegmentedControl'
 import { StatusDot } from '../../../ui/StatusDot'
 import { ingestReviewChange, ReviewControllerError } from '../../newWorkspace/controllers/reviewController'
+import { controlDefaultRoot, looksLikePrUrl, resolvePrProject, type PrProjectControl } from './reviewController'
 
 // "Review a change" (MC-1708 T6, mockup §4): the Reviews-door entry point that
 // replaced the retired review-workspace creation flow. It ingests a change from a
@@ -45,6 +51,15 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
   const [projectRoot, setProjectRoot] = useState<string | null>(projectRoots[0] ?? null)
   const [sourceKind, setSourceKind] = useState<ReviewSourceInput['kind']>('pull-request')
   const [prUrl, setPrUrl] = useState('')
+  // PR tab is URL-first: the project is inferred from the URL's repository, not
+  // picked up front. `prControl` is the inferred project control; `prPickedRoot`
+  // is the reviewer's override within a picker (null → the control's default).
+  const [prControl, setPrControl] = useState<PrProjectControl>({ kind: 'hidden' })
+  const [prPickedRoot, setPrPickedRoot] = useState<string | null>(null)
+  // Per-form-open cache of match answers keyed by URL, so re-typing or reverting
+  // to an already-checked URL resolves instantly without another IPC round-trip.
+  // Invalidated when the set of open projects changes (matches depend on it).
+  const matchCacheRef = useRef<Map<string, ReviewMatchPrProjectResult>>(new Map())
   const [brBase, setBrBase] = useState('')
   const [brHead, setBrHead] = useState('')
   const [branches, setBranches] = useState<GitBranchSnapshot | null>(null)
@@ -98,6 +113,55 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
     }
   }, [sourceKind, projectRoot])
 
+  // A change to the open projects invalidates cached matches (they are computed
+  // against that exact set of roots).
+  useEffect(() => {
+    matchCacheRef.current.clear()
+  }, [projectRoots])
+
+  // Infer the storage project from the PR URL (MC-1787), debounced so typing is
+  // never blocked. A looks-like-a-PR gate keeps a half-typed URL from spending a
+  // match call or flashing the no-match picker; T9's IPC does the real matching.
+  useEffect(() => {
+    if (sourceKind !== 'pull-request') return
+    const url = prUrl.trim()
+    setPrPickedRoot(null)
+    if (!looksLikePrUrl(url)) {
+      setPrControl({ kind: 'hidden' })
+      return
+    }
+    const cached = matchCacheRef.current.get(url)
+    if (cached) {
+      setPrControl(resolvePrProject(cached, projectRoots))
+      return
+    }
+    let cancelled = false
+    const handle = window.setTimeout(() => {
+      if (cancelled) return
+      setPrControl({ kind: 'matching' })
+      void window.api
+        .reviewMatchPrProject(url, projectRoots)
+        .then((result) => {
+          matchCacheRef.current.set(url, result)
+          if (!cancelled) setPrControl(resolvePrProject(result, projectRoots))
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setPrControl(resolvePrProject({ ok: false, error: err instanceof Error ? err.message : String(err) }, projectRoots))
+          }
+        })
+    }, 350)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [sourceKind, prUrl, projectRoots])
+
+  // The project a review is stored in. Branch/patch keep the explicit top-of-form
+  // select; the PR tab uses the URL-inferred control (picker override, then default).
+  const prRoot = prPickedRoot ?? controlDefaultRoot(prControl)
+  const storageRoot = sourceKind === 'pull-request' ? prRoot : projectRoot
+
   // Live, debounced source probe (350ms) — the same cheap read the wizard used, so
   // "Start review" is only enabled once the source is confirmed reachable.
   useEffect(() => {
@@ -124,18 +188,18 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
     }
   }, [source])
 
-  const canStart = Boolean(projectRoot && source && probe.status === 'ok' && !starting)
+  const canStart = Boolean(storageRoot && source && probe.status === 'ok' && !starting)
 
   const start = async (): Promise<void> => {
-    if (!projectRoot || !source) return
+    if (!storageRoot || !source) return
     setStarting(true)
     setError(null)
     try {
       const reviewId = await ingestReviewChange(
-        { folderPath: projectRoot, source },
+        { folderPath: storageRoot, source },
         { ingestSource: (input, target) => window.api.reviewIngestSource(input, target) },
       )
-      onCreated({ reviewId, workspaceRoot: projectRoot })
+      onCreated({ reviewId, workspaceRoot: storageRoot })
     } catch (err) {
       setError(err instanceof ReviewControllerError || err instanceof Error ? err.message : String(err))
     } finally {
@@ -156,17 +220,22 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
       </header>
 
       <div className="max-w-xl space-y-4">
-        {projectItems.length > 0 ? (
-          <div>
-            <span className={LABEL}>Project</span>
-            <Select ariaLabel="Project to review in" items={projectItems} value={projectRoot} onChange={setProjectRoot} />
-            <p className={HELP}>Where the change lives. Branch and pull-request reads run against this repository.</p>
-          </div>
-        ) : (
-          <InlineNotice tone="warn" className="max-w-xl">
-            Open a project first — a review reads a change from one of your projects.
-          </InlineNotice>
-        )}
+        {/* Branch and patch reads run against a repository, so they keep the
+            explicit project select. The PR tab is URL-first — its project is
+            inferred from the URL below, never picked up front. */}
+        {sourceKind !== 'pull-request' ? (
+          projectItems.length > 0 ? (
+            <div>
+              <span className={LABEL}>Project</span>
+              <Select ariaLabel="Project to review in" items={projectItems} value={projectRoot} onChange={setProjectRoot} />
+              <p className={HELP}>Where the change lives. Branch reads run against this repository.</p>
+            </div>
+          ) : (
+            <InlineNotice tone="warn" className="max-w-xl">
+              Open a project first — a review reads a change from one of your projects.
+            </InlineNotice>
+          )
+        ) : null}
 
         <div>
           <span className={LABEL}>What are you reviewing?</span>
@@ -174,17 +243,20 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
         </div>
 
         {sourceKind === 'pull-request' ? (
-          <label className="block">
-            <span className={LABEL}>Pull request URL</span>
-            <input
-              type="text"
-              value={prUrl}
-              onChange={(event) => setPrUrl(event.target.value)}
-              placeholder="https://github.com/owner/repo/pull/123"
-              className={INPUT}
-            />
-            <span className={HELP}>A github.com or GitHub Enterprise pull request. Private hosts use your saved token.</span>
-          </label>
+          <>
+            <label className="block">
+              <span className={LABEL}>Pull request URL</span>
+              <input
+                type="text"
+                value={prUrl}
+                onChange={(event) => setPrUrl(event.target.value)}
+                placeholder="https://github.com/owner/repo/pull/123"
+                className={INPUT}
+              />
+              <span className={HELP}>A github.com or GitHub Enterprise pull request. Private hosts use your saved token.</span>
+            </label>
+            <PrProjectField control={prControl} selectedRoot={prRoot} onSelect={setPrPickedRoot} />
+          </>
         ) : null}
 
         {sourceKind === 'branch' ? (
@@ -261,6 +333,67 @@ export function ReviewChangeForm({ projectRoots, onCreated, onCancel }: ReviewCh
       </div>
     </div>
   )
+}
+
+// The URL-first project control for the PR tab (MC-1787): the storage project is
+// inferred from the pull request's repository, so this renders per match count
+// rather than as an up-front picker.
+//   hidden      → the URL is not a PR link yet; nothing to show.
+//   matching    → the match check is running.
+//   confirmed   → exactly one project matches; a quiet confirmation line, not a
+//                 control the reviewer has to touch.
+//   choose      → several checkouts (only those), no match (any open project), or
+//                 a failed check (any open project) — a compact picker + one line.
+//   no-projects → nothing is open, so there is nowhere to store the review.
+function PrProjectField({
+  control,
+  selectedRoot,
+  onSelect,
+}: {
+  control: PrProjectControl
+  selectedRoot: string | null
+  onSelect: (root: string) => void
+}): JSX.Element | null {
+  if (control.kind === 'hidden') return null
+  if (control.kind === 'matching') {
+    // Static dot, not a pulse — the probe card below owns the one "alive" motion
+    // treatment while a source is being read; two pulses at once would compete.
+    return (
+      <p className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+        <StatusDot tone="neutral" />
+        Finding the matching project…
+      </p>
+    )
+  }
+  if (control.kind === 'no-projects') {
+    return (
+      <InlineNotice tone="warn" className="max-w-xl">
+        Open a project first — a review is stored inside one of your open projects.
+      </InlineNotice>
+    )
+  }
+  if (control.kind === 'confirmed') {
+    return (
+      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        Stored in <span className="font-medium text-[color:var(--text-default)]">{projectLabel(control.root)}</span> — the open
+        project that matches this pull request.
+      </p>
+    )
+  }
+  const items = control.roots.map((root) => ({ value: root, label: projectLabel(root) }))
+  return (
+    <div>
+      <span className={LABEL}>Store the review in</span>
+      <Select ariaLabel="Project to store the review in" items={items} value={selectedRoot} onChange={onSelect} />
+      <p className={HELP}>{CHOOSE_HELP[control.reason]}</p>
+    </div>
+  )
+}
+
+const CHOOSE_HELP: Record<'many' | 'none' | 'error', string> = {
+  many: 'Several open projects are checkouts of this repository — pick which one keeps the review.',
+  none: 'No open project matches this pull request. Pick where to keep the review — the walkthrough still reads the change from the pull request itself.',
+  error: 'Could not check which project matches this pull request. Pick where to keep the review.',
 }
 
 // The live probe result, styled as the wizard's detection card: quiet while idle,
