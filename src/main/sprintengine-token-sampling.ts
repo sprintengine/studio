@@ -59,9 +59,20 @@ function sprintTokenLedgerKey(session: SprintSessionIdentity):
 // so the record lands in THIS run's ledger too. Appending per capture (not
 // upserting) is what survives resumes: every id an agent ever used stays in
 // the ledger and sums; the reader folds repeats.
+//
+// MC-1755: the two capture points fire within milliseconds for the same
+// identity, which wrote every session row twice. An identical identity is
+// appended once per app process — a NEW cliSessionId (resume, respawn) still
+// appends, and an app restart re-appending an already-known identity is
+// harmless because the reader folds repeats.
+const recordedSessionIdentities = new Set<string>()
+
 export function recordSprintSessionForTokenLedger(session: SprintSessionIdentity): void {
   const key = sprintTokenLedgerKey(session)
   if (!key) return
+  const identity = `${key.statePath}|${key.agentId}|${key.cli}|${key.cliSessionId}`
+  if (recordedSessionIdentities.has(identity)) return
+  recordedSessionIdentities.add(identity)
   void appendTokenLedgerRecord(key.statePath, {
     kind: 'session',
     agentId: key.agentId,

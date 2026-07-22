@@ -1032,10 +1032,19 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
             dirty = git_status_short(worktree)
         orphaned = worktree_orphaned_dirty_paths(state, args.state, repo)
         recompute_phase(state)
+        # The no-op result stays ok:true (committed:false is the contract), but
+        # the message is impossible to misread as a landed commit and names the
+        # tree that was checked — an agent working the wrong repo worktree sees
+        # WHY its commit was empty (MC-1755; the T11 agent read a bare success).
         base_message = (
             f"Committed task {args.task_id} changes as {sha}."
             if sha
-            else f"No in-scope changes to commit for task {args.task_id}."
+            else (
+                f"NO-OP: no in-scope changes to commit for task {args.task_id} "
+                f"(checked worktree: {repo['worktreePath']}). Nothing was committed — "
+                "if you did change files, check you are working in this task's repo "
+                "worktree and that the paths are inside its ownedPaths."
+            )
         )
         if orphaned:
             base_message += (
