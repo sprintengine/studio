@@ -3,12 +3,16 @@ import ReactDOM from 'react-dom/client'
 import './assets/index.css'
 import { ConfirmDialogProvider } from './components/ui'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
-import DiagnosticsWindowApp from './components/diagnostics/DiagnosticsWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
 import { runBundledSpecialistPackMigration } from './utils/bundledSpecialistPackMigration'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
+
+// The diagnostics window's content (process/IPC/memory panels + report
+// formatter) is heavy and only mounts in the `?view=diagnostics` window, so keep
+// it out of the eager boot chunk and fetch it when that window opens.
+const DiagnosticsWindowApp = React.lazy(() => import('./components/diagnostics/DiagnosticsWindowApp'))
 
 bindElectronClipboardPasteBridge()
 
@@ -85,7 +89,9 @@ const auxWindowKind = searchParams.get('aux')
 if (isDiagnosticsWindow) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <ConfirmDialogProvider>
-      <DiagnosticsWindowApp />
+      <React.Suspense fallback={null}>
+        <DiagnosticsWindowApp />
+      </React.Suspense>
     </ConfirmDialogProvider>
   )
 } else if (auxWindowKind) {

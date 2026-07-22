@@ -2,9 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
-import CommandPalette from '../CommandPalette'
-import DiagnosticsOverlay from '../diagnostics/DiagnosticsOverlay'
-import { TipStartupModal } from '../learn/TipStartupModal'
 import OnboardingFlow from '../onboarding/OnboardingFlow'
 import { planDeferredAdoption } from '../onboarding/agentConfigAdoption'
 import SettingsOverlay from '../settings/SettingsOverlay'
@@ -93,7 +90,6 @@ import SprintEnginePullRequestPollSupervisor from './SprintEnginePullRequestPoll
 import AutomationsRunSupervisor from '../automations/AutomationsRunSupervisor'
 import WorkspaceLayout from './WorkspaceLayout'
 import WorkspaceSidebar from './WorkspaceSidebar'
-import SprintEnginesAside from './SprintEnginesAside'
 import { beginSidebarTransition } from '../../utils/sidebarTransition'
 import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
@@ -161,6 +157,17 @@ const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
 // while its store overlay is open, so its catalog reads never run on boot. Opened
 // via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
 const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
+
+// On-demand overlays kept off the eager boot chunk: each mounts only when the
+// user reaches for it (Cmd-K palette, the diagnostics overlay, the startup-tip
+// modal, the Sprint Engines aside), so its subtree — and the diagnostics report
+// formatter / learning catalog it pulls — is fetched at open time, not at boot.
+const CommandPalette = React.lazy(() => import('../CommandPalette'))
+const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
+const TipStartupModal = React.lazy(() =>
+  import('../learn/TipStartupModal').then((m) => ({ default: m.TipStartupModal })),
+)
+const SprintEnginesAside = React.lazy(() => import('./SprintEnginesAside'))
 
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
@@ -3179,15 +3186,17 @@ export default function WorkspaceManager() {
       </div>
       </div>
       {showSprintEnginesAside ? (
-        <SprintEnginesAside
-          activeWorkspaceId={windowActiveWorkspaceId}
-          windowWorkspaceIds={visibleWorkspaceIdSet}
-          onSelectWorkspace={(id) => {
-            setShowNewWorkspacePanel(false)
-            setActiveWorkspaceForWindow(workspaceWindowId, id)
-          }}
-          onClose={() => setSprintEnginesAsideOpen(false)}
-        />
+        <React.Suspense fallback={null}>
+          <SprintEnginesAside
+            activeWorkspaceId={windowActiveWorkspaceId}
+            windowWorkspaceIds={visibleWorkspaceIdSet}
+            onSelectWorkspace={(id) => {
+              setShowNewWorkspacePanel(false)
+              setActiveWorkspaceForWindow(workspaceWindowId, id)
+            }}
+            onClose={() => setSprintEnginesAsideOpen(false)}
+          />
+        </React.Suspense>
       ) : null}
       </div>
       </div>
@@ -3201,36 +3210,46 @@ export default function WorkspaceManager() {
       ) : null}
       </div>
 
-      {diagnosticsOpen && <DiagnosticsOverlay onClose={() => setDiagnosticsOpen(false)} />}
-
-      {showPalette && (
-        <CommandPalette
-          onClose={() => setShowPalette(false)}
-          onNewWorkspace={openNewWorkspacePanel}
-          onNewChat={() => createLauncherChat()}
-          onConnectRailway={() => { openNewChatPanel(undefined, { id: 'railway', name: 'Railway' }) }}
-          onSpawnSpecialist={handleSelectSpecialist}
-          workspaceWindowId={workspaceWindowId}
-          workspaces={visibleWorkspaces}
-          activeWorkspaceId={windowActiveWorkspaceId}
-          activeScopes={activeCommandScopes}
-          commandAvailability={commandAvailability}
-        />
+      {diagnosticsOpen && (
+        <React.Suspense fallback={null}>
+          <DiagnosticsOverlay onClose={() => setDiagnosticsOpen(false)} />
+        </React.Suspense>
       )}
 
-      <TipStartupModal
-        open={tipModalOpen && onboardingStep === 'complete'}
-        context={learningContext}
-        onClose={() => setTipModalOpen(false)}
-        onOpenLearnCenter={() => {
-          setTipModalOpen(false)
-          openLearnCenter()
-        }}
-        onSettingsTab={(tabId) => {
-          setTipModalOpen(false)
-          openSettings(false, tabId)
-        }}
-      />
+      {showPalette && (
+        <React.Suspense fallback={null}>
+          <CommandPalette
+            onClose={() => setShowPalette(false)}
+            onNewWorkspace={openNewWorkspacePanel}
+            onNewChat={() => createLauncherChat()}
+            onConnectRailway={() => { openNewChatPanel(undefined, { id: 'railway', name: 'Railway' }) }}
+            onSpawnSpecialist={handleSelectSpecialist}
+            workspaceWindowId={workspaceWindowId}
+            workspaces={visibleWorkspaces}
+            activeWorkspaceId={windowActiveWorkspaceId}
+            activeScopes={activeCommandScopes}
+            commandAvailability={commandAvailability}
+          />
+        </React.Suspense>
+      )}
+
+      {tipModalOpen && onboardingStep === 'complete' && (
+        <React.Suspense fallback={null}>
+          <TipStartupModal
+            open
+            context={learningContext}
+            onClose={() => setTipModalOpen(false)}
+            onOpenLearnCenter={() => {
+              setTipModalOpen(false)
+              openLearnCenter()
+            }}
+            onSettingsTab={(tabId) => {
+              setTipModalOpen(false)
+              openSettings(false, tabId)
+            }}
+          />
+        </React.Suspense>
+      )}
     </div>
   )
 }
