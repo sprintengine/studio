@@ -54,11 +54,13 @@ from sprintengine_core.tool.state import (
     apply_roster_source,
     run_required_sweeps,
     configured_role_set,
+    declared_repo_ids,
     end_lease,
     ensure_role_in_roster,
     find_task,
     load_mutation_state,
     reconcile_worker,
+    refuse_if_run_canceled,
     release_expired_agent_targets,
     roster_is_configured,
     run_is_canceled,
@@ -300,6 +302,15 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             "A sprint can only span more than one project when each project gets its own run worktree. "
             "Add --use-worktrees true, or drop --repo."
         )
+    if getattr(args, "base_start_point", None) and not getattr(args, "use_worktrees", False):
+        # The start point only names where the run branch and worktree begin, so it
+        # is meaningless without worktrees. Its help text already says it requires
+        # --use-worktrees; silently ignoring it (the old behavior) let a caller
+        # believe a custom start point took effect. Refuse, as --repo does.
+        raise SystemExit(
+            "--base-start-point only applies when the sprint uses worktrees. "
+            "Add --use-worktrees true, or drop --base-start-point."
+        )
     requested_name = (getattr(args, "name", None) or "").strip()
     default_name = requested_name or default_swarm_name_for_state(state_path)
     initial_state: Optional[Dict[str, Any]] = None
@@ -366,6 +377,20 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 repos=declared_repos,
                 start_point=getattr(args, "base_start_point", None),
             )
+        elif declared_repos and get_run_vcs(state):
+            # A second init cannot grow the run's project set: repos are fixed at
+            # creation and the worktrees, locks, and branches are already built
+            # around the declared list. The old code silently dropped these new
+            # entries once a vcs block existed. Refuse when they name a project the
+            # run does not already declare; a re-declaration of the same projects is
+            # an idempotent no-op and still succeeds.
+            existing_ids = set(declared_repo_ids(state))
+            undeclared = [repo["id"] for repo in declared_repos if repo["id"] not in existing_ids]
+            if undeclared:
+                raise SystemExit(
+                    "This sprint's projects are fixed at creation and its worktrees already exist. "
+                    f"Cannot add {', '.join(undeclared)} now. Re-run without --repo, or create a new sprint."
+                )
         has_product_plan_source = state_has_source_kind(state, "product_plan")
         has_architect_plan_source = state_has_source_kind(state, "architect_plan")
         # An epic root source (reference-based backlog epic launch) is a plan
@@ -795,6 +820,20 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         return bool(tasks) and all(task.get("status") in {"done", "canceled"} for task in tasks)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        # A canceled run is terminal: report it as canceled so the agent (and the
+        # watch loop) stops, rather than reading "No tasks are currently ready" as
+        # a transient idle and continuing to poll. Reported before roster/lease
+        # reconciliation so a canceled run does no dispatch bookkeeping.
+        if run_is_canceled(state):
+            return {
+                "ok": True,
+                "role": args.role,
+                "agentId": args.id,
+                "action": "canceled",
+                "runner": runner_policy(state),
+                "message": "This Sprint Engine run was canceled. Stop; no work will be dispatched.",
+                "write": False,
+            }
         ensure_role_in_roster(state, args.role)
         expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
         runtime = reconcile_worker(state, args.id, args.role)
@@ -1012,6 +1051,9 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
     )
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        # A canceled run must not land any further commit on its branch, even a
+        # manual one (see refuse_if_run_canceled).
+        refuse_if_run_canceled(state, "vcs.commit")
         vcs = get_run_vcs(state)
         if not vcs:
             raise SystemExit("Sprint Engine run is not in worktree mode; nothing to commit.")
@@ -1066,10 +1108,13 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
     Reuses init's own provisioning path verbatim — `_declared_sibling_entries`
     (which runs the T5 blast-radius gate) to build the entry and
     `_ensure_repo_worktree` to create or adopt its tree — then appends the entry to
-    `vcs.repos`. Provision-then-append happens in one locked section, so a task that
-    targets the repo after this returns always finds a tree (the D4 ordering
-    contract). Re-issuing for an already-declared project adopts its existing tree
-    and returns success rather than a duplicate-id error (D5 idempotency).
+    `vcs.repos`. The tree is provisioned OUTSIDE the run mutation lock (git worktree
+    add / fetch is the slow part, and must not stall a concurrent task.next /
+    vcs.commit); the lock is taken only to append the resolved entry after re-checking
+    for a concurrent declaration (T7 / backlog 1724). Provision-then-append order still
+    holds, so a task that targets the repo after this returns always finds a tree (the
+    D4 ordering contract). Re-issuing for an already-declared project adopts its
+    existing tree and returns success rather than a duplicate-id error (D5 idempotency).
     """
     from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
     from sprintengine_core.tool.shell import (
@@ -1079,54 +1124,70 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
         vcs_repos,
     )
 
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        vcs = get_run_vcs(state)
-        if not vcs:
-            raise SystemExit(
-                "This sprint is not in worktree mode, so it cannot bring in another project. "
-                "Only worktree-mode runs can expand; a single-repo run has no second tree to add."
-            )
-        raw_root = str(getattr(args, "root", None) or "").strip()
-        if not raw_root:
-            raise SystemExit("request_repo needs --root <path to the project to bring in>.")
-        repo_id = _requested_repo_id(getattr(args, "repo_id", None), raw_root)
+    snapshot = load_mutation_state(args.state)
+    vcs = get_run_vcs(snapshot)
+    if not vcs:
+        raise SystemExit(
+            "This sprint is not in worktree mode, so it cannot bring in another project. "
+            "Only worktree-mode runs can expand; a single-repo run has no second tree to add."
+        )
+    raw_root = str(getattr(args, "root", None) or "").strip()
+    if not raw_root:
+        raise SystemExit("request_repo needs --root <path to the project to bring in>.")
+    repo_id = _requested_repo_id(getattr(args, "repo_id", None), raw_root)
 
-        workspace_root = workspace_root_for_state_path(args.state)
+    workspace_root = workspace_root_for_state_path(args.state)
+    snapshot_repos = vcs_repos(vcs)
+    branch = str(snapshot_repos[0].get("branchName") or "").strip()
+
+    # Build the candidate entry through init's own path — this runs the T5 gate
+    # (`_declared_sibling_root`) and spells the entry shape in one place.
+    [candidate] = _declared_sibling_entries(
+        workspace_root, args.state, [{"id": repo_id, "root": raw_root}], branch=branch
+    )
+    candidate_root = resolve_vcs_path(workspace_root, candidate["root"]).resolve()
+
+    def is_same_project(entry: Dict[str, Any]) -> bool:
+        return resolve_vcs_path(workspace_root, str(entry.get("root") or "")).resolve() == candidate_root
+
+    # A same-id-different-path collision is a caller mistake, not a race: fail fast on
+    # the snapshot rather than provisioning a tree only to reject it.
+    for stored in snapshot_repos:
+        if str(stored.get("id") or "").strip() == repo_id and not is_same_project(stored):
+            raise SystemExit(
+                f"This sprint already works in a project named {repo_id!r} at a different path. "
+                f"Pick a different --repo name for {raw_root}."
+            )
+
+    # Create or adopt the tree at the candidate's deterministic worktree path, outside
+    # the lock. Idempotent: a re-issue (or a prior attempt that failed mid-provision)
+    # adopts the existing tree.
+    _ensure_repo_worktree(workspace_root, candidate)
+
+    def append_entry(state: Dict[str, Any]) -> Dict[str, Any]:
+        vcs = get_run_vcs(state)
         # Materialize the list shape before appending so a pre-`repos` store keeps its
         # primary as entry zero instead of being replaced by the sibling alone.
         raw_repos = vcs.get("repos")
         if not isinstance(raw_repos, list) or not raw_repos:
             raw_repos = vcs_repos(vcs)
             vcs["repos"] = raw_repos
-        branch = str(raw_repos[0].get("branchName") or "").strip()
-
-        # Build the candidate entry through init's own path — this runs the T5 gate
-        # (`_declared_sibling_root`) and spells the entry shape in one place.
-        [candidate] = _declared_sibling_entries(
-            workspace_root, args.state, [{"id": repo_id, "root": raw_root}], branch=branch
-        )
-        candidate_root = resolve_vcs_path(workspace_root, candidate["root"]).resolve()
-
         for stored in raw_repos:
             if not isinstance(stored, dict):
                 continue
-            if resolve_vcs_path(workspace_root, str(stored.get("root") or "")).resolve() == candidate_root:
-                # Same project already declared (a retry or a re-issue): adopt its
-                # tree — create it if a prior attempt failed mid-provision — and
-                # return success rather than a duplicate.
-                _ensure_repo_worktree(workspace_root, stored)
+            if is_same_project(stored):
+                # Already declared (a retry, or a request that raced this one): adopt
+                # its stored entry and return success rather than a duplicate.
                 return _vcs_request_repo_result(state, args, stored, adopted=True)
             if str(stored.get("id") or "").strip() == repo_id:
                 raise SystemExit(
                     f"This sprint already works in a project named {repo_id!r} at a different path. "
                     f"Pick a different --repo name for {raw_root}."
                 )
-
-        _ensure_repo_worktree(workspace_root, candidate)
         raw_repos.append(candidate)
         return _vcs_request_repo_result(state, args, candidate, adopted=False)
 
-    return with_locked_state(args.state, run)
+    return with_locked_state(args.state, append_entry)
 
 
 def _requested_repo_id(explicit: Optional[str], raw_root: str) -> str:
@@ -1173,63 +1234,89 @@ def _vcs_request_repo_result(
 
 
 def cmd_vcs_pr(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import create_run_pull_request
+    from sprintengine_core.tool.shell import create_run_pull_request, persist_resolved_vcs, repo_field_baseline
 
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        result = create_run_pull_request(
-            state,
-            args.state,
-            base=getattr(args, "base", None),
-            title=getattr(args, "title", None),
-            body=getattr(args, "body", None),
-            draft=bool(getattr(args, "draft", False)),
-            push=not bool(getattr(args, "no_push", False)),
-        )
+    # Push branches and open pull requests OUTSIDE the run mutation lock: a slow remote
+    # must not stall a concurrent task.next / vcs.commit waiting on the same lock. The
+    # lock is taken only afterwards, to persist what the network phase resolved onto
+    # freshly-loaded state (T7 / backlog 1724).
+    snapshot = load_mutation_state(args.state)
+    baseline = repo_field_baseline(snapshot)
+    since = len(snapshot.get("events") or [])
+    result = create_run_pull_request(
+        snapshot,
+        args.state,
+        base=getattr(args, "base", None),
+        title=getattr(args, "title", None),
+        body=getattr(args, "body", None),
+        draft=bool(getattr(args, "draft", False)),
+        push=not bool(getattr(args, "no_push", False)),
+    )
+
+    def write_result(state: Dict[str, Any]) -> Dict[str, Any]:
+        persist_resolved_vcs(state, snapshot, baseline=baseline, since_event_index=since)
         return {"action": "vcs_pr", **result}
 
-    return with_locked_state(args.state, run)
+    return with_locked_state(args.state, write_result)
 
 
 def cmd_vcs_pr_merge(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import merge_repo_pull_request
+    from sprintengine_core.tool.shell import merge_repo_pull_request, persist_resolved_vcs, repo_field_baseline
 
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        result = merge_repo_pull_request(
-            state,
-            args.state,
-            repo_id=str(getattr(args, "repo", None) or "primary").strip() or "primary",
-            method=str(getattr(args, "method", None) or "merge"),
-            actor=str(getattr(args, "id", None) or "user"),
-        )
+    # Probe/merge/cleanup run outside the lock; only the resolved state is written under
+    # it (T7 / backlog 1724).
+    snapshot = load_mutation_state(args.state)
+    baseline = repo_field_baseline(snapshot)
+    since = len(snapshot.get("events") or [])
+    result = merge_repo_pull_request(
+        snapshot,
+        args.state,
+        repo_id=str(getattr(args, "repo", None) or "primary").strip() or "primary",
+        method=str(getattr(args, "method", None) or "merge"),
+        actor=str(getattr(args, "id", None) or "user"),
+    )
+
+    def write_result(state: Dict[str, Any]) -> Dict[str, Any]:
+        persist_resolved_vcs(state, snapshot, baseline=baseline, since_event_index=since)
         return {"action": "vcs_pr_merge", **result}
 
-    return with_locked_state(args.state, run)
+    return with_locked_state(args.state, write_result)
 
 
 def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
-    from sprintengine_core.tool.shell import cleanup_merged_worktree, refresh_run_pull_request_state
+    from sprintengine_core.tool.shell import (
+        cleanup_merged_worktree,
+        get_run_vcs,
+        persist_resolved_vcs,
+        refresh_run_pull_request_state,
+        repo_field_baseline,
+        vcs_repos,
+    )
 
-    def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        from sprintengine_core.tool.shell import get_run_vcs, vcs_repos
+    # The 30s poll's `gh pr view` / `git fetch` per project runs outside the lock; the
+    # lock is taken only to write refreshed states and worktree cleanup (T7 / 1724).
+    snapshot = load_mutation_state(args.state)
+    baseline = repo_field_baseline(snapshot)
+    since = len(snapshot.get("events") or [])
+    vcs = get_run_vcs(snapshot)
+    prior = {repo["id"]: repo.get("pullRequestState") for repo in vcs_repos(vcs)} if vcs else {}
+    result = refresh_run_pull_request_state(snapshot, args.state)
+    after = {entry["repo"]: entry["pullRequestState"] for entry in result.get("repos") or []}
+    changed = after != prior
+    # Auto-remove each project's worktree once ITS branch has merged (clean only).
+    if any(pr_state == "merged" for pr_state in after.values()):
+        cleanup = cleanup_merged_worktree(snapshot, args.state)
+        result["worktreeCleanup"] = cleanup
+        if any(entry.get("removed") for entry in cleanup.get("repos") or []):
+            changed = True
 
-        vcs = get_run_vcs(state)
-        prior = {repo["id"]: repo.get("pullRequestState") for repo in vcs_repos(vcs)} if vcs else {}
-        result = refresh_run_pull_request_state(state, args.state)
-        after = {entry["repo"]: entry["pullRequestState"] for entry in result.get("repos") or []}
-        changed = after != prior
-        # Auto-remove each project's worktree once ITS branch has merged (clean only).
-        if any(pr_state == "merged" for pr_state in after.values()):
-            cleanup = cleanup_merged_worktree(state, args.state)
-            result["worktreeCleanup"] = cleanup
-            if any(entry.get("removed") for entry in cleanup.get("repos") or []):
-                changed = True
-        # Avoid rewriting the projection (and re-rendering) when nothing changed —
-        # this command polls every 30s while the summary is open.
-        if not changed:
-            result["write"] = False
-        return {"action": "vcs_pr_status", **result}
+    def write_result(state: Dict[str, Any]) -> Dict[str, Any]:
+        persist_resolved_vcs(state, snapshot, baseline=baseline, since_event_index=since)
+        # Avoid rewriting the projection (and re-rendering) when nothing changed — this
+        # command polls every 30s while the summary is open.
+        return {"action": "vcs_pr_status", **result, **({} if changed else {"write": False})}
 
-    return with_locked_state(args.state, run)
+    return with_locked_state(args.state, write_result)
 
 
 def missing_required_sweeps(state: Dict[str, Any]) -> List[str]:

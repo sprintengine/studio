@@ -280,6 +280,60 @@ def set_repo_pull_request(
     _set_repo_field(vcs, repo_id, "pullRequestError", error)
 
 
+def repo_field_baseline(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """A per-repo copy of the vcs fields, taken before a network phase runs.
+
+    Paired with :func:`persist_resolved_vcs` to carry only what the network phase
+    actually changed onto freshly-loaded state, so a field an unrelated writer touched
+    concurrently is never overwritten with a stale value.
+    """
+    vcs = get_run_vcs(state)
+    return {repo["id"]: dict(repo) for repo in vcs_repos(vcs)} if vcs else {}
+
+
+def persist_resolved_vcs(
+    fresh: Dict[str, Any],
+    resolved: Dict[str, Any],
+    *,
+    baseline: Dict[str, Dict[str, Any]],
+    since_event_index: int,
+) -> None:
+    """Carry a network phase's resolved vcs outcome onto freshly-loaded run state.
+
+    The pull-request, merge, and pr-status handlers do their git and ``gh`` work
+    outside the run mutation lock, against a snapshot, then take the lock only to write
+    what they resolved (see the ``vcs_*`` handlers in ``commands/run.py``). Only the
+    fields the network phase actually changed from ``baseline`` are copied, and the
+    events it logged are re-appended onto the fresh events list — so a ``vcs.commit``
+    that raced the network phase on the same repo keeps its own ``lastCommitSha`` and
+    ``status`` rather than being clobbered by a stale snapshot value.
+    """
+    from sprintengine_core.tool.state import append_event
+
+    fresh_vcs = get_run_vcs(fresh)
+    resolved_vcs = get_run_vcs(resolved)
+    if fresh_vcs is not None and resolved_vcs is not None:
+        for resolved_repo in vcs_repos(resolved_vcs):
+            repo_id = resolved_repo["id"]
+            if _stored_repo(fresh_vcs, repo_id) is None:
+                continue
+            before = baseline.get(repo_id, {})
+            for key, value in resolved_repo.items():
+                if key != "id" and before.get(key) != value:
+                    _set_repo_field(fresh_vcs, repo_id, key, value)
+    for event in resolved.get("events", [])[since_event_index:]:
+        if not isinstance(event, dict):
+            continue
+        extra = {k: v for k, v in event.items() if k not in ("id", "timestamp", "type", "actor", "message")}
+        append_event(
+            fresh,
+            str(event.get("type") or ""),
+            str(event.get("actor") or "sprintengine"),
+            str(event.get("message") or ""),
+            extra or None,
+        )
+
+
 def parse_repo_declaration(value: str) -> Dict[str, str]:
     """One `--repo <id>=<path>` declaration, parsed but not yet resolved on disk.
 
@@ -1444,12 +1498,13 @@ def cleanup_merged_worktree(state: Dict[str, Any], state_path: Path) -> Dict[str
 VALID_MERGE_METHODS = {"merge", "squash", "rebase"}
 
 
-def _repos_that_must_merge_first(state: Dict[str, Any], repos: List[Dict[str, Any]], repo_id: str) -> List[str]:
-    """Every project this one's pull request has to wait for, in merge order.
+def _structural_merge_predecessors(state: Dict[str, Any], repos: List[Dict[str, Any]], repo_id: str) -> List[str]:
+    """Every project this one's work transitively builds on, from the task graph alone.
 
-    Transitive: mobile waiting on desktop waiting on shared means mobile waits for
-    shared too, even though no task of mobile's names one of shared's. A project that
-    delivered nothing (no pull request and no commits) is not in anyone's way.
+    Structural only: derived from cross-repo task edges, with no reference to any
+    project's current pull-request state. The merge command probes exactly this set
+    (plus the merging repo) rather than every project, so a single-repo merge — or a
+    merge of a project nothing else feeds — makes one `gh` probe, not one per project.
     """
     known = {repo["id"] for repo in repos}
     producers: Dict[str, List[str]] = {}
@@ -1464,7 +1519,17 @@ def _repos_that_must_merge_first(state: Dict[str, Any], repos: List[Dict[str, An
             if producer not in required:
                 required.append(producer)
                 pending.append(producer)
+    return required
 
+
+def _repos_that_must_merge_first(state: Dict[str, Any], repos: List[Dict[str, Any]], repo_id: str) -> List[str]:
+    """Every project this one's pull request has to wait for, in merge order.
+
+    Transitive: mobile waiting on desktop waiting on shared means mobile waits for
+    shared too, even though no task of mobile's names one of shared's. A project that
+    delivered nothing (no pull request and no commits) is not in anyone's way.
+    """
+    required = _structural_merge_predecessors(state, repos, repo_id)
     by_id = {repo["id"]: repo for repo in repos}
     unmerged = [
         candidate
@@ -1541,9 +1606,13 @@ def merge_repo_pull_request(
         }
 
     # Both decisions below — "is it already merged" and "may it merge yet" — are only as
-    # true as the states they read, so refresh every project first rather than trusting
-    # whatever the last poll happened to store.
+    # true as the states they read, so refresh before trusting the last poll. Only the
+    # merging repo and the projects it structurally builds on affect either decision, so
+    # probe exactly those: a solo merge costs one `gh` probe, not one per project.
+    to_probe = {repo_id, *_structural_merge_predecessors(state, repos, repo_id)}
     for entry in repos:
+        if entry["id"] not in to_probe:
+            continue
         entry["pullRequestState"] = _refresh_repo_pull_request_state(state_path, entry)
         _set_repo_field(vcs, entry["id"], "pullRequestState", entry["pullRequestState"])
     repo = next(entry for entry in repos if entry["id"] == repo_id)

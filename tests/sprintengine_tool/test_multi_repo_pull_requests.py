@@ -13,6 +13,7 @@ real pushes, real worktrees.
 """
 from __future__ import annotations
 
+import argparse
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,7 +21,10 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from helpers import SwarmCli, SwarmTeamFixture, base_state, read_state
+from sprintengine_core import store as folder_store
 from sprintengine_core.tool import shell
+from sprintengine_core.tool.commands import run as run_cmd
+from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -619,3 +623,117 @@ def test_repo_dependency_cycle_names_the_loop_it_found() -> None:
     cycle = shell.repo_dependency_cycle(tasks)
     assert cycle[0] == cycle[-1]
     assert set(cycle) == {"primary", "mobile", "auth"}
+
+
+# --- the network never runs under the run mutation lock (T7 / backlog 1724) ----
+#
+# A slow remote must not stall a concurrent task.next / vcs.commit that only wants the
+# run lock to record a state change. The `vcs.*` command handlers do their push / `gh`
+# / worktree work outside the lock and take it only to persist the resolved result.
+# These drive the real handlers in-process (the CLI runs a subprocess a fake `gh`
+# cannot reach) and assert the lock file is absent for every git and `gh` network call.
+
+
+def _guard_network_is_lock_free(monkeypatch, fixture: SwarmTeamFixture, fake: "FakeGh") -> Dict[str, int]:
+    """Wrap git/gh so each network call asserts the run mutation lock is not held.
+
+    FolderLock creates its file on acquire and unlinks it on release, so the file's
+    absence is exactly "no writer holds the run lock right now". Returns a live count of
+    the calls each guard saw, so a test can prove the guards actually ran.
+    """
+    lock_path = fixture.state_path.parent / folder_store.RUN_LOCK_FILE
+    real_git = shell.run_git_checked
+    seen = {"gh": 0, "git": 0}
+
+    def guard_gh(cwd: Path, args: List[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+        assert not lock_path.exists(), f"run mutation lock held during gh {tuple(args[:2])}"
+        seen["gh"] += 1
+        return fake(cwd, args, allow_failure=allow_failure)
+
+    def guard_git(cwd: Path, args: List[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+        assert not lock_path.exists(), f"run mutation lock held during git {tuple(args[:2])}"
+        seen["git"] += 1
+        return real_git(cwd, args, allow_failure=allow_failure)
+
+    monkeypatch.setattr(shell, "run_gh_checked", guard_gh)
+    monkeypatch.setattr(shell, "run_git_checked", guard_git)
+    return seen
+
+
+def test_cmd_vcs_pr_opens_pull_requests_without_holding_the_run_lock(tmp_path, monkeypatch) -> None:
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    seen = _guard_network_is_lock_free(monkeypatch, fixture, fake)
+
+    result = run_cmd.cmd_vcs_pr(argparse.Namespace(state=fixture.state_path))
+
+    assert result["ok"] is True
+    # Both a push (git) and a create (gh) happened, and every one saw a free lock.
+    assert seen["git"] > 0 and seen["gh"] > 0
+    # The resolved urls were still persisted — under the lock, after the network phase.
+    vcs = read_state(fixture.state_path)["sprintengine"]["vcs"]
+    assert vcs["pullRequestUrl"] == "https://github.com/acme/multicode/pull/1"
+    assert next(r for r in vcs["repos"] if r["id"] == "mobile")["pullRequestUrl"] == (
+        "https://github.com/acme/multicode-mobile/pull/9"
+    )
+
+
+def test_cmd_vcs_pr_status_probes_without_holding_the_run_lock(tmp_path, monkeypatch) -> None:
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    run_cmd.cmd_vcs_pr(argparse.Namespace(state=fixture.state_path))  # persist both PRs to disk
+    seen = _guard_network_is_lock_free(monkeypatch, fixture, fake)
+
+    result = run_cmd.cmd_vcs_pr_status(argparse.Namespace(state=fixture.state_path))
+
+    assert result["ok"] is True
+    assert seen["gh"] > 0 and seen["git"] > 0  # `gh pr view` + `git fetch`/ancestry per project
+
+
+def test_cmd_vcs_pr_merge_merges_without_holding_the_run_lock(tmp_path, monkeypatch) -> None:
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    run_cmd.cmd_vcs_pr(argparse.Namespace(state=fixture.state_path))
+    seen = _guard_network_is_lock_free(monkeypatch, fixture, fake)
+
+    result = run_cmd.cmd_vcs_pr_merge(
+        argparse.Namespace(state=fixture.state_path, repo="primary", method="merge", id="user")
+    )
+
+    assert result["ok"] is True and result["merged"] is True
+    assert seen["gh"] > 0  # probe + merge + re-probe, all lock-free
+    assert read_state(fixture.state_path)["sprintengine"]["vcs"]["pullRequestState"] == "merged"
+
+
+def test_cmd_vcs_request_repo_provisions_without_holding_the_run_lock(tmp_path, monkeypatch) -> None:
+    fixture = _two_project_run(tmp_path)
+    _init_git_repo(tmp_path / "multicode-extra", origin=tmp_path / "origin-extra.git")
+    fake = _fake_gh(monkeypatch, fixture)  # request_repo makes no gh calls; wrapped anyway
+    seen = _guard_network_is_lock_free(monkeypatch, fixture, fake)
+
+    result = run_cmd.cmd_vcs_request_repo(
+        argparse.Namespace(state=fixture.state_path, root="../multicode-extra", repo_id="extra", id="developer-1")
+    )
+
+    assert result["adopted"] is False
+    assert seen["git"] > 0  # `git worktree add` and friends, all lock-free
+    repos = read_state(fixture.state_path)["sprintengine"]["vcs"]["repos"]
+    assert any(r["id"] == "extra" for r in repos)
+    worktree = resolve_vcs_path(workspace_root_for_state_path(fixture.state_path), result["repo"]["worktreePath"])
+    assert worktree.exists()
+
+
+def test_merge_probes_only_the_merging_repo_and_its_predecessors(tmp_path, monkeypatch) -> None:
+    # AC2: the merge no longer probes every project. Primary has nothing feeding it, so
+    # merging it reads only its own pull request — never mobile's, which depends on it.
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    before = len(fake.calls)
+    merged = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="primary")
+    assert merged["ok"] is True
+
+    probed = {call["args"][2] for call in fake.calls[before:] if tuple(call["args"][:2]) == ("pr", "view")}
+    assert probed == {"https://github.com/acme/multicode/pull/1"}
