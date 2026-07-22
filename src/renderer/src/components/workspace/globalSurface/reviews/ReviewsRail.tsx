@@ -1,5 +1,4 @@
-import { StatusDot } from '../../../ui/StatusDot'
-import { FOCUS_RING_CLASS } from '../../../ui/tokens'
+import { SurfaceRail, type SurfaceRailRow } from '../surfaceSubstrate'
 import type { ReviewRailRow } from './reviewRailModel'
 
 // The Reviews-door rail (MC-1708 T6, mockup §4): every walkthrough in this
@@ -7,6 +6,11 @@ import type { ReviewRailRow } from './reviewRailModel'
 // a single status dot — then "Review a change" at the bottom, the entry point that
 // replaced the retired review-workspace creation flow. The rail is owned by the
 // surface (it lives inside GlobalSurfaceShell's rail slot), never the app sidebar.
+//
+// A thin adapter over the shared SurfaceRail (backlog 1731 / T20): the list
+// semantics and ↑/↓ + j/k keyboard navigation live once in the substrate. "Review
+// a change" is itself a selectable state here (the create flow), so it rides the
+// affordance's `selected` flag.
 
 export interface ReviewsRailProps {
   rows: ReviewRailRow[]
@@ -17,48 +21,20 @@ export interface ReviewsRailProps {
 }
 
 export function ReviewsRail({ rows, selectedReviewId, newSelected, onSelect, onNewReview }: ReviewsRailProps): JSX.Element {
+  const railRows: SurfaceRailRow[] = rows.map((row) => ({
+    id: row.reviewId,
+    title: row.title,
+    stateLine: row.stateLine,
+    tone: row.tone,
+    dotLabel: row.dotLabel,
+  }))
   return (
-    <>
-      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Reviews</div>
-      {rows.map((row) => {
-        const selected = !newSelected && row.reviewId === selectedReviewId
-        return (
-          <button
-            key={row.reviewId}
-            type="button"
-            aria-current={selected ? 'true' : undefined}
-            onClick={() => onSelect(row.reviewId)}
-            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
-              selected
-                ? 'bg-[color:var(--bg-selected)]'
-                : 'hover:bg-[color:var(--bg-hover)]'
-            }`}
-          >
-            <StatusDot tone={row.tone} size={7} label={row.dotLabel} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12px] font-medium text-[color:var(--text-strong)]">
-                {row.title}
-              </span>
-              <span className="block truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
-            </span>
-          </button>
-        )
-      })}
-      <button
-        type="button"
-        aria-current={newSelected ? 'true' : undefined}
-        onClick={onNewReview}
-        className={`mt-1.5 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
-          newSelected
-            ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-        }`}
-      >
-        <svg viewBox="0 0 16 16" className="icon-sm shrink-0" fill="none" aria-hidden="true">
-          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-        Review a change
-      </button>
-    </>
+    <SurfaceRail
+      label="Reviews"
+      rows={railRows}
+      selectedId={newSelected ? null : selectedReviewId}
+      onSelect={onSelect}
+      newAffordance={{ label: 'Review a change', selected: newSelected, onActivate: onNewReview }}
+    />
   )
 }

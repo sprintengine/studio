@@ -2,10 +2,10 @@ import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import { REVIEW_STATE_PRESENTATION } from '../../../../../../shared/review/review-state'
 import { GhostButton, PrimaryButton } from '../../../ui/Buttons'
 import { SegmentedControl } from '../../../ui/SegmentedControl'
-import { StatusDot } from '../../../ui/StatusDot'
 import { statsChip, sourceIdentity } from '../../../panels/review/reviewSelectors'
 import { hasPostedComments } from '../../../panels/review/commentModel'
 import type { GlobalSurfaceBar } from '../GlobalSurfaceShell'
+import { BarStatusChip } from '../surfaceSubstrate'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
 
 // The folded Reviews-door surface bar (MC-1708 T6, mockup §4). The walkthrough's
@@ -53,12 +53,7 @@ function ReviewStatusChip({ session, entry }: { session: ReviewSession; entry: R
       ? hasPostedComments(session.comments) && session.pendingComments === 0
       : entry !== null && entry.postedComments > 0 && entry.pendingComments === 0
   const state = REVIEW_STATE_PRESENTATION[posted ? 'posted' : 'in-progress']
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
-      <StatusDot tone={state.tone} label={state.label} />
-      {state.label}
-    </span>
-  )
+  return <BarStatusChip tone={state.tone} label={state.label} />
 }
 
 function ReviewBarActions({ session }: { session: ReviewSession }) {

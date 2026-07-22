@@ -6,10 +6,9 @@ import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
 import type { RunTargetRef } from '../../../automations/runTarget'
-import { GhostButton, InlineNotice, OverflowMenu, PointerPopover, PrimaryButton, SidePane, Spinner, useConfirmDialog } from '../../../ui'
+import { GhostButton, InlineNotice, OverflowMenu, PointerPopover, PrimaryButton, SidePane, useConfirmDialog } from '../../../ui'
 import type { OverflowMenuItem } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
-import { StatusDot } from '../../../ui/StatusDot'
 import { AutomationReportViewer } from '../../../automations/AutomationReportViewer'
 import { extractReportPaths } from '../../../automations/reportPaths'
 import { automationsDoorTarget } from '../../../automations/runTarget'
@@ -17,11 +16,12 @@ import { AutomationEditor } from '../../../panels/AutomationsPanel/AutomationEdi
 import { useAutomationsController } from '../../../panels/AutomationsPanel/useAutomationsController'
 import {
   cadenceSummary,
-  isEditableTarget,
   isEngineUnreachable,
   type EditorState,
 } from '../../../panels/AutomationsPanel/automationsFormat'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
+import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
+import { useSurfaceBackNav } from '../surfaceBackNav'
 import { AutomationsRail } from './AutomationsRail'
 import { AutomationSurfaceCanvas } from './AutomationSurfaceCanvas'
 import { SCHEDULER_OFF_NOTICE, automationRailState, enumerationProblemsNotice, projectLabel } from './railState'
@@ -42,9 +42,10 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const dialog = useConfirmDialog()
+  const back = useSurfaceBackNav()
 
   const {
-    entries, problems, definitions, providers, engineStatus,
+    entries, problems, providers, engineStatus,
     loadState, loadError, actionError, busyId,
     load, clearActionError, runNow, toggleStatus, remove, applySaved, rootForDefinition,
   } = useAutomationsController({ scope: 'instance' })
@@ -187,24 +188,6 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     setActiveWorkspace(workspaceId)
   }, [setActiveWorkspace])
 
-  const onRailKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (isEditableTarget(event.target) || orderedEntries.length === 0) return
-    const index = selectedId ? orderedEntries.findIndex((entry) => entry.definition.id === selectedId) : -1
-    if (event.key === 'j' || event.key === 'ArrowDown') {
-      event.preventDefault()
-      const next = orderedEntries[Math.min(index + 1, orderedEntries.length - 1)] ?? orderedEntries[0]
-      setSelectedId(next.definition.id)
-      setEditorTarget(null)
-      setFocusRunId(null)
-    } else if (event.key === 'k' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      const prev = orderedEntries[Math.max(index - 1, 0)] ?? orderedEntries[0]
-      setSelectedId(prev.definition.id)
-      setEditorTarget(null)
-      setFocusRunId(null)
-    }
-  }, [orderedEntries, selectedId])
-
   // ── Surface bar ────────────────────────────────────────────────────────────
   const bar = useMemo(() => {
     if (editorTarget) {
@@ -271,7 +254,6 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       selectedId={editorTarget ? null : selectedId}
       now={now}
       onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
-      onKeyDown={onRailKeyDown}
       onCreate={openChooser}
     />
   )
@@ -281,7 +263,14 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       ariaLabel="Automations"
       bar={bar}
       attention={attention}
-      rail={loadState === 'ready' && (entries.length > 0 || editorTarget) ? rail : undefined}
+      onBack={back.onBack}
+      canGoBack={back.canGoBack}
+      // The rail is present whenever there is something to navigate or create —
+      // and always on an error, so a failed load is never a dead end (T20). Only
+      // the pristine first load and the zero state own the full canvas alone.
+      rail={
+        loadState === 'error' || (loadState === 'ready' && (entries.length > 0 || editorTarget)) ? rail : undefined
+      }
     >
       <div className="flex h-full min-h-0">
         <div className="min-h-0 min-w-0 flex-1">
@@ -308,7 +297,6 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             onOpenAgent={onOpenAgent}
             onViewReport={(run) => { if (selectedEntry) setViewerRun({ run, workspaceRoot: selectedEntry.workspaceRoot }) }}
             onCreate={openChooser}
-            definitionsCount={definitions.length}
           />
         </div>
         {viewerRun ? (
@@ -350,7 +338,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   )
 }
 
-// The one status idiom in the bar: a toned dot with its label, never a pill.
+// The one status idiom in the bar: the shared BarStatusChip — a toned dot + label.
 function SurfaceStatus({ definition }: { definition: AutomationDefinition }): JSX.Element {
   const [tone, label] =
     definition.status === 'enabled'
@@ -358,19 +346,15 @@ function SurfaceStatus({ definition }: { definition: AutomationDefinition }): JS
       : definition.status === 'paused'
         ? (['neutral', 'Paused'] as const)
         : (['warn', 'Blocked'] as const)
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--text-default)]">
-      <StatusDot tone={tone} label={`Automation is ${label.toLowerCase()}`} />
-      {label}
-    </span>
-  )
+  return <BarStatusChip tone={tone} label={label} dotLabel={`Automation is ${label.toLowerCase()}`} />
 }
 
-// The canvas body: loading / error / empty / editor / selected. Split out so the
-// surface's return stays readable.
+// The canvas body: loading / error / empty / editor / selected — the four shared
+// states (SurfaceCanvasState) plus the editor. Split out so the surface's return
+// stays readable.
 function SurfaceBody({
   loadState, loadError, onRetry, hasEntries, editorTarget, providers, onEditorCancel, onEditorSaved,
-  selectedEntry, now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate, definitionsCount,
+  selectedEntry, now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate,
 }: {
   loadState: string
   loadError: string | null
@@ -387,7 +371,6 @@ function SurfaceBody({
   onOpenAgent: (workspaceId: string, agentId?: string) => void
   onViewReport: (run: AutomationRun) => void
   onCreate: (anchor: { x: number; y: number }) => void
-  definitionsCount: number
 }): JSX.Element {
   if (editorTarget) {
     return (
@@ -404,23 +387,38 @@ function SurfaceBody({
     )
   }
   if (loadState === 'loading' || loadState === 'idle') {
-    return (
-      <div className="flex h-full items-center justify-center gap-2 text-[12px] text-[color:var(--text-muted)]">
-        <Spinner size={14} label="Loading automations" /> Loading automations…
-      </div>
-    )
+    return <SurfaceCanvasState kind="loading" label="Loading automations…" />
   }
   if (loadState === 'error') {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="max-w-sm text-[13px] text-[color:var(--text-default)]">Automations could not be loaded.</p>
-        {loadError ? <p className="max-w-md text-[11px] leading-5 text-[color:var(--tone-error)]">{loadError}</p> : null}
-        <GhostButton onClick={onRetry}>Retry</GhostButton>
-      </div>
+      <SurfaceCanvasState
+        kind="error"
+        title="Couldn’t load your automations."
+        hint="This is usually temporary."
+        detail={loadError ?? undefined}
+        onRetry={onRetry}
+      />
     )
   }
   if (!hasEntries) {
-    return <ZeroState onCreate={onCreate} />
+    return (
+      <SurfaceCanvasState
+        kind="empty"
+        glyph={<AutomationsGlyph />}
+        title="No automations yet"
+        body="Automations run agents and tasks on a schedule — a nightly review, backlog triage — while Multicode is open."
+        action={
+          <PrimaryButton
+            onClick={(event) => {
+              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+              onCreate({ x: rect.left, y: rect.bottom })
+            }}
+          >
+            New automation
+          </PrimaryButton>
+        }
+      />
+    )
   }
   if (selectedEntry) {
     return (
@@ -434,31 +432,20 @@ function SurfaceBody({
       />
     )
   }
-  // Entries exist but none selected (transient) — keep the space calm.
+  // Entries exist but none selected — a one-render gap before the auto-select
+  // effect fires. A calm prompt, never a blank canvas.
   return (
     <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
-      {definitionsCount > 0 ? 'Select an automation to see its runs and setup.' : null}
+      Select an automation to see its runs and setup.
     </div>
   )
 }
 
-// Zero automations across every project: the CTA lives where the blank space is.
-function ZeroState({ onCreate }: { onCreate: (anchor: { x: number; y: number }) => void }): JSX.Element {
+function AutomationsGlyph(): JSX.Element {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">No automations yet</h3>
-      <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
-        Automations run agents and tasks on a schedule — a nightly review, backlog triage — while Multicode is open.
-      </p>
-      <PrimaryButton
-        className="mt-2"
-        onClick={(event) => {
-          const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-          onCreate({ x: rect.left, y: rect.bottom })
-        }}
-      >
-        New automation
-      </PrimaryButton>
-    </div>
+    <svg viewBox="0 0 16 16" fill="none" className="h-[18px] w-[18px]" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 5v3l2 1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }

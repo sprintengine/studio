@@ -22,12 +22,13 @@ import { useShallow } from 'zustand/react/shallow'
 import type { RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
 import { buildRoadmapRail, roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { GhostButton, PrimaryButton, Section, useConfirmDialog } from '../../ui'
+import { GhostButton, InlineNotice, PrimaryButton, Section, useConfirmDialog } from '../../ui'
 import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../../utils/backlogReveal'
-import { StatusDot } from '../../ui/StatusDot'
+import { BarStatusChip, SurfaceCanvasState } from './surfaceSubstrate'
+import { useSurfaceBackNav } from './surfaceBackNav'
 import {
   ACTIVE_ROADMAP_STATUSES,
   useRoadmapBoard,
@@ -57,6 +58,11 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const [busyBoard, setBusyBoard] = useState(false)
   const [creating, setCreating] = useState(false)
   const [activating, setActivating] = useState(false)
+  // A steering command (approve/merge/pause/skip/create/activate) that fails is a
+  // non-blocking error card at the top of the canvas, never a confirm-as-alert
+  // dialog that hijacks the surface (T20 / mockup: failures never block).
+  const [actionError, setActionError] = useState<string | null>(null)
+  const back = useSurfaceBackNav()
   // The roadmap file being planned in the in-surface cross-project planner, or
   // null when the steering board is showing. Planning happens here — no detour to
   // a single project's Backlog panel.
@@ -70,15 +76,13 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       setBusyLane(lane)
       try {
         const result = await action()
-        if (!result.ok && result.message) {
-          await dialog.confirm({ title: 'That action could not complete', body: result.message, confirmLabel: 'OK' })
-        }
+        if (!result.ok && result.message) setActionError(result.message)
       } finally {
         setBusyLane(null)
         reload()
       }
     },
-    [dialog, reload],
+    [reload],
   )
 
   // Roadmap-level pause/resume (mockup §2 surface bar): loops the SAME per-lane
@@ -92,7 +96,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         for (const lane of lanes) {
           const result = await action(lane)
           if (!result.ok && result.message) {
-            await dialog.confirm({ title: 'That action could not complete', body: result.message, confirmLabel: 'OK' })
+            setActionError(result.message)
             break
           }
         }
@@ -101,7 +105,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         reload()
       }
     },
-    [dialog, reload],
+    [reload],
   )
 
   const handlePauseRoadmap = useCallback(
@@ -178,13 +182,10 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       try {
         const result = await window.api.skipRoadmapStep({ ref: unit.ref, reason: reason.trim() })
         if (!result.ok) {
-          await dialog.confirm({
-            title: 'That step could not be skipped',
-            body:
-              result.message ??
+          setActionError(
+            result.message ??
               'This step was not found in the roadmap file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
-            confirmLabel: 'OK',
-          })
+          )
         }
       } finally {
         setBusyLane(null)
@@ -237,11 +238,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     const active = store.workspaces.find((w) => w.id === store.activeWorkspaceId)
     const projectRoot = homePath ?? active?.folderPath ?? store.workspaces[0]?.folderPath ?? null
     if (!projectRoot) {
-      await dialog.confirm({
-        title: 'Open a project first',
-        body: 'A roadmap orchestrates work across your projects. Open at least one project, then plan your roadmap.',
-        confirmLabel: 'OK',
-      })
+      setActionError('Open a project first. A roadmap lines up work across your projects, so it needs at least one open.')
       return
     }
     const projectName = basename(projectRoot)
@@ -265,11 +262,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       // project yet, adopts this one — no sequential renderer file IO to strand.
       const result = await window.api.createRoadmap({ projectRoot, name })
       if (!result.ok) {
-        await dialog.confirm({
-          title: 'Could not create the roadmap',
-          body: result.message,
-          confirmLabel: 'OK',
-        })
+        setActionError(result.message)
         return
       }
       reload()
@@ -305,11 +298,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         if (result.ok) {
           setSelectedRef(file.roadmapRef)
         } else {
-          await dialog.confirm({
-            title: 'Could not make this roadmap active',
-            body: result.message ?? 'The roadmap could not be made active.',
-            confirmLabel: 'OK',
-          })
+          setActionError(result.message ?? 'The roadmap could not be made active.')
         }
       } finally {
         setActivating(false)
@@ -394,53 +383,96 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     ) : undefined
 
   return (
-    <GlobalSurfaceShell ariaLabel="Roadmap" bar={bar} attention={attention} rail={hasRoadmaps ? rail : undefined}>
-      {!hasRoadmaps ? (
-        // A read failure with nothing loaded offers only the retry, never the
-        // creation pitch (which would risk a duplicate file).
-        error ? (
-          <RoadmapLoadError message={error} onRetry={reload} />
-        ) : (
-          <RoadmapEmptyState
-            loading={loading}
-            creating={creating}
-            projectCount={projectCount}
-            onCreate={() => void handleCreateRoadmap()}
-          />
-        )
-      ) : isActiveSelected ? (
-        // The active roadmap needs its runtime board; if that read failed (or is
-        // still loading), surface it here rather than mislabelling it a draft.
-        activeRoadmap ? (
-          <RoadmapTracks
-            roadmap={activeRoadmap}
-            homePath={homePath}
-            busyLane={busyLane}
-            laneRefs={laneRefs}
-            reload={reload}
-            onApprove={handleApprove}
-            onPause={handlePause}
-            onResume={handleResume}
-            onMerge={handleMerge}
-            onSkip={handleSkip}
-            onEditPlan={handleEditPlan}
-            onOpenRun={handleOpenRun}
-          />
-        ) : (
-          <RoadmapCanvasError message={error ?? 'This roadmap could not be loaded.'} onRetry={reload} />
-        )
-      ) : selectedFile ? (
-        // A draft has no runtime, so a transient orchestrator-state read failure
-        // never blanks it out.
-        <RoadmapDraftCanvas
-          file={selectedFile}
-          activating={activating}
-          onEditPlan={() => handleEditPlan(selectedFile.roadmapRef)}
-          onMakeActive={() => void handleMakeActive(selectedFile)}
-        />
-      ) : (
-        <RoadmapCanvasError message={error ?? 'This roadmap could not be loaded.'} onRetry={reload} />
-      )}
+    <GlobalSurfaceShell
+      ariaLabel="Roadmap"
+      bar={bar}
+      attention={attention}
+      rail={hasRoadmaps ? rail : undefined}
+      onBack={back.onBack}
+      canGoBack={back.canGoBack}
+    >
+      <div className="flex h-full min-h-0 flex-col">
+        {actionError ? (
+          <div className="shrink-0 px-6 pt-4">
+            <InlineNotice tone="error" action={<GhostButton onClick={() => setActionError(null)}>Dismiss</GhostButton>}>
+              {actionError}
+            </InlineNotice>
+          </div>
+        ) : null}
+        <div className="min-h-0 flex-1">
+          {!hasRoadmaps ? (
+            // A read failure with nothing loaded offers only the retry, never the
+            // creation pitch (which would risk a duplicate file).
+            error ? (
+              <SurfaceCanvasState
+                kind="error"
+                title="Couldn’t load your roadmap."
+                hint="This is usually temporary."
+                detail={error}
+                onRetry={reload}
+              />
+            ) : loading ? (
+              <SurfaceCanvasState kind="loading" label="Loading your roadmap…" />
+            ) : (
+              <SurfaceCanvasState
+                kind="empty"
+                glyph={<RoadmapDoorGlyph />}
+                title="No roadmap yet"
+                body={projectCount === 0 ? 'Open a project to plan a roadmap.' : undefined}
+                action={
+                  <PrimaryButton onClick={() => void handleCreateRoadmap()} disabled={creating}>
+                    {creating ? 'Creating…' : 'Plan your roadmap'}
+                  </PrimaryButton>
+                }
+              />
+            )
+          ) : isActiveSelected ? (
+            // The active roadmap needs its runtime board; if that read failed (or is
+            // still loading), surface it here rather than mislabelling it a draft.
+            activeRoadmap ? (
+              <RoadmapTracks
+                roadmap={activeRoadmap}
+                homePath={homePath}
+                busyLane={busyLane}
+                laneRefs={laneRefs}
+                reload={reload}
+                onApprove={handleApprove}
+                onPause={handlePause}
+                onResume={handleResume}
+                onMerge={handleMerge}
+                onSkip={handleSkip}
+                onEditPlan={handleEditPlan}
+                onOpenRun={handleOpenRun}
+              />
+            ) : (
+              <SurfaceCanvasState
+                kind="error"
+                title="Couldn’t read this roadmap."
+                hint="This is usually temporary."
+                detail={error ?? undefined}
+                onRetry={reload}
+              />
+            )
+          ) : selectedFile ? (
+            // A draft has no runtime, so a transient orchestrator-state read failure
+            // never blanks it out.
+            <RoadmapDraftCanvas
+              file={selectedFile}
+              activating={activating}
+              onEditPlan={() => handleEditPlan(selectedFile.roadmapRef)}
+              onMakeActive={() => void handleMakeActive(selectedFile)}
+            />
+          ) : (
+            <SurfaceCanvasState
+              kind="error"
+              title="Couldn’t read this roadmap."
+              hint="This is usually temporary."
+              detail={error ?? undefined}
+              onRetry={reload}
+            />
+          )}
+        </div>
+      </div>
     </GlobalSurfaceShell>
   )
 }
@@ -474,10 +506,11 @@ function buildBar(
   return {
     title: file.title,
     statusChip: (
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--text-muted)]">
-        <StatusDot tone={isActive ? 'accent' : 'neutral'} label={isActive ? 'Active roadmap' : 'Draft roadmap'} />
-        {isActive ? 'Active' : 'Draft'}
-      </span>
+      <BarStatusChip
+        tone={isActive ? 'accent' : 'neutral'}
+        label={isActive ? 'Active' : 'Draft'}
+        dotLabel={isActive ? 'Active roadmap' : 'Draft roadmap'}
+      />
     ),
     contextSub,
     actions: (
@@ -641,68 +674,6 @@ function RoadmapVocabulary(): JSX.Element {
       order, one sprint at a time; tracks run side by side. A{' '}
       <strong className="font-medium text-[color:var(--text-muted)]">step</strong> is one backlog item or epic.
     </p>
-  )
-}
-
-// The empty state IS the creation flow (mockup §1: never a dead end) — kept lean,
-// a heading + one CTA.
-function RoadmapEmptyState({
-  loading,
-  creating,
-  projectCount,
-  onCreate,
-}: {
-  loading: boolean
-  creating: boolean
-  projectCount: number
-  onCreate: () => void
-}): JSX.Element {
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--text-muted)]">
-        Loading your roadmap…
-      </div>
-    )
-  }
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-      <div className="mb-1 flex h-16 w-16 items-center justify-center rounded-full bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]">
-        <RoadmapDoorGlyph />
-      </div>
-      <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">No roadmap yet</h3>
-      <PrimaryButton onClick={onCreate} disabled={creating} className="mt-1">
-        {creating ? 'Creating…' : 'Plan your roadmap'}
-      </PrimaryButton>
-      {projectCount === 0 ? (
-        <span className="mt-3 text-[11px] text-[color:var(--text-subtle)]">Open a project to plan a roadmap.</span>
-      ) : null}
-    </div>
-  )
-}
-
-// A read failure with no loaded roadmaps: offer only the retry, never the creation
-// pitch that would risk a duplicate file (fallback discipline).
-function RoadmapLoadError({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-      <p className="max-w-[42ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
-        We couldn’t load your roadmap: {message}. This is usually temporary — try again in a moment.
-      </p>
-      <GhostButton onClick={onRetry}>Try again</GhostButton>
-    </div>
-  )
-}
-
-// A read failure that leaves the rail populated (roadmaps loaded but a later read
-// failed): a compact in-canvas banner, so the rail stays usable.
-function RoadmapCanvasError({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="max-w-[42ch] text-[12px] leading-5 text-[color:var(--tone-warn)]">
-        Could not read this roadmap: {message}
-      </p>
-      <GhostButton onClick={onRetry}>Try again</GhostButton>
-    </div>
   )
 }
 

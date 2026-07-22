@@ -40,7 +40,7 @@ const entries: AutomationsInstanceEntry[] = [
 
 run('renders each automation with its name, plain state line, and the New automation affordance', () => {
   const html = renderToStaticMarkup(
-    <AutomationsRail entries={entries} selectedId="a" now={NOW} onSelect={() => {}} onKeyDown={() => {}} onCreate={() => {}} />,
+    <AutomationsRail entries={entries} selectedId="a" now={NOW} onSelect={() => {}} onCreate={() => {}} />,
   )
   assert.ok(html.includes('Nightly code review'), 'lists the automation name')
   assert.ok(html.includes('Ran 2 hours ago · passed'), 'shows the passed state line')

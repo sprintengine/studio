@@ -1,18 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
-import { Spinner } from '../../../ui/Spinner'
 import { PrimaryButton } from '../../../ui/Buttons'
-import { InlineNotice } from '../../../ui/InlineNotice'
 import { useReviewSession } from '../../../panels/review/useReviewSession'
 import { ReviewCanvas } from '../../../panels/review/ReviewCanvas'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell'
+import { SurfaceCanvasState } from '../surfaceSubstrate'
+import { useSurfaceBackNav } from '../surfaceBackNav'
 import { ReviewsRail } from './ReviewsRail'
 import { ReviewChangeForm } from './ReviewChangeForm'
 import { orderReviewRail } from './reviewRailModel'
 import { buildReviewsSurfaceBar } from './ReviewSurfaceBar'
+
+// How often the open door re-scans the review index so the rail's states stay
+// honest (a sibling window posting, a walkthrough finishing) without ever
+// re-entering the loading state — reload() replaces the index in place.
+const REVIEW_INDEX_REFRESH_MS = 15_000
 
 // The Reviews door — the full-page shell over the T5 instance index (MC-1708 T6,
 // mockup §4). The rail lists every walkthrough across every project; the canvas is
@@ -33,6 +38,7 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   // `.multi-code/review/` directory (T5 index). De-duplicated so the same folder
   // open in two windows is scanned once.
   const roots = useReviewProjectRoots()
+  const back = useSurfaceBackNav()
 
   const [index, setIndex] = useState<IndexPhase>({ phase: 'loading' })
   const [selected, setSelected] = useState<SelectedReview | null>(null)
@@ -44,6 +50,19 @@ export default function ReviewsGlobalSurface(): JSX.Element {
       setIndex(result.ok ? { phase: 'ready', entries: result.reviews } : { phase: 'error', message: result.error })
     } catch (error) {
       setIndex({ phase: 'error', message: error instanceof Error ? error.message : String(error) })
+    }
+  }, [roots])
+
+  // A background re-scan that never re-enters loading OR error: a transient poll
+  // failure keeps the last good list on screen rather than blanking the rail. Used
+  // by the interval and post-completion refresh; the mount and the retry button use
+  // `reload`, which surfaces a first-load failure honestly.
+  const refreshIndex = useCallback(async () => {
+    try {
+      const result = await window.api.reviewList(roots)
+      if (result.ok) setIndex({ phase: 'ready', entries: result.reviews })
+    } catch {
+      // Keep the current index; the next tick (or an explicit retry) will recover.
     }
   }, [roots])
 
@@ -70,6 +89,21 @@ export default function ReviewsGlobalSurface(): JSX.Element {
     workspaceRoot: selected?.workspaceRoot ?? null,
   })
 
+  // Keep the rail fresh while the door is open: a slow poll, plus an immediate
+  // re-scan the moment a post finishes (posting → idle without an error), so the
+  // just-posted review flips to "posted" in the rail without waiting for the tick.
+  useEffect(() => {
+    const id = window.setInterval(() => void refreshIndex(), REVIEW_INDEX_REFRESH_MS)
+    return () => window.clearInterval(id)
+  }, [refreshIndex])
+
+  const prevPostPhase = useRef(session.postState.phase)
+  useEffect(() => {
+    const previous = prevPostPhase.current
+    prevPostPhase.current = session.postState.phase
+    if (previous === 'posting' && session.postState.phase === 'idle') void refreshIndex()
+  }, [session.postState.phase, refreshIndex])
+
   const onSelect = useCallback((reviewId: string) => {
     setCreating(false)
     const row = rows.find((r) => r.reviewId === reviewId)
@@ -90,8 +124,11 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   const onCancelCreate = useCallback(() => setCreating(false), [])
 
   const bar = buildBar({ creating, hasSelection: selected !== null, selectedEntry, session })
+  // The rail is present whenever the index has resolved — including on error, so a
+  // failed scan is never a dead end: the (empty) list still carries "Review a
+  // change". Only the pristine first load owns the full canvas alone (T20).
   const rail =
-    index.phase === 'ready' ? (
+    index.phase === 'loading' ? undefined : (
       <ReviewsRail
         rows={rows}
         selectedReviewId={selected?.reviewId ?? null}
@@ -99,11 +136,11 @@ export default function ReviewsGlobalSurface(): JSX.Element {
         onSelect={onSelect}
         onNewReview={onNewReview}
       />
-    ) : undefined
+    )
 
   return (
-    <GlobalSurfaceShell ariaLabel="Reviews" bar={bar} rail={rail}>
-      {renderCanvas({ index, creating, hasSelection: selected !== null, session, roots, onCreated, onCancelCreate, onNewReview })}
+    <GlobalSurfaceShell ariaLabel="Reviews" bar={bar} rail={rail} onBack={back.onBack} canGoBack={back.canGoBack}>
+      {renderCanvas({ index, creating, hasSelection: selected !== null, session, roots, onRetry: reload, onCreated, onCancelCreate, onNewReview })}
     </GlobalSurfaceShell>
   )
 }
@@ -132,6 +169,7 @@ function renderCanvas({
   hasSelection,
   session,
   roots,
+  onRetry,
   onCreated,
   onCancelCreate,
   onNewReview,
@@ -141,6 +179,7 @@ function renderCanvas({
   hasSelection: boolean
   session: ReturnType<typeof useReviewSession>
   roots: string[]
+  onRetry: () => void
   onCreated: (review: SelectedReview) => void
   onCancelCreate: () => void
   onNewReview: () => void
@@ -152,39 +191,29 @@ function renderCanvas({
   // so it does not wait for the index re-scan to list a just-created one.
   if (hasSelection) return <ReviewCanvas session={session} />
   if (index.phase === 'loading') {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] text-[13px] text-[color:var(--text-muted)]">
-        <Spinner /> <span className="ml-2">Loading reviews…</span>
-      </div>
-    )
+    return <SurfaceCanvasState kind="loading" label="Loading reviews…" />
   }
   if (index.phase === 'error') {
+    // The rail stays present beside this (see the rail gate), so the shared error
+    // card — plain sentence + retry — never withholds a way forward.
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] px-6">
-        <InlineNotice tone="error" className="max-w-md">
-          <span className="font-medium">Couldn’t list your reviews.</span>
-          <span className="mt-1 block text-[12px]">{index.message}</span>
-        </InlineNotice>
-      </div>
+      <SurfaceCanvasState
+        kind="error"
+        title="Couldn’t list your reviews."
+        hint="This is usually temporary."
+        detail={index.message}
+        onRetry={onRetry}
+      />
     )
   }
-  return <ReviewsEmptyState onNewReview={onNewReview} />
-}
-
-function ReviewsEmptyState({ onNewReview }: { onNewReview: () => void }) {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[color:var(--bg-surface)] px-6">
-      <div className="max-w-md text-center">
-        <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">No reviews yet</h3>
-        <p className="mt-1.5 text-[12.5px] leading-5 text-[color:var(--text-muted)]">
-          Reviews from every project collect here. Start one from a pull request, branch, or patch and the guide walks
-          you through the change.
-        </p>
-        <div className="mt-4 flex justify-center">
-          <PrimaryButton onClick={onNewReview}>Review a change</PrimaryButton>
-        </div>
-      </div>
-    </div>
+    <SurfaceCanvasState
+      kind="empty"
+      glyph="◎"
+      title="No reviews yet"
+      body="Reviews from every project collect here. Start one from a pull request, branch, or patch and the guide walks you through the change."
+      action={<PrimaryButton onClick={onNewReview}>Review a change</PrimaryButton>}
+    />
   )
 }
 

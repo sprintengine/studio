@@ -4,11 +4,12 @@
 // exactly one row reads "Active", the rest read "Draft" — and carries the "New
 // roadmap" affordance. Selecting a row shows that roadmap on the canvas; it never
 // silently activates a draft (that is an explicit action on the surface bar).
+//
+// A thin adapter over the shared SurfaceRail (backlog 1731 / T20): the list
+// semantics, ↑/↓ + j/k keyboard navigation, and row layout live once in the
+// substrate; this maps roadmap rows onto it.
 
-import React from 'react'
-
-import { StatusDot } from '../../ui/StatusDot'
-import { FOCUS_RING_CLASS } from '../../ui/tokens'
+import { SurfaceRail, type SurfaceRailRow } from '../../workspace/globalSurface/surfaceSubstrate'
 
 export type RoadmapRailRow = {
   roadmapRef: string
@@ -32,51 +33,21 @@ export function RoadmapRail({
   onSelect: (roadmapRef: string) => void
   onNewRoadmap: () => void
 }): JSX.Element {
+  const railRows: SurfaceRailRow[] = rows.map((row) => ({
+    id: row.roadmapRef,
+    title: row.title,
+    stateLine: row.stateLine,
+    tone: row.active ? 'accent' : 'neutral',
+    pulse: row.running,
+    dotLabel: row.active ? 'Active roadmap' : 'Draft roadmap',
+  }))
   return (
-    <>
-      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Roadmaps</div>
-      {rows.map((row) => {
-        const selected = row.roadmapRef === selectedRef
-        return (
-          <button
-            key={row.roadmapRef}
-            type="button"
-            onClick={() => onSelect(row.roadmapRef)}
-            aria-current={selected ? 'true' : undefined}
-            className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
-              selected
-                ? 'bg-[color:var(--bg-selected)]'
-                : 'hover:bg-[color:var(--bg-hover)]'
-            }`}
-          >
-            <StatusDot
-              tone={row.active ? 'accent' : 'neutral'}
-              pulse={row.running}
-              size={7}
-              label={row.active ? 'Active roadmap' : 'Draft roadmap'}
-            />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span
-                className="truncate text-[12px] font-medium text-[color:var(--text-strong)]"
-                title={row.title}
-              >
-                {row.title}
-              </span>
-              <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
-            </span>
-          </button>
-        )
-      })}
-      <button
-        type="button"
-        onClick={onNewRoadmap}
-        className={`interactive mt-1.5 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-      >
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
-          <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-        New roadmap
-      </button>
-    </>
+    <SurfaceRail
+      label="Roadmaps"
+      rows={railRows}
+      selectedId={selectedRef}
+      onSelect={onSelect}
+      newAffordance={{ label: 'New roadmap', onActivate: onNewRoadmap }}
+    />
   )
 }

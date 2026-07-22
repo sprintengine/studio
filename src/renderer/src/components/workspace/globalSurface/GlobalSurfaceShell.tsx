@@ -47,6 +47,14 @@ export type GlobalSurfaceShellProps = {
   attention?: React.ReactNode
   /** Internal list rail left of the canvas; optional. */
   rail?: React.ReactNode
+  /**
+   * Back affordance for the surface bar (mockup #view-doors). When `canGoBack`
+   * is true the bar shows a leading chevron that invokes `onBack` — returning to
+   * the location the door was opened from. Omit for a surface with nowhere to go
+   * back to; surfaces derive both from `useSurfaceBackNav`.
+   */
+  onBack?: () => void
+  canGoBack?: boolean
   /** The full-width canvas. */
   children: React.ReactNode
 }
@@ -56,8 +64,11 @@ export function GlobalSurfaceShell({
   bar,
   attention,
   rail,
+  onBack,
+  canGoBack,
   children,
 }: GlobalSurfaceShellProps): JSX.Element {
+  const showBack = Boolean(canGoBack && onBack)
   // When a lift target is provided the bar rides the app's top strip instead of a
   // second row here; `liftBar` stays true even while `el` is momentarily null so
   // the inline bar never flashes in during the settle.
@@ -70,6 +81,7 @@ export function GlobalSurfaceShell({
     >
       {bar && !liftBar ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-5 py-3">
+          {showBack && onBack ? <BarBackChevron onBack={onBack} /> : null}
           <h2 className="text-[14px] font-semibold text-[color:var(--text-strong)]">{bar.title}</h2>
           {bar.statusChip}
           {bar.contextSub ? (
@@ -81,10 +93,12 @@ export function GlobalSurfaceShell({
       {bar && liftBar && barSlot.el
         ? createPortal(
             // Dense, strip-height variant of the bar. Portaled through the React
-            // tree so `bar.actions` keep the surface's own handlers/context. The
-            // title/context group shrinks and truncates; the actions stay pinned
-            // to the right edge of the slot.
+            // tree so `bar.actions` keep the surface's own handlers/context. A
+            // leading back chevron appears when the door has somewhere to go back
+            // to; the title/context group shrinks and truncates; the actions stay
+            // pinned to the right edge of the slot.
             <>
+              {showBack && onBack ? <BarBackChevron onBack={onBack} /> : null}
               <div className="flex min-w-0 items-center gap-2.5">
                 <h2 className="truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                   {bar.title}
@@ -118,5 +132,23 @@ export function GlobalSurfaceShell({
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
       </div>
     </section>
+  )
+}
+
+// The bar-slot back chevron (mockup #view-doors): a compact ghost affordance that
+// returns to the previously-visited location. Shown only when the host reports the
+// nav history can step back, so it is never a dead control.
+function BarBackChevron({ onBack }: { onBack: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      aria-label="Back"
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+    >
+      <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true">
+        <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
   )
 }
