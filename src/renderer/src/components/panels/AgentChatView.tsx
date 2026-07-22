@@ -650,6 +650,10 @@ export function readinessLabel(readiness: ChatReadiness): string {
   return READINESS_COPY[readiness.kind]
 }
 
+// Stable empty-catalog reference: returned for any provider whose live catalog
+// has not loaded so effects keyed on the derived list do not re-run each render.
+const EMPTY_MODELS: ConversationProviderModel[] = []
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 type Props = {
@@ -706,9 +710,17 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
-  // Live model catalog for the current provider (e.g. OpenRouter's full list),
-  // fetched lazily; empty until loaded, then preferred over the manifest seed.
-  const [liveModels, setLiveModels] = useState<ConversationProviderModel[]>([])
+  // Live model catalogs keyed by providerId, fetched lazily as the user opens
+  // the picker or filters to a provider — never a blanket prefetch. A non-empty
+  // entry is preferred over the manifest seed.
+  const [catalogByProvider, setCatalogByProvider] = useState<Record<string, ConversationProviderModel[]>>({})
+  // Whether each provider has a configured key, fetched alongside its catalog.
+  // Drives the explicit "add key" vs "no models" group state so a key-configured
+  // provider never collapses into a silent stale seed.
+  const [keyByProvider, setKeyByProvider] = useState<Record<string, boolean>>({})
+  // The active provider's live catalog (stable ref per cache entry) feeds the
+  // current-model label, context length, and the tab self-heal below.
+  const liveModels = catalogByProvider[conversation?.providerId ?? ''] ?? EMPTY_MODELS
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [events, setEvents] = useState<ConversationEvent[]>([])
@@ -723,6 +735,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const [slashDismissed, setSlashDismissed] = useState(false)
   const slashPickerRef = useRef<InlineSkillPickerHandle | null>(null)
   const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   // Completed assistant replies the user has "seen" (was at the bottom for);
@@ -833,24 +846,37 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     }
   }, [workspaceRoot, workspaceId, agentId])
 
-  // Fetch the provider's live model catalog (keyed on provider, not model, so a
-  // model switch within the same provider does not refetch). Failures are silent
-  // — the picker falls back to the manifest seed models.
+  // Fetch one provider's live catalog and key status on demand, caching both.
+  // Called for the active provider on mount and for whichever provider the user
+  // filters to in the picker — never a blanket fan-out over every provider.
+  // Failures are silent: the picker falls back to the manifest seed (unknown key
+  // state) or its explicit empty state (known key state), never a stale list.
+  const fetchProviderCatalog = useCallback((providerId: string) => {
+    if (!providerId) return
+    if (typeof window.api.conversationProviderModels === 'function') {
+      void window.api
+        .conversationProviderModels({ providerId })
+        .then((result) => {
+          if (result.ok) setCatalogByProvider((current) => ({ ...current, [providerId]: result.models }))
+        })
+        .catch(() => undefined)
+    }
+    if (typeof window.api.conversationSecretStatus === 'function') {
+      void window.api
+        .conversationSecretStatus({ providerId })
+        .then((result) => {
+          if (result.ok) setKeyByProvider((current) => ({ ...current, [providerId]: result.status.configured }))
+        })
+        .catch(() => undefined)
+    }
+  }, [])
+
+  // Fetch the active provider up front so the current model's display label,
+  // context length, and readiness resolve before the picker is ever opened.
   useEffect(() => {
     const providerId = conversation?.providerId
-    if (!providerId || typeof window.api.conversationProviderModels !== 'function') return
-    let cancelled = false
-    setLiveModels([])
-    void window.api
-      .conversationProviderModels({ providerId })
-      .then((result) => {
-        if (!cancelled && result.ok) setLiveModels(result.models)
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [conversation?.providerId])
+    if (providerId) fetchProviderCatalog(providerId)
+  }, [conversation?.providerId, fetchProviderCatalog])
 
   const projection = useMemo(() => projectConversation(events, userTurns), [events, userTurns])
   const timelineRows = useMemo(
@@ -1049,20 +1075,39 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     sessionId,
     projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
   )
-  // Picker groups: one per provider, using the live catalog for the current
-  // provider when it has loaded, else that provider's manifest seed models.
-  // Subscription providers ('agent-harness') sort first and carry the
-  // subscription annotation so metered API entries are never mistaken for the
-  // user's own plan.
-  const modelGroups = [...providers]
+  // Picker groups: one per provider, merging each provider's own live catalog
+  // (fetched when the user browses to it) over its manifest seed. Subscription
+  // providers ('agent-harness') sort first and carry the subscription annotation
+  // so metered API entries are never mistaken for the user's own plan. A
+  // dynamic-catalog provider is never dropped for an empty seed: when its key is
+  // missing it shows an explicit add-key state, and when the key is present but
+  // the catalog is empty it says so — never a silent stale seed.
+  const modelGroups: ModelGroup[] = [...providers]
     .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
-    .map((entry) => ({
-      providerId: entry.id,
-      providerLabel: entry.displayName,
-      subscription: entry.providerType === 'agent-harness',
-      unavailable: entry.unavailable,
-      models: entry.id === conversation.providerId && liveModels.length > 0 ? liveModels : entry.models,
-    }))
+    .map((entry): ModelGroup => {
+      const base = { providerId: entry.id, providerLabel: entry.displayName, unavailable: entry.unavailable }
+      const liveCatalog = catalogByProvider[entry.id]
+      const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
+      // Subscription (agent-harness) providers need no key: live catalog if it
+      // loaded, else the seed. Static model-providers list their full seed as-is
+      // — it is the complete catalog, not a truncated one.
+      if (entry.providerType === 'agent-harness' || !entry.supportsDynamicModels) {
+        return {
+          ...base,
+          subscription: entry.providerType === 'agent-harness',
+          models: hasLive ? liveCatalog : entry.models,
+        }
+      }
+      // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
+      const hasKey = keyByProvider[entry.id]
+      if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
+      if (hasLive) return { ...base, models: liveCatalog }
+      // Key present but catalog empty/unreachable: say so rather than seed.
+      if (hasKey === true) return { ...base, models: [], emptyState: 'no-models' }
+      // Key state not yet fetched — show the seed provisionally until the user
+      // browses to this provider and its live catalog + key status load.
+      return { ...base, models: entry.models }
+    })
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
     ?.models.find((model) => model.id === conversation.modelId)
@@ -1346,6 +1391,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 selectedProviderId={conversation.providerId}
                 selectedModelId={conversation.modelId}
                 onSelect={selectModel}
+                onBrowseProvider={fetchProviderCatalog}
+                onAddKey={() => {
+                  setModelMenuOpen(false)
+                  openSettingsOverlay({ initialTab: 'providers' })
+                }}
               />
               {contextLength ? (
                 <ContextMeter used={usedTokens} total={contextLength} />
@@ -1446,6 +1496,10 @@ type ModelGroup = {
   // group disabled instead of hiding it.
   unavailable?: string
   models: ConversationProviderModel[]
+  // Explicit empty state for a dynamic-catalog provider with no models to list,
+  // so it is never dropped nor shown as a silent stale seed. 'add-key' — no key
+  // configured; 'no-models' — key present but the live catalog came back empty.
+  emptyState?: 'add-key' | 'no-models'
 }
 
 function ModelPickerPill({
@@ -1457,6 +1511,8 @@ function ModelPickerPill({
   selectedProviderId,
   selectedModelId,
   onSelect,
+  onBrowseProvider,
+  onAddKey,
 }: {
   label: string
   locked: boolean
@@ -1466,6 +1522,12 @@ function ModelPickerPill({
   selectedProviderId: string
   selectedModelId: string
   onSelect: (providerId: string, modelId: string) => void
+  // Fired when the user opens the picker or filters to a specific provider, so
+  // the parent fetches THAT provider's live catalog (never a blanket prefetch).
+  // 'all' is not a provider and is not fetched.
+  onBrowseProvider: (providerId: string) => void
+  // Opens provider settings to configure a missing key for the given provider.
+  onAddKey: (providerId: string) => void
 }) {
   const [query, setQuery] = useState('')
   // Provider filter chips (Cursor-style): pick one provider to browse, or All.
@@ -1507,7 +1569,15 @@ function ModelPickerPill({
         ),
       }
     })
-    .filter((group) => group.models.length > 0)
+    // Browsing (no query) keeps every provider group so a key-configured
+    // provider never disappears for an empty catalog — its empty state renders
+    // inline. A query drops non-matching groups unless the provider name matched.
+    .filter((group) => {
+      if (!normalized) return true
+      const providerMatches =
+        group.providerLabel.toLowerCase().includes(normalized) || group.providerId.toLowerCase().includes(normalized)
+      return providerMatches || group.models.length > 0
+    })
   // Searching looks across every provider (a filter must never hide a search
   // hit); browsing without a query respects the active chip.
   const filtered = normalized ? searchMatched : searchMatched.filter(
@@ -1518,7 +1588,11 @@ function ModelPickerPill({
     <Popover
       open={open}
       onOpenChange={(next) => {
-        if (next) setQuery('')
+        if (next) {
+          setQuery('')
+          // Load the catalog for the provider the picker opens onto.
+          if (activeFilter !== 'all') onBrowseProvider(activeFilter)
+        }
         onOpenChange(next)
       }}
       ariaLabel="Select model"
@@ -1573,7 +1647,11 @@ function ModelPickerPill({
                     // The subscription-first default view is the baseline, not
                     // an applied filter.
                     defaultValue: defaultFilter,
-                    onChange: setProviderFilter,
+                    onChange: (value) => {
+                      setProviderFilter(value)
+                      // Fetch the newly-selected provider's live catalog.
+                      if (value !== 'all') onBrowseProvider(value)
+                    },
                   },
                 ]}
               />
@@ -1581,13 +1659,9 @@ function ModelPickerPill({
           </div>
         ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
-          {totalModels === 0 ? (
+          {filtered.length === 0 ? (
             <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
-              No models available
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
-              {normalized ? `No models match “${query.trim()}”` : 'No models for this provider'}
+              {normalized ? `No models match “${query.trim()}”` : 'No providers available'}
             </div>
           ) : (
             filtered.map((group) => (
@@ -1595,11 +1669,39 @@ function ModelPickerPill({
                 <div className="flex items-baseline gap-1.5 px-2.5 pb-0.5 pt-1.5">
                   <span className="text-[11px] font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
                   <span className="text-[10.5px] text-[color:var(--text-subtle)]">
-                    {group.unavailable ? 'not available' : group.subscription ? 'your Claude subscription' : 'uses your API key'}
+                    {group.unavailable
+                      ? 'not available'
+                      : group.subscription
+                        ? 'your Claude subscription'
+                        : group.emptyState === 'add-key'
+                          ? 'needs an API key'
+                          : 'uses your API key'}
                   </span>
                 </div>
                 {group.unavailable ? (
                   <p className="px-2.5 pb-1 text-[11px] leading-4 text-[color:var(--text-muted)]">{group.unavailable}</p>
+                ) : group.models.length === 0 ? (
+                  // A key-configured provider with an empty catalog stays visible
+                  // with an explicit state instead of vanishing or showing a
+                  // stale seed. Missing key offers a direct route to add one.
+                  group.emptyState === 'add-key' ? (
+                    <div className="px-2.5 pb-1.5 pt-0.5">
+                      <p className="pb-1 text-[11px] leading-4 text-[color:var(--text-muted)]">
+                        Add an API key to browse this provider’s models.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onAddKey(group.providerId)}
+                        className="rounded px-2 py-1 text-[12px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+                      >
+                        Add key in Settings
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[color:var(--text-muted)]" role="status">
+                      No models returned for this provider.
+                    </p>
+                  )
                 ) : null}
                 {group.models.map((model) => {
                   const isCurrent = group.providerId === selectedProviderId && model.id === selectedModelId
