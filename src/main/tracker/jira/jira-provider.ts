@@ -13,9 +13,16 @@ import {
 } from '../../../shared/tracker/types'
 
 // The Jira TrackerProvider (MC-1635). ONE client serves Jira Cloud and Data
-// Center against REST v2; the only branch between them is the auth header, which
-// lives entirely in jira-http.ts. This class fetches and normalizes only — it
-// never writes backlog files (that is the T6 writer's job).
+// Center. Issue, comment, and transition endpoints are identical REST v2 on both;
+// the auth header (jira-http.ts) is the only difference there. SEARCH is the
+// exception: Atlassian retired the offset-paged GET /rest/api/2/search on Cloud in
+// favor of the token-paged GET /rest/api/3/search/jql (no `total`), so Cloud
+// (`jira_basic`) branches onto that endpoint while Data Center keeps v2. This
+// class fetches and normalizes only — it never writes backlog files (T6's job).
+
+// The retired-on-Cloud replacement search endpoint: token-paged, returns
+// `nextPageToken` (and `isLast`) instead of `startAt`/`total`.
+const JIRA_CLOUD_SEARCH_PATH = '/rest/api/3/search/jql'
 
 // The connection-store slice the provider needs: connection metadata + the
 // per-connection secret. TrackerConnectionStore satisfies this; injectable so
@@ -58,12 +65,28 @@ export class JiraTrackerProvider implements TrackerProvider {
     cursor?: string
   }): Promise<{ issues: NormalizedIssue[]; nextCursor?: string }> {
     const { connection, secret } = await this.resolve(args.connectionId)
+    const jql = freeTextSearchJql(args.query)
+
+    if (isCloudConnection(connection)) {
+      // Cloud: token pagination — the cursor is the opaque nextPageToken.
+      const page = await this.searchPageCloud(connection, secret, jql, args.cursor, SEARCH_PAGE_SIZE)
+      return {
+        issues: page.issues.map((record) => normalizeJiraIssue(record, connection)),
+        ...(page.nextPageToken ? { nextCursor: page.nextPageToken } : {}),
+      }
+    }
+
+    // Data Center: offset pagination against v2 `total`.
     const startAt = parseCursor(args.cursor)
-    const page = await this.searchPage(connection, secret, freeTextSearchJql(args.query), startAt, SEARCH_PAGE_SIZE)
+    const page = await this.searchPageDataCenter(connection, secret, jql, startAt, SEARCH_PAGE_SIZE)
     const nextStart = startAt + page.issues.length
+    // Omit the cursor on an empty page: a permission-filtered page can return 0
+    // issues while startAt < total, and advancing by 0 would hand back the SAME
+    // cursor — "Load more" would then repeat the identical request forever.
+    const hasMore = page.issues.length > 0 && nextStart < page.total
     return {
       issues: page.issues.map((record) => normalizeJiraIssue(record, connection)),
-      ...(nextStart < page.total ? { nextCursor: String(nextStart) } : {}),
+      ...(hasMore ? { nextCursor: String(nextStart) } : {}),
     }
   }
 
@@ -85,9 +108,21 @@ export class JiraTrackerProvider implements TrackerProvider {
     const { connection, secret } = await this.resolve(args.connectionId)
     const jql = assignedToMeJql()
     const collected: NormalizedIssue[] = []
+
+    if (isCloudConnection(connection)) {
+      let pageToken: string | undefined
+      for (let pageIndex = 0; pageIndex < MAX_ASSIGNED_PAGES; pageIndex += 1) {
+        const page = await this.searchPageCloud(connection, secret, jql, pageToken, SEARCH_PAGE_SIZE)
+        collected.push(...page.issues.map((record) => normalizeJiraIssue(record, connection)))
+        if (page.issues.length === 0 || !page.nextPageToken) break
+        pageToken = page.nextPageToken
+      }
+      return collected
+    }
+
     let startAt = 0
     for (let pageIndex = 0; pageIndex < MAX_ASSIGNED_PAGES; pageIndex += 1) {
-      const page = await this.searchPage(connection, secret, jql, startAt, SEARCH_PAGE_SIZE)
+      const page = await this.searchPageDataCenter(connection, secret, jql, startAt, SEARCH_PAGE_SIZE)
       collected.push(...page.issues.map((record) => normalizeJiraIssue(record, connection)))
       startAt += page.issues.length
       if (page.issues.length === 0 || startAt >= page.total) break
@@ -103,7 +138,10 @@ export class JiraTrackerProvider implements TrackerProvider {
         secret,
         method: 'POST',
         path: `${JIRA_API_BASE}/issue/${encodeURIComponent(args.externalId)}/comment`,
-        body: { body: args.body },
+        // The v2 comment endpoint renders WIKI MARKUP, so posting the write-back
+        // bodies' markdown verbatim would show literal `**` and `- `. Convert to
+        // wiki markup first (the inverse of jira-markup.ts's read path).
+        body: { body: markdownToJiraWiki(args.body) },
       },
       this.fetchImpl
     )
@@ -154,7 +192,9 @@ export class JiraTrackerProvider implements TrackerProvider {
     }
   }
 
-  private async searchPage(
+  // Data Center / v2 search: offset-paged with a `total` the caller advances
+  // against. Kept for self-hosted Jira, where the v2 search endpoint is live.
+  private async searchPageDataCenter(
     connection: TrackerConnection,
     secret: string,
     jql: string,
@@ -173,6 +213,33 @@ export class JiraTrackerProvider implements TrackerProvider {
     const issues = Array.isArray(result.issues) ? (result.issues as JiraIssueRecord[]) : []
     const total = typeof result.total === 'number' ? result.total : issues.length
     return { issues, total }
+  }
+
+  // Cloud / v3 search: token-paged. The response carries `nextPageToken` until the
+  // last page (also signaled by `isLast`); there is no `total`, so the caller
+  // stops when no token comes back rather than comparing an offset to a count.
+  private async searchPageCloud(
+    connection: TrackerConnection,
+    secret: string,
+    jql: string,
+    pageToken: string | undefined,
+    maxResults: number
+  ): Promise<{ issues: JiraIssueRecord[]; nextPageToken?: string }> {
+    const result = (await jiraFetch(
+      {
+        connection,
+        secret,
+        path: JIRA_CLOUD_SEARCH_PATH,
+        query: { jql, maxResults, fields: SEARCH_FIELDS, ...(pageToken ? { nextPageToken: pageToken } : {}) },
+      },
+      this.fetchImpl
+    )) as { issues?: unknown; nextPageToken?: unknown; isLast?: unknown }
+    const issues = Array.isArray(result.issues) ? (result.issues as JiraIssueRecord[]) : []
+    const nextPageToken =
+      result.isLast !== true && typeof result.nextPageToken === 'string' && result.nextPageToken
+        ? result.nextPageToken
+        : undefined
+    return { issues, ...(nextPageToken ? { nextPageToken } : {}) }
   }
 
   // Resolves connection metadata + secret, or throws a typed error the service
@@ -207,4 +274,40 @@ function parseCursor(cursor: string | undefined): number {
   if (!cursor) return 0
   const parsed = Number(cursor)
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
+}
+
+// Cloud is the Basic (email + API token) auth mode; Data Center is the Bearer PAT.
+// This is the only place search branches Cloud vs self-hosted.
+function isCloudConnection(connection: TrackerConnection): boolean {
+  return connection.authMode === 'jira_basic'
+}
+
+// Converts the small markdown subset the write-back comment bodies use into Jira
+// wiki markup, so a posted comment renders correctly on the v2 comment endpoint
+// instead of showing literal `**` and `- ` (the inverse of jira-markup.ts's read
+// path). Deliberately narrow: bold, bullet lines, and inline links — the shapes
+// the composed messages actually emit; everything else passes through verbatim.
+export function markdownToJiraWiki(markdown: string): string {
+  return markdown
+    .split('\n')
+    .map(convertMarkdownLine)
+    .join('\n')
+}
+
+function convertMarkdownLine(line: string): string {
+  // A leading `- ` or `* ` bullet becomes a wiki `* ` bullet.
+  const bullet = line.match(/^(\s*)[-*]\s+(.*)$/)
+  const inner = convertMarkdownInline(bullet ? bullet[2] : line)
+  return bullet ? `* ${inner}` : inner
+}
+
+function convertMarkdownInline(text: string): string {
+  return (
+    text
+      // Links `[label](url)` → `[label|url]`.
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '[$1|$2]')
+      // Bold `**text**` → `*text*` (wiki bold). Runs before any single-`*` rule
+      // and the messages use no single-`*` emphasis, so this cannot mis-nest.
+      .replace(/\*\*([^*]+)\*\*/g, '*$1*')
+  )
 }

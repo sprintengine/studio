@@ -1,7 +1,7 @@
 import { getSharedTrackerProviderRegistry, type TrackerProviderRegistry } from '../provider-registry'
 import { getSharedTrackerWriteBackConfigStore, TrackerWriteBackConfigStore } from './config-store'
 import { TrackerWriteBackEngine } from './engine'
-import { TrackerWriteBackLedger } from './ledger'
+import { getSharedTrackerWriteBackLedger, TrackerWriteBackLedger } from './ledger'
 import { createProxyItemLookup } from './proxy-item-lookup'
 import { createTrackerWriteBackPoster, createWriteBackCapabilityResolver } from './poster'
 import { createRunStateReader, type WriteBackProjectionReader } from './run-state-reader'
@@ -52,9 +52,12 @@ export function createTrackerWriteBackRuntime(options: CreateTrackerWriteBackRun
   const configStore = options.resolveUserDataDir
     ? new TrackerWriteBackConfigStore({ resolveUserDataDir: options.resolveUserDataDir })
     : getSharedTrackerWriteBackConfigStore()
-  const ledger = new TrackerWriteBackLedger(
-    options.resolveUserDataDir ? { resolveUserDataDir: options.resolveUserDataDir } : {},
-  )
+  // Share the process-wide ledger in production so the connection-removal cleanup
+  // in TrackerService and this engine read/write one cache; an injected userData
+  // dir (tests) forks an isolated instance.
+  const ledger = options.resolveUserDataDir
+    ? new TrackerWriteBackLedger({ resolveUserDataDir: options.resolveUserDataDir })
+    : getSharedTrackerWriteBackLedger()
 
   const engine = new TrackerWriteBackEngine({
     runState: createRunStateReader({ readProjection: options.readProjection }),

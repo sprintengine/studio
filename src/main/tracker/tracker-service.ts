@@ -1,5 +1,7 @@
 import { TrackerConnectionStore, type TrackerConnectionStoreOptions } from './connection-store'
 import { getSharedTrackerProviderRegistry, TrackerProviderRegistry } from './provider-registry'
+import { getSharedTrackerWriteBackConfigStore } from './writeback/config-store'
+import { getSharedTrackerWriteBackLedger } from './writeback/ledger'
 import {
   toTrackerError,
   TrackerProviderError,
@@ -26,15 +28,31 @@ import {
 // trace never crosses to the renderer (plan §3.3). With no client registered the
 // service degrades honestly rather than faking a result.
 
+// The write-back state a removed connection must be cleaned out of, narrowed to
+// the two calls removeConnection makes. Injectable so tests drive them without a
+// real userData file; production binds the shared config store and ledger.
+export type TrackerWriteBackCleanup = {
+  removeConfig(connectionId: string): Promise<void>
+  dropLedger(connectionId: string): Promise<void>
+}
+
 export class TrackerService {
   private readonly connectionStore: TrackerConnectionStore
   private readonly registry: TrackerProviderRegistry
+  private readonly writeBackCleanup: TrackerWriteBackCleanup
 
-  constructor(options: { connectionStore?: TrackerConnectionStore; registry?: TrackerProviderRegistry } = {}) {
+  constructor(
+    options: {
+      connectionStore?: TrackerConnectionStore
+      registry?: TrackerProviderRegistry
+      writeBackCleanup?: TrackerWriteBackCleanup
+    } = {}
+  ) {
     this.registry = options.registry ?? getSharedTrackerProviderRegistry()
     this.connectionStore =
       options.connectionStore ??
       new TrackerConnectionStore({ resolveCapabilities: (provider) => this.registry.get(provider)?.capabilities })
+    this.writeBackCleanup = options.writeBackCleanup ?? defaultWriteBackCleanup()
   }
 
   // Exposed so provider clients (T3/T4/T5) can resolve credentials and read
@@ -62,6 +80,14 @@ export class TrackerService {
   async removeConnection(input: TrackerRemoveConnectionInput): Promise<TrackerRemoveConnectionResult> {
     try {
       await this.connectionStore.remove(input.connectionId)
+      // Drop the connection's write-back config and ledger entries so anyActive()
+      // can fall to false and a dead connection's runs stop retrying
+      // not_configured posts (and stale failure notices don't outlive it). The
+      // connection is already gone, so a cleanup hiccup must not fail the removal.
+      await Promise.all([
+        this.writeBackCleanup.removeConfig(input.connectionId).catch(() => undefined),
+        this.writeBackCleanup.dropLedger(input.connectionId).catch(() => undefined),
+      ])
       return { ok: true }
     } catch (err) {
       return { ok: false, error: toTrackerError(err, { connectionId: input.connectionId }) }
@@ -164,6 +190,16 @@ function notConfigured(
   context: { provider?: TrackerProviderId; connectionId?: string } = {}
 ): ReturnType<typeof toTrackerError> {
   return toTrackerError(new TrackerProviderError('not_configured', message, context), context)
+}
+
+// Binds connection-removal cleanup to the shared write-back config store and
+// ledger — the SAME instances the engine reconciles against, so a drop lands in
+// the cache the engine reads rather than a forked copy.
+function defaultWriteBackCleanup(): TrackerWriteBackCleanup {
+  return {
+    removeConfig: (connectionId) => getSharedTrackerWriteBackConfigStore().remove(connectionId),
+    dropLedger: (connectionId) => getSharedTrackerWriteBackLedger().dropConnection(connectionId),
+  }
 }
 
 // Process-wide service singleton the IPC layer defaults to. Its connection store

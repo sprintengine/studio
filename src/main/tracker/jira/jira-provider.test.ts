@@ -138,39 +138,110 @@ async function testFetchIssueAdf(): Promise<void> {
   assert.ok(issue.bodyMarkdown.includes('```html'))
 }
 
-async function testSearchPaginatesWithStartAt(): Promise<void> {
-  const page1 = loadFixture('search-page1')
-  const page2 = loadFixture('search-page2')
+// Cloud rides the token-paged v3 /search/jql endpoint (the retired v2 /search's
+// replacement): the cursor is the opaque nextPageToken, there is no startAt/total,
+// and pagination stops when the last page returns no token.
+async function testCloudSearchUsesJqlEndpointWithPageToken(): Promise<void> {
+  const page1 = loadFixture('cloud-search-page1')
+  const page2 = loadFixture('cloud-search-page2')
   const { provider, requests } = makeProvider(CLOUD, 'e:t', (url) => {
-    assert.ok(url.pathname.endsWith('/rest/api/2/search'))
-    return jsonResponse(url.searchParams.get('startAt') === '0' ? page1 : page2)
+    assert.ok(url.pathname.endsWith('/rest/api/3/search/jql'), `unexpected path ${url.pathname}`)
+    assert.equal(url.searchParams.get('startAt'), null, 'the v3 endpoint takes no startAt')
+    return jsonResponse(url.searchParams.get('nextPageToken') ? page2 : page1)
   })
 
   const first = await provider.searchIssues({ connectionId: CLOUD.id, query: 'rounding' })
+  assert.equal(first.issues.length, 2)
+  assert.equal(first.nextCursor, 'eyJzdGFydEF0IjoyfQ==')
+  assert.equal(new URL(requests[0].url).searchParams.get('jql'), 'text ~ "rounding" ORDER BY updated DESC')
+
+  const second = await provider.searchIssues({ connectionId: CLOUD.id, query: 'rounding', cursor: first.nextCursor })
+  assert.equal(second.issues.length, 1)
+  assert.equal(second.nextCursor, undefined) // isLast: true → no further token
+  assert.equal(new URL(requests[1].url).searchParams.get('nextPageToken'), 'eyJzdGFydEF0IjoyfQ==')
+}
+
+async function testCloudListAssignedWalksTokenPages(): Promise<void> {
+  const page1 = loadFixture('cloud-search-page1')
+  const page2 = loadFixture('cloud-search-page2')
+  const { provider, requests } = makeProvider(CLOUD, 'e:t', (url) =>
+    jsonResponse(url.searchParams.get('nextPageToken') ? page2 : page1)
+  )
+
+  const issues = await provider.listAssignedToMe({ connectionId: CLOUD.id })
+  assert.equal(issues.length, 3)
+  assert.ok(requests[0].url.includes('/rest/api/3/search/jql'))
+  assert.equal(
+    new URL(requests[0].url).searchParams.get('jql'),
+    'assignee = currentUser() AND resolution = EMPTY ORDER BY updated DESC'
+  )
+}
+
+// Data Center keeps the offset-paged v2 /search endpoint (still live self-hosted).
+async function testDataCenterSearchPaginatesWithStartAt(): Promise<void> {
+  const page1 = loadFixture('search-page1')
+  const page2 = loadFixture('search-page2')
+  const { provider, requests } = makeProvider(DC, 'pat-xyz', (url) => {
+    assert.ok(url.pathname.endsWith('/rest/api/2/search'), `unexpected path ${url.pathname}`)
+    return jsonResponse(url.searchParams.get('startAt') === '0' ? page1 : page2)
+  })
+
+  const first = await provider.searchIssues({ connectionId: DC.id, query: 'rounding' })
   assert.equal(first.issues.length, 2)
   assert.equal(first.nextCursor, '2')
   assert.equal(requests[0].url.match(/[?&]startAt=0(&|$)/) !== null, true)
   assert.equal(new URL(requests[0].url).searchParams.get('jql'), 'text ~ "rounding" ORDER BY updated DESC')
 
-  const second = await provider.searchIssues({ connectionId: CLOUD.id, query: 'rounding', cursor: '2' })
+  const second = await provider.searchIssues({ connectionId: DC.id, query: 'rounding', cursor: '2' })
   assert.equal(second.issues.length, 1)
   assert.equal(second.nextCursor, undefined) // startAt(2) + 1 === total(3)
   assert.equal(new URL(requests[1].url).searchParams.get('startAt'), '2')
 }
 
-async function testListAssignedToMeWalksAllPages(): Promise<void> {
+async function testDataCenterListAssignedToMeWalksAllPages(): Promise<void> {
   const page1 = loadFixture('search-page1')
   const page2 = loadFixture('search-page2')
-  const { provider, requests } = makeProvider(CLOUD, 'e:t', (url) =>
+  const { provider, requests } = makeProvider(DC, 'pat-xyz', (url) =>
     jsonResponse(url.searchParams.get('startAt') === '0' ? page1 : page2)
   )
 
-  const issues = await provider.listAssignedToMe({ connectionId: CLOUD.id })
+  const issues = await provider.listAssignedToMe({ connectionId: DC.id })
   assert.equal(issues.length, 3)
   assert.equal(
     new URL(requests[0].url).searchParams.get('jql'),
     'assignee = currentUser() AND resolution = EMPTY ORDER BY updated DESC'
   )
+}
+
+// A permission-filtered page returns 0 issues while startAt < total. Advancing by
+// 0 would hand back the SAME cursor and "Load more" would loop forever, so the
+// cursor is omitted on an empty page.
+async function testDataCenterCursorStopsOnEmptyPage(): Promise<void> {
+  const emptyPage = { startAt: 2, maxResults: 2, total: 5, issues: [] }
+  const { provider } = makeProvider(DC, 'pat-xyz', (url) => {
+    assert.ok(url.pathname.endsWith('/rest/api/2/search'))
+    return jsonResponse(emptyPage)
+  })
+
+  const page = await provider.searchIssues({ connectionId: DC.id, query: 'x', cursor: '2' })
+  assert.equal(page.issues.length, 0)
+  assert.equal(page.nextCursor, undefined)
+}
+
+// Write-back posts markdown, but the v2 comment endpoint renders wiki markup, so
+// the provider converts before posting — no literal `**` or `- ` reaches Jira.
+async function testJiraCommentConvertsMarkdownToWiki(): Promise<void> {
+  const { provider, requests } = makeProvider(CLOUD, 'e:t', () => jsonResponse({ id: '1' }, 201))
+  await provider.postComment({
+    connectionId: CLOUD.id,
+    externalId: '10023',
+    body: '**Sprint started** in Multicode.\n\n- https://github.com/o/r/pull/7\n\nSee [the run](https://example.com/run).',
+  })
+  const body = (requests[0].body as { body: string }).body
+  assert.ok(!body.includes('**'), 'no literal markdown bold survives')
+  assert.ok(body.includes('*Sprint started*'), 'bold → wiki bold')
+  assert.ok(body.includes('* https://github.com/o/r/pull/7'), 'markdown bullet → wiki bullet')
+  assert.ok(body.includes('[the run|https://example.com/run]'), 'markdown link → wiki link')
 }
 
 async function assertProviderError(
@@ -271,8 +342,12 @@ async function main(): Promise<void> {
   await testFetchIssueCloudWiki()
   await testAuthBranchIsTheOnlyDataCenterDifference()
   await testFetchIssueAdf()
-  await testSearchPaginatesWithStartAt()
-  await testListAssignedToMeWalksAllPages()
+  await testCloudSearchUsesJqlEndpointWithPageToken()
+  await testCloudListAssignedWalksTokenPages()
+  await testDataCenterSearchPaginatesWithStartAt()
+  await testDataCenterListAssignedToMeWalksAllPages()
+  await testDataCenterCursorStopsOnEmptyPage()
+  await testJiraCommentConvertsMarkdownToWiki()
   await testErrorsDegradeToTypedProviderErrors()
   await testTestConnectionProbe()
   await testWriteBackCallsShapeRequests()

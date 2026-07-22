@@ -87,6 +87,12 @@ export function trackerWriteBackConfigIsActive(config: TrackerWriteBackConfig): 
 // pure, so the engine and the ledger derive the same key and a projection replay
 // or app restart never double-posts. `postKind` discriminates the five posts a
 // run can make so a comment and a transition on the same event never collide.
+//
+// A post whose CONTENT can grow across a run (the PR comment, which lists every
+// delivered PR) folds a `discriminator` into the key so a distinct content set
+// posts again rather than being deduped away by the earlier post's key. The PR
+// comment passes its sorted PR-URL set, so a multi-repo run's later PR gets its
+// own comment while a redundant reconcile of the same set stays idempotent.
 // ---------------------------------------------------------------------------
 
 export type TrackerWriteBackPostKind =
@@ -100,8 +106,12 @@ export function trackerWriteBackPostKey(input: {
   runId: string
   postKind: TrackerWriteBackPostKind
   externalId: string
+  discriminator?: string
 }): string {
-  return `${input.runId}|${input.postKind}|${input.externalId}`
+  const discriminator = input.discriminator?.trim()
+  return discriminator
+    ? `${input.runId}|${input.postKind}|${discriminator}|${input.externalId}`
+    : `${input.runId}|${input.postKind}|${input.externalId}`
 }
 
 // ---------------------------------------------------------------------------

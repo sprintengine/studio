@@ -33,9 +33,50 @@ async function main(): Promise<void> {
   await testFailureIsolationRetriesOnNextEvent()
   await testCapabilityGatingSkipsUnsupportedPosts()
   await testTransitionTierMapsRunEventsToNamedTransitions()
+  await testMultiRepoPrCommentsPostPerUrlSet()
   testEventToPostMappingAndOrdering()
 
   console.log('tracker-writeback-engine tests passed')
+}
+
+// ---------------------------------------------------------------------------
+// Multi-repo PR comment (MC-1730 item 6): the comment:pr key folds the sorted
+// PR-URL set, so a later repo's PR (a new set) posts its own comment instead of
+// being deduped away by the first PR's key — while a redundant reconcile of the
+// same set stays idempotent.
+// ---------------------------------------------------------------------------
+async function testMultiRepoPrCommentsPostPerUrlSet(): Promise<void> {
+  const poster = recordingPoster()
+  const firstPr = 'https://github.com/o/r/pull/7'
+  const secondPr = 'https://github.com/o/r2/pull/3'
+  const runState = mutableRunState({ ...startedFacts(), pullRequestUrls: [firstPr] })
+  const engine = new TrackerWriteBackEngine({
+    runState,
+    proxyItems: proxyLookup([githubItem()]),
+    config: configReader({ 'conn-gh': allCommentsOn() }),
+    capabilities: capabilityResolver({ github: GITHUB_CAPS }),
+    poster,
+    ledger: new TrackerWriteBackLedger({ resolveUserDataDir: () => '/ud', files: memoryFs().adapter }),
+    now: () => new Date('2026-07-19T12:00:00.000Z'),
+  })
+
+  const prComments = () => poster.comments.filter((c) => /Pull request/.test(c.body))
+
+  // First PR set → one PR comment. A redundant reconcile at the same set adds none.
+  await engine.reconcileRun(run())
+  await engine.reconcileRun(run())
+  assert.equal(prComments().length, 1)
+
+  // A second repo's PR arrives (arrival order does not matter — the key sorts the
+  // set) → a second PR comment listing both.
+  runState.set({ ...startedFacts(), pullRequestUrls: [secondPr, firstPr] })
+  await engine.reconcileRun(run())
+  assert.equal(prComments().length, 2)
+  assert.match(prComments()[1].body, /pull\/3/)
+
+  // Reconciling the same two-PR set again is idempotent — still two.
+  await engine.reconcileRun(run())
+  assert.equal(prComments().length, 2)
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +131,9 @@ async function testExactlyThreeCommentsAcrossLifecycleAndRestart(): Promise<void
     config,
     capabilities: caps,
     poster: restartPoster,
-    ledger: new TrackerWriteBackLedger({ resolveUserDataDir: () => '/ud', files: fs.adapter }),
+    // The run is still on disk across the restart, so the reloaded ledger keeps
+    // its posted records (idempotency) rather than evicting them as gone.
+    ledger: new TrackerWriteBackLedger({ resolveUserDataDir: () => '/ud', files: fs.adapter, runStateExists: async () => true }),
     now: () => new Date('2026-07-19T13:00:00.000Z'),
   })
   await restarted.reconcileRun(run())

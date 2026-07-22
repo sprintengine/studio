@@ -90,6 +90,8 @@ export type WriteBackLedgerPort = {
 
 type LedgerWriteMeta = {
   key: string
+  // The run's state path, so the ledger can evict an entry once its run is gone.
+  statePath: string
   connectionId: string
   externalId: string
   provider: TrackerProviderId
@@ -119,9 +121,11 @@ export type ReconcileSummary = {
 }
 
 // One post the run's current state implies. Comments carry a rendered body;
-// transitions carry the user-mapped named transition id.
+// transitions carry the user-mapped named transition id. `keyDiscriminator`, when
+// set, folds into the idempotency key so a post whose content grows across the run
+// (the PR comment) is not deduped away by an earlier post's key.
 type DesiredPost =
-  | { postKind: TrackerWriteBackPostKind; type: 'comment'; body: string }
+  | { postKind: TrackerWriteBackPostKind; type: 'comment'; body: string; keyDiscriminator?: string }
   | { postKind: TrackerWriteBackPostKind; type: 'transition'; transitionId: string }
 
 export class TrackerWriteBackEngine {
@@ -158,12 +162,17 @@ export class TrackerWriteBackEngine {
         const capabilities = this.deps.capabilities.capabilitiesFor(item.provider)
         const desired = desiredPostsFor(facts, config, capabilities)
         for (const post of desired) {
-          const key = trackerWriteBackPostKey({ runId: facts.runId, postKind: post.postKind, externalId: item.externalId })
+          const key = trackerWriteBackPostKey({
+            runId: facts.runId,
+            postKind: post.postKind,
+            externalId: item.externalId,
+            ...(post.type === 'comment' && post.keyDiscriminator ? { discriminator: post.keyDiscriminator } : {}),
+          })
           if (await this.deps.ledger.hasPosted(key)) {
             skipped += 1
             continue
           }
-          const outcome = await this.attempt(item, post, key)
+          const outcome = await this.attempt(item, post, key, input.statePath)
           if (outcome === 'posted') posted += 1
           else failed += 1
         }
@@ -180,9 +189,10 @@ export class TrackerWriteBackEngine {
     }
   }
 
-  private async attempt(item: RunProxyItem, post: DesiredPost, key: string): Promise<'posted' | 'failed'> {
+  private async attempt(item: RunProxyItem, post: DesiredPost, key: string, statePath: string): Promise<'posted' | 'failed'> {
     const meta: LedgerWriteMeta = {
       key,
+      statePath,
       connectionId: item.connectionId,
       externalId: item.externalId,
       provider: item.provider,
@@ -250,6 +260,10 @@ export function desiredPostsFor(
       postKind: 'comment:pr',
       type: 'comment',
       body: pullRequestComment({ goal: facts.goal, pullRequestUrls: facts.pullRequestUrls }),
+      // Fold the sorted PR-URL set into the key so a multi-repo run's later PR
+      // (a new set) posts its own comment instead of being deduped by the first
+      // PR's key, while a redundant reconcile of the same set stays idempotent.
+      keyDiscriminator: [...facts.pullRequestUrls].sort().join(','),
     })
   }
 
