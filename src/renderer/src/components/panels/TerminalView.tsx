@@ -855,6 +855,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         suspended: terminalStatus.suspended,
         hasLaunchIntent: hasLiveAgentLaunchIntent(postStatusAgent),
         sessionMintedThisAppSession: wasAgentSessionMintedThisAppSession(sessionId),
+        launchFailedThisAppSession: hasAgentLaunchFailedThisAppSession(workspaceId, agentId),
       })
       const pauseInsteadOfLaunch = coldLoadDecision === 'paused'
       inertRef.current = coldLoadDecision === 'inert'

@@ -21,6 +21,7 @@ const coldLoaded: AgentColdLoadInput = {
   suspended: false,
   hasLaunchIntent: false,
   sessionMintedThisAppSession: false,
+  launchFailedThisAppSession: false,
 }
 
 // --- launch intent: the predicate that separates a NEW agent from a cold-loaded
@@ -163,6 +164,51 @@ assert.equal(
   wasAgentSessionMintedThisAppSession('sess-new'),
   false,
   'the mint registry is renderer-session scoped; after a reload nothing counts as minted',
+)
+
+// --- launchFailedThisAppSession gating the decision (backlog 1716).
+//
+// The failed-launch marker used to gate only the mint branch. But a click on an
+// inert failed agent (startInertAgent) bumps cliRestartNonce, and the failure
+// branch that re-clears cliSessionId does NOT reset that nonce — so the record
+// still carries live intent AND re-enters the mint branch. Gating only the mint
+// left hasLaunchIntent (rule 5) firing 'spawn' every cycle: spawn→fail→mint→
+// spawn, a notify each loop. The decision must fall to inert when the marker is
+// set, regardless of the stale intent or a re-minted id.
+assert.equal(
+  resolveAgentColdLoadDecision({ ...coldLoaded, launchFailedThisAppSession: true, hasLaunchIntent: true }),
+  'inert',
+  'a launch that failed this session must NOT respawn on the stale intent it left behind (click-retry-fails loop)',
+)
+assert.equal(
+  resolveAgentColdLoadDecision({ ...coldLoaded, launchFailedThisAppSession: true, sessionMintedThisAppSession: true }),
+  'inert',
+  'a re-minted id after a failed launch does not force a respawn while the marker is set',
+)
+// A deliberate retry clears the marker first (startInertAgent / the AgentPanel
+// Spawn button), so with the marker cleared the fresh intent spawns as normal —
+// the gate suppresses only the stale attempt, never a genuine retry.
+assert.equal(
+  resolveAgentColdLoadDecision({ ...coldLoaded, launchFailedThisAppSession: false, hasLaunchIntent: true }),
+  'spawn',
+  'clearing the marker on a deliberate retry lets the fresh intent spawn',
+)
+// Live-state checks still outrank the failed marker: a real pty, a paintable
+// suspended screen, or an attached session is not overridden by a stale failure.
+assert.equal(
+  resolveAgentColdLoadDecision({ ...coldLoaded, launchFailedThisAppSession: true, processAlive: true }),
+  'spawn',
+  'a live pty reattaches even if an earlier launch failed this session',
+)
+assert.equal(
+  resolveAgentColdLoadDecision({ ...coldLoaded, launchFailedThisAppSession: true, suspended: true }),
+  'paused',
+  'a paintable suspended screen still repaints even if an earlier launch failed',
+)
+assert.equal(
+  resolveAgentColdLoadDecision({ ...coldLoaded, launchFailedThisAppSession: true, attachedSessionId: 'sess-attached' }),
+  'spawn',
+  'an attached session reattaches even if an earlier launch failed this session',
 )
 
 // --- the failed-launch registry: the guard that stops a failed spawn from

@@ -1043,6 +1043,7 @@ export async function executeSprintEngineDispatchPlan(
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,
       spawnContext.inFlightSpawns,
+      { missingCliNoticeKeys: cycleState.missingCliNoticeKeys },
     )
     if (result === 'failed') {
       notificationSpawnFailed = true
@@ -1054,7 +1055,9 @@ export async function executeSprintEngineDispatchPlan(
       markNotificationDelivered(delivery.deliveryKey)
       logPerfEvent('SprintEngineAutoRun', 'agent-notification-spawned', { ...base, ...delivery.data })
     }
-    // 'skipped' leaves the event pending; it retries on the next tick.
+    // 'skipped'/'missing_cli' leave the event pending; it retries next tick. The
+    // decision layer dedupes the missing-CLI notice, so a CLI-less target no
+    // longer re-publishes the diagnostic every ~4s.
   }
   // A failed spawn is a failure boundary: recordSpawnFailure has stopped the
   // automation, so executing the remaining pastes, restarts, respawns, or
@@ -1139,16 +1142,24 @@ export async function executeSprintEngineDispatchPlan(
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,
       spawnContext.inFlightSpawns,
+      { missingCliNoticeKeys: cycleState.missingCliNoticeKeys },
     )
     // 'skipped' means a live session or in-flight spawn already covers this
-    // agent — no budget consumed. Started and failed attempts both count
-    // against the respawn cap so a broken CLI cannot spawn/exit loop.
+    // agent — no budget consumed, so it must NOT count a retry. Started, failed,
+    // AND missing-CLI attempts all count against the respawn cap: a missing CLI
+    // is an unresolvable config error, and counting it is what bounds the loop.
+    // Skipping the retry there (the pre-fix bug, when missing-CLI returned the
+    // same opaque 'skipped') re-planned a cli:null respawn every ~4s forever.
     if (result === 'skipped') {
       logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawn-skipped', { ...base, ...respawn.data })
       continue
     }
     const respawnLedger = ledgers.continuation?.current
     if (respawnLedger) recordPromptRetry(respawnLedger, respawn.key, Date.now())
+    if (result === 'missing_cli') {
+      logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawn-missing-cli', { ...base, ...respawn.data })
+      continue
+    }
     if (result === 'failed') {
       logPerfEvent('SprintEngineAutoRun', 'dead-claimant-respawn-failed', { ...base, ...respawn.data })
       continue
@@ -1471,6 +1482,17 @@ async function reconcileDuplicateAgentSessions(
   return sessions
 }
 
+/**
+ * Spawn outcomes. `skipped` and `missing_cli` are BOTH "no spawn this tick", but
+ * they are not the same: `skipped` means a live session or in-flight spawn
+ * already covers the agent (a free no-op), while `missing_cli` means the role's
+ * runtime resolved no CLI — a real, unresolvable attempt. Callers that cap
+ * retries must count `missing_cli` (it re-plans every tick until config is
+ * fixed) but not `skipped` (nothing to bound). The decision layer distinguishes
+ * them so no call site has to guess from an opaque `skipped`.
+ */
+export type SpawnAutoRunCandidateResult = 'started' | 'failed' | 'skipped' | 'missing_cli'
+
 export async function spawnAutoRunCandidate(
   ports: SprintEngineAutoRunCyclePorts,
   workspace: Workspace,
@@ -1480,7 +1502,7 @@ export async function spawnAutoRunCandidate(
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRef<Set<string>>,
   options: { revealPolicy?: AgentTerminalRevealPolicy; missingCliNoticeKeys?: Set<string> } = {}
-): Promise<'started' | 'failed' | 'skipped'> {
+): Promise<SpawnAutoRunCandidateResult> {
   const currentWorkspace = ports.getWorkspace(workspace.id)
   const currentAgent = currentWorkspace?.agents[nextRun.agentId]
   // Defensive belt over the reconcile-stamped record (MC-1450): re-resolve
@@ -1506,11 +1528,13 @@ export async function spawnAutoRunCandidate(
   const missingCliNoticeKey = `${workspace.id}:${nextRun.agentId}:${nextRun.taskId}`
   if (!selectedCli) {
     // A missing CLI is a per-role CONFIG error, not a spawn failure. Return
-    // 'skipped' (NOT 'failed') so the supervise tick moves on to the sibling
+    // 'missing_cli' (NOT 'failed') so the supervise tick moves on to the sibling
     // candidates instead of aborting on the first misconfigured role — one role
     // without a resolved CLI must never freeze every ready task queued behind it
     // (the 2026-07-19 stall: a CLI-less nuclear_reviewer froze its sibling
-    // spec_reviewer task too). Surface the diagnostic ONCE per (workspace, agent,
+    // spec_reviewer task too). Distinct from a coverage 'skipped' so a retry-
+    // capped caller (dead-claimant respawn) counts it instead of re-planning it
+    // every ~4s unbounded. Surface the diagnostic ONCE per (workspace, agent,
     // task) via the runner's notice set (mirrors bootstrapStallNoticeKeys) rather
     // than re-publishing on every ~4s supervision tick.
     const noticeKeys = options.missingCliNoticeKeys
@@ -1532,7 +1556,7 @@ export async function spawnAutoRunCandidate(
         taskId: nextRun.taskId,
       })
     }
-    return 'skipped'
+    return 'missing_cli'
   }
   // CLI resolved: clear any stale missing-CLI notice so a later re-break re-warns.
   options.missingCliNoticeKeys?.delete(missingCliNoticeKey)
@@ -1960,7 +1984,8 @@ async function signalPlannerForNeedsInputTriage(
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRef<Set<string>>,
   sentArchitectTriageMessages: MutableRef<Map<string, ArchitectTriageMessage>>,
-  engagedThisPass: ReadonlySet<string>
+  engagedThisPass: ReadonlySet<string>,
+  missingCliNoticeKeys: Set<string>
 ): Promise<'started' | 'sent' | 'failed' | 'none'> {
   if (!workspace.folderPath || !workspace.sprintEngineContext) return 'none'
 
@@ -2048,12 +2073,16 @@ async function signalPlannerForNeedsInputTriage(
     cliRuntimes,
     mcpSettings,
     inFlightSpawns,
+    { missingCliNoticeKeys },
   )
   if (result === 'failed') return 'failed'
   if (result === 'started') {
     runningAgentIds.add(architect.id)
     return 'started'
   }
+  // 'skipped'/'missing_cli' → 'none': the tick re-attempts next pass, and the
+  // decision layer dedupes the missing-CLI notice so a CLI-less planner no
+  // longer re-publishes the diagnostic every ~4s.
   return 'none'
 }
 
@@ -2342,7 +2371,8 @@ export async function superviseRunnerActiveCycle(
       mcpSettings,
       inFlightSpawns,
       sentArchitectTriageMessages,
-      dispatchResult.engagedAgentIds
+      dispatchResult.engagedAgentIds,
+      cycleState.missingCliNoticeKeys
     ),
     'none' as 'started' | 'sent' | 'failed' | 'none'
   )

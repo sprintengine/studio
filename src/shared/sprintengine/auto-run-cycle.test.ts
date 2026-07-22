@@ -18,8 +18,8 @@ import type { AgentState } from './agent-state'
 import type { SprintEngineState, SprintEngineWorkspaceView } from './run-types'
 import type { SprintEngineAutoState } from './automation-types'
 import type { ArchitectTriageMessage, SprintEngineAutoRunCyclePorts } from './auto-run-cycle'
-import type { SprintEngineDispatchAttempt } from './auto-run'
-import { createSprintEngineAutoRunCycleState, superviseWorkspace } from './auto-run-cycle'
+import type { AutoRunCandidate, SprintEngineDispatchAttempt } from './auto-run'
+import { createSprintEngineAutoRunCycleState, spawnAutoRunCandidate, superviseWorkspace } from './auto-run-cycle'
 
 type Captured = {
   spawns: Array<{ sessionId: string; agentId?: string }>
@@ -320,10 +320,129 @@ async function testMissingCliRoleDoesNotFreezeSiblings(): Promise<void> {
   )
 }
 
+async function testMissingCliSpawnDedupesAndReportsDistinctResult(): Promise<void> {
+  // The decision layer (spawnAutoRunCandidate) owns BOTH the missing-CLI dedup
+  // and the distinct return value that lets retry-capped callers count the
+  // attempt. This exercises it directly — the shared mechanism behind all five
+  // spawn sites, including the three (notification, respawn, architect-triage)
+  // that previously did not pass the notice set and so re-warned every ~4s.
+  const state = {
+    roleRuntimes: { developer: { cli: 'claude-code' } }, // nuclear_reviewer absent → no CLI
+    sprintEngineAgents: {},
+    tasks: [],
+  } as unknown as SprintEngineState
+  const workspace = {
+    id: 'workspace-1',
+    name: 'Decision-layer workspace',
+    folderPath: '/tmp/workspace',
+    agents: {},
+    sprintEngineState: state,
+    sprintEngineContext: { teamSlug: 'team', statePath: STATE_PATH },
+  } as unknown as SprintEngineWorkspaceView
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+  const candidate = { agentId: 'nuclear_reviewer-1', label: 'Nuclear', role: 'nuclear_reviewer', taskId: 'T-x' } as unknown as AutoRunCandidate
+
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports = makePorts(captured, workspace, [])
+  const notice = new Set<string>()
+  const inFlight = ref(new Set<string>())
+  const r1 = await spawnAutoRunCandidate(ports, workspace, state, candidate, cliRuntimes, {} as McpSettings, inFlight, { missingCliNoticeKeys: notice })
+  const r2 = await spawnAutoRunCandidate(ports, workspace, state, candidate, cliRuntimes, {} as McpSettings, inFlight, { missingCliNoticeKeys: notice })
+  assert.equal(r1, 'missing_cli', 'a role with no resolved CLI returns missing_cli, distinct from a coverage skip')
+  assert.equal(r2, 'missing_cli', 'the repeated attempt still reports missing_cli')
+  assert.equal(
+    captured.diagnostics.filter((d) => d.title === 'Roster runner skipped agent').length,
+    1,
+    `a shared notice set dedupes the missing-CLI diagnostic across calls; diagnostics=${captured.diagnostics.length}`,
+  )
+
+  // With NO notice set the decision layer cannot dedupe, so each attempt warns —
+  // the pre-fix per-tick spam the three unwired sites produced.
+  const captured2: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const ports2 = makePorts(captured2, workspace, [])
+  await spawnAutoRunCandidate(ports2, workspace, state, candidate, cliRuntimes, {} as McpSettings, ref(new Set<string>()), {})
+  await spawnAutoRunCandidate(ports2, workspace, state, candidate, cliRuntimes, {} as McpSettings, ref(new Set<string>()), {})
+  assert.equal(
+    captured2.diagnostics.filter((d) => d.title === 'Roster runner skipped agent').length,
+    2,
+    'with no notice set every attempt warns (the pre-fix spam each unwired site produced)',
+  )
+}
+
+async function testDeadClaimantRespawnCountsMissingCliRetry(): Promise<void> {
+  // A dead-claimant respawn (backlog 1716): an in-progress task is owned by a
+  // managed roster agent whose terminal is not live, so the dispatch plan wants
+  // to respawn it — but the owner's role resolves NO CLI. The executor used to
+  // `continue` on the opaque 'skipped' BEFORE recordPromptRetry, so the retry
+  // cap never advanced and the respawn re-planned every ~4s forever. With the
+  // missing-CLI outcome distinguished, the attempt counts a retry (bounding the
+  // loop) and the notice is deduped.
+  const task = (over: Record<string, unknown>) => ({
+    id: 'T', title: '', description: '', role: 'developer', status: 'todo', ownerAgentId: null,
+    dependsOn: [], ownedPaths: [], acceptanceCriteria: [], implementationNotes: [],
+    evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] }, notes: [], comments: [],
+    startedAt: null, completedAt: null, boardColumn: 'ready', ...over,
+  })
+  const state = {
+    name: 'team',
+    goal: '',
+    roleCounts: {},
+    // nuclear_reviewer absent from roleRuntimes AND the agent record carries no
+    // cli, so its runtime resolves no CLI — the 2026-07-19 gap.
+    roleRuntimes: { developer: { cli: 'claude-code' } },
+    sprintEngineAgents: {
+      'nuclear_reviewer-1': { role: 'nuclear_reviewer', status: 'running', currentTaskId: 'T-owned' },
+    },
+    events: [],
+    artifacts: [],
+    tasks: [
+      task({
+        id: 'T-owned', title: 'Claimed review', role: 'nuclear_reviewer',
+        status: 'in_progress', ownerAgentId: 'nuclear_reviewer-1', boardColumn: 'in_progress',
+      }),
+    ],
+  } as unknown as SprintEngineState
+
+  const claimant = { ...viewAgent('nuclear_reviewer-1'), cli: undefined } as unknown as AgentState
+  const workspace = {
+    id: 'workspace-1',
+    name: 'Respawn workspace',
+    folderPath: '/tmp/workspace',
+    agents: { 'nuclear_reviewer-1': claimant },
+    sprintEngineState: state,
+    sprintEngineAutoState: autoState(),
+    sprintEngineContext: { teamSlug: 'team', statePath: STATE_PATH },
+    memory: { relativeRoot: '' },
+  } as unknown as SprintEngineWorkspaceView
+
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  // No live sessions → the claimant is not live → it is a respawn candidate.
+  const ports = makePorts(captured, workspace, [])
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  const args = superviseArgs(ports, workspace, cliRuntimes)
+  // Index 8 is the shared continuation ledger (the respawn retry cap lives here).
+  const continuationLedger = args[8] as { current: Map<string, SprintEngineDispatchAttempt> }
+  await superviseWorkspace(...args)
+
+  const attempts = [...continuationLedger.current.values()].map((entry) => entry.attempts ?? 0)
+  assert.ok(
+    attempts.some((count) => count >= 1),
+    `the CLI-less dead-claimant respawn counts a retry so the loop is bounded; ledger=${JSON.stringify([...continuationLedger.current.entries()])}`,
+  )
+  assert.equal(
+    captured.diagnostics.filter((d) => d.title === 'Roster runner skipped agent').length,
+    1,
+    `the missing-CLI notice publishes once for the respawn path; diagnostics=${JSON.stringify(captured.diagnostics.map((d) => d.title))}`,
+  )
+}
+
 async function main(): Promise<void> {
   await testAThrowingStageDoesNotPreventSpawning()
   await testTriageActingDoesNotSuppressPoolSpawning()
   await testMissingCliRoleDoesNotFreezeSiblings()
+  await testMissingCliSpawnDedupesAndReportsDistinctResult()
+  await testDeadClaimantRespawnCountsMissingCliRetry()
   console.log('auto-run-cycle.test.ts: all tests passed')
 }
 

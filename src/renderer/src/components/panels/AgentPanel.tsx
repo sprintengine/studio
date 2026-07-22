@@ -23,6 +23,7 @@ import { PrimaryButton, SkillPickerPopover, StarGlyph, Tooltip } from '../ui'
 import { revealNavRailComponent } from '../../utils/modelRegistry'
 import { dispatchBacklogReveal } from '../../utils/backlogReveal'
 import { bracketedPaste } from '../../utils/terminalDrop'
+import { clearAgentLaunchFailed } from '../../utils/terminalColdLoad'
 import {
   ensureSkillForAgent,
   hasInstalledNativeSkillTarget,
@@ -269,6 +270,11 @@ export default function AgentPanel({
       })
       return
     }
+    // A deliberate Spawn/Restart is the user asking to try again, exactly like a
+    // click on an inert pane (startInertAgent). Drop any "launch failed this
+    // session" marker so the cold-load decision lets this fresh attempt spawn
+    // instead of gating it back to inert on the stale failure.
+    clearAgentLaunchFailed(workspaceId, agentId)
     const existingSessionId = restart ? agent?.cliSessionId : undefined
     updateAgent(workspaceId, agentId, {
       cliStartRequested: true,

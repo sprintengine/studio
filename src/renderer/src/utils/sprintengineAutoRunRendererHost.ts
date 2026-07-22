@@ -65,6 +65,7 @@ import {
   sendDispatchPromptsToRunningAgents as cycleSendDispatchPromptsToRunningAgents,
   spawnAutoRunCandidate as cycleSpawnAutoRunCandidate,
   superviseRunnerActiveCycle as cycleSuperviseRunnerActiveCycle,
+  type SpawnAutoRunCandidateResult,
   type SprintEngineAutoRunCyclePorts,
   type SprintEngineAutoRunDormancyPorts,
   type SprintEngineDispatchExecution,
@@ -391,7 +392,7 @@ export async function spawnAutoRunCandidate(
   mcpSettings: McpSettings,
   inFlightSpawns: MutableRefObject<Set<string>>,
   options: { revealPolicy?: AgentTerminalRevealPolicy } = {}
-): Promise<'started' | 'failed' | 'skipped'> {
+): Promise<SpawnAutoRunCandidateResult> {
   return cycleSpawnAutoRunCandidate(
     rendererCyclePorts,
     workspace,
