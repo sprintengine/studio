@@ -1,0 +1,201 @@
+import assert from 'node:assert/strict'
+
+import { JSDOM } from 'jsdom'
+
+// The stale-closure regression net (MC-1717 / T3). `onPostReview` used to capture
+// a pre-post snapshot and, after the IPC round-trip, write it back verbatim —
+// silently dropping a comment composed mid-post and reverting files-read toggles.
+// Every other review test in this repo is a static renderToStaticMarkup, which
+// cannot span an await; a stale closure IS a timing bug, so this suite stands up a
+// real DOM and drives a post with an edit landing while the batch is in flight.
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'http://localhost',
+  pretendToBeVisual: true,
+})
+
+const anyGlobal = globalThis as unknown as Record<string, unknown>
+anyGlobal.document = dom.window.document
+anyGlobal.navigator = dom.window.navigator
+anyGlobal.HTMLElement = dom.window.HTMLElement
+anyGlobal.Node = dom.window.Node
+anyGlobal.getComputedStyle = dom.window.getComputedStyle
+anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+dom.window.matchMedia = ((query: string) => ({
+  matches: false,
+  media: query,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
+
+async function main(): Promise<void> {
+  const React = await import('react')
+  const { act } = React
+  const { createRoot } = await import('react-dom/client')
+  const { useReviewSession } = await import('./useReviewSession')
+  const { fixtureChangeSet } = await import('./fixtures')
+  type ReviewSession = import('./useReviewSession').ReviewSession
+  type ReviewComment = import('../../../../../shared/review').ReviewComment
+  type ReviewWorkspaceState = import('../../../../../shared/review').ReviewWorkspaceState
+  type ReviewPostReviewResult = import('../../../../../shared/electron-api').ReviewPostReviewResult
+  type ReviewCommentPostOutcome = import('../../../../../shared/electron-api').ReviewCommentPostOutcome
+
+  const TARGET = { workspaceRoot: '/repo', workspaceId: 'r1' }
+  const pending = (id: string, path: string, line: number, body: string): ReviewComment => ({
+    id,
+    path,
+    anchor: { side: 'new', startLine: line, endLine: line },
+    body,
+    createdAt: '2026-07-20T00:00:00.000Z',
+    sync: { state: 'pending' },
+  })
+
+  // A fresh session harness for one scenario: two pending comments already stored
+  // against the fixture PR change set, a controllable post, and captured writes.
+  function setup(seedComments: ReviewComment[]) {
+    let stored: ReviewWorkspaceState = {
+      schemaVersion: 1,
+      changeSetId: fixtureChangeSet.id,
+      readFiles: [],
+      diffView: 'side-by-side',
+      comments: seedComments,
+    }
+    let resolvePost: ((result: ReviewPostReviewResult) => void) | null = null
+    const api = {
+      reviewReadState: async () => ({ ok: true, state: stored }),
+      reviewReadChangeset: async () => ({ ok: true, changeset: fixtureChangeSet }),
+      reviewReadBrief: async () => ({ ok: true, brief: null }),
+      reviewWriteState: async (_t: unknown, next: ReviewWorkspaceState) => {
+        stored = next
+        return { ok: true }
+      },
+      reviewPostReview: () => new Promise<ReviewPostReviewResult>((res) => (resolvePost = res)),
+      onReviewBriefRunEvent: () => () => {},
+    }
+    anyGlobal.window = new Proxy(dom.window, {
+      get(target, prop) {
+        if (prop === 'api') {
+          return new Proxy(api, {
+            get: (a, p) => (p in a ? (a as Record<string | symbol, unknown>)[p] : async () => null),
+          })
+        }
+        const value = (target as unknown as Record<string | symbol, unknown>)[prop]
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+
+    let session: ReviewSession | null = null
+    function Harness(): null {
+      session = useReviewSession({ reviewId: 'r1', workspaceRoot: '/repo' })
+      return null
+    }
+    const container = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(container)
+    const root = createRoot(container)
+    return {
+      root,
+      current: () => {
+        assert.ok(session, 'the session must have rendered')
+        return session
+      },
+      render: () => act(async () => root.render(React.createElement(Harness))),
+      resolvePost: (result: ReviewPostReviewResult) =>
+        act(async () => {
+          assert.ok(resolvePost, 'a post must be in flight before it can resolve')
+          resolvePost(result)
+        }),
+      finalStored: () => stored,
+    }
+  }
+
+  const okOutcome = (id: string, url: string): ReviewCommentPostOutcome => ({
+    id,
+    sync: { state: 'posted', url, postedAt: '2026-07-20T01:00:00.000Z' },
+  })
+
+  async function successPreservesMidPostEdits(): Promise<void> {
+    const h = setup([
+      pending('c-1', 'prisma/schema.prisma', 37, 'Cap at MEMBER?'),
+      pending('c-2', 'src/server/api/invitations.ts', 63, '404 vs 400?'),
+    ])
+    await h.render()
+    assert.equal(h.current().comments.length, 2, 'both stored comments load')
+    assert.equal(h.current().canPost, true, 'a PR with pending comments can post')
+
+    // Start the post; it stays in flight (reviewPostReview is deferred).
+    await act(async () => {
+      void h.current().onPostReview()
+    })
+    assert.equal(h.current().postState.phase, 'posting')
+    assert.deepEqual(
+      h.current().comments.map((c) => c.sync.state),
+      ['posting', 'posting'],
+      'both batch comments flip to posting',
+    )
+
+    // A reviewer composes a third comment and marks a file read WHILE posting —
+    // two discrete actions (separate ticks), as a person would trigger them.
+    await act(async () => {
+      h.current().onCreateComment('src/server/api/invitations.ts', { side: 'new', startLine: 70, endLine: 70 }, 'One more thought')
+    })
+    await act(async () => {
+      h.current().onToggleRead('prisma/schema.prisma')
+    })
+    await act(async () => {
+      h.current().onSetActivePane('step-api')
+    })
+    assert.equal(h.current().comments.length, 3, 'the mid-post comment is present before the post resolves')
+
+    // The batch returns success — outcomes cover ONLY the two comments it sent.
+    await h.resolvePost({ ok: true, reviewUrl: 'https://x/pull/482#r', outcomes: [okOutcome('c-1', 'u1'), okOutcome('c-2', 'u2')] })
+
+    const final = h.finalStored()
+    const byId = new Map(final.comments.map((c) => [c.id, c]))
+    assert.equal(final.comments.length, 3, 'nothing was lost — the mid-post comment survived')
+    assert.equal(byId.get('c-1')!.sync.state, 'posted', 'first batch comment landed its posted stamp')
+    assert.equal(byId.get('c-2')!.sync.state, 'posted', 'second batch comment landed its posted stamp')
+    const midPost = final.comments.find((c) => c.id !== 'c-1' && c.id !== 'c-2')!
+    assert.equal(midPost.sync.state, 'pending', 'the comment composed mid-post is untouched, still pending')
+    assert.equal(midPost.body, 'One more thought')
+    assert.deepEqual(final.readFiles, ['prisma/schema.prisma'], 'the mid-post files-read toggle survived')
+    assert.equal(final.activeStepId, 'step-api', 'the active step chosen mid-post survived')
+    assert.equal(h.current().postState.phase, 'idle')
+    h.root.unmount()
+    console.log('ok - a comment and a files-read toggle composed mid-post survive a successful post')
+  }
+
+  async function failureSparesMidPostComment(): Promise<void> {
+    const h = setup([pending('c-1', 'prisma/schema.prisma', 37, 'Cap at MEMBER?')])
+    await h.render()
+    await act(async () => {
+      void h.current().onPostReview()
+    })
+    await act(async () => {
+      h.current().onCreateComment('src/server/api/invitations.ts', { side: 'new', startLine: 70, endLine: 70 }, 'Mid-post note')
+    })
+    await act(async () => {
+      h.current().onToggleRead('prisma/schema.prisma')
+    })
+    await h.resolvePost({ ok: false, error: 'GitHub denied the request (403).' })
+
+    const final = h.finalStored()
+    const byId = new Map(final.comments.map((c) => [c.id, c]))
+    assert.equal(final.comments.length, 2, 'the mid-post comment survives a batch failure')
+    assert.equal(byId.get('c-1')!.sync.state, 'failed', 'the sent comment is a retryable failure')
+    const midPost = final.comments.find((c) => c.id !== 'c-1')!
+    assert.equal(midPost.sync.state, 'pending', 'a comment outside the batch is NOT marked failed')
+    assert.deepEqual(final.readFiles, ['prisma/schema.prisma'], 'the files-read toggle survived the error path')
+    assert.equal(h.current().postState.phase, 'error')
+    h.root.unmount()
+    console.log('ok - a mid-post comment is spared (stays pending) when the batch fails')
+  }
+
+  await successPreservesMidPostEdits()
+  await failureSparesMidPostComment()
+  console.log('all useReviewSession concurrency tests passed')
+}
+
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

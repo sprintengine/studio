@@ -22,6 +22,7 @@ import {
   markCommentsPosting,
   newReviewComment,
   pendingCommentCount,
+  postableComments,
 } from './commentModel'
 import {
   buildCurrentBanner,
@@ -286,6 +287,11 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     return defaultReviewState(changeset.id)
   }, [changeset, storedState])
 
+  // Live mirror of the resolved state so a functional patchState reads the LATEST
+  // value at write time, not one captured when an async post began.
+  const latestStateRef = useRef(resolvedState)
+  latestStateRef.current = resolvedState
+
   useEffect(() => {
     if (refreshInFlightRef.current) return
     if (!stateLoaded) return
@@ -295,11 +301,12 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
   }, [changeset, storedState, stateLoaded, persistReviewState])
 
   const patchState = useCallback(
-    (patch: Partial<ReviewWorkspaceState>) => {
-      if (!resolvedState) return
-      persistReviewState({ ...resolvedState, ...patch })
+    (patch: Partial<ReviewWorkspaceState> | ((prev: ReviewWorkspaceState) => Partial<ReviewWorkspaceState>)) => {
+      const base = latestStateRef.current
+      if (!base) return
+      persistReviewState({ ...base, ...(typeof patch === 'function' ? patch(base) : patch) })
     },
-    [resolvedState, persistReviewState],
+    [persistReviewState],
   )
 
   const readFiles = useMemo(() => new Set(resolvedState?.readFiles ?? []), [resolvedState])
@@ -350,23 +357,25 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
   )
 
   const onPostReview = useCallback(async () => {
-    if (!target || !resolvedState || !changeset) return
-    const original = resolvedState.comments
-    if (!canPostReview(changeset, original)) return
+    if (!target || !resolvedState || !changeset || !canPostReview(changeset, resolvedState.comments)) return
+    // The batch is exactly the comments postable at send time; its ids scope the
+    // failure apply so a comment composed mid-post is never marked failed.
+    const batch = postableComments(resolvedState.comments)
+    const batchIds = batch.map((comment) => comment.id)
     setPostState({ phase: 'posting' })
-    patchState({ comments: markCommentsPosting(original) })
+    patchState({ comments: markCommentsPosting(resolvedState.comments) })
     try {
-      const result = await window.api.reviewPostReview({ target, comments: original })
-      if (!result.ok) {
-        patchState({ comments: applyPostFailure(original, result.error) })
+      const result = await window.api.reviewPostReview({ target, comments: batch })
+      if (result.ok) {
+        patchState((prev) => ({ comments: applyPostOutcomes(prev.comments, result.outcomes) }))
+        setPostState({ phase: 'idle' })
+      } else {
+        patchState((prev) => ({ comments: applyPostFailure(prev.comments, batchIds, result.error) }))
         setPostState({ phase: 'error', error: result.error })
-        return
       }
-      patchState({ comments: applyPostOutcomes(original, result.outcomes) })
-      setPostState({ phase: 'idle' })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      patchState({ comments: applyPostFailure(original, message) })
+      patchState((prev) => ({ comments: applyPostFailure(prev.comments, batchIds, message) }))
       setPostState({ phase: 'error', error: message })
     }
   }, [target, resolvedState, changeset, patchState])

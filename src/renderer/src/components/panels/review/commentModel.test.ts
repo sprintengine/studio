@@ -199,13 +199,20 @@ run('applyPostOutcomes clears a stale moved flag when the comment posts cleanly'
   assert.equal(applied[0].anchorStatus, undefined, 'a cleanly posted comment keeps no moved flag')
 })
 
-run('applyPostFailure flips every postable comment to a retryable failed', () => {
-  const failedBatch = applyPostFailure([pending, posted, failed], 'GitHub denied the request (403).')
+run('applyPostFailure flips only the batch it sent, sparing a mid-post comment', () => {
+  // A comment composed while the post was in flight — pending, but NOT in the batch.
+  const midFlight: ReviewComment = { ...pending, id: 'c-midflight' }
+  const failedBatch = applyPostFailure(
+    [pending, posted, failed, midFlight],
+    ['c-pending', 'c-failed'],
+    'GitHub denied the request (403).',
+  )
   const byId = new Map(failedBatch.map((c) => [c.id, c]))
   assert.equal(byId.get('c-pending')!.sync.state, 'failed')
   assert.equal((byId.get('c-pending')!.sync as { error: string }).error, 'GitHub denied the request (403).')
   assert.equal(byId.get('c-failed')!.sync.state, 'failed')
   assert.equal(byId.get('c-posted')!.sync.state, 'posted', 'a posted comment is not re-failed')
+  assert.equal(byId.get('c-midflight')!.sync.state, 'pending', 'a comment outside the batch is untouched')
   assert.ok(isCommentEditable(byId.get('c-pending')!), 'a failed comment is editable for retry')
 })
 

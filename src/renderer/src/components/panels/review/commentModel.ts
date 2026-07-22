@@ -121,15 +121,18 @@ export function applyPostOutcomes(
 }
 
 // A whole-batch failure (auth/transport/not-a-PR): GitHub's create-review is
-// atomic, so nothing posted. Every postable comment flips to a retryable 'failed'
-// carrying the error, so the tray and each thread show why and stay editable.
-export function applyPostFailure(comments: ReviewComment[], error: string): ReviewComment[] {
+// atomic, so nothing posted. Scoped to `postedIds` — the exact comments this post
+// sent — so each flips to a retryable 'failed' carrying the error and stays
+// editable, while a comment composed while the post was in flight is not in the
+// batch and keeps its own state. Symmetric with applyPostOutcomes' id merge.
+export function applyPostFailure(
+  comments: ReviewComment[],
+  postedIds: readonly string[],
+  error: string,
+): ReviewComment[] {
+  const batch = new Set(postedIds)
   return comments.map((comment) =>
-    comment.sync.state === 'pending' ||
-    comment.sync.state === 'failed' ||
-    comment.sync.state === 'posting'
-      ? { ...comment, sync: { state: 'failed', error } }
-      : comment,
+    batch.has(comment.id) ? { ...comment, sync: { state: 'failed', error } } : comment,
   )
 }
 
