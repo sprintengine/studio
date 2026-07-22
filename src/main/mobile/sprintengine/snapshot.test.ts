@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { tmpdir } from 'os'
@@ -49,6 +51,7 @@ async function main(): Promise<void> {
   await assertSnapshotIncludesDesktopWorkspaceEntries()
   await assertSnapshotIncludesWorkspaceBacklog()
   await assertTopLevelSnapshotVersionIsContentStableAcrossReads()
+  await assertProjectionWithoutUpdatedAtHasStableSnapshotVersion()
   await assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion()
   await assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion()
   await assertSprintEngineChangeBumpsTopLevelSnapshotVersion()
@@ -71,6 +74,51 @@ async function main(): Promise<void> {
   await assertPublishingIsThrottled()
   await assertAutomationIntentSidecarWinsOverRunnerHeuristic()
   await assertAutomationIntentSidecarSurfacesOnStateFallback()
+  assertMobileProtocolCopyHasNotDrifted()
+}
+
+// Drift guard (T10). src/shared/mobile-control/protocol.ts is a byte-identical
+// mirror of the mobile app's copy (multicode-mobile:
+// src/shared/mobile-control/protocol.ts). The relay only works while the two
+// copies agree, so both repos pin this same sha256 — the mobile side pins it in
+// mobileControlProtocol.regression.test.js. If you change the wire schema in
+// either copy, mirror the edit into the other repo and set both pins to the new
+// shared hash.
+const mobileProtocolSourceSha256 = 'b1e95448d62f4a6c897fe76f8ded987e110fbd793e115d3c5034a0f45e4554c9'
+
+function assertMobileProtocolCopyHasNotDrifted(): void {
+  const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
+  const digest = createHash('sha256').update(source).digest('hex')
+  assert.equal(
+    digest,
+    mobileProtocolSourceSha256,
+    'protocol.ts changed — mirror the edit into the multicode-mobile copy and update both pinned hashes to the new shared value',
+  )
+}
+
+async function assertProjectionWithoutUpdatedAtHasStableSnapshotVersion(): Promise<void> {
+  // T10: a projection carrying neither `updatedAt` nor `run.updatedAt` must fall
+  // back to the projection file's mtime, never a per-read `new Date()`. A
+  // wall-clock fallback folds into the engine sub-version and would rev
+  // snapshotVersion on every read fleet-wide, defeating the item-1599 unchanged
+  // fast path. Two reads of the same untouched file must agree.
+  const statePath = await writeStateText('not-real-state\n')
+  const teamDirectory = dirname(statePath)
+  await writeFile(join(teamDirectory, 'projection.json'), JSON.stringify({
+    ok: true,
+    projectionVersion: 1,
+    source: 'folder_store',
+    run: { id: 'no-timestamp', name: 'No Timestamp', status: 'executing' },
+    tasks: [],
+    artifacts: [],
+  }), 'utf8')
+
+  const first = await readSprintEngineSnapshot(statePath)
+  const second = await readSprintEngineSnapshot(statePath)
+  assert.equal(second.snapshotVersion, first.snapshotVersion,
+    'a projection with no updatedAt yields a stable snapshotVersion across reads (mtime, not wall-clock)')
+  assert.equal(second.updatedAt, first.updatedAt,
+    'updatedAt falls back to the projection file mtime, so it is identical across reads')
 }
 
 async function assertAutomationIntentSidecarWinsOverRunnerHeuristic(): Promise<void> {

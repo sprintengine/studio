@@ -498,9 +498,16 @@ async function readSprintEngineProjectionSnapshot(
   statePath: string,
   teamDirectory: string
 ): Promise<MobileSprintEngineSnapshot | null> {
+  const projectionPath = join(teamDirectory, 'projection.json')
   let content: string
+  let projectionMtime: string
   try {
-    content = await readFile(join(teamDirectory, 'projection.json'), 'utf8')
+    const [raw, stats] = await Promise.all([
+      readFile(projectionPath, 'utf8'),
+      stat(projectionPath),
+    ])
+    content = raw
+    projectionMtime = stats.mtime.toISOString()
   } catch {
     return null
   }
@@ -509,7 +516,12 @@ async function readSprintEngineProjectionSnapshot(
   const sprintEngineRootDirectory = dirname(teamDirectory)
   const workspacePath = dirname(dirname(sprintEngineRootDirectory))
   const sprintEngineId = stringOrNull(run.id) ?? basename(teamDirectory)
-  const updatedAt = isoStringOrNull(projection.updatedAt) ?? isoStringOrNull(run.updatedAt) ?? new Date().toISOString()
+  // Fall back to the projection file's mtime, never a per-read wall-clock: this
+  // `updatedAt` folds into the engine sub-version and thus the top-level
+  // snapshotVersion, so `new Date()` here would rev the version on every read
+  // fleet-wide and defeat the item-1599 unchanged fast path. mtime only moves
+  // when the projection is actually rewritten.
+  const updatedAt = isoStringOrNull(projection.updatedAt) ?? isoStringOrNull(run.updatedAt) ?? projectionMtime
   const tasks = normalizeTasks(projection.tasks)
   const taskSnapshots = tasks.map((task) => toTaskSnapshot(task, tasks))
   const artifacts = normalizeArtifacts(projection.artifacts)
