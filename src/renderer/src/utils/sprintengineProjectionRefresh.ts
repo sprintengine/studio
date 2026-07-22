@@ -164,15 +164,18 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       })
     } else {
       healInterruptedDormancyTeardown(workspace, ports)
-      // A forced refresh of a *canceled* dormant run still recolors its Backlog
-      // run-link chip. Cancellation reaches its terminal `canceled` state via the
-      // runtime broadcast, so the workspace is usually already dormant at entry
-      // and the poller's routine display-only ticks skip the link write — without
-      // this the chip would never turn Canceled. Scoped to cancellation (not
-      // completion, whose link is written on the non-dormant completing tick) and
-      // to forced refreshes so routine dormant polls stay strictly display-only.
-      // Idempotent: the link refresh self-skips once the chip already matches.
-      if (force && isCanceledSprintEngineRun(parsedState)) {
+      // A dormant *canceled* run still recolors its Backlog run-link chip. Cancel
+      // reaches its terminal `canceled` state via the runtime broadcast, so the
+      // workspace is already dormant when the first post-cancel refresh reads the
+      // canceled projection — there is no non-dormant completing tick to write the
+      // chip (unlike completion, whose link lands on its non-dormant tick). Run it
+      // on any dormant tick that first reads the run canceled, forced OR routine:
+      // without it a routine-only teardown would leave the chip Active forever.
+      // This is the changed-projection branch, so it fires once (on the first read
+      // of the canceled projection); after it, `canStopPolling…` quiesces the poll.
+      // Idempotent regardless: the link refresh self-skips once the chip matches.
+      // Scoped to cancellation so a completed dormant run stays display-only.
+      if (isCanceledSprintEngineRun(parsedState)) {
         await refreshBacklogSprintEngineRunLinks({
           workspace,
           state: parsedState,
@@ -307,6 +310,16 @@ function reconcileCompletedRunLifecycle(
 ): void {
   if (!state) return
 
+  // A canceled run reaches dormancy through the runtime's cancellation broadcast
+  // (terminal runtimeState `canceled`), never through completion. Its non-done
+  // tasks are all `canceled`, so `isCompletedSprintEngineRun` reads true — but
+  // entering COMPLETION dormancy here would fire `runner_complete` and, if it
+  // wins the race with the cancel broadcast, flip the terminal runtimeState to
+  // `complete`, mislabeling a canceled run as completed (the reducer's terminal
+  // guard then ignores the later `runner_canceled`). Leave cancellation to the
+  // runtime; the chip recolor still runs after this via refreshBacklog…RunLinks.
+  if (isCanceledSprintEngineRun(state)) return
+
   if (!isCompletedSprintEngineRun(state)) {
     // A formerly-complete run gained open tasks again (scope expansion, sprint
     // chaining): re-arm the one-shot teardown for the next completion.
@@ -320,8 +333,13 @@ function reconcileCompletedRunLifecycle(
 }
 
 // Whether the projection poller can stop reading a workspace's projection.json.
-// A finished run is terminal — its projection won't change again — but three
-// conditions must all hold before we skip it:
+// A terminal run — completed OR canceled — won't change again. Cancellation is
+// handled first: a canceled run's runtimeState is `canceled`, so the completion
+// arm never matched it and the poller read it forever (the bug this fixes). It
+// stops once the hydrated state itself reads canceled (`isCanceledSprintEngineRun`)
+// and the shared teardown has run — the hydration guard ensures the one read that
+// recolors the Backlog chip happens first. The completion arm below needs three
+// conditions, plus one empty-graph carve-out:
 //   1. lifecycle `complete` (not raw task-completeness): a run that finished but
 //      is still stuck in `paused` must keep polling so `reconcileCompletedRun-
 //      Lifecycle` can self-heal it to `complete` first; the next tick skips it.
@@ -345,14 +363,38 @@ function reconcileCompletedRunLifecycle(
 //      records are recreated by every projection read, and a user may re-open a
 //      role's panel after completion (board resume) — polling must not restart
 //      for those, or the reconcile would tear the re-opened panel down.
+// Empty-graph carve-out: a run with zero tasks has no per-task projection write
+// to wait for, so once (1) and (3) hold a hydrated (non-null) empty state is
+// already its final snapshot. `isCompletedSprintEngineRun` requires ≥1 task and
+// would otherwise poll such a run forever.
 export function canStopPollingCompletedSprintEngineProjection(
   workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'>,
 ): boolean {
   const state = workspace.sprintEngineState
   if (!state) return false
-  return workspace.sprintEngineAutoState?.runtimeState === 'complete'
-    && isCompletedSprintEngineRun(state)
-    && workspace.sprintEngineAutoState?.completionTeardownAt !== undefined
+  const runtimeState = workspace.sprintEngineAutoState?.runtimeState
+  // The shared terminal teardown (completion AND cancellation both run it) sets
+  // this, so it is the third guard for either terminal path.
+  const tornDown = workspace.sprintEngineAutoState?.completionTeardownAt !== undefined
+
+  // Cancellation is the sibling terminal state. It reaches `canceled` via the
+  // runtime broadcast, so this predicate is what stops the poll (a canceled run's
+  // runtimeState is `canceled`, never `complete`, so the completion arm below
+  // never matched it — the pre-fix bug that polled canceled runs forever).
+  // Requires the hydrated state to ITSELF read canceled (parity with the
+  // completion cold-restart guard): a stale pre-cancel snapshot keeps polling for
+  // the one read that hydrates the canceled board and recolors its Backlog chip.
+  if (runtimeState === 'canceled') {
+    return isCanceledSprintEngineRun(state) && tornDown
+  }
+
+  if (runtimeState !== 'complete' || !tornDown) return false
+  // A finished run with tasks must have read its final projection — task-
+  // completeness on the hydrated state, not a mere non-null check (see the
+  // header). An empty-graph run has no per-task projection write to wait for, so
+  // a hydrated (non-null) empty state is already its final snapshot; without this
+  // `isCompletedSprintEngineRun` (which requires ≥1 task) would poll it forever.
+  return state.tasks.length === 0 || isCompletedSprintEngineRun(state)
 }
 
 function normalizedPathKey(path: string): string {

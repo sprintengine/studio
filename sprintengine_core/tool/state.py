@@ -424,6 +424,22 @@ def run_is_canceled(state: Dict[str, Any]) -> bool:
     return bool(isinstance(sprintengine, dict) and sprintengine.get("canceled"))
 
 
+def refuse_if_run_canceled(state: Dict[str, Any], action: str) -> None:
+    """Stop a mutating writer when the run has been canceled.
+
+    Cancel is terminal: every non-done task is `canceled` and its owner released,
+    so a still-live agent's publish/advance/log/commit must not drive a task back
+    toward done or land a commit on the run branch. Raising SystemExit inside a
+    `with_locked_state` closure discards the pending state write, so the refusal
+    leaves the store untouched.
+    """
+    if run_is_canceled(state):
+        raise SystemExit(
+            f"Sprint Engine run was canceled; {action} is refused. "
+            "No further task work will be recorded. Stop."
+        )
+
+
 def role_has_open_work(state: Dict[str, Any], role: str) -> bool:
     for task in state.get("tasks", []) or []:
         if not isinstance(task, dict):

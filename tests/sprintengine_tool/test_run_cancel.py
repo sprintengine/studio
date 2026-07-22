@@ -130,3 +130,71 @@ def test_cancel_empty_task_graph(tmp_path) -> None:
     state = read_state(fixture.state_path)
     assert state["sprintengine"]["canceled"] is True
     assert state["sprintengine"]["status"] == "canceled"
+
+
+# ── Honoring a canceled run: writers refuse, dispatch reports canceled (T6) ──
+
+
+def _canceled_team(tmp_path):
+    fixture = _cancel_ready_team(tmp_path)
+    fixture.cli.run("cancel", "--id", "user")
+    return fixture
+
+
+def test_publish_refused_on_canceled_run(tmp_path) -> None:
+    fixture = _canceled_team(tmp_path)
+    rejected = fixture.cli.run_failure(
+        "task", "publish", "--task-id", "T2", "--id", "developer-1", "--summary", "late work"
+    )
+    assert "canceled" in rejected.stderr
+
+
+def test_advance_refused_on_canceled_run(tmp_path) -> None:
+    fixture = _canceled_team(tmp_path)
+    rejected = fixture.cli.run_failure(
+        "task", "advance", "--task-id", "T2", "--id", "developer-1",
+        "--phase", "review", "--outcome", "pass", "--summary", "reviewed",
+    )
+    assert "canceled" in rejected.stderr
+
+
+def test_log_refused_on_canceled_run(tmp_path) -> None:
+    fixture = _canceled_team(tmp_path)
+    rejected = fixture.cli.run_failure(
+        "task", "log", "--task-id", "T2", "--id", "developer-1", "--summary", "note"
+    )
+    assert "canceled" in rejected.stderr
+
+
+def test_vcs_commit_refused_on_canceled_run(tmp_path) -> None:
+    # The cancel guard runs before the worktree-mode check, so a non-worktree
+    # canceled run refuses with the cancel message rather than "not in worktree
+    # mode" — proving the guard is the first thing a commit hits.
+    fixture = _canceled_team(tmp_path)
+    rejected = fixture.cli.run_failure(
+        "vcs", "commit", "--task-id", "T2", "--id", "developer-1"
+    )
+    assert "canceled" in rejected.stderr
+
+
+def test_task_next_reports_canceled_run(tmp_path) -> None:
+    fixture = _canceled_team(tmp_path)
+    payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert payload["claimed"] is False
+    assert payload["reason"] == "run_canceled"
+
+
+def test_join_reports_canceled_run(tmp_path) -> None:
+    fixture = _canceled_team(tmp_path)
+    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1")
+    assert payload["action"] == "canceled"
+
+
+def test_task_status_repair_still_allowed_on_canceled_run(tmp_path) -> None:
+    # task.status is the low-level repair transition, deliberately NOT in the
+    # refused writer set, so a canceled run can still be corrected by an admin.
+    fixture = _canceled_team(tmp_path)
+    payload = fixture.cli.run(
+        "task", "status", "--task-id", "T2", "--status", "todo", "--id", "user"
+    )
+    assert payload["ok"] is True

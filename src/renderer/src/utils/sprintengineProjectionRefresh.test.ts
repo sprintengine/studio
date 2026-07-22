@@ -648,16 +648,18 @@ async function testCanceledProjectionRecolorsBacklogLinkWithoutDrivingItem(): Pr
 }
 
 // A canceled run reaches its terminal `canceled` automation state via the
-// runtime broadcast, so it is usually already dormant when the post-cancel
-// refresh runs. A FORCED refresh still recolors its chip (the one write the
-// display-only path allows for cancellation); a routine (non-forced) dormant
-// poll stays strictly display-only.
-async function testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot(): Promise<void> {
+// runtime broadcast, so it is already dormant when the first post-cancel refresh
+// reads the canceled projection — there is no non-dormant completing tick to
+// write the chip. So the chip recolor must fire on a ROUTINE (non-forced) dormant
+// tick too (T6), not only on a forced refresh; otherwise the chip stays Active
+// forever. It stays otherwise display-only (no teardown), and self-skips once the
+// chip already matches.
+async function testDormantCanceledRefreshRecolorsLinkOnRoutineTick(): Promise<void> {
   const dormantCanceled = {
     ...workspace(),
     sprintEngineAutoState: autoState('canceled', 500),
   } as unknown as Workspace
-  const backlogStore = {
+  const activeLinkStore = {
     schemaVersion: 1 as const,
     items: [{
       id: 'backlog_refresh',
@@ -679,28 +681,10 @@ async function testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot(): 
     }],
   }
 
-  // Forced: the chip recolors even though the run is dormant.
-  const forcedMutations: Array<{ workspaceRoot: string; relativePath: string; link: BacklogItemLinkPayload; status?: 'completed' }> = []
-  const forcedTeardown: string[] = []
-  await refreshSprintEngineWorkspaceProjection({
-    workspace: dormantCanceled,
-    tokens: new Map(),
-    cause: 'manual',
-    force: true,
-    ports: portsFor({
-      data: projection('canceled', '2026-06-07T15:00:00Z', 'canceled'),
-      applied: [],
-      backlogMutations: forcedMutations,
-      teardownCalls: forcedTeardown,
-      backlogStore,
-    }),
-  })
-  assert.equal(forcedMutations.length, 1, 'a forced refresh recolors a canceled dormant run link')
-  assert.equal(forcedMutations[0].link.status, 'canceled')
-  assert.deepEqual(forcedTeardown, [], 'the forced canceled refresh stays otherwise display-only (no teardown)')
-
-  // Routine (non-forced) dormant poll: strictly display-only, no link write.
+  // Routine (non-forced) dormant poll: the chip recolors to canceled, and the
+  // refresh stays otherwise display-only (no agent teardown).
   const routineMutations: Array<{ workspaceRoot: string; relativePath: string; link: BacklogItemLinkPayload; status?: 'completed' }> = []
+  const routineTeardown: string[] = []
   await refreshSprintEngineWorkspaceProjection({
     workspace: dormantCanceled,
     tokens: new Map(),
@@ -709,10 +693,37 @@ async function testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot(): 
       data: projection('canceled', '2026-06-07T15:00:00Z', 'canceled'),
       applied: [],
       backlogMutations: routineMutations,
-      backlogStore,
+      teardownCalls: routineTeardown,
+      backlogStore: activeLinkStore,
     }),
   })
-  assert.equal(routineMutations.length, 0, 'a routine dormant poll never writes the backlog link')
+  assert.equal(routineMutations.length, 1, 'a routine dormant poll recolors a canceled run link')
+  assert.equal(routineMutations[0].link.status, 'canceled')
+  assert.equal(routineMutations[0].status, undefined, 'cancellation never drives the item status')
+  assert.deepEqual(routineTeardown, [], 'the routine canceled refresh stays otherwise display-only (no teardown)')
+
+  // Idempotent: once the chip already reads canceled, a routine poll self-skips
+  // the link write (the refresh reads the store fresh each tick).
+  const settledLinkStore = {
+    ...activeLinkStore,
+    items: [{
+      ...activeLinkStore.items[0],
+      links: [{ ...activeLinkStore.items[0].links[0], status: 'canceled' as const }],
+    }],
+  }
+  const settledMutations: Array<{ workspaceRoot: string; relativePath: string; link: BacklogItemLinkPayload; status?: 'completed' }> = []
+  await refreshSprintEngineWorkspaceProjection({
+    workspace: dormantCanceled,
+    tokens: new Map(),
+    cause: 'supervisor',
+    ports: portsFor({
+      data: projection('canceled', '2026-06-07T15:00:00Z', 'canceled'),
+      applied: [],
+      backlogMutations: settledMutations,
+      backlogStore: settledLinkStore,
+    }),
+  })
+  assert.equal(settledMutations.length, 0, 'a routine poll self-skips once the chip already reads canceled')
 }
 
 // An epic launched as a sprint carries the run's execution link, but its status
@@ -1173,6 +1184,72 @@ function testCanStopPollingCompletedProjection(): void {
     }),
     false,
   )
+
+  // ── Cancellation (T6): a canceled run's runtimeState is `canceled`, never
+  // `complete`, so the completion arm never matched it and the poller read it
+  // forever. It stops once the hydrated state itself reads canceled + torn down.
+  const canceledState = { ...state, canceled: true } as SprintEngineState
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('canceled', 500),
+      sprintEngineState: canceledState,
+    }),
+    true,
+    'canceled + hydrated-canceled + torn down → stop polling',
+  )
+  // Canceled runtime but the hydrated state is a STALE pre-cancel snapshot (the
+  // flag has not been read yet) → keep polling for the one read that hydrates the
+  // canceled board and recolors its Backlog chip.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('canceled', 500),
+      sprintEngineState: state,
+    }),
+    false,
+    'canceled runtime but state not yet hydrated canceled → keep polling',
+  )
+  // Canceled + hydrated but the shared teardown has not run yet → keep polling.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('canceled'),
+      sprintEngineState: canceledState,
+    }),
+    false,
+    'canceled but teardown not run → keep polling',
+  )
+  // Canceled but not yet hydrated at all (cold restart) → keep polling.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('canceled', 500),
+      sprintEngineState: null,
+    }),
+    false,
+    'canceled cold run → keep polling for its one hydration read',
+  )
+
+  // ── Empty-graph completed (T6): a run with zero tasks has no per-task
+  // projection write to wait for, so `isCompletedSprintEngineRun` (which requires
+  // ≥1 task) would poll it forever. A hydrated (non-null) empty state is already
+  // its final snapshot once complete + torn down.
+  const emptyState = { ...state, tasks: [] } as SprintEngineState
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('complete', 500),
+      sprintEngineState: emptyState,
+    }),
+    true,
+    'empty-graph complete + hydrated + torn down → stop polling',
+  )
+  // An empty run that is NOT terminal (still running / no lifecycle) must keep
+  // polling — the empty carve-out is gated on terminal runtimeState + teardown.
+  assert.equal(
+    canStopPollingCompletedSprintEngineProjection({
+      sprintEngineAutoState: autoState('running'),
+      sprintEngineState: emptyState,
+    }),
+    false,
+    'empty but still running → keep polling',
+  )
 }
 
 testCanStopPollingCompletedProjection()
@@ -1191,7 +1268,7 @@ await testCompletedProjectionRefreshesMatchingBacklogLink()
 await testCompletedMultiProjectRunLinksEveryPullRequest()
 await testCompletedSingleProjectRunLinksOneUnlabeledPullRequest()
 await testCanceledProjectionRecolorsBacklogLinkWithoutDrivingItem()
-await testForcedDormantCanceledRefreshRecolorsLinkButRoutineDoesNot()
+await testDormantCanceledRefreshRecolorsLinkOnRoutineTick()
 await testCompletedProjectionSparesEpicStatus()
 await testNonterminalProjectionDoesNotCompleteBacklogLink()
 await testBacklogRefreshFailureWarnsAndLeavesItemUnchanged()
