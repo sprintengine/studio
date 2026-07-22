@@ -33,6 +33,17 @@ import type {
 import { findSprintEngineRuntimeRoot } from './mcp-config-service'
 import { getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
+// The run-store schema guard now lives in the node-free shared leaf
+// `shared/sprintengine/store-schema.ts` so the disk-scanning run index can reuse
+// it without importing this Electron-bound module. Imported for the local
+// projection-guard use below, and re-exported so every existing importer of
+// `describeUnsupportedSprintEngineStore` / `SPRINT_ENGINE_RUN_SCHEMA_VERSION`
+// from `sprintengine-artifacts` keeps resolving.
+import {
+  SPRINT_ENGINE_RUN_SCHEMA_VERSION,
+  describeUnsupportedSprintEngineStore,
+} from '../shared/sprintengine/store-schema'
+export { SPRINT_ENGINE_RUN_SCHEMA_VERSION, describeUnsupportedSprintEngineStore }
 
 type SprintEngineArtifactDependencies = {
   getAuthenticatedUserId(): string | null
@@ -604,46 +615,6 @@ function validateWorkspaceRoot(input: unknown): string {
     throw new Error('Workspace root does not exist.')
   }
   return workspaceRoot
-}
-
-// The run-store schema version this build understands. MIRRORS `RUN_SCHEMA_VERSION`
-// in sprintengine_core/store.py. v2 (MC-1542, single-owner tasks) deleted quality
-// gates and the `changes_requested`/`testing`/`product` statuses; v3 (MC-1591,
-// leases replace the roster) removed the persistent `agents` map from run.yaml;
-// v4 (MC-1611, multi-repo runs) made `vcs.repos` the run's declared repo list.
-export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = 4
-
-/**
- * Reject an out-of-date run store, returning a readable message (or null when the
- * store is current).
- *
- * Decision 8 is a pre-release clean break: old stores are local runtime state and
- * are never migrated. The one requirement is that the rejection is LOUD at every
- * surface that reads a store. The renderer reads `projection.json` straight off
- * disk without going through Python, so this guard — not the Python loader — is
- * what stops the board, wizard, backlog links, and module mount from silently
- * rendering gate-era data.
- *
- * A projection carrying a `run` object with no `schemaVersion` predates the field
- * and is therefore version 1. A payload with no `run` object at all is not a
- * projection; that is malformed input, judged downstream by
- * `normalizeSprintEngineProjection`, and this guard stays silent rather than
- * blaming it on an old Multicode.
- */
-export function describeUnsupportedSprintEngineStore(projection: unknown, teamDirectory: string): string | null {
-  if (!projection || typeof projection !== 'object') return null
-  const run = (projection as { run?: unknown }).run
-  if (!run || typeof run !== 'object' || Array.isArray(run)) return null
-  const rawVersion = (run as { schemaVersion?: unknown }).schemaVersion
-  const version = typeof rawVersion === 'number' && Number.isFinite(rawVersion) ? rawVersion : 1
-  if (version >= SPRINT_ENGINE_RUN_SCHEMA_VERSION) return null
-  return (
-    `This sprint was created by an older version of Multicode (run store v${version}, ` +
-    `this build reads v${SPRINT_ENGINE_RUN_SCHEMA_VERSION}). Sprints can now span more ` +
-    `than one project (and before that, leases replaced the roster and single-owner ` +
-    `tasks replaced quality gates), so the run cannot be opened. Delete ` +
-    `"${teamDirectory}" and start the sprint again.`
-  )
 }
 
 function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: SerializableSprintEngineStatePayload): string[] {

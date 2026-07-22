@@ -42,6 +42,8 @@ import { resolveMemoryRoot } from './memory-graph'
 import { listPluginRegistryEntries } from './plugin-registry-instance'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
+import { SPRINT_RUNS_CHANGED_CHANNEL, type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
+import { invalidateSprintRunSummary } from './sprintengine-run-index'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
@@ -356,6 +358,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       // Every runtime op means a run's state may have moved; wake write-back to
       // reconcile it against the tracker (debounced, and inert when off).
       if (op.statePath) trackerWriteBack.notifyRunActivity(op.statePath)
+      // …and its cross-project run-index summary may be stale: drop the memo and
+      // notify any open Sprints door so it refetches without polling (MC-1761).
+      if (op.statePath) {
+        invalidateSprintRunSummary(op.statePath)
+        const changed: SprintRunsChangedEvent = { statePath: op.statePath }
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+          window.webContents.send(SPRINT_RUNS_CHANGED_CHANNEL, changed)
+        }
+      }
     },
     logDiagnostic: (diagnostic) => writeDiagnosticLog(diagnostic),
   })

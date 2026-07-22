@@ -1,6 +1,6 @@
-import { readFile, readdir, stat } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { dirname, join } from 'path'
-import { pathExists } from './filesystem-workspace'
+import { discoverSprintEngineRunStatePaths } from './sprintengine-run-index'
 
 // A run whose lifecycle has ended: nothing new will be worked, so it is dead
 // weight on the phone beyond a short "recently finished" tail. The run-level
@@ -14,50 +14,14 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed
 // size-shedding ladder, so a fleet of finished runs cannot crowd out the live ones.
 const defaultTerminalRunKeepCount = 3
 
+// The phone's run discovery is now a consumer of the shared run-index scan (D1):
+// same dedupe-by-statePath and newest-first sort, one implementation. The
+// empty-roots → cwd fallback is a mobile-only quirk kept here so the snapshot's
+// behavior is unchanged; the shared scan itself takes exactly the roots given.
 export async function discoverMobileSprintEngineStatePaths(workspaceRoots: string[]): Promise<string[]> {
   const roots = workspaceRoots.length > 0 ? workspaceRoots : [process.cwd()]
-  const statePathGroups = await Promise.all(roots.map((root) => discoverSprintEngineStatePaths(root)))
-  const discovered = new Map<string, DiscoveredSprintEngineStatePath>()
-  for (const item of statePathGroups.flat()) {
-    const existing = discovered.get(item.statePath)
-    if (!existing || item.updatedAtMs > existing.updatedAtMs) {
-      discovered.set(item.statePath, item)
-    }
-  }
-  return [...discovered.values()]
-    .sort((left, right) => right.updatedAtMs - left.updatedAtMs || left.statePath.localeCompare(right.statePath))
-    .map((item) => item.statePath)
-}
-
-type DiscoveredSprintEngineStatePath = {
-  statePath: string
-  updatedAtMs: number
-}
-
-async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<DiscoveredSprintEngineStatePath[]> {
-  const sprintEngineRoot = join(workspaceRoot, '.multi-code', 'sprintengine')
-  let entries
-  try {
-    entries = await readdir(sprintEngineRoot, { withFileTypes: true })
-  } catch {
-    return []
-  }
-
-  const statePaths = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const statePath = join(sprintEngineRoot, entry.name, 'run.yaml')
-        if (!(await pathExists(statePath))) {
-          return null
-        }
-        return {
-          statePath,
-          updatedAtMs: await readSprintEngineUpdatedAtMs(statePath, join(sprintEngineRoot, entry.name, 'projection.json')),
-        }
-      })
-  )
-  return statePaths.filter((statePath): statePath is DiscoveredSprintEngineStatePath => Boolean(statePath))
+  const discovered = await discoverSprintEngineRunStatePaths(roots)
+  return discovered.map((item) => item.statePath)
 }
 
 // The default (unscoped) snapshot's sprint-engine set: every live run plus the
@@ -101,12 +65,4 @@ async function isTerminalRunStatePath(statePath: string): Promise<boolean> {
   } catch {
     return false
   }
-}
-
-async function readSprintEngineUpdatedAtMs(statePath: string, projectionPath: string): Promise<number> {
-  const [projectionStats, stateStats] = await Promise.all([
-    stat(projectionPath).catch(() => null),
-    stat(statePath).catch(() => null),
-  ])
-  return projectionStats?.mtimeMs ?? stateStats?.mtimeMs ?? 0
 }

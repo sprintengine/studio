@@ -3,6 +3,7 @@ import type { SprintEngineAutomationIntentRecord } from './sprintengine/automati
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
 import type { RoadmapStateView } from './sprintengine/roadmap-surface'
+import type { SprintRunSummary, SprintRunsChangedEvent } from './sprintengine/runSummary'
 import type {
   SprintRuntimeOp,
   SprintRuntimeRunRegistration,
@@ -2870,6 +2871,15 @@ export type ElectronApi = {
   cancelSprintEngineRun: (input: { statePath: string }) => Promise<SprintEngineArtifactCommandResult>
   /** Scheduler-performed store mutations, mirrored to every window (Phase 2). */
   onSprintRuntimeOp: (cb: (op: SprintRuntimeOp) => void) => () => void
+  /**
+   * Cross-project sprint run index (MC-1761): every run — live and historical —
+   * under the given known project roots, as a compact summary with no resident
+   * workspace. The data source for the Sprints door. Unreadable projections come
+   * back as `unknown`-state rows carrying a reason, never dropped.
+   */
+  listSprintRuns: (roots: string[]) => Promise<SprintRunSummary[]>
+  /** A run's projection changed; the Sprints door refetches the index on this. */
+  onSprintRunsChanged: (cb: (event: SprintRunsChangedEvent) => void) => () => void
   createSprintEnginePullRequest: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   refreshSprintEnginePullRequestStatus: (statePath: string) => Promise<SprintEngineArtifactCommandResult>
   /**

@@ -16,6 +16,7 @@ import type {
   SprintEngineTaskUpdateInput,
 } from '../../shared/electron-api'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
+import type { SprintRunSummary } from '../../shared/sprintengine/runSummary'
 
 export type SprintEngineArtifactOpenPayload = {
   statePath: string
@@ -39,6 +40,12 @@ export type SprintEngineVcsMergePayload = {
    * run's own project, which is the only one a single-project run has.
    */
   repo?: string
+}
+
+export type SprintEngineRunsListPayload = {
+  // Known project roots (main derives distinct roots to scan). The renderer sends
+  // the roots of the workspaces it knows about; main dedupes and scans each.
+  roots: string[]
 }
 
 export type SprintEngineProjectionReadPayload = {
@@ -76,6 +83,7 @@ type SprintEngineIpcDependencies = {
   readRegistryRole(payload: SprintEngineRegistryRoleReadInput): Promise<SprintEngineMcpReadResult>
   summarizeFeedback(payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult>
   readTokenUsage(payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport>
+  listRuns(payload: SprintEngineRunsListPayload): Promise<SprintRunSummary[]>
 }
 
 export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
@@ -170,5 +178,11 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
 
   ipcMain.handle('sprintengine:token-usage:read', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport> => {
     return deps.readTokenUsage(payload)
+  })
+
+  // Cross-project run index (MC-1761): every sprint run under the given project
+  // roots as a compact summary, live and historical, with no resident workspace.
+  ipcMain.handle('sprintengine:runs:list', async (_, payload: SprintEngineRunsListPayload): Promise<SprintRunSummary[]> => {
+    return deps.listRuns(payload)
   })
 }

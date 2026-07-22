@@ -38,6 +38,11 @@ import {
   type SprintRuntimeRunRegistration,
   type SprintRuntimeStopReasonPush,
 } from '../../shared/sprintengine/runtime-bridge'
+import {
+  SPRINT_RUNS_CHANGED_CHANNEL,
+  type SprintRunSummary,
+  type SprintRunsChangedEvent,
+} from '../../shared/sprintengine/runSummary'
 import type {
   RoleInstallResult,
   UserRoleDeleteResult,
@@ -217,6 +222,14 @@ export const sprintEngineApi = {
     ipcRenderer.on(ch, handler)
     return () => ipcRenderer.removeListener(ch, handler)
   },
+  listSprintRuns: (roots: string[]): Promise<SprintRunSummary[]> =>
+    ipcRenderer.invoke('sprintengine:runs:list', { roots }),
+  onSprintRunsChanged: (cb: (event: SprintRunsChangedEvent) => void): (() => void) => {
+    const ch = SPRINT_RUNS_CHANGED_CHANNEL
+    const handler = (_: IpcRendererEvent, event: SprintRunsChangedEvent) => cb(event)
+    ipcRenderer.on(ch, handler)
+    return () => ipcRenderer.removeListener(ch, handler)
+  },
 } satisfies Pick<
   ElectronApi,
   | 'openSprintEngineArtifact'
@@ -250,6 +263,8 @@ export const sprintEngineApi = {
   | 'skipRoadmapStep'
   | 'createRoadmap'
   | 'onSprintRuntimeOp'
+  | 'listSprintRuns'
+  | 'onSprintRunsChanged'
   | 'createSprintEnginePullRequest'
   | 'refreshSprintEnginePullRequestStatus'
   | 'mergeSprintEnginePullRequest'

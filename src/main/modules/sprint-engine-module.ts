@@ -2,6 +2,7 @@ import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
 import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automation-ipc'
 import { registerSprintRuntimeIpc } from '../ipc/sprint-runtime-ipc'
 import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
+import { listSprintRuns } from '../sprintengine-run-index'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintRuntimeToken } from '../module-host/service-tokens'
@@ -109,6 +110,7 @@ export const sprintEngineModule: CapabilityModule = {
       readRegistryRole: artifacts.readRegistryRole,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
+      listRuns: ({ roots }) => listSprintRuns(roots),
     })
 
     // MC-1567: the main-owned automation mode intent (read / set / one-time
