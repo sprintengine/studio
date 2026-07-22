@@ -27,6 +27,7 @@ import {
 } from '../../specialists/specialistActions'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
+import { guidedBriefTransportForCli } from '../../components/workspace/guidedBrief/types'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -924,6 +925,76 @@ assert.deepEqual(
   useWorkspaceStore.getState().appSettings.specialistPacks.disabled,
   ['multicode-specialists'],
   'toggling still records the disabled pack',
+)
+
+// --- Design Wizard transport default (T12) ---------------------------------
+// The default profile ships opt-out: conversation sessions are off, so a Claude
+// design specialist takes the terminal path. Pins the acceptance criterion end
+// to end — the hydrated default feeds the transport selector.
+const defaultConversationEnabled =
+  normalizeAppSettings({}, []).guidedBriefConversationSessions === true
+assert.equal(
+  defaultConversationEnabled,
+  false,
+  'guidedBriefConversationSessions defaults to off (opt-out)',
+)
+assert.equal(
+  guidedBriefTransportForCli('claude-code', {
+    conversationSessionsEnabled: defaultConversationEnabled,
+    hasWorkspaceId: true,
+  }),
+  'terminal',
+  "transportForCli('claude-code') === 'terminal' at default settings",
+)
+
+// Opt-in only: hydration turns it on solely for an explicit stored `true`. A
+// user who enabled it keeps the conversation transport; any other stored value
+// (legacy truthy, undefined) resolves to the terminal path.
+assert.equal(
+  normalizeAppSettings({ guidedBriefConversationSessions: true }, []).guidedBriefConversationSessions,
+  true,
+  'an explicitly enabled profile keeps conversation sessions on',
+)
+assert.equal(
+  guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
+  'conversation',
+  'a user who opted in gets the conversation transport for Claude',
+)
+for (const stored of [undefined, false, 1 as unknown as boolean, 'true' as unknown as boolean]) {
+  assert.equal(
+    normalizeAppSettings({ guidedBriefConversationSessions: stored }, []).guidedBriefConversationSessions,
+    false,
+    `a non-true stored value (${String(stored)}) resolves to off`,
+  )
+}
+
+// Non-Claude CLIs and workspace-less runs never take the conversation path,
+// even when the opt-in is on.
+assert.equal(
+  guidedBriefTransportForCli('codex', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
+  'terminal',
+  'non-Claude CLIs always take the terminal path',
+)
+assert.equal(
+  guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: false }),
+  'terminal',
+  'a workspace-less run takes the terminal path',
+)
+
+// The explicit setter records the user's choice verbatim, and stores exactly
+// `true` only for an explicit enable.
+const transportStore = useWorkspaceStore.getState()
+transportStore.setGuidedBriefConversationSessions(true)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
+  true,
+  'setGuidedBriefConversationSessions(true) opts in',
+)
+transportStore.setGuidedBriefConversationSessions(false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
+  false,
+  'setGuidedBriefConversationSessions(false) opts out',
 )
 
 console.log('settingsSlice.test.ts: ok')

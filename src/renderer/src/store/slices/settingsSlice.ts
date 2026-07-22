@@ -885,7 +885,11 @@ export const defaultAppSettings = (): AppSettings => ({
   pendingAgentConfigAdoption: null,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
-  guidedBriefConversationSessions: true,
+  // Design Wizard specialists run on terminals by default. The conversation
+  // transport is an experimental opt-in; hydration only turns it on when the
+  // stored value is exactly `true` (see normalizeAppSettings), so a fresh
+  // profile lands here on the terminal path.
+  guidedBriefConversationSessions: false,
 })
 
 // Accept a persisted adoption selection only when it is the expected shape (two
@@ -963,7 +967,12 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     pendingAgentConfigAdoption: normalizePendingAgentConfigAdoption(settings?.pendingAgentConfigAdoption),
     terminalIdleSuspendMinutes: normalizeTerminalIdleSuspendMinutes(settings?.terminalIdleSuspendMinutes),
     terminalKeepRecentAlive: normalizeTerminalKeepRecentAlive(settings?.terminalKeepRecentAlive),
-    guidedBriefConversationSessions: settings?.guidedBriefConversationSessions !== false,
+    // Opt-in only: on solely when the stored value is exactly `true`. A user who
+    // explicitly enabled it keeps it; a fresh profile (undefined) or any other
+    // value resolves to the terminal path. Enforced here (not just the default
+    // literal) so it also holds on the persist merge / dev-HMR rehydrate path
+    // ([[zustand-migration-hmr-version-stamp]]).
+    guidedBriefConversationSessions: settings?.guidedBriefConversationSessions === true,
   }
 }
 
@@ -1677,7 +1686,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     setGuidedBriefConversationSessions: (enabled) =>
       set((state) => {
-        state.appSettings.guidedBriefConversationSessions = enabled !== false
+        // Record the user's explicit choice verbatim; hydration honors a stored
+        // `true` as the opt-in signal.
+        state.appSettings.guidedBriefConversationSessions = enabled === true
       }),
 
     setUsageTelemetrySettings: (update) =>
