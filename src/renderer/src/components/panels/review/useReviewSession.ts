@@ -31,6 +31,7 @@ import {
   migrateReviewState,
   reconstructSourceInput,
 } from './freshness'
+import { synthesizeDegradedBrief } from './degradedBrief'
 import { resolveActivePaneId } from './reviewSelectors'
 import { useReviewFreshness } from './useReviewFreshness'
 import type { FreshnessBannerModel } from './freshness'
@@ -53,8 +54,8 @@ export type ReviewSessionStatus =
   | 'error' // the change set could not be read
   | 'no-change' // the review has no change set ingested
   | 'invalid-brief' // the walkthrough failed its checks
-  | 'prepare' // no walkthrough yet — invite the guide
-  | 'ready' // walkthrough present
+  | 'degraded' // changeset present, no guide brief — raw change, synthesized walkthrough
+  | 'ready' // guide walkthrough present
 
 export interface ReviewRunProgress {
   running: boolean
@@ -67,7 +68,12 @@ export interface ReviewSession {
   reviewId: string | null
   workspaceRoot: string | null
   status: ReviewSessionStatus
+  // True in the 'degraded' state: `brief` is the renderer-synthesized model, not a
+  // guide's. Lets the surface hide guide-only chrome without duplicating the check.
+  isDegraded: boolean
   changeset: ReviewChangeSet | null
+  // The guide's brief when 'ready'; the synthesized degraded model when 'degraded';
+  // null otherwise. The synthesized one is never written to disk.
   brief: ReviewBrief | null
   errorMessage: string | null
   invalidErrors: string | null
@@ -279,7 +285,18 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
   }, [target, depth, loadBrief])
 
   const changeset = changesetLoad.phase === 'ready' ? changesetLoad.changeset : null
-  const brief = briefLoad.phase === 'ready' ? briefLoad.brief : null
+  // The guide's brief, present only when it validated on disk. Freshness/staleness
+  // apply to this one alone — a synthesized fallback can never be "stale".
+  const realBrief = briefLoad.phase === 'ready' ? briefLoad.brief : null
+  const status = resolveStatus(target !== null, changesetLoad, briefLoad, changeset)
+  // In the degraded state expose a synthesized model so the walkthrough renders the
+  // raw change (diff, read-toggles, comments) with no guide. It is memoized off the
+  // changeset and never persisted; `brief.json` on disk always means a guide ran.
+  const brief = useMemo<ReviewBrief | null>(() => {
+    if (realBrief) return realBrief
+    if (status === 'degraded' && changeset) return synthesizeDegradedBrief(changeset)
+    return null
+  }, [realBrief, status, changeset])
 
   const resolvedState = useMemo<ReviewWorkspaceState | null>(() => {
     if (!changeset) return null
@@ -380,7 +397,7 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     }
   }, [target, resolvedState, changeset, patchState])
 
-  const freshness = useReviewFreshness(workspaceRoot, changeset, brief)
+  const freshness = useReviewFreshness(workspaceRoot, changeset, realBrief)
 
   const refresh = useCallback(async () => {
     if (!target || !changeset) return
@@ -401,7 +418,7 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
         return
       }
       const newChangeset = ingested.changeset
-      const affectedStepIds = brief ? computeFreshness(oldChangeset, newChangeset, brief).affectedStepIds : []
+      const affectedStepIds = realBrief ? computeFreshness(oldChangeset, newChangeset, realBrief).affectedStepIds : []
       const runResult = await window.api.reviewStartBriefRun({
         workspaceId: target.workspaceId,
         workspaceRoot: target.workspaceRoot,
@@ -423,15 +440,17 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     } finally {
       refreshInFlightRef.current = false
     }
-  }, [target, changeset, storedState, brief, depth, persistReviewState, loadBrief, startRun])
+  }, [target, changeset, storedState, realBrief, depth, persistReviewState, loadBrief, startRun])
 
   const comments = resolvedState?.comments ?? []
   const bannerModel = useMemo<FreshnessBannerModel | null>(() => {
-    if (!brief || !changeset) return null
-    if (freshness) return buildStaleBanner(changeset.source, brief, freshness.result)
-    if (settle) return buildCurrentBanner(settle.headSha, brief, settle.refreshedStepIds)
+    // Freshness banners describe the guide's walkthrough against a moved head; the
+    // synthesized degraded model has no such history, so it never shows one.
+    if (!realBrief || !changeset) return null
+    if (freshness) return buildStaleBanner(changeset.source, realBrief, freshness.result)
+    if (settle) return buildCurrentBanner(settle.headSha, realBrief, settle.refreshedStepIds)
     return null
-  }, [brief, changeset, freshness, settle])
+  }, [realBrief, changeset, freshness, settle])
 
   // Chat controller for the chromeless walkthrough: a note-card "Ask the guide"
   // pre-quotes that annotation; the surface bar's "Ask the guide" opens a clean one.
@@ -455,12 +474,11 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     setChatOpen(true)
   }, [])
 
-  const status = resolveStatus(target !== null, changesetLoad, briefLoad, changeset)
-
   return {
     reviewId,
     workspaceRoot,
     status,
+    isDegraded: status === 'degraded',
     changeset,
     brief,
     errorMessage: changesetLoad.phase === 'error' ? changesetLoad.message : null,
@@ -504,5 +522,9 @@ function resolveStatus(
   if (!changeset) return 'no-change'
   if (briefLoad.phase === 'invalid') return 'invalid-brief'
   if (briefLoad.phase === 'ready') return 'ready'
-  return 'prepare'
+  // The brief's disk state is still unknown (not yet read) — hold on 'loading'
+  // rather than flashing the raw change before a real walkthrough resolves.
+  if (briefLoad.phase === 'idle' || briefLoad.phase === 'loading') return 'loading'
+  // briefLoad.phase === 'absent': a changeset with no guide brief → degraded.
+  return 'degraded'
 }

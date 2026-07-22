@@ -67,6 +67,11 @@ export interface ReviewWalkthroughProps {
   // together: with both the "Ask the guide" chat opens; absent it stays hidden.
   workspaceId?: string
   workspaceRoot?: string
+  // Degraded mode (T1): the brief is the renderer-synthesized raw-change model, not
+  // a guide's. Suppresses the guide-only chrome — "Ask the guide" — so the surface
+  // never offers to consult a guide that has not run. The synthesized brief already
+  // carries zero annotations and no change map, so those simply do not render.
+  isDegraded?: boolean
   // Chrome ownership (MC-1708 T6). On the full-page Reviews door the surface bar
   // folds in the walkthrough's own top-bar actions, so the walkthrough drops its
   // TopBar and lets the surface drive the tray/chat drawers. Omitted (the pure
@@ -120,12 +125,15 @@ export function ReviewWalkthrough({
   postState,
   workspaceId,
   workspaceRoot,
+  isDegraded = false,
   hideTopBar = false,
   trayController,
   chatController,
 }: ReviewWalkthroughProps) {
   const commentsEnabled = Boolean(onCreateComment)
-  const chatEnabled = Boolean(workspaceId && workspaceRoot)
+  // No guide to ask in degraded mode — the chat entry points stay hidden even when
+  // a companion identity is passed through. Comments and posting are unaffected.
+  const chatEnabled = Boolean(workspaceId && workspaceRoot) && !isDegraded
   // Drawer open state: controlled by the surface when it owns the folded bar
   // (Reviews door), internal otherwise (harness / standalone). Resolving both here
   // keeps every drawer trigger below agnostic to who owns the chrome.

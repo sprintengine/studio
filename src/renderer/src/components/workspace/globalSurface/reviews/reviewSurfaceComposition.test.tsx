@@ -5,6 +5,7 @@ import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import type { ReviewComment } from '../../../../../../shared/review'
 import { reviewFixture } from '../../../panels/review/fixtures'
 import { orderedSteps } from '../../../panels/review/reviewSelectors'
+import { synthesizeDegradedBrief } from '../../../panels/review/degradedBrief'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
 import { ReviewCanvas } from '../../../panels/review/ReviewCanvas'
 import { buildReviewsSurfaceBar } from './ReviewSurfaceBar'
@@ -26,6 +27,7 @@ function stubSession(overrides: Partial<ReviewSession>): ReviewSession {
     reviewId: 'rv_1',
     workspaceRoot: '/proj/multicode',
     status: 'ready',
+    isDegraded: false,
     changeset: reviewFixture.changeset,
     brief: reviewFixture.brief,
     errorMessage: null,
@@ -76,12 +78,31 @@ const entry: ReviewIndexEntry = {
 const postedComment = { sync: { state: 'posted' } } as unknown as ReviewComment
 const pendingComment = { sync: { state: 'pending' } } as unknown as ReviewComment
 
-// The folded surface bar carries the walkthrough's actions once, so its action
-// cluster appears only when the walkthrough is ready.
-run('the surface bar shows no walkthrough actions until the review is ready', () => {
-  const bar = buildReviewsSurfaceBar(entry, stubSession({ status: 'prepare' }))
-  assert.equal(bar.actions, undefined, 'no view/re-run/post controls before a walkthrough exists')
+// The synthesized raw-change model the degraded state renders — one flat step over
+// the fixture's four files (below the folder-grouping threshold), no annotations.
+const degradedBrief = synthesizeDegradedBrief(reviewFixture.changeset)
+
+// The folded surface bar carries the walkthrough's actions once there is a change
+// to work; before any change is loaded there is nothing to view, re-run, or post.
+run('the surface bar shows no walkthrough actions before there is a change', () => {
+  const bar = buildReviewsSurfaceBar(entry, stubSession({ status: 'no-change', changeset: null, brief: null }))
+  assert.equal(bar.actions, undefined, 'no view/re-run/post controls with no change')
   assert.equal(bar.title, reviewFixture.changeset.title)
+})
+
+// Degraded (no guide brief): the reviewer still needs the diff-view toggle and the
+// review/post controls, but there is no guide to re-run or ask, so those drop.
+run('the degraded surface bar keeps diff-view + review controls and drops guide actions', () => {
+  const bar = buildReviewsSurfaceBar(
+    entry,
+    stubSession({ status: 'degraded', isDegraded: true, brief: degradedBrief, isPullRequest: true, pendingComments: 2, comments: [pendingComment, pendingComment] }),
+  )
+  assert.ok(bar.actions, 'a degraded change still carries an action cluster')
+  const html = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
+  assert.match(html, /Side by side/, 'the diff-view toggle stays so both diff modes are reachable')
+  assert.match(html, /Post review/, 'post-to-PR stays with no brief')
+  assert.doesNotMatch(html, /Ask the guide/, 'no guide to ask in degraded mode')
+  assert.doesNotMatch(html, /Re-run/, 'nothing to re-run without a guide walkthrough')
 })
 
 run('a ready pull-request review with pending comments shows the Post review CTA', () => {
@@ -113,11 +134,41 @@ run('the ready canvas mounts the walkthrough without its own top bar', () => {
   assert.match(html, /Walkthrough|In this step|review-pane-enter/, 'the walkthrough surface renders in the canvas')
 })
 
-run('the canvas surfaces the no-change and prepare states honestly', () => {
+run('the canvas surfaces the no-change and degraded states honestly', () => {
   const noChange = renderToStaticMarkup(<ReviewCanvas session={stubSession({ status: 'no-change', changeset: null, brief: null })} />)
   assert.match(noChange, /No change to review yet/)
-  const prepare = renderToStaticMarkup(<ReviewCanvas session={stubSession({ status: 'prepare', brief: null })} />)
-  assert.match(prepare, /Prepare walkthrough/)
+
+  // Degraded: the raw change renders (file cards from the changeset, active step
+  // is the synthesized "All files" step), framed by a banner that offers to prepare
+  // the guide walkthrough. No guide chat is offered.
+  const degraded = renderToStaticMarkup(
+    <ReviewCanvas session={stubSession({ status: 'degraded', isDegraded: true, brief: degradedBrief, activePaneId: 'degraded-all' })} />,
+  )
+  assert.match(degraded, /viewing the raw change/, 'the banner frames the change as guide-less')
+  assert.match(degraded, /Prepare walkthrough/, 'and offers to prepare the guide walkthrough')
+  assert.match(degraded, /prisma\/schema\.prisma/, 'every changed file still renders with no guide')
+  assert.doesNotMatch(degraded, /Ask the guide/, 'the guide chat entry is hidden in degraded mode')
+})
+
+// A failed guide run is surfaced in the degraded banner, never a dead-end screen —
+// the reviewable change stays underneath it.
+run('the degraded canvas surfaces a failed guide run without blocking the change', () => {
+  const failed = renderToStaticMarkup(
+    <ReviewCanvas
+      session={stubSession({
+        status: 'degraded',
+        isDegraded: true,
+        brief: degradedBrief,
+        activePaneId: 'degraded-all',
+        run: { running: false, phase: 'failed', error: 'Claude Code is not installed.' },
+      })}
+    />,
+  )
+  assert.match(failed, /The guide couldn’t finish/, 'the failure is named')
+  assert.match(failed, /Claude Code is not installed\./, 'with the underlying reason')
+  assert.match(failed, /keep reviewing without it/, 'and reassures the change is still reviewable')
+  assert.match(failed, /Try again/, 'the retry affordance is present')
+  assert.match(failed, /prisma\/schema\.prisma/, 'the change still renders under the failure banner')
 })
 
 console.log('reviewSurfaceComposition tests passed')

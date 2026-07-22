@@ -13,10 +13,13 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 // The Reviews-door canvas (MC-1708 T6): the selected review's walkthrough, minus
 // its own top bar (the folded surface bar carries those actions). It renders the
 // same honest load ladder the retired `ReviewPanel` did — loading, unreadable
-// change set, no change yet, an invalid walkthrough, the prepare invitation, and
-// the walkthrough itself — driven entirely by a `ReviewSession`. All the state,
-// IPC, and mutation live in `useReviewSession`; this is the pure view, so it
-// renders deterministically from a session object with no side effects of its own.
+// change set, no change yet, an invalid walkthrough, the degraded raw-change view
+// (no guide brief), and the guided walkthrough itself — driven entirely by a
+// `ReviewSession`. In the degraded state (T1) the walkthrough still renders the
+// full diff, read-toggles, comments, and post-to-PR from a synthesized brief; a
+// slim banner offers to prepare the guide walkthrough and surfaces a failed run.
+// All the state, IPC, and mutation live in `useReviewSession`; this is the pure
+// view, so it renders deterministically from a session object with no side effects.
 export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Element {
   const { status, changeset, run } = session
 
@@ -88,25 +91,11 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
     )
   }
 
-  if (status === 'prepare') {
-    const preparing = run.running
-    return (
-      <PrepareShell changeset={changeset}>
-        <p className="max-w-xl text-[13px] leading-6 text-[color:var(--text-muted)]">
-          The guide hasn’t walked this change yet. Prepare the walkthrough to group the files into steps ordered for
-          understanding, with a short note on why each one changed.
-        </p>
-        <div className="mt-3">
-          <PrimaryButton onClick={session.startRun} disabled={preparing}>
-            {preparing ? 'Preparing…' : 'Prepare walkthrough'}
-          </PrimaryButton>
-        </div>
-        <RunLine run={run} />
-      </PrepareShell>
-    )
-  }
-
-  // status === 'ready' — the brief is present.
+  // status === 'ready' or 'degraded' — a brief to project. When ready it is the
+  // guide's; when degraded it is the renderer-synthesized model (raw change, no
+  // guide chrome). Both render the same walkthrough so the diff, read-toggles,
+  // comments, and post-to-PR work identically; degraded just adds a banner and
+  // hides the guide-only affordances (session.isDegraded drives that below).
   const brief = session.brief
   if (!brief) {
     return (
@@ -116,7 +105,9 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
     )
   }
 
-  const bannerSlot = session.bannerModel ? (
+  const bannerSlot = session.isDegraded ? (
+    <DegradedBanner run={run} onPrepare={session.startRun} />
+  ) : session.bannerModel ? (
     <FreshnessBanner model={session.bannerModel} refreshing={run.running} refreshPhase={run.phase} onRefresh={session.refresh} />
   ) : null
 
@@ -124,6 +115,7 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
     <ReviewWalkthrough
       changeset={changeset}
       brief={brief}
+      isDegraded={session.isDegraded}
       readFiles={session.readFiles}
       diffView={session.diffView}
       activePaneId={session.activePaneId}
@@ -178,6 +170,36 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
         </p>
       </header>
       {children}
+    </div>
+  )
+}
+
+// The slim degraded banner under the surface bar: honest about the missing guide,
+// with the one affordance to prepare it. It carries three faces — a resting invite,
+// an in-flight "preparing…" line, and a run failure ("keep reviewing without it") —
+// so a failed guide run is never a dead end over a reviewable change.
+function DegradedBanner({ run, onPrepare }: { run: ReviewRunProgress; onPrepare: () => void }) {
+  const failed = Boolean(run.error)
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2.5">
+      <span className="min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        {failed ? (
+          <>
+            <span className="font-medium text-[color:var(--tone-error)]">The guide couldn’t finish.</span>{' '}
+            {run.error} You can keep reviewing without it.
+          </>
+        ) : run.running ? (
+          <span className="inline-flex items-center gap-2">
+            <Spinner />
+            {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? 'Preparing the walkthrough…'}
+          </span>
+        ) : (
+          'No guide walkthrough yet — you’re viewing the raw change.'
+        )}
+      </span>
+      <PrimaryButton onClick={onPrepare} disabled={run.running} className="shrink-0">
+        {run.running ? 'Preparing…' : failed ? 'Try again' : 'Prepare walkthrough'}
+      </PrimaryButton>
     </div>
   )
 }
