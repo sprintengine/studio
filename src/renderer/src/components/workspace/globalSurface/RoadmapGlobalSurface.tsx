@@ -506,11 +506,7 @@ function buildBar(
   return {
     title: file.title,
     statusChip: (
-      <BarStatusChip
-        tone={isActive ? 'accent' : 'neutral'}
-        label={isActive ? 'Active' : 'Draft'}
-        dotLabel={isActive ? 'Active roadmap' : 'Draft roadmap'}
-      />
+      <BarStatusChip tone={isActive ? 'accent' : 'neutral'} label={isActive ? 'Active' : 'Draft'} />
     ),
     contextSub,
     actions: (

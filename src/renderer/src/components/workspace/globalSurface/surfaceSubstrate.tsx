@@ -225,19 +225,17 @@ export function SurfaceRail({
 export function BarStatusChip({
   tone,
   label,
-  dotLabel,
   pulse,
 }: {
   tone: StatusTone
-  /** The visible label ("Active", "On", "In progress"). */
+  /** The visible label ("Active", "On", "In progress") — carries the state for
+   *  screen readers, so the dot stays decorative (no competing double-read). */
   label: React.ReactNode
-  /** Accessible name for the dot; defaults to the label when it is a string. */
-  dotLabel?: string
   pulse?: boolean
 }): JSX.Element {
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--text-muted)]">
-      <StatusDot tone={tone} pulse={pulse} label={dotLabel ?? (typeof label === 'string' ? label : undefined)} />
+      <StatusDot tone={tone} pulse={pulse} />
       {label}
     </span>
   )

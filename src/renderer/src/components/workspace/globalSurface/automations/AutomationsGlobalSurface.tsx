@@ -346,7 +346,7 @@ function SurfaceStatus({ definition }: { definition: AutomationDefinition }): JS
       : definition.status === 'paused'
         ? (['neutral', 'Paused'] as const)
         : (['warn', 'Blocked'] as const)
-  return <BarStatusChip tone={tone} label={label} dotLabel={`Automation is ${label.toLowerCase()}`} />
+  return <BarStatusChip tone={tone} label={label} />
 }
 
 // The canvas body: loading / error / empty / editor / selected — the four shared
