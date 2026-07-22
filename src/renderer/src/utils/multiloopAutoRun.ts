@@ -213,6 +213,8 @@ export function selectMultiloopAutoRunCandidates({
 
   if (
     activeTasks.length > 0
+    // Canceled sprint tasks are folded into `done` upstream
+    // (sprintEngineTaskToMultiloopTask), so strict every-done suffices here.
     && activeTasks.every((task) => task.status === 'done')
     && coordinatorAutoSpawnKey !== activeMilestone.id
     && !occupiedAgentIds.has(buildMultiloopRoleAgentId('coordinator'))
@@ -301,7 +303,7 @@ function selectLinkedSprintEngineAutoRunCandidates({
 
   if (
     sprintEngineState.tasks.length > 0
-    && sprintEngineState.tasks.every((task) => task.status === 'done')
+    && sprintEngineState.tasks.every((task) => task.status === 'done' || task.status === 'canceled')
     && coordinatorAutoSpawnKey !== activeMilestone.id
     && !occupiedAgentIds.has(buildMultiloopRoleAgentId('coordinator'))
   ) {

@@ -186,6 +186,9 @@ export function getMilestoneExecutionReadiness({
 
   const tasks = getMilestoneExecutionTasks(state, milestone, linkedSprintEngineState)
   if (tasks.length === 0) return milestone.sprintEngine ? 'no_tasks' : 'multiloop_no_tasks'
+  // Canceled sprint tasks arrive here already folded into `done`
+  // (sprintEngineTaskToMultiloopTask), so strict every-done is the
+  // done-or-canceled semantics of isCompletedSprintEngineRun.
   if (tasks.every((task) => task.status === 'done')) return 'all_done'
 
   const blockers = activeBlockers ?? getActiveMultiloopBlockers(state, milestone.id)

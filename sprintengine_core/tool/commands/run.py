@@ -786,8 +786,13 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         return folder_store.normalize_runner_policy(state.get("runner"))
 
     def all_tasks_done(state: Dict[str, Any]) -> bool:
+        # Done-or-canceled, matching recompute_phase's rollup exactly. A strict
+        # every-done here while the rollup tolerates canceled produces a run
+        # whose status says "completed" but whose finalization (backstop commit,
+        # PR creation, watch-loop exit) never fires — one canceled task wedges
+        # the run forever.
         tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
-        return bool(tasks) and all(task.get("status") == "done" for task in tasks)
+        return bool(tasks) and all(task.get("status") in {"done", "canceled"} for task in tasks)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         ensure_role_in_roster(state, args.role)

@@ -1908,9 +1908,12 @@ async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
   // v2-native create: lifecycle/triage live in the new file's frontmatter (the
   // source of truth), the sidecar record stays minimal app-owned churn.
   const fileBody = await readFile(join(workspaceRoot, data!.relativePath), 'utf8')
-  assert.equal(
+  // Main-owned create allocates the item number and stamps `updated` inside
+  // the create transaction, so a fresh workspace's first item is id 1 with a
+  // wall-clock timestamp — match the frontmatter structurally.
+  assert.match(
     fileBody,
-    '---\ntype: spike\nstatus: idea\ndifficulty: m\ncriticality: high\n---\n\n# Ship the phone widget\n\nUsers need the widget on the phone.\n'
+    /^---\nid: 1\ntype: spike\nstatus: idea\ndifficulty: m\ncriticality: high\nupdated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\n---\n\n# Ship the phone widget\n\nUsers need the widget on the phone\.\n$/
   )
 
   const store = JSON.parse(await readFile(join(workspaceRoot, '.multi-code', 'backlog', 'items.json'), 'utf8')) as {

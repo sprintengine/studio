@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
-import { buildSprintEngineAgentRosterForState, normalizeSprintEngineProjection } from './state'
+import { buildSprintEngineAgentRosterForState, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './state'
+import type { SprintEngineTask } from './run-types'
 
 // A minimal v3 (`projection.workers` + `projection.roster` bridge) projection
 // payload as it lands off disk. The engine derives both the canonical `workers`
@@ -313,6 +314,23 @@ function testCategoricalFindingsSurviveNormalization(): void {
   assert.equal(findings[1].title, 'label only')
 }
 
+// Completion is done-or-canceled, mirroring the engine's recompute_phase
+// rollup exactly. Strict every-done here while Python tolerates canceled
+// produced a run whose state said "completed" but whose TS consumers
+// (dormancy, chaining triggers, tracker write-back) never released.
+function testCompletionToleratesCanceledTasks(): void {
+  const task = (id: string, status: SprintEngineTask['status']) => ({ status, id }) as SprintEngineTask
+  assert.equal(isCompletedSprintEngineRun({ tasks: [] }), false, 'empty run is never complete')
+  assert.equal(isCompletedSprintEngineRun({ tasks: [task('T1', 'done')] }), true)
+  assert.equal(
+    isCompletedSprintEngineRun({ tasks: [task('T1', 'done'), task('T2', 'canceled')] }),
+    true,
+    'one canceled task must not hold completion open'
+  )
+  assert.equal(isCompletedSprintEngineRun({ tasks: [task('T1', 'done'), task('T2', 'in_progress')] }), false)
+}
+
+testCompletionToleratesCanceledTasks()
 testCategoricalFindingsSurviveNormalization()
 testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()

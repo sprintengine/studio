@@ -234,7 +234,12 @@ export function pushTokenHash(token: string): string {
 }
 
 function isComplete(sprintengine: MobileSprintEngineSnapshot): boolean {
-  return sprintengine.tasks.length > 0 && sprintengine.tasks.every((task) => task.status === 'done')
+  // Done-or-canceled, mirroring isCompletedSprintEngineRun and the engine's
+  // recompute_phase rollup — one canceled task must not hold "complete" open.
+  return (
+    sprintengine.tasks.length > 0 &&
+    sprintengine.tasks.every((task) => task.status === 'done' || task.status === 'canceled')
+  )
 }
 
 function commandDeepLink(entry: MobileSprintEngineCommandAuditEntry): string {

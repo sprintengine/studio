@@ -38,6 +38,7 @@ from typing import Any, Iterable
 from sprintengine_core.role_registry import (
     discover_role_registry,
     normalize_role_id,
+    multicode_user_registry_root,
     session_registry_roots_from_env,
 )
 
@@ -170,8 +171,17 @@ def classify_role(
         return "operator"
     # With no explicit roots, fall back to the app-injected session registry roots
     # so the managed MCP server (which inherits the agent terminal's env) resolves
-    # an installed specialist pack the same way the rest of the engine does.
-    roots = tuple(plugin_registry_roots) or tuple(session_registry_roots_from_env())
+    # an installed specialist pack the same way the rest of the engine does. The
+    # canonical user-install root rides along natively either way, matching bare
+    # discover_role_registry() (duplicates precedence-resolve to one winner).
+    base_roots = tuple(plugin_registry_roots) or tuple(session_registry_roots_from_env())
+    user_root_entry = str(multicode_user_registry_root())
+    if not any(
+        (isinstance(entry, dict) and entry.get("root") == user_root_entry) or str(entry) == user_root_entry
+        for entry in base_roots
+    ):
+        base_roots = (*base_roots, {"root": user_root_entry, "id": "user-roles"})
+    roots = base_roots
     return _classify_registry_role(
         normalized,
         str(workspace_root) if workspace_root else None,

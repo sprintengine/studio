@@ -28,6 +28,7 @@ from sprintengine_core.role_registry import (
     discover_role_registry,
     normalize_role_id,
     role_manifest_payload,
+    multicode_user_registry_root,
     session_registry_roots_from_env,
 )
 from sprintengine_core.tool import (
@@ -693,6 +694,14 @@ class SprintEngineMcpServer:
             # terminal's env, so an installed specialist pack resolves here the
             # same way it does for `souls get` and the direct-core CLI.
             roots.extend(session_registry_roots_from_env())
+        # The canonical user-install root rides along natively, exactly like
+        # bare discover_role_registry() — a headless `python -m sprintengine_mcp`
+        # with no configured/payload/env roots must resolve the same installed
+        # roles the CLI does, or roles.list and init validation disagree.
+        # Duplicate listings are precedence-resolved (shadowed), never errors.
+        user_root = str(multicode_user_registry_root())
+        if all(entry.get("root") != user_root for entry in roots):
+            roots.append({"root": user_root, "id": "user-roles"})
         return roots
 
     def _configured_plugin_registry_roots(self) -> list[dict[str, str]]:

@@ -180,7 +180,17 @@ const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = 
 // projectionRefresh and backlogLinks) so adopting it never reintroduces the
 // projectionRefresh↔backlogLinks import cycle. Accepts any task-bearing shape.
 export function isCompletedSprintEngineRun(state: Pick<SprintEngineState, 'tasks'>): boolean {
-  return state.tasks.length > 0 && state.tasks.every((task) => task.status === 'done')
+  // Done-or-canceled, mirroring the engine's rollup (recompute_phase in
+  // sprintengine_core/tool/tasks.py). A canceled task is terminal: strict
+  // every-done here while Python rolls the run up "completed" wedges every
+  // completion consumer (dormancy, chaining triggers, tracker write-back)
+  // on runs where one obsolete task was canceled mid-flight. Run-level
+  // cancellation is the sibling predicate `isCanceledSprintEngineRun`,
+  // which consumers check first.
+  return (
+    state.tasks.length > 0 &&
+    state.tasks.every((task) => task.status === 'done' || task.status === 'canceled')
+  )
 }
 
 // Canonical "this run was canceled" signal, the sibling to

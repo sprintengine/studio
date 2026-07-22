@@ -710,15 +710,22 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
     // running app knows them (the user-install root the engine now finds
     // natively; see MULTICODE_USER_REGISTRY_ROOT in role_registry.py).
     const registryRoots = sprintEngineRegistryRootsForRead()
+    const cliEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PYTHONPATH: [runtimeRoot, state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+    }
+    if (registryRoots.length > 0) {
+      cliEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
+    } else {
+      // Never let a stale value inherited from the base env (app launched from
+      // inside an agent shell that had it set) leak into a spawn that resolved
+      // no roots of its own — init would validate roles against another
+      // session's registry. Mirrors terminal-launch.ts.
+      delete cliEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
+    }
     const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), [toolPath, ...args], {
       cwd: state.workspaceRoot,
-      env: {
-        ...process.env,
-        PYTHONPATH: [runtimeRoot, state.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
-        ...(registryRoots.length > 0
-          ? { MULTICODE_SPRINTENGINE_REGISTRY_ROOTS: JSON.stringify(registryRoots) }
-          : {}),
-      },
+      env: cliEnv,
       windowsHide: true,
     })
     let stdout = ''
@@ -862,17 +869,21 @@ function runSprintEngineMcpToolProcess(
       args.push('--allowed-root', root)
     }
     const runtimeRoot = getSprintEngineMcpRuntimeRoot()
+    const mcpEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      PYTHONPATH: [runtimeRoot, context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
+      SPRINTENGINE_MCP_USER_ID: actor.id,
+      SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
+    }
+    if (registryRoots.length > 0) {
+      mcpEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS = JSON.stringify(registryRoots)
+    } else {
+      // Same stale-env guard as the CLI spawn above and terminal-launch.ts.
+      delete mcpEnv.MULTICODE_SPRINTENGINE_REGISTRY_ROOTS
+    }
     const child = spawn(getSprintEngineMcpPythonExecutable(runtimeRoot), args, {
       cwd: context.workspaceRoot,
-      env: {
-        ...process.env,
-        PYTHONPATH: [runtimeRoot, context.workspaceRoot, process.env.PYTHONPATH].filter(Boolean).join(process.platform === 'win32' ? ';' : ':'),
-        SPRINTENGINE_MCP_USER_ID: actor.id,
-        SPRINTENGINE_MCP_USER_AUTHORIZED: '1',
-        ...(registryRoots.length > 0
-          ? { MULTICODE_SPRINTENGINE_REGISTRY_ROOTS: JSON.stringify(registryRoots) }
-          : {}),
-      },
+      env: mcpEnv,
       windowsHide: true,
     })
 

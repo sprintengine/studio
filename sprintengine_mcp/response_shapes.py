@@ -170,6 +170,8 @@ def slim_task_card(task: Any) -> dict[str, Any] | None:
             "title",
             "role",
             "status",
+            # Charter marker (integration_review); absent on ordinary work.
+            "kind",
             "description",
             "acceptanceCriteria",
             "implementationNotes",
