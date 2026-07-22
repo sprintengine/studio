@@ -369,7 +369,21 @@ def build_feedback_payload(
     # so it is a self-report, not a reviewer assessment — there is no separate
     # reviewer to attribute it to. A sweep assessing another task still passes the
     # --review-target-* trio and lands on the reviewer-assessment branch below.
-    review_target = feedback_review_target(args, state, task)
+    # Target resolution can fail (unknown target task, no recorded implementer):
+    # in best-effort mode that is telemetry, not an operational error, so degrade
+    # it to a warning and drop the feedback record while the caller's evidence
+    # append survives. Strict callers (`warnings is None`) still re-raise.
+    try:
+        review_target = feedback_review_target(args, state, task)
+    except SystemExit as exc:
+        _record_warning(warnings, exc)
+        return {
+            "stateFeedback": None,
+            "record": None,
+            "targetTask": None,
+            "isReviewerAssessment": False,
+            "warnings": warnings,
+        }
     target_task = review_target["task"]
     role = str(target_task.get("role") or "")
     reviewer_role = str(task.get("role") or "")
@@ -483,8 +497,12 @@ def build_feedback_payload(
     }
 
 def attach_feedback_payload(state: Dict[str, Any], feedback_payload: Dict[str, Any], actor: str) -> None:
+    state_feedback = feedback_payload.get("stateFeedback")
+    if not state_feedback:
+        # Degraded best-effort payload: target resolution failed and only a
+        # warning survives, so there is nothing to attach.
+        return
     target_task = feedback_payload["targetTask"]
-    state_feedback = feedback_payload["stateFeedback"]
     if feedback_payload["isReviewerAssessment"]:
         assessments = target_task.get("feedbackAssessments")
         if not isinstance(assessments, list):

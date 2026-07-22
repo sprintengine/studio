@@ -301,7 +301,7 @@ def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: s
         ),
     )
     p.add_argument("--actor", default="handoff", help="Actor name for the team creation event.")
-    p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
+    p.add_argument("--agent", action="append", default=[], help="Participating role as role:id; marks the run roster-configured (leases replaced the seated roster). Repeat for each specialist.")
     p.add_argument(
         "--use-worktrees",
         type=parse_bool,
@@ -418,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("init", help="Bootstrap the Sprint Engine run store.")
     p.add_argument("--name", help="Display name for the run; defaults to the team folder slug.")
     p.add_argument("--goal", help="Goal for the run.")
-    p.add_argument("--agent", action="append", default=[], help="Selected roster member as role:id. Repeat for each specialist.")
+    p.add_argument("--agent", action="append", default=[], help="Participating role as role:id; marks the run roster-configured (leases replaced the seated roster). Repeat for each specialist.")
     p.add_argument(
         "--role-runtimes-json",
         dest="role_runtimes_json",

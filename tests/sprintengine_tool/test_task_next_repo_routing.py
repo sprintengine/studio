@@ -137,6 +137,33 @@ def test_an_unbound_session_is_unfiltered(tmp_path: Path) -> None:
     assert claimed["task"]["id"] == "T-mobile"
 
 
+def test_an_unbound_session_claiming_non_primary_work_is_warned(tmp_path: Path) -> None:
+    """An unbound session stays unfiltered, but grabbing a sibling-repo task in a
+    multi-repo run is the case that fails late at commit/publish. Surface it as a
+    claim-time warning rather than a late orphan error; the claim still proceeds."""
+    fixture = _two_repo_run(tmp_path, "next-repo-unbound-warn")
+    _seed_tasks(fixture.state_path, ("T-mobile", "mobile"))
+
+    claimed = cmd_task_next(_args(fixture.state_path, "developer-1", None))
+
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T-mobile"
+    assert any("mobile" in warning for warning in claimed["warnings"])
+
+
+def test_an_unbound_session_claiming_primary_work_is_not_warned(tmp_path: Path) -> None:
+    """The warning is scoped to cross-tree claims: a primary-repo task is where an
+    unbound session already sits, so there is nothing to flag."""
+    fixture = _two_repo_run(tmp_path, "next-repo-unbound-primary")
+    _seed_tasks(fixture.state_path, ("T-primary", "primary"))
+
+    claimed = cmd_task_next(_args(fixture.state_path, "developer-1", None))
+
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == "T-primary"
+    assert "warnings" not in claimed
+
+
 def test_single_repo_runs_claim_exactly_as_before(tmp_path: Path) -> None:
     """The control: a run declaring one repo binds its sessions to `primary`,
     which every task defaults to — so the filter passes everything through."""

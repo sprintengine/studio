@@ -537,6 +537,40 @@ def test_aggregate_by_agent_emits_sweep_activity() -> None:
     assert sweep["escalated"] == 1
 
 
+def test_a_content_free_reviewer_log_is_not_counted_as_a_clean_pass() -> None:
+    """A task.log assessment carries no phase outcome, so the verdict is read from
+    content. An empty reviewer log (no counts, findings, or scores) is not evidence
+    a review happened — it must not inflate the reviewer's clean-pass rate. A log
+    that checked claims (or recorded scores) is a real pass; findings read as
+    fixed-forward."""
+    records = [
+        # Empty: only the target attribution, no assessment content.
+        {
+            "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
+            "task_id": "T1", "review_target_task_id": "T1", "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "security-1",
+        },
+        # Real clean pass: claims were checked, no defects surfaced.
+        {
+            "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
+            "task_id": "T2", "review_target_task_id": "T2", "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "security-1", "counts": {"claims_checked": 4},
+        },
+        # Defects found: fixed-forward.
+        {
+            "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
+            "task_id": "T3", "review_target_task_id": "T3", "review_target_agent_id": "developer-1",
+            "reviewer_agent_id": "security-1",
+            "findings": [{"kind": "code_bug", "severity": "high", "area": "backend"}],
+        },
+    ]
+    sweep = summarize_feedback_records(records)["aggregateByAgent"]["security-1"]["sweep"]
+    # The empty log still counts as review activity, but not as a verdict.
+    assert sweep["assessmentsRecorded"] == 3
+    assert sweep["passed"] == 1
+    assert sweep["fixedForward"] == 1
+
+
 def test_aggregate_by_agent_emits_self_review_activity() -> None:
     """A phase advance is the owner reporting on its own diff (MC-1542): its findings
     and defect counts are the review signal gate verdicts used to supply, kept

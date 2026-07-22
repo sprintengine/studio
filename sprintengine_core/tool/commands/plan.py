@@ -27,12 +27,12 @@ from sprintengine_core.tool.plans import (
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.shell import assert_no_repo_dependency_cycle
 from sprintengine_core.tool.state import (
+    active_lease_worker,
     append_event,
     ensure_role_in_roster,
     ensure_task_repo_declared,
     find_task,
     load_mutation_state,
-    task_lease,
     with_locked_state,
 )
 from sprintengine_core.tool.tasks import (
@@ -90,17 +90,23 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
             ensure_role_in_roster(state, args.role)
             task["role"] = args.role
         if getattr(args, "repo", None) is not None:
-            task["repo"] = ensure_task_repo_declared(
+            new_repo = ensure_task_repo_declared(
                 state, args.repo, context=f"Task {task.get('id') or args.task_id}"
             )
-            lease = task_lease(task)
-            if lease is not None:
-                # A forced re-target of live work moves its lease too. The lease is
-                # what the owner's commit and diff evidence resolve through, so a
-                # lease left on the old tree would quietly keep sending the owner's
-                # work there. Only the repo moves: re-minting would refresh the
-                # heartbeat and hide a dead worker from the expiry sweep.
-                lease["repo"] = task["repo"]
+            current_repo = folder_store.task_repo(task)
+            if new_repo != current_repo and active_lease_worker(task) is not None:
+                # A live worker is already editing `current_repo`'s worktree. Moving
+                # only the lease's repo (the old behavior) left that session in the
+                # old tree while its commit and diff evidence resolved through the new
+                # one — commits stage nothing and real edits orphan. Refuse until the
+                # task is released so the pool respawns in the correct tree; a
+                # same-repo set is a no-op and stays allowed.
+                raise SystemExit(
+                    f"Cannot re-target {task.get('id') or args.task_id} from project "
+                    f"{current_repo!r} to {new_repo!r} while it is being worked. Release "
+                    "the task first so it respawns in the new project's worktree."
+                )
+            task["repo"] = new_repo
 
         if args.clear_paths:
             task["ownedPaths"] = []

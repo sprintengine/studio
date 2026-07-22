@@ -289,6 +289,39 @@ def test_task_log_records_repeatable_sweep_assessments(tmp_path) -> None:
     assert sweep_row["passed"] == 1
 
 
+def test_task_log_feedback_target_failure_degrades_and_keeps_the_evidence(tmp_path) -> None:
+    """`task.log` feedback is best-effort telemetry. A review target that names no
+    task must NOT abort the whole call: the target failure degrades to a warning
+    and the evidence append still lands."""
+    fixture = create_team(
+        tmp_path,
+        "log-target-degrade",
+        [task("T3", "QA sweep", "tester", "in_progress", owner="tester-fixture")],
+    )
+
+    payload = fixture.cli.run(
+        "task",
+        "log",
+        "--task-id",
+        "T3",
+        "--id",
+        "tester-fixture",
+        "--command",
+        "npm test",
+        "--review-target-task-id",
+        "T-does-not-exist",
+        "--claims-checked",
+        "5",
+    )
+
+    # Evidence survived even though the feedback target could not be resolved.
+    assert "npm test" in get_task(read_state(fixture.state_path), "T3")["evidence"]["commandsRan"]
+    # The failure surfaced as a warning, not a hard error, and nothing was recorded.
+    assert payload["feedbackWarnings"]
+    assert "feedbackRecorded" not in payload
+    assert read_feedback_records(fixture.team_dir) == []
+
+
 def test_task_log_without_feedback_args_stays_a_plain_evidence_append(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

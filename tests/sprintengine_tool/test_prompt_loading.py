@@ -1020,3 +1020,35 @@ def test_merge_start_returns_instruction_only_prompt(tmp_path) -> None:
             "Do not push unless explicitly instructed by the user.",
         ],
     )
+
+
+def test_merge_start_prompt_names_each_project_branch_in_a_multi_repo_run(tmp_path) -> None:
+    """A worktree-mode run changes one branch per declared project; the merge
+    prompt must name each so a multi-repo merge is not treated as one branch."""
+    from pathlib import Path
+
+    from sprintengine_core.tool.phase_prompts import build_merge_start_prompt
+
+    state = {
+        "sprintengine": {
+            "name": "multi-merge",
+            "goal": "Span two projects",
+            "vcs": {
+                "mode": "run_worktree",
+                "repos": [
+                    {"id": "primary", "root": ".", "worktreePath": "wt-primary", "branchName": "sprintengine/alpha", "status": "ready"},
+                    {"id": "mobile", "root": "../mobile", "worktreePath": "wt-mobile", "branchName": "sprintengine/alpha", "status": "ready"},
+                ],
+            },
+        },
+    }
+    prompt = build_merge_start_prompt(state, Path(tmp_path) / "run.yaml", "architect-1", "main")
+
+    assert_prompt_includes(
+        prompt,
+        [
+            "`primary`: branch `sprintengine/alpha`",
+            "`mobile`: branch `sprintengine/alpha`",
+            "Merge each project listed above independently",
+        ],
+    )

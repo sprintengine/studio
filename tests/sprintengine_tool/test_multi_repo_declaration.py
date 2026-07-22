@@ -184,6 +184,69 @@ def test_declared_repos_survive_a_second_init(tmp_path) -> None:
     assert [repo["id"] for repo in vcs["repos"]] == ["primary", "mobile"]
 
 
+def test_a_second_init_re_declaring_the_same_repos_is_a_no_op(tmp_path) -> None:
+    # Idempotent: re-passing the projects the run already declares neither refuses
+    # nor changes the set.
+    workspace, _ = _two_project_workspace(tmp_path)
+    fixture = _worktree_team(workspace, "alpha")
+    fixture.cli.run(
+        "init", "--goal", "Span two projects",
+        "--use-worktrees", "true",
+        "--repo", "mobile=../multicode-mobile",
+    )
+
+    fixture.cli.run(
+        "init", "--goal", "Span two projects",
+        "--use-worktrees", "true",
+        "--repo", "mobile=../multicode-mobile",
+    )
+
+    vcs = read_state(fixture.state_path)["sprintengine"]["vcs"]
+    assert [repo["id"] for repo in vcs["repos"]] == ["primary", "mobile"]
+
+
+def test_a_second_init_declaring_a_new_repo_is_refused(tmp_path) -> None:
+    # The repo set is fixed at creation. Silently dropping a newly declared project
+    # (the old behavior) hid that it never took effect; refuse instead.
+    workspace, _ = _two_project_workspace(tmp_path)
+    fixture = _worktree_team(workspace, "alpha")
+    fixture.cli.run(
+        "init", "--goal", "Span two projects",
+        "--use-worktrees", "true",
+        "--repo", "mobile=../multicode-mobile",
+    )
+
+    failure = fixture.cli.run_failure(
+        "init", "--goal", "Span three projects",
+        "--use-worktrees", "true",
+        "--repo", "mobile=../multicode-mobile",
+        "--repo", "relay=../multiauth",
+    )
+
+    assert "relay" in failure.stdout + failure.stderr
+    assert "fixed at creation" in failure.stdout + failure.stderr
+    # The declared set is unchanged — the new project did not sneak in.
+    vcs = read_state(fixture.state_path)["sprintengine"]["vcs"]
+    assert [repo["id"] for repo in vcs["repos"]] == ["primary", "mobile"]
+
+
+def test_base_start_point_without_worktrees_is_refused(tmp_path) -> None:
+    # The start point only names where the run branch begins, so it is meaningless
+    # without worktrees. Its help text says it requires worktrees; refuse rather
+    # than silently ignore it, exactly as a bare --repo does.
+    workspace, _ = _two_project_workspace(tmp_path)
+    fixture = _worktree_team(workspace, "alpha")
+
+    failure = fixture.cli.run_failure(
+        "init", "--goal", "One project",
+        "--base-start-point", "origin/main",
+    )
+
+    assert "--base-start-point" in failure.stdout + failure.stderr
+    assert "use-worktrees" in failure.stdout + failure.stderr
+    assert read_state(fixture.state_path)["sprintengine"].get("vcs") is None
+
+
 # --- declarations that must abort init -------------------------------------
 
 

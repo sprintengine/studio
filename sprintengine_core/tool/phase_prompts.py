@@ -95,13 +95,35 @@ def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: 
     goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
     plan_path = plan_path_for_state(state_path)
     target_branch = target.strip()
-    return "\n".join([
+    # A worktree-mode run changes one branch per declared project (MC-1611), each in
+    # its own tree; a no-worktree run changes the single branch the architect is on.
+    # Name the branches explicitly so a multi-repo merge is not treated as one branch.
+    repos = vcs_repos(get_run_vcs(state))
+    multi_repo = len(repos) > 1
+    lines = [
         "You are the architect responsible for the post-run sprintengine merge.",
         f"Actor id: {actor_id}",
         f"Goal: {goal}",
         f"State file: {state_path}",
         f"Plan file: {plan_path}",
         f"Requested merge target: {target_branch}",
+    ]
+    if repos and (multi_repo or repos[0].get("branchName")):
+        header = (
+            "Projects this run changed, each on its OWN branch and worktree — merge each "
+            f"into `{target_branch}` independently:"
+            if multi_repo
+            else "This run changed one project:"
+        )
+        lines.extend([
+            "",
+            header,
+            *[
+                f"- `{repo['id']}`: branch `{repo.get('branchName') or ''}` in `{repo.get('worktreePath') or ''}`"
+                for repo in repos
+            ],
+        ])
+    lines.extend([
         "",
         "This command only returns instructions. It has not changed task cards and has not run Git.",
         "",
@@ -109,14 +131,25 @@ def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: 
         "- Confirm the sprintengine run is complete before merging.",
         f"- Read the exact plan file `{plan_path}` and `sprintengine summary` before touching Git state.",
         "- Do not use any other `plan.md` found elsewhere in the repo.",
-        "- Verify the current branch is the intended source branch and `git status --short` is clean.",
+    ])
+    if multi_repo:
+        lines.extend([
+            "- Merge each project listed above independently: verify its branch is the intended source and its worktree `git status --short` is clean, then merge that branch into the requested target.",
+            "- A conflict or failed validation in one project does not block the others; resolve and record each project separately.",
+        ])
+    else:
+        lines.extend([
+            "- Verify the current branch is the intended source branch and `git status --short` is clean.",
+            "- Perform the merge to the requested target branch, resolving conflicts where reasonable.",
+        ])
+    lines.extend([
         "- Verify the merge target branch and fetch or update only if the user has allowed network/remote operations.",
-        "- Perform the merge to the requested target branch, resolving conflicts where reasonable.",
         "- Run relevant validation after the merge.",
         "- Record the result in run summary evidence or the user handoff; do not create, reopen, or edit task cards for merge work.",
         "- Do not push unless explicitly instructed by the user.",
         "- If the merge cannot be completed safely, document the blocker and stop.",
     ])
+    return "\n".join(lines)
 
 def prompt_list(title: str, values: List[str], empty: str = "None.") -> List[str]:
     lines = [f"## {title}"]

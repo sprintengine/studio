@@ -135,26 +135,39 @@ def test_update_task_rejects_an_undeclared_repo(tmp_path: Path) -> None:
     assert get_task(read_state(fixture.state_path), "T1")["repo"] == "mobile"
 
 
-def test_forced_retarget_moves_the_lease_with_the_task(tmp_path: Path) -> None:
-    """`--force` can re-target work that is already claimed. The lease is what the
-    owner's commit and diff evidence resolve through, so it must not be left
-    pointing at the tree the task no longer names."""
+def test_retarget_is_refused_while_the_task_is_being_worked(tmp_path: Path) -> None:
+    """A live worker is already editing the current tree. Moving only the lease's
+    repo (the old behavior) left that session in the old tree while its commit and
+    diff evidence resolved through the new one — commits stage nothing, edits
+    orphan. The re-target is refused until the task is released."""
     fixture = create_team(tmp_path, "repo-retarget-live", [task("T1", "Move me", "developer")])
     _declare_repos(fixture.state_path, "primary", "mobile")
     fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
     claimed_lease = task_lease(get_task(read_state(fixture.state_path), "T1"))
     assert claimed_lease["repo"] == "primary"
 
-    fixture.cli.run("plan", "update-task", "--task-id", "T1", "--repo", "mobile", "--force")
+    failure = fixture.cli.run_failure(
+        "plan", "update-task", "--task-id", "T1", "--repo", "mobile", "--force"
+    )
+    assert "while it is being worked" in failure.stdout + failure.stderr
 
+    # Neither the task nor its lease moved: worker and lease stay consistent.
+    unchanged = get_task(read_state(fixture.state_path), "T1")
+    assert folder_store.task_repo(unchanged) == "primary"
+    assert task_lease(unchanged)["repo"] == "primary"
+
+
+def test_retarget_succeeds_once_the_task_is_released(tmp_path: Path) -> None:
+    """A same-repo set is a no-op, and a real re-target lands once no worker holds
+    the lease — the pool then respawns in the new project's worktree."""
+    fixture = create_team(tmp_path, "repo-retarget-idle", [task("T1", "Move me", "developer")])
+    _declare_repos(fixture.state_path, "primary", "mobile")
+
+    # Unclaimed (no active lease): the repo moves and no lease is left behind.
+    fixture.cli.run("plan", "update-task", "--task-id", "T1", "--repo", "mobile", "--force")
     moved = get_task(read_state(fixture.state_path), "T1")
     assert moved["repo"] == "mobile"
-    lease = task_lease(moved)
-    assert lease["repo"] == "mobile"
-    # Only the repo moves: re-minting would refresh the heartbeat and hide a dead
-    # worker from the expiry sweep.
-    assert lease["heartbeatAt"] == claimed_lease["heartbeatAt"]
-    assert lease["workerId"] == "developer-1"
+    assert task_lease(moved) is None
 
 
 # --- path validation is NOT weakened by repo targeting ----------------------

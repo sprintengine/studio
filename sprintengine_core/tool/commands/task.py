@@ -41,13 +41,16 @@ from sprintengine_core.tool.state import (
     append_task_activity,
     assign_task,
     create_task_comment,
+    declared_repo_ids,
     end_lease,
     ensure_role_in_roster,
     ensure_task_repo_declared,
     find_task,
     mint_lease,
     reconcile_worker,
+    refuse_if_run_canceled,
     release_expired_agent_targets,
+    run_is_canceled,
     worker_has_active_lease,
     worker_role,
     worker_view,
@@ -117,6 +120,18 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
     args.role = require_configured_role(args.role, context="Task")
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        # A canceled run dispatches nothing: report it as canceled rather than the
+        # generic "no ready task" so the caller stops instead of reading it as a
+        # transient lull. Cancel already released every non-done task's owner, so
+        # there is no active task to resume here either.
+        if run_is_canceled(state):
+            return {
+                "ok": True,
+                "claimed": False,
+                "reason": "run_canceled",
+                "message": "This Sprint Engine run was canceled. No work will be claimed; stop.",
+                "write": False,
+            }
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             ensure_role_in_roster(state, args.role)
             expired = release_expired_agent_targets(state, actor="sprintengine", excluding_agent_id=args.id)
@@ -219,11 +234,37 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                 ensure_task_repo_declared(
                     state, folder_store.task_repo(selected), context=f"Task {selected.get('id')}"
                 )
+                # An unbound session (headless/CLI, an older app build) carries no
+                # worktree binding, so it is unfiltered by design. But in a multi-repo
+                # run that lets it grab a sibling-repo task while it likely sits in the
+                # primary checkout — the commit lock, cwd, and repo-relative paths would
+                # then resolve against the wrong tree and only fail at publish/commit.
+                # Surface it here, at claim time, instead of failing late; the claim
+                # still proceeds so a session genuinely in the sibling tree is not blocked.
+                selected_repo = folder_store.task_repo(selected)
+                unbound_cross_tree_warning = (
+                    f"Session {args.id} is not bound to a project but claimed {selected.get('id')} in "
+                    f"{selected_repo!r}. If this session is not running in that project's worktree, its "
+                    "commits and paths will resolve against the wrong tree — pass --repo to bind it."
+                    if not session_repo
+                    and selected_repo != folder_store.DEFAULT_TASK_REPO
+                    and len(declared_repo_ids(state)) > 1
+                    else None
+                )
                 model, cli = _resolve_execution_identity(args)
                 result = assign_task(state, selected, args.id, model=model, cli=cli)
                 recompute_phase(state)
                 event = append_event(state, "task_claimed", args.id, f"{args.id} claimed {selected.get('id')}.")
-                return {"ok": True, "claimed": True, "task": selected, "agent": result["agent"], "prompt": build_rework_prompt(args.state, selected), "event": event, "releasedExpired": expired["released"]}
+                return {
+                    "ok": True,
+                    "claimed": True,
+                    "task": selected,
+                    "agent": result["agent"],
+                    "prompt": build_rework_prompt(args.state, selected),
+                    "event": event,
+                    "releasedExpired": expired["released"],
+                    **({"warnings": [unbound_cross_tree_warning]} if unbound_cross_tree_warning else {}),
+                }
 
             phase_dirty = recompute_phase(state)
             scope = f" in {session_repo}" if session_repo else ""
@@ -562,6 +603,7 @@ def cmd_task_refresh_ready(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        refuse_if_run_canceled(state, "task.log")
         task = find_task(state, args.task_id)
         ev = ensure_evidence(task)
         if getattr(args, "summary", None):
@@ -603,6 +645,9 @@ def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
 
 def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        # Refuse before any commit: a canceled run must not land a commit on the
+        # branch or drive a canceled task toward done (see refuse_if_run_canceled).
+        refuse_if_run_canceled(state, "task.publish")
         task = find_task(state, args.task_id)
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
@@ -670,6 +715,7 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
     """Close the task's current phase and step forward. Owner-only."""
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
+        refuse_if_run_canceled(state, "task.advance")
         task = find_task(state, args.task_id)
         actor = str(args.id or task.get("ownerAgentId") or "agent")
         needs_input = None

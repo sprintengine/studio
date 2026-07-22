@@ -383,8 +383,23 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
                     else 0
                 )
                 has_findings = isinstance(record.get("findings"), list) and bool(record["findings"])
-                outcome = "pass_with_fixes" if defect_count > 0 or has_findings else "pass"
-            review_verdicts[reviewer][outcome] += 1
+                # A clean pass must be backed by evidence a review actually
+                # happened — claims checked (or any other recorded count) or
+                # scores. An empty reviewer task.log with no outcome, counts,
+                # findings, or scores is not a verdict; counting it as a clean
+                # pass silently inflated the reviewer's pass rate.
+                has_counts = isinstance(raw_counts, dict) and any(
+                    isinstance(value, int) and not isinstance(value, bool) and value > 0
+                    for value in raw_counts.values()
+                )
+                if defect_count > 0 or has_findings:
+                    outcome = "pass_with_fixes"
+                elif has_counts or scores:
+                    outcome = "pass"
+                else:
+                    outcome = ""
+            if outcome:
+                review_verdicts[reviewer][outcome] += 1
 
     agent_ids = (
         set(self_record_count)
