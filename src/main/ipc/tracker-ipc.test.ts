@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict'
 
-import { registerTrackerIpc, type TrackerIpcService } from './tracker-ipc'
+import {
+  registerTrackerIpc,
+  type TrackerIpcService,
+  type TrackerWriteBackNoticeDeps,
+} from './tracker-ipc'
+import type { TrackerWriteBackIpcDeps } from './tracker-ipc'
+import { DEFAULT_TRACKER_WRITEBACK_CONFIG, type TrackerWriteBackNotice } from '../../shared/tracker/writeback'
 
 // Locks the tracker IPC wiring: every channel is registered and each delegates to
-// the matching service method with the invoked input.
+// the matching service / dependency method with the invoked input. The service
+// mock keeps `listTransitions` (the gap that once broke the surface must not
+// reintroduce), and the T18 write-back notice channels are covered end to end.
 
 type Handler = (_event: unknown, ...args: unknown[]) => Promise<unknown>
 
@@ -57,7 +65,48 @@ async function main(): Promise<void> {
     calls.push({ method: 'materialize', input })
     return { ok: true as const, added: 1, refreshed: 0, failed: [] }
   }
-  registerTrackerIpc(ipcMain as unknown as Parameters<typeof registerTrackerIpc>[0], service, materialize)
+  // Write-back config + sample-issue seam, mocked so the config/transition handlers
+  // run without a real userData file or backlog.
+  const writeBack: TrackerWriteBackIpcDeps = {
+    getConfig: async (connectionId) => {
+      calls.push({ method: 'getConfig', input: { connectionId } })
+      return DEFAULT_TRACKER_WRITEBACK_CONFIG
+    },
+    setConfig: async (connectionId, config) => {
+      calls.push({ method: 'setConfig', input: { connectionId, config } })
+    },
+    resolveSampleIssue: async (workspaceRoot, connectionId) => {
+      calls.push({ method: 'resolveSampleIssue', input: { workspaceRoot, connectionId } })
+      return { externalId: '42', nativeKey: 'PROJ-42' }
+    },
+  }
+  const failingNotice: TrackerWriteBackNotice = {
+    connectionId: 'trk-x',
+    externalId: '42',
+    provider: 'github',
+    postKind: 'comment:started',
+    relativePath: 'backlog/PROJ-42.md',
+    message: 'GitHub rejected the credential.',
+    at: '2026-07-22T00:00:00Z',
+  }
+  const writeBackNotices: TrackerWriteBackNoticeDeps = {
+    listNotices: async () => {
+      calls.push({ method: 'listNotices', input: undefined })
+      return [failingNotice]
+    },
+    retryConnection: async (connectionId) => {
+      calls.push({ method: 'retryConnection', input: { connectionId } })
+      // Retry cleared it: nothing still failing for this connection.
+      return []
+    },
+  }
+  registerTrackerIpc(
+    ipcMain as unknown as Parameters<typeof registerTrackerIpc>[0],
+    service,
+    materialize,
+    writeBack,
+    writeBackNotices,
+  )
 
   for (const channel of [
     'tracker:listConnections',
@@ -67,6 +116,11 @@ async function main(): Promise<void> {
     'tracker:search',
     'tracker:fetchIssue',
     'tracker:materialize',
+    'tracker:getWriteBackConfig',
+    'tracker:setWriteBackConfig',
+    'tracker:listTransitions',
+    'tracker:listWriteBackNotices',
+    'tracker:retryWriteBack',
   ]) {
     assert.ok(ipcMain.handlers.has(channel), `${channel} should be registered`)
   }
@@ -78,6 +132,8 @@ async function main(): Promise<void> {
   await ipcMain.handlers.get('tracker:search')!(null, { connectionId: 'trk-x', query: 'bug' })
   await ipcMain.handlers.get('tracker:fetchIssue')!(null, { connectionId: 'trk-x', externalId: '42' })
   await ipcMain.handlers.get('tracker:materialize')!(null, { workspaceRoot: '/ws', connectionId: 'trk-x', externalIds: ['42'] })
+  await ipcMain.handlers.get('tracker:getWriteBackConfig')!(null, { connectionId: 'trk-x' })
+  await ipcMain.handlers.get('tracker:setWriteBackConfig')!(null, { connectionId: 'trk-x', config: DEFAULT_TRACKER_WRITEBACK_CONFIG })
 
   assert.deepEqual(calls, [
     { method: 'listConnections', input: undefined },
@@ -87,7 +143,28 @@ async function main(): Promise<void> {
     { method: 'search', input: { connectionId: 'trk-x', query: 'bug' } },
     { method: 'fetchIssue', input: { connectionId: 'trk-x', externalId: '42' } },
     { method: 'materialize', input: { workspaceRoot: '/ws', connectionId: 'trk-x', externalIds: ['42'] } },
+    { method: 'getConfig', input: { connectionId: 'trk-x' } },
+    { method: 'setConfig', input: { connectionId: 'trk-x', config: DEFAULT_TRACKER_WRITEBACK_CONFIG } },
   ])
+
+  // listTransitions resolves a sample issue, then delegates to the service — the
+  // mock gap (a service without listTransitions) must never come back.
+  const transitionsResult = await ipcMain.handlers.get('tracker:listTransitions')!(null, {
+    connectionId: 'trk-x',
+    workspaceRoot: '/ws',
+  })
+  assert.deepEqual(transitionsResult, { ok: true, transitions: [], sampleKey: 'PROJ-42' })
+  assert.deepEqual(calls.at(-2), { method: 'resolveSampleIssue', input: { workspaceRoot: '/ws', connectionId: 'trk-x' } })
+  assert.deepEqual(calls.at(-1), { method: 'listTransitions', input: { connectionId: 'trk-x', externalId: '42' } })
+
+  // Notices: list surfaces the recorded failure; retry delegates the connection id
+  // and returns the post-retry state (here, cleared).
+  const noticesResult = await ipcMain.handlers.get('tracker:listWriteBackNotices')!(null)
+  assert.deepEqual(noticesResult, { ok: true, notices: [failingNotice] })
+
+  const retryResult = await ipcMain.handlers.get('tracker:retryWriteBack')!(null, { connectionId: 'trk-x' })
+  assert.deepEqual(retryResult, { ok: true, notices: [] })
+  assert.deepEqual(calls.at(-1), { method: 'retryConnection', input: { connectionId: 'trk-x' } })
 
   console.log('tracker-ipc tests passed')
 }

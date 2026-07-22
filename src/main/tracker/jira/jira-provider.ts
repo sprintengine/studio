@@ -188,7 +188,11 @@ export class JiraTrackerProvider implements TrackerProvider {
       const who = typeof me.displayName === 'string' ? me.displayName : undefined
       return { ok: true, summary: who ? `Connected as ${who}.` : 'Connected.' }
     } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : 'Could not reach Jira.' }
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : 'Could not reach Jira.',
+        ...(err instanceof TrackerProviderError ? { kind: err.kind } : {}),
+      }
     }
   }
 

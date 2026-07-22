@@ -157,6 +157,19 @@ async function testStatusRedactionAndProbe(): Promise<void> {
   const failed = after.find((c) => c.id === bare.id)
   assert.equal(failed?.status, 'unknown')
   assert.equal(failed?.statusReason, 'Bad credentials.')
+
+  // An auth-classified probe failure is 'expired' so the row offers Reconnect;
+  // a non-auth failure (network) stays 'unknown' — tried, but can't confirm the
+  // credential — rather than falsely reading as an expired token.
+  store.recordProbe(configured.id, { ok: false, kind: 'auth', reason: 'GitHub rejected the credential.' })
+  store.recordProbe(bare.id, { ok: false, kind: 'network', reason: 'Could not reach GitHub.' })
+  const afterKinds = await store.list()
+  const authRow = afterKinds.find((c) => c.id === configured.id)
+  assert.equal(authRow?.status, 'expired')
+  assert.equal(authRow?.statusReason, 'GitHub rejected the credential.')
+  const networkRow = afterKinds.find((c) => c.id === bare.id)
+  assert.equal(networkRow?.status, 'unknown')
+  assert.equal(networkRow?.statusReason, 'Could not reach GitHub.')
 }
 
 async function testCapabilityGating(): Promise<void> {

@@ -143,9 +143,16 @@ export class TrackerConnectionStore {
     return this.secretStore.resolveSecret(id)
   }
 
-  // Records the outcome of an explicit probe so listConnections reflects it.
+  // Records the outcome of an explicit probe so listConnections reflects it. A
+  // rejected credential (auth) is 'expired' so the row offers Reconnect; any other
+  // failure (network/rate-limit/unclassified) stays 'unknown' — we tried but can't
+  // confirm the credential — rather than falsely claiming the token expired.
   recordProbe(id: string, probe: TrackerConnectionProbe): void {
-    this.probeCache.set(id, probe.ok ? { status: 'connected' } : { status: 'unknown', reason: probe.reason })
+    if (probe.ok) {
+      this.probeCache.set(id, { status: 'connected' })
+      return
+    }
+    this.probeCache.set(id, { status: probe.kind === 'auth' ? 'expired' : 'unknown', reason: probe.reason })
   }
 
   // Runs `fn` against a transient, un-persisted connection carrying an in-memory

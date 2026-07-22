@@ -156,3 +156,19 @@ export type TrackerWriteBackNotice = {
   message: string
   at: string
 }
+
+// Notices IPC (T18 / backlog 1720). The write-back engine records a failure notice
+// whenever a post fails, but nothing consumed them, so an expired token posted
+// nothing and retried forever, silently. These channels let the settings surface
+// SHOW the failures and offer a real recovery: `retryWriteBack` re-runs the
+// engine's reconcile for the connection's stuck runs now (rather than waiting on
+// the next run event) and returns whatever is still failing.
+export type TrackerListWriteBackNoticesResult =
+  | { ok: true; notices: TrackerWriteBackNotice[] }
+  | { ok: false; error: TrackerError }
+
+export type TrackerRetryWriteBackInput = { connectionId: string }
+
+export type TrackerRetryWriteBackResult =
+  | { ok: true; notices: TrackerWriteBackNotice[] }
+  | { ok: false; error: TrackerError }

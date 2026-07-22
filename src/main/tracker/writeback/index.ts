@@ -1,3 +1,4 @@
+import type { TrackerWriteBackNotice } from '../../../shared/tracker/writeback'
 import { getSharedTrackerProviderRegistry, type TrackerProviderRegistry } from '../provider-registry'
 import { getSharedTrackerWriteBackConfigStore, TrackerWriteBackConfigStore } from './config-store'
 import { TrackerWriteBackEngine } from './engine'
@@ -34,6 +35,12 @@ export type TrackerWriteBackRuntime = {
   // Wake the engine for a run identified by its run.yaml state path. Fire-and-
   // forget and debounced; never throws into the caller (the run lifecycle).
   notifyRunActivity(statePath: string): void
+  // Re-run reconcile NOW for every run a connection has failing posts under (the
+  // notices-surface "Retry now"), bypassing the debounce, and return the notices
+  // that remain failing for the connection afterward. reconcileRun is idempotent
+  // and never throws, so a genuinely fixed credential clears the notices while a
+  // still-broken one honestly reports the same failure.
+  retryConnectionNotices(connectionId: string): Promise<TrackerWriteBackNotice[]>
 }
 
 export type CreateTrackerWriteBackRuntimeOptions = {
@@ -72,7 +79,16 @@ export function createTrackerWriteBackRuntime(options: CreateTrackerWriteBackRun
 
   const scheduler = createReconcileScheduler(engine, options.logDiagnostic)
 
-  return { engine, configStore, ledger, notifyRunActivity: scheduler.notify }
+  const retryConnectionNotices = async (connectionId: string): Promise<TrackerWriteBackNotice[]> => {
+    for (const statePath of await ledger.failedStatePaths(connectionId)) {
+      const workspaceRoot = workspaceRootFromStatePath(statePath)
+      if (!workspaceRoot) continue
+      await engine.reconcileRun({ statePath, workspaceRoot })
+    }
+    return (await ledger.listNotices()).filter((notice) => notice.connectionId === connectionId)
+  }
+
+  return { engine, configStore, ledger, notifyRunActivity: scheduler.notify, retryConnectionNotices }
 }
 
 // Per-run trailing debounce with re-run coalescing: a notify during an in-flight

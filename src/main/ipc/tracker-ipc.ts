@@ -3,16 +3,22 @@ import type { IpcMain } from 'electron'
 import { resolveConnectionSampleIssue } from '../tracker/connection-sample-issue'
 import { materializeTrackerIssues } from '../tracker/materialize/materialize-service'
 import { getSharedTrackerService } from '../tracker/tracker-service'
+import type { TrackerWriteBackRuntime } from '../tracker/writeback'
 import { getSharedTrackerWriteBackConfigStore } from '../tracker/writeback/config-store'
+import { getSharedTrackerWriteBackLedger } from '../tracker/writeback/ledger'
 import {
   normalizeTrackerWriteBackConfig,
   type TrackerGetWriteBackConfigInput,
   type TrackerGetWriteBackConfigResult,
   type TrackerListTransitionsInput,
   type TrackerListTransitionsResult,
+  type TrackerListWriteBackNoticesResult,
+  type TrackerRetryWriteBackInput,
+  type TrackerRetryWriteBackResult,
   type TrackerSetWriteBackConfigInput,
   type TrackerSetWriteBackConfigResult,
   type TrackerWriteBackConfig,
+  type TrackerWriteBackNotice,
 } from '../../shared/tracker/writeback'
 import {
   toTrackerError,
@@ -73,6 +79,36 @@ function defaultWriteBackDeps(): TrackerWriteBackIpcDeps {
   }
 }
 
+// The write-back failure-notice seam the T18 settings surface drives: list the
+// failures nothing used to consume, and re-run reconcile for a connection now on
+// a manual retry. Injected so tests exercise the handlers without the real engine.
+export type TrackerWriteBackNoticeDeps = {
+  listNotices(): Promise<TrackerWriteBackNotice[]>
+  retryConnection(connectionId: string): Promise<TrackerWriteBackNotice[]>
+}
+
+// The real, reconcile-backed binding: the app wires this from the process-wide
+// write-back runtime so "Retry now" genuinely re-posts (register-core-ipc).
+export function createTrackerWriteBackNoticeDeps(runtime: TrackerWriteBackRuntime): TrackerWriteBackNoticeDeps {
+  return {
+    listNotices: () => runtime.ledger.listNotices(),
+    retryConnection: (connectionId) => runtime.retryConnectionNotices(connectionId),
+  }
+}
+
+// Fallback for a registration without the write-back runtime (the direct IPC unit
+// test injects its own). Listing reads the shared ledger — the same store the
+// runtime posts through — so it is honest; retry can't reconcile without the
+// engine, so it only re-reads the connection's current notices.
+function defaultWriteBackNoticeDeps(): TrackerWriteBackNoticeDeps {
+  const ledger = getSharedTrackerWriteBackLedger()
+  return {
+    listNotices: () => ledger.listNotices(),
+    retryConnection: async (connectionId) =>
+      (await ledger.listNotices()).filter((notice) => notice.connectionId === connectionId),
+  }
+}
+
 // Materialization needs the connection store + issue fetch (not just the narrow
 // IPC service slice), so it is injected separately. The default binds the shared
 // tracker service to the backlog-service writer via materializeTrackerIssues.
@@ -93,7 +129,8 @@ export function registerTrackerIpc(
   ipcMain: IpcMain,
   service: TrackerIpcService = getSharedTrackerService(),
   materialize: TrackerMaterializeHandler = defaultMaterializeHandler,
-  writeBack: TrackerWriteBackIpcDeps = defaultWriteBackDeps()
+  writeBack: TrackerWriteBackIpcDeps = defaultWriteBackDeps(),
+  writeBackNotices: TrackerWriteBackNoticeDeps = defaultWriteBackNoticeDeps()
 ): void {
   ipcMain.handle('tracker:listConnections', (): Promise<TrackerListConnectionsResult> => {
     return service.listConnections()
@@ -179,6 +216,29 @@ export function registerTrackerIpc(
         return { ok: false, error: result.error }
       }
       return { ok: true, transitions: result.transitions, sampleKey: sample.nativeKey }
+    }
+  )
+
+  // Write-back failure notices (T18): the failures the engine records but nothing
+  // used to read. The settings surface lists them and offers a real retry —
+  // re-running reconcile for the connection's stuck runs now — so an expired token
+  // is visible and recoverable instead of silently posting nothing forever.
+  ipcMain.handle('tracker:listWriteBackNotices', async (): Promise<TrackerListWriteBackNoticesResult> => {
+    try {
+      return { ok: true, notices: await writeBackNotices.listNotices() }
+    } catch (err) {
+      return { ok: false, error: toTrackerError(err) }
+    }
+  })
+
+  ipcMain.handle(
+    'tracker:retryWriteBack',
+    async (_event, input: TrackerRetryWriteBackInput): Promise<TrackerRetryWriteBackResult> => {
+      try {
+        return { ok: true, notices: await writeBackNotices.retryConnection(input.connectionId) }
+      } catch (err) {
+        return { ok: false, error: toTrackerError(err, { connectionId: input.connectionId }) }
+      }
     }
   )
 }

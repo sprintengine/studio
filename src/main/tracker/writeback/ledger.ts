@@ -139,6 +139,21 @@ export class TrackerWriteBackLedger {
     })
   }
 
+  // The distinct run state paths a connection has failing posts under, so the
+  // notices surface can re-run reconcile for exactly those runs on a manual retry.
+  // Legacy failed entries with no recorded state path can't be reconciled again
+  // and are skipped (they age out on load instead).
+  async failedStatePaths(connectionId: string): Promise<string[]> {
+    const entries = await this.ensureLoaded()
+    const paths = new Set<string>()
+    for (const entry of Object.values(entries)) {
+      if (entry.status === 'failed' && entry.connectionId === connectionId && entry.statePath) {
+        paths.add(entry.statePath)
+      }
+    }
+    return [...paths]
+  }
+
   // Every currently-failing post, for the T11 visible-notice surface. A post that
   // later succeeded is a `posted` entry and never appears here.
   async listNotices(): Promise<TrackerWriteBackNotice[]> {

@@ -5,9 +5,10 @@ import type {
   TrackerTransition,
   TrackerWriteBackCommentEvent,
   TrackerWriteBackConfig,
+  TrackerWriteBackNotice,
   TrackerWriteBackTransitionEvent,
 } from '../../../../shared/electron-api'
-import { InlineNotice, Select, Switch, type SelectItem } from '../ui'
+import { GhostButton, InlineNotice, Select, Switch, type SelectItem } from '../ui'
 import { trackerProviderMonogram } from './trackerConnectionsForm'
 import {
   COMMENT_EVENTS,
@@ -54,6 +55,10 @@ export function TrackerWriteBackSettings({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [transitions, setTransitions] = useState<TransitionsState>(INITIAL_TRANSITIONS)
+  // Write-back failures for THIS connection (T18). Only read while posting is on —
+  // a disabled connection has nothing pending, so a past failure is not actionable.
+  const [notices, setNotices] = useState<TrackerWriteBackNotice[]>([])
+  const [retrying, setRetrying] = useState(false)
 
   const masterId = useId()
   const showTier = showsTransitionTier(connection.capabilities)
@@ -102,6 +107,37 @@ export function TrackerWriteBackSettings({
       cancelled = true
     }
   }, [showTier, config?.enabled, transitions.phase, connection.id, workspaceRoot])
+
+  // Load this connection's write-back failure notices while posting is on. Nothing
+  // consumed these before T18, so an expired token posted nothing and retried
+  // forever with no signal; here the failures become visible and recoverable.
+  useEffect(() => {
+    if (!config?.enabled) {
+      setNotices([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      const result = await window.api.trackerListWriteBackNotices()
+      if (cancelled || !result.ok) return
+      setNotices(result.notices.filter((notice) => notice.connectionId === connection.id))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [config?.enabled, connection.id])
+
+  // Re-run write-back reconcile for this connection now. A fixed credential clears
+  // the notices; a still-broken one honestly reports the same failure.
+  const retryNotices = useCallback(async () => {
+    setRetrying(true)
+    try {
+      const result = await window.api.trackerRetryWriteBack({ connectionId: connection.id })
+      if (result.ok) setNotices(result.notices)
+    } finally {
+      setRetrying(false)
+    }
+  }, [connection.id])
 
   // Persist optimistically: reflect the change immediately, then write it through
   // the T10 store. A failed write surfaces honestly rather than silently dropping.
@@ -182,6 +218,27 @@ export function TrackerWriteBackSettings({
 
           {config.enabled ? (
             <div className="flex flex-col gap-4 pt-3.5">
+              {notices.length > 0 ? (
+                <InlineNotice
+                  tone="error"
+                  title={`Couldn’t post ${
+                    notices.length === 1 ? 'an update' : `${notices.length} updates`
+                  } to ${providerDisplayName(connection.provider)}.`}
+                  hint="Multicode retries automatically the next time this sprint does anything. Reconnect this connection above, or turn posting off."
+                  detail={distinctNoticeMessages(notices).join('\n')}
+                  action={
+                    <>
+                      <GhostButton size="md" onClick={() => void retryNotices()} disabled={retrying}>
+                        {retrying ? 'Retrying…' : 'Retry now'}
+                      </GhostButton>
+                      <GhostButton size="md" onClick={() => toggleMaster(false)} disabled={retrying}>
+                        Turn off posting
+                      </GhostButton>
+                    </>
+                  }
+                />
+              ) : null}
+
               <fieldset className="border-0 p-0">
                 <legend className={GROUP_TITLE_CLASS}>Comment on the issue when…</legend>
                 {COMMENT_EVENTS.map((event) => (
@@ -265,6 +322,13 @@ export function TrackerWriteBackSettings({
       </div>
     </ConnectionFrame>
   )
+}
+
+// The distinct provider messages across a connection's failure notices, so the
+// error card's "Show details" lists each real reason once rather than repeating
+// the same message per stuck run.
+function distinctNoticeMessages(notices: TrackerWriteBackNotice[]): string[] {
+  return [...new Set(notices.map((notice) => notice.message))]
 }
 
 // The per-connection container + header, naming the exact connection whose

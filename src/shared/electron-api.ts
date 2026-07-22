@@ -131,10 +131,14 @@ export type {
   TrackerListTransitionsInput,
   TrackerListTransitionsReason,
   TrackerListTransitionsResult,
+  TrackerListWriteBackNoticesResult,
+  TrackerRetryWriteBackInput,
+  TrackerRetryWriteBackResult,
   TrackerSetWriteBackConfigInput,
   TrackerSetWriteBackConfigResult,
   TrackerWriteBackCommentEvent,
   TrackerWriteBackConfig,
+  TrackerWriteBackNotice,
   TrackerWriteBackTransitionEvent,
 } from './tracker/writeback'
 import type {
@@ -142,6 +146,9 @@ import type {
   TrackerGetWriteBackConfigResult,
   TrackerListTransitionsInput,
   TrackerListTransitionsResult,
+  TrackerListWriteBackNoticesResult,
+  TrackerRetryWriteBackInput,
+  TrackerRetryWriteBackResult,
   TrackerSetWriteBackConfigInput,
   TrackerSetWriteBackConfigResult,
 } from './tracker/writeback'
@@ -2716,6 +2723,8 @@ export type ElectronApi = {
   trackerGetWriteBackConfig: (input: TrackerGetWriteBackConfigInput) => Promise<TrackerGetWriteBackConfigResult>
   trackerSetWriteBackConfig: (input: TrackerSetWriteBackConfigInput) => Promise<TrackerSetWriteBackConfigResult>
   trackerListTransitions: (input: TrackerListTransitionsInput) => Promise<TrackerListTransitionsResult>
+  trackerListWriteBackNotices: () => Promise<TrackerListWriteBackNoticesResult>
+  trackerRetryWriteBack: (input: TrackerRetryWriteBackInput) => Promise<TrackerRetryWriteBackResult>
   conversationSessionStart: (input: ConversationStartSessionInput) => Promise<ConversationStartSessionResult>
   conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
   conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>

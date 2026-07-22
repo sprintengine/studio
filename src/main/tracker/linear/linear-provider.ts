@@ -146,8 +146,13 @@ export class LinearTrackerProvider implements TrackerProvider {
       return { ok: true, summary: org ? `Connected as ${who} in ${org}.` : `Connected as ${who}.` }
     } catch (err) {
       // A probe never throws: it reports the provider's message as the reason so
-      // the settings form shows why the key was rejected.
-      return { ok: false, reason: err instanceof Error ? err.message : 'Could not reach Linear.' }
+      // the settings form shows why the key was rejected, and its structural kind
+      // so a rejected key classifies as 'expired' (Reconnect) rather than unknown.
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : 'Could not reach Linear.',
+        ...(err instanceof TrackerProviderError ? { kind: err.kind } : {}),
+      }
     }
   }
 

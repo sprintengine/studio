@@ -174,7 +174,11 @@ export class GitHubTrackerProvider implements TrackerProvider {
       const login = typeof record.login === 'string' ? record.login : undefined
       return { ok: true, summary: login ? `Signed in as ${login}.` : 'Reached GitHub.' }
     } catch (err) {
-      return { ok: false, reason: err instanceof Error ? err.message : 'Could not reach GitHub.' }
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : 'Could not reach GitHub.',
+        ...(err instanceof TrackerProviderError ? { kind: err.kind } : {}),
+      }
     }
   }
 

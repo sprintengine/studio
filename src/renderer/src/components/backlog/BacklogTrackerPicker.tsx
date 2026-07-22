@@ -13,7 +13,7 @@ import {
   StatusDot,
   type SelectItem,
 } from '../ui'
-import { trackerProviderMonogram } from '../settings/trackerConnectionsForm'
+import { presentTrackerError, trackerProviderMonogram } from '../settings/trackerConnectionsForm'
 import {
   isIssueInBacklog,
   materializeReport,
@@ -25,13 +25,16 @@ const SEARCH_DEBOUNCE_MS = 300
 // The remote-search lifecycle. `error` carries the provider's own reason (an
 // unreachable/unauthenticated tracker degrades to a visible reason here, never a
 // silent empty list). `loadingMore` overlays a ready state while a cursor page
-// is fetched, so the current rows stay put.
+// is fetched, so the current rows stay put. `loadMoreError` surfaces a failed
+// cursor page in the footer (the loaded rows keep their place, and the Load more
+// button stays available to retry) instead of the failure being swallowed.
 type SearchState = {
   phase: 'idle' | 'loading' | 'ready' | 'error'
   issues: NormalizedIssue[]
   nextCursor?: string
   error?: string
   loadingMore: boolean
+  loadMoreError?: string
 }
 
 type MaterializeState = { phase: 'idle' | 'working' | 'done' | 'error'; report?: string }
@@ -106,7 +109,9 @@ export function BacklogTrackerPicker({
       if (!result.ok) {
         setSearch((prev) =>
           cursor
-            ? { ...prev, loadingMore: false }
+            ? // A cursor page failed: keep the loaded rows and the Load more button
+              // (which retries), but say so in the footer instead of swallowing it.
+              { ...prev, loadingMore: false, loadMoreError: `Couldn’t load more issues. ${presentTrackerError(result.error).hint}` }
             : { phase: 'error', issues: [], loadingMore: false, error: result.error.message },
         )
         return
@@ -159,6 +164,7 @@ export function BacklogTrackerPicker({
       })
       setMaterialize({ phase: 'idle' })
       setStartNotice(null)
+      setSearch((prev) => (prev.loadMoreError ? { ...prev, loadMoreError: undefined } : prev))
     },
     [],
   )
@@ -169,6 +175,7 @@ export function BacklogTrackerPicker({
     if (!connection || selectedCount === 0) return
     const externalIds = [...selected]
     setStartNotice(null)
+    setSearch((prev) => (prev.loadMoreError ? { ...prev, loadMoreError: undefined } : prev))
     setMaterialize({ phase: 'working' })
     const result = await window.api.trackerMaterialize({ workspaceRoot, connectionId: connection.id, externalIds })
     if (!result.ok) {
@@ -254,12 +261,18 @@ export function BacklogTrackerPicker({
   // the ambient "Tick issues…" prompt.
   const reportText = startNotice
     ? startNotice.text
-    : materialize.phase === 'idle'
-      ? selectedCount > 0
-        ? `${selectedCount} ${selectedCount === 1 ? 'issue' : 'issues'} selected.`
-        : 'Tick issues to add them to the backlog.'
-      : materialize.report
-  const reportIsError = startNotice ? startNotice.tone === 'error' : materialize.phase === 'error'
+    : search.loadMoreError
+      ? search.loadMoreError
+      : materialize.phase === 'idle'
+        ? selectedCount > 0
+          ? `${selectedCount} ${selectedCount === 1 ? 'issue' : 'issues'} selected.`
+          : 'Tick issues to add them to the backlog.'
+        : materialize.report
+  const reportIsError = startNotice
+    ? startNotice.tone === 'error'
+    : search.loadMoreError
+      ? true
+      : materialize.phase === 'error'
 
   return (
     <Drawer open={open} onClose={onClose} title="Add from a tracker" ariaLabel="Add issues from a tracker" width={520}>

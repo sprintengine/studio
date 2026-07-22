@@ -48,8 +48,11 @@ export type RedactedTrackerConnection = TrackerConnection & {
 }
 
 // Result of probing a connection. `reason` is the provider's own human-readable
-// message (rate-limit / 401 / unreachable), never a stack trace.
-export type TrackerConnectionProbe = { ok: boolean; reason?: string; summary?: string }
+// message (rate-limit / 401 / unreachable), never a stack trace. `kind` carries
+// the structural failure class on a failed probe (so a rejected credential is
+// classified 'expired', not the never-checked 'unknown' baseline); it is absent
+// on success and on failures a provider could not classify.
+export type TrackerConnectionProbe = { ok: boolean; reason?: string; summary?: string; kind?: TrackerErrorKind }
 
 // A named workflow transition offered by the tracker (Jira/Linear), used by the
 // MC-1640 tier-2 write-back UI. Never guessed — always read from the tracker.
