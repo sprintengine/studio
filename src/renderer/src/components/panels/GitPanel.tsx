@@ -7,6 +7,10 @@ import { isImageFile } from '../../utils/files'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
 import { basename, samePath, trimPath } from '../../utils/paths'
+import {
+  fileExplorerSelectionFromVerticalRange,
+  fileExplorerSelectionRange,
+} from '../../utils/fileExplorerSelection'
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
@@ -49,11 +53,9 @@ type GitChangeGroup = {
   empty: string
   actionTitle: string
   actionIcon: GitActionIconKind
-  action: (path: string) => Promise<unknown>
   secondaryAction?: {
     title: string
     icon: GitActionIconKind
-    action: (entry: GitStatusEntry) => Promise<unknown>
   }
   bulkActions?: GitBulkAction[]
   entries: GitStatusEntry[]
@@ -61,6 +63,13 @@ type GitChangeGroup = {
 }
 
 type GitActionIconKind = 'stage' | 'unstage' | 'revert'
+
+// Selection key for a change row. A partially-staged file shows in both the
+// Staged and Unstaged groups, so path alone is ambiguous; the scope keeps the
+// two rows independently selectable. The NUL separator can't collide with a path.
+function changeSelectionKey(scope: 'staged' | 'unstaged', path: string): string {
+  return `${scope}\u0000${path}`
+}
 
 type GitBulkAction = {
   label: string
@@ -722,25 +731,49 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }
 
-  const stagePath = (path: string) =>
-    runAction('Staging file', () => window.api.stageGitPaths(repoRoot!, [path]), 'Staged file.')
-  const unstagePath = (path: string) =>
-    runAction('Unstaging file', () => window.api.unstageGitPaths(repoRoot!, [path]), 'Unstaged file.')
-  const revertPath = async (entry: GitStatusEntry) => {
+  const stagePaths = (paths: string[]) =>
+    runAction(
+      'Staging files',
+      () => window.api.stageGitPaths(repoRoot!, paths),
+      paths.length > 1 ? `Staged ${paths.length} files.` : 'Staged file.'
+    )
+  const unstagePaths = (paths: string[]) =>
+    runAction(
+      'Unstaging files',
+      () => window.api.unstageGitPaths(repoRoot!, paths),
+      paths.length > 1 ? `Unstaged ${paths.length} files.` : 'Unstaged file.'
+    )
+  const revertEntries = async (entries: GitStatusEntry[]) => {
+    // A partially-staged file appears in both change groups, so the same path can
+    // arrive twice from a cross-group selection; revert each path once.
+    const seen = new Set<string>()
+    const unique = entries.filter((entry) => {
+      if (seen.has(entry.path)) return false
+      seen.add(entry.path)
+      return true
+    })
+    if (unique.length === 0) return null
+    const many = unique.length > 1
     const confirmed = await dialog.confirm({
-      title: `Revert ${entry.relativePath}?`,
+      title: many ? `Revert ${unique.length} files?` : `Revert ${unique[0].relativePath}?`,
       body: (
         <>
-          This reverts every change to {entry.relativePath} in {activeScopeLabel}. The action cannot be undone from Multicode.
+          This reverts every change to{' '}
+          {many ? `these ${unique.length} files` : unique[0].relativePath} in {activeScopeLabel}. The action
+          cannot be undone from Multicode.
           <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
-      confirmLabel: 'Revert file',
+      confirmLabel: many ? 'Revert files' : 'Revert file',
       tone: 'danger',
     })
     if (!confirmed) return null
 
-    return runAction('Reverting file', () => window.api.revertGitPaths(repoRoot!, [entry.path]), 'Reverted file.')
+    return runAction(
+      'Reverting files',
+      () => window.api.revertGitPaths(repoRoot!, unique.map((entry) => entry.path)),
+      many ? `Reverted ${unique.length} files.` : 'Reverted file.'
+    )
   }
   const discardUnstagedChanges = async () => {
     const confirmed = await dialog.confirm({
@@ -770,11 +803,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       empty: 'No staged changes',
       actionTitle: 'Unstage this file',
       actionIcon: 'unstage',
-      action: unstagePath,
       secondaryAction: {
         title: 'Revert this file',
         icon: 'revert',
-        action: revertPath,
       },
       bulkActions: [
         {
@@ -792,11 +823,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       empty: 'No unstaged changes',
       actionTitle: 'Stage this file',
       actionIcon: 'stage',
-      action: stagePath,
       secondaryAction: {
         title: 'Revert this file',
         icon: 'revert',
-        action: revertPath,
       },
       bulkActions: [
         {
@@ -820,6 +849,146 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       omittedCount: Math.max(0, unstagedEntries.length - MAX_RENDERED_GIT_CHANGES_PER_GROUP),
     },
   ]
+
+  // --- Change-row selection (multi-select + drag marquee) --------------------
+  // Mirrors the FileExplorer selection model so batch stage/unstage/revert works
+  // the same way. A partially-staged file appears in both groups, so selection is
+  // keyed by scope+path (not path alone) to keep the two rows independent.
+  const selectableRows = useMemo<Array<{ key: string; scope: 'staged' | 'unstaged'; entry: GitStatusEntry }>>(
+    () => [
+      ...stagedEntries
+        .slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP)
+        .map((entry) => ({ key: changeSelectionKey('staged', entry.path), scope: 'staged' as const, entry })),
+      ...unstagedEntries
+        .slice(0, MAX_RENDERED_GIT_CHANGES_PER_GROUP)
+        .map((entry) => ({ key: changeSelectionKey('unstaged', entry.path), scope: 'unstaged' as const, entry })),
+    ],
+    [stagedEntries, unstagedEntries]
+  )
+  const selectableRowsRef = useRef(selectableRows)
+  const changeRowNodesRef = useRef<Record<string, HTMLElement | null>>({})
+  const selectionAnchorKeyRef = useRef<string | null>(null)
+  const changeDragRef = useRef<{ startY: number } | null>(null)
+  const changeDragCompletedRef = useRef(false)
+  const [selectedChangeKeys, setSelectedChangeKeys] = useState<Set<string>>(() => new Set())
+
+  // Keep the geometry snapshot fresh and drop selection for rows that vanished
+  // (committed, staged away, refreshed) so stale keys never drive a batch action.
+  useEffect(() => {
+    selectableRowsRef.current = selectableRows
+    setSelectedChangeKeys((current) => {
+      if (current.size === 0) return current
+      const valid = new Set(selectableRows.map((row) => row.key))
+      const next = new Set<string>()
+      for (const key of current) if (valid.has(key)) next.add(key)
+      return next.size === current.size ? current : next
+    })
+  }, [selectableRows])
+
+  useEffect(() => {
+    const updateDragSelection = (clientY: number) => {
+      if (!changeDragRef.current) return
+      const bounds = selectableRowsRef.current
+        .map((row) => {
+          const node = changeRowNodesRef.current[row.key]
+          if (!node) return null
+          const rect = node.getBoundingClientRect()
+          return { path: row.key, top: rect.top, bottom: rect.bottom }
+        })
+        .filter((row): row is { path: string; top: number; bottom: number } => Boolean(row))
+      const keys = fileExplorerSelectionFromVerticalRange(bounds, changeDragRef.current.startY, clientY)
+      changeDragCompletedRef.current = keys.length > 0
+      setSelectedChangeKeys(new Set(keys))
+    }
+    const handleMouseMove = (event: MouseEvent) => updateDragSelection(event.clientY)
+    const handleMouseUp = () => {
+      if (!changeDragRef.current) return
+      changeDragRef.current = null
+      // Let the click that closes the drag see the suppression flag, then clear it.
+      window.setTimeout(() => {
+        changeDragCompletedRef.current = false
+      }, 0)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
+  const beginChangeMarquee = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return
+    if (event.target instanceof Element && event.target.closest('[data-git-change-row="true"]')) return
+    event.preventDefault()
+    changeDragRef.current = { startY: event.clientY }
+    changeDragCompletedRef.current = false
+    selectionAnchorKeyRef.current = null
+    setSelectedChangeKeys(new Set())
+  }
+
+  // Returns true when the click was consumed as a selection gesture (marquee
+  // suppression, shift-range, or meta-toggle) and must not also open the diff.
+  const handleChangeRowSelect = (
+    entry: GitStatusEntry,
+    scope: 'staged' | 'unstaged',
+    event: React.MouseEvent
+  ): boolean => {
+    if (changeDragCompletedRef.current) return true
+    const key = changeSelectionKey(scope, entry.path)
+    if (event.shiftKey && selectionAnchorKeyRef.current) {
+      const keys = fileExplorerSelectionRange(
+        selectableRowsRef.current.map((row) => row.key),
+        selectionAnchorKeyRef.current,
+        key
+      )
+      if (keys.length) setSelectedChangeKeys(new Set(keys))
+      return true
+    }
+    if (event.metaKey || event.ctrlKey) {
+      selectionAnchorKeyRef.current = key
+      setSelectedChangeKeys((current) => {
+        const next = new Set(current)
+        if (next.has(key) && next.size > 1) next.delete(key)
+        else next.add(key)
+        return next
+      })
+      return true
+    }
+    selectionAnchorKeyRef.current = key
+    setSelectedChangeKeys(new Set([key]))
+    return false
+  }
+
+  const registerChangeRowNode = (key: string, node: HTMLElement | null) => {
+    if (node) changeRowNodesRef.current[key] = node
+    else delete changeRowNodesRef.current[key]
+  }
+
+  // Primary action (stage on unstaged rows, unstage on staged rows). Batches
+  // across the selection only when the clicked row is part of a multi-selection.
+  const handleChangeRowPrimary = (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
+    const key = changeSelectionKey(scope, entry.path)
+    const batching = selectedChangeKeys.has(key) && selectedChangeKeys.size > 1
+    const paths = batching
+      ? selectableRows.filter((row) => row.scope === scope && selectedChangeKeys.has(row.key)).map((row) => row.entry.path)
+      : [entry.path]
+    if (paths.length === 0) return
+    const result = scope === 'staged' ? unstagePaths(paths) : stagePaths(paths)
+    if (batching) setSelectedChangeKeys(new Set())
+    return result
+  }
+
+  const handleChangeRowRevert = async (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => {
+    const key = changeSelectionKey(scope, entry.path)
+    const batching = selectedChangeKeys.has(key) && selectedChangeKeys.size > 1
+    const entries = batching
+      ? selectableRows.filter((row) => selectedChangeKeys.has(row.key)).map((row) => row.entry)
+      : [entry]
+    const result = await revertEntries(entries)
+    if (batching && result !== null) setSelectedChangeKeys(new Set())
+    return result
+  }
 
   const handleCommit = async () => {
     if (!repoRoot) return
@@ -1626,7 +1795,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
         {activeView === 'changes' ? (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onMouseDown={beginChangeMarquee}>
               {allEntries.length === 0 ? (
                 <div className="py-2 text-[12px] text-[color:var(--text-subtle)]">Working tree clean</div>
               ) : (
@@ -1644,6 +1813,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                       busy={busy}
                       onOpenFile={handleOpenFile}
                       onOpenFileInEditor={handleOpenFileInEditor}
+                      selectedKeys={selectedChangeKeys}
+                      onRowSelect={handleChangeRowSelect}
+                      onRowPrimaryAction={handleChangeRowPrimary}
+                      onRowRevert={handleChangeRowRevert}
+                      registerRowNode={registerChangeRowNode}
                     />
                   ))}
                 </>
@@ -1994,12 +2168,27 @@ function ChangeGroup({
   busy,
   onOpenFile,
   onOpenFileInEditor,
+  selectedKeys,
+  onRowSelect,
+  onRowPrimaryAction,
+  onRowRevert,
+  registerRowNode,
 }: {
   group: GitChangeGroup
   busy: string | null
   onOpenFile: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => Promise<void>
   onOpenFileInEditor: (entry: GitStatusEntry) => Promise<void>
+  selectedKeys: Set<string>
+  onRowSelect: (entry: GitStatusEntry, scope: 'staged' | 'unstaged', event: React.MouseEvent) => boolean
+  onRowPrimaryAction: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
+  onRowRevert: (entry: GitStatusEntry, scope: 'staged' | 'unstaged') => void
+  registerRowNode: (key: string, node: HTMLElement | null) => void
 }) {
+  const selectedInGroup = group.entries.reduce(
+    (count, entry) => (selectedKeys.has(changeSelectionKey(group.scope, entry.path)) ? count + 1 : count),
+    0
+  )
+  const selectedTotal = selectedKeys.size
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
@@ -2056,9 +2245,25 @@ function ChangeGroup({
               const trailing = appearance.badge ? (
                 <span className="font-mono text-[10px] font-bold opacity-80">{appearance.badge}</span>
               ) : null
+              const rowKey = changeSelectionKey(group.scope, entry.path)
+              const rowSelected = selectedKeys.has(rowKey)
+              // A batch fires when the clicked row is part of a multi-selection.
+              // Primary batches within this scope; revert batches across scopes.
+              const primaryBatch = rowSelected && selectedInGroup > 1
+              const revertBatch = rowSelected && selectedTotal > 1
+              const primaryTitle = primaryBatch ? `${group.actionTitle.split(' ')[0]} ${selectedInGroup} selected files` : group.actionTitle
+              const revertTitle = revertBatch ? `Revert ${selectedTotal} selected files` : group.secondaryAction?.title
+              // Keep the actions hidden until the row is hovered, focused, or part
+              // of the current selection — so a resting list stays calm, but every
+              // selected row still advertises the batch it will act on.
+              // Base button classes already carry `focus:opacity-100`, so a
+              // keyboard-focused action stays revealed in every state.
+              const actionVisibility = rowSelected ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'
               return (
                 <div
                   key={`${group.title}:${entry.path}`}
+                  ref={(node) => registerRowNode(rowKey, node)}
+                  data-git-change-row="true"
                   className="group/row flex items-center gap-1"
                   onContextMenu={(event) =>
                     void showChangeRowContextMenu(event, entry, group.scope, onOpenFile, onOpenFileInEditor)
@@ -2069,29 +2274,35 @@ function ChangeGroup({
                       hideDot
                       title={title}
                       trailing={trailing}
-                      onSelect={() => void onOpenFile(entry, group.scope)}
+                      selected={rowSelected}
+                      onSelect={(event) => {
+                        // Modifier/marquee clicks are consumed for selection; a
+                        // plain click selects the single row and opens its diff.
+                        if (onRowSelect(entry, group.scope, event)) return
+                        void onOpenFile(entry, group.scope)
+                      }}
                       ariaLabel={statusWord ? `Open ${entry.relativePath}, ${statusWord}` : `Open ${entry.relativePath}`}
                     />
                   </div>
-                  <Tooltip content={group.actionTitle}>
+                  <Tooltip content={primaryTitle}>
                     <button
                       type="button"
-                      onClick={() => void group.action(entry.path)}
+                      onClick={() => void onRowPrimaryAction(entry, group.scope)}
                       disabled={Boolean(busy)}
-                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] opacity-70 transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-30 group-hover/row:opacity-100"
-                      aria-label={`${group.actionTitle}: ${entry.relativePath}`}
+                      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-30 ${actionVisibility}`}
+                      aria-label={`${primaryTitle}: ${entry.relativePath}`}
                     >
                       <GitActionIcon kind={group.actionIcon} />
                     </button>
                   </Tooltip>
                   {group.secondaryAction ? (
-                    <Tooltip content={group.secondaryAction.title}>
+                    <Tooltip content={revertTitle ?? group.secondaryAction.title}>
                       <button
                         type="button"
-                        onClick={() => void group.secondaryAction?.action(entry)}
+                        onClick={() => void onRowRevert(entry, group.scope)}
                         disabled={Boolean(busy)}
-                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] opacity-70 transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--tone-error)] disabled:opacity-30 group-hover/row:opacity-100"
-                        aria-label={`${group.secondaryAction.title}: ${entry.relativePath}`}
+                        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--tone-error)] disabled:opacity-30 ${actionVisibility}`}
+                        aria-label={`${revertTitle ?? group.secondaryAction.title}: ${entry.relativePath}`}
                       >
                         <GitActionIcon kind={group.secondaryAction.icon} />
                       </button>

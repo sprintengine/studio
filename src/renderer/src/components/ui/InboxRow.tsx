@@ -23,8 +23,10 @@ type InboxRowProps = {
   trailing?: React.ReactNode
   /** Visual selection. Backed by --accent-primary-soft. */
   selected?: boolean
-  /** Row is interactive (renders as button). Default true when onSelect is set. */
-  onSelect?: () => void
+  /** Row is interactive (renders as button). Default true when onSelect is set.
+   *  Receives the click event so callers can read modifier keys (shift/meta) for
+   *  range- and multi-select. */
+  onSelect?: (event: React.MouseEvent) => void
   /** Disable interaction without removing the row from layout. */
   disabled?: boolean
   /** Aria-label override; required when title is non-text. */
