@@ -11,6 +11,13 @@ VALID_TASK_STATUSES = {"todo", "in_progress", "review", "needs_input", "done", "
 # not free for another agent to claim, and its owner's session is not spare capacity.
 ACTIVE_TASK_STATUSES = {"in_progress", "review", "needs_input"}
 RUN_EXECUTING_TASK_STATUSES = set(ACTIVE_TASK_STATUSES)
+# Terminal statuses (2026-07-22 owner ruling, restored by MC-1744 and enforced
+# in cmd_task_status): a done or canceled task is never reopened by an agent —
+# blocking findings become NEW tasks (fix-forward). The single sanctioned
+# exception is the human Inbox send-back (Flow 5): the supervisor UI reopens a
+# `done` task to `in_progress` under its implementer, carried by
+# `--actor-kind human`, which agent-facing MCP surfaces never advertise.
+TERMINAL_TASK_STATUSES = {"done", "canceled"}
 # Post-implementation phase vocabulary (MC-1542). MIRRORS
 # sprintengine_core.store.VALID_TASK_PHASES / DEFAULT_RUN_PHASES; the two cannot be
 # a single import (store <-> tool import cycle), so

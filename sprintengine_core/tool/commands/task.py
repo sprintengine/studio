@@ -15,6 +15,7 @@ from sprintengine_core.tool.constants import (
     ACTIVE_TASK_STATUSES,
     PLANNER_ROUTED_NEEDS_INPUT_KINDS,
     NEEDS_INPUT_KIND_DEFAULT_REASONS,
+    TERMINAL_TASK_STATUSES,
     VALID_NEEDS_INPUT_KINDS,
     VALID_TASK_PHASES,
 )
@@ -298,6 +299,22 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{args.status!r} is a review phase entered via publish/advance, "
                 "not a status you set directly."
             )
+        if previous_status in TERMINAL_TASK_STATUSES and args.status != previous_status:
+            # Done is terminal (fix-forward): agents never resurrect completed
+            # work. The one sanctioned reopen is the human Inbox send-back
+            # (done -> in_progress under the implementer), marked by the
+            # supervisor-only --actor-kind human flag.
+            human_send_back = (
+                getattr(args, "actor_kind", "agent") == "human"
+                and previous_status == "done"
+                and args.status == "in_progress"
+            )
+            if not human_send_back:
+                raise SystemExit(
+                    f"{args.task_id} is {previous_status} and terminal. Completed tasks are never "
+                    "reopened (fix-forward): create a new task for the follow-up work "
+                    "(sprintengine.plan.add_task) instead."
+                )
         if feedback_args_present(args) and args.status != "done":
             raise SystemExit("Feedback flags on `sprintengine task status` are only supported with --status done.")
         if args.status != "needs_input" and (

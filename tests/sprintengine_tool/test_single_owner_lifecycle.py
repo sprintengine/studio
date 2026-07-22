@@ -585,6 +585,9 @@ def test_reopening_a_done_task_rebinds_it_to_its_implementer(tmp_path: Path) -> 
         needs_input_suggested_resolution = None
         actual_difficulty_pct = None
         actual_difficulty_reason = ""
+        # The supervisor marks Inbox send-backs as human-initiated; without it
+        # the done-terminal guard (MC-1749) rejects the reopen.
+        actor_kind = "human"
 
     cmd_task_status(Args())
     reopened = read_state(fixture.state_path)["tasks"][0]

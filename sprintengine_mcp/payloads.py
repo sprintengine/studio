@@ -48,6 +48,11 @@ def command_payload_to_namespace(
         base.update(task_id=payload["taskId"], id=payload["id"])
     elif tool_name == "sprintengine.task.status":
         base.update(task_id=payload["taskId"], status=payload["status"], id=payload["id"], summary=payload.get("summary"))
+        # `actorKind` is deliberately NOT advertised in the tool schema: only the
+        # Multicode supervisor passes `human`, to carry the Inbox send-back
+        # through the engine's done-terminal guard. Agent callers default to
+        # `agent` and cannot reopen terminal tasks.
+        base.update(actor_kind="human" if payload.get("actorKind") == "human" else "agent")
         base.update(
             needs_input_kind=payload.get("needsInputKind"),
             needs_input_reason=payload.get("needsInputReason"),
