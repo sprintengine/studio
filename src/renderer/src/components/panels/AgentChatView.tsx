@@ -673,6 +673,20 @@ export function stopDisabledForPending(pending: PendingAction): boolean {
   return pending === 'stopping'
 }
 
+// Whether the session can accept a live send right now. The runtime rejects a
+// new turn while `pendingRequestId` is set — which spans the whole active turn,
+// not just the awaiting-approval window (conversation-runtime.ts:200). So a
+// submit made while busy is queued and auto-sent on unlock (D6/1776) rather than
+// fired as a live IPC that would error. Type-ahead into the textarea is always
+// allowed; only the send/queue routing keys off this.
+export function isConversationBusy(
+  activeTurn: boolean,
+  awaitingApproval: boolean,
+  pending: PendingAction,
+): boolean {
+  return activeTurn || awaitingApproval || pending !== null
+}
+
 // The model is editable only until the conversation starts: the runtime binds a
 // session to one provider/model, so once the user has sent a turn (or a session
 // exists) the in-composer picker locks. A replayed transcript counts as a
@@ -728,6 +742,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // Skill-at-spawn seeds the first draft (prefill only — the user submits).
   const [draft, setDraft] = useState(() => agent?.chatComposerPrefill ?? '')
   const [pending, setPending] = useState<PendingAction>(null)
+  // Type-ahead queue (D6/1776): a message the user committed while the session
+  // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
+  // turn. Null when nothing is queued; a second commit while busy appends so no
+  // typed intent is dropped.
+  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
   // Slash trigger: Escape or non-matching text sets dismissed so the slash
@@ -1010,6 +1029,33 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     [ensureSession, pending, userTurns.length]
   )
 
+  // Composer submit (Enter or the send affordance). Sends immediately when the
+  // session is idle; queues the message when a turn is streaming or awaiting
+  // approval, so the user gets terminal-style type-ahead without the send
+  // erroring against the runtime's turn guard (D6/1776). The flush effect below
+  // sends the queued message the moment the session unlocks.
+  const submitComposer = useCallback(() => {
+    const text = draft.trim()
+    if (!text) return
+    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) {
+      setQueuedMessage((prev) => (prev ? `${prev}\n${text}` : text))
+      setDraft('')
+      return
+    }
+    void sendTurn(text)
+  }, [draft, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+
+  // Auto-send the queued message as a follow-up turn once the session idles.
+  // Gated on the same busy signal the submit uses, so it never races the guard;
+  // sendTurn's own `pending` guard prevents a re-entrant double send.
+  useEffect(() => {
+    if (queuedMessage === null || readiness.kind !== 'ready') return
+    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) return
+    const text = queuedMessage
+    setQueuedMessage(null)
+    void sendTurn(text)
+  }, [queuedMessage, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+
   // Approval/question cards resolve mid-turn on stateful providers — while the
   // sendTurn promise is still pending — so they get their own busy latch
   // instead of the composer's `pending` (which would deadlock the card: the
@@ -1064,7 +1110,14 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   }
 
   const ready = readiness.kind === 'ready'
-  const composerDisabled = !ready || projection.activeTurn || pending !== null
+  // The session cannot take a live turn right now (streaming, awaiting approval,
+  // or an in-flight send). A submit made while busy queues instead of erroring.
+  const composerBusy = isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)
+  // Retry and other "act now" affordances stay disabled while busy or not ready.
+  const composerDisabled = !ready || composerBusy
+  // The textarea itself is only disabled before the provider is ready — it stays
+  // editable through a stream so type-ahead works (D6/1776).
+  const composerInputDisabled = !ready
 
   // The runtime binds a session to one provider/model, so the model is editable
   // only until the conversation starts: once a turn is sent, a session exists,
@@ -1179,9 +1232,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       : pendingApprovalEntry.requestKind === 'plan'
         ? 'Respond to the plan above to continue'
         : 'Respond to the request above to continue'
-    : ready
-      ? 'Send a message…'
-      : readinessLabel(readiness)
+    : !ready
+      ? readinessLabel(readiness)
+      : projection.activeTurn
+        ? 'Reply — sends when the turn finishes'
+        : 'Send a message…'
 
   // Retry lives on the failed turn's error block in the transcript; only the
   // latest failed turn is retryable (retry re-sends the last user message).
@@ -1322,6 +1377,28 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         ) : null}
 
         {/*
+         * Queued message (D6/1776): the user typed ahead and committed while the
+         * turn was busy. It auto-sends the moment the session unlocks; Cancel
+         * drops it before then. Kept truthful so a queued turn is never a
+         * silent, invisible pending action.
+         */}
+        {queuedMessage ? (
+          <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 text-[12px] font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
+              <TruncatedText as="span" text={queuedMessage} className="min-w-0 text-[12px] leading-5 text-[color:var(--text-muted)]" />
+            </div>
+            <GhostButton
+              size="sm"
+              onClick={() => setQueuedMessage(null)}
+              className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+            >
+              Cancel
+            </GhostButton>
+          </div>
+        ) : null}
+
+        {/*
          * Composer: a single rounded field that holds the textarea and a footer
          * control row (model chip + permission chip + send), so the input reads
          * as one surface. The model lives here — picked before the first
@@ -1363,12 +1440,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
-                void sendTurn(draft)
+                submitComposer()
               }
             }}
             placeholder={composerPlaceholder}
             rows={1}
-            disabled={composerDisabled}
+            disabled={composerInputDisabled}
             className={COMPOSER_CLASS}
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
@@ -1421,9 +1498,15 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             ) : (
               <ComposerActionButton
                 tone="accent"
-                ariaLabel={pending === 'starting' || pending === 'sending' ? 'Sending' : 'Send message'}
-                onClick={() => void sendTurn(draft)}
-                disabled={composerDisabled || !draft.trim()}
+                ariaLabel={
+                  pending === 'starting' || pending === 'sending'
+                    ? 'Sending'
+                    : composerBusy
+                      ? 'Queue message'
+                      : 'Send message'
+                }
+                onClick={submitComposer}
+                disabled={!ready || !draft.trim()}
               >
                 <SendArrowGlyph className="icon-sm" />
               </ComposerActionButton>

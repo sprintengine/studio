@@ -6,6 +6,7 @@ import {
   deriveConversationTimelineRows,
   formatStepDuration,
   isAuthShapedFailure,
+  isConversationBusy,
   isConversationModelLocked,
   parseOptionLabel,
   projectConversation,
@@ -242,6 +243,19 @@ assert.equal(stopDisabledForPending('sending'), false, 'unresolved send does not
 assert.equal(stopDisabledForPending('starting'), false)
 assert.equal(stopDisabledForPending('stopping'), true)
 assert.equal(stopDisabledForPending(null), false)
+
+// --- Send-while-busy queues instead of erroring (D6/1776) -------------------
+
+// Idle: a live send is allowed.
+assert.equal(isConversationBusy(false, false, null), false, 'idle session accepts a live send')
+// Streaming: the runtime guard would reject a new turn, so the submit queues.
+assert.equal(isConversationBusy(true, false, null), true, 'streaming turn queues the next message')
+// Awaiting approval queues too (pendingRequestId is set on the runtime).
+assert.equal(isConversationBusy(false, true, null), true, 'awaiting approval queues the next message')
+// An in-flight send (before the turn events land) also queues, so a fast second
+// Enter never fires two overlapping sends.
+assert.equal(isConversationBusy(false, false, 'sending'), true, 'in-flight send queues the next message')
+assert.equal(isConversationBusy(false, false, 'starting'), true)
 
 // --- Model picker locks once the conversation has started ------------------
 
