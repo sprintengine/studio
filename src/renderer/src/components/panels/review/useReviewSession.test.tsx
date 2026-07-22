@@ -33,10 +33,12 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { useReviewSession } = await import('./useReviewSession')
-  const { fixtureChangeSet } = await import('./fixtures')
+  const { fixtureChangeSet, fixtureBrief } = await import('./fixtures')
   type ReviewSession = import('./useReviewSession').ReviewSession
+  type ReviewBrief = import('../../../../../shared/review').ReviewBrief
   type ReviewComment = import('../../../../../shared/review').ReviewComment
   type ReviewWorkspaceState = import('../../../../../shared/review').ReviewWorkspaceState
+  type ReviewBriefRunEvent = import('../../../../../shared/electron-api').ReviewBriefRunEvent
   type ReviewPostReviewResult = import('../../../../../shared/electron-api').ReviewPostReviewResult
   type ReviewCommentPostOutcome = import('../../../../../shared/electron-api').ReviewCommentPostOutcome
 
@@ -60,16 +62,25 @@ async function main(): Promise<void> {
       comments: seedComments,
     }
     let resolvePost: ((result: ReviewPostReviewResult) => void) | null = null
+    // The brief on disk — null (degraded) until a scenario lands one; every
+    // `reviewReadBrief` reads the current value, so a re-read after a run 'done'
+    // sees the upgrade. The run-event callback is captured so a scenario can fire
+    // the guide-run lifecycle the hook subscribes to.
+    let briefValue: ReviewBrief | null = null
+    let runEventCb: ((event: ReviewBriefRunEvent) => void) | null = null
     const api = {
       reviewReadState: async () => ({ ok: true, state: stored }),
       reviewReadChangeset: async () => ({ ok: true, changeset: fixtureChangeSet }),
-      reviewReadBrief: async () => ({ ok: true, brief: null }),
+      reviewReadBrief: async () => ({ ok: true, brief: briefValue }),
       reviewWriteState: async (_t: unknown, next: ReviewWorkspaceState) => {
         stored = next
         return { ok: true }
       },
       reviewPostReview: () => new Promise<ReviewPostReviewResult>((res) => (resolvePost = res)),
-      onReviewBriefRunEvent: () => () => {},
+      onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
+        runEventCb = cb
+        return () => {}
+      },
     }
     anyGlobal.window = new Proxy(dom.window, {
       get(target, prop) {
@@ -103,6 +114,17 @@ async function main(): Promise<void> {
           assert.ok(resolvePost, 'a post must be in flight before it can resolve')
           resolvePost(result)
         }),
+      // Land a brief on disk (as a guide run would), then fire the run 'done' event
+      // the hook listens for; it re-reads the brief and upgrades in place. The
+      // trailing empty act flushes the async reload the event handler kicks off.
+      landBrief: async (brief: ReviewBrief) => {
+        briefValue = brief
+        await act(async () => {
+          assert.ok(runEventCb, 'the session must have subscribed to run events')
+          runEventCb({ workspaceId: 'r1', phase: 'done' })
+        })
+        await act(async () => {})
+      },
       finalStored: () => stored,
     }
   }
@@ -189,8 +211,35 @@ async function main(): Promise<void> {
     console.log('ok - a mid-post comment is spared (stays pending) when the batch fails')
   }
 
+  // T1: with no brief the review is degraded — a synthesized model renders the raw
+  // change while the human keeps commenting. When a guide run later lands a real
+  // brief, the view upgrades in place and the reviewer's comments (keyed by
+  // changeSetId, which does not change) survive untouched.
+  async function degradedUpgradesInPlaceWithCommentsIntact(): Promise<void> {
+    const h = setup([pending('c-1', 'prisma/schema.prisma', 37, 'Cap at MEMBER?')])
+    await h.render()
+    assert.equal(h.current().status, 'degraded', 'no brief on disk → degraded')
+    assert.equal(h.current().isDegraded, true)
+    assert.ok(h.current().brief, 'a synthesized brief is exposed so the raw change renders')
+    assert.equal(h.current().brief!.changeSetId, fixtureChangeSet.id, 'the synth brief walks this changeset')
+    assert.equal(h.current().canPost, true, 'a PR review can post with no guide')
+    assert.equal(h.current().comments.length, 1, 'the comment exists in the degraded state')
+
+    // A guide run lands a real brief and signals done.
+    await h.landBrief(fixtureBrief)
+
+    assert.equal(h.current().status, 'ready', 'the review upgrades to the guided walkthrough')
+    assert.equal(h.current().isDegraded, false)
+    assert.equal(h.current().brief!.steps.length, fixtureBrief.steps.length, 'the real brief is now in effect')
+    assert.equal(h.current().comments.length, 1, 'the comment survived the upgrade — nothing migrated')
+    assert.equal(h.current().comments[0].id, 'c-1', 'the same comment, untouched')
+    h.root.unmount()
+    console.log('ok - a no-brief degraded review upgrades in place when a brief lands, comments intact')
+  }
+
   await successPreservesMidPostEdits()
   await failureSparesMidPostComment()
+  await degradedUpgradesInPlaceWithCommentsIntact()
   console.log('all useReviewSession concurrency tests passed')
 }
 
