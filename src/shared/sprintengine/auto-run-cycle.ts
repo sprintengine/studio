@@ -839,7 +839,15 @@ export async function getIdleAutoRunAgentIds(
     if (!sessionBelongsToWorkspaceSprintEngine(session, workspace)) continue
 
     const runtimeAgent = sprintEngineState.sprintEngineAgents[session.agentId]
-    if (!runtimeAgent || runtimeAgent.status === 'needs_input' || runtimeAgent.status === 'retired') continue
+    if (!runtimeAgent) {
+      // Ghost candidate (MC-1750): a live session the engine never bound
+      // (spawned, never joined/claimed). It enters the idle universe so the
+      // idle clock ages it and the ghost reaper can retire it; every other
+      // dispatch path guards on the runtime record itself and skips it.
+      idleAgentIds.add(session.agentId)
+      continue
+    }
+    if (runtimeAgent.status === 'needs_input' || runtimeAgent.status === 'retired') continue
 
     const currentTask = runtimeAgent.currentTaskId
       ? taskById.get(runtimeAgent.currentTaskId)
@@ -2444,38 +2452,13 @@ export async function superviseRunnerActiveCycle(
   // in-flight spawns (in-memory only) + live sessions folded in via
   // runningAgentIds.
   const demandByKey = computeSprintEngineDemand(sprintEngineState)
-  const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
-    tasks: sprintEngineState.tasks,
-    inFlightSpawnKeys: inFlightSpawns.current,
-    workspaceId: workspace.id,
-    runningAgentIds,
-  })
-  const maxConcurrentAgents = Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3))
-  const availableSlots = maxConcurrentAgents - occupiedAgentIds.size
-  logPerfEvent('SprintEngineAutoRun', 'slots', {
-    workspaceId: workspace.id,
-    workspaceName: workspace.name,
-    maxConcurrentAgents,
-    availableSlots,
-    occupiedAgentCount: occupiedAgentIds.size,
-    demandGroups: demandByKey.size,
-    demandByKey: Object.fromEntries([...demandByKey].map(([key, tasks]) => [key, tasks.length])),
-  })
-  if (availableSlots <= 0) {
-    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      reason: 'no-slots',
-      occupiedAgentCount: occupiedAgentIds.size,
-      elapsedMs: Math.round(performance.now() - superviseStartedAt),
-    })
-    return
-  }
 
   // Booting pool workers: live sessions whose worker id the engine has not
   // bound yet (no runtime record before the first claim). The picker counts
   // them as per-key supply — the in-memory replacement for the retired
-  // persisted pending-spawn ledger.
+  // persisted pending-spawn ledger — and (MC-1750) they occupy concurrency
+  // slots below: a spawned-but-unclaimed session is a real terminal, and not
+  // counting it is what let a cap of 3 spawn 17 agents in tick-sized batches.
   const unboundLiveWorkers = cycleSessions
     .filter((session): session is TerminalSessionSnapshot & { agentId: string } =>
       Boolean(session.agentId)
@@ -2491,6 +2474,49 @@ export async function superviseRunnerActiveCycle(
       // gone, so a sibling-repo session is never counted as primary supply.
       repo: sprintEngineRepoIdForSessionCwd(sprintEngineState, workspace.folderPath, session.worktreePath),
     }))
+  // Joined-but-never-claimed sessions (a runtime record exists from
+  // `agent.join`, but no task was ever owned): also booting, also a slot.
+  // A worker that HAS owned a task is deliberately excluded — a finished idle
+  // terminal awaiting retirement must not starve fresh work of its slot.
+  const joinedUnclaimedLiveAgentIds = cycleSessions
+    .filter((session) => {
+      if (!session.agentId || !sessionBelongsToWorkspaceSprintEngine(session, workspace)) return false
+      const runtimeAgent = sprintEngineState.sprintEngineAgents[session.agentId]
+      return Boolean(runtimeAgent) && !runtimeAgent.lastOwnedTaskId && !runtimeAgent.currentTaskId
+    })
+    .map((session) => session.agentId!)
+  const occupiedAgentIds = getSprintEngineAutoRunOccupiedAgentIds({
+    tasks: sprintEngineState.tasks,
+    inFlightSpawnKeys: inFlightSpawns.current,
+    workspaceId: workspace.id,
+    runningAgentIds,
+    bootingAgentIds: [
+      ...unboundLiveWorkers.map((worker) => worker.agentId),
+      ...joinedUnclaimedLiveAgentIds,
+    ],
+  })
+  const maxConcurrentAgents = Math.max(1, Math.min(10, autoState.maxConcurrentAgents ?? 3))
+  const availableSlots = maxConcurrentAgents - occupiedAgentIds.size
+  logPerfEvent('SprintEngineAutoRun', 'slots', {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    maxConcurrentAgents,
+    availableSlots,
+    occupiedAgentCount: occupiedAgentIds.size,
+    bootingAgentCount: unboundLiveWorkers.length + joinedUnclaimedLiveAgentIds.length,
+    demandGroups: demandByKey.size,
+    demandByKey: Object.fromEntries([...demandByKey].map(([key, tasks]) => [key, tasks.length])),
+  })
+  if (availableSlots <= 0) {
+    logPerfEvent('SprintEngineAutoRun', 'supervise-stop', {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      reason: 'no-slots',
+      occupiedAgentCount: occupiedAgentIds.size,
+      elapsedMs: Math.round(performance.now() - superviseStartedAt),
+    })
+    return
+  }
 
   let nextRuns: AutoRunCandidate[] = []
   try {

@@ -593,6 +593,16 @@ export const AUTO_RUN_RETIREMENT_COOLDOWN_MS = 15 * 60_000
  * wake-prompt retry budgets bound the respawn side.
  */
 export const AUTO_RUN_TASK_SCOPED_RETIREMENT_COOLDOWN_MS = 60_000
+/**
+ * Ghost-session boot allowance (MC-1750): a live session whose agent id has NO
+ * engine runtime record is either still booting (spawn → join/claim takes tens
+ * of seconds) or a failed spawn that will never claim (the immortal
+ * developer-17 from the post-merge-hardening run — invisible to the
+ * lease-derived roster and to every record-guarded dispatch path). Past this
+ * allowance it is reaped; within it, it is left alone and merely occupies a
+ * concurrency slot.
+ */
+export const AUTO_RUN_GHOST_SESSION_BOOT_ALLOWANCE_MS = 5 * 60_000
 export const AUTO_RUN_MAX_PROMPT_RETRIES = 5
 export const AUTO_RUN_MAX_WAKE_CANDIDATE_PROMPT_RETRIES = 3
 
@@ -841,7 +851,11 @@ export function updateSprintEngineIdleClock(input: {
   const { workspace, sprintEngineState } = input
   const activeKeys = new Set<string>()
   for (const agentId of input.idleAgentIds) {
-    if (!isUnclaimedIdleRuntimeAgent(sprintEngineState.sprintEngineAgents[agentId])) continue
+    const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
+    // No runtime record = ghost candidate (MC-1750): age it on the same clock
+    // so the reaper can tell a booting session from a spawn that will never
+    // claim. Agents WITH a record keep the unclaimed-idle precondition.
+    if (runtimeAgent && !isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
     const key = sprintEngineIdleClockKey(workspace, agentId)
     activeKeys.add(key)
     if (!input.clock.has(key)) input.clock.set(key, input.now)
@@ -1660,7 +1674,40 @@ export function planSprintEngineDispatch(input: {
     for (const agentId of input.idleAgentIds) {
       if (engagedAgentIds.has(agentId)) continue
       const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
-      if (!runtimeAgent || !isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
+      if (!runtimeAgent) {
+        // Ghost session (MC-1750): live terminal, no engine runtime record —
+        // the spawn never joined/claimed. Within the boot allowance it is a
+        // normally-booting session and is left alone (it already occupies a
+        // concurrency slot); past it, it will never claim and is torn down.
+        const ghostClockKey = sprintEngineIdleClockKey(workspace, agentId)
+        const ghostSince = input.idleClock.get(ghostClockKey)
+        if (!ghostSince) continue
+        if (now - ghostSince < AUTO_RUN_GHOST_SESSION_BOOT_ALLOWANCE_MS) continue
+        const ghostRetiredAt = input.retirementCooldown?.get(ghostClockKey)
+        if (ghostRetiredAt !== undefined && now - ghostRetiredAt < AUTO_RUN_RETIREMENT_COOLDOWN_MS) continue
+        planRetirement({
+          agentId,
+          teardown: true,
+          data: {
+            agentId,
+            role: workspace.agents[agentId]?.name ?? '',
+            idleMs: now - ghostSince,
+            reason: 'ghost_session_never_claimed',
+          },
+          diagnostic: {
+            title: 'Closed a sprint session that never started work',
+            message: `${agentId} was spawned but never claimed a task, so its terminal was closed. Ready work spawns a fresh session.`,
+            details: [
+              `Workspace: ${workspace.name}`,
+              `Agent: ${agentId}`,
+              `Live without claiming for: ${Math.round((now - ghostSince) / 60_000)} minute(s)`,
+              'A session with no engine runtime record cannot be dispatched, woken, or retired by the normal paths; reaping it frees its concurrency slot.',
+            ].join('\n'),
+          },
+        })
+        continue
+      }
+      if (!isUnclaimedIdleRuntimeAgent(runtimeAgent)) continue
       if (runtimeAgent.role === 'architect' && hasArchitectTriageWork) continue
       // Task-scoped workers (MC-1444) only ever wake for their own task, so the
       // claimable-work skip below no longer parks them on unrelated ready tasks
@@ -1854,6 +1901,16 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
   inFlightSpawnKeys: Iterable<string>
   workspaceId: string
   runningAgentIds?: ReadonlySet<string>
+  /**
+   * Live sessions that have not yet claimed their first task (MC-1750). A
+   * spawned CLI takes tens of seconds to boot and claim; during that window it
+   * holds neither a lease nor an in-flight spawn entry (the entry is dropped
+   * when the spawn IPC resolves), so without this set the concurrency cap
+   * degrades into "N new spawns per tick" — the 17-terminal burst. Every
+   * booting session occupies a slot until its claim lands (at which point the
+   * lease-owner clause takes over) or it is reaped as a ghost.
+   */
+  bootingAgentIds?: Iterable<string>
 }): Set<string> {
   const occupiedAgentIds = new Set<string>([
     ...input.tasks
@@ -1869,6 +1926,9 @@ export function getSprintEngineAutoRunOccupiedAgentIds(input: {
   for (const spawnKey of input.inFlightSpawnKeys) {
     if (!spawnKey.startsWith(`${input.workspaceId}:`)) continue
     occupiedAgentIds.add(spawnKey.slice(input.workspaceId.length + 1))
+  }
+  for (const agentId of input.bootingAgentIds ?? []) {
+    occupiedAgentIds.add(agentId)
   }
   return occupiedAgentIds
 }

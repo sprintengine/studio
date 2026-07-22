@@ -29,7 +29,7 @@ type Captured = {
 
 const STATE_PATH = '/tmp/workspace/.multi-code/sprintengine/team/run.yaml'
 
-function agentSession(agentId: string): TerminalSessionSnapshot {
+function agentSession(agentId: string, role?: string): TerminalSessionSnapshot {
   return {
     sessionId: `session-${agentId}`,
     kind: 'agent',
@@ -39,6 +39,9 @@ function agentSession(agentId: string): TerminalSessionSnapshot {
     sprintEngineStatePath: STATE_PATH,
     cli: 'claude-code',
     startedAt: 1,
+    // Real spawns stamp the session with its sprint role/work; the picker's
+    // booting-supply match reads it (`session.agentSession?.role`).
+    ...(role ? { agentSession: { role, workId: null } } : {}),
   } as unknown as TerminalSessionSnapshot
 }
 
@@ -320,10 +323,158 @@ async function testMissingCliRoleDoesNotFreezeSiblings(): Promise<void> {
   )
 }
 
+function poolTask(id: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id, title: id, description: '', role: 'developer', status: 'todo', ownerAgentId: null,
+    dependsOn: [], ownedPaths: [], acceptanceCriteria: [], implementationNotes: [],
+    evidence: { summary: '', touchedFiles: [], commandsRan: [], results: [] }, notes: [], comments: [],
+    startedAt: null, completedAt: null, boardColumn: 'ready', ...over,
+  }
+}
+
+function poolWorkspace(state: SprintEngineState, name: string): SprintEngineWorkspaceView {
+  return {
+    id: 'workspace-1',
+    name,
+    folderPath: '/tmp/workspace',
+    agents: {},
+    sprintEngineState: state,
+    sprintEngineAutoState: autoState(),
+    sprintEngineContext: { teamSlug: 'team', statePath: STATE_PATH },
+    memory: { relativeRoot: '' },
+  } as unknown as SprintEngineWorkspaceView
+}
+
+async function testConcurrencyCapHoldsAcrossTicksWhileSessionsBoot(): Promise<void> {
+  // MC-1750: cap 3, 8 ready developer tasks. Spawned sessions become live
+  // immediately but never claim (no runtime record — the boot window). Under
+  // the pre-fix accounting each tick saw zero occupancy and spawned 3 more
+  // (the 17-terminal burst); with booting sessions occupying slots, ticks 2
+  // and 3 must spawn nothing.
+  const state = {
+    name: 'team', goal: '', roleCounts: {},
+    roleRuntimes: { developer: { cli: 'claude-code' } },
+    sprintEngineAgents: {},
+    events: [], artifacts: [],
+    tasks: Array.from({ length: 8 }, (_, i) => poolTask(`T-${i + 1}`)),
+  } as unknown as SprintEngineState
+
+  const workspace = poolWorkspace(state, 'Cap workspace')
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const sessions: TerminalSessionSnapshot[] = []
+  const basePorts = makePorts(captured, workspace, sessions) as unknown as Record<string, unknown>
+  const ports = {
+    ...basePorts,
+    // A spawn's session is live on the next terminal list — but its agent has
+    // not claimed, so the engine still has no runtime record for it.
+    terminalSpawn: async (args: { sessionId: string; metadata?: { agentId?: string } }) => {
+      const agentId = args.metadata?.agentId
+      captured.spawns.push({ sessionId: args.sessionId, agentId })
+      if (agentId) sessions.push(agentSession(agentId, 'developer'))
+      return { ok: true, sessionId: args.sessionId }
+    },
+  } as unknown as SprintEngineAutoRunCyclePorts
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  const args = superviseArgs(ports, workspace, cliRuntimes)
+  await superviseWorkspace(...args)
+  assert.equal(captured.spawns.length, 3, `tick 1 spawns exactly the cap; spawns=${JSON.stringify(captured.spawns)}`)
+  await superviseWorkspace(...args)
+  await superviseWorkspace(...args)
+  assert.equal(
+    captured.spawns.length,
+    3,
+    `booting sessions occupy slots, so later ticks spawn nothing until claims land; spawns=${JSON.stringify(captured.spawns)}`,
+  )
+}
+
+async function testBootingSessionIsNotDoubleCoveredForTheSameDemand(): Promise<void> {
+  // The developer-17 ghost shape: one ready task, cap 3 (slots free). Tick 1
+  // mints one worker; tick 2 runs before that session claims. The booting
+  // session both supplies the demand key and occupies a slot — no second mint.
+  const state = {
+    name: 'team', goal: '', roleCounts: {},
+    roleRuntimes: { developer: { cli: 'claude-code' } },
+    sprintEngineAgents: {},
+    events: [], artifacts: [],
+    tasks: [poolTask('T-only')],
+  } as unknown as SprintEngineState
+
+  const workspace = poolWorkspace(state, 'Double-cover workspace')
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const sessions: TerminalSessionSnapshot[] = []
+  const basePorts = makePorts(captured, workspace, sessions) as unknown as Record<string, unknown>
+  const ports = {
+    ...basePorts,
+    terminalSpawn: async (args: { sessionId: string; metadata?: { agentId?: string } }) => {
+      const agentId = args.metadata?.agentId
+      captured.spawns.push({ sessionId: args.sessionId, agentId })
+      if (agentId) sessions.push(agentSession(agentId, 'developer'))
+      return { ok: true, sessionId: args.sessionId }
+    },
+  } as unknown as SprintEngineAutoRunCyclePorts
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  const args = superviseArgs(ports, workspace, cliRuntimes)
+  await superviseWorkspace(...args)
+  await superviseWorkspace(...args)
+  assert.equal(
+    captured.spawns.length,
+    1,
+    `one ready task gets exactly one worker across ticks; spawns=${JSON.stringify(captured.spawns)}`,
+  )
+}
+
+async function testGhostSessionIsReapedAfterBootAllowance(): Promise<void> {
+  // A live session with NO engine runtime record (spawned, never claimed —
+  // immortal developer-17). Within the boot allowance it is left alone; past
+  // it, the reaper tears it down.
+  const state = {
+    name: 'team', goal: '', roleCounts: {},
+    roleRuntimes: { developer: { cli: 'claude-code' } },
+    sprintEngineAgents: {},
+    events: [], artifacts: [],
+    // One in-progress owned task keeps the run non-terminal and produces no
+    // demand (so nothing spawns and muddies the assertion).
+    tasks: [poolTask('T-busy', { status: 'in_progress', ownerAgentId: 'developer-9', boardColumn: 'in_progress' })],
+  } as unknown as SprintEngineState
+
+  const workspace = poolWorkspace(state, 'Ghost workspace')
+  const captured: Captured = { spawns: [], diagnostics: [], writes: [] }
+  const teardowns: string[] = []
+  const sessions: TerminalSessionSnapshot[] = [agentSession('ghost-1')]
+  const basePorts = makePorts(captured, workspace, sessions) as unknown as Record<string, unknown>
+  const ports = {
+    ...basePorts,
+    tearDownDepartedTaskScopedWorker: async (_workspaceId: string, agentId: string) => {
+      teardowns.push(agentId)
+      return { recorded: false, removedAgent: true, removedTab: true, closedSessionId: `session-${agentId}` }
+    },
+  } as unknown as SprintEngineAutoRunCyclePorts
+  const cliRuntimes = { 'claude-code': { command: 'claude', useWsl: false } } as unknown as Record<AgentCli, CliRuntimeSettings>
+
+  const args = superviseArgs(ports, workspace, cliRuntimes)
+  const idleClock = args[13].current as Map<string, number>
+
+  // Tick 1: the ghost is observed and its idle clock starts — still within the
+  // boot allowance, so nothing is torn down.
+  await superviseWorkspace(...args)
+  assert.equal(teardowns.length, 0, 'a booting session inside the allowance is left alone')
+  assert.ok(idleClock.has(`${STATE_PATH}:ghost-1`), 'the ghost is aged on the idle clock')
+
+  // Age it past the allowance and tick again: reaped.
+  idleClock.set(`${STATE_PATH}:ghost-1`, Date.now() - 6 * 60_000)
+  await superviseWorkspace(...args)
+  assert.deepEqual(teardowns, ['ghost-1'], `the aged ghost is torn down; teardowns=${JSON.stringify(teardowns)}`)
+}
+
 async function main(): Promise<void> {
   await testAThrowingStageDoesNotPreventSpawning()
   await testTriageActingDoesNotSuppressPoolSpawning()
   await testMissingCliRoleDoesNotFreezeSiblings()
+  await testConcurrencyCapHoldsAcrossTicksWhileSessionsBoot()
+  await testBootingSessionIsNotDoubleCoveredForTheSameDemand()
+  await testGhostSessionIsReapedAfterBootAllowance()
   console.log('auto-run-cycle.test.ts: all tests passed')
 }
 
