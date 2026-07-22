@@ -146,7 +146,7 @@ function BarBackChevron({ onBack }: { onBack: () => void }): JSX.Element {
       aria-label="Back"
       className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
     >
-      <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true">
+      <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
         <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </button>
