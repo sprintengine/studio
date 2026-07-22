@@ -25,6 +25,8 @@ type AutomationServiceOptions = {
   resolveUserDataDir: () => string
   appVersion: string
   tools: McpToolRegistration[]
+  /** Review tools on the gateway (plan §3.3); merged alongside the app tools. */
+  reviewTools?: McpToolRegistration[]
   sprintEngineMcpHub: Pick<SprintEngineMcpHubService, 'callRunTool'>
   /** Absolute path of the shipped stdio bridge script, when the app knows it. */
   resolveBridgeScriptPath?: () => string | null
@@ -95,7 +97,11 @@ export function createAutomationService(options: AutomationServiceOptions) {
       resolveUserDataDir: options.resolveUserDataDir,
       log: (text) => warn('Studio MCP audit', text),
     })
-    const tools = createStudioGatewayTools({ appTools: options.tools, sprintEngineMcpHub: options.sprintEngineMcpHub })
+    const tools = createStudioGatewayTools({
+      appTools: options.tools,
+      reviewTools: options.reviewTools,
+      sprintEngineMcpHub: options.sprintEngineMcpHub,
+    })
     const next = createMcpSocketServer({
       socketPath,
       serverName: STUDIO_MCP_SERVER_ID,

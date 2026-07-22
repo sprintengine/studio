@@ -20,6 +20,7 @@ import {
   type ReviewBrief,
   type ReviewChangeSet,
 } from '../../shared/review'
+import { homePathLeak } from '../../shared/review/pathSafety'
 import {
   CompanionValidationError,
   type CompanionAgentHandle,
@@ -214,23 +215,9 @@ export class ReviewBriefRunService {
     }
   }
 
-  // Read the walkthrough currently on disk, to seed an incremental re-run. Any
-  // problem (missing file, bad JSON, invalid shape) returns null so the caller
-  // falls back to a full run — a re-run never fails just because the old brief is
-  // unusable.
-  private async readPreviousBrief(targetDir: string): Promise<ReviewBrief | null> {
-    let raw: string
-    try {
-      raw = await readFile(join(targetDir, BRIEF_FILE), 'utf-8')
-    } catch {
-      return null
-    }
-    try {
-      const parsed = validateReviewBrief(JSON.parse(raw))
-      return parsed.ok ? parsed.value : null
-    } catch {
-      return null
-    }
+  // Read the walkthrough currently on disk, to seed an incremental re-run.
+  private readPreviousBrief(targetDir: string): Promise<ReviewBrief | null> {
+    return readBriefFromDir(targetDir)
   }
 
   // Shape + cross-check the guide's JSON. A failure here feeds the errors back to
@@ -242,7 +229,7 @@ export class ReviewBriefRunService {
     if (!shape.ok) return { ok: false, errors: shape.errors }
     const match = checkBriefMatchesChangeSet(shape.value, changeset)
     if (!match.ok) return { ok: false, errors: match.errors }
-    const leak = homePathLeak(shape.value)
+    const leak = homePathLeak(shape.value, homedir())
     if (leak) return { ok: false, errors: [leak] }
     return { ok: true, value: shape.value }
   }
@@ -269,20 +256,30 @@ export function createReviewBriefRunService(deps: ReviewBriefRunServiceDeps): Re
   return new ReviewBriefRunService(deps)
 }
 
-// A brief walks project-relative paths; an absolute home-directory path inside it
-// means the guide leaked a machine-specific path (or a secret carried through
-// one), so the brief is rejected before it can be persisted or rendered.
-function homePathLeak(brief: ReviewBrief): string | null {
-  const home = homedir()
-  if (!home) return null
-  return JSON.stringify(brief).includes(home)
-    ? `brief contains an absolute home-directory path; briefs must use project-relative paths.`
-    : null
+// Read the walkthrough currently on disk. Any problem (missing file, bad JSON,
+// invalid shape) returns null so a caller falls back to a full run — a re-run or a
+// plain read never fails just because the old brief is unusable. Shared with the
+// review MCP tools (review_get_brief) so both readers agree on "no usable brief".
+export async function readBriefFromDir(targetDir: string): Promise<ReviewBrief | null> {
+  let raw: string
+  try {
+    raw = await readFile(join(targetDir, BRIEF_FILE), 'utf-8')
+  } catch {
+    return null
+  }
+  try {
+    const parsed = validateReviewBrief(JSON.parse(raw))
+    return parsed.ok ? parsed.value : null
+  } catch {
+    return null
+  }
 }
 
 // Write-temp-then-rename, mirroring the changeset service: a crash mid-write
 // leaves the prior brief.json (or nothing) intact rather than a truncated file.
-async function writeBriefAtomic(targetDir: string, brief: ReviewBrief): Promise<void> {
+// Exported so the review MCP tools (review_submit_brief) land the brief through
+// the same atomic writer the companion path uses.
+export async function writeBriefAtomic(targetDir: string, brief: ReviewBrief): Promise<void> {
   await mkdir(targetDir, { recursive: true })
   const finalPath = join(targetDir, BRIEF_FILE)
   const tempPath = join(targetDir, `.${BRIEF_FILE}.${randomUUID()}.tmp`)
