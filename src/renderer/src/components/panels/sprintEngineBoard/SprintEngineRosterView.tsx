@@ -11,6 +11,7 @@ import {
   OutlineButton,
   Popover,
   StatusDot,
+  Tooltip,
   TruncatedText,
   type CliModelListboxOption,
   type LifecycleState,
@@ -64,6 +65,24 @@ function rosterLifecycle(
       return { kind: 'glyph', state: 'archived', live: false }
     default:
       return null
+  }
+}
+
+// Hover copy for the lifecycle glyphs. The dot states (running/planning) read
+// on their own; the glyph states are ambiguous shapes, so each one explains
+// itself in plain words.
+function rosterStatusTooltip(statusKey: string, statusLabel: string): string {
+  switch (statusKey) {
+    case 'needs_input':
+      return 'Waiting on an answer — this agent is blocked until someone replies.'
+    case 'error':
+      return 'This agent’s session hit an error.'
+    case 'complete':
+      return 'This agent finished its work.'
+    case 'exited':
+      return 'This agent’s session has ended — it ran earlier and is no longer running. Right-click to start it again.'
+    default:
+      return statusLabel
   }
 }
 
@@ -513,7 +532,12 @@ export function SprintEngineRosterView({
                 // single spoken source for the state.
                 <StatusDot tone={lifecycle.tone} pulse={lifecycle.pulse} />
               ) : (
-                <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
+                <Tooltip
+                  content={rosterStatusTooltip(statusKey, statusLabel)}
+                  wrapperClassName="inline-flex"
+                >
+                  <LifecycleGlyph state={lifecycle.state} live={lifecycle.live} />
+                </Tooltip>
               )
             ) : (
               <span

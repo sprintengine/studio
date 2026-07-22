@@ -63,6 +63,7 @@ import { useSprintEngineTokenUsage } from '../../hooks/useSprintEngineTokenUsage
 import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
+ buildSprintEngineRosterCommandArgs,
  formatSprintEngineLockAge,
  deriveSprintEngineRepoMergeRollup,
  deriveSprintEngineRunGlyph,
@@ -93,7 +94,11 @@ import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRole
 import {
  buildSprintEnginePlanRevisionForNewMemberPrompt,
 } from '../../utils/sprintenginePlanReviewPrompts'
-import { normalizeAgentIdentifier } from '../../utils/agentPrompt'
+import {
+ buildSprintEngineStartupPrompt,
+ getSprintEngineStartupCommandMode,
+ normalizeAgentIdentifier,
+} from '../../utils/agentPrompt'
 import { publishDiagnostic, publishDiagnosticSync } from '../../utils/diagnostics'
 import {
  getEffectiveKeybindingLabel,
@@ -1895,6 +1900,20 @@ function SprintEngineBoardPanelContent({
 
  pendingRosterMemberSpawnInFlightRef.current.add(pending.agentId)
  const label = pending.name || getAgentName(pending.agentId, rosterAgent?.label ?? pending.agentId)
+ // MC-1591 follow-up: the projection roster only learns the member at claim
+ // time, so TerminalView's roster-derived startup prompt finds nothing for a
+ // freshly minted id and the CLI would launch role-less. The pending record
+ // is the role's source of truth — build the join prompt from it here.
+ const startupPrompt = sprintEngineState
+ ? buildSprintEngineStartupPrompt(pending.role, pending.agentId, sprintEngineState.goal, {
+ workspaceRoot: folderPath ?? undefined,
+ sprintEngineStatePath: sprintEngineContext?.statePath,
+ rosterArgs: buildSprintEngineRosterCommandArgs(sprintEngineState),
+ configuredRoles: sprintEngineState.configuredRoles,
+ commandMode: getSprintEngineStartupCommandMode(pending.role, pending.agentId, sprintEngineState),
+ useWorktrees: sprintEngineState.useWorktrees === true,
+ })
+ : undefined
  void startAgentTerminalWhenReady(
  pending.agentId,
  label,
@@ -1902,6 +1921,7 @@ function SprintEngineBoardPanelContent({
  {
  ...(pending.name ? { agentName: pending.name } : {}),
  ...(pending.model !== undefined ? { cliModel: pending.model } : {}),
+ ...(startupPrompt ? { startupPrompt } : {}),
  // Automatic respawn: dock the tab without stealing focus from the board.
  reveal: 'background',
  },
@@ -1915,10 +1935,13 @@ function SprintEngineBoardPanelContent({
  }
  }, [
  agents,
+ folderPath,
  getAgentName,
  getLiveAgentTerminalSession,
  pendingRosterMemberSpawns,
  rosterById,
+ sprintEngineContext,
+ sprintEngineState,
  startAgentTerminalWhenReady,
  updateAgent,
  workspaceId,

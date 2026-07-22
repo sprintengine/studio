@@ -670,25 +670,38 @@ def test_old_task_without_difficulty_still_loads_and_dispatches(tmp_path) -> Non
 
 
 def test_task_publish_with_no_changes_completes_the_task(tmp_path) -> None:
-    # The clean-sweep / analysis-only exit: change detection finds no diff, every
-    # phase is skipped, the task lands on done. Publish routes on CHANGE
-    # DETECTION, never on role or configuration.
+    # The clean-sweep / analysis-only exit — now EXPLICIT (MC-1753): change
+    # detection finds no diff, and completion requires --no-changes-ok. Without
+    # it the publish is rejected (a silent no-op completion is how work stranded
+    # in the wrong tree once passed unnoticed); with it, every phase is skipped,
+    # the task lands on done, and the exit is durably marked.
     init_git_repo(tmp_path)
     commit_file(tmp_path, "src/untouched.py", "value = 1\n")
     record = owned_task()
     record["ownedPaths"] = ["src/untouched.py"]
     fixture = create_team(tmp_path, "publish-no-changes", [record])
 
-    payload = fixture.cli.run(
+    rejected = fixture.cli.run_failure(
         "task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Swept; nothing to change.",
+    )
+    assert "No committed changes" in rejected.stderr
+    assert "--no-changes-ok" in rejected.stderr
+
+    payload = fixture.cli.run(
+        "task", "publish", "--task-id", "T1", "--id", "developer-fixture",
+        "--summary", "Swept; nothing to change.", "--no-changes-ok",
     )
 
     assert payload["producedChanges"] is False
     assert payload["nextStatus"] == "done"
     assert payload["phases"] == []
+    assert payload["completionKind"] == "no_changes"
+    assert payload["feedbackRecorded"] is True
     final_state = read_state(fixture.state_path)
     assert_task_status(final_state, "T1", "done")
-    assert get_task(final_state, "T1")["completedAt"]
+    task_record = get_task(final_state, "T1")
+    assert task_record["completedAt"]
+    assert task_record["completionKind"] == "no_changes"
 
 
 def test_republish_after_human_feedback_records_a_response_and_re_enters_review(tmp_path) -> None:

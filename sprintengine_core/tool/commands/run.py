@@ -1076,10 +1076,19 @@ def cmd_vcs_commit(args: argparse.Namespace) -> Dict[str, Any]:
             dirty = git_status_short(worktree)
         orphaned = worktree_orphaned_dirty_paths(state, args.state, repo)
         recompute_phase(state)
+        # The no-op result stays ok:true (committed:false is the contract), but
+        # the message is impossible to misread as a landed commit and names the
+        # tree that was checked — an agent working the wrong repo worktree sees
+        # WHY its commit was empty (MC-1755; the T11 agent read a bare success).
         base_message = (
             f"Committed task {args.task_id} changes as {sha}."
             if sha
-            else f"No in-scope changes to commit for task {args.task_id}."
+            else (
+                f"NO-OP: no in-scope changes to commit for task {args.task_id} "
+                f"(checked worktree: {repo['worktreePath']}). Nothing was committed — "
+                "if you did change files, check you are working in this task's repo "
+                "worktree and that the paths are inside its ownedPaths."
+            )
         )
         if orphaned:
             base_message += (
@@ -1160,10 +1169,13 @@ def cmd_vcs_request_repo(args: argparse.Namespace) -> Dict[str, Any]:
                 f"Pick a different --repo name for {raw_root}."
             )
 
-    # Create or adopt the tree at the candidate's deterministic worktree path, outside
-    # the lock. Idempotent: a re-issue (or a prior attempt that failed mid-provision)
-    # adopts the existing tree.
-    ensure_repo_worktree(workspace_root, candidate)
+    # Create or adopt the tree outside the lock (T7: no network/git work inside
+    # the run mutation). A re-issue for an already-declared project — matched by
+    # real path, whatever name it was requested under — must ensure the STORED
+    # entry's tree: provisioning the name-derived candidate path instead would
+    # try to check the run branch out into a second worktree and fail.
+    adopt_target = next((stored for stored in snapshot_repos if is_same_project(stored)), None)
+    ensure_repo_worktree(workspace_root, adopt_target if adopt_target is not None else candidate)
 
     def append_entry(state: Dict[str, Any]) -> Dict[str, Any]:
         vcs = get_run_vcs(state)

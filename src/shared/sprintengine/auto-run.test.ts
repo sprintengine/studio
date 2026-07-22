@@ -18,6 +18,7 @@ import type {
 import {
   computeSprintEngineDemand,
   pickNextAutoRuns,
+  planSprintEngineDispatch,
   resolveSprintEngineSessionCwd,
   sprintEngineDemandKey,
   sprintEngineRepoIdForSessionCwd,
@@ -350,6 +351,115 @@ function testReconcilerSpawnsFromStarvationFixture(): void {
   assert.deepEqual(demand.get('developer')?.map((t) => t.id), ['T-open'])
 }
 
+// --- MC-1751: release / revive / retire consistency -------------------------
+
+function testReleasedTaskGetsAFreshMint(): void {
+  // The T11 wedge shape, replayed at the picker: a task released back to the
+  // queue (unowned, ready column, publish/feedback history) among idle used
+  // seats. Nothing binds it (no runtime carries it as lastOwnedTaskId), so the
+  // pool must mint a fresh worker for it.
+  const state = stateFixture({
+    tasks: [
+      task({
+        id: 'T-released',
+        role: 'developer',
+        status: 'ready' as never,
+        boardColumn: 'ready',
+        ownerAgentId: null,
+        lastImplementedByAgentId: 'developer-4',
+        lastPublishedAt: '2026-07-22T12:25:45Z',
+      } as never),
+      task({ id: 'T-done-a', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null }),
+    ],
+    sprintEngineAgents: {
+      'developer-4': { role: 'developer', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T-done-a' },
+    },
+  })
+
+  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickOptions())
+  assert.equal(candidates.length, 1, `the released task is dispatched; candidates=${JSON.stringify(candidates)}`)
+  assert.equal(candidates[0].taskId, 'T-released')
+  assert.notEqual(candidates[0].agentId, 'developer-4', 'per_task: a used seat is never reused; a fresh id is minted')
+}
+
+function testUnownedNeedsInputTaskIsNotARevivalTarget(): void {
+  // The live 14:18 defect: a DEPARTED worker whose retained lastOwnedTaskId
+  // points at an UNOWNED needs_input task was revived for it ("developer still
+  // has work to finish on T11") — but nobody owned that task; it awaited
+  // triage. Revive must be owner-qualified.
+  const state = stateFixture({
+    tasks: [
+      task({
+        id: 'T-stranded',
+        role: 'developer',
+        status: 'needs_input',
+        boardColumn: 'blocked',
+        ownerAgentId: null,
+      }),
+    ],
+    sprintEngineAgents: {
+      'developer-4': { role: 'developer', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'T-stranded' },
+    },
+  })
+  const workspace = workspaceFixture({
+    agents: { 'developer-4': { id: 'developer-4', name: 'developer-4' } },
+  } as never)
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now: Date.now(),
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    paths: new Set(['respawn'] as const) as never,
+  })
+
+  assert.deepEqual(
+    plan.respawns.map((respawn) => respawn.agentId),
+    [],
+    `an unowned needs_input task revives nobody; respawns=${JSON.stringify(plan.respawns)}`,
+  )
+}
+
+function testFinishedTaskScopedWorkerIsTornDownOnFirstIdleTick(): void {
+  // MC-1444 fast path pinned: a worker whose own task is done, observed live
+  // and unclaimed-idle THIS tick, is torn down immediately — no 5-minute
+  // idle window.
+  const now = Date.now()
+  const state = stateFixture({
+    tasks: [
+      task({ id: 'T-done', role: 'developer', status: 'done', boardColumn: 'done', ownerAgentId: null }),
+      task({ id: 'T-other', role: 'frontend', status: 'in_progress', boardColumn: 'in_progress', ownerAgentId: 'frontend-1' }),
+    ],
+    sprintEngineAgents: {
+      'developer-1': { role: 'developer', status: 'idle', currentTaskId: null, currentDispatch: null, lastOwnedTaskId: 'T-done' },
+    },
+  })
+  const workspace = workspaceFixture()
+  const idleClockKey = `${workspace.sprintEngineContext?.statePath}:developer-1`
+
+  const plan = planSprintEngineDispatch({
+    workspace,
+    sprintEngineState: state,
+    now,
+    runningAgentIds: new Set(),
+    idleAgentIds: new Set(['developer-1']),
+    continuationLedger: new Map(),
+    dispatchLedger: new Map(),
+    idleClock: new Map([[idleClockKey, now]]),
+    retirementCooldown: new Map(),
+    taskScopedRetirementTaskIds: new Map(),
+    paths: new Set(['idle_retire'] as const) as never,
+  })
+
+  assert.equal(plan.retirements.length, 1, `the finished worker is retired on the first idle tick; skips=${JSON.stringify(plan.skips)}`)
+  assert.equal(plan.retirements[0].agentId, 'developer-1')
+  assert.equal(plan.retirements[0].teardown, true, 'terminal-state retirement is a teardown, not a kill-in-place')
+  assert.equal((plan.retirements[0].data as { reason?: string }).reason, 'task_scoped_terminal_state')
+}
+
 function main(): void {
   testResolveSessionCwdWorktreeMode()
   testResolveSessionCwdCurrentWorkspaceWhenNoWorktree()
@@ -365,6 +475,9 @@ function main(): void {
   testRepoIsAFilterNotAPerRepoBudget()
   testBootingSiblingRepoSessionCoversOnlyItsOwnGroup()
   testReconcilerSpawnsFromStarvationFixture()
+  testReleasedTaskGetsAFreshMint()
+  testUnownedNeedsInputTaskIsNotARevivalTarget()
+  testFinishedTaskScopedWorkerIsTornDownOnFirstIdleTick()
   console.log('auto-run.test.ts: all tests passed')
 }
 

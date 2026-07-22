@@ -291,23 +291,40 @@ def difficulty_snapshot(task: Dict[str, Any]) -> Dict[str, Any]:
     return snapshot
 
 def elapsed_ms(task: Dict[str, Any]) -> Optional[int]:
+    """Task duration, truthful for in-flight captures too (MC-1755).
+
+    A completed task measures start -> completion. A record captured MID-task
+    (a self-report before publish, a mid-flight sweep) used to return None and
+    drop the field; it now measures start -> now, so no row divides by a
+    missing duration.
+    """
     started_at = task.get("startedAt")
     completed_at = task.get("completedAt")
-    if not isinstance(started_at, str) or not isinstance(completed_at, str):
+    if not isinstance(started_at, str):
         return None
+    end_iso = completed_at if isinstance(completed_at, str) else now_iso()
     try:
         start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
     except ValueError:
         return None
     return max(0, int((end - start).total_seconds() * 1000))
 
 def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
     ev = ensure_evidence(task)
+    touched = ev.get("touchedFiles", [])
+    diffs = ev.get("diffs", [])
     observed: Dict[str, Any] = {
         "task_status": task.get("status"),
         "commands_run_count": len(ev.get("commandsRan", [])),
-        "files_touched_count": len(ev.get("touchedFiles", [])),
+        # Agents rarely log files explicitly (`task.log --file`), so the
+        # touched-files list read 0 for tasks that demonstrably changed dozens
+        # of files while their diff evidence carried every path (MC-1755).
+        # Diff evidence is the observed floor; the explicit log can only add.
+        "files_touched_count": max(
+            len(touched) if isinstance(touched, list) else 0,
+            len(diffs) if isinstance(diffs, list) else 0,
+        ),
         "human_intervention_count": 0,
     }
     duration = elapsed_ms(task)

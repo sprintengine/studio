@@ -10,7 +10,7 @@ interface WorkspaceLauncherProps {
   // Available agent CLIs to offer as the quick-launch grid (the expected
   // default action). Empty when no runtime is configured yet.
   agentClis: AgentCliCatalogOption[]
-  onSpawnAgent: (cli: AgentCli, label: string) => void
+  onSpawnAgent: (cli: AgentCli) => void
   // Renders the shared agent picker (AgentComposerPopover) as Popover content
   // anchored to the row; `close` dismisses the popover. Absent → the row is omitted.
   renderSpecialistPicker?: (close: () => void) => ReactNode
@@ -78,7 +78,7 @@ export default function WorkspaceLauncher({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => onSpawnAgent(option.value, option.label)}
+                onClick={() => onSpawnAgent(option.value)}
                 className="group flex h-[46px] items-center gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
               >
                 <CliIcon cli={option.value} className={ROW_ICON} />

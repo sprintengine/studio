@@ -366,6 +366,11 @@ export default function WorkspaceManager() {
   const rememberedSpecialist = useWorkspaceStore((s) => s.appSettings.lastSelectedSpecialist)
   const lastSelectedSpecialist = rememberedSpecialist ?? enabledSpecialists[0]?.id ?? ''
   const setLastSelectedSpecialist = useWorkspaceStore((s) => s.setLastSelectedSpecialist)
+  // Whether the top-bar standard quick-spawn button repeats the General agent
+  // rather than lastSelectedSpecialist — so spawning General from the picker
+  // sticks instead of snapping back to the last specialist.
+  const lastSpawnWasGeneral = useWorkspaceStore((s) => s.appSettings.lastSpawnWasGeneral)
+  const setLastSpawnWasGeneral = useWorkspaceStore((s) => s.setLastSpawnWasGeneral)
   const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
   const lastSelectedMultiloopRole = useWorkspaceStore(
@@ -1941,14 +1946,18 @@ export default function WorkspaceManager() {
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
   }
 
-  const addNewCliAgent = async (cli: AgentCli, label: string, skill?: WorkspaceSkill, worktree?: { name: string }) => {
+  const addNewCliAgent = async (cli: AgentCli, skill?: WorkspaceSkill, worktree?: { name: string }) => {
     if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
     const model = getModel(windowActiveWorkspaceId)
     if (!model) return
 
     const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
     const spawnCli = fallbackSpawnCli(cli)
-    const tabName = uniqueAgentName(label, activeWorkspace?.agents ?? {})
+    // General agents get a real first+last name from the shared pool, exactly
+    // like specialists — not a numbered "General Agent 2/3…" placeholder.
+    const tabName = pickRandomAgentName(
+      Object.values(activeWorkspace?.agents ?? {}).map((agent) => agent.name)
+    )
     const newId = `agent-${spawnCli}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
 
@@ -2399,18 +2408,21 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'specialist.spawn.architect') {
       setLastSelectedSpecialist('architect')
+      setLastSpawnWasGeneral(false)
       setSpecialistMenuOpen(false)
       void addNewSpecialist('architect')
       return true
     }
     if (commandId === 'specialist.spawn.performance') {
       setLastSelectedSpecialist('performance')
+      setLastSpawnWasGeneral(false)
       setSpecialistMenuOpen(false)
       void addNewSpecialist('performance')
       return true
     }
     if (commandId === 'specialist.spawn.frontend-design-review') {
       setLastSelectedSpecialist('frontend-design-review')
+      setLastSpawnWasGeneral(false)
       setSpecialistMenuOpen(false)
       void addNewSpecialist('frontend-design-review')
       return true
@@ -2595,6 +2607,7 @@ export default function WorkspaceManager() {
     worktree?: { name: string },
   ) => {
     setLastSelectedSpecialist(specialistId)
+    setLastSpawnWasGeneral(false)
     setSpecialistMenuOpen(false)
     void addNewSpecialist(specialistId, '', selectedCli, skill, worktree)
   }
@@ -2610,7 +2623,9 @@ export default function WorkspaceManager() {
   // row if this is absent.
   const composerInitialSelection: AgentComposerSelection = multiloopLaunchMenu
     ? { kind: 'multiloop', role: lastSelectedMultiloopRole }
-    : { kind: 'specialist', specialistId: lastSelectedSpecialist }
+    : lastSpawnWasGeneral
+      ? { kind: 'general' }
+      : { kind: 'specialist', specialistId: lastSelectedSpecialist }
 
   // Map a composer confirm to the real spawn into the active workspace.
   // Shared by every AgentComposerPopover host (top bar, launcher); fresh chats
@@ -2621,7 +2636,8 @@ export default function WorkspaceManager() {
         addNewTerminal()
         break
       case 'general':
-        void addNewCliAgent(confirm.cli, 'General Agent', confirm.skill, confirm.worktree)
+        setLastSpawnWasGeneral(true)
+        void addNewCliAgent(confirm.cli, confirm.skill, confirm.worktree)
         break
       case 'conversation':
         spawnConversationAgent(confirm.skill)
@@ -2990,6 +3006,8 @@ export default function WorkspaceManager() {
             agentSpawnDebugMode={agentSpawnDebugMode}
             setAgentSpawnDebugMode={setAgentSpawnDebugMode}
             addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
+            addNewGeneralAgent={(cli) => void addNewCliAgent(cli)}
+            standardSpawnIsGeneral={lastSpawnWasGeneral}
             addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
             conversationSpawnAvailable={conversationSpawnAvailable}
             composerInitialSelection={composerInitialSelection}
@@ -3153,7 +3171,6 @@ export default function WorkspaceManager() {
                     lastSelectedCli,
                     agentCliCatalog,
                   ),
-                  'General Agent',
                   skill,
                 )
               }}

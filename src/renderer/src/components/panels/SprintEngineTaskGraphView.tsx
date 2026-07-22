@@ -395,6 +395,205 @@ export function SprintEngineTaskGraphView({
  const minimapInnerWidth = Math.max(1, graph.canvasWidth * minimapScale)
  const minimapInnerHeight = Math.max(1, graph.canvasHeight * minimapScale)
 
+ // Edges and the per-node "line-blocker" rects derive purely from the graph
+ // layout, so memoize them: zoom steps and pan start/stop re-render the view
+ // but must not rebuild every SVG path/rect (each edge re-runs taskGraphEdgePath).
+ const svgChildElements = useMemo(() => (
+ <>
+ {graph.edges.map((edge) => {
+ const from = graph.nodesById[edge.fromId]
+ const to = graph.nodesById[edge.toId]
+ if (!from || !to) return null
+ return (
+ <path
+ key={edge.id}
+ d={taskGraphEdgePath(from, to)}
+ fill="none"
+ stroke={edge.color}
+ strokeWidth={edge.weight}
+ strokeDasharray={edge.dashed ? '7 8' : undefined}
+ opacity={edge.opacity}
+ strokeLinecap="round"
+ strokeLinejoin="round"
+ />
+ )
+ })}
+ {graph.nodes.map((node) => (
+ <rect
+ key={`${node.id}:line-blocker`}
+ x={node.x - node.width / 2 - 8}
+ y={node.y - node.height / 2 - 8}
+ width={node.width + 16}
+ height={node.height + 16}
+ rx="14"
+ fill="var(--bg-app)"
+ />
+ ))}
+ </>
+ ), [graph])
+
+ // Minimap dots also derive only from the layout and minimap scale — keep them
+ // off the zoom/pan/selection re-render path.
+ const minimapDotElements = useMemo(() => graph.nodes.map((node) => {
+ if (node.type === 'end') {
+ return (
+ <div
+ key={`mini-${node.id}`}
+ className="pointer-events-none absolute rounded-sm"
+ style={{
+ left: (node.x - node.width / 2) * minimapScale,
+ top: (node.y - node.height / 2) * minimapScale,
+ width: Math.max(3, node.width * minimapScale),
+ height: Math.max(3, node.height * minimapScale),
+ backgroundColor: hexToRgba('var(--tone-good)', 0.7),
+ }}
+ />
+ )
+ }
+ return (
+ <div
+ key={`mini-${node.id}`}
+ className="pointer-events-none absolute rounded-sm"
+ style={{
+ left: (node.x - node.width / 2) * minimapScale,
+ top: (node.y - node.height / 2) * minimapScale,
+ width: Math.max(3, node.width * minimapScale),
+ height: Math.max(3, node.height * minimapScale),
+ backgroundColor: hexToRgba(getSprintEngineRoleAccent(node.task.role), 0.55),
+ }}
+ />
+ )
+ }), [graph, minimapScale])
+
+ // Task nodes are the heaviest part of the tree (each renders several
+ // TruncatedText measurers). Memoize them so zoom/pan re-renders don't rebuild
+ // every node — only a real task / selection / focus change does.
+ const nodeElements = useMemo(() => graph.nodes.map((node) => {
+ if (node.type === 'end') {
+ return (
+ <div
+ key={node.id}
+ className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden [content-visibility:auto] [contain-intrinsic-size:252px_154px] rounded-2xl border-2 border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] px-5 py-4 text-center"
+ style={{
+ left: node.x,
+ top: node.y,
+ width: node.width,
+ minHeight: node.height,
+ }}
+ >
+ <div className="flex items-center gap-1.5 text-[10px] font-bold text-[color:var(--tone-good)]">
+ <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+ <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+ </svg>
+ Goal
+ </div>
+ <TruncatedText
+ as="div"
+ multiline
+ text={formatSprintEngineGoalPreview(sprintEngineState.goal)}
+ className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[color:var(--tone-good)]"
+ />
+ <div className="mt-3 text-[10px] text-[color:var(--text-muted)]">
+ {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
+ </div>
+ </div>
+ )
+ }
+
+ const task = node.task
+ // Fall back to the worker who last implemented the task so a detached
+ // in-review/testing/product task still names its owner on the graph node.
+ const ownerId = task.ownerAgentId ?? task.lastImplementedByAgentId ?? null
+ const ownerAgent = ownerId ? rosterById[ownerId] : undefined
+ const ownerRole = ownerAgent?.role ?? (ownerId ? task.role : null)
+ const ownerLabel = ownerId ? ownerAgent?.label ?? ownerId : null
+ const isFocused = task.id === focusTaskId
+ const isSelected = task.id === selectedTaskId
+ // Reuse the board-column map computed once per state change rather than
+ // re-deriving it per node (each derivation scans every task → O(n²) per
+ // render). The map always carries this task, so the fallback is inert.
+ const boardColumn = boardColumnByTaskId.get(task.id)
+ ?? getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
+ const dependencyLabel = task.dependsOn.length > 0
+ ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
+ : 'root'
+
+ return (
+ <button
+ key={node.id}
+ data-task-graph-node={task.id}
+ onClick={() => onSelectTask(task.id)}
+ aria-pressed={isSelected}
+ className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ isSelected || isFocused ? 'z-10' : 'z-0'
+ }`}
+ style={{
+ ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
+ left: node.x,
+ top: node.y,
+ width: node.width,
+ minHeight: node.height,
+ }}
+ >
+ <span
+ aria-hidden="true"
+ className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
+ style={{
+ backgroundColor: getSprintEngineRoleAccent(task.role),
+ }}
+ />
+ <div className="flex items-start justify-between gap-3 pl-2">
+ <div className="min-w-0">
+ <TruncatedText as="div" multiline text={task.title} className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]" />
+ <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
+ <span>{task.id}</span>
+ {/* design-tokens-allow: role accent swatch on the task-graph node label — role color is the documented exception. */}
+ <span
+ className="h-1.5 w-1.5 shrink-0 rounded-full"
+ style={{
+ backgroundColor: getSprintEngineRoleAccent(task.role),
+ }}
+ />
+ <span className="min-w-0 truncate" style={{ color: getSprintEngineRoleAccent(task.role) }}>
+ {getSprintEngineRoleLabel(task.role)}
+ </span>
+ </div>
+ </div>
+ <span
+ className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold ${taskGraphStatusTone(task.status, boardColumn)}`}
+ >
+ {taskGraphNodeStatusLabel(task.status, boardColumn)}
+ </span>
+ </div>
+
+ <TruncatedText
+ as="p"
+ multiline
+ text={task.description || 'No description recorded.'}
+ className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[color:var(--text-muted)]"
+ />
+
+ <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] text-[color:var(--text-disabled)]">
+ <span>
+ {dependencyLabel}
+ </span>
+ <span className="text-[color:var(--text-disabled)]">/</span>
+ <span>
+ {task.acceptanceCriteria.length} checks
+ </span>
+ {ownerLabel && ownerRole ? (
+ <>
+ <span className="text-[color:var(--text-disabled)]">/</span>
+ <span className="max-w-full truncate" style={{ color: getSprintEngineRoleAccent(ownerRole) }}>
+ {ownerLabel}
+ </span>
+ </>
+ ) : null}
+ </div>
+ </button>
+ )
+ }), [graph, rosterById, focusTaskId, selectedTaskId, boardColumnByTaskId, sprintEngineState, terminalCount, onSelectTask])
+
  // The minimap viewport rectangle is the only thing that tracks scroll position,
  // so we position it imperatively: a passive scroll listener writes straight to
  // this element's style. Routing it through React state instead would re-render
@@ -684,162 +883,10 @@ export function SprintEngineTaskGraphView({
  height={graph.canvasHeight}
  viewBox={`0 0 ${graph.canvasWidth} ${graph.canvasHeight}`}
  >
- {graph.edges.map((edge) => {
- const from = graph.nodesById[edge.fromId]
- const to = graph.nodesById[edge.toId]
- if (!from || !to) return null
- return (
- <path
- key={edge.id}
- d={taskGraphEdgePath(from, to)}
- fill="none"
- stroke={edge.color}
- strokeWidth={edge.weight}
- strokeDasharray={edge.dashed ? '7 8' : undefined}
- opacity={edge.opacity}
- strokeLinecap="round"
- strokeLinejoin="round"
- />
- )
- })}
- {graph.nodes.map((node) => (
- <rect
- key={`${node.id}:line-blocker`}
- x={node.x - node.width / 2 - 8}
- y={node.y - node.height / 2 - 8}
- width={node.width + 16}
- height={node.height + 16}
- rx="14"
- fill="var(--bg-app)"
- />
- ))}
+ {svgChildElements}
  </svg>
 
- {graph.nodes.map((node) => {
- if (node.type === 'end') {
- return (
- <div
- key={node.id}
- className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] px-5 py-4 text-center"
- style={{
- left: node.x,
- top: node.y,
- width: node.width,
- minHeight: node.height,
- }}
- >
- <div className="flex items-center gap-1.5 text-[10px] font-bold text-[color:var(--tone-good)]">
- <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
- <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
- </svg>
- Goal
- </div>
- <TruncatedText
- as="div"
- multiline
- text={formatSprintEngineGoalPreview(sprintEngineState.goal)}
- className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[color:var(--tone-good)]"
- />
- <div className="mt-3 text-[10px] text-[color:var(--text-muted)]">
- {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
- </div>
- </div>
- )
- }
-
- const task = node.task
- // Fall back to the worker who last implemented the task so a detached
- // in-review/testing/product task still names its owner on the graph node.
- const ownerId = task.ownerAgentId ?? task.lastImplementedByAgentId ?? null
- const ownerAgent = ownerId ? rosterById[ownerId] : undefined
- const ownerRole = ownerAgent?.role ?? (ownerId ? task.role : null)
- const ownerLabel = ownerId ? ownerAgent?.label ?? ownerId : null
- const isFocused = task.id === focusTaskId
- const isSelected = task.id === selectedTaskId
- // Reuse the board-column map computed once per state change rather than
- // re-deriving it per node (each derivation scans every task → O(n²) per
- // render). The map always carries this task, so the fallback is inert.
- const boardColumn = boardColumnByTaskId.get(task.id)
- ?? getSprintEngineTaskBoardColumn(task, sprintEngineState.tasks)
- const dependencyLabel = task.dependsOn.length > 0
- ? `${task.dependsOn.length} ${task.dependsOn.length === 1 ? 'dep' : 'deps'}`
- : 'root'
-
- return (
- <button
- key={node.id}
- data-task-graph-node={task.id}
- onClick={() => onSelectTask(task.id)}
- aria-pressed={isSelected}
- className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)] ${
- isSelected || isFocused ? 'z-10' : 'z-0'
- }`}
- style={{
- ...taskGraphNodeStyle(task, ownerRole, isFocused, isSelected),
- left: node.x,
- top: node.y,
- width: node.width,
- minHeight: node.height,
- }}
- >
- <span
- aria-hidden="true"
- className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full"
- style={{
- backgroundColor: getSprintEngineRoleAccent(task.role),
- }}
- />
- <div className="flex items-start justify-between gap-3 pl-2">
- <div className="min-w-0">
- <TruncatedText as="div" multiline text={task.title} className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]" />
- <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
- <span>{task.id}</span>
- {/* design-tokens-allow: role accent swatch on the task-graph node label — role color is the documented exception. */}
- <span
- className="h-1.5 w-1.5 shrink-0 rounded-full"
- style={{
- backgroundColor: getSprintEngineRoleAccent(task.role),
- }}
- />
- <span className="min-w-0 truncate" style={{ color: getSprintEngineRoleAccent(task.role) }}>
- {getSprintEngineRoleLabel(task.role)}
- </span>
- </div>
- </div>
- <span
- className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold ${taskGraphStatusTone(task.status, boardColumn)}`}
- >
- {taskGraphNodeStatusLabel(task.status, boardColumn)}
- </span>
- </div>
-
- <TruncatedText
- as="p"
- multiline
- text={task.description || 'No description recorded.'}
- className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[color:var(--text-muted)]"
- />
-
- <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] text-[color:var(--text-disabled)]">
- <span>
- {dependencyLabel}
- </span>
- <span className="text-[color:var(--text-disabled)]">/</span>
- <span>
- {task.acceptanceCriteria.length} checks
- </span>
- {ownerLabel && ownerRole ? (
- <>
- <span className="text-[color:var(--text-disabled)]">/</span>
- <span className="max-w-full truncate" style={{ color: getSprintEngineRoleAccent(ownerRole) }}>
- {ownerLabel}
- </span>
- </>
- ) : null}
- </div>
- </button>
- )
- })}
+ {nodeElements}
  </div>
  </div>
  )}
@@ -930,36 +977,7 @@ export function SprintEngineTaskGraphView({
  role="img"
  aria-label="Task graph minimap"
  >
- {graph.nodes.map((node) => {
- if (node.type === 'end') {
- return (
- <div
- key={`mini-${node.id}`}
- className="pointer-events-none absolute rounded-sm"
- style={{
- left: (node.x - node.width / 2) * minimapScale,
- top: (node.y - node.height / 2) * minimapScale,
- width: Math.max(3, node.width * minimapScale),
- height: Math.max(3, node.height * minimapScale),
- backgroundColor: hexToRgba('var(--tone-good)', 0.7),
- }}
- />
- )
- }
- return (
- <div
- key={`mini-${node.id}`}
- className="pointer-events-none absolute rounded-sm"
- style={{
- left: (node.x - node.width / 2) * minimapScale,
- top: (node.y - node.height / 2) * minimapScale,
- width: Math.max(3, node.width * minimapScale),
- height: Math.max(3, node.height * minimapScale),
- backgroundColor: hexToRgba(getSprintEngineRoleAccent(node.task.role), 0.55),
- }}
- />
- )
- })}
+ {minimapDotElements}
  <div
  ref={minimapViewportRef}
  className="pointer-events-none absolute rounded-sm border border-[color:var(--accent-primary-soft)] bg-[color:var(--accent-primary-soft)]"

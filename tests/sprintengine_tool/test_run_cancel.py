@@ -190,11 +190,13 @@ def test_join_reports_canceled_run(tmp_path) -> None:
     assert payload["action"] == "canceled"
 
 
-def test_task_status_repair_still_allowed_on_canceled_run(tmp_path) -> None:
-    # task.status is the low-level repair transition, deliberately NOT in the
-    # refused writer set, so a canceled run can still be corrected by an admin.
+def test_task_status_on_canceled_run_honors_the_terminal_guard(tmp_path) -> None:
+    # Canceled tasks are terminal like done ones (MC-1749, fix-forward): even on
+    # a canceled run the low-level task.status transition refuses to resurrect
+    # them — the repair for canceled work is a new task, not a reopen. The one
+    # sanctioned reopen stays the human done -> in_progress send-back.
     fixture = _canceled_team(tmp_path)
-    payload = fixture.cli.run(
+    rejected = fixture.cli.run_failure(
         "task", "status", "--task-id", "T2", "--status", "todo", "--id", "user"
     )
-    assert payload["ok"] is True
+    assert "terminal" in rejected.stdout + rejected.stderr

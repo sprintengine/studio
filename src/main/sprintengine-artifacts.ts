@@ -1492,7 +1492,11 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
         const toolResult = await runMcpTool(
           { workspaceRoot: state.workspaceRoot },
           'sprintengine.task.status',
-          { statePath: state.statePath, taskId, id: actor.id, status },
+          // actorKind: 'human' — this path is only reachable from the supervisor
+          // UI (Inbox send-back and board actions). It is what authorizes the
+          // engine's sole done-terminal exemption (done -> in_progress rework);
+          // agent MCP surfaces never send it, so agents cannot reopen done work.
+          { statePath: state.statePath, taskId, id: actor.id, status, actorKind: 'human' },
           actor
         )
         if (toolResult.exitCode !== 0 || !toolResult.response?.ok) {

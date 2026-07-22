@@ -937,6 +937,19 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
   }
 
   return {
+    /**
+     * The registered run a workspace's auto-run events belong to (MC-1754
+     * Phase 3): feeds the on-disk runner log's per-run file resolution.
+     * First match wins — a workspace holds one active sprint run entry.
+     */
+    resolveRunnerLogTarget(workspaceId: string): { statePath: string; folderPath: string | null } | null {
+      for (const entry of runsByStatePath.values()) {
+        if (entry.view.id === workspaceId) {
+          return { statePath: entry.statePath, folderPath: entry.view.folderPath ?? null }
+        }
+      }
+      return null
+    },
     /** Renderer announces/refreshes a sprint run's context. Idempotent upsert. */
     registerRun(registration: SprintRuntimeRunRegistration): void {
       if (disposed) return

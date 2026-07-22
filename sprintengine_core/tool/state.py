@@ -373,6 +373,33 @@ def declared_repo_ids(state: Dict[str, Any]) -> List[str]:
     return [repo_id for repo_id in ids if repo_id] or [folder_store.DEFAULT_TASK_REPO]
 
 
+def repo_binding_lint_warning(state: Dict[str, Any], task: Dict[str, Any]) -> Optional[str]:
+    """Warn when a task's text names a declared repo it is not bound to (MC-1752).
+
+    The post-merge-hardening run planned "multiauth: prune ..." bound to
+    `primary`; the engine then committed into the wrong tree and the work
+    stranded. This is the cheap plan-time tripwire: a word-boundary match of a
+    non-primary declared repo id in the title/description that differs from the
+    binding produces a warning (never a block — prose may legitimately mention
+    another project).
+    """
+    import re as _re
+
+    bound = str(task.get("repo") or folder_store.DEFAULT_TASK_REPO)
+    text = f"{task.get('title') or ''} {task.get('description') or ''}".lower()
+    if not text.strip():
+        return None
+    for repo_id in declared_repo_ids(state):
+        if repo_id in (bound, folder_store.DEFAULT_TASK_REPO):
+            continue
+        if _re.search(rf"(?<![a-z0-9_-]){_re.escape(repo_id.lower())}(?![a-z0-9_-])", text):
+            return (
+                f"Task {task.get('id')} mentions '{repo_id}' but is bound to repo '{bound}' — "
+                f"bind repo: {repo_id} if the work lives there."
+            )
+    return None
+
+
 def ensure_task_repo_declared(state: Dict[str, Any], repo: Optional[str], *, context: str) -> str:
     """Validate a task's target repo against the run's declared repos.
 

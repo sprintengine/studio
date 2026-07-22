@@ -640,3 +640,39 @@ def test_difficulty_percentages_reject_invalid_values(tmp_path) -> None:
     state = read_state(fixture.state_path)
     assert "difficulty" not in get_task(state, "T1")
     assert read_feedback_records(fixture.team_dir) == []
+
+
+# --- MC-1755: observed metrics are truthful ---------------------------------
+
+
+def test_elapsed_ms_measures_in_flight_tasks_from_start_to_now() -> None:
+    from sprintengine_core.tool.feedback import elapsed_ms
+
+    in_flight = {"startedAt": "2026-07-22T12:00:00Z", "completedAt": None}
+    duration = elapsed_ms(in_flight)
+    assert duration is not None and duration > 0, "an in-flight capture still measures a duration"
+
+    completed = {"startedAt": "2026-07-22T12:00:00Z", "completedAt": "2026-07-22T12:10:00Z"}
+    assert elapsed_ms(completed) == 10 * 60 * 1000
+
+    assert elapsed_ms({"completedAt": "2026-07-22T12:10:00Z"}) is None
+
+
+def test_files_touched_count_floors_at_diff_evidence() -> None:
+    from sprintengine_core.tool.feedback import observed_task_metrics
+
+    task = {
+        "status": "done",
+        "evidence": {
+            "summary": "",
+            "touchedFiles": [],
+            "commandsRan": ["npm test"],
+            "results": [],
+            "diffs": [{"path": "a.ts"}, {"path": "b.ts"}, {"path": "c.ts"}],
+        },
+    }
+    observed = observed_task_metrics(task)
+    assert observed["files_touched_count"] == 3, "diff evidence is the observed floor"
+
+    task["evidence"]["touchedFiles"] = ["a.ts", "b.ts", "c.ts", "d.md", "e.md"]
+    assert observed_task_metrics(task)["files_touched_count"] == 5, "the explicit log can only add"

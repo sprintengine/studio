@@ -60,6 +60,7 @@ def publish_task(
     body: str,
     paths: Optional[List[str]] = None,
     data: Optional[Dict[str, Any]] = None,
+    no_changes_ok: bool = False,
 ) -> Dict[str, Any]:
     """Record the implementation summary and route the task into its phase walk.
 
@@ -98,6 +99,38 @@ def publish_task(
         )
 
     produced_changes = task_produced_changes(state, state_path, task)
+    completion_kind: Optional[str] = None
+    if not produced_changes:
+        # The analysis-only exit must be explicit and honest (MC-1753). A task
+        # completing with zero commits is either a genuine analysis deliverable
+        # (the agent says so with --no-changes-ok, and the exit is durably
+        # marked) or a mistake — work sitting uncommitted, or committed into a
+        # tree the engine cannot see. Silent was how a mis-bound task completed
+        # with its implementation stranded in a sibling worktree for two hours.
+        task_id = str(task.get("id") or "task")
+        dirty_in_scope = _in_scope_dirty_across_declared_repos(state, state_path, task)
+        if dirty_in_scope:
+            raise SystemExit(
+                f"Cannot publish {task_id} as analysis-only: in-scope changes are uncommitted "
+                f"({', '.join(dirty_in_scope[:10])}). Commit them first with "
+                f"`sprintengine vcs commit --task-id {task_id} --id {actor}`, then publish again."
+            )
+        # A task the architect explicitly planned with `phases: []` (approval
+        # surfaces like the plan gate, declared docs-only work) already carries
+        # its no-review intent on the record — it needs no per-publish flag.
+        # A DEFAULT-phase task with no changes is the suspicious shape.
+        explicit_no_phase_task = isinstance(task.get("phases"), list) and not task.get("phases")
+        if not no_changes_ok and not explicit_no_phase_task:
+            raise SystemExit(
+                f"No committed changes for {task_id}. If this task's deliverable is "
+                "analysis/verification only, re-run publish with --no-changes-ok. If you did "
+                "implement changes, they were not committed — run sprintengine.vcs.commit first "
+                "(and check you are working in the right repo worktree)."
+            )
+        completion_kind = "no_changes"
+        task["completionKind"] = "no_changes"
+    else:
+        task.pop("completionKind", None)
     phases = resolve_task_phases(state, task) if produced_changes else []
     next_status = phases[0] if phases else "done"
     published_at = now_iso()
@@ -137,7 +170,34 @@ def publish_task(
         "producedChanges": produced_changes,
         "phases": phases,
         "awaitingPhaseSession": task.get("awaitingPhaseSession"),
+        **({"completionKind": completion_kind} if completion_kind else {}),
     }
+
+
+def _in_scope_dirty_across_declared_repos(
+    state: Dict[str, Any], state_path: Path, task: Dict[str, Any]
+) -> List[str]:
+    """Uncommitted in-scope paths in ANY declared repo worktree, repo-prefixed.
+
+    Defense-in-depth for the analysis-only exit (MC-1753): the commit sweep runs
+    before publish, so this is empty in every healthy flow — anything here means
+    a commit path failed or a tree the sweep could not reach, and the
+    analysis-only claim would be false.
+    """
+    from sprintengine_core.tool.shell import (
+        _task_in_scope_dirty_paths,
+        get_run_vcs,
+        vcs_repos,
+    )
+
+    vcs = get_run_vcs(state)
+    if not vcs:
+        return []
+    dirty: List[str] = []
+    for repo in vcs_repos(vcs):
+        for path in _task_in_scope_dirty_paths(state, state_path, task, repo):
+            dirty.append(f"{repo.get('id')}:{path}")
+    return dirty
 
 
 def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: str) -> None:

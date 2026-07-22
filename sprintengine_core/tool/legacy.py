@@ -641,6 +641,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--needs-input-artifact-id", help="Artifact id related to an artifact_review blocker.")
     p.add_argument("--needs-input-question", help="Question or blocker that requires input.")
     p.add_argument("--needs-input-suggested-resolution", help="Optional proposed unblock path.")
+    p.add_argument(
+        "--actor-kind",
+        dest="actor_kind",
+        choices=["agent", "human"],
+        default="agent",
+        help=(
+            "Who initiated this transition. `human` is set only by the Multicode supervisor "
+            "for the Inbox send-back (reopening a done task to in_progress under its "
+            "implementer); agent surfaces never set it — done is terminal for agents."
+        ),
+    )
     add_implementer_difficulty_arguments(p)
     add_feedback_arguments(p)
     p.set_defaults(handler=task_commands.status)
@@ -685,6 +696,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--summary", required=True, help="Implementation summary or rework response body.")
     p.add_argument("--path", action="append", default=[], help="Project-root-relative path referenced by this handoff.")
     p.add_argument("--summary-data-json", help="Structured implementation summary JSON object.")
+    p.add_argument(
+        "--no-changes-ok",
+        dest="no_changes_ok",
+        action="store_true",
+        default=False,
+        help=(
+            "Explicitly complete a task that produced NO committed changes (analysis/"
+            "verification-only deliverable). Without it, a no-changes publish is rejected — "
+            "silent no-op completions hide work stranded uncommitted or in the wrong tree."
+        ),
+    )
     add_implementer_difficulty_arguments(p)
     p.set_defaults(handler=task_commands.publish)
 
