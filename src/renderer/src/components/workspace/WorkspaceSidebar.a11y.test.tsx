@@ -173,6 +173,24 @@ async function main(): Promise<void> {
     'each disclosure controls a real body element via aria-controls',
   )
 
+  // Collapsing a folder removes its rows from the tree yet keeps the body node
+  // mounted, so the disclosure's aria-controls never dangles.
+  const projADisclosure = disclosures.find((el) => el.textContent?.includes('projA'))
+  assert.ok(projADisclosure, 'the projA folder header is present')
+  const rowsBeforeCollapse = rows().length
+  act(() => {
+    projADisclosure!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(projADisclosure!.getAttribute('aria-expanded'), 'false', 'collapsing flips aria-expanded')
+  assert.ok(rows().length < rowsBeforeCollapse, 'collapsing removes the folder rows from the tree')
+  const controlled = projADisclosure!.getAttribute('aria-controls')
+  assert.ok(controlled && dom.window.document.getElementById(controlled), 'aria-controls still resolves while collapsed')
+  // Re-expand so later assertions see the full tree.
+  act(() => {
+    projADisclosure!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  assert.equal(rows().length, rowsBeforeCollapse, 're-expanding restores the folder rows')
+
   // AC2: the hover-only "Folder actions" control is a keyboard-reachable button
   // that reveals itself on focus (focus-visible:opacity-100) rather than trapping
   // focus on an invisible control.

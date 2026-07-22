@@ -1365,7 +1365,9 @@ export default function WorkspaceSidebar({
     folderCollapsed: boolean,
     folderBodyId: string
   ) => {
-    if (folderCollapsed) return null
+    // Keep the body element mounted (empty + hidden) while collapsed so the
+    // header's aria-controls always resolves to a real node.
+    if (folderCollapsed) return <div id={folderBodyId} hidden />
 
     const { recent, stale } = partitionWorkspacesByRecency(visibleWorkspaces, now, isWorkspacePinned)
 
