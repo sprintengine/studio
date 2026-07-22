@@ -19,6 +19,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { normalizeProjectRootKey } from '../../../utils/projectKnowledge'
 import { basename, samePath } from '../../../utils/paths'
 import { normalizeRelativePath, type BacklogItem } from '../../../utils/backlog'
+import { GhostButton } from '../../ui'
 import { RoadmapEditorPanel } from '../../backlog/RoadmapEditorPanel'
 import { roadmapProjectAlias, splitAuthoredRef, type RoadmapProjectItems } from '../../backlog/roadmapAuthoring'
 
@@ -85,6 +86,9 @@ export function RoadmapPlannerView({
 
   const itemsByKey = useAllProjectScans(roots)
   const homeItems = itemsByKey.get(rootKey(homePath)) ?? []
+  // The home scan has reported once the map holds its key (even with an empty
+  // list) — this is how we tell "scan still pending" from "the file is gone".
+  const homeScanLoaded = itemsByKey.has(rootKey(homePath))
   const normalizedRef = normalizeRelativePath(roadmapRef)
   const roadmapItem = useMemo(
     () => homeItems.find((item) => normalizeRelativePath(item.relativePath) === normalizedRef),
@@ -118,12 +122,32 @@ export function RoadmapPlannerView({
   }, [roadmapItem, roots, itemsByKey, homePath])
 
   if (!roadmapItem) {
+    // Scan not in yet → genuinely loading. Scan in but the ref is absent → the
+    // roadmap file is gone (moved/deleted outside Multicode): a resolvable
+    // not-found state with a way back, never "Loading your plan…" forever.
     return (
       <div className="flex h-full min-h-0 flex-col bg-[color:var(--bg-surface)]">
         <PlannerHeader onBack={onBack} />
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
-          Loading your plan…
-        </div>
+        {homeScanLoaded ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+            <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--tone-neutral-soft)] text-[18px] text-[color:var(--text-muted)]">
+              ?
+            </div>
+            <h3 className="text-[14px] font-semibold text-[color:var(--text-strong)]">
+              This roadmap file no longer exists
+            </h3>
+            <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
+              It may have been moved or deleted outside Multicode.
+            </p>
+            <GhostButton className="mt-2" onClick={onBack}>
+              Back to the board
+            </GhostButton>
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
+            Loading your plan…
+          </div>
+        )}
       </div>
     )
   }

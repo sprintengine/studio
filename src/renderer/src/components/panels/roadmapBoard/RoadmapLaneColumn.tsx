@@ -7,7 +7,8 @@
 
 import React from 'react'
 
-import { LifecycleGlyph, type LifecycleState } from '../../ui'
+import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, type LifecycleState } from '../../ui'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import type { RoadmapBoardLane, RoadmapBoardUnit, RoadmapUnitState } from '../../../../../shared/sprintengine/roadmap-surface'
 import { RoadmapPullRequests } from './RoadmapPullRequests'
 import { useLaneRun } from './roadmapBoardData'
@@ -139,59 +140,29 @@ function LaneControls({
     <div className="flex flex-wrap items-center gap-1.5">
       {/* Advance: the one primary action the lane's state implies. */}
       {paused ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => callbacks.onResume(lane.lane)}
-          className={primaryControlClass}
-        >
+        <PrimaryButton size="xs" disabled={busy} onClick={() => callbacks.onResume(lane.lane)}>
           Resume
-        </button>
+        </PrimaryButton>
       ) : lane.attention === 'approval' ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => callbacks.onApprove(lane.lane)}
-          className={primaryControlClass}
-        >
+        <PrimaryButton size="xs" disabled={busy} onClick={() => callbacks.onApprove(lane.lane)}>
           Start next
-        </button>
+        </PrimaryButton>
       ) : lane.attention === 'merge' ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => callbacks.onMerge(lane.lane)}
-          className={primaryControlClass}
-        >
+        <PrimaryButton size="xs" disabled={busy} onClick={() => callbacks.onMerge(lane.lane)}>
           Approve &amp; merge
-        </button>
+        </PrimaryButton>
       ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => callbacks.onPause(lane.lane)}
-          className={secondaryControlClass}
-        >
+        <GhostButton size="xs" disabled={busy} onClick={() => callbacks.onPause(lane.lane)}>
           Pause
-        </button>
+        </GhostButton>
       )}
       {/* Secondary: editing the plan is always available. */}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={callbacks.onEditPlan}
-        className={secondaryControlClass}
-      >
+      <GhostButton size="xs" disabled={busy} onClick={callbacks.onEditPlan}>
         Edit plan
-      </button>
+      </GhostButton>
     </div>
   )
 }
-
-const primaryControlClass =
-  'interactive rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--text-on-accent)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
-const secondaryControlClass =
-  'interactive rounded border border-[color:var(--border-default)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
 
 function RoadmapUnitRow({
   unit,
@@ -245,38 +216,40 @@ function RoadmapUnitRow({
           ) : null}
         </div>
       </div>
-      {/* Trailing, hover-revealed actions — kept off the row at rest. */}
+      {/* Trailing, hover-revealed actions — kept off the row at rest, but the
+          keyboard reveals them on focus (opacity, not display, so they stay
+          focusable). */}
       {onOpenRun ? (
-        <button
-          type="button"
+        <GhostButton
+          size="xs"
           onClick={onOpenRun}
-          className="interactive shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+          className="shrink-0"
           aria-label={`Open the running sprint for ${unit.title}`}
         >
           Open sprint
-        </button>
+        </GhostButton>
       ) : null}
       {unit.prUrl && isDone ? (
         <a
           href={unit.prUrl}
           target="_blank"
           rel="noreferrer"
-          className="interactive shrink-0 rounded px-1.5 py-0.5 text-[11px] text-[color:var(--accent-primary)] opacity-0 transition-opacity hover:underline focus-visible:opacity-100 group-hover:opacity-100"
+          className={`interactive inline-flex h-6 shrink-0 items-center rounded-[5px] px-2 text-[11px] font-medium text-[color:var(--accent-primary)] opacity-0 transition-opacity hover:underline focus-visible:opacity-100 group-hover:opacity-100 ${FOCUS_RING_CLASS}`}
           aria-label={`View the pull request for ${unit.title}`}
         >
           PR
         </a>
       ) : null}
       {canSkip ? (
-        <button
-          type="button"
+        <GhostButton
+          size="xs"
           disabled={busy}
           onClick={onSkip}
           aria-label={`Skip ${unit.title} in ${lane}`}
-          className="interactive shrink-0 rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 disabled:opacity-50 group-hover:opacity-100"
+          className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
         >
           Skip
-        </button>
+        </GhostButton>
       ) : null}
     </div>
   )
@@ -316,8 +289,18 @@ function LanePullRequests({
   }
   if (error) {
     return (
-      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-[11px] text-[color:var(--tone-warn)]">
-        Could not read this sprint’s pull requests: {error}
+      <div className="border-t border-[color:var(--border-subtle)] px-3 py-2">
+        <InlineNotice
+          tone="error"
+          title="Couldn’t load this sprint’s pull requests."
+          hint="This is usually temporary."
+          detail={error}
+          action={
+            <GhostButton size="xs" onClick={reload}>
+              Try again
+            </GhostButton>
+          }
+        />
       </div>
     )
   }

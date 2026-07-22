@@ -16,7 +16,8 @@ import React, { useCallback, useState } from 'react'
 import { sprintEngineRepoDisplayName } from '../../../../../shared/backlog/sprintengine-links'
 import type { SprintEnginePullRequestState, SprintEngineVcs, SprintEngineVcsRepo } from '../../../../../shared/sprintengine/run-types'
 import type { RepoMergeBlockers } from '../../../../../shared/sprintengine/roadmap-surface'
-import { useConfirmDialog } from '../../ui'
+import { InlineNotice, OutlineButton, StatusDot, useConfirmDialog } from '../../ui'
+import type { StatusTone } from '../../ui/tokens'
 
 type MergePrState = 'merged' | 'closed' | 'open' | 'none'
 
@@ -35,13 +36,15 @@ const PR_STATE_LABEL: Record<MergePrState, string> = {
   none: 'No pull request',
 }
 
-// The one status dot's tone per PR state — merged is the product accent's calm
-// "done", open is neutral-active, closed/none are muted. No competing pills.
-const PR_STATE_DOT: Record<MergePrState, string> = {
-  merged: 'var(--tone-good)',
-  open: 'var(--accent-primary)',
-  closed: 'var(--text-disabled)',
-  none: 'var(--text-disabled)',
+// The one status dot's tone per PR state (the shared StatusDot vocabulary, no
+// competing pills). Merged is the app-wide merged purple — the same tone the rest
+// of the app uses for a landed PR, never the "good" green a live-but-open PR would
+// read as. Open is the product accent; closed/none are muted neutral.
+const PR_STATE_TONE: Record<MergePrState, StatusTone> = {
+  merged: 'merged',
+  open: 'accent',
+  closed: 'neutral',
+  none: 'neutral',
 }
 
 export function RoadmapPullRequests({
@@ -155,11 +158,7 @@ function RoadmapPullRequestRow({
   return (
     <div className="flex flex-col gap-1 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
-        <span
-          aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-full"
-          style={{ backgroundColor: PR_STATE_DOT[state] }}
-        />
+        <StatusDot tone={PR_STATE_TONE[state]} className="shrink-0" />
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-[color:var(--text-strong)]">
           {name}
         </span>
@@ -198,7 +197,9 @@ function RoadmapPullRequestRow({
         </p>
       ) : null}
       {error ? (
-        <p className="pl-3.5 text-[11px] leading-4 text-[color:var(--tone-warn)]">{error}</p>
+        <div className="pl-3.5">
+          <InlineNotice tone="error">{error}</InlineNotice>
+        </div>
       ) : null}
     </div>
   )
@@ -220,32 +221,32 @@ function MergeControl({
   onMerge: () => void
 }): JSX.Element | null {
   if (state === 'merged') {
-    return <span className="shrink-0 text-[11px] font-medium text-[color:var(--tone-good)]">Merged</span>
+    return <span className="shrink-0 text-[11px] font-medium text-[color:var(--tone-merged)]">Merged</span>
   }
   if (state === 'none' || state === 'closed') {
     return null
   }
   if (blocked) {
     return (
-      <button
-        type="button"
+      <OutlineButton
+        size="xs"
         disabled
+        className="shrink-0"
         aria-label={`Cannot merge yet — merges after ${blockedByNames.join(', ')}`}
-        className="shrink-0 cursor-not-allowed rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--text-disabled)]"
       >
         Merges after {blockedByNames[0]}
-      </button>
+      </OutlineButton>
     )
   }
   return (
-    <button
-      type="button"
+    <OutlineButton
+      size="xs"
       onClick={onMerge}
       disabled={merging || !repo.pullRequestUrl}
-      className="interactive shrink-0 rounded border border-[color:var(--accent-primary)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+      className="shrink-0"
     >
       {merging ? 'Merging…' : 'Merge'}
-    </button>
+    </OutlineButton>
   )
 }
 

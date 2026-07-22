@@ -22,7 +22,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
 import { buildRoadmapRail, roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { GhostButton, InlineNotice, PrimaryButton, Section, useConfirmDialog } from '../../ui'
+import { GhostButton, InlineNotice, PrimaryButton, Section, Spinner, useConfirmDialog } from '../../ui'
 import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
@@ -42,7 +42,7 @@ import { RoadmapRail, type RoadmapRailRow } from '../../panels/roadmapBoard/Road
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from './GlobalSurfaceShell'
 
 export default function RoadmapGlobalSurface(): JSX.Element {
-  const { roadmaps, roadmapFiles, activeRef, loading, error, homePath, reload } = useRoadmapBoard()
+  const { roadmaps, roadmapFiles, activeRef, loading, refreshing, error, homePath, reload } = useRoadmapBoard()
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
   const projectCount = useWorkspaceStore(
     useShallow((s) => {
@@ -365,6 +365,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         onPauseRoadmap: handlePauseRoadmap,
         onResumeRoadmap: handleResumeRoadmap,
         busyBoard,
+        refreshing,
       })
     : undefined
   const rail = (
@@ -490,15 +491,28 @@ function buildBar(
     onPauseRoadmap: (roadmap: LoadedRoadmap) => void
     onResumeRoadmap: (roadmap: LoadedRoadmap) => void
     busyBoard: boolean
+    /** A background re-read is in flight — a quiet header pulse, never a content blink. */
+    refreshing: boolean
   },
 ): GlobalSurfaceBar {
   const active = isActive && activeRoadmap ? activeRoadmap : null
   const progress = active ? roadmapProgress(active.lanes) : null
   const trackCount = active ? active.lanes.length : file.tracks.length
   const stepCount = progress ? progress.total : file.totalSteps
-  const contextSub = progress && progress.running > 0
+  const contextSubText = progress && progress.running > 0
     ? `${plural(trackCount, 'track')} · ${plural(stepCount, 'step')} · ${progress.running} running`
     : `${plural(trackCount, 'track')} · ${plural(stepCount, 'step')}`
+  const contextSub = (
+    <span className="inline-flex items-center gap-2">
+      {contextSubText}
+      {handlers.refreshing ? (
+        <span className="inline-flex items-center gap-1 text-[color:var(--text-subtle)]">
+          <Spinner size={10} />
+          Refreshing
+        </span>
+      ) : null}
+    </span>
+  )
   // The roadmap-level pause toggle: Pause while any track runs, Resume once every
   // track is paused; hidden for a roadmap with no tracks to steer.
   const allPaused = active !== null && active.lanes.length > 0 && active.lanes.every((lane) => Boolean(lane.parked))

@@ -73,7 +73,13 @@ export type RoadmapBoardData = {
   roadmapFiles: RoadmapFileSummary[]
   /** The single orchestrated roadmap's ref (readRoadmapStates' one entry), or null. */
   activeRef: string | null
+  /** True only until the first read resolves (states === null). A background
+   *  refresh never re-enters loading, so populated content never blinks back to a
+   *  spinner on the quiet cadence. */
   loading: boolean
+  /** A background re-read is in flight while content is already on screen — drives
+   *  a quiet header pulse, never a content blink. */
+  refreshing: boolean
   error: string | null
   /** The home project holding the instance roadmap (D1), or null when unset. The
    *  surface builds absolute paths (skip edits, file reads) against it. */
@@ -96,7 +102,7 @@ export function useRoadmapBoard(): RoadmapBoardData {
   const [homePath, setHomePath] = useState<string | null>(null)
   const [states, setStates] = useState<RoadmapStateView[] | null>(null)
   const [contentByRef, setContentByRef] = useState<Map<string, string>>(new Map())
-  const [loading, setLoading] = useState<boolean>(true)
+  const [refreshing, setRefreshing] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
 
@@ -118,7 +124,7 @@ export function useRoadmapBoard(): RoadmapBoardData {
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    setRefreshing(true)
     const load = async () => {
       try {
         const home = (await window.api.getRoadmapHomeProject()).path
@@ -158,7 +164,7 @@ export function useRoadmapBoard(): RoadmapBoardData {
           setStates([])
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setRefreshing(false)
       }
     }
     void load()
@@ -241,7 +247,11 @@ export function useRoadmapBoard(): RoadmapBoardData {
     return summaries
   }, [homePath, itemsByRootKey, activeRef, roadmaps])
 
-  return { roadmaps, roadmapFiles, activeRef, loading, error, homePath, reload }
+  // Loading is the first-read-only state; once states resolves (to a list or, on
+  // failure, []), the board stays populated and later reads are `refreshing`.
+  const loading = states === null
+
+  return { roadmaps, roadmapFiles, activeRef, loading, refreshing, error, homePath, reload }
 }
 
 // A lane needs the human when it awaits an approval or has parked; a lane is live

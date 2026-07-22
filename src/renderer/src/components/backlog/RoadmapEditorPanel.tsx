@@ -415,6 +415,25 @@ function PolicyControl({ label, children }: { label: string; children: React.Rea
 type DragState = { lane: number; index: number } | null
 type DropTarget = { lane: number; index: number } | null
 
+// Stable React keys for the tracks. RoadmapLane carries no id, so a naive
+// key={laneIndex} makes React reuse the wrong DOM when a track is added, removed,
+// split, or merged — the classic index-key reconciliation bug. This derives a key
+// from the track's content (its step refs, order-independent so an in-track
+// reorder doesn't remount it; its title for an empty track), disambiguating any
+// genuine duplicates with an occurrence suffix so keys stay unique.
+function laneKeys(lanes: ReadonlyArray<RoadmapLane>): string[] {
+  const seen = new Map<string, number>()
+  return lanes.map((lane) => {
+    const base =
+      lane.entries.length > 0
+        ? `refs:${[...lane.entries.map((entry) => entry.ref)].sort().join('|')}`
+        : `empty:${lane.title}`
+    const count = seen.get(base) ?? 0
+    seen.set(base, count + 1)
+    return count === 0 ? base : `${base}#${count}`
+  })
+}
+
 function TrackList({
   lanes,
   eligibility,
@@ -450,6 +469,11 @@ function TrackList({
 }): JSX.Element {
   const [drag, setDrag] = useState<DragState>(null)
   const [over, setOver] = useState<DropTarget>(null)
+  // Keyboard reorder has no visible drag to follow, so each move is announced to a
+  // polite live region for screen readers.
+  const [announcement, setAnnouncement] = useState('')
+
+  const laneKeyList = useMemo(() => laneKeys(lanes), [lanes])
 
   const endDrag = useCallback(() => {
     setDrag(null)
@@ -467,18 +491,33 @@ function TrackList({
   }, [drag, over, libDragRef, lanes, onLanes, onAddRef, endDrag])
 
   // Keyboard reorder: move a step up/down, crossing into the adjacent track at a
-  // boundary, so ordering never requires a pointer.
+  // boundary, so ordering never requires a pointer. Each successful move is
+  // announced ("Moved <step> to position N of M in <track>.") for screen readers.
   const moveByKey = useCallback(
     (lane: number, index: number, direction: -1 | 1) => {
+      const moved = lanes[lane]?.entries[index]
+      if (!moved) return
+      let dest: { lane: number; index: number } | null = null
       if (direction === -1) {
-        if (index > 0) onLanes(moveEntry(lanes, { lane, index }, { lane, index: index - 1 }))
-        else if (lane > 0) onLanes(moveEntry(lanes, { lane, index }, { lane: lane - 1, index: lanes[lane - 1].entries.length }))
+        if (index > 0) dest = { lane, index: index - 1 }
+        else if (lane > 0) dest = { lane: lane - 1, index: lanes[lane - 1].entries.length }
       } else {
-        if (index < lanes[lane].entries.length - 1) onLanes(moveEntry(lanes, { lane, index }, { lane, index: index + 2 }))
-        else if (lane < lanes.length - 1) onLanes(moveEntry(lanes, { lane, index }, { lane: lane + 1, index: 0 }))
+        if (index < lanes[lane].entries.length - 1) dest = { lane, index: index + 2 }
+        else if (lane < lanes.length - 1) dest = { lane: lane + 1, index: 0 }
+      }
+      if (!dest) return
+      const next = moveEntry(lanes, { lane, index }, dest)
+      onLanes(next)
+      const title = refDisplay.get(moved.ref)?.title ?? moved.ref
+      for (const target of next) {
+        const pos = target.entries.findIndex((entry) => entry.ref === moved.ref)
+        if (pos >= 0) {
+          setAnnouncement(`Moved ${title} to position ${pos + 1} of ${target.entries.length} in ${target.title}.`)
+          break
+        }
       }
     },
-    [lanes, onLanes],
+    [lanes, onLanes, refDisplay],
   )
 
   if (lanes.length === 0) {
@@ -497,9 +536,12 @@ function TrackList({
 
   return (
     <div className="flex flex-col gap-3 px-4 pt-3">
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
       {lanes.map((lane, laneIndex) => (
         <TrackSection
-          key={laneIndex}
+          key={laneKeyList[laneIndex]}
           lane={lane}
           laneIndex={laneIndex}
           laneCount={lanes.length}
