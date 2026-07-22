@@ -21,6 +21,7 @@ import {
   resolveSprintEngineSessionCwd,
   sprintEngineDemandKey,
   sprintEngineRepoIdForSessionCwd,
+  sprintEngineWorkerRepoId,
 } from './auto-run'
 
 function task(overrides: Partial<SprintEngineTask> = {}): SprintEngineTask {
@@ -142,6 +143,54 @@ function testResolveSessionCwdSelectsTheTasksRepoWorktree(): void {
   assert.equal(resolveSprintEngineSessionCwd(state, 'mobile').worktreeRelativePath, '.multi-code/wt/run-mobile')
   assert.equal(resolveSprintEngineSessionCwd(state, 'nope').worktreeRelativePath, '.multi-code/wt/run')
   assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.multi-code/wt/run')
+}
+
+function testResolveSessionCwdSkipsSiblingMissingItsWorktree(): void {
+  // Backlog 1722: a task targets a sibling repo that is not resolvable in
+  // `vcs.repos` (its entry was dropped as incomplete, or was never declared).
+  // The session skips to the main checkout — it must never borrow the primary
+  // tree, which would silently run the sibling task against the wrong repo.
+  const state = stateFixture({
+    vcs: {
+      mode: 'run_worktree',
+      worktreePath: '.multi-code/wt/run',
+      branchName: 'run/main',
+      repos: [{ id: 'primary', root: '.', worktreePath: '.multi-code/wt/run', branchName: 'run/main' }],
+    },
+    tasks: [task({ id: 'M1', repo: 'mobile' })],
+  })
+  const cwd = resolveSprintEngineSessionCwd(state, 'M1')
+  assert.equal(cwd.executionMode, 'current_workspace', 'an unresolvable sibling skips rather than binding to primary')
+  assert.equal(cwd.worktreeRelativePath, undefined)
+  // The primary repo still resolves to the run worktree via the flat fallback.
+  assert.equal(resolveSprintEngineSessionCwd(state, 'primary').worktreeRelativePath, '.multi-code/wt/run')
+  assert.equal(resolveSprintEngineSessionCwd(state, null).worktreeRelativePath, '.multi-code/wt/run')
+}
+
+function testWorkerRepoIdPrefersSessionCwdOverPrimary(): void {
+  // Backlog 1722: a lease-less worker with no owned task can still have a session
+  // spawned into a repo's worktree; prefer that session's repo over the primary
+  // default, or the worker is woken for primary work its sibling-repo session
+  // cannot claim (no-op wake spam). Precedence: lease > owned task > session cwd.
+  const state = stateFixture({
+    vcs: twoRepoVcs(),
+    sprintEngineAgents: { 'developer-9': { role: 'developer', status: 'idle', currentTaskId: null } },
+  })
+  assert.equal(sprintEngineWorkerRepoId(state, 'developer-9'), 'primary', 'no lease, task, or session evidence defaults to primary')
+  assert.equal(sprintEngineWorkerRepoId(state, 'developer-9', 'mobile'), 'mobile', 'the session cwd repo is preferred over the primary default')
+
+  const leased = stateFixture({
+    workers: { 'developer-9': { role: 'developer', status: 'running', currentTaskId: 'M1', repo: 'mobile' } },
+    sprintEngineAgents: { 'developer-9': { role: 'developer', status: 'running', currentTaskId: 'M1' } },
+    tasks: [task({ id: 'M1', repo: 'mobile' })],
+  } as Partial<SprintEngineState>)
+  assert.equal(sprintEngineWorkerRepoId(leased, 'developer-9', 'primary'), 'mobile', 'the active lease repo wins over a session cwd')
+
+  const owned = stateFixture({
+    sprintEngineAgents: { 'developer-9': { role: 'developer', status: 'idle', currentTaskId: null, lastOwnedTaskId: 'M1' } },
+    tasks: [task({ id: 'M1', repo: 'mobile' })],
+  })
+  assert.equal(sprintEngineWorkerRepoId(owned, 'developer-9', 'primary'), 'mobile', 'the owned task repo wins over a session cwd')
 }
 
 function testResolveSessionRepoIdFromSessionCwd(): void {
@@ -305,6 +354,8 @@ function main(): void {
   testResolveSessionCwdWorktreeMode()
   testResolveSessionCwdCurrentWorkspaceWhenNoWorktree()
   testResolveSessionCwdSelectsTheTasksRepoWorktree()
+  testResolveSessionCwdSkipsSiblingMissingItsWorktree()
+  testWorkerRepoIdPrefersSessionCwdOverPrimary()
   testResolveSessionRepoIdFromSessionCwd()
   testDemandKeyIsRoleAndRepo()
   testComputeDemandGroupsReadyUnownedWorkByKey()

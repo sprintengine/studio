@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 
-import { buildSprintEngineAgentRosterForState, isCompletedSprintEngineRun, normalizeSprintEngineProjection } from './state'
-import type { SprintEngineTask } from './run-types'
+import {
+  buildSprintEngineAgentRosterForState,
+  deriveSprintEngineRepoMergeRollup,
+  isCompletedSprintEngineRun,
+  normalizeSprintEngineProjection,
+} from './state'
+import type { SprintEngineTask, SprintEngineVcs } from './run-types'
 
 // A minimal v3 (`projection.workers` + `projection.roster` bridge) projection
 // payload as it lands off disk. The engine derives both the canonical `workers`
@@ -280,6 +285,91 @@ function testVcsReposUnresolvableEntriesDropped(): void {
   assert.deepEqual(state.vcs.repos.map((repo) => repo.id), ['primary'], 'entry with no worktreePath dropped')
 }
 
+function mergeRollupState(repos: Record<string, unknown>[]): ReturnType<typeof normalizeSprintEngineProjection> {
+  return normalizeSprintEngineProjection(
+    v3Projection({
+      run: {
+        name: 'Work Queue',
+        goal: 'ship it',
+        status: 'planning',
+        vcs: { mode: 'run_worktree', worktreePath: '.multi-code/wt/app', branchName: 'run/main', repos },
+      },
+    }),
+  )
+}
+
+function testMergeRollupCountsDroppedDeclaredEntryAsUnmerged(): void {
+  // Backlog 1722: the bug shape. A declared sibling that is incomplete (no
+  // worktreePath) is dropped from `repos`, but it must still count toward the
+  // rollup — otherwise `allMerged` flips true off the surviving primary alone and
+  // the run-landed chain fires on an unmerged declared branch.
+  const state = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', branchName: 'run/main' },
+  ])
+  assert.ok(state?.vcs)
+  assert.equal(state.vcs.repos.length, 1, 'the incomplete sibling is dropped from the survivor list')
+  assert.equal(state.vcs.declaredRepoCount, 2, 'but two repos were declared')
+  const rollup = deriveSprintEngineRepoMergeRollup(state.vcs)
+  assert.ok(rollup)
+  assert.equal(rollup.total, 2, 'the rollup counts the declared sibling, not just survivors')
+  assert.equal(rollup.merged, 1)
+  assert.equal(rollup.unmerged, 1)
+  assert.equal(rollup.allMerged, false, 'fail closed: a dropped declared branch keeps the run unmerged')
+}
+
+function testMergeRollupAllMergedWhenEveryDeclaredRepoMerged(): void {
+  const state = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'merged' },
+  ])
+  const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
+  assert.ok(rollup)
+  assert.equal(rollup.total, 2)
+  assert.equal(rollup.merged, 2)
+  assert.equal(rollup.allMerged, true, 'every declared repo merged rolls up to allMerged')
+}
+
+function testMergeRollupOpenSiblingHoldsAllMergedFalse(): void {
+  const state = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+    { id: 'mobile', root: '../mobile', worktreePath: '.multi-code/wt/mobile', branchName: 'run/main', pullRequestState: 'open' },
+  ])
+  const rollup = deriveSprintEngineRepoMergeRollup(state?.vcs)
+  assert.ok(rollup)
+  assert.deepEqual(
+    { total: rollup.total, merged: rollup.merged, unmerged: rollup.unmerged, allMerged: rollup.allMerged },
+    { total: 2, merged: 1, unmerged: 1, allMerged: false },
+  )
+}
+
+function testMergeRollupSingleRepoAndNullVcs(): void {
+  // A single-repo run rolls up to total 1 — the flat field's answer.
+  const single = mergeRollupState([
+    { id: 'primary', root: '.', worktreePath: '.multi-code/wt/app', branchName: 'run/main', pullRequestState: 'merged' },
+  ])
+  const singleRollup = deriveSprintEngineRepoMergeRollup(single?.vcs)
+  assert.deepEqual(
+    { total: singleRollup?.total, merged: singleRollup?.merged, allMerged: singleRollup?.allMerged },
+    { total: 1, merged: 1, allMerged: true },
+  )
+  // A `vcs` restored from state written before `declaredRepoCount` existed has no
+  // count; the rollup floors on the survivor list rather than reading undefined.
+  const legacy = deriveSprintEngineRepoMergeRollup({
+    mode: 'run_worktree',
+    worktreePath: '.multi-code/wt/app',
+    branchName: 'run/main',
+    pullRequestState: 'merged',
+    repos: [],
+  } as unknown as SprintEngineVcs)
+  assert.deepEqual(
+    { total: legacy?.total, merged: legacy?.merged, allMerged: legacy?.allMerged },
+    { total: 1, merged: 1, allMerged: true },
+    'a pre-field flat run still rolls up to a merged single repo',
+  )
+  assert.equal(deriveSprintEngineRepoMergeRollup(null), null, 'no vcs is no rollup')
+}
+
 function testCategoricalFindingsSurviveNormalization(): void {
   // `findingJson` is categorical-only ({kind, severity, area, title?}); prose
   // `title`/`detail` are optional. Findings without them must survive — the
@@ -342,4 +432,8 @@ testVcsFlatBlockReadsBackAsOneEntryRepoList()
 testVcsPrimaryPullRequestReadsBackOnBothShapes()
 testVcsPullRequestStateOfAnUnknownValueIsNull()
 testVcsReposUnresolvableEntriesDropped()
+testMergeRollupCountsDroppedDeclaredEntryAsUnmerged()
+testMergeRollupAllMergedWhenEveryDeclaredRepoMerged()
+testMergeRollupOpenSiblingHoldsAllMergedFalse()
+testMergeRollupSingleRepoAndNullVcs()
 console.log('sprintengine state tests passed')

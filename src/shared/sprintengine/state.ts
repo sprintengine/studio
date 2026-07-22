@@ -322,8 +322,14 @@ export function deriveSprintEngineRepoMergeRollup(
   const repos = Array.isArray(vcs.repos) && vcs.repos.length > 0
     ? vcs.repos
     : [{ pullRequestState: vcs.pullRequestState ?? null }]
+  // Count against what the run DECLARED, not the survivors the normalizer kept.
+  // A declared repo that dropped out (partially provisioned, hand-edited) leaves
+  // fewer entries in `repos` than were declared; counting only survivors would
+  // let `allMerged` flip true with that declared branch still unmerged. Fail
+  // closed: the dropped entries stay uncounted-as-merged, so they read unmerged.
+  const total = Math.max(vcs.declaredRepoCount ?? 0, repos.length)
   const merged = repos.filter((repo) => repo.pullRequestState === 'merged').length
-  return { total: repos.length, merged, unmerged: repos.length - merged, allMerged: merged === repos.length }
+  return { total, merged, unmerged: total - merged, allMerged: merged === total }
 }
 
 /**
@@ -1350,6 +1356,15 @@ function normalizeSprintEngineVcsRepos(record: Record<string, unknown>, primary:
   return declared.length > 0 ? declared : [primary]
 }
 
+// How many repos the store declared, before any incomplete entry is dropped —
+// each object entry in `repos` is one declared leg (backlog 1722). The flat shape
+// (no `repos` array) declares exactly its one primary repo, so the survivor count
+// (always ≥ 1) is the floor when no array is present.
+function countDeclaredSprintEngineRepos(record: Record<string, unknown>): number {
+  if (!Array.isArray(record.repos)) return 0
+  return record.repos.filter((entry) => Boolean(entry) && typeof entry === 'object').length
+}
+
 function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
   if (!input || typeof input !== 'object') return undefined
   const record = input as Record<string, unknown>
@@ -1360,6 +1375,7 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
   const primary = normalizeSprintEngineVcsRepo({ ...record, id: primaryRepoId, root: primaryRepoRoot })
   // No worktree path or branch: not a run this app can resolve a tree for.
   if (!primary) return undefined
+  const repos = normalizeSprintEngineVcsRepos(record, primary)
   return {
     mode: 'run_worktree',
     worktreePath: primary.worktreePath,
@@ -1370,7 +1386,8 @@ function normalizeSprintEngineVcs(input: unknown): SprintEngineVcs | undefined {
     pullRequestError: primary.pullRequestError ?? null,
     pullRequestState: primary.pullRequestState ?? null,
     lastCommitSha: primary.lastCommitSha,
-    repos: normalizeSprintEngineVcsRepos(record, primary),
+    repos,
+    declaredRepoCount: Math.max(countDeclaredSprintEngineRepos(record), repos.length),
   }
 }
 

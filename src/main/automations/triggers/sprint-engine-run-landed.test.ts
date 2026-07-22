@@ -31,6 +31,7 @@ async function main(): Promise<void> {
   await assertIncompleteRunNeverFires()
   await assertCanceledRunNeverFires()
   await assertWorktreeRunLandsOnlyWhenEveryRepoMerged()
+  await assertIncompleteDeclaredRepoLegNeverLands()
   await assertPullRequestRefreshIsThrottledPerTeam()
   await assertPullRequestRefreshFailureBlocksPoll()
   await assertUnreadableProjectionBlocksPoll()
@@ -91,6 +92,32 @@ function worktreeVcs(pullRequestStates: Array<string | null>): unknown {
       pullRequestError: null,
       ...(state ? { pullRequestState: state } : {}),
     })),
+  }
+}
+
+// A run declaring two repos where the sibling is partially provisioned: it has
+// no worktree path, so normalization drops it from `repos`. The rollup must still
+// count it (backlog 1722), so a merged primary alone never reads as landed.
+function worktreeVcsWithIncompleteSibling(primaryState: string | null): unknown {
+  return {
+    mode: 'run_worktree',
+    worktreePath: '.multi-code/sprintengine/team-a/worktree',
+    branchName: 'sprintengine/team-a',
+    baseRef: 'main',
+    repos: [
+      {
+        id: 'primary',
+        root: '.',
+        worktreePath: '.multi-code/sprintengine/team-a/worktree',
+        branchName: 'sprintengine/team-a',
+        lastCommitSha: null,
+        pullRequestUrl: 'https://github.com/acme/repo-0/pull/1',
+        pullRequestError: null,
+        ...(primaryState ? { pullRequestState: primaryState } : {}),
+      },
+      // Declared but incomplete: no worktreePath, so it is dropped from `repos`.
+      { id: 'sibling-1', root: '../sibling-1', branchName: 'sprintengine/team-a' },
+    ],
   }
 }
 
@@ -267,6 +294,34 @@ async function assertWorktreeRunLandsOnlyWhenEveryRepoMerged(): Promise<void> {
   const landed = await poll()
   assert.equal(landed.ok, true)
   if (landed.ok) assert.equal(landed.events.length, 1, 'all repos merged means landed')
+}
+
+// Backlog 1722: a declared repo leg that is incomplete (dropped by normalization)
+// counts as unmerged, so the chain never fires 'landed' while it is unaccounted
+// for — even when every surviving repo has merged.
+async function assertIncompleteDeclaredRepoLegNeverLands(): Promise<void> {
+  let now = Date.parse('2026-07-17T10:00:00Z')
+  let refreshes = 0
+  const trigger = provider({
+    readProjection: async () => ({ ok: true, data: projection({ vcs: worktreeVcsWithIncompleteSibling('merged') }) }),
+    refreshPullRequestStatus: async () => {
+      refreshes += 1
+      return { ok: true }
+    },
+  })
+  const poll = pollInput(trigger, () => now)
+
+  const first = await poll()
+  assert.equal(first.ok, true)
+  if (first.ok) assert.deepEqual(first.events, [], 'a dropped declared leg keeps the run unmerged despite a merged primary')
+  assert.equal(refreshes, 1, 'a complete-but-unmerged run asks GitHub once')
+
+  // The leg can never resolve from a PR refresh (it has no branch to merge), so
+  // even past the confirmation window the run never lands.
+  now += 6 * 60_000
+  const later = await poll()
+  assert.equal(later.ok, true)
+  if (later.ok) assert.deepEqual(later.events, [], 'an unresolvable declared leg never lands')
 }
 
 async function assertPullRequestRefreshIsThrottledPerTeam(): Promise<void> {

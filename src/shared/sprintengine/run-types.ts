@@ -960,6 +960,16 @@ export type SprintEngineVcs = {
    * repo's live values until the surfaces that read them move onto `repos`.
    */
   repos: SprintEngineVcsRepo[]
+  /**
+   * How many repos the store DECLARED, counted before the normalizer dropped any
+   * entry it could not resolve a tree for (MC-1613 / backlog 1722). The merge
+   * rollup counts against this, not the survivor list, so a partially-provisioned
+   * or hand-edited sibling that vanishes from `repos` still counts as unmerged —
+   * `allMerged` can never flip true while a declared branch is unaccounted for.
+   * Absent on a `vcs` restored from state written before this field existed; the
+   * rollup falls back to the survivor count there.
+   */
+  declaredRepoCount?: number
 }
 
 export type SprintEngineMockConfig = Pick<SprintEngineState, 'name' | 'goal' | 'roleCounts'>

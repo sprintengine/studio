@@ -137,8 +137,10 @@ function repoIdForRouting(
  * the session opens in, so a task targeting the mobile repo spawns its session
  * in the mobile worktree. A run declaring one repo has a one-entry `repos` list
  * whose worktree is the flat `worktreePath`, so its sessions resolve exactly
- * where they did before. A declared repo missing its own worktree path falls
- * back to the primary's — the run's worktree is the one tree we know exists.
+ * where they did before. A declared SIBLING missing its own worktree path is not
+ * resolvable: the session skips to the main checkout rather than borrowing the
+ * primary's tree, which would silently run it against the wrong repo (backlog
+ * 1722). Only the primary repo falls back to the run's flat worktree.
  */
 export function resolveSprintEngineSessionCwd(
   state: Pick<SprintEngineState, 'vcs' | 'tasks'>,
@@ -147,7 +149,9 @@ export function resolveSprintEngineSessionCwd(
   const vcs = state.vcs
   if (vcs?.mode !== 'run_worktree') return { executionMode: 'current_workspace' }
   const repoId = repoIdForRouting(state, taskOrRepoId)
-  const worktreePath = vcs.repos?.find((repo) => repo.id === repoId)?.worktreePath || vcs.worktreePath
+  const declaredWorktree = vcs.repos?.find((repo) => repo.id === repoId)?.worktreePath
+  const worktreePath = declaredWorktree
+    || (repoId === DEFAULT_SPRINTENGINE_TASK_REPO ? vcs.worktreePath : undefined)
   if (!worktreePath) return { executionMode: 'current_workspace' }
   return { executionMode: 'worktree', worktreeRelativePath: worktreePath }
 }
@@ -183,20 +187,28 @@ export function sprintEngineRepoIdForSessionCwd(
  *
  * Read from the lease the engine minted at claim; a worker between tasks holds
  * no lease, so it falls back to the repo of the task it is on or last owned,
- * which is what its session's cwd was resolved from. A worker that has never
- * owned anything has no session yet either, so the primary default is only ever
- * reached by a run with one repo — where it is the right answer.
+ * which is what its session's cwd was resolved from. A worker that holds no lease
+ * and has never owned a task can still have a live session — the pool spawns one
+ * into a repo's worktree before its first claim — so prefer the repo recovered
+ * from that session's cwd (`sessionRepoId`) before the primary default. Binding
+ * such a worker to primary would wake it for primary work its session cannot
+ * claim, producing no-op wake spam (backlog 1722). The primary default is only
+ * reached when there is no session evidence either — a single-repo run, where it
+ * is the right answer.
  */
 export function sprintEngineWorkerRepoId(
   sprintEngineState: Pick<SprintEngineState, 'workers' | 'sprintEngineAgents' | 'tasks'>,
-  agentId: string
+  agentId: string,
+  sessionRepoId?: string | null
 ): string {
   const leaseRepo = sprintEngineState.workers?.[agentId]?.repo
   if (leaseRepo) return sprintEngineSessionRepoId(leaseRepo)
   const runtimeAgent = sprintEngineState.sprintEngineAgents[agentId]
   const taskId = runtimeAgent?.currentTaskId || runtimeAgent?.lastOwnedTaskId
   const task = taskId ? sprintEngineState.tasks.find((candidate) => candidate.id === taskId) : undefined
-  return sprintEngineSessionRepoId(task?.repo)
+  if (task) return sprintEngineSessionRepoId(task.repo)
+  if (sessionRepoId) return sprintEngineSessionRepoId(sessionRepoId)
+  return DEFAULT_SPRINTENGINE_TASK_REPO
 }
 
 /** The task fields a demand key may read: the (role, repo) pair it groups by. */
@@ -978,6 +990,13 @@ export function planSprintEngineDispatch(input: {
    * task uses the slow idle-window cadence instead of the 60s fast path.
    */
   taskScopedRetirementTaskIds?: ReadonlyMap<string, string>
+  /**
+   * Repo each live session was spawned into, keyed by agent id and recovered from
+   * the session cwd (`sprintEngineRepoIdForSessionCwd`). Lets `sprintEngineWorkerRepoId`
+   * bind a lease-less, never-owned worker to its actual tree instead of the primary
+   * default — the honest wake filter for a sibling-repo session (backlog 1722).
+   */
+  sessionRepoIds?: ReadonlyMap<string, string>
 }): SprintEngineDispatchPlan {
   const { workspace, sprintEngineState, now } = input
   const include = (path: SprintEngineDispatchPath): boolean => !input.paths || input.paths.has(path)
@@ -1207,7 +1226,7 @@ export function planSprintEngineDispatch(input: {
         agentId,
         reservedWakeCandidateTaskIds,
         sprintEngineWakeRestrictionTaskId(runtimeAgent),
-        sprintEngineWorkerRepoId(sprintEngineState, agentId)
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
       )
       if (!task) continue
       const key = continuationMessageKey(workspace, task.id, agentId)
@@ -1360,7 +1379,7 @@ export function planSprintEngineDispatch(input: {
         agentId,
         new Set(),
         sprintEngineWakeRestrictionTaskId(runtimeAgent),
-        sprintEngineWorkerRepoId(sprintEngineState, agentId)
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
       )
       if (!task) continue
       // Any engagement planned this pass (wake, dispatch, notification) supersedes
@@ -1499,7 +1518,7 @@ export function planSprintEngineDispatch(input: {
       if (liveRole) {
         liveDemandKeys.add(sprintEngineDemandKey({
           role: liveRole,
-          repo: sprintEngineWorkerRepoId(sprintEngineState, liveId),
+          repo: sprintEngineWorkerRepoId(sprintEngineState, liveId, input.sessionRepoIds?.get(liveId)),
         }))
       }
     }
@@ -1676,7 +1695,7 @@ export function planSprintEngineDispatch(input: {
         agentId,
         new Set(),
         restrictToTaskId,
-        sprintEngineWorkerRepoId(sprintEngineState, agentId)
+        sprintEngineWorkerRepoId(sprintEngineState, agentId, input.sessionRepoIds?.get(agentId))
       )) continue
       const idleClockKey = sprintEngineIdleClockKey(workspace, agentId)
       // Task-scoped terminal state: the worker's own task is finished, so its
