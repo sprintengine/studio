@@ -1490,13 +1490,13 @@ export default function WorkspaceSidebar({
                       onDragOver={handleTabDragOverNew}
                       onDragLeave={handleTabDragLeaveNew}
                       onDrop={handleTabDropOnNew}
-                      className={`flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                      className={`flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-[13px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
                         tabDropTarget?.kind === 'new'
                           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                       }`}
                     >
-                      <NewChatIcon className="icon-xs pointer-events-none shrink-0" />
+                      <NewChatIcon className="icon-sm pointer-events-none shrink-0" />
                       <span className="min-w-0 flex-1 truncate">
                         {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
                       </span>
@@ -1513,7 +1513,7 @@ export default function WorkspaceSidebar({
                       }}
                       className={`flex h-[30px] w-[26px] shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
                     >
-                      <svg viewBox="0 0 16 16" fill="none" className="icon-xs pointer-events-none shrink-0" aria-hidden="true">
+                      <svg viewBox="0 0 16 16" fill="none" className="icon-sm pointer-events-none shrink-0" aria-hidden="true">
                         <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                       </svg>
                     </button>
@@ -1531,7 +1531,7 @@ export default function WorkspaceSidebar({
               node: (
                 <SidebarNavButton
                   collapsed={sidebarCollapsed}
-                  icon={<ConnectorsNavIcon className="icon-xs pointer-events-none shrink-0" />}
+                  icon={<ConnectorsNavIcon className="icon-sm pointer-events-none shrink-0" />}
                   label="Connectors"
                   ariaLabel="Connectors"
                   tooltip="Connectors"
@@ -1606,7 +1606,7 @@ export default function WorkspaceSidebar({
                   <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
             </button>
@@ -1696,7 +1696,7 @@ export default function WorkspaceSidebar({
                       <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[color:var(--text-strong)]">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
                     {group.displayName}
                   </span>
                 </button>

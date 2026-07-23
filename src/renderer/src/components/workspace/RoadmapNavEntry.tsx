@@ -24,7 +24,7 @@ export function RoadmapNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   return (
     <SidebarNavButton
       collapsed={collapsed}
-      icon={<RoadmapNavIcon className="icon-xs pointer-events-none shrink-0" />}
+      icon={<RoadmapNavIcon className="icon-sm pointer-events-none shrink-0" />}
       label="Roadmap"
       ariaLabel="Roadmap"
       tooltip={attention.waiting ? 'Roadmap — waiting on you' : 'Roadmap'}

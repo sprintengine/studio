@@ -14,7 +14,7 @@ export function ReviewsNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   return (
     <SidebarNavButton
       collapsed={collapsed}
-      icon={<ReviewsNavIcon className="icon-xs pointer-events-none shrink-0" />}
+      icon={<ReviewsNavIcon className="icon-sm pointer-events-none shrink-0" />}
       label="Reviews"
       ariaLabel="Reviews"
       tooltip="Reviews"

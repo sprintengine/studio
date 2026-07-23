@@ -57,7 +57,7 @@ export function SidebarNavButton({
       onDrop={onDrop}
       aria-current={active ? 'true' : undefined}
       aria-label={collapsed ? ariaLabel : undefined}
-      className={`relative flex h-[30px] w-full items-center rounded-md text-[12px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+      className={`relative flex h-[30px] w-full items-center rounded-md text-[13px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
         collapsed ? 'justify-center' : 'gap-2 px-2 text-left'
       } ${
         highlighted

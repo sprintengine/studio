@@ -39,7 +39,7 @@ export function SprintsNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   return (
     <SidebarNavButton
       collapsed={collapsed}
-      icon={<SprintEngineWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
+      icon={<SprintEngineWorkspaceTypeIcon className="icon-sm pointer-events-none shrink-0" />}
       label="Sprints"
       ariaLabel="Sprints"
       tooltip={attention.waiting ? 'Sprints — waiting on you' : 'Sprints'}

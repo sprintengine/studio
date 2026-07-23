@@ -17,7 +17,7 @@ export function AutomationsNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   return (
     <SidebarNavButton
       collapsed={collapsed}
-      icon={<AutomationsWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
+      icon={<AutomationsWorkspaceTypeIcon className="icon-sm pointer-events-none shrink-0" />}
       label="Automations"
       ariaLabel="Automations"
       tooltip="Automations"

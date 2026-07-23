@@ -18,7 +18,7 @@ export function BacklogNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   return (
     <SidebarNavButton
       collapsed={collapsed}
-      icon={<BacklogNavIcon className="icon-xs pointer-events-none shrink-0" />}
+      icon={<BacklogNavIcon className="icon-sm pointer-events-none shrink-0" />}
       label="Backlog"
       ariaLabel="Backlog"
       tooltip="Backlog"
