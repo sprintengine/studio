@@ -33,6 +33,38 @@ import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
+// One tool call in a turn's work timeline. A call the model made to spawn a
+// background agent (Task/Agent) is a *lane*: `subagentLane` marks it, and the
+// tool calls that ran inside that agent hang off it as `children` instead of
+// flattening into the turn. Named separately from the union because the type
+// is recursive (an agent can spawn an agent).
+export type TranscriptToolEntry = {
+  kind: 'tool'
+  id: string
+  turnId: string
+  name: string
+  status: 'running' | 'done'
+  output?: string
+  // One-line input summary from the provider (e.g. "Bash: npm test") —
+  // the row reads as "what it did", not just the tool name.
+  summary?: string
+  startedAt?: number
+  completedAt?: number
+  // Line-count chips for edit-shaped tools (shipped by the adapter).
+  addedLines?: number
+  removedLines?: number
+  // Set by the provider on the spawning call; true means this row is a lane
+  // header whose elapsed time spans the whole subagent run.
+  subagentLane?: boolean
+  // Which kind of agent was spawned ('Explore', 'general-purpose', a custom
+  // agent id) when the call named one; the lane's label.
+  subagentType?: string
+  // The lane this call ran inside, when it is a subagent's own tool call.
+  parentToolUseId?: string
+  // Tool calls made inside this lane, in the order they started.
+  children?: TranscriptToolEntry[]
+}
+
 export type TranscriptEntry =
   | { kind: 'user'; id: string; text: string }
   | {
@@ -52,22 +84,7 @@ export type TranscriptEntry =
       // First reasoning_delta → first non-reasoning event; feeds "Thought for Ns".
       reasoningDurationMs?: number
     }
-  | {
-      kind: 'tool'
-      id: string
-      turnId: string
-      name: string
-      status: 'running' | 'done'
-      output?: string
-      // One-line input summary from the provider (e.g. "Bash: npm test") —
-      // the row reads as "what it did", not just the tool name.
-      summary?: string
-      startedAt?: number
-      completedAt?: number
-      // Line-count chips for edit-shaped tools (shipped by the adapter).
-      addedLines?: number
-      removedLines?: number
-    }
+  | TranscriptToolEntry
   | {
       kind: 'approval'
       requestId: string
@@ -154,6 +171,11 @@ function readQuestions(payload: Record<string, unknown> | undefined): Conversati
   return questions.length > 0 ? questions : undefined
 }
 
+function readBoolean(payload: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = payload?.[key]
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function readAnswers(payload: Record<string, unknown> | undefined): Record<string, string> | undefined {
   const raw = payload?.answers
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -176,21 +198,25 @@ type TurnAccumulator = {
   modelId?: string
   reasoningStartedAt?: number
   reasoningEndedAt?: number
-  tools: Map<
-    string,
-    {
-      id: string
-      name: string
-      status: 'running' | 'done'
-      output?: string
-      summary?: string
-      startedAt?: number
-      completedAt?: number
-      addedLines?: number
-      removedLines?: number
-    }
-  >
+  // Every tool call of the turn keyed by call id, subagent children included;
+  // nesting into lanes happens once, when the transcript entries are built.
+  tools: Map<string, ToolAccumulator>
   approvals: string[]
+}
+
+type ToolAccumulator = {
+  id: string
+  name: string
+  status: 'running' | 'done'
+  output?: string
+  summary?: string
+  startedAt?: number
+  completedAt?: number
+  addedLines?: number
+  removedLines?: number
+  subagentLane?: boolean
+  subagentType?: string
+  parentToolUseId?: string
 }
 
 const SESSION_STATUS_BY_EVENT: Partial<Record<ConversationEvent['type'], ConversationSessionStatus>> = {
@@ -309,6 +335,9 @@ export function projectConversation(
           startedAt: event.createdAt,
           addedLines: readNumber(event.payload, 'addedLines'),
           removedLines: readNumber(event.payload, 'removedLines'),
+          subagentLane: readBoolean(event.payload, 'subagentLane'),
+          subagentType: readString(event.payload, 'subagentType'),
+          parentToolUseId: readString(event.payload, 'parentToolUseId'),
         })
         break
       }
@@ -316,7 +345,13 @@ export function projectConversation(
         if (!turnId) break
         const turn = ensureTurn(turnId)
         const id = readString(event.payload, 'callId', 'id', 'toolCallId')
-        const existing = (id && turn.tools.get(id)) || [...turn.tools.values()].at(-1)
+        // Without a call id, close the most recent call from the same lane —
+        // a subagent's output must never land on the parent's row, and vice
+        // versa, now that both share one map.
+        const parentToolUseId = readString(event.payload, 'parentToolUseId')
+        const existing =
+          (id && turn.tools.get(id))
+          || [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
         if (existing) {
           existing.status = 'done'
           existing.completedAt = event.createdAt
@@ -437,21 +472,7 @@ export function projectConversation(
           ? Math.max(0, turn.reasoningEndedAt - turn.reasoningStartedAt)
           : undefined,
     })
-    for (const tool of turn.tools.values()) {
-      entries.push({
-        kind: 'tool',
-        id: tool.id,
-        turnId: turn.turnId,
-        name: tool.name,
-        status: tool.status,
-        output: tool.output,
-        summary: tool.summary,
-        startedAt: tool.startedAt,
-        completedAt: tool.completedAt,
-        addedLines: tool.addedLines,
-        removedLines: tool.removedLines,
-      })
-    }
+    for (const tool of nestSubagentLanes(turn)) entries.push(tool)
     for (const requestId of turn.approvals) {
       const approval = approvals.get(requestId)
       if (approval) entries.push({ kind: 'approval', ...approval })
@@ -472,6 +493,77 @@ export function projectConversation(
   }
 
   return { sessionStatus, activeTurn, awaitingApproval, entries, usage, lastError, apiKeySource }
+}
+
+// Fold a turn's flat tool map into lane-nested transcript entries: a call whose
+// `parentToolUseId` names another call of the same turn becomes that call's
+// child instead of a sibling row. A child whose parent never arrived stays a
+// top-level row — subagent work is never dropped just because its lane header
+// is missing from the stream.
+function nestSubagentLanes(turn: TurnAccumulator): TranscriptToolEntry[] {
+  const childrenByParent = new Map<string, ToolAccumulator[]>()
+  for (const tool of turn.tools.values()) {
+    const parentId = tool.parentToolUseId
+    if (!parentId || parentId === tool.id || !turn.tools.has(parentId)) continue
+    const siblings = childrenByParent.get(parentId)
+    if (siblings) siblings.push(tool)
+    else childrenByParent.set(parentId, [tool])
+  }
+
+  // A parent chain is provider data, so treat it as untrusted: `seen` keeps a
+  // cycle from recursing forever.
+  const seen = new Set<string>()
+  const build = (tool: ToolAccumulator): TranscriptToolEntry => {
+    seen.add(tool.id)
+    const children = (childrenByParent.get(tool.id) ?? []).filter((child) => !seen.has(child.id)).map(build)
+    return {
+      kind: 'tool',
+      id: tool.id,
+      turnId: turn.turnId,
+      name: tool.name,
+      status: tool.status,
+      output: tool.output,
+      summary: tool.summary,
+      startedAt: tool.startedAt,
+      completedAt: tool.completedAt,
+      addedLines: tool.addedLines,
+      removedLines: tool.removedLines,
+      // A call that spawned children is a lane even if the provider did not
+      // stamp the flag (older event streams, or a renamed spawn tool).
+      ...(tool.subagentLane || children.length > 0 ? { subagentLane: true } : {}),
+      ...(tool.subagentType ? { subagentType: tool.subagentType } : {}),
+      ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
+      ...(children.length > 0 ? { children } : {}),
+    }
+  }
+
+  const rows: TranscriptToolEntry[] = []
+  for (const tool of turn.tools.values()) {
+    const parentId = tool.parentToolUseId
+    if (parentId && parentId !== tool.id && turn.tools.has(parentId)) continue
+    if (seen.has(tool.id)) continue
+    rows.push(build(tool))
+  }
+  return rows
+}
+
+// Every call in a lane subtree, lane headers included, in start order.
+export function flattenToolEntries(tools: TranscriptToolEntry[]): TranscriptToolEntry[] {
+  const flat: TranscriptToolEntry[] = []
+  for (const tool of tools) {
+    flat.push(tool)
+    if (tool.children?.length) flat.push(...flattenToolEntries(tool.children))
+  }
+  return flat
+}
+
+// A lane names the kind of agent that was spawned, or the generic noun when
+// the call did not name one. What it was sent to do rides alongside as the
+// row's object (`toolObject`), so a fan-out of four Explore agents stays four
+// distinguishable rows rather than four identical ones.
+export function subagentLaneLabel(tool: TranscriptToolEntry): string {
+  const subagentType = tool.subagentType?.trim()
+  return subagentType ? `${subagentType} agent` : 'Agent'
 }
 
 export function activeConversationStage(entries: TranscriptEntry[], activeTurn: boolean): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
@@ -604,14 +696,27 @@ export function deriveConversationTimelineRows(
 
   if (stage !== 'idle' && !pendingApproval) {
     const runningTool = [...entries].reverse().find(
-      (entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool' && entry.status === 'running',
+      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running',
     )
+    // Fan-out is the headline: while background agents run, the live line
+    // counts them instead of naming whichever tool happened to start last.
+    const runningLanes = entries.filter(
+      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running' && entry.subagentLane === true,
+    )
+    const laneLabel =
+      runningLanes.length > 1
+        ? `${runningLanes.length} agents working…`
+        : runningLanes[0]
+          ? `${subagentLaneLabel(runningLanes[0])} working…`
+          : undefined
     const label =
-      stage === 'tool' && runningTool
-        ? `${toolVerb(runningTool.name, true)}${toolObject(runningTool) ? ` ${toolObject(runningTool)}` : ''}…`
-        : stage === 'responding'
-          ? 'Replying…'
-          : 'Thinking…'
+      stage === 'tool' && laneLabel
+        ? laneLabel
+        : stage === 'tool' && runningTool
+          ? `${toolVerb(runningTool.name, true)}${toolObject(runningTool) ? ` ${toolObject(runningTool)}` : ''}…`
+          : stage === 'responding'
+            ? 'Replying…'
+            : 'Thinking…'
     rows.push({
       kind: 'working',
       id: 'working-indicator-row',
@@ -2469,18 +2574,21 @@ function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?:
 // a big turn cannot flood the transcript with unbounded rows.
 const MAX_VISIBLE_WORK_STEPS = 12
 
-function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind: 'tool' }>[]; live: boolean }) {
+export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; live: boolean }) {
   const [open, setOpen] = useState(true)
   const [showAllSteps, setShowAllSteps] = useState(false)
   const hiddenSteps = showAllSteps ? 0 : Math.max(0, tools.length - MAX_VISIBLE_WORK_STEPS)
   const visibleTools = hiddenSteps > 0 ? tools.slice(hiddenSteps) : tools
+  // Steps inside subagent lanes are real work: they count toward the header
+  // total and keep the turn "working" while a background agent is still going.
+  const allSteps = flattenToolEntries(tools)
   const first = tools[0]
-  const lastDone = [...tools].reverse().find((tool) => tool.completedAt !== undefined)
+  const lastDone = [...allSteps].reverse().find((tool) => tool.completedAt !== undefined)
   const elapsedMs =
     first?.startedAt !== undefined && lastDone?.completedAt !== undefined
       ? Math.max(0, lastDone.completedAt - first.startedAt)
       : undefined
-  const working = live || tools.some((tool) => tool.status === 'running')
+  const working = live || allSteps.some((tool) => tool.status === 'running')
   return (
     <div className="mb-3">
       <button
@@ -2497,7 +2605,7 @@ function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind:
         ) : (
           <span className="tabular-nums">
             {elapsedMs !== undefined ? `Worked for ${formatStepDuration(elapsedMs)} · ` : ''}
-            {tools.length} {tools.length === 1 ? 'step' : 'steps'}
+            {allSteps.length} {allSteps.length === 1 ? 'step' : 'steps'}
           </span>
         )}
       </button>
@@ -2513,7 +2621,7 @@ function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind:
             </button>
           ) : null}
           {visibleTools.map((tool) => (
-            <WorkStep key={tool.id} tool={tool} />
+            <WorkTimelineStep key={tool.id} tool={tool} />
           ))}
         </div>
       ) : null}
@@ -2521,7 +2629,101 @@ function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind:
   )
 }
 
-function WorkStep({ tool }: { tool: Extract<TranscriptEntry, { kind: 'tool' }> }) {
+// A spawned agent gets a lane; everything else is a plain step.
+function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
+  return tool.subagentLane ? <SubagentLane tool={tool} /> : <WorkStep tool={tool} />
+}
+
+// A background agent the model spawned: a lane header that stays live for the
+// agent's real duration, over its own rail of the steps that ran inside it.
+// Concurrent agents are sibling lanes in the parent rail, each counting its own
+// time — the fan-out is the most differentiating thing on screen, so it is
+// never flattened into one anonymous "Task" row.
+const MAX_VISIBLE_LANE_STEPS = 6
+
+function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
+  const running = tool.status === 'running'
+  // A live lane mounts open so its work is visible while it happens; a lane
+  // replayed from history mounts collapsed and stays where the user leaves it.
+  const [open, setOpen] = useState(running)
+  const [showAllSteps, setShowAllSteps] = useState(false)
+  const children = tool.children ?? []
+  const hiddenSteps = showAllSteps ? 0 : Math.max(0, children.length - MAX_VISIBLE_LANE_STEPS)
+  const visibleChildren = hiddenSteps > 0 ? children.slice(hiddenSteps) : children
+  // What the model sent this agent to do; the lane's own steps are the rail
+  // beneath it, so the header does not repeat their count.
+  const object = toolObject(tool)
+  const durationMs =
+    tool.startedAt !== undefined && tool.completedAt !== undefined
+      ? Math.max(0, tool.completedAt - tool.startedAt)
+      : undefined
+  // Steps only appear once the agent reports its first tool call, so a lane
+  // with none yet is a plain row rather than an expander onto nothing.
+  const expandable = children.length > 0
+  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-[3px] text-left text-[12px] ${
+    running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
+  }`
+  const header = (
+    <>
+      <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[9px]" />
+      {expandable ? (
+        <ChevronRightGlyph
+          className={`icon-xs shrink-0 self-center text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+      ) : null}
+      <span className="shrink-0 font-medium text-[color:var(--text-default)]">{subagentLaneLabel(tool)}</span>
+      {object ? (
+        <TruncatedText
+          as="span"
+          text={running ? `${object}…` : object}
+          className="min-w-0 text-[11.5px] text-[color:var(--text-muted)]"
+        />
+      ) : null}
+      <span className="ml-auto shrink-0 pl-2 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+        {running ? (
+          tool.startedAt !== undefined ? <LiveElapsed startedAt={tool.startedAt} /> : 'running'
+        ) : durationMs !== undefined ? (
+          formatStepDuration(durationMs)
+        ) : null}
+      </span>
+      {running ? <span className="sr-only">running</span> : null}
+    </>
+  )
+  return (
+    <div>
+      {expandable ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className={`${headerClass} transition-colors hover:bg-[color:var(--bg-hover)]`}
+        >
+          {header}
+        </button>
+      ) : (
+        <div className={headerClass}>{header}</div>
+      )}
+      {open && expandable ? (
+        <div className="ml-[7px] mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
+          {hiddenSteps > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllSteps(true)}
+              className="self-start rounded-md px-2 py-[3px] text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+            >
+              Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
+            </button>
+          ) : null}
+          {visibleChildren.map((child) => (
+            <WorkTimelineStep key={child.id} tool={child} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
   const running = tool.status === 'running'
   const object = toolObject(tool)
   const durationMs =

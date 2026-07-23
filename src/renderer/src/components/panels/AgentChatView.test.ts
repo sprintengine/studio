@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { ConversationEvent, ConversationEventType } from '../../../../shared/conversation-runtime'
 import {
   activeConversationStage,
   deriveConversationTimelineRows,
+  flattenToolEntries,
   formatStepDuration,
   isAuthShapedFailure,
   isConversationBusy,
@@ -12,10 +15,13 @@ import {
   projectConversation,
   readinessLabel,
   stopDisabledForPending,
+  subagentLaneLabel,
   toolObject,
   toolVerb,
+  WorkTimeline,
   type ConversationTimelineRow,
   type TranscriptEntry,
+  type TranscriptToolEntry,
 } from './AgentChatView'
 
 let seq = 0
@@ -486,5 +492,127 @@ const apiKeyAuth = projectConversation([
   ev('session_updated', { providerSessionId: 'cli-2' }),
 ])
 assert.equal(apiKeyAuth.apiKeySource, 'ANTHROPIC_API_KEY', 'latest reported source wins; cursor-only updates keep it')
+
+// --- subagent lanes: parent-linked tool events nest under their Task lane ---
+
+const LANE_TURN = 'turn-lane'
+const fanOutEvents: ConversationEvent[] = [
+  ev('turn_started', { turnId: LANE_TURN }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'lane-a', tool: 'Task', summary: 'Task: map the reducer', subagentLane: true, subagentType: 'Explore' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'lane-b', tool: 'Task', summary: 'Task: audit the IPC', subagentLane: true, subagentType: 'general-purpose' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'a1', tool: 'Read', summary: 'Read: src/a.ts', parentToolUseId: 'lane-a' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'b1', tool: 'Grep', summary: 'Grep: conversation', parentToolUseId: 'lane-b' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'a1', output: 'file body', parentToolUseId: 'lane-a' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'top-1', tool: 'Bash', summary: 'Bash: npm test' }),
+]
+const fanOut = projectConversation(fanOutEvents)
+const laneTools = fanOut.entries.filter((entry): entry is TranscriptToolEntry => entry.kind === 'tool')
+assert.deepEqual(
+  laneTools.map((tool) => tool.id),
+  ['lane-a', 'lane-b', 'top-1'],
+  'child tool calls leave the top level and nest under their lane'
+)
+const laneA = laneTools[0]
+assert.equal(laneA?.subagentLane, true)
+assert.equal(laneA?.subagentType, 'Explore')
+assert.equal(laneA?.status, 'running', 'a lane stays running until its own tool_output arrives')
+assert.deepEqual(laneA?.children?.map((child) => child.id), ['a1'])
+assert.equal(laneA?.children?.[0]?.status, 'done', 'a child closes on its own parent-linked output')
+assert.deepEqual(laneTools[1]?.children?.map((child) => child.id), ['b1'])
+assert.equal(laneTools[2]?.subagentLane, undefined, 'ordinary top-level tools are untouched')
+assert.equal(flattenToolEntries(laneTools).length, 5, 'lane children count as real steps')
+assert.equal(subagentLaneLabel(laneA as TranscriptToolEntry), 'Explore agent')
+assert.equal(subagentLaneLabel(laneTools[1] as TranscriptToolEntry), 'general-purpose agent')
+
+// Two lanes running at once are reported as a fan-out, not as the last tool.
+const fanOutRows = deriveConversationTimelineRows(fanOut.entries, fanOut.activeTurn)
+assert.equal(row(fanOutRows, 'working').label, '2 agents working…')
+assert.equal(row(fanOutRows, 'assistant').tools.length, 3, 'the turn row carries lanes, not flattened children')
+
+// One lane closed: the other still names itself, and the closed lane keeps its
+// real duration (start → its own output), not a child's stamp.
+const laneClosed = projectConversation([
+  ...fanOutEvents,
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'lane-b', output: 'audit done' }),
+])
+const closedLaneRows = deriveConversationTimelineRows(laneClosed.entries, laneClosed.activeTurn)
+assert.equal(row(closedLaneRows, 'working').label, 'Explore agent working…')
+const closedLane = laneClosed.entries.find(
+  (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.id === 'lane-b'
+)
+assert.equal(closedLane?.status, 'done')
+assert.ok(
+  closedLane?.startedAt !== undefined
+    && closedLane.completedAt !== undefined
+    && closedLane.completedAt > closedLane.startedAt,
+  'a lane spans from its spawn to its own completion'
+)
+
+// A lane without a subagentLane flag is still a lane once children link to it,
+// and a child whose parent never arrived stays visible at the top level.
+const impliedLane = projectConversation([
+  ev('turn_started', { turnId: 'turn-implied' }),
+  ev('tool_started', { turnId: 'turn-implied', toolCallId: 'p1', tool: 'Task', summary: 'Task: investigate' }),
+  ev('tool_started', { turnId: 'turn-implied', toolCallId: 'p1c', tool: 'Read', summary: 'Read: src/x.ts', parentToolUseId: 'p1' }),
+  ev('tool_started', { turnId: 'turn-implied', toolCallId: 'orphan', tool: 'Read', summary: 'Read: src/y.ts', parentToolUseId: 'missing' }),
+])
+const impliedTools = impliedLane.entries.filter((entry): entry is TranscriptToolEntry => entry.kind === 'tool')
+assert.deepEqual(impliedTools.map((tool) => tool.id), ['p1', 'orphan'])
+assert.equal(impliedTools[0]?.subagentLane, true, 'having children is enough to be a lane')
+assert.equal(subagentLaneLabel(impliedTools[0] as TranscriptToolEntry), 'Agent', 'an untyped lane falls back to the generic noun')
+assert.equal(toolObject(impliedTools[0] as TranscriptToolEntry), 'investigate', 'the spawn summary is the lane object')
+assert.equal(impliedTools[1]?.children, undefined, 'an orphaned child renders rather than disappearing')
+
+// Output without a call id closes the latest call in its own lane only.
+const idlessOutput = projectConversation([
+  ev('turn_started', { turnId: 'turn-idless' }),
+  ev('tool_started', { turnId: 'turn-idless', toolCallId: 'lane-c', tool: 'Task', summary: 'Task: check', subagentLane: true }),
+  ev('tool_started', { turnId: 'turn-idless', toolCallId: 'c1', tool: 'Read', summary: 'Read: src/z.ts', parentToolUseId: 'lane-c' }),
+  ev('tool_output', { turnId: 'turn-idless', output: 'child done', parentToolUseId: 'lane-c' }),
+])
+const idlessLane = idlessOutput.entries.find(
+  (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.id === 'lane-c'
+)
+assert.equal(idlessLane?.status, 'running', 'a child output never closes its parent lane')
+assert.equal(idlessLane?.children?.[0]?.status, 'done')
+
+// --- the work timeline renders lanes as live rows, children nested ---------
+
+const laneMarkup = renderToStaticMarkup(
+  createElement(WorkTimeline, { tools: laneTools, live: true })
+)
+assert.ok(laneMarkup.includes('Explore agent'), 'a running lane names the agent that was spawned')
+assert.ok(laneMarkup.includes('general-purpose agent'), 'concurrent lanes both render')
+assert.ok(laneMarkup.includes('map the reducer'), 'a lane says what its agent was sent to do')
+assert.ok(laneMarkup.includes('audit the IPC'), 'same-type lanes stay distinguishable by their task')
+assert.ok(laneMarkup.includes('src/a.ts'), 'a live lane shows the steps running inside it')
+assert.equal(
+  (laneMarkup.match(/aria-expanded="true"/g) ?? []).length,
+  3,
+  'the turn timeline and both live lanes mount expanded'
+)
+assert.ok(laneMarkup.includes('Working'), 'the turn header stays live while lanes run')
+assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
+
+// The same fan-out, finished: the turn counts every step including the ones
+// that ran inside the lanes, and replayed lanes mount collapsed.
+const finishedFanOut = projectConversation([
+  ...fanOutEvents,
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'b1', output: 'hits', parentToolUseId: 'lane-b' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'lane-a', output: 'mapped' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'lane-b', output: 'audited' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'top-1', output: '2 passing' }),
+  ev('turn_completed', { turnId: LANE_TURN }),
+])
+const doneLaneMarkup = renderToStaticMarkup(
+  createElement(WorkTimeline, {
+    tools: finishedFanOut.entries.filter((entry): entry is TranscriptToolEntry => entry.kind === 'tool'),
+    live: false,
+  })
+)
+assert.ok(doneLaneMarkup.includes('5 steps'), 'the turn header counts lane children as real steps')
+assert.ok(doneLaneMarkup.includes('general-purpose agent'), 'a finished lane keeps its identity')
+assert.ok(!doneLaneMarkup.includes('src/a.ts'), 'a finished lane replayed from history mounts collapsed')
+assert.ok(!doneLaneMarkup.includes('>running<'), 'nothing claims to be running once the fan-out is done')
 
 console.log('AgentChatView.test.ts: ok')
