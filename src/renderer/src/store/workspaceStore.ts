@@ -312,6 +312,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
       guidedBriefState?: GuidedBriefRuntimeState | null
       reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
+      // Executor-triggered creation: skip the door-surface clear (MC-1833).
+      background?: boolean
       windowId?: WorkspaceWindowId | null
     }
   ) => WorkspaceId

@@ -979,5 +979,29 @@ assert.equal(
   null,
   'addWorkspace clears the active surface (switchboard reuse early-return)',
 )
+// A BACKGROUND create (the automation executor's hidden host) must leave an
+// open door alone — only operator-initiated creation dismisses the surface.
+useWorkspaceStore.getState().openGlobalSurface('roadmap')
+useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Executor-created host',
+  folderPath: '/Users/example/executor-host',
+  background: true,
+})
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  'roadmap',
+  'a background create leaves the door the operator is reading untouched',
+)
+useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
+  folderPath: '/Users/example/door-chat',
+  mode: 'switchboard',
+  background: true,
+})
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  'roadmap',
+  'a background reuse early-return leaves it untouched as well',
+)
+useWorkspaceStore.getState().closeGlobalSurface()
 
 console.log('workspacesSlice.test.ts: ok')

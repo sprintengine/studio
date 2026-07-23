@@ -311,6 +311,11 @@ export interface WorkspacesSliceActions {
       // the new workspace for the guide run to consume.
       reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
+      // Externally-triggered creation (the automation executor's hidden host):
+      // it must not dismiss whatever the operator is reading, so a background
+      // create skips the door-surface clear that user-initiated creation does
+      // (MC-1833). activeWorkspaceId assignment is unchanged either way.
+      background?: boolean
       windowId?: WorkspaceWindowId | null
       // Open-in-new-chat seed for the single-agent "solo chat" template. The UI
       // builds a data-only descriptor so this slice never imports specialist or
@@ -1025,8 +1030,9 @@ export function createWorkspacesSlice(
           existingSwitchboard.folderMissing = false
           state.activeWorkspaceId = existingSwitchboard.id
           // Activation always dismisses a door-routed surface (epic 1704) —
-          // otherwise the workspace opens behind the door's opaque layer.
-          state.activeGlobalSurface = null
+          // otherwise the workspace opens behind the door's opaque layer. A
+          // background create (automation executor) leaves the door alone.
+          if (!options?.background) state.activeGlobalSurface = null
           const targetWindow = ensureWorkspaceWindow(
             state,
             options?.windowId ?? findWorkspaceWindow(state, existingSwitchboard.id)?.id ?? targetWindowId,
@@ -1060,7 +1066,7 @@ export function createWorkspacesSlice(
           id = existingAutomationsHost.id
           existingAutomationsHost.folderMissing = false
           state.activeWorkspaceId = existingAutomationsHost.id
-          state.activeGlobalSurface = null
+          if (!options?.background) state.activeGlobalSurface = null
           const targetWindow = ensureWorkspaceWindow(
             state,
             options?.windowId ?? findWorkspaceWindow(state, existingAutomationsHost.id)?.id ?? targetWindowId,
@@ -1266,7 +1272,7 @@ export function createWorkspacesSlice(
           )
         }
         state.activeWorkspaceId = id
-        state.activeGlobalSurface = null
+        if (!options?.background) state.activeGlobalSurface = null
         const targetWindow = ensureWorkspaceWindow(
           state,
           targetWindowId,

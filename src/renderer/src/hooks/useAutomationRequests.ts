@@ -356,6 +356,9 @@ function createWorkspace(
     // A mode-typed create may also REUSE an existing same-folder workspace of
     // that mode (automations-host, switchboard) instead of minting one.
     mode: request.mode,
+    // Executor-triggered, not operator-triggered: creating (or reusing) the
+    // hidden host must not close a door surface the operator is reading.
+    background: true,
   })
   // Report the actual mode from the registry: main restores restart-survivor
   // workspaces as 'standard' routing placeholders, so a reused host's mode is
