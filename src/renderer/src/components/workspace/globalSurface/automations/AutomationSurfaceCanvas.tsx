@@ -15,10 +15,12 @@ import {
 } from '../../../panels/AutomationsPanel/automationsFormat'
 import { projectLabel } from './railState'
 
-// The selected automation's canvas (mockup §3): a "Recent runs" timeline and a
-// plain-language "What it does" panel. The surface bar above already carries the
-// name, on/paused state, schedule, and Run now / Edit, so this canvas is purely
-// "what happened" and "what it is" — no name or status is repeated here. Run
+// The selected automation's canvas (mockup §3): the definition facts first —
+// Trigger / Project / What runs / Prompt, unlabeled, a stable frame that never
+// shifts as the selection changes — then the "Recent runs" timeline below. The
+// surface bar above already carries the name, on/paused state, schedule, and
+// Run now / Edit, so this canvas is purely "what it is" and "what happened" —
+// no name or status is repeated here. Run
 // history + finalize come from the shared `useAutomationRunHistory` hook, scoped
 // to this entry's own store root, so a cross-project surface reads each
 // automation from the project it lives in.
@@ -62,6 +64,32 @@ export function AutomationSurfaceCanvas({
   return (
     <div className="h-full min-h-0 overflow-y-auto px-6 py-5">
       <div className="flex max-w-[720px] flex-col gap-4">
+        {/* The definition facts lead, unlabeled — they are the stable frame, so
+            swapping between automations never jumps the layout the way the
+            variable-height run list would. What happened comes after. */}
+        <div>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 py-1 text-[12px]">
+            <WhatRow label="Trigger" value={cadenceSummary(definition.trigger)} />
+            <WhatRow label="Project" value={projectLabel(workspaceRoot)} />
+            <WhatRow label="What runs" value={`${actionLabel(definition.action.kind)} · ${autonomy}`} />
+          </dl>
+          {prompt ? (
+            <div className="flex flex-col gap-1 pt-1.5">
+              <span className="text-[12px] text-[color:var(--text-subtle)]">Prompt</span>
+              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
+                {prompt}
+              </p>
+            </div>
+          ) : null}
+          {command ? (
+            <div className="flex flex-col gap-1 pt-1.5">
+              <span className="text-[12px] text-[color:var(--text-subtle)]">Command</span>
+              <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-mono text-[11.5px] leading-5 text-[color:var(--text-default)]">
+                {command}
+              </p>
+            </div>
+          ) : null}
+        </div>
         <Section
           title="Recent runs"
           count={state === 'ready' ? runs.length : undefined}
@@ -99,29 +127,6 @@ export function AutomationSurfaceCanvas({
           )}
         </Section>
 
-        <Section title="What it does">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 py-1 text-[12px]">
-            <WhatRow label="Trigger" value={cadenceSummary(definition.trigger)} />
-            <WhatRow label="Project" value={projectLabel(workspaceRoot)} />
-            <WhatRow label="What runs" value={`${actionLabel(definition.action.kind)} · ${autonomy}`} />
-          </dl>
-          {prompt ? (
-            <div className="flex flex-col gap-1 pt-1.5">
-              <span className="text-[12px] text-[color:var(--text-subtle)]">Prompt</span>
-              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
-                {prompt}
-              </p>
-            </div>
-          ) : null}
-          {command ? (
-            <div className="flex flex-col gap-1 pt-1.5">
-              <span className="text-[12px] text-[color:var(--text-subtle)]">Command</span>
-              <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-mono text-[11.5px] leading-5 text-[color:var(--text-default)]">
-                {command}
-              </p>
-            </div>
-          ) : null}
-        </Section>
       </div>
     </div>
   )
