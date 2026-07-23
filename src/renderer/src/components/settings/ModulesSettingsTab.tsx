@@ -146,7 +146,7 @@ export function ModulesSettingsTab() {
     (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED
   )
   const setSpecialistPackEnabled = useWorkspaceStore((s) => s.setSpecialistPackEnabled)
-  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
   const packs = React.useMemo(
     () => listSpecialistPacks(sprintEngineRoleRegistry),
@@ -225,7 +225,7 @@ export function ModulesSettingsTab() {
             </p>
             <GhostButton
               size="md"
-              onClick={() => openConnectorsSurface({ view: 'browse' })}
+              onClick={() => openExtensionsSurface({ view: 'browse' })}
               className="h-9"
             >
               Browse marketplace

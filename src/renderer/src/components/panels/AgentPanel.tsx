@@ -190,7 +190,7 @@ export default function AgentPanel({
   const workspaceFolderPath = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
   )
-  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const [skillPickerOpen, setSkillPickerOpen] = useState(false)
   const isWorktreeAgent = agent?.execution.mode === 'worktree'
   const canUseSkill =
@@ -325,7 +325,7 @@ export default function AgentPanel({
                 onOpenChange={setSkillPickerOpen}
                 workspaceRoot={workspaceFolderPath}
                 onPick={(skill) => void useSkillInTerminal(skill)}
-                onManageSkills={() => openConnectorsSurface({ view: 'installed' })}
+                onManageSkills={() => openExtensionsSurface({ view: 'installed' })}
                 placement="bottom-end"
                 renderTrigger={({ ref, triggerProps, togglePopover, open }) => (
                   <Tooltip content="Use a skill — inserts the invocation at the prompt" placement="bottom">

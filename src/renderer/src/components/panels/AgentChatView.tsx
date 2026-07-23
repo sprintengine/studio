@@ -1313,7 +1313,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // stays literal; cleared once the draft no longer starts with '/'.
   const [slashDismissed, setSlashDismissed] = useState(false)
   const slashPickerRef = useRef<InlineSkillPickerHandle | null>(null)
-  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const openExtensionsSurface = useWorkspaceStore((s) => s.openExtensionsSurface)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -2241,7 +2241,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                   onOpenChange={setSkillsMenuOpen}
                   workspaceRoot={workspaceRoot}
                   onPick={applySkillPick}
-                  onManageSkills={() => openConnectorsSurface({ view: 'installed' })}
+                  onManageSkills={() => openExtensionsSurface({ view: 'installed' })}
                 />
               ) : null}
               <ModelPickerPill

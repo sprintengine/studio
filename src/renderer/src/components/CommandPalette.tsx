@@ -105,7 +105,7 @@ export default function CommandPalette({
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const selectedRowRef = useRef<HTMLDivElement>(null)
-  const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile, openConnectorsSurface } = useWorkspaceStore()
+  const { setActiveWorkspaceForWindow, addWorkspace, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
   const specialistOrder = useWorkspaceStore((state) => state.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
@@ -325,7 +325,7 @@ export default function CommandPalette({
     ].map((command) => ({ ...command, group: 'commands' as const }))
 
     // Skills: built-in skills first, then installed skill packs. Both route to
-    // the Connectors surface (their management home) on select.
+    // the Extensions door (their management home) on select.
     const skillCommands: Command[] = [
       ...builtinSkills.map((skill) => ({
         id: `skill-${skill.id}`,
@@ -333,7 +333,7 @@ export default function CommandPalette({
         description: skill.description,
         group: 'skills' as const,
         run: () => {
-          openConnectorsSurface()
+          openExtensionsSurface()
           onClose()
         },
       })),
@@ -343,7 +343,7 @@ export default function CommandPalette({
         description: pack.description ?? pack.category,
         group: 'skills' as const,
         run: () => {
-          openConnectorsSurface()
+          openExtensionsSurface()
           onClose()
         },
       })),
@@ -466,7 +466,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openConnectorsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkillPacks, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkillPacks, specialistActions])
 
   // Matches are ordered by group so the arrow keys traverse the same top-to-
   // bottom order the grouped list renders in. With no query each group shows a

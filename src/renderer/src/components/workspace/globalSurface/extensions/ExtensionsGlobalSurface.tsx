@@ -151,7 +151,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   // ── Bar ────────────────────────────────────────────────────────────────────
   const bar: GlobalSurfaceBar = {
-    title: 'Connectors',
+    title: 'Extensions',
     // Status is earned: the chip appears only when something is launchable.
     statusChip:
       catalogSettled && readyCount > 0 ? (
@@ -282,7 +282,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   const rail = (
     <SurfaceRail
-      label="Connectors"
+      label="Extensions"
       rows={rows}
       groups={groups}
       selectedId={selectedRailId}
@@ -329,7 +329,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   return (
     <GlobalSurfaceShell
-      ariaLabel="Connectors"
+      ariaLabel="Extensions"
       bar={bar}
       rail={rail}
       onBack={back.onBack}

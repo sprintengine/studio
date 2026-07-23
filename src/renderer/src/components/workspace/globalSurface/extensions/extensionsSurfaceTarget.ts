@@ -1,5 +1,5 @@
-// The deep-link latch for the Extensions door (MC-1847 B1). The modal's
-// `openConnectorsSurface({ view })` callers — the command palette, Settings →
+// The deep-link latch for the Extensions door (MC-1847 B1). The modal-era
+// `openExtensionsSurface({ view })` callers — the command palette, Settings →
 // Modules, and the agent "Manage skills" footers — become "open the door and
 // land on this rail row", but the door may open a tick before the surface
 // mounts and subscribes. So, exactly like the automations surface-target latch,

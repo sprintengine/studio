@@ -7,7 +7,8 @@ import { consumePendingExtensionsSurfaceTarget } from './extensionsSurfaceTarget
 // agent-runtime core through the sidebar-nav host contribution point. It
 // replaces the hardcoded Connectors sidebar button at the same slot (order 30):
 // instead of floating the modal it opens the door-routed full-page surface,
-// like every other door. Label stays "Connectors" until the D1 rename sweep.
+// like every other door. "Extensions" per the D1 rename — "connector" survives
+// only as the kind-name for launchable MCP entries inside the surface.
 export function ExtensionsNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   const active = useWorkspaceStore((s) => s.activeGlobalSurface === 'extensions')
@@ -15,9 +16,9 @@ export function ExtensionsNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
     <SidebarNavButton
       collapsed={collapsed}
       icon={<ExtensionsNavIcon className="icon-sm pointer-events-none shrink-0" />}
-      label="Connectors"
-      ariaLabel="Connectors"
-      tooltip="Connectors"
+      label="Extensions"
+      ariaLabel="Extensions"
+      tooltip="Extensions"
       tooltipWhenExpanded
       active={active}
       onClick={() => {

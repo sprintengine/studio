@@ -1056,7 +1056,7 @@ export interface SettingsSliceActions {
   // this action used to float is gone, so every legacy caller — the command
   // palette, Settings → Modules, the agent "Manage skills" footers — lands on
   // the door with its deep-link latched. (Renamed in the D1 sweep.)
-  openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
+  openExtensionsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
   // The Roadmap door + the Backlog "Open Roadmap" affordance route here; a named
   // convenience over openGlobalSurface('roadmap') so every caller opens the same
   // door-routed full-page surface (global-surfaces epic 1704).
@@ -1258,7 +1258,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.workspaceAsideWidth = clampWorkspaceAsideWidth(width)
       }),
 
-    openConnectorsSurface: (opts) => {
+    openExtensionsSurface: (opts) => {
       // Latch the deep-link first (the door drains it on mount or live), then
       // open the door — the same order the automations deep-link uses. The
       // dispatch stays outside the producer so its synchronous listeners never

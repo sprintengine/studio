@@ -321,13 +321,13 @@ assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
 assert.deepEqual(carrier.settingsOverlay, { open: false, initialTab: null, checkForUpdatesRequestId: null })
 
-// openConnectorsSurface opens the Extensions DOOR (MC-1847 B1) — the modal and
+// openExtensionsSurface opens the Extensions DOOR (MC-1847 B1) — the modal and
 // its store flag are gone; closing is the door's own closeGlobalSurface. A
 // caller can sit inside the open settings overlay (Settings → Modules "Browse
 // marketplace"), and the door mounts UNDER the overlay, so opening the door
 // must also close Settings or the click reads as a dead button.
 carrier.settingsOverlay = { open: true, initialTab: 'modules', checkForUpdatesRequestId: null }
-slice.openConnectorsSurface()
+slice.openExtensionsSurface()
 assert.equal(carrier.activeGlobalSurface, 'extensions')
 assert.equal('connectorsSurface' in carrier, false, 'the modal-era store flag is gone')
 assert.equal(carrier.settingsOverlay.open, false, 'opening the door closes the settings overlay above it')
