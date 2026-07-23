@@ -2,14 +2,16 @@ import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
 
-// The Sprints door's composition contract (item 1763), asserted on the rendered
-// surface rather than on its parts: the Electron app cannot be driven headlessly,
-// so this stands up a real DOM, stubs only the run-index IPC, and mounts the
-// actual surface. It covers what unit tests on `railState` cannot — that the hook,
-// the ordering, the rail, the chips, the shell, and the canvas are wired to each
-// other: runs reach the rail from every project root, a needs-input run leads it,
-// the canvas opens on a selection, chips narrow the list, and "New sprint" emits
-// the request the shell listens for (never a no-op button).
+// The Sprints door's composition contract (items 1763 + 1764), asserted on the
+// rendered surface rather than on its parts: the Electron app cannot be driven
+// headlessly, so this stands up a real DOM, stubs the run-index and projection
+// IPC, and mounts the actual surface. It covers what unit tests on `railState`
+// cannot — that the hooks, the ordering, the rail, the chips, the shell, the
+// waiting strip, and the run canvas are wired to each other: runs reach the rail
+// from every project root, a needs-input run leads it, chips narrow the list,
+// "New sprint" emits the request the shell listens for, the multi-repo canvas
+// renders one card per declared repository with its merge order, and the
+// waiting strip jumps the rail to a DIFFERENT run than the selected one.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -70,11 +72,66 @@ function summary(over: Record<string, unknown> & { teamSlug: string; root?: stri
   }
 }
 
+function statePathOf(root: string, slug: string): string {
+  return `${root}/.multi-code/sprintengine/${slug}/run.yaml`
+}
+
+type RepoSpec = {
+  id: string
+  root: string
+  pr: number | null
+  state: 'merged' | 'open' | null
+}
+
+// A projection as `sprintengine:projection:read` hands it back: the run's declared
+// repositories and the tasks routed to each, which is all the canvas reads.
+function projection(input: {
+  name: string
+  repos: RepoSpec[]
+  /** taskId → [repo id, dependsOn] — the cross-repo edges merge order derives from. */
+  tasks: Array<{ id: string; repo: string; dependsOn: string[]; status?: string }>
+}): Record<string, unknown> {
+  return {
+    run: {
+      name: input.name,
+      goal: 'A goal',
+      vcs: {
+        mode: 'run_worktree',
+        worktreePath: '.multi-code/worktree',
+        branchName: `sprintengine/${input.name}`,
+        baseRef: 'main',
+        repos: input.repos.map((repo) => ({
+          id: repo.id,
+          root: repo.root,
+          worktreePath: `.multi-code/worktree/${repo.id}`,
+          branchName: `sprintengine/${input.name}`,
+          baseRef: 'main',
+          lastCommitSha: 'c0ffee',
+          pullRequestUrl: repo.pr === null ? null : `https://github.com/acme/${repo.id}/pull/${repo.pr}`,
+          pullRequestState: repo.state,
+        })),
+        declaredRepoCount: input.repos.length,
+      },
+    },
+    tasks: input.tasks.map((task) => ({
+      id: task.id,
+      title: `Task ${task.id}`,
+      role: 'developer',
+      status: task.status ?? 'done',
+      repo: task.repo,
+      dependsOn: task.dependsOn,
+    })),
+  }
+}
+
 let listed: RunSummary[] = []
 let listCalls = 0
 let lastRoots: string[] = []
+// statePath → the run's projection, as `sprintengine:projection:read` returns it.
+const projections = new Map<string, Record<string, unknown>>()
+const mergeCalls: Array<{ statePath: string; repo?: string }> = []
 
-anyGlobal.window.api = {
+const api: Record<string, unknown> = {
   platform: 'darwin',
   listSprintRuns: async (roots: string[]) => {
     listCalls += 1
@@ -82,7 +139,30 @@ anyGlobal.window.api = {
     return listed
   },
   onSprintRunsChanged: () => () => {},
+  readSprintEngineProjection: async (statePath: string) => {
+    const data = projections.get(statePath)
+    return data
+      ? { ok: true, data, token: 'token-1' }
+      : { ok: false, message: 'This run’s projection could not be read.' }
+  },
+  mergeSprintEnginePullRequest: async (statePath: string, repo?: string) => {
+    mergeCalls.push({ statePath, repo })
+    return { ok: true }
+  },
 }
+
+// The board mounts inside the canvas and reaches for a wide slice of the preload
+// API. Unstubbed members answer inertly rather than throwing, so this test stays
+// about the door's composition — subscriptions hand back an unsubscribe, calls
+// resolve to a refusal (never a fake success).
+anyGlobal.window.api = new Proxy(api, {
+  get: (target, prop: string) =>
+    prop in target
+      ? target[prop]
+      : prop.startsWith('on')
+        ? () => () => {}
+        : async () => ({ ok: false, message: 'not stubbed' }),
+})
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -94,6 +174,12 @@ async function main(): Promise<void> {
   const { default: SprintsGlobalSurface } = await import(
     './SprintsGlobalSurface'
   )
+  const { ConfirmDialogProvider } = await import('../../../ui/ConfirmDialog')
+
+  // The surface is mounted inside the app's confirm-dialog provider (merging is
+  // confirmed, never silent), so the test tree carries it too.
+  const surface = (): React.ReactElement =>
+    React.createElement(ConfirmDialogProvider, null, React.createElement(SprintsGlobalSurface))
 
   // Two projects open, so the run index gets two roots and the chip strip appears.
   useWorkspaceStore.setState({
@@ -111,7 +197,7 @@ async function main(): Promise<void> {
 
   async function mount(): Promise<void> {
     await act(async () => {
-      root.render(React.createElement(SprintsGlobalSurface))
+      root.render(surface())
     })
     await act(async () => {
       await Promise.resolve()
@@ -129,25 +215,85 @@ async function main(): Promise<void> {
   // ── Populated index → rail, ordering, chips, auto-selected canvas ─────────
   listed = [
     summary({ teamSlug: 'runner-hardening', runtimeState: 'completed', updatedAt: '2026-07-22T10:00:00Z' }),
+    // Still working, with branches out by design — never a waiting row.
     summary({
       teamSlug: 'wake-filter-sprint',
       runtimeState: 'running',
       taskCounts: { total: 9, done: 4, inProgress: 1, waiting: 4 },
+      repoRollup: { declared: 2, merged: 0, open: 2 },
     }),
     summary({
       teamSlug: 'relay-traffic',
       root: mobileRoot,
       runtimeState: 'needs_input',
       needsInputCount: 2,
-      repoRollup: { declared: 2, merged: 0, open: 1 },
+      repoRollup: { declared: 1, merged: 0, open: 1 },
+    }),
+    // The post-merge-hardening shape: three repositories, two landed, one still
+    // out — completed, but NOT landed.
+    summary({
+      teamSlug: 'post-merge-hardening',
+      runtimeState: 'completed',
+      updatedAt: '2026-07-23T10:00:00Z',
+      taskCounts: { total: 30, done: 30, inProgress: 0, waiting: 0 },
+      repoRollup: { declared: 3, merged: 2, open: 1 },
+    }),
+    // The same span, but the sibling that must land first is still open — so the
+    // last leg is blocked rather than merge-ready.
+    summary({
+      teamSlug: 'chained-auth',
+      runtimeState: 'completed',
+      updatedAt: '2026-07-21T10:00:00Z',
+      repoRollup: { declared: 3, merged: 1, open: 2 },
     }),
   ]
+  // One repository, no merge order to speak of.
+  projections.set(
+    statePathOf(mobileRoot, 'relay-traffic'),
+    projection({
+      name: 'relay-traffic',
+      repos: [{ id: 'primary', root: '.', pr: 12, state: 'open' }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'needs_input' }],
+    }),
+  )
+  projections.set(
+    statePathOf(projectRoot, 'post-merge-hardening'),
+    projection({
+      name: 'post-merge-hardening',
+      repos: [
+        { id: 'primary', root: '.', pr: 204, state: 'merged' },
+        { id: 'multiauth', root: '/work/multiauth', pr: 48, state: 'merged' },
+        { id: 'multicode-mobile', root: mobileRoot, pr: 61, state: 'open' },
+      ],
+      tasks: [
+        { id: 'T1', repo: 'primary', dependsOn: [] },
+        { id: 'T2', repo: 'multiauth', dependsOn: ['T1'] },
+        { id: 'T3', repo: 'multicode-mobile', dependsOn: ['T2'] },
+      ],
+    }),
+  )
+  projections.set(
+    statePathOf(projectRoot, 'chained-auth'),
+    projection({
+      name: 'chained-auth',
+      repos: [
+        { id: 'primary', root: '.', pr: 300, state: 'merged' },
+        { id: 'multiauth', root: '/work/multiauth', pr: 51, state: 'open' },
+        { id: 'multicode-mobile', root: mobileRoot, pr: 70, state: 'open' },
+      ],
+      tasks: [
+        { id: 'T1', repo: 'primary', dependsOn: [] },
+        { id: 'T2', repo: 'multiauth', dependsOn: ['T1'] },
+        { id: 'T3', repo: 'multicode-mobile', dependsOn: ['T2'] },
+      ],
+    }),
+  )
   await act(async () => {
     root.unmount()
   })
   const root2 = createRoot(container)
   await act(async () => {
-    root2.render(React.createElement(SprintsGlobalSurface))
+    root2.render(surface())
   })
   await act(async () => {
     await Promise.resolve()
@@ -159,19 +305,33 @@ async function main(): Promise<void> {
   assert.ok(rail, 'rail is present once runs load')
 
   const rows = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li')]
-  assert.equal(rows.length, 3, 'every run lists')
+  assert.equal(rows.length, 5, 'every run lists')
   // needs_input outranks everything, including the newer completed run.
   assert.ok(rows[0]?.textContent?.includes('relay-traffic'), 'needs-input run leads the rail')
   assert.ok(rows[0]?.textContent?.includes('needs your input'), 'and flags why')
   assert.ok(rows[1]?.textContent?.includes('wake-filter-sprint'), 'running run is second')
   assert.ok(rows[1]?.textContent?.includes('running · 4 of 9 tasks'))
 
-  // Auto-selection opens on content: the leading (needs-input) run fills the canvas.
-  assert.ok(container.textContent?.includes('2 tasks need an answer'), 'canvas shows the selected run')
-  assert.ok(container.textContent?.includes('Waiting on you'), 'bar status chip')
+  // Auto-selection opens on content: the leading (needs-input) run fills the
+  // canvas — its own projection, not the index row.
   const selected = container.querySelector('li button[aria-current="true"]')
   assert.ok(selected?.textContent?.includes('relay-traffic'), 'rail marks the auto-selection')
+  assert.ok(container.textContent?.includes('Waiting on you'), 'bar status chip')
   console.log('ok - runs load, needs-input leads, and the canvas opens on the selected run')
+
+  // ── A single-repo run renders one Primary card and no merge order ─────────
+  const soloCards = [...container.querySelectorAll('section[aria-label="Repositories"] li')]
+  assert.equal(soloCards.length, 1, 'one card for a one-repository run')
+  assert.ok(soloCards[0]?.textContent?.includes('Primary'), 'entry zero is tagged Primary')
+  assert.ok(
+    !container.textContent?.includes('Merges after'),
+    'a single-repo run never renders a degenerate merge-order note',
+  )
+  assert.ok(
+    !container.textContent?.includes('merge order enforced'),
+    'nor the merge-order qualifier',
+  )
+  console.log('ok - single-repo run renders one Primary card with no merge order')
 
   // ── Project chips filter ─────────────────────────────────────────────────
   const chips = [...container.querySelectorAll('div[role="group"][aria-label="Filter sprints by project"] button')]
@@ -183,10 +343,22 @@ async function main(): Promise<void> {
   await act(async () => {
     ;(chips[1] as HTMLElement).click()
   })
-  const filteredRows = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li')]
-  assert.equal(filteredRows.length, 2, 'multicode chip narrows to that project')
-  assert.ok(!container.textContent?.includes('relay-traffic'), 'the mobile run drops out')
-  console.log('ok - project chips filter the rail')
+  const railList = container.querySelector('ul[role="list"][aria-label="Sprints"]')
+  const filteredRows = [...(railList?.querySelectorAll(':scope > li') ?? [])]
+  assert.equal(filteredRows.length, 4, 'multicode chip narrows to that project')
+  assert.ok(!railList?.textContent?.includes('relay-traffic'), 'the mobile run drops out of the rail')
+  // …but not out of "Waiting on you": the strip is the whole Multicode's inbox,
+  // and a project filter must never hide a run that is waiting on a person.
+  const waitingList = container.querySelector('ul[aria-label="Waiting on you"]')
+  assert.ok(
+    waitingList?.textContent?.includes('relay-traffic'),
+    'the filtered-out run still surfaces in the waiting strip',
+  )
+  console.log('ok - project chips filter the rail, never the waiting strip')
+
+  await act(async () => {
+    ;(chips[0] as HTMLElement).click()
+  })
 
   // ── "New sprint" really signals the shell ────────────────────────────────
   let newSprintRequests = 0
@@ -203,7 +375,112 @@ async function main(): Promise<void> {
   assert.equal(newSprintRequests, 1, 'New sprint dispatches the creation request the shell listens for')
   console.log('ok - New sprint dispatches a real creation request')
 
+  // ── The waiting strip jumps the rail to ANOTHER run ──────────────────────
+  const waitingRows = [...container.querySelectorAll('ul[aria-label="Waiting on you"] > li')]
+  assert.ok(waitingRows.length >= 2, 'both the parked run and the merge-ready run are waiting')
+  assert.ok(waitingRows[0]?.textContent?.includes('relay-traffic'), 'a question outranks a merge')
+  assert.ok(waitingRows[0]?.textContent?.includes('2 tasks need an answer'))
+  assert.ok(
+    !waitingRows.some((row) => row.textContent?.includes('wake-filter-sprint')),
+    'a run still working its plan is not waiting on anyone',
+  )
+  const mergeWaitingRow = waitingRows.find((row) => row.textContent?.includes('post-merge-hardening'))
+  assert.ok(mergeWaitingRow, 'the merge-ready run has a row of its own')
+  assert.ok(mergeWaitingRow?.textContent?.includes('one branch'), 'and says what is left')
+  await act(async () => {
+    ;(mergeWaitingRow?.querySelector('button') as HTMLElement).click()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  const nowSelected = container.querySelector('li button[aria-current="true"]')
+  assert.ok(
+    nowSelected?.textContent?.includes('post-merge-hardening'),
+    'clicking a waiting row selects that run in the rail',
+  )
+  console.log('ok - the waiting strip switches the rail to a different run')
+
+  // ── The multi-repo canvas (mockup §2 anatomy) ────────────────────────────
+  const cards = [...container.querySelectorAll('section[aria-label="Repositories"] li')]
+  assert.equal(cards.length, 3, 'one card per declared repository')
+  assert.ok(cards[0]?.textContent?.includes('Primary'), 'entry zero carries the Primary tag')
+  assert.ok(!cards[1]?.textContent?.includes('Primary'), 'and only entry zero')
+  // design-tokens-allow: a rendered pull-request number, not a colour literal
+  assert.ok(cards[0]?.textContent?.includes('PR #204 · Merged'), 'the primary landed')
+  assert.ok(cards[1]?.textContent?.includes('PR #48 · Merged'), 'so did multiauth')
+  assert.ok(cards[2]?.textContent?.includes('PR #61 · Open'), 'the last leg is still out')
+  assert.ok(container.textContent?.includes('merge order enforced'), 'the strip names the rule')
+  // Completed, but not landed: the rollup, not the flat PR state, decides (D10).
+  const bar = container.querySelector('h2')?.parentElement
+  assert.ok(bar?.textContent?.includes('Completed'), 'the run reads Completed')
+  assert.ok(!bar?.textContent?.includes('Landed'), 'and never Landed while a branch is out')
+  assert.ok(container.textContent?.includes('1 leg open'), 'the rollup names the open leg')
+  assert.ok(
+    container.textContent?.includes('Lands when multicode-mobile merges'),
+    'and names the project landing waits on',
+  )
+  const primaryAction = [...container.querySelectorAll('button')].find((b) =>
+    b.textContent?.startsWith('Merge remaining'),
+  )
+  assert.ok(primaryAction, 'the bar carries one truthful next step')
+  assert.equal(primaryAction?.textContent, 'Merge remaining · 1', 'counting what is actually left')
+  console.log('ok - the multi-repo canvas renders the post-merge-hardening shape')
+
+  // ── A blocked repo is pre-disabled and names its blocker ─────────────────
+  const chainedRow = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button')].find(
+    (b) => b.textContent?.includes('chained-auth'),
+  )
+  assert.ok(chainedRow, 'the chained run is in the rail')
+  await act(async () => {
+    ;(chainedRow as HTMLElement).click()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  const chainedCards = [...container.querySelectorAll('section[aria-label="Repositories"] li')]
+  assert.equal(chainedCards.length, 3, 'three repositories again')
+  const blockedCard = chainedCards[2]
+  assert.ok(blockedCard?.textContent?.includes('Merges after multiauth'), 'the blocker is named')
+  const blockedButton = [...(blockedCard?.querySelectorAll('button') ?? [])].find((b) =>
+    b.textContent?.includes('Merges after'),
+  ) as HTMLButtonElement | undefined
+  assert.ok(blockedButton, 'the blocked repo still shows its merge affordance')
+  assert.equal(blockedButton?.disabled, true, 'pre-disabled until its blocker merges')
+  // The unblocked sibling can merge — and merging goes through the engine, per repo.
+  const mergeButton = [...(chainedCards[1]?.querySelectorAll('button') ?? [])].find(
+    (b) => b.textContent === 'Merge',
+  ) as HTMLButtonElement | undefined
+  assert.ok(mergeButton, 'the unblocked repo offers Merge')
+  assert.equal(mergeButton?.disabled, false, 'and it is live')
+
+  // Merging is confirmed, then handed to the engine for THAT repo — the surface
+  // never merges anything itself and never force-merges.
+  await act(async () => {
+    ;(mergeButton as HTMLElement).click()
+  })
+  const confirmButton = [...dom.window.document.querySelectorAll('button')].find(
+    (b) => b.textContent === 'Merge' && b !== mergeButton,
+  )
+  assert.ok(confirmButton, 'merging asks first')
+  await act(async () => {
+    ;(confirmButton as HTMLElement).click()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  assert.deepEqual(
+    mergeCalls,
+    [{ statePath: statePathOf(projectRoot, 'chained-auth'), repo: 'multiauth' }],
+    'the engine merges that one repo, by id',
+  )
+  console.log('ok - merge order is pre-enforced, and merging goes through the engine per repo')
+
   assert.ok(listCalls >= 1, 'the index was actually read over IPC')
+  // Tear the surface down so the door's projection-refresh driver (and its
+  // interval) is disposed — a leaked driver would keep this process alive.
+  await act(async () => {
+    root2.unmount()
+  })
   console.log('all Sprints surface composition tests passed')
 }
 
