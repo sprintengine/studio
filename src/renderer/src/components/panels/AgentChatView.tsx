@@ -17,6 +17,7 @@ import type {
   ConversationApprovalKind,
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationQuestion,
   ConversationSessionStatus,
 } from '../../../../shared/conversation-runtime'
@@ -68,7 +69,15 @@ export type TranscriptToolEntry = {
 }
 
 export type TranscriptEntry =
-  | { kind: 'user'; id: string; text: string }
+  | {
+      kind: 'user'
+      id: string
+      text: string
+      // Images the user attached to this turn (D3/1774). Live-only: they come
+      // from the local send, never from the replayed transcript, so a bubble
+      // restored after a restart is text-only by design.
+      attachments?: ConversationImageAttachment[]
+    }
   | {
       kind: 'assistant'
       turnId: string
@@ -107,7 +116,7 @@ export type TranscriptEntry =
       answers?: Record<string, string>
     }
 
-export type UserTurn = { id: string; text: string }
+export type UserTurn = { id: string; text: string; attachments?: ConversationImageAttachment[] }
 
 export type ConversationProjection = {
   sessionStatus: ConversationSessionStatus | 'idle'
@@ -229,6 +238,16 @@ const SESSION_STATUS_BY_EVENT: Partial<Record<ConversationEvent['type'], Convers
   session_closed: 'stopped',
 }
 
+// Optimistic bubble for a send whose `user_message` event has not arrived yet.
+function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEntry, { kind: 'user' }> {
+  return {
+    kind: 'user',
+    id: userTurn.id,
+    text: userTurn.text,
+    ...(userTurn.attachments?.length ? { attachments: userTurn.attachments } : {}),
+  }
+}
+
 export function projectConversation(
   events: ConversationEvent[],
   userTurns: UserTurn[] = []
@@ -238,8 +257,16 @@ export function projectConversation(
   // User bubbles recorded in the event stream itself (persisted transcript);
   // when present these are authoritative and the locally tracked userTurns
   // only fill the optimistic gap between a send and its first event.
-  const eventUserTurns = new Map<string, { id: string; text: string }>()
+  const eventUserTurns = new Map<string, { id: string; text: string; localTurnId?: string }>()
   const representedLocalTurnIds = new Set<string>()
+  // Attachments are live-only (D3/1774): the persisted `user_message` event
+  // carries text alone, so the images a bubble shows are looked up from the
+  // local send that produced it. After a restart there is no local send and the
+  // replayed bubble is text-only — the documented v1 scope, not a silent drop.
+  const localAttachments = new Map<string, ConversationImageAttachment[]>()
+  for (const userTurn of userTurns) {
+    if (userTurn.attachments?.length) localAttachments.set(userTurn.id, userTurn.attachments)
+  }
   const approvals = new Map<string, Omit<Extract<TranscriptEntry, { kind: 'approval' }>, 'kind'>>()
   const approvalOrder: string[] = []
   // Every tool call of the session by call id. A subagent that finishes after
@@ -300,8 +327,12 @@ export function projectConversation(
       case 'user_message': {
         if (turnId) {
           ensureTurn(turnId)
-          eventUserTurns.set(turnId, { id: event.id, text: readString(event.payload, 'text') ?? '' })
           const localTurnId = readString(event.payload, 'localTurnId')
+          eventUserTurns.set(turnId, {
+            id: event.id,
+            text: readString(event.payload, 'text') ?? '',
+            ...(localTurnId ? { localTurnId } : {}),
+          })
           if (localTurnId) representedLocalTurnIds.add(localTurnId)
         }
         break
@@ -465,10 +496,18 @@ export function projectConversation(
     const turnId = turnOrder[i]
     const eventUserTurn = turnId ? eventUserTurns.get(turnId) : undefined
     if (useEventUserTurns) {
-      if (eventUserTurn) entries.push({ kind: 'user', id: eventUserTurn.id, text: eventUserTurn.text })
+      if (eventUserTurn) {
+        const attachments = eventUserTurn.localTurnId ? localAttachments.get(eventUserTurn.localTurnId) : undefined
+        entries.push({
+          kind: 'user',
+          id: eventUserTurn.id,
+          text: eventUserTurn.text,
+          ...(attachments ? { attachments } : {}),
+        })
+      }
     } else {
       const userTurn = userTurns[i]
-      if (userTurn) entries.push({ kind: 'user', id: userTurn.id, text: userTurn.text })
+      if (userTurn) entries.push(userEntryFromLocalTurn(userTurn))
     }
     if (!turnId) continue
     const turn = turns.get(turnId)
@@ -499,7 +538,7 @@ export function projectConversation(
   if (useEventUserTurns) {
     for (const userTurn of userTurns) {
       if (!representedLocalTurnIds.has(userTurn.id)) {
-        entries.push({ kind: 'user', id: userTurn.id, text: userTurn.text })
+        entries.push(userEntryFromLocalTurn(userTurn))
       }
     }
   }
@@ -861,6 +900,224 @@ export function deriveConversationTimelineRows(
   return rows
 }
 
+// ── Image attachments (D3/1774) ─────────────────────────────────────────────
+
+// The image media types the send-turn IPC boundary accepts (see
+// `parseImageAttachments` in main/ipc/conversation-ipc.ts) — the base64 image
+// set the Claude Agent SDK understands. Offering anything else here would only
+// buy the user a rejection one layer down.
+export const ATTACHABLE_IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+// Per-image decoded-byte ceiling the IPC boundary enforces. The composer
+// downscales toward it first and only refuses what still will not fit.
+export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+// Per-turn attachment cap the IPC boundary enforces.
+export const MAX_ATTACHMENTS_PER_TURN = 16
+// Longest edge kept when an image is resampled. Vision models stop gaining
+// detail past ~1568px on the long edge, so this is the token-cost choice as
+// much as the size guard.
+export const MAX_ATTACHMENT_EDGE = 1568
+// Re-encode quality for the JPEG fallback used when a resampled image is still
+// over the byte ceiling.
+const ATTACHMENT_JPEG_QUALITY = 0.82
+
+// Providers whose adapter actually composes image content blocks from a turn's
+// `attachments` — the claude-agent harness today (T2/D3). Every other provider
+// ignores the field, so the attach affordances stay hidden rather than offering
+// a control whose payload goes nowhere. Widening this set is a deliberate pair
+// with the matching provider change.
+const IMAGE_CAPABLE_PROVIDER_IDS = new Set(['claude-agent'])
+
+export function providerAcceptsImages(providerId: string | undefined | null): boolean {
+  return providerId !== undefined && providerId !== null && IMAGE_CAPABLE_PROVIDER_IDS.has(providerId)
+}
+
+export function isAttachableImageType(mediaType: string): boolean {
+  return ATTACHABLE_IMAGE_TYPES.includes(mediaType)
+}
+
+// Decoded byte length of a base64 payload, without allocating the buffer.
+export function base64ByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding)
+}
+
+// Longest-edge-constrained target size, aspect ratio preserved. An image that
+// already fits comes back untouched so small images are never resampled (which
+// would re-encode them for no gain).
+export function scaledImageDimensions(
+  width: number,
+  height: number,
+  maxEdge = MAX_ATTACHMENT_EDGE,
+): { width: number; height: number } {
+  const longest = Math.max(width, height)
+  if (longest <= maxEdge || longest === 0) return { width, height }
+  const scale = maxEdge / longest
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+}
+
+export function formatAttachmentBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Why this file cannot join the turn, or null when it can. Type and count are
+// knowable before the file is read; the byte ceiling is only decidable after
+// downscaling, so it is checked there instead of here.
+export function attachmentRejection(
+  file: { name?: string; type: string },
+  currentCount: number,
+): string | null {
+  if (!isAttachableImageType(file.type)) {
+    const named = file.name ? `${file.name} is not` : 'That file is not'
+    return `${named} an image Claude can read. Attach a PNG, JPEG, WebP, or GIF.`
+  }
+  if (currentCount >= MAX_ATTACHMENTS_PER_TURN) {
+    return `A message can carry at most ${MAX_ATTACHMENTS_PER_TURN} images.`
+  }
+  return null
+}
+
+// Split a `data:` URL into the pieces the IPC boundary wants: the media type
+// and the raw base64 payload with no prefix. Returns null for anything that is
+// not a base64 data URL.
+export function splitImageDataUrl(dataUrl: string): { mediaType: string; dataBase64: string } | null {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
+  if (!match) return null
+  const [, mediaType, dataBase64] = match
+  if (!mediaType || !dataBase64) return null
+  return { mediaType, dataBase64 }
+}
+
+// A `data:` URL for rendering an attachment thumbnail. The base64 is already in
+// memory, so this avoids an object-URL lifecycle with nothing to revoke.
+export function attachmentPreviewUrl(attachment: ConversationImageAttachment): string {
+  return `data:${attachment.mediaType};base64,${attachment.dataBase64}`
+}
+
+// Pull the image files out of a paste or drop. `DataTransfer.files` is empty
+// for a screenshot pasted from the clipboard, where the image only exists as an
+// `item` — both shapes have to be read or paste silently does nothing.
+export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
+  if (!data) return []
+  const files: File[] = []
+  const seen = new Set<File>()
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') continue
+    const file = item.getAsFile()
+    if (file && isAttachableImageType(file.type) && !seen.has(file)) {
+      seen.add(file)
+      files.push(file)
+    }
+  }
+  if (files.length === 0) {
+    for (const file of Array.from(data.files ?? [])) {
+      if (isAttachableImageType(file.type)) files.push(file)
+    }
+  }
+  return files
+}
+
+export function attachmentCountLabel(count: number): string {
+  return count === 1 ? '1 image' : `${count} images`
+}
+
+// What the queued-turn row reads as. An image-only queued turn has no text to
+// show, so the count is the label rather than an empty row.
+export function queuedTurnLabel(text: string, attachmentCount: number): string {
+  if (attachmentCount === 0) return text
+  const images = attachmentCountLabel(attachmentCount)
+  return text ? `${text} · ${images}` : images
+}
+
+// Whether a drag/drop payload carries files at all. Mid-drag the payload itself
+// is unreadable — only the item kinds are — so this is what the drop target and
+// the preventDefault gate can key off. A drag of selected text reports no files
+// and is left entirely to the textarea's native handling.
+export function dataTransferHasFiles(data: DataTransfer | null): boolean {
+  if (!data) return false
+  if (Array.from(data.types ?? []).includes('Files')) return true
+  return Array.from(data.items ?? []).some((item) => item.kind === 'file')
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error(`Could not read ${file.name || 'the image'}.`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('That image could not be decoded.'))
+    image.src = src
+  })
+}
+
+// Read one picked/pasted/dropped file into a send-ready attachment, resampling
+// it when it is larger than a vision model can use or than the IPC boundary
+// accepts. Rejects with a message the composer shows verbatim — never a silent
+// truncation or a half-sized image passed off as the original.
+//
+// Exported so the canvas/FileReader path can be exercised in a real browser:
+// the DOM-less unit test can cover the pure helpers around it but not this.
+export async function readImageAttachment(file: File, id: string): Promise<ConversationImageAttachment> {
+  const dataUrl = await readFileAsDataUrl(file)
+  const original = splitImageDataUrl(dataUrl)
+  if (!original) throw new Error(`Could not read ${file.name || 'the image'}.`)
+
+  const originalBytes = base64ByteLength(original.dataBase64)
+  const image = await loadImageElement(dataUrl)
+  const target = scaledImageDimensions(image.naturalWidth, image.naturalHeight)
+  const fits = originalBytes <= MAX_ATTACHMENT_BYTES
+  const sameSize = target.width === image.naturalWidth && target.height === image.naturalHeight
+  // An image that already fits both budgets ships byte-for-byte — notably an
+  // animated GIF, which a canvas round-trip would flatten to one frame.
+  if (fits && sameSize) {
+    return {
+      id,
+      mediaType: original.mediaType,
+      dataBase64: original.dataBase64,
+      ...(file.name ? { name: file.name } : {}),
+      byteLength: originalBytes,
+    }
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = target.width
+  canvas.height = target.height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('This window cannot resize images right now.')
+  context.drawImage(image, 0, 0, target.width, target.height)
+
+  // Keep the source encoding when it can hold the image; fall back to JPEG only
+  // when the re-encode is still over budget (JPEG drops alpha, so it is the
+  // second choice, not the default).
+  const preferredType = original.mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+  let encoded = splitImageDataUrl(canvas.toDataURL(preferredType))
+  if (encoded && base64ByteLength(encoded.dataBase64) > MAX_ATTACHMENT_BYTES && preferredType !== 'image/jpeg') {
+    encoded = splitImageDataUrl(canvas.toDataURL('image/jpeg', ATTACHMENT_JPEG_QUALITY))
+  }
+  if (!encoded) throw new Error(`Could not prepare ${file.name || 'the image'} for sending.`)
+  const byteLength = base64ByteLength(encoded.dataBase64)
+  if (byteLength > MAX_ATTACHMENT_BYTES) {
+    throw new Error(
+      `${file.name || 'That image'} is still over ${formatAttachmentBytes(MAX_ATTACHMENT_BYTES)} after resizing.`,
+    )
+  }
+  return {
+    id,
+    mediaType: encoded.mediaType,
+    dataBase64: encoded.dataBase64,
+    ...(file.name ? { name: file.name } : {}),
+    byteLength,
+  }
+}
+
 // ── Readiness gating ────────────────────────────────────────────────────────
 
 export type ChatReadiness =
@@ -905,6 +1162,10 @@ const COMPOSER_CLASS =
   'min-h-[40px] w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2.5 text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] disabled:opacity-45'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
+
+// A message committed while the session was busy, waiting for the turn to
+// unlock (D6/1776). Attachments ride along so a queued image is not lost.
+type QueuedTurn = { text: string; attachments: ConversationImageAttachment[] }
 
 export function stopDisabledForPending(pending: PendingAction): boolean {
   return pending === 'stopping'
@@ -985,11 +1246,21 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // Skill-at-spawn seeds the first draft (prefill only — the user submits).
   const [draft, setDraft] = useState(() => agent?.chatComposerPrefill ?? '')
   const [pending, setPending] = useState<PendingAction>(null)
+  // Images staged for the next turn (D3/1774), in the order they were added.
+  const [attachments, setAttachments] = useState<ConversationImageAttachment[]>([])
+  // A pasted/dropped/picked image is being read and resampled. Held so the
+  // strip can say so instead of looking like nothing happened on a large file.
+  const [attachingCount, setAttachingCount] = useState(0)
+  // An image drag is over the composer; drives the drop-target affordance.
+  const [dropActive, setDropActive] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const attachmentSeqRef = useRef(0)
   // Type-ahead queue (D6/1776): a message the user committed while the session
   // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
   // turn. Null when nothing is queued; a second commit while busy appends so no
-  // typed intent is dropped.
-  const [queuedMessage, setQueuedMessage] = useState<string | null>(null)
+  // typed intent is dropped. Attachments ride the queue too — dropping them at
+  // the queue boundary would silently lose what the user staged.
+  const [queuedTurn, setQueuedTurn] = useState<QueuedTurn | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
   // Slash trigger: Escape or non-matching text sets dismissed so the slash
@@ -1000,6 +1271,9 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  // Drag enter/leave fire for every child the pointer crosses; the depth
+  // counter keeps the drop affordance from flickering inside the composer.
+  const dragDepthRef = useRef(0)
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
@@ -1282,19 +1556,29 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     [agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
   )
 
+  // Send one turn. A turn needs text or at least one image — the runtime accepts
+  // an image-only turn, so the composer does too.
   const sendTurn = useCallback(
-    async (message: string) => {
+    async (message: string, turnAttachments: ConversationImageAttachment[] = []) => {
       const text = message.trim()
-      if (!text || pending) return
+      if ((!text && turnAttachments.length === 0) || pending) return
       setActionError(null)
       setPending('starting')
       const activeSession = await ensureSession()
       if (!activeSession) {
         setPending(null)
+        // The turn never left, so hand the staged images back rather than make
+        // the user re-attach them — unless they already staged new ones.
+        if (turnAttachments.length > 0) {
+          setAttachments((current) => (current.length === 0 ? turnAttachments : current))
+        }
         return
       }
       const localTurnId = `user-${userTurns.length}-${Date.now()}`
-      setUserTurns((current) => [...current, { id: localTurnId, text }])
+      setUserTurns((current) => [
+        ...current,
+        { id: localTurnId, text, ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}) },
+      ])
       setDraft('')
       setPending('sending')
       try {
@@ -1302,6 +1586,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           sessionId: activeSession,
           message: text,
           localTurnId,
+          ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
         })
         if (!result.ok) setActionError(result.message)
       } catch (err) {
@@ -1320,25 +1605,81 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // sends the queued message the moment the session unlocks.
   const submitComposer = useCallback(() => {
     const text = draft.trim()
-    if (!text) return
+    if (!text && attachments.length === 0) return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) {
-      setQueuedMessage((prev) => (prev ? `${prev}\n${text}` : text))
+      setQueuedTurn((prev) => ({
+        text: prev?.text ? (text ? `${prev.text}\n${text}` : prev.text) : text,
+        // A second commit while busy merges into the same queued turn; the cap
+        // is the IPC boundary's, so trim rather than send a rejected payload.
+        attachments: [...(prev?.attachments ?? []), ...attachments].slice(0, MAX_ATTACHMENTS_PER_TURN),
+      }))
       setDraft('')
+      setAttachments([])
       return
     }
-    void sendTurn(text)
-  }, [draft, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+    void sendTurn(text, attachments)
+    setAttachments([])
+  }, [attachments, draft, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
 
   // Auto-send the queued message as a follow-up turn once the session idles.
   // Gated on the same busy signal the submit uses, so it never races the guard;
   // sendTurn's own `pending` guard prevents a re-entrant double send.
   useEffect(() => {
-    if (queuedMessage === null || readiness.kind !== 'ready') return
+    if (queuedTurn === null || readiness.kind !== 'ready') return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) return
-    const text = queuedMessage
-    setQueuedMessage(null)
-    void sendTurn(text)
-  }, [queuedMessage, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+    const { text, attachments: queuedAttachments } = queuedTurn
+    setQueuedTurn(null)
+    void sendTurn(text, queuedAttachments)
+  }, [queuedTurn, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+
+  // Stage images for the next turn. Each file is read and resampled on its own
+  // so one unreadable file never drops the rest of a multi-image paste; the
+  // first refusal is what the composer reports, and the rest still attach.
+  const attachFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return
+      let firstError: string | null = null
+      // Refuse on type and count first, so the "Reading N images…" state counts
+      // only what is actually being read.
+      const readable: File[] = []
+      for (const file of files) {
+        const rejection = attachmentRejection(file, attachments.length + readable.length)
+        if (rejection) firstError ??= rejection
+        else readable.push(file)
+      }
+      if (readable.length === 0) {
+        setActionError(firstError)
+        return
+      }
+
+      const accepted: ConversationImageAttachment[] = []
+      setAttachingCount((count) => count + readable.length)
+      try {
+        for (const file of readable) {
+          attachmentSeqRef.current += 1
+          try {
+            accepted.push(await readImageAttachment(file, `att-${attachmentSeqRef.current}-${Date.now()}`))
+          } catch (err) {
+            firstError ??= err instanceof Error ? err.message : 'That image could not be attached.'
+          }
+        }
+      } finally {
+        setAttachingCount((count) => Math.max(0, count - readable.length))
+      }
+      // The slice is the invariant, not the user-facing rule: the per-file check
+      // above already reported the cap, this only holds it under overlapping
+      // batches (a paste landing while a drop is still reading).
+      if (accepted.length > 0) {
+        setAttachments((current) => [...current, ...accepted].slice(0, MAX_ATTACHMENTS_PER_TURN))
+      }
+      setActionError(firstError)
+    },
+    [attachments.length],
+  )
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((current) => current.filter((entry) => entry.id !== id))
+  }, [])
 
   // Approval/question cards resolve mid-turn on stateful providers — while the
   // sendTurn promise is still pending — so they get their own busy latch
@@ -1484,6 +1825,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const providerEntry = providers.find((entry) => entry.id === conversation.providerId)
   const isAgentHarness = providerEntry?.providerType === 'agent-harness'
   const assistantName = isAgentHarness ? 'Claude' : currentModelLabel
+  // Image attach (D3/1774) is offered only where a provider actually reads the
+  // turn's attachments, and only once the session can take a turn — a control
+  // that stages images no one will receive is worse than no control.
+  const imagesEnabled = ready && providerAcceptsImages(conversation.providerId)
 
   // Skills doors (agent harness only — plain model chats run no tools):
   // a '/' opening an otherwise-empty draft filters the same inventory the
@@ -1666,15 +2011,19 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * drops it before then. Kept truthful so a queued turn is never a
          * silent, invisible pending action.
          */}
-        {queuedMessage ? (
+        {queuedTurn ? (
           <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
             <div className="flex min-w-0 items-baseline gap-2">
               <span className="shrink-0 text-[12px] font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
-              <TruncatedText as="span" text={queuedMessage} className="min-w-0 text-[12px] leading-5 text-[color:var(--text-muted)]" />
+              <TruncatedText
+                as="span"
+                text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
+                className="min-w-0 text-[12px] leading-5 text-[color:var(--text-muted)]"
+              />
             </div>
             <GhostButton
               size="sm"
-              onClick={() => setQueuedMessage(null)}
+              onClick={() => setQueuedTurn(null)}
               className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
             >
               Cancel
@@ -1689,7 +2038,51 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          * message, then locked. While an approval card is pending the disabled
          * placeholder says why the composer is waiting.
          */}
-        <div className="rounded-xl border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] transition-colors focus-within:border-[color:var(--accent-primary)]">
+        <div
+          className={`relative rounded-xl border bg-[color:var(--bg-surface)] transition-colors focus-within:border-[color:var(--accent-primary)] ${
+            dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
+          }`}
+          onDragEnter={(event) => {
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            dragDepthRef.current += 1
+            setDropActive(true)
+          }}
+          onDragOver={(event) => {
+            // Claiming the drag is what stops the window from navigating to the
+            // dropped file, so it has to happen on every dragover.
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            event.preventDefault()
+          }}
+          onDragLeave={(event) => {
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+            if (dragDepthRef.current === 0) setDropActive(false)
+          }}
+          onDrop={(event) => {
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            event.preventDefault()
+            dragDepthRef.current = 0
+            setDropActive(false)
+            const files = imageFilesFromDataTransfer(event.dataTransfer)
+            if (files.length === 0) {
+              setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
+              return
+            }
+            void attachFiles(files)
+          }}
+        >
+          {dropActive ? (
+            // Opaque, not a scrim: the field's own text ghosting through the
+            // drop state reads as a rendering artifact rather than a state.
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[color:var(--bg-surface)] text-[12px] font-medium text-[color:var(--accent-primary)]">
+              Drop to attach
+            </div>
+          ) : null}
+          <ComposerAttachmentStrip
+            attachments={attachments}
+            reading={attachingCount}
+            onRemove={removeAttachment}
+          />
           <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
             Message {label}
           </label>
@@ -1697,6 +2090,15 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             ref={composerRef}
             id={`chat-composer-${agentId}`}
             value={draft}
+            onPaste={(event) => {
+              // A pasted screenshot only exists as a clipboard item; a text
+              // paste reports no image and falls through to the default.
+              if (!imagesEnabled) return
+              const files = imageFilesFromDataTransfer(event.clipboardData)
+              if (files.length === 0) return
+              event.preventDefault()
+              void attachFiles(files)
+            }}
             onChange={(event) => {
               const value = event.target.value
               setDraft(value)
@@ -1734,6 +2136,33 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
             <div className="flex min-w-0 items-center gap-1">
+              {imagesEnabled ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? [])
+                      // Clearing lets the same file be picked twice in a row.
+                      event.target.value = ''
+                      void attachFiles(files)
+                    }}
+                  />
+                  <Tooltip content="Attach an image" placement="top">
+                    <button
+                      type="button"
+                      aria-label="Attach an image"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center rounded-md p-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                    >
+                      <PaperclipGlyph className="icon-sm" />
+                    </button>
+                  </Tooltip>
+                </>
+              ) : null}
               {isAgentHarness ? (
                 <SkillPickerPopover
                   open={skillsMenuOpen}
@@ -1798,7 +2227,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                       : 'Send message'
                 }
                 onClick={submitComposer}
-                disabled={!ready || !draft.trim()}
+                disabled={!ready || (!draft.trim() && attachments.length === 0)}
               >
                 <SendArrowGlyph className="icon-sm" />
               </ComposerActionButton>
@@ -2234,6 +2663,64 @@ function ComposerActionButton({
     >
       {children}
     </button>
+  )
+}
+
+// Images staged for the next turn, inside the composer surface above the text
+// field so the message reads as one thing. The remove control is a trailing
+// action revealed on hover or keyboard focus — the thumbnail is the content,
+// not a card of chrome. Renders nothing when there is nothing staged.
+export function ComposerAttachmentStrip({
+  attachments,
+  reading,
+  onRemove,
+}: {
+  attachments: ConversationImageAttachment[]
+  reading: number
+  onRemove: (id: string) => void
+}) {
+  if (attachments.length === 0 && reading === 0) return null
+  return (
+    <ul className="flex flex-wrap items-center gap-2 px-3 pt-2.5">
+      {attachments.map((attachment) => (
+        <li key={attachment.id} className="relative">
+          <img
+            src={attachmentPreviewUrl(attachment)}
+            alt={attachment.name ?? 'Attached image'}
+            className="h-12 w-12 rounded-md border border-[color:var(--border-subtle)] object-cover"
+          />
+          <button
+            type="button"
+            aria-label={`Remove ${attachment.name ?? 'attached image'}`}
+            onClick={() => onRemove(attachment.id)}
+            className="interactive absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-md bg-[color:var(--bg-surface-raised)]/85 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </li>
+      ))}
+      {reading > 0 ? (
+        <li className="text-[11.5px] leading-5 text-[color:var(--text-muted)]">
+          Reading {attachmentCountLabel(reading)}…
+        </li>
+      ) : null}
+    </ul>
+  )
+}
+
+function PaperclipGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M13.75 8.5l-4.6 4.6a2.4 2.4 0 0 1-3.4-3.4l5.6-5.6a3.4 3.4 0 0 1 4.8 4.8l-5.6 5.6a4.4 4.4 0 0 1-6.2-6.2l4.6-4.6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
@@ -2776,12 +3263,29 @@ function TimelineRow({ row, chrome }: { row: ConversationTimelineRow; chrome: Ti
   )
 }
 
-// User message: quiet right-aligned card, no chrome.
-function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+// User message: quiet right-aligned card, no chrome. Images sent with the turn
+// sit above the text; an image-only turn renders no empty text line. Live-only
+// (D3/1774) — a bubble restored from the replayed transcript has no images.
+export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+  const attachments = entry.attachments ?? []
   return (
     <div className="flex justify-end pb-6">
       <div className="max-w-[76%] rounded-[10px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
-        <p className="whitespace-pre-wrap text-[13px] leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
+        {attachments.length > 0 ? (
+          <div className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
+            {attachments.map((attachment) => (
+              <img
+                key={attachment.id}
+                src={attachmentPreviewUrl(attachment)}
+                alt={attachment.name ?? 'Attached image'}
+                className="h-16 w-16 rounded-md border border-[color:var(--border-subtle)] object-cover"
+              />
+            ))}
+          </div>
+        ) : null}
+        {entry.text ? (
+          <p className="whitespace-pre-wrap text-[13px] leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
+        ) : null}
       </div>
     </div>
   )

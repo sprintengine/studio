@@ -4,28 +4,48 @@ import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import type { ConversationEvent, ConversationEventType } from '../../../../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationEventType,
+  ConversationImageAttachment,
+} from '../../../../shared/conversation-runtime'
 import {
   activeConversationStage,
+  attachmentCountLabel,
+  attachmentPreviewUrl,
+  attachmentRejection,
+  base64ByteLength,
+  ComposerAttachmentStrip,
+  dataTransferHasFiles,
   deriveConversationTimelineRows,
   flattenToolEntries,
+  formatAttachmentBytes,
   formatStepDuration,
   groupResolvedDecisions,
+  isAttachableImageType,
   isAuthShapedFailure,
   isConversationBusy,
   isConversationModelLocked,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_EDGE,
+  MAX_ATTACHMENTS_PER_TURN,
   parseOptionLabel,
   permissionChangeScopeLabel,
   permissionPresetLabel,
   PermissionPresetPill,
   projectConversation,
+  providerAcceptsImages,
+  queuedTurnLabel,
   readinessLabel,
   ResolvedDecisions,
   resolvedDecisionGroupLabel,
+  scaledImageDimensions,
+  splitImageDataUrl,
   stopDisabledForPending,
   subagentLaneLabel,
   toolObject,
   toolVerb,
+  UserTimelineRow,
   WorkTimeline,
   type ConversationApprovalEntry,
   type ConversationTimelineRow,
@@ -803,6 +823,202 @@ assert.ok(
   'the middle preset is nameable too — the pill is never a two-state lie'
 )
 
+// --- image attachments (D3/1774) -------------------------------------------
+
+// The affordance is offered only where a provider actually reads the turn's
+// attachments. Any other provider ignores the field, so staging an image there
+// would be a control whose payload goes nowhere.
+assert.equal(providerAcceptsImages('claude-agent'), true, 'the agent harness composes image blocks')
+assert.equal(providerAcceptsImages('openrouter'), false, 'a model provider does not read attachments yet')
+assert.equal(providerAcceptsImages(undefined), false, 'an unknown provider is never assumed vision-capable')
+
+// The accepted set mirrors the IPC boundary's; offering anything else would
+// only buy the user a rejection one layer down.
+for (const mediaType of ['image/png', 'image/jpeg', 'image/webp', 'image/gif']) {
+  assert.equal(isAttachableImageType(mediaType), true, `${mediaType} is attachable`)
+}
+assert.equal(isAttachableImageType('image/svg+xml'), false, 'SVG is not in the SDK image set')
+assert.equal(isAttachableImageType('application/pdf'), false, 'only images attach')
+
+// Type and count are decidable before the file is read; the byte ceiling is not
+// (downscaling happens first), so it is deliberately not this predicate's job.
+assert.equal(attachmentRejection({ name: 'shot.png', type: 'image/png' }, 0), null, 'a PNG under the cap attaches')
+assert.match(
+  attachmentRejection({ name: 'notes.pdf', type: 'application/pdf' }, 0) ?? '',
+  /notes\.pdf is not an image/,
+  'a refusal names the file and the accepted formats'
+)
+assert.match(
+  attachmentRejection({ type: 'application/pdf' }, 0) ?? '',
+  /^That file is not an image/,
+  'a nameless clipboard item still gets a readable refusal'
+)
+assert.match(
+  attachmentRejection({ name: 'ok.png', type: 'image/png' }, MAX_ATTACHMENTS_PER_TURN) ?? '',
+  new RegExp(`at most ${MAX_ATTACHMENTS_PER_TURN} images`),
+  'the per-turn cap is reported, not silently enforced'
+)
+
+// Decoded length drives every byte guard, so padding must not skew it.
+assert.equal(base64ByteLength('Zm9v'), 3, 'unpadded')
+assert.equal(base64ByteLength('Zm8='), 2, 'one pad byte')
+assert.equal(base64ByteLength('Zg=='), 1, 'two pad bytes')
+assert.equal(base64ByteLength(''), 0, 'empty payload is zero bytes, never negative')
+
+// An image that already fits comes back untouched — resampling it would
+// re-encode for no gain (and flatten an animated GIF).
+assert.deepEqual(scaledImageDimensions(800, 600), { width: 800, height: 600 }, 'a small image is not resampled')
+assert.deepEqual(
+  scaledImageDimensions(MAX_ATTACHMENT_EDGE, MAX_ATTACHMENT_EDGE),
+  { width: MAX_ATTACHMENT_EDGE, height: MAX_ATTACHMENT_EDGE },
+  'exactly at the edge still fits'
+)
+assert.deepEqual(
+  scaledImageDimensions(3200, 1600),
+  { width: MAX_ATTACHMENT_EDGE, height: MAX_ATTACHMENT_EDGE / 2 },
+  'the long edge is what gets constrained, aspect ratio preserved'
+)
+assert.deepEqual(
+  scaledImageDimensions(1000, 4000),
+  { width: 392, height: MAX_ATTACHMENT_EDGE },
+  'a portrait image constrains on height'
+)
+assert.deepEqual(scaledImageDimensions(0, 0), { width: 0, height: 0 }, 'a zero-sized image never divides by zero')
+assert.deepEqual(
+  scaledImageDimensions(20000, 4),
+  { width: MAX_ATTACHMENT_EDGE, height: 1 },
+  'an extreme aspect ratio still yields a drawable canvas'
+)
+
+// The IPC boundary wants the raw payload, not the data: URI it came in as.
+assert.deepEqual(
+  splitImageDataUrl('data:image/png;base64,Zm9v'),
+  { mediaType: 'image/png', dataBase64: 'Zm9v' },
+  'the prefix is stripped and the media type kept'
+)
+assert.equal(splitImageDataUrl('data:image/png,notbase64'), null, 'a non-base64 data URL is refused, not guessed')
+assert.equal(splitImageDataUrl('https://example.com/a.png'), null, 'a remote URL is not a payload')
+assert.equal(splitImageDataUrl('data:image/png;base64,'), null, 'an empty payload is refused')
+
+assert.equal(
+  attachmentPreviewUrl({ id: 'a', mediaType: 'image/webp', dataBase64: 'Zm9v', byteLength: 3 }),
+  'data:image/webp;base64,Zm9v',
+  'the thumbnail reads the base64 already in memory — no object URL to leak'
+)
+
+assert.equal(formatAttachmentBytes(512), '512 B')
+assert.equal(formatAttachmentBytes(2048), '2 KB')
+assert.equal(formatAttachmentBytes(MAX_ATTACHMENT_BYTES), '5.0 MB')
+
+// A queued image-only turn has no text to show, so the count is the label —
+// never a blank row that reads as nothing queued.
+assert.equal(queuedTurnLabel('look at this', 0), 'look at this')
+assert.equal(queuedTurnLabel('look at this', 2), 'look at this · 2 images')
+assert.equal(queuedTurnLabel('', 1), '1 image')
+assert.equal(attachmentCountLabel(1), '1 image', 'the count never reads "1 images"')
+
+// Mid-drag the payload is unreadable — only the item kinds are — so the drop
+// target and the preventDefault gate key off those.
+const transfer = (value: { types?: string[]; items?: { kind: string }[] }): DataTransfer =>
+  value as unknown as DataTransfer
+assert.equal(dataTransferHasFiles(transfer({ types: ['Files'] })), true, 'a file drag is claimed')
+assert.equal(dataTransferHasFiles(transfer({ types: ['text/plain'], items: [{ kind: 'string' }] })), false)
+assert.equal(dataTransferHasFiles(null), false, 'a missing payload never claims the drop')
+assert.equal(
+  dataTransferHasFiles(transfer({ items: [{ kind: 'file' }] })),
+  true,
+  'an item-only payload (some clipboard/drag sources) still reports files'
+)
+
+// The staged strip: thumbnails are the content, remove is a trailing action —
+// hidden at rest but focusable and named, so a keyboard user can reach it.
+const staged: ConversationImageAttachment[] = [
+  { id: 'att-1', mediaType: 'image/png', dataBase64: 'Zm9v', name: 'screenshot.png', byteLength: 3 },
+  { id: 'att-2', mediaType: 'image/jpeg', dataBase64: 'YmFy', byteLength: 3 },
+]
+assert.equal(
+  renderToStaticMarkup(createElement(ComposerAttachmentStrip, { attachments: [], reading: 0, onRemove: () => {} })),
+  '',
+  'nothing staged renders nothing — no empty chrome above the field'
+)
+const stripMarkup = renderToStaticMarkup(
+  createElement(ComposerAttachmentStrip, { attachments: staged, reading: 0, onRemove: () => {} })
+)
+assert.ok(stripMarkup.includes('src="data:image/png;base64,Zm9v"'), 'the staged image renders from its own payload')
+assert.ok(stripMarkup.includes('alt="screenshot.png"'), 'a named file is its own alt text')
+assert.ok(stripMarkup.includes('alt="Attached image"'), 'a pasted screenshot with no name still has an accessible name')
+assert.ok(
+  stripMarkup.includes('aria-label="Remove screenshot.png"'),
+  'remove is named per image, not a row of identical buttons'
+)
+assert.equal(
+  (stripMarkup.match(/<li/g) ?? []).length,
+  2,
+  'the strip is a real list, so a screen reader announces how many images are staged'
+)
+assert.ok(
+  renderToStaticMarkup(
+    createElement(ComposerAttachmentStrip, { attachments: [], reading: 2, onRemove: () => {} })
+  ).includes('Reading 2 images…'),
+  'a large image being read says so instead of looking like nothing happened'
+)
+
+// The user bubble: an image-only turn must not render an empty text line.
+const bubbleWithBoth = renderToStaticMarkup(
+  createElement(UserTimelineRow, { entry: { kind: 'user', id: 'u1', text: 'what is this?', attachments: staged } })
+)
+assert.ok(bubbleWithBoth.includes('what is this?'), 'text still renders alongside the images')
+assert.equal(
+  (bubbleWithBoth.match(/<img/g) ?? []).length,
+  2,
+  'every image sent with the turn shows in the bubble'
+)
+const imageOnlyBubble = renderToStaticMarkup(
+  createElement(UserTimelineRow, { entry: { kind: 'user', id: 'u2', text: '', attachments: staged } })
+)
+assert.ok(!imageOnlyBubble.includes('<p'), 'an image-only turn renders no empty paragraph')
+assert.ok(
+  renderToStaticMarkup(createElement(UserTimelineRow, { entry: { kind: 'user', id: 'u3', text: 'plain' } })).includes(
+    'plain'
+  ),
+  'a text-only bubble is unchanged'
+)
+
+// Attachments are live-only: the persisted user_message event carries text
+// alone, so the bubble looks its images up from the local send that produced
+// it. Without the localTurnId hand-off the thumbnails would blink out the
+// instant the authoritative event replaced the optimistic entry.
+const IMG_TURN = 'turn-img'
+const withImages = projectConversation(
+  [
+    ev('turn_started', { turnId: IMG_TURN }),
+    ev('user_message', { turnId: IMG_TURN, text: 'what is this?', localTurnId: 'local-1' }),
+    ev('content_delta', { turnId: IMG_TURN, text: 'a cat' }),
+  ],
+  [{ id: 'local-1', text: 'what is this?', attachments: staged }]
+)
+const imageUserEntry = withImages.entries.find((entry) => entry.kind === 'user')
+assert.ok(imageUserEntry && imageUserEntry.kind === 'user', 'the user bubble survives the swap to the event entry')
+assert.deepEqual(
+  imageUserEntry.attachments,
+  staged,
+  'the authoritative bubble keeps the images the local send staged'
+)
+assert.equal(
+  withImages.entries.filter((entry) => entry.kind === 'user').length,
+  1,
+  'the optimistic entry is still replaced, not duplicated'
+)
+// A replayed transcript has no local send behind it, so it is text-only — the
+// documented v1 scope, and it must not invent an empty attachments array.
+const replayed = projectConversation([
+  ev('turn_started', { turnId: IMG_TURN }),
+  ev('user_message', { turnId: IMG_TURN, text: 'what is this?', localTurnId: 'local-1' }),
+])
+const replayedUser = replayed.entries.find((entry) => entry.kind === 'user')
+assert.ok(replayedUser && replayedUser.kind === 'user')
+assert.equal(replayedUser.attachments, undefined, 'a replayed bubble carries no attachments')
+
 // The spawn→session wiring lives inside store/window-bound code this DOM-less
 // test cannot mount, so it is pinned at the source. Both ends matter: a spawn
 // that drops the picked preset, or a session start that re-hardcodes 'default',
@@ -842,6 +1058,28 @@ assert.equal(
   (chatViewSource.match(/cliPermissionPreset: previous/g) ?? []).length,
   3,
   'all three failure branches roll the optimistic write back'
+)
+
+// The composer's attach wiring is window/DOM-bound (FileReader, canvas, the
+// send IPC) and cannot be mounted here, so the ends that would silently drop a
+// staged image are pinned at the source.
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('conversationSessionSendTurn({')),
+  /^[\s\S]{0,400}?attachments: turnAttachments/,
+  'the send IPC carries the staged attachments, not just the text'
+)
+for (const handler of ['onPaste=', 'onDrop=', 'onDragOver=', 'type="file"']) {
+  assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
+}
+assert.equal(
+  (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 5,
+  true,
+  'every attach entry point (paste, drag, drop, picker) is gated on provider support'
+)
+assert.doesNotMatch(
+  chatViewSource,
+  /attachments\.slice\(0, MAX_ATTACHMENTS_PER_TURN\)(?![\s\S]{0,200}invariant)/,
+  'the per-turn cap is reported to the user before it is silently trimmed'
 )
 
 console.log('AgentChatView.test.ts: ok')
