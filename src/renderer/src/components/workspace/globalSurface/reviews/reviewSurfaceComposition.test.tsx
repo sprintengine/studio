@@ -234,6 +234,22 @@ run('the guide terminal resolves from a reported handle, else from the open proj
     'a trailing separator does not stop the project from matching, and no CLI is invented',
   )
 
+  // One repo, two workspaces: the guide's terminal lives in the standard one,
+  // because that is the workspace ReviewGuideTerminalService spawned it in.
+  assert.deepEqual(
+    resolveGuideTerminal({
+      reviewId: 'rv_1',
+      workspaceRoot: '/proj/multicode',
+      guide: null,
+      workspaces: [
+        { id: 'ws-sprint', folderPath: '/proj/multicode', mode: 'sprintengine' },
+        { id: 'ws-standard', folderPath: '/proj/multicode', mode: 'standard' },
+      ],
+    }),
+    { workspaceId: 'ws-standard', agentId: reviewGuideAgentId('rv_1') },
+    'the standard workspace wins, matching findProjectWorkspace in the main service',
+  )
+
   assert.equal(
     resolveGuideTerminal({ reviewId: 'rv_1', workspaceRoot: '/proj/closed', guide: null, workspaces }),
     null,

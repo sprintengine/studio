@@ -92,7 +92,7 @@ export function ReviewGuideActions({
   if (session.run.running) {
     if (!terminal.terminal) return null
     return (
-      <GhostButton onClick={terminal.open} className="shrink-0">
+      <GhostButton onClick={() => void terminal.open()} className="shrink-0">
         Open the guide’s terminal
       </GhostButton>
     )
@@ -168,7 +168,7 @@ export function AskGuideDrawer({
     // question still reached it — so this never blocks on the link.
     setDraft('')
     askController.setOpen(false)
-    terminal.open()
+    void terminal.open()
   }, [draft, sending, session, askController, terminal])
 
   return (

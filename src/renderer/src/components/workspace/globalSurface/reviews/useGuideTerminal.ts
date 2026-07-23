@@ -22,7 +22,9 @@ export interface GuideTerminalLink {
   // terminal to focus, so the caller withholds the link instead of opening an
   // empty tab.
   terminal: ResolvedGuideTerminal | null
-  open: () => void
+  // Resolves once the reveal has been attempted; a session whose process has
+  // already exited is left alone rather than re-armed for launch.
+  open: () => Promise<void>
 }
 
 export function useGuideTerminal({
@@ -38,18 +40,26 @@ export function useGuideTerminal({
   // store tick (an agent's output, a projection refresh) does not re-render the
   // review canvas.
   const projects = useWorkspaceStore(
-    useShallow((state) => state.workspaces.map((workspace) => ({ id: workspace.id, folderPath: workspace.folderPath }))),
+    useShallow((state) =>
+      state.workspaces.map((workspace) => ({ id: workspace.id, folderPath: workspace.folderPath, mode: workspace.mode })),
+    ),
   )
   const terminal = useMemo(
     () => resolveGuideTerminal({ reviewId, workspaceRoot, guide, workspaces: projects }),
     [reviewId, workspaceRoot, guide, projects],
   )
 
-  const open = useCallback(() => {
+  const open = useCallback(async () => {
     if (!terminal) return
     const store = useWorkspaceStore.getState()
     const workspace = store.workspaces.find((candidate) => candidate.id === terminal.workspaceId)
     if (!workspace) return
+    // The pty has to still be there. Callers only offer this while the guide is
+    // working, so a dead session is the race (it exited between render and
+    // click) — and writing launch flags for one is how a tab ends up trying to
+    // relaunch a terminal nobody asked for. Same check `openSession` makes.
+    const status = await window.api.terminalStatus(terminal.agentId).catch(() => null)
+    if (!status?.processAlive) return
     store.updateAgent(workspace.id, terminal.agentId, {
       name: GUIDE_AGENT_NAME,
       cliSessionId: terminal.agentId,

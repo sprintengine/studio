@@ -32,6 +32,7 @@ export function isReviewGuideAgentId(agentId: string): boolean {
 export interface GuideProjectWorkspace {
   id: string
   folderPath?: string | null
+  mode?: string
 }
 
 export interface ResolvedGuideTerminal {
@@ -61,7 +62,14 @@ export function resolveGuideTerminal({
 }): ResolvedGuideTerminal | null {
   if (guide) return { workspaceId: guide.workspaceId, agentId: guide.agentId, cli: guide.cli }
   if (!reviewId || !workspaceRoot) return null
-  const workspace = workspaces.find((candidate) => normalizeRoot(candidate.folderPath) === normalizeRoot(workspaceRoot))
+  const root = normalizeRoot(workspaceRoot)
+  const matches = workspaces.filter((candidate) => normalizeRoot(candidate.folderPath) === root)
+  // A repo is often open as more than one workspace (a standard one beside a
+  // Sprint Engine run). `ReviewGuideTerminalService.findProjectWorkspace` picks
+  // the standard one, so this must too — deriving the other id would write the
+  // agent record onto a workspace the guide's terminal does not belong to, and
+  // open an empty tab there.
+  const workspace = matches.find((candidate) => candidate.mode === 'standard') ?? matches[0]
   if (!workspace) return null
   return { workspaceId: workspace.id, agentId: reviewGuideAgentId(reviewId) }
 }
