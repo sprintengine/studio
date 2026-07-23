@@ -112,8 +112,10 @@ function runStamp(summary: SprintRunSummary): number {
 }
 
 // "multicode" for a single-repo run, "multicode +2 repos" for a run that declares
-// siblings — the cross-project marker the mockup leads each row with.
-function projectPhrase(summary: SprintRunSummary): string {
+// siblings — the cross-project marker the mockup leads each row with. Shared by
+// the rail's state line and the surface bar's context line, so the two can never
+// describe the same run's repo span differently.
+export function sprintRunProjectPhrase(summary: SprintRunSummary): string {
   const siblings = summary.repoRollup.declared - 1
   if (siblings < 1) return summary.projectName
   return `${summary.projectName} +${siblings} ${siblings === 1 ? 'repo' : 'repos'}`
@@ -146,7 +148,7 @@ function statePhrase(summary: SprintRunSummary): string {
 }
 
 export function sprintRunStateLine(summary: SprintRunSummary): string {
-  return `${projectPhrase(summary)} · ${statePhrase(summary)}`
+  return `${sprintRunProjectPhrase(summary)} · ${statePhrase(summary)}`
 }
 
 // The filter chips above the rows (mockup §2): one per project that actually has

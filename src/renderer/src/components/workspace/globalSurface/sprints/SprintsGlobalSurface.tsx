@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { PrimaryButton } from '../../../ui'
@@ -6,6 +6,8 @@ import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import {
+  buildSprintRailRows,
+  sprintRunProjectPhrase,
   sprintRunShortDate,
   sprintRunStatusLabel,
   sprintRunTone,
@@ -48,6 +50,10 @@ export default function SprintsGlobalSurface(): JSX.Element {
     [runs, selectedStatePath],
   )
 
+  // The rows the rail is actually showing — the same ordering and filtering it
+  // draws, so "the first row" means the same thing to both of us.
+  const rows = useMemo(() => buildSprintRailRows(runs, projectFilter), [runs, projectFilter])
+
   const select = useCallback((statePath: string) => {
     lastSelectedStatePath = statePath
     setSelectedStatePath(statePath)
@@ -55,18 +61,31 @@ export default function SprintsGlobalSurface(): JSX.Element {
 
   // A filter that would hide the selected run clears the selection rather than
   // leaving the canvas showing a run the rail no longer lists.
-  const filter = useCallback((projectRoot: string | null) => {
-    setProjectFilter(projectRoot)
-    setSelectedStatePath((current) => {
-      if (!projectRoot || current === null) return current
+  const filter = useCallback(
+    (projectRoot: string | null) => {
+      setProjectFilter(projectRoot)
+      if (!projectRoot || selectedStatePath === null) return
       const stillListed = runs.some(
-        (summary) => summary.statePath === current && summary.projectRoot === projectRoot,
+        (summary) => summary.statePath === selectedStatePath && summary.projectRoot === projectRoot,
       )
-      if (stillListed) return current
+      if (stillListed) return
       lastSelectedStatePath = null
-      return null
-    })
-  }, [runs])
+      setSelectedStatePath(null)
+    },
+    [runs, selectedStatePath],
+  )
+
+  // Open on content, not on a prompt: with no restored selection (or one whose
+  // run is gone — a deleted run store), fall to the row the rail leads with,
+  // which the attention ordering makes the run most worth looking at.
+  useEffect(() => {
+    if (loadState !== 'ready' || rows.length === 0) return
+    if (selectedStatePath && rows.some((row) => row.id === selectedStatePath)) return
+    const first = rows[0]
+    if (!first) return
+    lastSelectedStatePath = first.id
+    setSelectedStatePath(first.id)
+  }, [loadState, rows, selectedStatePath])
 
   const bar = useMemo(() => {
     if (!selectedRun) return { title: 'Sprints' }
@@ -110,6 +129,10 @@ export default function SprintsGlobalSurface(): JSX.Element {
         error={error}
         onRetry={reload}
         hasRuns={runs.length > 0}
+        // Runs exist, but the chosen project holds none of them. Distinct from
+        // "no sprints at all" — the canvas must not offer a first-run welcome to
+        // someone who simply picked a quiet project.
+        filteredOut={runs.length > 0 && rows.length === 0}
         selectedRun={selectedRun}
       />
     </GlobalSurfaceShell>
@@ -123,12 +146,14 @@ function SurfaceBody({
   error,
   onRetry,
   hasRuns,
+  filteredOut,
   selectedRun,
 }: {
   loadState: 'loading' | 'ready' | 'error'
   error: string | null
   onRetry: () => void
   hasRuns: boolean
+  filteredOut: boolean
   selectedRun: SprintRunSummary | null
 }): JSX.Element {
   if (loadState === 'loading') {
@@ -157,10 +182,13 @@ function SurfaceBody({
     )
   }
   if (selectedRun) return <RunSummaryCanvas run={selectedRun} />
-  // Runs exist, none picked. A prompt, never a blank canvas.
+  // Runs exist but none is showing. Name which of the two reasons it is, so the
+  // canvas never asks for a selection the rail cannot offer.
   return (
     <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
-      Select a sprint to see where it stands.
+      {filteredOut
+        ? 'No sprints in this project. Pick another project, or All projects, to see the rest.'
+        : 'Select a sprint to see where it stands.'}
     </div>
   )
 }
@@ -222,10 +250,12 @@ function SummaryRow({
   return (
     <div className="flex items-baseline gap-3 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0">
       <dt className="w-[104px] shrink-0 text-[11px] text-[color:var(--text-subtle)]">{label}</dt>
-      <dd className="min-w-0 flex-1 text-[12px] text-[color:var(--text-default)]">
-        <span className="tabular-nums">{value}</span>
+      <dd className="flex min-w-0 flex-1 items-baseline gap-2 text-[12px] text-[color:var(--text-default)]">
+        <span className="shrink-0 tabular-nums">{value}</span>
         {detail ? (
-          <span className="ml-2 truncate font-mono text-[10.5px] text-[color:var(--text-subtle)]">{detail}</span>
+          <span className="truncate font-mono text-[10.5px] text-[color:var(--text-subtle)]" title={detail}>
+            {detail}
+          </span>
         ) : null}
       </dd>
     </div>
@@ -242,10 +272,10 @@ function repositoriesLine(run: SprintRunSummary): string {
 }
 
 // The bar's context line: which project(s), how much work, and when it started.
+// The repo span reuses the rail's phrase, so bar and rail never describe the same
+// run's span differently.
 function runContextLine(run: SprintRunSummary): string {
-  const parts: string[] = []
-  const siblings = run.repoRollup.declared - 1
-  parts.push(siblings >= 1 ? `${run.projectName} +${siblings} ${siblings === 1 ? 'repo' : 'repos'}` : run.projectName)
+  const parts: string[] = [sprintRunProjectPhrase(run)]
   if (run.taskCounts.total > 0) {
     parts.push(`${run.taskCounts.total} ${run.taskCounts.total === 1 ? 'task' : 'tasks'}`)
   }
