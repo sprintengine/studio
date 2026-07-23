@@ -9,7 +9,7 @@ import {
   REVIEW_WORKSPACE_MODE,
   type BundledWorkspaceMode,
 } from '../types/workspace'
-import { isAutomationsHostWorkspace, isHiddenFromRail } from './workspaceVisibility'
+import { isAutomationsHostWorkspace, isHiddenFromRail, isSprintRunWorkspace } from './workspaceVisibility'
 
 function run(name: string, body: () => void): void {
   try {
@@ -27,7 +27,10 @@ function run(name: string, body: () => void): void {
 // just asserted by a comment.
 const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   [STANDARD_WORKSPACE_MODE]: false,
-  [SPRINT_ENGINE_WORKSPACE_MODE]: false,
+  // Sprint runs moved to the instance-level Sprints door (item 1767), which
+  // lists every run from disk. Their workspaces stay as the residency for the
+  // run's agent terminals, but never as a Projects-list row.
+  [SPRINT_ENGINE_WORKSPACE_MODE]: true,
   [SWITCHBOARD_WORKSPACE_MODE]: false,
   [MULTILOOP_WORKSPACE_MODE]: false,
   [GUIDED_BRIEF_WORKSPACE_MODE]: false,
@@ -58,7 +61,20 @@ run('isHiddenFromRail hides exactly the modes flagged hidden', () => {
   }
 })
 
+run('isSprintRunWorkspace is true only for the sprint-run mode', () => {
+  for (const mode of BUNDLED_MODES) {
+    assert.equal(
+      isSprintRunWorkspace({ mode }),
+      mode === SPRINT_ENGINE_WORKSPACE_MODE,
+      `unexpected isSprintRunWorkspace for ${mode}`,
+    )
+  }
+  // The Design Wizard is a sibling mode, not a run: it keeps its Projects row.
+  assert.equal(isHiddenFromRail({ mode: GUIDED_BRIEF_WORKSPACE_MODE }), false)
+})
+
 run('predicates treat an unknown custom mode as a normal visible workspace', () => {
   assert.equal(isAutomationsHostWorkspace({ mode: 'custom-plugin-mode' }), false)
+  assert.equal(isSprintRunWorkspace({ mode: 'custom-plugin-mode' }), false)
   assert.equal(isHiddenFromRail({ mode: 'custom-plugin-mode' }), false)
 })

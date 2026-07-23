@@ -22,7 +22,7 @@ import {
   type BacklogEpicProgress,
 } from '../utils/backlogEpics'
 import { nextBacklogItemStatusFromLinks } from '../utils/backlogLinks'
-import { isHiddenFromRail } from '../utils/workspaceVisibility'
+import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
 import { basename, joinFilePath } from '../utils/paths'
 import { workspaceFolderKey } from '../store/slices/workspacesSlice'
 import { useWorkspaceStore } from '../store/workspaceStore'
@@ -175,17 +175,21 @@ const ROOT_DESCRIPTOR_SEP = '\u0000'
 // The distinct project roots the aggregate scans, as sorted `rootKey\0root`
 // descriptors. Derived from the workspace list: several workspaces routinely
 // share one project folder, so roots are deduped by their normalized folder key
-// (the same key the shared scan is grouped under). Hidden/background workspaces
-// (the Automations host) are excluded via isHiddenFromRail — the single rail-gate
-// every project-facing surface consults — and a workspace without a folder path
-// contributes no root.
+// (the same key the shared scan is grouped under), and a workspace without a
+// folder path contributes no root.
+//
+// The one exclusion is the background Automations host, which stands for no
+// project of its own. Deliberately NOT the broader `isHiddenFromRail`: since item
+// 1767 that also covers sprint-run workspaces, and a sprint runs IN a project the
+// operator works in — dropping its root would make a project's backlog vanish
+// from this page whenever its only open workspace happened to be a sprint.
 export function collectBacklogProjectRootDescriptors(
   workspaces: ReadonlyArray<Pick<Workspace, 'folderPath' | 'mode'>>,
 ): string[] {
   const byKey = new Map<string, string>()
   for (const workspace of workspaces) {
     if (!workspace.folderPath) continue
-    if (isHiddenFromRail(workspace)) continue
+    if (isAutomationsHostWorkspace(workspace)) continue
     const rootKey = workspaceFolderKey(workspace.folderPath)
     if (!rootKey || byKey.has(rootKey)) continue
     byKey.set(rootKey, `${rootKey}${ROOT_DESCRIPTOR_SEP}${workspace.folderPath}`)

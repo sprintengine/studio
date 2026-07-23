@@ -351,10 +351,13 @@ export default function CommandPalette({
 
     return [
       // Agents & workspaces — the switch targets that absorb the sidebar's
-      // former "Search workspaces" box. Rail-hidden workspaces (the background
-      // Automations host) are never a switch target — the palette mirrors the
-      // rail/hotkey navigation surfaces. The folder path rides `description` so
-      // typing a path filters here too, preserving the sidebar's path matching.
+      // former "Search workspaces" box. Rail-hidden workspaces are never a switch
+      // target: the palette mirrors the rail/hotkey navigation surfaces exactly,
+      // so the background Automations host and (since item 1767) sprint runs stay
+      // out. A sprint is found on the Sprints door, which lists every run across
+      // every project — including the historical ones no workspace holds. The
+      // folder path rides `description` so typing a path filters here too,
+      // preserving the sidebar's path matching.
       ...workspaces
         .filter((workspace) => !isHiddenFromRail(workspace))
         .map((workspace): Command => ({

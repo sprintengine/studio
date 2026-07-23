@@ -8,7 +8,6 @@ import {
   sprintEngineRunLinkForItem,
   SPRINT_ENGINE_RUN_TARGET_KIND,
 } from './sprintengineBacklogLinks'
-import type { Workspace } from '../types/workspace'
 
 const workspaceRoot = '/repo'
 
@@ -175,19 +174,12 @@ async function main(): Promise<void> {
     assert.match(invalid.unavailableReason ?? '', /project-relative run\.yaml target/)
   }
 
-  const opened: string[] = []
+  // Opening a run link (item 1767): the door, on that run. No workspace is
+  // looked up or mounted — the door reads runs from disk — so the only questions
+  // left are which state path it was handed and what happens when the run cannot
+  // be read.
+  const doorOpens: string[] = []
   const diagnostics: string[] = []
-  const mountedWorkspace = {
-    id: 'ws-run',
-    name: 'Run Workspace',
-    folderPath: workspaceRoot,
-    sprintEngineContext: {
-      teamName: 'Team',
-      teamSlug: 'team',
-      teamDirectoryPath: '/repo/.multi-code/sprintengine/team',
-      statePath: '/repo/.multi-code/sprintengine/team/run.yaml',
-    },
-  } as Workspace
   assert.equal(
     await openSprintEngineBacklogLink({
       workspaceId: 'ws-backlog',
@@ -195,52 +187,19 @@ async function main(): Promise<void> {
       item: baseItem,
       link: baseLink,
       ports: {
-        workspaces: [mountedWorkspace],
-        setActiveWorkspace: (workspaceId) => opened.push(`active:${workspaceId}`),
-        openRunSummaryOverlay: (workspaceId) => opened.push(`summary:${workspaceId}`),
-      },
-    }),
-    true,
-    'mounted run targets open successfully',
-  )
-  assert.deepEqual(opened, ['active:ws-run', 'summary:ws-run'])
-
-  const recoveredOpened: string[] = []
-  const recoveryCalls: Array<{ workspaceRoot: string; statePath: string; teamSlug: string }> = []
-  const recoveredWorkspace = {
-    ...mountedWorkspace,
-    id: 'ws-recovered-run',
-  } as Workspace
-  assert.equal(
-    await openSprintEngineBacklogLink({
-      workspaceId: 'ws-backlog',
-      workspaceRoot,
-      item: baseItem,
-      link: baseLink,
-      ports: {
-        workspaces: [],
-        mountWorkspaceForRun: async (input) => {
-          recoveryCalls.push({
-            workspaceRoot: input.workspaceRoot,
-            statePath: input.statePath,
-            teamSlug: input.teamSlug,
-          })
-          return recoveredWorkspace
+        openSprintsDoorOnRun: (statePath) => {
+          doorOpens.push(statePath)
+          return true
         },
-        setActiveWorkspace: (workspaceId) => recoveredOpened.push(`active:${workspaceId}`),
-        openRunSummaryOverlay: (workspaceId) => recoveredOpened.push(`summary:${workspaceId}`),
       },
     }),
     true,
-    'unmounted run targets mount from the durable run link before opening',
+    'a run link opens the Sprints door on its run',
   )
-  assert.deepEqual(recoveryCalls, [{
-    workspaceRoot,
-    statePath: '/repo/.multi-code/sprintengine/team/run.yaml',
-    teamSlug: 'team',
-  }])
-  assert.deepEqual(recoveredOpened, ['active:ws-recovered-run', 'summary:ws-recovered-run'])
+  assert.deepEqual(doorOpens, ['/repo/.multi-code/sprintengine/team/run.yaml'])
 
+  // A run whose store is gone reports it. Opening the door anyway would land the
+  // operator on some unrelated sprint and call that success.
   assert.equal(
     await openSprintEngineBacklogLink({
       workspaceId: 'ws-backlog',
@@ -248,76 +207,44 @@ async function main(): Promise<void> {
       item: baseItem,
       link: baseLink,
       ports: {
-        workspaces: [],
-        setActiveWorkspace: () => opened.push('should-not-activate'),
-        openRunSummaryOverlay: () => opened.push('should-not-open'),
+        openSprintsDoorOnRun: () => false,
         publishDiagnostic: (input) => diagnostics.push(input.message),
       },
     }),
     false,
-    'unmounted run targets do not fake open success',
+    'an unreadable run does not fake open success',
   )
-  assert.match(diagnostics[0] ?? '', /No open workspace/)
+  assert.match(diagnostics[0] ?? '', /could not be read/)
 
-  const invalidOpenCalls: string[] = []
-  assert.equal(
-    await openSprintEngineBacklogLink({
-      workspaceId: 'ws-backlog',
-      workspaceRoot,
-      item: baseItem,
-      link: linkWithTargetPath('/tmp/other/run.yaml'),
-      ports: {
-        workspaces: [{
-          ...mountedWorkspace,
-          id: 'outside',
-          folderPath: '/tmp/other',
-          sprintEngineContext: {
-            teamName: 'Outside',
-            teamSlug: 'other',
-            teamDirectoryPath: '/tmp/other',
-            statePath: '/tmp/other/run.yaml',
+  // Path validation still runs BEFORE the door is asked: an absolute or non-
+  // run.yaml target never reaches it.
+  for (const badPath of ['/tmp/other/run.yaml', '.multi-code/sprintengine/team/run.yml']) {
+    const rejectedOpens: string[] = []
+    assert.equal(
+      await openSprintEngineBacklogLink({
+        workspaceId: 'ws-backlog',
+        workspaceRoot,
+        item: baseItem,
+        link: linkWithTargetPath(badPath),
+        ports: {
+          openSprintsDoorOnRun: (statePath: string) => {
+            rejectedOpens.push(statePath)
+            return true
           },
-        }],
-        setActiveWorkspace: (workspaceId: string) => invalidOpenCalls.push(`active:${workspaceId}`),
-        openRunSummaryOverlay: (workspaceId: string) => invalidOpenCalls.push(`summary:${workspaceId}`),
-        publishDiagnostic: (input) => diagnostics.push(input.message),
-      },
-    }),
-    false,
-    'absolute persisted run targets do not open mounted external workspaces',
-  )
-  assert.deepEqual(invalidOpenCalls, [])
-  assert.match(diagnostics.at(-1) ?? '', /project-relative Sprint Engine run target/)
-
-  const invalidYmlOpenCalls: string[] = []
-  assert.equal(
-    await openSprintEngineBacklogLink({
-      workspaceId: 'ws-backlog',
-      workspaceRoot,
-      item: baseItem,
-      link: linkWithTargetPath('.multi-code/sprintengine/team/run.yml'),
-      ports: {
-        workspaces: [{
-          ...mountedWorkspace,
-          id: 'yml-run',
-          sprintEngineContext: {
-            ...mountedWorkspace.sprintEngineContext!,
-            statePath: '/repo/.multi-code/sprintengine/team/run.yml',
-          },
-        }],
-        setActiveWorkspace: (workspaceId: string) => invalidYmlOpenCalls.push(`active:${workspaceId}`),
-        openRunSummaryOverlay: (workspaceId: string) => invalidYmlOpenCalls.push(`summary:${workspaceId}`),
-        publishDiagnostic: (input) => diagnostics.push(input.message),
-      },
-    }),
-    false,
-    'persisted run.yml targets do not open mounted workspaces',
-  )
-  assert.deepEqual(invalidYmlOpenCalls, [])
-  assert.match(diagnostics.at(-1) ?? '', /project-relative Sprint Engine run target/)
+          publishDiagnostic: (input) => diagnostics.push(input.message),
+        },
+      }),
+      false,
+      `${badPath} is not an openable run target`,
+    )
+    assert.deepEqual(rejectedOpens, [], `${badPath} never reaches the door`)
+    assert.match(diagnostics.at(-1) ?? '', /project-relative sprint run target/)
+  }
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+main()
+  .then(() => console.log('sprintengineBacklogLinks tests passed'))
+  .catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })

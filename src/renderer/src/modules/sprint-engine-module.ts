@@ -1,11 +1,10 @@
 import React from 'react'
 
 import type { RendererModule } from './renderer-host'
-import { createSprintEngineTemplate, registerSprintEngineWorkspaceTypes } from './sprint-engine-workspace-types'
+import { registerSprintEngineWorkspaceTypes } from './sprint-engine-workspace-types'
 import { basename } from '../utils/paths'
 import { slugifySprintEngineName } from '../utils/sprintengineStateFile'
 import { markdownTitle } from '../components/workspace/newWorkspace/helpers'
-import { normalizeSprintEngineProjection } from '../utils/sprintengine'
 import { dispatchRevealTarget } from '../utils/revealTarget'
 import { hasAgentLink } from '../utils/agentBacklogLinks'
 import {
@@ -20,7 +19,6 @@ import {
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
 import type { ProxyTrackerIdentity } from '../utils/sprintengineTrackerSeeding'
-import type { SprintEngineRoleCliDefaults, SprintEngineRoleId, SprintEngineState, Workspace } from '../types/workspace'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
 // rendered — never, when the module is disabled.
@@ -42,86 +40,31 @@ const SprintsGlobalSurface = React.lazy(
   () => import('../components/workspace/globalSurface/sprints/SprintsGlobalSurface')
 )
 
-const backlogRunMountCliDefaults: SprintEngineRoleCliDefaults = {
-  architect: 'claude-code',
-  product: 'claude-code',
-  frontend: 'claude-code',
-  ui_ux_reviewer: 'claude-code',
-  developer: 'claude-code',
-  performance: 'claude-code',
-  production_readiness_reviewer: 'claude-code',
-  cross_platform: 'claude-code',
-  tester: 'claude-code',
-  security: 'claude-code',
-}
-
-function roleCliDefaultsForMountedRun(state: SprintEngineState, saved: SprintEngineRoleCliDefaults | null | undefined): SprintEngineRoleCliDefaults {
-  const defaults = { ...backlogRunMountCliDefaults, ...(saved ?? {}) }
-  for (const [agentId, agent] of Object.entries(state.sprintEngineAgents)) {
-    const role = agent.role as SprintEngineRoleId
-    if (!defaults[role]) defaults[role] = defaults[agentId as SprintEngineRoleId] ?? 'claude-code'
-  }
-  return defaults
-}
-
-function mountedRunDirectoryPath(statePath: string): string {
-  return statePath.replace(/[\\/]+run\.ya?ml$/iu, '')
-}
-
+// The ports a Backlog `sprintengine.run` link opens through (item 1767). It used
+// to find-or-mount a workspace for the run; the Sprints door reads runs from disk
+// by state path, so opening one is now "open the door on it" — no workspace, no
+// terminals, and a run whose workspace is long gone opens like any other.
+//
+// The run store is read once before opening, so a link pointing at a deleted or
+// unreadable run reports that instead of silently opening the door on whatever
+// the rail happens to lead with.
 async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOpenPorts> {
-  const [{ useWorkspaceStore }, { publishDiagnostic }] = await Promise.all([
+  const [{ useWorkspaceStore }, { publishDiagnostic }, { noteSprintDoorSelection }] = await Promise.all([
     import('../store/workspaceStore'),
     import('../utils/diagnostics'),
+    import('../components/workspace/globalSurface/sprints/sprintDoorRequests'),
   ])
-  const store = useWorkspaceStore.getState()
   return {
-    workspaces: store.workspaces,
-    setActiveWorkspace: store.setActiveWorkspace,
-    openRunSummaryOverlay: store.openRunSummaryOverlay,
-    mountWorkspaceForRun: async ({ workspaceRoot, statePath, teamSlug }): Promise<Workspace | null> => {
-      const latestStore = useWorkspaceStore.getState()
-      const targetKey = statePath.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-      const existing = latestStore.workspaces.find((workspace) =>
-        workspace.sprintEngineContext?.statePath
-        && workspace.sprintEngineContext.statePath.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() === targetKey
-      )
-      if (existing) return existing
-
-      const projection = await window.api.readSprintEngineProjection(statePath)
-      if (!projection.ok) {
-        throw new Error(projection.message || 'Sprint projection is unavailable.')
+    openSprintsDoorOnRun: async (statePath: string): Promise<boolean> => {
+      try {
+        const projection = await window.api.readSprintEngineProjection(statePath)
+        if (!projection.ok) return false
+      } catch {
+        return false
       }
-      const sprintEngineState = normalizeSprintEngineProjection(projection.data, teamSlug)
-      if (!sprintEngineState) {
-        throw new Error('Sprint projection is malformed.')
-      }
-
-      const teamName = sprintEngineState.name.trim() || teamSlug
-      const roleCliDefaults = roleCliDefaultsForMountedRun(
-        sprintEngineState,
-        latestStore.appSettings.sprintEngineRoleSettings.savedRoster?.roleCliDefaults,
-      )
-      const workspaceId = latestStore.addWorkspace(
-        createSprintEngineTemplate({
-          name: teamName,
-          goal: sprintEngineState.goal,
-          roleCounts: sprintEngineState.roleCounts,
-        }),
-        {
-          name: teamName,
-          folderPath: workspaceRoot,
-          sprintEngineState,
-          sprintEngineContext: {
-            teamName,
-            teamSlug,
-            teamDirectoryPath: mountedRunDirectoryPath(statePath),
-            statePath,
-          },
-          sprintEngineRoleCliDefaults: roleCliDefaults,
-          mode: 'sprintengine',
-        },
-      )
-      return useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId) ?? null
+      noteSprintDoorSelection(statePath)
+      useWorkspaceStore.getState().openGlobalSurface('sprints')
+      return true
     },
     publishDiagnostic,
   }

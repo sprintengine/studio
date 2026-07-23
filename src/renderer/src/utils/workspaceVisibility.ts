@@ -1,4 +1,8 @@
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../types/workspace'
+import {
+  AUTOMATIONS_HOST_WORKSPACE_MODE,
+  SPRINT_ENGINE_WORKSPACE_MODE,
+  type WorkspaceMode,
+} from '../types/workspace'
 
 // Pure, dependency-free workspace-mode predicates so the executor, sidebar rail,
 // and tests can all import them without dragging in store/module deps. Callers
@@ -10,16 +14,36 @@ export function isAutomationsHostWorkspace(workspace: WorkspaceModeInput): boole
   return workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE
 }
 
+// True for a workspace that exists to hold a Sprint Engine run's agent terminals.
+// Matched on the mode alone — the run, not a persisted visibility field, is what
+// makes it one.
+export function isSprintRunWorkspace(workspace: WorkspaceModeInput): boolean {
+  return workspace.mode === SPRINT_ENGINE_WORKSPACE_MODE
+}
+
 // True when the workspace should not appear in the normal workspace rail.
-// Hidden-ness is derived from the mode, never a persisted field. Automations are
-// now an instance-level surface (the sidebar Automations door, epic 1704), so
-// their host workspaces are kept only as background runtime containers for
-// agent-backed runs — they stay in the store, in window assignments, and
-// mounted/revealable, but never render as a Projects-list row, a switch target,
-// or a command-palette result. This is the single chokepoint every rail-facing
-// list consults (sidebar, WorkspaceManager, command palette).
+// Hidden-ness is derived from the mode, never a persisted field. Two kinds of
+// workspace are hidden, for the same reason: an instance-level door surface took
+// over finding and steering them, so listing them again under one project would
+// claim they belong there.
+//
+// - The Automations host (epic 1704) is a background runtime container for
+//   agent-backed automation runs.
+// - Sprint-run workspaces (item 1767) are the execution residency for a run's
+//   agent terminals. The Sprints door lists every run from disk — live and
+//   historical, across every project — so the row is no longer how a run is
+//   found; "Open agents" on the door canvas is.
+//
+// Hidden means hidden from DISCOVERY, not disabled: both stay in the store, in
+// window assignments, and mounted/activatable, and an active hidden workspace
+// renders its own layout, header, and tabs exactly like any other. What they
+// never do is render as a Projects-list row, a keyboard switch target, or a
+// command-palette result. This is the single chokepoint every rail-facing list
+// consults (sidebar, WorkspaceManager, command palette), so reverting this one
+// predicate restores the rows — nothing about a sprint workspace is migrated or
+// deleted to hide it.
 export function isHiddenFromRail(workspace: WorkspaceModeInput): boolean {
-  return isAutomationsHostWorkspace(workspace)
+  return isAutomationsHostWorkspace(workspace) || isSprintRunWorkspace(workspace)
 }
 
 // True when the user archived the workspace (Sprints aside row action).

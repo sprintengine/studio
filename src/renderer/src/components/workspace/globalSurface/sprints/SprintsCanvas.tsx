@@ -53,7 +53,15 @@ import {
   tokenReportHasAgents,
 } from '../../../../utils/sprintengineTokenUsage'
 import { dispatchRevealTarget } from '../../../../utils/revealTarget'
-import { GhostButton, Popover, PrimaryButton } from '../../../ui'
+import { publishDiagnosticSync } from '../../../../utils/diagnostics'
+import {
+  GhostButton,
+  OverflowMenu,
+  Popover,
+  PrimaryButton,
+  useConfirmDialog,
+  type OverflowMenuItem,
+} from '../../../ui'
 import { SuspenseFallback } from '../../../ui/SuspenseFallback'
 import { createProjectionPollLoop } from '../../SprintEngineProjectionSupervisor'
 import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
@@ -65,6 +73,7 @@ import {
   type RepoMergeAction,
 } from '../../../panels/sprintEngineBoard/repoMergeSurface'
 import { sprintRunShortDate } from './railState'
+import { requestCloseSprintWorkspace } from './sprintDoorRequests'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
 
 const SprintRunBoard = React.lazy(async () => ({
@@ -398,7 +407,8 @@ function sourceLine(model: SprintRunCanvasModel): string {
 
 /**
  * The bar's trailing controls (mockup §2): the two quiet readouts — jump to the
- * run's agents, read its token usage — and the ONE next-step action.
+ * run's agents, read its token usage — the ONE next-step action, and the
+ * overflow that holds the run's disposal.
  *
  * The next step is the thing the RUN is waiting on a person for: answer a
  * question, or merge what is left. When the run is simply working there is no
@@ -406,7 +416,14 @@ function sourceLine(model: SprintRunCanvasModel): string {
  * into the accent primary — cancelling lives with the board's other run-level
  * commands, where a destructive action belongs.
  */
-export function SprintsBarActions({ model }: { model: SprintRunCanvasModel }): JSX.Element {
+export function SprintsBarActions({
+  model,
+  onRunDeleted,
+}: {
+  model: SprintRunCanvasModel
+  /** The run's store was removed from disk: the surface drops it and re-reads. */
+  onRunDeleted: () => void
+}): JSX.Element {
   const setActiveWorkspace = useWorkspaceStore((store) => store.setActiveWorkspace)
   const setRunView = useSprintEngineViewStore((store) => store.setView)
   const merge = model.merge
@@ -469,8 +486,106 @@ export function SprintsBarActions({ model }: { model: SprintRunCanvasModel }): J
           {merge.mergingRepoId ? 'Merging…' : `Merge remaining · ${unmerged}`}
         </PrimaryButton>
       ) : null}
+      <SprintRunDisposalMenu model={model} onRunDeleted={onRunDeleted} />
     </>
   )
+}
+
+// The run's disposal, in the overflow rather than the bar: both actions are rare
+// and one is irreversible, so neither earns a standing button beside the readouts
+// the operator uses every visit.
+//
+// These are the two workflows the Projects row carried before sprints left it
+// (item 1767). "Archive" did not come with them: archiving only ever hid a row
+// from the Projects list and the retired Sprints aside, and there is no longer a
+// row to hide — the door lists every run on disk, and the operator's way to stop
+// seeing one is to delete it.
+function SprintRunDisposalMenu({
+  model,
+  onRunDeleted,
+}: {
+  model: SprintRunCanvasModel
+  onRunDeleted: () => void
+}): JSX.Element {
+  const dialog = useConfirmDialog()
+  const [busy, setBusy] = useState(false)
+  const runName = model.run.teamName
+
+  const closeWorkspace = useCallback(async () => {
+    const workspaceId = model.residentWorkspaceId
+    if (!workspaceId) return
+    const confirmed = await dialog.confirm({
+      title: `Close the workspace for “${runName}”?`,
+      body: 'Its agent terminals stop. The sprint itself is kept — it stays on this page, and you can read its board and history exactly as now.',
+      confirmLabel: 'Close workspace',
+      tone: 'danger',
+    })
+    if (confirmed) requestCloseSprintWorkspace(workspaceId)
+  }, [dialog, model.residentWorkspaceId, runName])
+
+  // Type-to-confirm, the same bar the Projects row's "Delete workspace" set: this
+  // takes away the run's whole record — its plan, its tasks, its evidence, its
+  // review history — and the door is the only place it was listed. The folder
+  // goes to the system trash, so the copy says that rather than claiming it is
+  // unrecoverable.
+  const deleteRun = useCallback(async () => {
+    const typed = await dialog.prompt({
+      title: `Delete the sprint “${runName}”?`,
+      body: 'Its agents stop and the sprint’s stored plan, tasks, and history move to your system trash. Committed work and branches are kept.',
+      inputLabel: 'Type the sprint name to confirm',
+      placeholder: runName,
+      required: true,
+      confirmLabel: 'Delete sprint',
+      tone: 'danger',
+      validate: (value) => (value.trim() === runName.trim() ? null : 'That is not the sprint name.'),
+    })
+    if (typed === null) return
+    setBusy(true)
+    try {
+      if (model.residentWorkspaceId) requestCloseSprintWorkspace(model.residentWorkspaceId)
+      await window.api.deletePath(sprintRunDirectory(model.statePath))
+      onRunDeleted()
+    } catch (error) {
+      publishDiagnosticSync({
+        level: 'error',
+        source: 'sprintengine',
+        title: 'Delete sprint failed',
+        message: `“${runName}” is still on disk.`,
+        details: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }, [dialog, runName, model.residentWorkspaceId, model.statePath, onRunDeleted])
+
+  // "Close workspace" drops out entirely for a run with no workspace, rather than
+  // sitting there greyed: there is nothing to close, the canvas already says so on
+  // the Agents row, and the Projects row's own menu hid inapplicable actions the
+  // same way. Delete is always offered — every listed run has a folder.
+  const items: OverflowMenuItem[] = []
+  if (model.residentWorkspaceId) {
+    items.push({
+      id: 'close-workspace',
+      label: 'Close workspace',
+      disabled: busy,
+      onSelect: () => void closeWorkspace(),
+    })
+    items.push({ kind: 'separator', id: 'sep-disposal' })
+  }
+  items.push({
+    id: 'delete-run',
+    label: busy ? 'Deleting…' : 'Delete sprint…',
+    destructive: true,
+    disabled: busy,
+    onSelect: () => void deleteRun(),
+  })
+
+  return <OverflowMenu ariaLabel={`More actions for ${runName}`} triggerTooltip="More actions" items={items} />
+}
+
+// A run's own directory: the folder holding `run.yaml` and everything beside it.
+function sprintRunDirectory(statePath: string): string {
+  return statePath.replace(/[\\/]+run\.ya?ml$/iu, '')
 }
 
 // Token usage as a readout, not a page: the run's total with its honest coverage

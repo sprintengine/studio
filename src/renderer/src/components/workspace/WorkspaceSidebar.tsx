@@ -388,6 +388,12 @@ function workspaceHasOnDiskState(workspace: Workspace): boolean {
 // state. Terminality is read from whichever signal is hydrated — the projection
 // flags when present, else the persisted automation runtime state — so a
 // canceled/completed run in the sidebar never re-offers Cancel.
+//
+// Sprint runs left the Projects list in item 1767, so no row reaches this today:
+// Cancel sprint lives on the run board's own command menu, which the Sprints
+// door canvas mounts. This row path is kept intact — not deleted — because
+// hiding the rows is one revertible predicate (`isHiddenFromRail`), and reverting
+// it must bring the rows back whole.
 function isCancelableSprintEngineWorkspace(workspace: Workspace): boolean {
   if (workspace.mode !== 'sprintengine') return false
   if (!workspace.sprintEngineContext?.statePath) return false
@@ -727,12 +733,13 @@ export default function WorkspaceSidebar({
     | null
   >(null)
 
-  // Rail-hidden workspaces (the background Automations host) stay in the store
-  // and in window assignments but never render as rail rows. Every presentation
-  // path below — folder groups, starred — derives from this list, while
-  // drag-reorder still stitches against the full `workspaces` array so the host
-  // keeps its place in the persisted order. Cross-workspace search now lives in
-  // the global-search palette (T6), not a sidebar box.
+  // Rail-hidden workspaces — the background Automations host and, since item
+  // 1767, every sprint-run workspace — stay in the store and in window
+  // assignments but never render as rail rows. Every presentation path below —
+  // folder groups, starred — derives from this list, while drag-reorder still
+  // stitches against the full `workspaces` array so a hidden workspace keeps its
+  // place in the persisted order. Cross-workspace search now lives in the
+  // global-search palette (T6), not a sidebar box.
   const railWorkspaces = useMemo(
     () =>
       workspaces.filter(
@@ -1561,9 +1568,9 @@ export default function WorkspaceSidebar({
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
           umbrella header; the folder headers are the top level (Cursor-parity).
-          Sprint workspaces list under their project like any other workspace;
-          the global sprint overview is the Sprints surface opened from the top
-          nav.
+          Projects and human workspaces only: a sprint run is not a row here
+          (item 1767, mockup §1) — the Sprints door lists every run across every
+          project, and jumps into a run's terminals from its canvas.
 
           Alignment grid: every text column starts 36px from the sidebar edge —
           top-nav labels (mx-2 + px-2 + 12px icon + gap-2), section-header

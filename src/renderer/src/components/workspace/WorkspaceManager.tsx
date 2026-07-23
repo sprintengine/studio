@@ -97,7 +97,11 @@ import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
 import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
-import { noteSprintCreatedFromDoor, subscribeNewSprintRequests } from './globalSurface/sprints/sprintCreationRequest'
+import {
+  noteSprintDoorSelection,
+  subscribeCloseSprintWorkspaceRequests,
+  subscribeNewSprintRequests,
+} from './globalSurface/sprints/sprintDoorRequests'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
@@ -442,25 +446,27 @@ export default function WorkspaceManager() {
     () => workspaces.filter((workspace) => visibleWorkspaceIdSet.has(workspace.id)),
     [visibleWorkspaceIdSet, workspaces]
   )
-  // Rail-navigable subset of this window's workspaces: the background Automations
-  // host stays assigned and mounted (it is in `visibleWorkspaces`) but is never a
-  // rail row, a switch target, or counted toward "has a workspace". Navigation,
-  // keyboard switching, and the empty-state derive from this list so a lone
-  // hidden host never strands the user on a blank rail.
+  // Rail-navigable subset of this window's workspaces: rail-hidden workspaces —
+  // the background Automations host, and every sprint-run workspace since item
+  // 1767 — stay assigned and mounted (they are in `visibleWorkspaces`) but are
+  // never a rail row, a keyboard switch target, or counted toward "has a
+  // workspace". Sequential switching and the empty-state derive from this list so
+  // a profile holding only hidden workspaces never strands the user on one.
+  // Explicit activation (the Sprints door's "Open agents", the T5 reveal path)
+  // still works and still renders the workspace whole — see
+  // `windowActiveWorkspaceId` below.
   const railWorkspaces = useMemo(
     () => visibleWorkspaces.filter((workspace) => !isHiddenFromRail(workspace)),
     [visibleWorkspaces]
   )
-  const railWorkspaceIdSet = useMemo(
-    () => new Set(railWorkspaces.map((workspace) => workspace.id)),
-    [railWorkspaces]
-  )
   const windowActiveWorkspaceId =
     currentWorkspaceWindow?.activeWorkspaceId && visibleWorkspaceIdSet.has(currentWorkspaceWindow.activeWorkspaceId)
-      // An explicitly-activated workspace is honored even when it is a hidden
-      // host (the T5 reveal path sets it). Only the implicit fallback refuses to
-      // auto-activate a hidden host, so a lone host yields a null active id and
-      // the "no workspaces" empty state instead of stranding the user on it.
+      // An explicitly-activated workspace is honored even when it is rail-hidden
+      // (the T5 reveal path, and the Sprints door's "Open agents", both set it) —
+      // so a sprint's terminals render with their whole layout, header, and tabs.
+      // Only the implicit fallback refuses to auto-activate a hidden workspace, so
+      // a profile holding only hidden ones yields a null active id and the "no
+      // workspaces" empty state instead of stranding the user on one.
       ? currentWorkspaceWindow.activeWorkspaceId
       : railWorkspaces[0]?.id ?? null
   const activeWorkspace = visibleWorkspaces.find((workspace) => workspace.id === windowActiveWorkspaceId) ?? null
@@ -1557,6 +1563,15 @@ export default function WorkspaceManager() {
     [removeWorkspace]
   )
 
+  // "Close workspace" for a sprint run, asked for by the Sprints door (item
+  // 1767). The row that used to offer it is gone, but the operation is unchanged:
+  // the same close path, so the run's agent terminals are terminated rather than
+  // orphaned. The run itself stays on disk and keeps listing in the door.
+  useEffect(
+    () => subscribeCloseSprintWorkspaceRequests((workspaceId) => closeWorkspaceById(workspaceId)),
+    [closeWorkspaceById],
+  )
+
   // Fire the deferred agent-config adoption against the just-created workspace
   // root. Runs at most once per onboarding: the selection is consumed up front so
   // a later create can't double-adopt, and the real adoptAgentConfig IPC's
@@ -1644,7 +1659,7 @@ export default function WorkspaceManager() {
     if (sprintCreationCameFromDoor.current) {
       sprintCreationCameFromDoor.current = false
       if (mode === 'sprintengine' && sprintEngineContext?.statePath) {
-        noteSprintCreatedFromDoor(sprintEngineContext.statePath)
+        noteSprintDoorSelection(sprintEngineContext.statePath)
         openGlobalSurface('sprints')
       }
     }
@@ -2329,7 +2344,11 @@ export default function WorkspaceManager() {
           // A workspace entry is the current location only when no door overlays
           // it; otherwise Back from a door to its own underlying workspace is valid.
           if (!activeGlobalSurface && entry.id === windowActiveWorkspaceId) return false
-          return railWorkspaceIdSet.has(entry.id)
+          // Assignment, not rail membership: history holds places the operator
+          // actually visited, and a rail-hidden workspace is reached by explicit
+          // activation (the Sprints door's "Open agents"). Gating on the rail
+          // would let Back reach a run's terminals but never Forward.
+          return visibleWorkspaceIdSet.has(entry.id)
         },
       )
       if (!step) return false
@@ -2483,7 +2502,7 @@ export default function WorkspaceManager() {
     openGlobalSurface,
     closeWorkspaceById,
     railWorkspaces,
-    railWorkspaceIdSet,
+    visibleWorkspaceIdSet,
     setActiveWorkspaceForWindow,
     workspaceWindowId,
     showNewWorkspacePanel,

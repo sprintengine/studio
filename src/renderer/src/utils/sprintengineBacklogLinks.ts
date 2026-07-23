@@ -33,15 +33,12 @@ export type SprintEngineProjectionRead = {
 }
 
 export type SprintEngineBacklogLinkOpenPorts = {
-  workspaces: ReadonlyArray<Workspace>
-  setActiveWorkspace(workspaceId: string): void
-  openRunSummaryOverlay(workspaceId: string): void
-  mountWorkspaceForRun?(input: {
-    workspaceRoot: string
-    statePath: string
-    teamSlug: string
-    link: BacklogItemLink
-  }): Promise<Workspace | null> | Workspace | null
+  /**
+   * Open the Sprints door on this run. Resolves false when the run's store could
+   * not be read, so the caller can say so instead of dropping the operator on a
+   * door that quietly opened on some other sprint.
+   */
+  openSprintsDoorOnRun(statePath: string): Promise<boolean> | boolean
   publishDiagnostic?(input: {
     level: 'info' | 'warning' | 'error'
     source: string
@@ -152,6 +149,15 @@ export async function resolveSprintEngineBacklogLink(
   }
 }
 
+// Open a Backlog `sprintengine.run` link: the Sprints door, on that run
+// (item 1767).
+//
+// This used to find-or-mount a workspace for the run and activate it, because a
+// run could only be read through a workspace. The door reads runs from disk by
+// state path, so there is nothing to mount — and mounting would have created a
+// workspace (and its terminals) for someone who only wanted to look. A run whose
+// workspace was never opened, or was closed long ago, now opens exactly like a
+// live one.
 export async function openSprintEngineBacklogLink(
   input: BacklogLinkProviderInput & { ports: SprintEngineBacklogLinkOpenPorts },
 ): Promise<boolean> {
@@ -167,51 +173,17 @@ export async function openSprintEngineBacklogLink(
     return false
   }
 
-  const targetKey = pathKey(statePath)
-  let workspace = input.ports.workspaces.find((candidate) =>
-    candidate.sprintEngineContext?.statePath
-    && pathKey(candidate.sprintEngineContext.statePath) === targetKey
-  )
+  if (await input.ports.openSprintsDoorOnRun(statePath)) return true
 
-  if (!workspace && input.ports.mountWorkspaceForRun) {
-    try {
-      workspace = await input.ports.mountWorkspaceForRun({
-        workspaceRoot: input.workspaceRoot,
-        statePath,
-        teamSlug: teamSlugFromStatePath(statePath) ?? input.link.target.id,
-        link: input.link,
-      }) ?? undefined
-    } catch (error) {
-      await input.ports.publishDiagnostic?.({
-        level: 'warning',
-        source: 'sprintengine',
-        title: 'Sprint run unavailable',
-        message: 'Could not mount this sprint run as a workspace.',
-        details: [
-          statePath,
-          error instanceof Error ? error.message : String(error),
-        ].filter(Boolean).join('\n'),
-        workspaceId: input.workspaceId,
-      })
-      return false
-    }
-  }
-
-  if (!workspace) {
-    await input.ports.publishDiagnostic?.({
-      level: 'warning',
-      source: 'sprintengine',
-      title: 'Sprint run unavailable',
-      message: 'No open workspace is mounted for this sprint run.',
-      details: statePath,
-      workspaceId: input.workspaceId,
-    })
-    return false
-  }
-
-  input.ports.setActiveWorkspace(workspace.id)
-  input.ports.openRunSummaryOverlay(workspace.id)
-  return true
+  await input.ports.publishDiagnostic?.({
+    level: 'warning',
+    source: 'sprintengine',
+    title: 'Sprint run unavailable',
+    message: 'This sprint’s stored run could not be read, so there is nothing to open.',
+    details: statePath,
+    workspaceId: input.workspaceId,
+  })
+  return false
 }
 
 // Resolve the PR link: openable whenever it carries a URL. The PR is an opened
