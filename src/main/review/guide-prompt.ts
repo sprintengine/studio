@@ -49,7 +49,9 @@ function resolveSkillPath(): string {
   ]
   const found = candidates.find((candidate) => existsSync(candidate))
   if (!found) {
-    throw new Error(`The ${SKILL_ID} skill is missing; looked in: ${candidates.join(', ')}`)
+    // Names the shipped location, not the absolute candidates: this message can
+    // surface as a run-failure detail, and no machine path belongs in one.
+    throw new Error(`The ${SKILL_ID} skill is missing (expected resources/skills/${SKILL_ID}/SKILL.md).`)
   }
   return found
 }
@@ -57,23 +59,33 @@ function resolveSkillPath(): string {
 let skillBody: string | null = null
 const sharedBlocks = new Map<string, string>()
 
-// Read one `<!-- shared:NAME -->` block from the skill, verbatim. A missing
-// block is a hard error: a silently empty section would ship a guide prompt with
-// its role contract or schema quietly cut out.
+// Pull one `<!-- shared:NAME -->` block out of the skill text, verbatim. A block
+// that is missing OR empty is a hard error, never a quietly empty section: an
+// emptied block would otherwise ship a guide prompt with its role contract or its
+// schema silently cut out, and the guide would still look like it was working.
+// Exported so the parsing rule is testable without a filesystem fixture.
+export function extractSharedBlock(skillText: string, name: string): string {
+  const open = `<!-- shared:${name} -->\n`
+  const close = `\n<!-- /shared:${name} -->`
+  const start = skillText.indexOf(open)
+  const end = start < 0 ? -1 : skillText.indexOf(close, start + open.length)
+  if (start < 0 || end < 0) {
+    throw new Error(`The ${SKILL_ID} skill is missing its "${name}" block.`)
+  }
+
+  const body = skillText.slice(start + open.length, end)
+  if (body.trim().length === 0) {
+    throw new Error(`The ${SKILL_ID} skill has an empty "${name}" block.`)
+  }
+  return body
+}
+
 function sharedBlock(name: string): string {
   const cached = sharedBlocks.get(name)
   if (cached !== undefined) return cached
 
   skillBody ??= readFileSync(resolveSkillPath(), 'utf-8')
-  const open = `<!-- shared:${name} -->\n`
-  const close = `\n<!-- /shared:${name} -->`
-  const start = skillBody.indexOf(open)
-  const end = start < 0 ? -1 : skillBody.indexOf(close, start + open.length)
-  if (start < 0 || end < 0) {
-    throw new Error(`The ${SKILL_ID} skill is missing its "${name}" block.`)
-  }
-
-  const body = skillBody.slice(start + open.length, end)
+  const body = extractSharedBlock(skillBody, name)
   sharedBlocks.set(name, body)
   return body
 }

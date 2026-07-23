@@ -10,7 +10,7 @@ import {
   type CompanionAgentService,
   type CompanionRunStructuredOptions,
 } from '../companion-agent-service'
-import { buildGuideRunPrompt, guideSystemPrompt, reviewBriefSchemaDoc } from './guide-prompt'
+import { buildGuideRunPrompt, extractSharedBlock, guideSystemPrompt, reviewBriefSchemaDoc } from './guide-prompt'
 import { GuideRunRegistry } from './guide-run-registry'
 import {
   ReviewBriefRunService,
@@ -649,6 +649,19 @@ run('every shared block the companion prompts read exists in the skill', () => {
     () => buildGuideRunPrompt(fixtureChangeSet(), 'nonexistent' as never),
     /missing its "depth-nonexistent" block/,
   )
+
+  // An emptied block fails just as loudly. Without this, a skill edit that blanks
+  // the role contract would ship a guide prompt with the no-judgment rule cut
+  // out, and every prompt would still build and look fine.
+  assert.throws(
+    () => extractSharedBlock('<!-- shared:role-contract -->\n\n<!-- /shared:role-contract -->\n', 'role-contract'),
+    /empty "role-contract" block/,
+  )
+  assert.equal(extractSharedBlock('<!-- shared:x -->\nkeep me\n<!-- /shared:x -->\n', 'x'), 'keep me')
+  // No block in the shipped skill is blank.
+  for (const name of blocks) {
+    assert.ok(extractSharedBlock(skill, name).trim().length > 0, `${name} carries text`)
+  }
 })
 
 run('the skill instructs delivery through the review tools, not a JSON reply', () => {
