@@ -189,17 +189,16 @@ run('degraded: a synthesized brief renders the raw diff and the human review loo
       onRerun={() => {}}
       comments={[]}
       onCreateComment={() => {}}
-      workspaceId="rv_1"
-      workspaceRoot="/proj"
+      onOpenAsk={() => {}}
     />,
   )
   // The raw change renders: the synthesized step and every changed file's diff card.
   assert.ok(html.includes('All files'), 'the synthesized step renders')
   assert.ok(html.includes('prisma/schema.prisma'), 'every changed file renders as a diff card')
   assert.ok(html.includes('Changed in this review'), 'a neutral why-line stands in for guide narration')
-  // The human loop stays live; the guide chat does not, even with a workspace id.
+  // The human loop stays live; the guide ask does not, even with the composer wired.
   assert.ok(html.includes('Your review'), 'comments stay enabled with no guide')
-  assert.ok(!html.includes('Ask the guide'), 'no guide to ask — chat is suppressed in degraded mode')
+  assert.ok(!html.includes('Ask the guide'), 'no guide to ask — the ask action is suppressed in degraded mode')
 })
 
 // Reference the fixture so an unused-import refactor can't silently drop it.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
@@ -13,6 +14,8 @@ import { ReviewsRail } from './ReviewsRail'
 import { ReviewChangeForm } from './ReviewChangeForm'
 import { orderReviewRail, resolveReviewAutoSelect } from './reviewRailModel'
 import { buildReviewsSurfaceBar } from './ReviewSurfaceBar'
+import { AskGuideDrawer, ReviewGuideActions, useReviewGuideRuntime } from './ReviewGuideControls'
+import { useGuideTerminal } from './useGuideTerminal'
 
 // How often the open door re-scans the review index so the rail's states stay
 // honest (a sibling window posting, a walkthrough finishing) without ever
@@ -92,10 +95,22 @@ export default function ReviewsGlobalSurface(): JSX.Element {
     if (decision.select) setSelected(decision.select)
   }, [index.phase, creating, selected, rows, entries, lastSelectedReview, setLastSelectedReview])
 
+  // Which agent runs the guide, and where its terminal is. Both are door-level
+  // concerns — the canvas stays a pure projection of the session — so they are
+  // resolved here and handed down as a slot.
+  const guideRuntime = useReviewGuideRuntime()
   const session = useReviewSession({
     reviewId: selected?.reviewId ?? null,
     workspaceRoot: selected?.workspaceRoot ?? null,
+    guideCli: guideRuntime.cli,
+    ...(guideRuntime.model ? { guideModel: guideRuntime.model } : {}),
   })
+  const guideTerminal = useGuideTerminal({
+    reviewId: selected?.reviewId ?? null,
+    workspaceRoot: selected?.workspaceRoot ?? null,
+    guide: session.guide,
+  })
+  const guideActions = <ReviewGuideActions session={session} runtime={guideRuntime} terminal={guideTerminal} />
 
   // Keep the rail fresh while the door is open: a slow poll, plus an immediate
   // re-scan the moment a post finishes (posting → idle without an error), so the
@@ -152,9 +167,14 @@ export default function ReviewsGlobalSurface(): JSX.Element {
     )
 
   return (
-    <GlobalSurfaceShell ariaLabel="Reviews" bar={bar} rail={rail} onBack={back.onBack} canGoBack={back.canGoBack}>
-      {renderCanvas({ index, creating, hasSelection: selected !== null, session, roots, onRetry: reload, onCreated, onCancelCreate, onNewReview })}
-    </GlobalSurfaceShell>
+    <>
+      <GlobalSurfaceShell ariaLabel="Reviews" bar={bar} rail={rail} onBack={back.onBack} canGoBack={back.canGoBack}>
+        {renderCanvas({ index, creating, hasSelection: selected !== null, session, guideActions, roots, onRetry: reload, onCreated, onCancelCreate, onNewReview })}
+      </GlobalSurfaceShell>
+      {/* The ask composer is a fixed-position drawer over the whole door, so it
+          sits outside the shell rather than inside the canvas region. */}
+      {selected ? <AskGuideDrawer session={session} terminal={guideTerminal} /> : null}
+    </>
   )
 }
 
@@ -181,6 +201,7 @@ function renderCanvas({
   creating,
   hasSelection,
   session,
+  guideActions,
   roots,
   onRetry,
   onCreated,
@@ -191,6 +212,7 @@ function renderCanvas({
   creating: boolean
   hasSelection: boolean
   session: ReturnType<typeof useReviewSession>
+  guideActions: ReactNode
   roots: string[]
   onRetry: () => void
   onCreated: (review: SelectedReview) => void
@@ -202,7 +224,7 @@ function renderCanvas({
   }
   // A selected review renders as soon as it is chosen — the session loads it by id,
   // so it does not wait for the index re-scan to list a just-created one.
-  if (hasSelection) return <ReviewCanvas session={session} />
+  if (hasSelection) return <ReviewCanvas session={session} guideActions={guideActions} />
   if (index.phase === 'loading') {
     return <SurfaceCanvasState kind="loading" label="Loading reviews…" />
   }

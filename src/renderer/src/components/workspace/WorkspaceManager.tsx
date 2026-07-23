@@ -109,7 +109,7 @@ import {
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { attentionQueueBadge, buildAttentionQueueItems } from '../../utils/attentionQueue'
-import { REVIEW_GUIDE_AGENT_ID } from '../panels/review/AskGuidePane'
+import { isReviewGuideAgentId } from './globalSurface/reviews/reviewGuideTerminal'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
@@ -657,16 +657,17 @@ export default function WorkspaceManager() {
     terminalSessions,
   ])
   // Names the bucket a session with no workspace row is listed under. The review
-  // guide runs under its review id, so a conversation session driven by the
-  // guide agent reads as "Reviews"; anything else gets the generic bucket.
+  // guide now runs as an agent terminal inside its project workspace, so it is
+  // normally not detached at all; a session left over from a closed project still
+  // reads as "Reviews" through its per-review guide agent id.
   const resolveDetachedSessionLabel = useCallback(
     (workspaceId: string): string | null =>
-      conversationSessions.some(
-        (summary) => summary.workspaceId === workspaceId && summary.agentId === REVIEW_GUIDE_AGENT_ID,
+      [...terminalSessions, ...conversationSessions].some(
+        (summary) => summary.workspaceId === workspaceId && isReviewGuideAgentId(summary.agentId ?? ''),
       )
         ? 'Reviews'
         : null,
-    [conversationSessions],
+    [terminalSessions, conversationSessions],
   )
   // Resolution runs against EVERY workspace, not just this window's, so a session
   // hosted in another window resolves to its real workspace and is filtered out

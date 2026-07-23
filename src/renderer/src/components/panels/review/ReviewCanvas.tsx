@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 
 import type { ReviewChangeSet } from '../../../../../shared/review'
 import { InlineNotice } from '../../ui/InlineNotice'
-import { PrimaryButton } from '../../ui/Buttons'
 import { Spinner } from '../../ui/Spinner'
 import { ReviewWalkthrough } from './ReviewWalkthrough'
 import { FreshnessBanner } from './FreshnessBanner'
@@ -20,7 +19,10 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 // slim banner offers to prepare the guide walkthrough and surfaces a failed run.
 // All the state, IPC, and mutation live in `useReviewSession`; this is the pure
 // view, so it renders deterministically from a session object with no side effects.
-export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Element {
+// `guideActions` is the one slot it does not own: picking the agent that runs the
+// guide and opening its terminal need the plugin catalog and the layout registry,
+// which the Reviews door supplies (ReviewGuideControls) so this stays store-free.
+export function ReviewCanvas({ session, guideActions }: { session: ReviewSession; guideActions: ReactNode }): JSX.Element {
   const { status, changeset, run } = session
 
   // No review is selected — an explicit resting state, not a spinner that would
@@ -81,11 +83,7 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
             {session.invalidErrors}
           </pre>
         </InlineNotice>
-        <div className="mt-3">
-          <PrimaryButton onClick={session.startRun} disabled={run.running}>
-            {run.running ? 'Preparing…' : 'Try again'}
-          </PrimaryButton>
-        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">{guideActions}</div>
         <RunLine run={run} />
       </PrepareShell>
     )
@@ -106,7 +104,7 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
   }
 
   const bannerSlot = session.isDegraded ? (
-    <DegradedBanner run={run} onPrepare={session.startRun} />
+    <DegradedBanner run={run} actions={guideActions} />
   ) : session.bannerModel ? (
     <FreshnessBanner model={session.bannerModel} refreshing={run.running} refreshPhase={run.phase} onRefresh={session.refresh} />
   ) : null
@@ -125,7 +123,7 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
       onSetDiffView={session.onSetDiffView}
       onToggleRead={session.onToggleRead}
       onRequestComment={NOOP}
-      onAskGuide={NOOP}
+      onAskGuide={session.askController.askFromCard}
       onRerun={session.refresh}
       bannerSlot={bannerSlot}
       comments={session.comments}
@@ -134,11 +132,9 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
       onDeleteComment={session.onDeleteComment}
       onPostReview={isPullRequestReviewSource(changeset) ? session.onPostReview : undefined}
       postState={session.postState}
-      workspaceId={session.reviewId ?? undefined}
-      workspaceRoot={session.workspaceRoot ?? undefined}
+      onOpenAsk={session.openAsk}
       hideTopBar
       trayController={session.trayController}
-      chatController={session.chatController}
     />
   )
 }
@@ -175,10 +171,12 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
 }
 
 // The slim degraded banner under the surface bar: honest about the missing guide,
-// with the one affordance to prepare it. It carries three faces — a resting invite,
-// an in-flight "preparing…" line, and a run failure ("keep reviewing without it") —
-// so a failed guide run is never a dead end over a reviewable change.
-function DegradedBanner({ run, onPrepare }: { run: ReviewRunProgress; onPrepare: () => void }) {
+// with the one affordance that matters in each state. It carries three faces — a
+// resting invite, a "the guide is working" line (the guide runs in its own
+// terminal, so the action beside it is the way into that terminal), and a run
+// failure ("keep reviewing without it") — so a failed guide run is never a dead
+// end over a reviewable change.
+function DegradedBanner({ run, actions }: { run: ReviewRunProgress; actions: ReactNode }) {
   const failed = Boolean(run.error)
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2.5">
@@ -191,15 +189,13 @@ function DegradedBanner({ run, onPrepare }: { run: ReviewRunProgress; onPrepare:
         ) : run.running ? (
           <span className="inline-flex items-center gap-2">
             <Spinner />
-            {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? 'Preparing the walkthrough…'}
+            {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? RUN_PHASE_LABEL.grouping}
           </span>
         ) : (
           'No guide walkthrough yet — you’re viewing the raw change.'
         )}
       </span>
-      <PrimaryButton onClick={onPrepare} disabled={run.running} className="shrink-0">
-        {run.running ? 'Preparing…' : failed ? 'Try again' : 'Prepare walkthrough'}
-      </PrimaryButton>
+      <span className="flex shrink-0 items-center gap-2">{actions}</span>
     </div>
   )
 }
@@ -217,9 +213,13 @@ function RunLine({ run }: { run: ReviewRunProgress }) {
   )
 }
 
+// Phase copy for the terminal guide (MC-1783). `reading` now covers getting the
+// guide's terminal up with the run prompt, and `grouping` is the guide itself
+// working in that terminal — the labels say so rather than describing a
+// generation step this process no longer performs.
 const RUN_PHASE_LABEL: Record<string, string> = {
-  reading: 'Reading the change…',
-  grouping: 'Grouping the change into steps…',
+  reading: 'Starting the guide…',
+  grouping: 'The guide is working on the walkthrough…',
   annotating: 'Checking the walkthrough…',
   writing: 'Saving the walkthrough…',
   done: 'Walkthrough ready',

@@ -10,7 +10,13 @@ import type {
   ReviewComment,
   ReviewWorkspaceState,
 } from '../../../../../shared/review'
-import type { ReviewBriefRunDepth, ReviewBriefRunPhase } from '../../../../../shared/electron-api'
+import type {
+  ReviewAskGuideResult,
+  ReviewBriefRunDepth,
+  ReviewBriefRunPhase,
+  ReviewGuideRunStatus,
+  ReviewGuideTerminal,
+} from '../../../../../shared/electron-api'
 import {
   addComment,
   applyPostFailure,
@@ -35,7 +41,7 @@ import { synthesizeDegradedBrief } from './degradedBrief'
 import { resolveActivePaneId } from './reviewSelectors'
 import { useReviewFreshness } from './useReviewFreshness'
 import type { FreshnessBannerModel } from './freshness'
-import type { ReviewChatController, ReviewDrawerController } from './ReviewWalkthrough'
+import type { ReviewDrawerController } from './ReviewWalkthrough'
 import type { ReviewPostPhase } from './ReviewTray'
 import { anchorRangeLabel } from './anchorLabel'
 
@@ -64,6 +70,15 @@ export interface ReviewRunProgress {
   error: string | null
 }
 
+// "Ask the guide" (MC-1783): the composer drawer the door opens. The guide is an
+// ordinary terminal agent now, so there is no thread to project here — the
+// question is delivered to its terminal and the answer is read there.
+// `askFromCard` opens the composer pre-quoted at an annotation's anchor.
+export interface ReviewAskController extends ReviewDrawerController {
+  prefill?: { text: string; nonce: number }
+  askFromCard: (annotation: ReviewAnnotation) => void
+}
+
 export interface ReviewSession {
   reviewId: string | null
   workspaceRoot: string | null
@@ -78,6 +93,11 @@ export interface ReviewSession {
   errorMessage: string | null
   invalidErrors: string | null
   run: ReviewRunProgress
+  // Where this review's guide terminal lives, once a start or an ask has reported
+  // it. Null before either — a remount reads the run's *phase* back from the main
+  // process but not its coordinates, so the door derives them from the review id
+  // and the project workspace instead (see reviewGuideTerminal.ts).
+  guide: ReviewGuideTerminal | null
   // Walkthrough props (present when status === 'ready').
   readFiles: ReadonlySet<string>
   diffView: DiffView
@@ -100,11 +120,14 @@ export interface ReviewSession {
   onPostReview: () => void
   startRun: () => void
   refresh: () => void
+  // Deliver one question to the guide's terminal. The answer is not in the result
+  // — the reviewer reads it there; this reports only whether it was delivered.
+  askGuide: (message: string) => Promise<ReviewAskGuideResult>
   // Drawer chrome, driven from the folded surface bar.
   trayController: ReviewDrawerController
-  chatController: ReviewChatController
+  askController: ReviewAskController
   openTray: () => void
-  openChat: () => void
+  openAsk: () => void
 }
 
 type ChangesetLoad =
@@ -127,26 +150,67 @@ export interface UseReviewSessionParams {
   reviewId: string | null
   workspaceRoot: string | null
   depth?: ReviewBriefRunDepth
+  // Which agent CLI (and model) runs the guide. The guide is an ordinary terminal
+  // agent, so this is the reviewer's pick from the door's runtime picker. Omitted,
+  // the main process falls back to a live guide's CLI, then the project's last
+  // agent CLI, and finally fails visibly rather than guessing an engine.
+  guideCli?: string
+  guideModel?: string
 }
 
-export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }: UseReviewSessionParams): ReviewSession {
+// The idle run state, and the projection of the main process's record of a run
+// onto it. A terminal phase is retained with `running: false`, which is what lets
+// a remount say "the last run failed, here is why" instead of showing a bare
+// prepare button (MC-1784).
+const IDLE_RUN: ReviewRunProgress = { running: false, phase: null, error: null }
+
+function runFromStatus(status: ReviewGuideRunStatus): ReviewRunProgress {
+  if (status.running) return { running: true, phase: status.phase, detail: status.detail, error: null }
+  if (status.phase === 'failed') {
+    return { running: false, phase: 'failed', error: status.detail ?? 'The guide could not finish.' }
+  }
+  return { running: false, phase: status.phase, detail: status.detail, error: null }
+}
+
+export function useReviewSession({
+  reviewId,
+  workspaceRoot,
+  depth = 'standard',
+  guideCli,
+  guideModel,
+}: UseReviewSessionParams): ReviewSession {
   const monacoTheme = useMonacoBaseTheme()
 
   const [storedState, setStoredState] = useState<ReviewWorkspaceState | null>(null)
   const [stateLoaded, setStateLoaded] = useState(false)
   const [changesetLoad, setChangesetLoad] = useState<ChangesetLoad>({ phase: 'loading' })
   const [briefLoad, setBriefLoad] = useState<BriefLoad>({ phase: 'idle' })
-  const [run, setRun] = useState<ReviewRunProgress>({ running: false, phase: null, error: null })
+  const [run, setRun] = useState<ReviewRunProgress>(IDLE_RUN)
+  const [guide, setGuide] = useState<ReviewGuideTerminal | null>(null)
   const [settle, setSettle] = useState<{ headSha?: string; refreshedStepIds: string[] } | null>(null)
   const [postState, setPostState] = useState<ReviewPostPhase>({ phase: 'idle' })
   const refreshInFlightRef = useRef(false)
+
+  // Live mirror of the run so the one-writer guard reads the CURRENT phase rather
+  // than a value captured when a callback was created: pressing Prepare against a
+  // run already in flight must join it, never start a second guide.
+  const runRef = useRef<ReviewRunProgress>(run)
+  const applyRun = useCallback((next: ReviewRunProgress) => {
+    runRef.current = next
+    setRun(next)
+  }, [])
+  // A freshness re-run's "current again" banner, held until the guide actually
+  // finishes. The run now resolves when the terminal has the prompt, not when the
+  // walkthrough exists, so settling on the IPC result would claim it was rebuilt
+  // while the guide is still working.
+  const pendingSettleRef = useRef<{ headSha?: string; refreshedStepIds: string[] } | null>(null)
 
   // Drawer state for the folded surface bar (the walkthrough itself is chromeless
   // on the door). Prefill + its re-apply nonce live here so both the bar's clean
   // "Ask the guide" and a note-card "Ask the guide" drive one composer.
   const [trayOpen, setTrayOpen] = useState(false)
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatPrefill, setChatPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined)
+  const [askOpen, setAskOpen] = useState(false)
+  const [askPrefill, setAskPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined)
   const prefillNonce = useRef(0)
 
   // The review identity for IPC. `workspaceId` is the review id — the on-disk
@@ -170,13 +234,36 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
   useEffect(() => {
     setChangesetLoad(target ? { phase: 'loading' } : { phase: 'ready', changeset: null })
     setBriefLoad({ phase: 'idle' })
-    setRun({ running: false, phase: null, error: null })
+    applyRun(IDLE_RUN)
+    setGuide(null)
+    pendingSettleRef.current = null
     setSettle(null)
     setPostState({ phase: 'idle' })
     setTrayOpen(false)
-    setChatOpen(false)
-    setChatPrefill(undefined)
-  }, [target])
+    setAskOpen(false)
+    setAskPrefill(undefined)
+  }, [target, applyRun])
+
+  // Seed the run from the main process's own record (MC-1784). The guide outlives
+  // this component: navigating away mid-run and back must show "the guide is
+  // working", not an idle prepare button. A local start already in flight wins —
+  // it is newer than whatever this read was told.
+  useEffect(() => {
+    if (!target) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const status = await window.api.reviewBriefRunStatus(target)
+        if (cancelled || !status || runRef.current.running) return
+        applyRun(runFromStatus(status))
+      } catch {
+        // No record to seed from; the resting state is the honest fallback.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [target, applyRun])
 
   // Load the reviewer's persisted state for this review.
   useEffect(() => {
@@ -246,43 +333,60 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     }
   }, [target, loadChangeset, loadBrief])
 
-  // Live guide-run progress, filtered to this review.
+  // Live guide-run progress, filtered to this review. This — not the start call —
+  // is what ends a run: the guide works in its own terminal and the brief lands
+  // asynchronously through the review MCP tools.
   useEffect(() => {
     if (!reviewId) return
     const off = window.api.onReviewBriefRunEvent((event) => {
       if (event.workspaceId !== reviewId) return
       if (event.phase === 'done') {
-        setRun({ running: false, phase: 'done', error: null })
+        applyRun({ running: false, phase: 'done', error: null })
         void loadBrief()
+        // A freshness re-run's settle waits for exactly this moment.
+        const pending = pendingSettleRef.current
+        if (pending) {
+          pendingSettleRef.current = null
+          setSettle(pending)
+        }
       } else if (event.phase === 'failed') {
-        setRun({ running: false, phase: 'failed', error: event.detail ?? 'The guide could not finish.' })
+        pendingSettleRef.current = null
+        applyRun({ running: false, phase: 'failed', error: event.detail ?? 'The guide could not finish.' })
       } else {
-        setRun({ running: true, phase: event.phase, detail: event.detail, error: null })
+        applyRun({ running: true, phase: event.phase, detail: event.detail, error: null })
       }
     })
     return off
-  }, [reviewId, loadBrief])
+  }, [reviewId, loadBrief, applyRun])
 
+  // Start the guide (MC-1783). `ok` means its terminal has the prompt, NOT that a
+  // walkthrough exists — the run stays open until the `done` event lands the
+  // brief. Pressing Prepare against a live run joins it instead of starting a
+  // second guide; the engine enforces the same rule, this is the local floor.
   const startRun = useCallback(async () => {
-    if (!target) return
-    setRun({ running: true, phase: 'reading', error: null })
+    if (!target || runRef.current.running) return
+    applyRun({ running: true, phase: 'reading', error: null })
     try {
       const result = await window.api.reviewStartBriefRun({
         workspaceId: target.workspaceId,
         workspaceRoot: target.workspaceRoot,
         depth,
+        ...(guideCli ? { cli: guideCli } : {}),
+        ...(guideModel ? { cliModel: guideModel } : {}),
       })
       if (!result.ok) {
-        setRun({ running: false, phase: 'failed', error: result.errors.join('\n') })
+        applyRun({ running: false, phase: 'failed', error: result.errors.join('\n') })
         if (result.reason === 'validation') setBriefLoad({ phase: 'invalid', errors: result.errors.join('\n') })
-      } else {
-        setRun({ running: false, phase: 'done', error: null })
-        await loadBrief()
+        return
       }
+      if (result.guide) setGuide(result.guide)
+      // A join reports the run already in flight; adopt its phase rather than
+      // restarting the local progress line from `reading`.
+      if (result.joined) applyRun(runFromStatus(result.status))
     } catch (error) {
-      setRun({ running: false, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
+      applyRun({ running: false, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
     }
-  }, [target, depth, loadBrief])
+  }, [target, depth, guideCli, guideModel, applyRun])
 
   const changeset = changesetLoad.phase === 'ready' ? changesetLoad.changeset : null
   // The guide's brief, present only when it validated on disk. Freshness/staleness
@@ -399,6 +503,10 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
 
   const freshness = useReviewFreshness(workspaceRoot, changeset, realBrief)
 
+  // Re-run against a moved head. Unlike Prepare this one REPLACES a run in flight
+  // (`restart: true`) — rebuilding against the new head is the whole point — but it
+  // still waits for the guide's `done` event before claiming the walkthrough is
+  // current again, which is what `pendingSettleRef` holds.
   const refresh = useCallback(async () => {
     if (!target || !changeset) return
     const sourceInput = reconstructSourceInput(changeset)
@@ -409,12 +517,13 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     const oldChangeset = changeset
     const oldState =
       storedState && storedState.changeSetId === oldChangeset.id ? storedState : defaultReviewState(oldChangeset.id)
-    setRun({ running: true, phase: 'reading', error: null })
+    applyRun({ running: true, phase: 'reading', error: null })
+    pendingSettleRef.current = null
     setSettle(null)
     try {
       const ingested = await window.api.reviewIngestSource(sourceInput, target)
       if (!ingested.ok) {
-        setRun({ running: false, phase: 'failed', error: ingested.error })
+        applyRun({ running: false, phase: 'failed', error: ingested.error })
         return
       }
       const newChangeset = ingested.changeset
@@ -424,23 +533,51 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
         workspaceRoot: target.workspaceRoot,
         depth,
         affectedStepIds,
+        restart: true,
+        ...(guideCli ? { cli: guideCli } : {}),
+        ...(guideModel ? { cliModel: guideModel } : {}),
       })
       if (!runResult.ok) {
-        setRun({ running: false, phase: 'failed', error: runResult.errors.join('\n') })
+        applyRun({ running: false, phase: 'failed', error: runResult.errors.join('\n') })
         return
       }
+      if (runResult.guide) setGuide(runResult.guide)
       refreshInFlightRef.current = true
       persistReviewState(migrateReviewState(oldState, oldChangeset, newChangeset))
       setChangesetLoad({ phase: 'ready', changeset: newChangeset })
+      // The previous walkthrough stays on screen (against the new change set, so
+      // the stale banner keeps explaining itself) until the guide replaces it.
       await loadBrief()
-      setRun({ running: false, phase: 'done', error: null })
-      setSettle({ headSha: newChangeset.headSha, refreshedStepIds: affectedStepIds })
+      pendingSettleRef.current = { headSha: newChangeset.headSha, refreshedStepIds: affectedStepIds }
     } catch (error) {
-      setRun({ running: false, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
+      applyRun({ running: false, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
     } finally {
       refreshInFlightRef.current = false
     }
-  }, [target, changeset, storedState, realBrief, depth, persistReviewState, loadBrief, startRun])
+  }, [target, changeset, storedState, realBrief, depth, guideCli, guideModel, persistReviewState, loadBrief, startRun, applyRun])
+
+  // Deliver one question to the guide's terminal, starting it if none is live.
+  // Nothing here reads an answer: it arrives in the terminal, which is the point
+  // of the redesign — the review surface stops mirroring a chat it cannot own.
+  const askGuide = useCallback(
+    async (message: string): Promise<ReviewAskGuideResult> => {
+      if (!target) return { ok: false, error: 'No review is selected.' }
+      try {
+        const result = await window.api.reviewAskGuide({
+          workspaceId: target.workspaceId,
+          workspaceRoot: target.workspaceRoot,
+          message,
+          ...(guideCli ? { cli: guideCli } : {}),
+          ...(guideModel ? { cliModel: guideModel } : {}),
+        })
+        if (result.ok && result.guide) setGuide(result.guide)
+        return result
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+    [target, guideCli, guideModel],
+  )
 
   const comments = resolvedState?.comments ?? []
   const bannerModel = useMemo<FreshnessBannerModel | null>(() => {
@@ -452,26 +589,26 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     return null
   }, [realBrief, changeset, freshness, settle])
 
-  // Chat controller for the chromeless walkthrough: a note-card "Ask the guide"
+  // Ask controller for the chromeless walkthrough: a note-card "Ask the guide"
   // pre-quotes that annotation; the surface bar's "Ask the guide" opens a clean one.
-  const chatController = useMemo<ReviewChatController>(
+  const askController = useMemo<ReviewAskController>(
     () => ({
-      open: chatOpen,
-      setOpen: setChatOpen,
-      prefill: chatPrefill,
+      open: askOpen,
+      setOpen: setAskOpen,
+      prefill: askPrefill,
       askFromCard: (annotation: ReviewAnnotation) => {
         prefillNonce.current += 1
-        setChatPrefill({ text: `> ${annotation.path} ${anchorRangeLabel(annotation.anchor)}\n\n`, nonce: prefillNonce.current })
-        setChatOpen(true)
+        setAskPrefill({ text: `> ${annotation.path} ${anchorRangeLabel(annotation.anchor)}\n\n`, nonce: prefillNonce.current })
+        setAskOpen(true)
       },
     }),
-    [chatOpen, chatPrefill],
+    [askOpen, askPrefill],
   )
   const trayController = useMemo<ReviewDrawerController>(() => ({ open: trayOpen, setOpen: setTrayOpen }), [trayOpen])
   const openTray = useCallback(() => setTrayOpen(true), [])
-  const openChat = useCallback(() => {
-    setChatPrefill(undefined)
-    setChatOpen(true)
+  const openAsk = useCallback(() => {
+    setAskPrefill(undefined)
+    setAskOpen(true)
   }, [])
 
   return {
@@ -484,6 +621,7 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     errorMessage: changesetLoad.phase === 'error' ? changesetLoad.message : null,
     invalidErrors: briefLoad.phase === 'invalid' ? briefLoad.errors : null,
     run,
+    guide,
     readFiles,
     diffView,
     activePaneId,
@@ -503,10 +641,11 @@ export function useReviewSession({ reviewId, workspaceRoot, depth = 'standard' }
     onPostReview,
     startRun,
     refresh,
+    askGuide,
     trayController,
-    chatController,
+    askController,
     openTray,
-    openChat,
+    openAsk,
   }
 }
 

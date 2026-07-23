@@ -92,7 +92,7 @@ function ReviewBarActions({ session }: { session: ReviewSession }) {
         </GhostButton>
       ) : null}
       {guideActions ? (
-        <GhostButton onClick={session.openChat} className="shrink-0">
+        <GhostButton onClick={session.openAsk} className="shrink-0">
           <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">
             <path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" />
           </svg>

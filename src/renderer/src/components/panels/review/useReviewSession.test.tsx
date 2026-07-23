@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   type ReviewComment = import('../../../../../shared/review').ReviewComment
   type ReviewWorkspaceState = import('../../../../../shared/review').ReviewWorkspaceState
   type ReviewBriefRunEvent = import('../../../../../shared/electron-api').ReviewBriefRunEvent
+  type ReviewGuideRunStatus = import('../../../../../shared/electron-api').ReviewGuideRunStatus
   type ReviewPostReviewResult = import('../../../../../shared/electron-api').ReviewPostReviewResult
   type ReviewCommentPostOutcome = import('../../../../../shared/electron-api').ReviewCommentPostOutcome
 
@@ -53,7 +54,9 @@ async function main(): Promise<void> {
 
   // A fresh session harness for one scenario: two pending comments already stored
   // against the fixture PR change set, a controllable post, and captured writes.
-  function setup(seedComments: ReviewComment[]) {
+  // `runStatus` is the main process's record of the guide run (MC-1784) that a
+  // mount seeds from; `starts` counts every start IPC so a second one is visible.
+  function setup(seedComments: ReviewComment[], runStatus: ReviewGuideRunStatus | null = null) {
     let stored: ReviewWorkspaceState = {
       schemaVersion: 1,
       changeSetId: fixtureChangeSet.id,
@@ -68,6 +71,7 @@ async function main(): Promise<void> {
     // the guide-run lifecycle the hook subscribes to.
     let briefValue: ReviewBrief | null = null
     let runEventCb: ((event: ReviewBriefRunEvent) => void) | null = null
+    const starts: { cli?: string; restart?: boolean }[] = []
     const api = {
       reviewReadState: async () => ({ ok: true, state: stored }),
       reviewReadChangeset: async () => ({ ok: true, changeset: fixtureChangeSet }),
@@ -80,6 +84,16 @@ async function main(): Promise<void> {
       onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => {
         runEventCb = cb
         return () => {}
+      },
+      reviewBriefRunStatus: async () => runStatus,
+      // The terminal guide (MC-1783): `ok` means its terminal has the prompt, not
+      // that a walkthrough exists — the brief arrives later as a `done` event.
+      reviewStartBriefRun: async (input: { cli?: string; restart?: boolean }) => {
+        starts.push({ cli: input.cli, restart: input.restart })
+        return {
+          ok: true,
+          guide: { workspaceId: 'ws-1', agentId: 'review-guide-r1', sessionId: 'review-guide-r1', cli: input.cli ?? 'codex' },
+        }
       },
     }
     anyGlobal.window = new Proxy(dom.window, {
@@ -96,7 +110,7 @@ async function main(): Promise<void> {
 
     let session: ReviewSession | null = null
     function Harness(): null {
-      session = useReviewSession({ reviewId: 'r1', workspaceRoot: '/repo' })
+      session = useReviewSession({ reviewId: 'r1', workspaceRoot: '/repo', guideCli: 'codex' })
       return null
     }
     const container = dom.window.document.createElement('div')
@@ -108,7 +122,12 @@ async function main(): Promise<void> {
         assert.ok(session, 'the session must have rendered')
         return session
       },
-      render: () => act(async () => root.render(React.createElement(Harness))),
+      // Two passes: the mount, then a flush for the loads it chains (change set →
+      // brief, and the run-status seed), so assertions see a settled session.
+      render: async () => {
+        await act(async () => root.render(React.createElement(Harness)))
+        await act(async () => {})
+      },
       resolvePost: (result: ReviewPostReviewResult) =>
         act(async () => {
           assert.ok(resolvePost, 'a post must be in flight before it can resolve')
@@ -125,6 +144,13 @@ async function main(): Promise<void> {
         })
         await act(async () => {})
       },
+      // Fire one non-terminal run phase, as the guide's terminal service does.
+      emitPhase: (phase: ReviewBriefRunEvent['phase'], detail?: string) =>
+        act(async () => {
+          assert.ok(runEventCb, 'the session must have subscribed to run events')
+          runEventCb(detail ? { workspaceId: 'r1', phase, detail } : { workspaceId: 'r1', phase })
+        }),
+      starts: () => starts,
       finalStored: () => stored,
     }
   }
@@ -237,9 +263,84 @@ async function main(): Promise<void> {
     console.log('ok - a no-brief degraded review upgrades in place when a brief lands, comments intact')
   }
 
+  // T6: the guide runs in a terminal that outlives this component. A remount in
+  // the middle of a run must read the live phase back from the main process — and
+  // pressing Prepare against it must NOT start a second guide.
+  async function remountMidRunSeedsWithoutRestarting(): Promise<void> {
+    const h = setup([], { running: true, phase: 'grouping', detail: 'codex', startedAt: '2026-07-22T00:00:00.000Z' })
+    await h.render()
+
+    assert.equal(h.current().run.running, true, 'the live run is seeded from the main process, not from this mount')
+    assert.equal(h.current().run.phase, 'grouping', 'with the phase the guide is actually in')
+    assert.equal(h.current().status, 'degraded', 'and the raw change stays reviewable while it works')
+
+    // The one-writer guard: Prepare during a live run joins it.
+    await act(async () => {
+      h.current().startRun()
+    })
+    assert.deepEqual(h.starts(), [], 'no second start IPC fired against a run already in flight')
+    assert.equal(h.current().run.running, true, 'and the live run is left alone')
+
+    // The guide finishes: the brief lands and the review upgrades in place.
+    await h.landBrief(fixtureBrief)
+    assert.equal(h.current().status, 'ready')
+    assert.equal(h.current().run.running, false)
+    h.root.unmount()
+    console.log('ok - a remount mid-run seeds the live phase and Prepare joins instead of starting again')
+  }
+
+  // The full degraded → working → ready walk on a fresh review, where the start
+  // IPC resolves when the TERMINAL has the prompt, not when a brief exists.
+  async function degradedToWorkingToReady(): Promise<void> {
+    const h = setup([])
+    await h.render()
+    assert.equal(h.current().status, 'degraded', 'no brief on disk → degraded')
+    assert.equal(h.current().run.running, false, 'and no run seeded — this review has never run one')
+
+    await act(async () => {
+      h.current().startRun()
+    })
+    assert.deepEqual(h.starts(), [{ cli: 'codex', restart: undefined }], 'the picked agent CLI rides the start; a fresh start never restarts')
+    assert.equal(h.current().run.running, true, 'the run stays open after the start resolves — the brief is not there yet')
+    assert.equal(h.current().status, 'degraded', 'the raw change is still what renders')
+    assert.equal(h.current().guide?.agentId, 'review-guide-r1', 'the guide terminal it reported is exposed for the focus link')
+
+    await h.emitPhase('grouping')
+    assert.equal(h.current().run.phase, 'grouping', 'live phases from the guide keep the working state honest')
+    assert.equal(h.current().run.running, true)
+
+    await h.landBrief(fixtureBrief)
+    assert.equal(h.current().status, 'ready', 'the walkthrough renders once the guide delivers it')
+    assert.equal(h.current().run.running, false)
+    assert.equal(h.current().run.phase, 'done')
+    h.root.unmount()
+    console.log('ok - degraded → working → ready: the run ends on the guide’s event, not on the start call')
+  }
+
+  // A retained terminal phase (MC-1784) explains the last failure on a remount,
+  // instead of dropping back to a bare prepare button that hides what happened.
+  async function remountAfterFailureExplainsIt(): Promise<void> {
+    const h = setup([], {
+      running: false,
+      phase: 'failed',
+      detail: 'The guide session ended without delivering a walkthrough.',
+      startedAt: '2026-07-22T00:00:00.000Z',
+    })
+    await h.render()
+    assert.equal(h.current().run.running, false)
+    assert.equal(h.current().run.phase, 'failed')
+    assert.match(h.current().run.error ?? '', /without delivering a walkthrough/, 'the reason survives the remount')
+    assert.equal(h.current().status, 'degraded', 'and the change is still reviewable underneath it')
+    h.root.unmount()
+    console.log('ok - a remount after a failed run still explains why it failed')
+  }
+
   await successPreservesMidPostEdits()
   await failureSparesMidPostComment()
   await degradedUpgradesInPlaceWithCommentsIntact()
+  await remountMidRunSeedsWithoutRestarting()
+  await degradedToWorkingToReady()
+  await remountAfterFailureExplainsIt()
   console.log('all useReviewSession concurrency tests passed')
 }
 

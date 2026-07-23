@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import type { ConversationEvent } from '../../../../../shared/conversation-runtime'
 import type { ReviewComment } from '../../../../../shared/review'
 import { ReviewTray } from './ReviewTray'
 import { CommentThread } from './CommentThread'
-import { GuideChatThread } from './GuideChatThread'
 import { fixtureChangeSet } from './fixtures'
 
 function run(name: string, body: () => void): void {
@@ -128,45 +126,6 @@ run('a pending thread offers edit/delete; a posted thread is read-only', () => {
   assert.ok(postedHtml.includes('Posted'))
   assert.ok(!postedHtml.includes('>Edit<'), 'posted comment has no edit control')
   assert.ok(!postedHtml.includes('>Delete<'), 'posted comment has no delete control')
-})
-
-// A stubbed guide reply: user turn → streamed assistant answer with citations.
-const base = { sessionId: 's1', workspaceId: 'w1', agentId: 'review-guide', providerId: 'claude-agent', modelId: 'sonnet' }
-const chatEvents: ConversationEvent[] = [
-  { ...base, id: 'e1', type: 'user_message', createdAt: 1, payload: { turnId: 't1', text: 'Why 400 not 404 at invitations.ts:L65?' } },
-  { ...base, id: 'e2', type: 'turn_started', createdAt: 2, payload: { turnId: 't1' } },
-  {
-    ...base,
-    id: 'e3',
-    type: 'content_delta',
-    createdAt: 3,
-    payload: {
-      turnId: 't1',
-      text: 'The other routers here return 404 — see `invitations.ts:L65`. This follows [[auth-tokens]].',
-    },
-  },
-  { ...base, id: 'e4', type: 'turn_completed', createdAt: 4, payload: { turnId: 't1' } },
-]
-
-run('the guide chat projects the companion stream into user + guide messages with citations', () => {
-  const changedPaths = fixtureChangeSet.files.map((f) => f.path)
-  const html = renderToStaticMarkup(
-    <GuideChatThread events={chatEvents} localUserTurns={[]} changedPaths={changedPaths} onJumpToLine={() => {}} />,
-  )
-  // The reused projection yields the user question and the guide's byline + prose.
-  assert.ok(html.includes('Why 400 not 404'))
-  assert.ok(html.includes('>Guide<'))
-  assert.ok(html.includes('The other routers here return 404'))
-  // The path:line citation resolves to the real changed file and renders as a jump link.
-  assert.ok(html.includes('src/server/api/invitations.ts:L65'))
-  assert.ok(html.includes('[[auth-tokens]]'))
-})
-
-run('the empty guide chat invites a grounded question, not a dead pane', () => {
-  const html = renderToStaticMarkup(
-    <GuideChatThread events={[]} localUserTurns={[]} changedPaths={[]} onJumpToLine={() => {}} />,
-  )
-  assert.ok(html.includes('Ask the guide about any line'))
 })
 
 console.log('all review comment surface tests passed')
