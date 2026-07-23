@@ -26,13 +26,19 @@ import type {
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationQuestion,
+  ConversationToolOutputPayload,
+  ConversationToolStartedPayload,
 } from '../../shared/conversation-runtime'
 import type {
   ConversationProviderAdapter,
   ConversationProviderLiveSession,
+  ConversationProviderPermissionResult,
+  ConversationSessionEventSink,
   MockAdapterApprovalInput,
+  MockAdapterPermissionInput,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from './mock-conversation-provider'
@@ -64,6 +70,7 @@ export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
   disposeChildProcess(sessionId: string): boolean
   disposeAll(): void
+  setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
 }
 
 type PermissionDecision = {
@@ -103,9 +110,27 @@ type SessionState = {
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
+  // Session-scoped continuation channel (set at startSession). When the child
+  // resumes after a `result` with no open `sendTurn`, post-`result` events —
+  // and any approval they raise — flow to the runtime over this sink via a
+  // lazily opened continuation turn instead of being dropped/denied.
+  onSessionEvent: ConversationSessionEventSink | null
+  // Monotonic counter for continuation-turn ids, unique within the session.
+  continuationSequence: number
   lastActivityAt: number
   stderrTail: string
 }
+
+// Event types that belong to a turn (carry a turnId and must be suppressed by
+// the runtime when they do not match the active turn). Everything else is
+// session-scoped and needs no turn to be delivered.
+const SESSION_SCOPED_EVENT_TYPES = new Set<ConversationEvent['type']>([
+  'session_started',
+  'session_ready',
+  'session_closed',
+  'session_updated',
+  'user_message',
+])
 
 // Minimal push-based async iterable: producers push/end, one consumer drains.
 class PushStream<T> implements AsyncIterable<T> {
@@ -153,13 +178,62 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
   function deliver(state: SessionState, events: ConversationEvent[]): void {
     for (const event of events) {
-      if (state.turn) {
-        state.turn.queue.push(event)
-      } else if (event.type === 'session_updated') {
-        state.pendingSessionEvents.push(event)
+      // Post-`result` turn-scoped activity with no open `sendTurn`: open a
+      // continuation turn so the event (and any approval it raises) reaches the
+      // runtime instead of being dropped. Requires the session channel.
+      if (!state.turn && state.onSessionEvent && !SESSION_SCOPED_EVENT_TYPES.has(event.type)) {
+        ensureContinuationTurn(state)
       }
-      // Non-session events with no open turn stream have nowhere to go (the
-      // turn they belonged to was interrupted); drop them.
+      if (state.turn) {
+        // Events mapped before the continuation turn existed carry no turnId;
+        // stamp the continuation id so the runtime attaches them to its mirror.
+        state.turn.queue.push(withContinuationTurnId(event, state.turn.turnId))
+      } else if (event.type === 'session_updated') {
+        // A resume-cursor update between turns: ride the session channel if it
+        // is open, else buffer for the next turn start.
+        if (state.onSessionEvent) state.onSessionEvent(event)
+        else state.pendingSessionEvents.push(event)
+      }
+      // Non-session events with no open turn and no channel have nowhere to go
+      // (the turn they belonged to was interrupted); drop them.
+    }
+  }
+
+  // Lazily open a continuation turn for post-`result` activity. Reuses the
+  // per-turn machinery (queue, approval sequencing) so handleCanUseTool and
+  // deliver are unchanged; a background drain forwards the queue to the session
+  // channel. Returns null when no session channel is available.
+  function ensureContinuationTurn(state: SessionState): ActiveTurn | null {
+    if (state.turn) return state.turn
+    if (!state.onSessionEvent) return null
+    state.continuationSequence += 1
+    const turnId = `${state.sessionId}_cont_${state.continuationSequence}`
+    const turn: ActiveTurn = {
+      turnId,
+      requestId: `approval_${turnId}`,
+      approvalSequence: 0,
+      queue: new PushStream<ConversationEvent>(),
+    }
+    state.turn = turn
+    state.lastActivityAt = now()
+    // Announce the turn first so the runtime opens its mirror before any
+    // content or approval events arrive over the channel.
+    turn.queue.push(eventFor(state, 'turn_started', { turnId }))
+    void drainContinuationTurn(state, turn)
+    return turn
+  }
+
+  async function drainContinuationTurn(state: SessionState, turn: ActiveTurn): Promise<void> {
+    try {
+      for await (const event of turn.queue) state.onSessionEvent?.(event)
+    } finally {
+      if (state.turn === turn) {
+        state.turn = null
+        // A permission still open when the continuation ends must not leave the
+        // child blocked forever.
+        resolveAllPendingPermissions(state, { approved: false })
+      }
+      state.lastActivityAt = now()
     }
   }
 
@@ -273,7 +347,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     toolInput: Record<string, unknown>,
     signal?: AbortSignal
   ): Promise<PermissionResult> {
-    const turn = state.turn
+    // A tool that fires after the turn's `result` (e.g. once a background
+    // subagent completes and the model resumes) has no open turn. Open a
+    // continuation turn so its approval card reaches the UI instead of being
+    // auto-denied; deny only when there is no session channel to carry it.
+    const turn = state.turn ?? ensureContinuationTurn(state)
     if (!turn) return { behavior: 'deny', message: 'Conversation turn is not active.' }
     turn.approvalSequence += 1
     const requestId = turn.approvalSequence === 1 ? turn.requestId : `${turn.requestId}_${turn.approvalSequence}`
@@ -360,6 +438,8 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         turn: null,
         pendingPermissions: new Map(),
         pendingSessionEvents: [],
+        onSessionEvent: input.onSessionEvent ?? null,
+        continuationSequence: 0,
         lastActivityAt: now(),
         stderrTail: '',
       }
@@ -413,7 +493,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
 
       state.inputQueue?.push({
         type: 'user',
-        message: { role: 'user', content: input.message },
+        message: { role: 'user', content: buildUserMessageContent(input.message, input.attachments) },
         parent_tool_use_id: null,
         session_id: state.providerSessionId ?? '',
       })
@@ -442,6 +522,34 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // approval_resolved is emitted through the still-open turn stream so the
       // transcript stays ordered; nothing to return here.
       return []
+    },
+
+    // Live permission switch. With a running child the new mode goes down the
+    // SDK control channel, so the next tool call honors it; the recorded preset
+    // also carries into any later respawn (idle disposal keeps the session).
+    // With no child yet the recorded preset is the whole job — ensureQuery reads
+    // it at spawn, including the bypass opt-in flag.
+    async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      if (state.query) {
+        try {
+          await state.query.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset])
+        } catch (error) {
+          // Claude Code owns the decision (it can refuse a mode the session did
+          // not opt into at spawn). Surface its refusal instead of recording a
+          // preset it is not honoring.
+          return {
+            ok: false,
+            message: error instanceof Error && error.message.trim()
+              ? `Claude Code refused the permission change: ${error.message}`
+              : 'Claude Code refused the permission change.',
+          }
+        }
+      }
+      state.permissionPreset = input.permissionPreset
+      state.lastActivityAt = now()
+      return { ok: true }
     },
 
     interrupt(input: MockAdapterSessionInput) {
@@ -540,6 +648,44 @@ function parseAskUserQuestions(toolInput: Record<string, unknown>): Conversation
 
 function readPlanText(toolInput: Record<string, unknown>): string {
   return typeof toolInput.plan === 'string' ? toolInput.plan : ''
+}
+
+// Compose the SDK user-message content. Text-only turns keep the plain string
+// shape (unchanged path); when images are attached, the content becomes a
+// multimodal block array — the text block (when present) followed by one base64
+// `image` block per attachment. Media types are already validated at the IPC
+// boundary, so they are trusted here.
+export function buildUserMessageContent(
+  message: string,
+  attachments: ConversationImageAttachment[] | undefined
+): SDKUserMessage['message']['content'] {
+  if (!attachments || attachments.length === 0) return message
+  const blocks: Exclude<SDKUserMessage['message']['content'], string> = []
+  if (message) blocks.push({ type: 'text', text: message })
+  for (const attachment of attachments) {
+    blocks.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        // The IPC boundary already constrains this to the SDK's image set; the
+        // cast is the only widening TS cannot see through.
+        media_type: attachment.mediaType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+        data: attachment.dataBase64,
+      },
+    })
+  }
+  return blocks
+}
+
+// Stamp a continuation turn id onto a turn-scoped event that was mapped before
+// the continuation turn existed (its payload.turnId is absent). Session-scoped
+// events and events that already carry a turnId are returned unchanged, so the
+// normal per-turn path is a no-op.
+function withContinuationTurnId(event: ConversationEvent, turnId: string): ConversationEvent {
+  if (SESSION_SCOPED_EVENT_TYPES.has(event.type)) return event
+  const current = event.payload?.turnId
+  if (typeof current === 'string' && current) return event
+  return { ...event, payload: { ...(event.payload ?? {}), turnId } }
 }
 
 // Spawn the SDK-computed command ourselves so the child PID lands on the
@@ -669,6 +815,9 @@ export function mapSdkMessage(
 
   switch (message.type) {
     case 'stream_event': {
+      // Text and thinking deltas produced inside a subagent stay dropped: they
+      // would interleave into the parent assistant's own streaming bubble. A
+      // subagent's visible work rides its parent-linked tool events below.
       if (message.parent_tool_use_id) break
       const streamEvent = asRecord(message.event)
       if (streamEvent?.type !== 'content_block_delta') break
@@ -682,40 +831,44 @@ export function mapSdkMessage(
       break
     }
     case 'assistant': {
-      if (message.parent_tool_use_id) break
+      // A subagent's own tool calls arrive as assistant messages stamped with
+      // the id of the Task call that spawned them; they are emitted as ordinary
+      // tool events carrying that link, so the lane can nest them.
+      const parentToolUseId = readParentToolUseId(message)
       const content = asRecord(message.message)?.content
       if (!Array.isArray(content)) break
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
         const toolInput = asRecord(block.input) ?? {}
-        events.push(
-          eventFor(state, 'tool_started', {
-            turnId,
-            toolCallId: typeof block.id === 'string' ? block.id : undefined,
-            tool: block.name,
-            summary: summarizeToolInput(block.name, toolInput),
-            ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
-          })
-        )
+        const payload: ConversationToolStartedPayload = {
+          turnId,
+          toolCallId: typeof block.id === 'string' ? block.id : undefined,
+          tool: block.name,
+          summary: summarizeToolInput(block.name, toolInput),
+          ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
+          ...(parentToolUseId ? { parentToolUseId } : {}),
+          ...subagentLaneFields(block.name, toolInput),
+        }
+        events.push(eventFor(state, 'tool_started', payload))
       }
       break
     }
     case 'user': {
-      if (message.parent_tool_use_id) break
+      const parentToolUseId = readParentToolUseId(message)
       const content = asRecord(message.message)?.content
       if (!Array.isArray(content)) break
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_result') continue
-        events.push(
-          eventFor(state, 'tool_output', {
-            turnId,
-            toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
-            output: truncate(extractResultText(block.content), 4000),
-            isError: block.is_error === true,
-          })
-        )
+        const payload: ConversationToolOutputPayload = {
+          turnId,
+          toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
+          output: truncate(extractResultText(block.content), 4000),
+          isError: block.is_error === true,
+          ...(parentToolUseId ? { parentToolUseId } : {}),
+        }
+        events.push(eventFor(state, 'tool_output', payload))
       }
       break
     }
@@ -754,6 +907,26 @@ export function mapSdkMessage(
       break
   }
   return events
+}
+
+// The SDK stamps every message produced inside a spawned agent with the id of
+// the tool call that spawned it; top-level traffic carries null.
+function readParentToolUseId(message: Record<string, unknown>): string | null {
+  const parentToolUseId = message.parent_tool_use_id
+  return typeof parentToolUseId === 'string' && parentToolUseId ? parentToolUseId : null
+}
+
+// Names the CLI exposes for spawning a subagent; installed versions differ, so
+// both are recognized and either one is the header of a lane.
+const SUBAGENT_TOOL_NAMES = new Set(['Task', 'Agent'])
+
+function subagentLaneFields(
+  tool: string,
+  toolInput: Record<string, unknown>
+): Pick<ConversationToolStartedPayload, 'subagentLane' | 'subagentType'> {
+  if (!SUBAGENT_TOOL_NAMES.has(tool)) return {}
+  const subagentType = typeof toolInput.subagent_type === 'string' ? toolInput.subagent_type.trim() : ''
+  return { subagentLane: true, ...(subagentType ? { subagentType } : {}) }
 }
 
 function eventFor(

@@ -17,15 +17,18 @@ import type {
   ConversationApprovalKind,
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationQuestion,
   ConversationSessionStatus,
 } from '../../../../shared/conversation-runtime'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
+import type { SprintEngineCliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../workspace/agentComposer/agentSpawnShared'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { FilterMenu, GhostButton, InlineSkillPicker, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -33,8 +36,48 @@ import { CreationBackdrop } from '../backdrops/CreationBackdrop'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
+// One tool call in a turn's work timeline. A call the model made to spawn a
+// background agent (Task/Agent) is a *lane*: `subagentLane` marks it, and the
+// tool calls that ran inside that agent hang off it as `children` instead of
+// flattening into the turn. Named separately from the union because the type
+// is recursive (an agent can spawn an agent).
+export type TranscriptToolEntry = {
+  kind: 'tool'
+  id: string
+  turnId: string
+  name: string
+  status: 'running' | 'done'
+  output?: string
+  // One-line input summary from the provider (e.g. "Bash: npm test") —
+  // the row reads as "what it did", not just the tool name.
+  summary?: string
+  startedAt?: number
+  completedAt?: number
+  // Line-count chips for edit-shaped tools (shipped by the adapter).
+  addedLines?: number
+  removedLines?: number
+  // Set by the provider on the spawning call; true means this row is a lane
+  // header whose elapsed time spans the whole subagent run.
+  subagentLane?: boolean
+  // Which kind of agent was spawned ('Explore', 'general-purpose', a custom
+  // agent id) when the call named one; the lane's label.
+  subagentType?: string
+  // The lane this call ran inside, when it is a subagent's own tool call.
+  parentToolUseId?: string
+  // Tool calls made inside this lane, in the order they started.
+  children?: TranscriptToolEntry[]
+}
+
 export type TranscriptEntry =
-  | { kind: 'user'; id: string; text: string }
+  | {
+      kind: 'user'
+      id: string
+      text: string
+      // Images the user attached to this turn (D3/1774). Live-only: they come
+      // from the local send, never from the replayed transcript, so a bubble
+      // restored after a restart is text-only by design.
+      attachments?: ConversationImageAttachment[]
+    }
   | {
       kind: 'assistant'
       turnId: string
@@ -52,22 +95,7 @@ export type TranscriptEntry =
       // First reasoning_delta → first non-reasoning event; feeds "Thought for Ns".
       reasoningDurationMs?: number
     }
-  | {
-      kind: 'tool'
-      id: string
-      turnId: string
-      name: string
-      status: 'running' | 'done'
-      output?: string
-      // One-line input summary from the provider (e.g. "Bash: npm test") —
-      // the row reads as "what it did", not just the tool name.
-      summary?: string
-      startedAt?: number
-      completedAt?: number
-      // Line-count chips for edit-shaped tools (shipped by the adapter).
-      addedLines?: number
-      removedLines?: number
-    }
+  | TranscriptToolEntry
   | {
       kind: 'approval'
       requestId: string
@@ -88,7 +116,7 @@ export type TranscriptEntry =
       answers?: Record<string, string>
     }
 
-export type UserTurn = { id: string; text: string }
+export type UserTurn = { id: string; text: string; attachments?: ConversationImageAttachment[] }
 
 export type ConversationProjection = {
   sessionStatus: ConversationSessionStatus | 'idle'
@@ -154,6 +182,11 @@ function readQuestions(payload: Record<string, unknown> | undefined): Conversati
   return questions.length > 0 ? questions : undefined
 }
 
+function readBoolean(payload: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const value = payload?.[key]
+  return typeof value === 'boolean' ? value : undefined
+}
+
 function readAnswers(payload: Record<string, unknown> | undefined): Record<string, string> | undefined {
   const raw = payload?.answers
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
@@ -176,27 +209,43 @@ type TurnAccumulator = {
   modelId?: string
   reasoningStartedAt?: number
   reasoningEndedAt?: number
-  tools: Map<
-    string,
-    {
-      id: string
-      name: string
-      status: 'running' | 'done'
-      output?: string
-      summary?: string
-      startedAt?: number
-      completedAt?: number
-      addedLines?: number
-      removedLines?: number
-    }
-  >
+  // Every tool call of the turn keyed by call id, subagent children included;
+  // nesting into lanes happens once, when the transcript entries are built.
+  tools: Map<string, ToolAccumulator>
   approvals: string[]
+}
+
+type ToolAccumulator = {
+  id: string
+  // The turn this call was reported on — not necessarily its lane's turn.
+  turnId: string
+  name: string
+  status: 'running' | 'done'
+  output?: string
+  summary?: string
+  startedAt?: number
+  completedAt?: number
+  addedLines?: number
+  removedLines?: number
+  subagentLane?: boolean
+  subagentType?: string
+  parentToolUseId?: string
 }
 
 const SESSION_STATUS_BY_EVENT: Partial<Record<ConversationEvent['type'], ConversationSessionStatus>> = {
   session_started: 'starting',
   session_ready: 'ready',
   session_closed: 'stopped',
+}
+
+// Optimistic bubble for a send whose `user_message` event has not arrived yet.
+function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEntry, { kind: 'user' }> {
+  return {
+    kind: 'user',
+    id: userTurn.id,
+    text: userTurn.text,
+    ...(userTurn.attachments?.length ? { attachments: userTurn.attachments } : {}),
+  }
 }
 
 export function projectConversation(
@@ -208,10 +257,23 @@ export function projectConversation(
   // User bubbles recorded in the event stream itself (persisted transcript);
   // when present these are authoritative and the locally tracked userTurns
   // only fill the optimistic gap between a send and its first event.
-  const eventUserTurns = new Map<string, { id: string; text: string }>()
+  const eventUserTurns = new Map<string, { id: string; text: string; localTurnId?: string }>()
   const representedLocalTurnIds = new Set<string>()
+  // Attachments are live-only (D3/1774): the persisted `user_message` event
+  // carries text alone, so the images a bubble shows are looked up from the
+  // local send that produced it. After a restart there is no local send and the
+  // replayed bubble is text-only — the documented v1 scope, not a silent drop.
+  const localAttachments = new Map<string, ConversationImageAttachment[]>()
+  for (const userTurn of userTurns) {
+    if (userTurn.attachments?.length) localAttachments.set(userTurn.id, userTurn.attachments)
+  }
   const approvals = new Map<string, Omit<Extract<TranscriptEntry, { kind: 'approval' }>, 'kind'>>()
   const approvalOrder: string[] = []
+  // Every tool call of the session by call id. A subagent that finishes after
+  // its turn's result reports over the continuation channel, so its calls (and
+  // the lane's own closing output) carry a *different* turnId than the `Task`
+  // call that spawned them — lookups must not be scoped to one turn.
+  const toolsById = new Map<string, ToolAccumulator>()
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
   let usage: { inputTokens: number; outputTokens: number } | null = null
   let lastError: string | null = null
@@ -265,8 +327,12 @@ export function projectConversation(
       case 'user_message': {
         if (turnId) {
           ensureTurn(turnId)
-          eventUserTurns.set(turnId, { id: event.id, text: readString(event.payload, 'text') ?? '' })
           const localTurnId = readString(event.payload, 'localTurnId')
+          eventUserTurns.set(turnId, {
+            id: event.id,
+            text: readString(event.payload, 'text') ?? '',
+            ...(localTurnId ? { localTurnId } : {}),
+          })
           if (localTurnId) representedLocalTurnIds.add(localTurnId)
         }
         break
@@ -301,22 +367,35 @@ export function projectConversation(
         const turn = ensureTurn(turnId)
         closeReasoning(turn, event.createdAt)
         const id = readString(event.payload, 'callId', 'id', 'toolCallId') ?? `${turnId}:${turn.tools.size}`
-        turn.tools.set(id, {
+        const tool: ToolAccumulator = {
           id,
+          turnId,
           name: readString(event.payload, 'name', 'toolName', 'tool') ?? 'tool',
           status: 'running',
           summary: readString(event.payload, 'summary'),
           startedAt: event.createdAt,
           addedLines: readNumber(event.payload, 'addedLines'),
           removedLines: readNumber(event.payload, 'removedLines'),
-        })
+          subagentLane: readBoolean(event.payload, 'subagentLane'),
+          subagentType: readString(event.payload, 'subagentType'),
+          parentToolUseId: readString(event.payload, 'parentToolUseId'),
+        }
+        turn.tools.set(id, tool)
+        toolsById.set(id, tool)
         break
       }
       case 'tool_output': {
         if (!turnId) break
         const turn = ensureTurn(turnId)
         const id = readString(event.payload, 'callId', 'id', 'toolCallId')
-        const existing = (id && turn.tools.get(id)) || [...turn.tools.values()].at(-1)
+        // A call id closes that exact call wherever it started — a lane opened
+        // in an earlier turn closes on the continuation turn that carries its
+        // result. Without an id, fall back inside the event's own turn and
+        // lane: a subagent's output must never land on the parent's row.
+        const parentToolUseId = readString(event.payload, 'parentToolUseId')
+        const existing =
+          (id && toolsById.get(id))
+          || [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
         if (existing) {
           existing.status = 'done'
           existing.completedAt = event.createdAt
@@ -407,16 +486,28 @@ export function projectConversation(
   // user events fall back to index-pairing of local turns, which line up
   // because sends are blocked while a turn is active.
   const entries: TranscriptEntry[] = []
+  const laneIndex = buildLaneIndex(
+    turnOrder.map((id) => turns.get(id)).filter((turn): turn is TurnAccumulator => turn !== undefined),
+    toolsById,
+  )
   const useEventUserTurns = eventUserTurns.size > 0
   const blockCount = useEventUserTurns ? turnOrder.length : Math.max(turnOrder.length, userTurns.length)
   for (let i = 0; i < blockCount; i += 1) {
     const turnId = turnOrder[i]
     const eventUserTurn = turnId ? eventUserTurns.get(turnId) : undefined
     if (useEventUserTurns) {
-      if (eventUserTurn) entries.push({ kind: 'user', id: eventUserTurn.id, text: eventUserTurn.text })
+      if (eventUserTurn) {
+        const attachments = eventUserTurn.localTurnId ? localAttachments.get(eventUserTurn.localTurnId) : undefined
+        entries.push({
+          kind: 'user',
+          id: eventUserTurn.id,
+          text: eventUserTurn.text,
+          ...(attachments ? { attachments } : {}),
+        })
+      }
     } else {
       const userTurn = userTurns[i]
-      if (userTurn) entries.push({ kind: 'user', id: userTurn.id, text: userTurn.text })
+      if (userTurn) entries.push(userEntryFromLocalTurn(userTurn))
     }
     if (!turnId) continue
     const turn = turns.get(turnId)
@@ -437,21 +528,7 @@ export function projectConversation(
           ? Math.max(0, turn.reasoningEndedAt - turn.reasoningStartedAt)
           : undefined,
     })
-    for (const tool of turn.tools.values()) {
-      entries.push({
-        kind: 'tool',
-        id: tool.id,
-        turnId: turn.turnId,
-        name: tool.name,
-        status: tool.status,
-        output: tool.output,
-        summary: tool.summary,
-        startedAt: tool.startedAt,
-        completedAt: tool.completedAt,
-        addedLines: tool.addedLines,
-        removedLines: tool.removedLines,
-      })
-    }
+    for (const tool of nestSubagentLanes(turn, laneIndex)) entries.push(tool)
     for (const requestId of turn.approvals) {
       const approval = approvals.get(requestId)
       if (approval) entries.push({ kind: 'approval', ...approval })
@@ -461,7 +538,7 @@ export function projectConversation(
   if (useEventUserTurns) {
     for (const userTurn of userTurns) {
       if (!representedLocalTurnIds.has(userTurn.id)) {
-        entries.push({ kind: 'user', id: userTurn.id, text: userTurn.text })
+        entries.push(userEntryFromLocalTurn(userTurn))
       }
     }
   }
@@ -472,6 +549,90 @@ export function projectConversation(
   }
 
   return { sessionStatus, activeTurn, awaitingApproval, entries, usage, lastError, apiKeySource }
+}
+
+// Index of which calls hang off which lane, built once per projection over
+// every turn: a subagent's calls can land on a later continuation turn than the
+// `Task` call that spawned them, and they still belong to that lane.
+type LaneIndex = {
+  toolsById: Map<string, ToolAccumulator>
+  childrenByParent: Map<string, ToolAccumulator[]>
+  // Calls already emitted under a lane, so one never renders twice; also what
+  // stops a cyclic parent chain (provider data, so untrusted) from recursing.
+  claimed: Set<string>
+}
+
+function buildLaneIndex(turns: TurnAccumulator[], toolsById: Map<string, ToolAccumulator>): LaneIndex {
+  const childrenByParent = new Map<string, ToolAccumulator[]>()
+  for (const turn of turns) {
+    for (const tool of turn.tools.values()) {
+      const parentId = tool.parentToolUseId
+      if (!parentId || parentId === tool.id || !toolsById.has(parentId)) continue
+      const siblings = childrenByParent.get(parentId)
+      if (siblings) siblings.push(tool)
+      else childrenByParent.set(parentId, [tool])
+    }
+  }
+  return { toolsById, childrenByParent, claimed: new Set() }
+}
+
+// Fold one turn's tool map into lane-nested transcript entries: a call whose
+// `parentToolUseId` names a known call becomes that call's child instead of a
+// sibling row. A child whose parent never arrived stays a top-level row —
+// subagent work is never dropped just because its lane header is missing.
+function nestSubagentLanes(turn: TurnAccumulator, index: LaneIndex): TranscriptToolEntry[] {
+  const { toolsById, childrenByParent, claimed } = index
+  const build = (tool: ToolAccumulator): TranscriptToolEntry => {
+    claimed.add(tool.id)
+    const children = (childrenByParent.get(tool.id) ?? []).filter((child) => !claimed.has(child.id)).map(build)
+    return {
+      kind: 'tool',
+      id: tool.id,
+      turnId: tool.turnId,
+      name: tool.name,
+      status: tool.status,
+      output: tool.output,
+      summary: tool.summary,
+      startedAt: tool.startedAt,
+      completedAt: tool.completedAt,
+      addedLines: tool.addedLines,
+      removedLines: tool.removedLines,
+      // A call that spawned children is a lane even if the provider did not
+      // stamp the flag (older event streams, or a renamed spawn tool).
+      ...(tool.subagentLane || children.length > 0 ? { subagentLane: true } : {}),
+      ...(tool.subagentType ? { subagentType: tool.subagentType } : {}),
+      ...(tool.parentToolUseId ? { parentToolUseId: tool.parentToolUseId } : {}),
+      ...(children.length > 0 ? { children } : {}),
+    }
+  }
+
+  const rows: TranscriptToolEntry[] = []
+  for (const tool of turn.tools.values()) {
+    const parentId = tool.parentToolUseId
+    if (parentId && parentId !== tool.id && toolsById.has(parentId)) continue
+    if (claimed.has(tool.id)) continue
+    rows.push(build(tool))
+  }
+  return rows
+}
+
+// Every call in a lane subtree, lane headers included, in start order.
+export function flattenToolEntries(tools: TranscriptToolEntry[]): TranscriptToolEntry[] {
+  const flat: TranscriptToolEntry[] = []
+  for (const tool of tools) {
+    flat.push(tool)
+    if (tool.children?.length) flat.push(...flattenToolEntries(tool.children))
+  }
+  return flat
+}
+
+// A lane names the kind of agent that was spawned, or the generic noun when
+// the call did not name one. What it was sent to do rides alongside as the
+// row's object (`toolObject`), so a fan-out of four Explore agents stays four
+// distinguishable rows rather than four identical ones.
+export function subagentLaneLabel(tool: TranscriptToolEntry): string {
+  const subagentType = tool.subagentType?.trim()
+  return subagentType ? `${subagentType} agent` : 'Agent'
 }
 
 export function activeConversationStage(entries: TranscriptEntry[], activeTurn: boolean): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
@@ -485,18 +646,36 @@ export function activeConversationStage(entries: TranscriptEntry[], activeTurn: 
   return 'thinking'
 }
 
+export type ConversationApprovalEntry = Extract<TranscriptEntry, { kind: 'approval' }>
+
+// A resolved request stays in the transcript as a decision record. A batch of
+// tool permissions answered together is one line ("Approved 10 files"), not ten
+// rows; a question or plan decision carries its own content and always keeps a
+// row of its own.
+export type ConversationDecisionRow =
+  | { kind: 'decision'; id: string; entry: ConversationApprovalEntry }
+  | {
+      kind: 'decisionGroup'
+      id: string
+      status: 'approved' | 'denied' | 'cancelled'
+      label: string
+      entries: ConversationApprovalEntry[]
+    }
+
 export type ConversationTimelineRow =
   | { kind: 'user'; id: string; entry: Extract<TranscriptEntry, { kind: 'user' }> }
   // One row per assistant turn: byline, reasoning disclosure, work timeline
-  // (the turn's tools) and prose all render as a single block, per the
-  // approved MC-1478 mockup.
+  // (the turn's tools), the turn's resolved decisions, and prose all render as
+  // a single block, per the approved MC-1478 mockup.
   | {
       kind: 'assistant'
       id: string
       entry: Extract<TranscriptEntry, { kind: 'assistant' }>
       tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
+      decisions: ConversationDecisionRow[]
     }
-  | { kind: 'approval'; id: string; entry: Extract<TranscriptEntry, { kind: 'approval' }> }
+  // Requests that never named a turn; they surface on their own.
+  | { kind: 'approval'; id: string; decisions: ConversationDecisionRow[] }
   | {
       kind: 'working'
       id: string
@@ -555,6 +734,66 @@ export function isAuthShapedFailure(reason: string | undefined): boolean {
   return Boolean(reason && /auth|login|oauth|credential|401|expired|api key/i.test(reason))
 }
 
+// Tools whose permission request is really about a file, so a batch of them
+// counts files rather than the generic "tool uses".
+const FILE_APPROVAL_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+
+const DECISION_VERB: Record<'approved' | 'denied' | 'cancelled', string> = {
+  approved: 'Approved',
+  denied: 'Denied',
+  cancelled: 'Cancelled',
+}
+
+export function resolvedDecisionGroupLabel(
+  status: 'approved' | 'denied' | 'cancelled',
+  entries: ConversationApprovalEntry[],
+): string {
+  const count = entries.length
+  const files = entries.every((entry) => entry.action !== undefined && FILE_APPROVAL_TOOLS.has(entry.action))
+  const noun = files ? (count === 1 ? 'file' : 'files') : count === 1 ? 'tool use' : 'tool uses'
+  return `${DECISION_VERB[status]} ${count} ${noun}`
+}
+
+// Fold a turn's requests into decision rows. Pending requests are the composer
+// dock's, never the transcript's. A run of consecutive tool permissions sharing
+// one outcome collapses into a single expandable summary; question and plan
+// decisions record a real answer and stay individual rows, and a run of one is
+// left as its own row because a group of one is not a list.
+export function groupResolvedDecisions(approvals: ConversationApprovalEntry[]): ConversationDecisionRow[] {
+  const rows: ConversationDecisionRow[] = []
+  let run: ConversationApprovalEntry[] = []
+  const flush = (): void => {
+    const first = run[0]
+    if (!first) return
+    if (run.length === 1) {
+      rows.push({ kind: 'decision', id: `approval:${first.requestId}`, entry: first })
+      // A pending request never joins a run; the check is what narrows the
+      // group's outcome to a resolved one.
+    } else if (first.status !== 'pending') {
+      rows.push({
+        kind: 'decisionGroup',
+        id: `approvals:${first.requestId}`,
+        status: first.status,
+        label: resolvedDecisionGroupLabel(first.status, run),
+        entries: run,
+      })
+    }
+    run = []
+  }
+  for (const approval of approvals) {
+    if (approval.status === 'pending') continue
+    if ((approval.requestKind ?? 'tool') !== 'tool') {
+      flush()
+      rows.push({ kind: 'decision', id: `approval:${approval.requestId}`, entry: approval })
+      continue
+    }
+    if (run[0] && run[0].status !== approval.status) flush()
+    run.push(approval)
+  }
+  flush()
+  return rows
+}
+
 export function deriveConversationTimelineRows(
   entries: TranscriptEntry[],
   activeTurn: boolean,
@@ -584,34 +823,71 @@ export function deriveConversationTimelineRows(
         tools.push(next)
         cursor += 1
       }
+      // The turn's own requests follow its tools in the entry stream. They ride
+      // the turn block (between the work timeline and the prose) rather than
+      // trailing it, so a decision reads before the text that came after it.
+      const approvals: ConversationApprovalEntry[] = []
+      while (cursor < entries.length) {
+        const next = entries[cursor]
+        if (!next || next.kind !== 'approval' || next.turnId !== entry.turnId) break
+        approvals.push(next)
+        cursor += 1
+      }
+      const decisions = groupResolvedDecisions(approvals)
       if (
         entry.text.trim()
         || entry.reasoning.trim()
         || tools.length > 0
+        || decisions.length > 0
         || entry.status === 'failed'
         || entry.status === 'interrupted'
       ) {
-        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools })
+        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools, decisions })
       }
       index = cursor - 1
       continue
     }
     if (entry.kind === 'approval') {
-      if (entry.status === 'pending') continue
-      rows.push({ kind: 'approval', id: `approval:${entry.requestId}`, entry })
+      // Requests with no turn to hang off: take the whole consecutive run so
+      // they group like any other batch.
+      let cursor = index
+      const orphans: ConversationApprovalEntry[] = []
+      while (cursor < entries.length) {
+        const next = entries[cursor]
+        if (!next || next.kind !== 'approval') break
+        orphans.push(next)
+        cursor += 1
+      }
+      const decisions = groupResolvedDecisions(orphans)
+      const first = decisions[0]
+      if (first) rows.push({ kind: 'approval', id: `orphan:${first.id}`, decisions })
+      index = cursor - 1
     }
   }
 
   if (stage !== 'idle' && !pendingApproval) {
     const runningTool = [...entries].reverse().find(
-      (entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool' && entry.status === 'running',
+      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running',
     )
+    // Fan-out is the headline: while background agents run, the live line
+    // counts them instead of naming whichever tool happened to start last.
+    const runningLanes = entries.filter(
+      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running' && entry.subagentLane === true,
+    )
+    const laneLabel =
+      runningLanes.length > 1
+        ? `${runningLanes.length} agents working…`
+        : runningLanes[0]
+          ? `${subagentLaneLabel(runningLanes[0])} working…`
+          : undefined
     const label =
-      stage === 'tool' && runningTool
-        ? `${toolVerb(runningTool.name, true)}${toolObject(runningTool) ? ` ${toolObject(runningTool)}` : ''}…`
-        : stage === 'responding'
-          ? 'Replying…'
-          : 'Thinking…'
+      stage === 'tool' && laneLabel
+        ? laneLabel
+        : stage === 'tool' && runningTool
+          ? `${toolVerb(runningTool.name, true)}${toolObject(runningTool) ? ` ${toolObject(runningTool)}` : ''}…`
+          : stage === 'responding'
+            ? 'Replying…'
+            : 'Thinking…'
     rows.push({
       kind: 'working',
       id: 'working-indicator-row',
@@ -622,6 +898,238 @@ export function deriveConversationTimelineRows(
   }
 
   return rows
+}
+
+// ── Image attachments (D3/1774) ─────────────────────────────────────────────
+
+// The image media types the send-turn IPC boundary accepts (see
+// `parseImageAttachments` in main/ipc/conversation-ipc.ts) — the base64 image
+// set the Claude Agent SDK understands. Offering anything else here would only
+// buy the user a rejection one layer down.
+export const ATTACHABLE_IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+// Per-image decoded-byte ceiling the IPC boundary enforces. The composer
+// downscales toward it first and only refuses what still will not fit.
+export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+// Per-turn attachment cap the IPC boundary enforces.
+export const MAX_ATTACHMENTS_PER_TURN = 16
+// Longest edge kept when an image is resampled. Vision models stop gaining
+// detail past ~1568px on the long edge, so this is the token-cost choice as
+// much as the size guard.
+export const MAX_ATTACHMENT_EDGE = 1568
+// Re-encode quality for the JPEG fallback used when a resampled image is still
+// over the byte ceiling.
+const ATTACHMENT_JPEG_QUALITY = 0.82
+
+// Providers whose adapter actually composes image content blocks from a turn's
+// `attachments` — the claude-agent harness today (T2/D3). Every other provider
+// ignores the field, so the attach affordances stay hidden rather than offering
+// a control whose payload goes nowhere. Widening this set is a deliberate pair
+// with the matching provider change.
+const IMAGE_CAPABLE_PROVIDER_IDS = new Set(['claude-agent'])
+
+export function providerAcceptsImages(providerId: string | undefined | null): boolean {
+  return providerId !== undefined && providerId !== null && IMAGE_CAPABLE_PROVIDER_IDS.has(providerId)
+}
+
+export function isAttachableImageType(mediaType: string): boolean {
+  return ATTACHABLE_IMAGE_TYPES.includes(mediaType)
+}
+
+// Decoded byte length of a base64 payload, without allocating the buffer.
+export function base64ByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding)
+}
+
+// Longest-edge-constrained target size, aspect ratio preserved. An image that
+// already fits comes back untouched so small images are never resampled (which
+// would re-encode them for no gain).
+export function scaledImageDimensions(
+  width: number,
+  height: number,
+  maxEdge = MAX_ATTACHMENT_EDGE,
+): { width: number; height: number } {
+  const longest = Math.max(width, height)
+  if (longest <= maxEdge || longest === 0) return { width, height }
+  const scale = maxEdge / longest
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+}
+
+export function formatAttachmentBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Why this file cannot join the turn, or null when it can. Type and count are
+// knowable before the file is read; the byte ceiling is only decidable after
+// downscaling, so it is checked there instead of here.
+export function attachmentRejection(
+  file: { name?: string; type: string },
+  currentCount: number,
+): string | null {
+  if (!isAttachableImageType(file.type)) {
+    const named = file.name ? `${file.name} is not` : 'That file is not'
+    return `${named} an image Claude can read. Attach a PNG, JPEG, WebP, or GIF.`
+  }
+  if (currentCount >= MAX_ATTACHMENTS_PER_TURN) {
+    return `A message can carry at most ${MAX_ATTACHMENTS_PER_TURN} images.`
+  }
+  return null
+}
+
+// Split a `data:` URL into the pieces the IPC boundary wants: the media type
+// and the raw base64 payload with no prefix. Returns null for anything that is
+// not a base64 data URL.
+export function splitImageDataUrl(dataUrl: string): { mediaType: string; dataBase64: string } | null {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
+  if (!match) return null
+  const [, mediaType, dataBase64] = match
+  if (!mediaType || !dataBase64) return null
+  return { mediaType, dataBase64 }
+}
+
+// A `data:` URL for rendering an attachment thumbnail. The base64 is already in
+// memory, so this avoids an object-URL lifecycle with nothing to revoke.
+export function attachmentPreviewUrl(attachment: ConversationImageAttachment): string {
+  return `data:${attachment.mediaType};base64,${attachment.dataBase64}`
+}
+
+// Pull the image files out of a paste or drop. `DataTransfer.files` is empty
+// for a screenshot pasted from the clipboard, where the image only exists as an
+// `item` — both shapes have to be read or paste silently does nothing.
+export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
+  if (!data) return []
+  const files: File[] = []
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') continue
+    const file = item.getAsFile()
+    if (file && isAttachableImageType(file.type)) files.push(file)
+  }
+  if (files.length === 0) {
+    for (const file of Array.from(data.files ?? [])) {
+      if (isAttachableImageType(file.type)) files.push(file)
+    }
+  }
+  return files
+}
+
+// Fold a commit made while the turn was locked into the waiting queued turn
+// (D6/1776): text appends, images concatenate. Reports how many images the
+// per-turn cap left behind so the composer can say so — a queue that quietly
+// swallowed the tail of a paste would look like it had taken everything.
+export function mergeQueuedTurn(
+  previous: { text: string; attachments: ConversationImageAttachment[] } | null,
+  text: string,
+  attachments: ConversationImageAttachment[],
+): { text: string; attachments: ConversationImageAttachment[]; dropped: number } {
+  const previousText = previous?.text ?? ''
+  const combined = [...(previous?.attachments ?? []), ...attachments]
+  return {
+    text: previousText && text ? `${previousText}\n${text}` : previousText || text,
+    attachments: combined.slice(0, MAX_ATTACHMENTS_PER_TURN),
+    dropped: Math.max(0, combined.length - MAX_ATTACHMENTS_PER_TURN),
+  }
+}
+
+export function attachmentCountLabel(count: number): string {
+  return count === 1 ? '1 image' : `${count} images`
+}
+
+// What the queued-turn row reads as. An image-only queued turn has no text to
+// show, so the count is the label rather than an empty row.
+export function queuedTurnLabel(text: string, attachmentCount: number): string {
+  if (attachmentCount === 0) return text
+  const images = attachmentCountLabel(attachmentCount)
+  return text ? `${text} · ${images}` : images
+}
+
+// Whether a drag/drop payload carries files at all. Mid-drag the payload itself
+// is unreadable — only the item kinds are — so this is what the drop target and
+// the preventDefault gate can key off. A drag of selected text reports no files
+// and is left entirely to the textarea's native handling.
+export function dataTransferHasFiles(data: DataTransfer | null): boolean {
+  if (!data) return false
+  if (Array.from(data.types ?? []).includes('Files')) return true
+  return Array.from(data.items ?? []).some((item) => item.kind === 'file')
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(new Error(`Could not read ${file.name || 'the image'}.`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('That image could not be decoded.'))
+    image.src = src
+  })
+}
+
+// Read one picked/pasted/dropped file into a send-ready attachment, resampling
+// it when it is larger than a vision model can use or than the IPC boundary
+// accepts. Rejects with a message the composer shows verbatim — never a silent
+// truncation or a half-sized image passed off as the original.
+//
+// Exported so the canvas/FileReader path can be exercised in a real browser:
+// the DOM-less unit test can cover the pure helpers around it but not this.
+export async function readImageAttachment(file: File, id: string): Promise<ConversationImageAttachment> {
+  const dataUrl = await readFileAsDataUrl(file)
+  const original = splitImageDataUrl(dataUrl)
+  if (!original) throw new Error(`Could not read ${file.name || 'the image'}.`)
+
+  const originalBytes = base64ByteLength(original.dataBase64)
+  const image = await loadImageElement(dataUrl)
+  const target = scaledImageDimensions(image.naturalWidth, image.naturalHeight)
+  const fits = originalBytes <= MAX_ATTACHMENT_BYTES
+  const sameSize = target.width === image.naturalWidth && target.height === image.naturalHeight
+  // An image that already fits both budgets ships byte-for-byte — notably an
+  // animated GIF, which a canvas round-trip would flatten to one frame.
+  if (fits && sameSize) {
+    return {
+      id,
+      mediaType: original.mediaType,
+      dataBase64: original.dataBase64,
+      ...(file.name ? { name: file.name } : {}),
+      byteLength: originalBytes,
+    }
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = target.width
+  canvas.height = target.height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('This window cannot resize images right now.')
+  context.drawImage(image, 0, 0, target.width, target.height)
+
+  // Keep the source encoding when it can hold the image; fall back to JPEG only
+  // when the re-encode is still over budget (JPEG drops alpha, so it is the
+  // second choice, not the default).
+  const preferredType = original.mediaType === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+  let encoded = splitImageDataUrl(canvas.toDataURL(preferredType))
+  if (encoded && base64ByteLength(encoded.dataBase64) > MAX_ATTACHMENT_BYTES && preferredType !== 'image/jpeg') {
+    encoded = splitImageDataUrl(canvas.toDataURL('image/jpeg', ATTACHMENT_JPEG_QUALITY))
+  }
+  if (!encoded) throw new Error(`Could not prepare ${file.name || 'the image'} for sending.`)
+  const byteLength = base64ByteLength(encoded.dataBase64)
+  if (byteLength > MAX_ATTACHMENT_BYTES) {
+    throw new Error(
+      `${file.name || 'That image'} is still over ${formatAttachmentBytes(MAX_ATTACHMENT_BYTES)} after resizing.`,
+    )
+  }
+  return {
+    id,
+    mediaType: encoded.mediaType,
+    dataBase64: encoded.dataBase64,
+    ...(file.name ? { name: file.name } : {}),
+    byteLength,
+  }
 }
 
 // ── Readiness gating ────────────────────────────────────────────────────────
@@ -650,6 +1158,10 @@ export function readinessLabel(readiness: ChatReadiness): string {
   return READINESS_COPY[readiness.kind]
 }
 
+// Stable empty-catalog reference: returned for any provider whose live catalog
+// has not loaded so effects keyed on the derived list do not re-run each render.
+const EMPTY_MODELS: ConversationProviderModel[] = []
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 type Props = {
@@ -665,8 +1177,50 @@ const COMPOSER_CLASS =
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
+// A message committed while the session was busy, waiting for the turn to
+// unlock (D6/1776). Attachments ride along so a queued image is not lost.
+type QueuedTurn = { text: string; attachments: ConversationImageAttachment[] }
+
 export function stopDisabledForPending(pending: PendingAction): boolean {
   return pending === 'stopping'
+}
+
+// Whether the session can accept a live send right now. The runtime rejects a
+// new turn while `pendingRequestId` is set — which spans the whole active turn,
+// not just the awaiting-approval window (conversation-runtime.ts:200). So a
+// submit made while busy is queued and auto-sent on unlock (D6/1776) rather than
+// fired as a live IPC that would error. Type-ahead into the textarea is always
+// allowed; only the send/queue routing keys off this.
+export function isConversationBusy(
+  activeTurn: boolean,
+  awaitingApproval: boolean,
+  pending: PendingAction,
+): boolean {
+  return activeTurn || awaitingApproval || pending !== null
+}
+
+// The composer's one commit rule, shared by every affordance that can commit a
+// turn — Enter, the send button, and the right-click menu's Send item (1793) —
+// so the three can never disagree about whether a turn can be committed or
+// whether committing sends now or queues (D6/1776). Content is text OR staged
+// images (D3/1774): an image-only message is sendable.
+export function composerSendAction(options: {
+  ready: boolean
+  busy: boolean
+  sending: boolean
+  hasText: boolean
+  attachmentCount: number
+}): { label: string; disabled: boolean } {
+  return {
+    label: options.sending ? 'Sending' : options.busy ? 'Queue message' : 'Send message',
+    disabled: !options.ready || (!options.hasText && options.attachmentCount === 0),
+  }
+}
+
+// Menu shortcut hints use the platform's own editing chords, so the composer
+// menu teaches the keyboard path instead of inventing one.
+export function editingShortcut(platform: string, key: string): string {
+  return platform === 'darwin' ? `⌘${key}` : `Ctrl+${key}`
 }
 
 // The model is editable only until the conversation starts: the runtime binds a
@@ -703,19 +1257,56 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const conversation = agent?.conversation
   const label = agent?.name ?? agentId
   const workspaceRoot = workspace?.folderPath ?? null
+  // Tool-permission preset for this agent: the same persisted per-agent field
+  // every CLI spawn stamps from the picker, so a conversation agent spawned as
+  // Auto/Bypass keeps that choice. An agent record predating the field reads as
+  // 'default' (ask per tool) — the safe end of the scale, never the loose one.
+  const permissionPreset: SprintEngineCliPermissionPreset = agent?.cliPermissionPreset ?? 'default'
 
   const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
-  // Live model catalog for the current provider (e.g. OpenRouter's full list),
-  // fetched lazily; empty until loaded, then preferred over the manifest seed.
-  const [liveModels, setLiveModels] = useState<ConversationProviderModel[]>([])
+  // Live model catalogs keyed by providerId, fetched lazily as the user opens
+  // the picker or filters to a provider — never a blanket prefetch. A non-empty
+  // entry is preferred over the manifest seed.
+  const [catalogByProvider, setCatalogByProvider] = useState<Record<string, ConversationProviderModel[]>>({})
+  // Whether each provider has a configured key, fetched alongside its catalog.
+  // Drives the explicit "add key" vs "no models" group state so a key-configured
+  // provider never collapses into a silent stale seed.
+  const [keyByProvider, setKeyByProvider] = useState<Record<string, boolean>>({})
+  // The active provider's live catalog (stable ref per cache entry) feeds the
+  // current-model label, context length, and the tab self-heal below.
+  const liveModels = catalogByProvider[conversation?.providerId ?? ''] ?? EMPTY_MODELS
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [events, setEvents] = useState<ConversationEvent[]>([])
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
   // Skill-at-spawn seeds the first draft (prefill only — the user submits).
   const [draft, setDraft] = useState(() => agent?.chatComposerPrefill ?? '')
   const [pending, setPending] = useState<PendingAction>(null)
+  // Images staged for the next turn (D3/1774), in the order they were added.
+  const [attachments, setAttachments] = useState<ConversationImageAttachment[]>([])
+  // A pasted/dropped/picked image is being read and resampled. Held so the
+  // strip can say so instead of looking like nothing happened on a large file.
+  const [attachingCount, setAttachingCount] = useState(0)
+  // An image drag is over the composer; drives the drop-target affordance.
+  const [dropActive, setDropActive] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const attachmentSeqRef = useRef(0)
+  // Type-ahead queue (D6/1776): a message the user committed while the session
+  // was busy. It holds until the turn unlocks, then auto-sends as a follow-up
+  // turn. Null when nothing is queued; a second commit while busy appends so no
+  // typed intent is dropped. Attachments ride the queue too — dropping them at
+  // the queue boundary would silently lose what the user staged.
+  const [queuedTurn, setQueuedTurn] = useState<QueuedTurn | null>(null)
+  // The composer's right-click menu (1793); null when closed. Opening it snapshots
+  // the click point, the field's selection, and the clipboard, so the menu's
+  // enable states describe the moment the user asked for it.
+  const [composerMenu, setComposerMenu] = useState<ComposerMenuState | null>(null)
+  // Where the caret belongs after a menu edit rewrites the controlled draft.
+  // Applied once the new value has rendered, so the caret lands in the edited
+  // text instead of jumping to the end of it.
+  const pendingCaretRef = useRef<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
   // Slash trigger: Escape or non-matching text sets dismissed so the slash
@@ -723,8 +1314,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const [slashDismissed, setSlashDismissed] = useState(false)
   const slashPickerRef = useRef<InlineSkillPickerHandle | null>(null)
   const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const listRef = useRef<HTMLDivElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  // Drag enter/leave fire for every child the pointer crosses; the depth
+  // counter keeps the drop affordance from flickering inside the composer.
+  const dragDepthRef = useRef(0)
   // Completed assistant replies the user has "seen" (was at the bottom for);
   // the jump pill counts completions past this baseline while scrolled up.
   const repliesSeenRef = useRef(0)
@@ -833,24 +1428,37 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     }
   }, [workspaceRoot, workspaceId, agentId])
 
-  // Fetch the provider's live model catalog (keyed on provider, not model, so a
-  // model switch within the same provider does not refetch). Failures are silent
-  // — the picker falls back to the manifest seed models.
+  // Fetch one provider's live catalog and key status on demand, caching both.
+  // Called for the active provider on mount and for whichever provider the user
+  // filters to in the picker — never a blanket fan-out over every provider.
+  // Failures are silent: the picker falls back to the manifest seed (unknown key
+  // state) or its explicit empty state (known key state), never a stale list.
+  const fetchProviderCatalog = useCallback((providerId: string) => {
+    if (!providerId) return
+    if (typeof window.api.conversationProviderModels === 'function') {
+      void window.api
+        .conversationProviderModels({ providerId })
+        .then((result) => {
+          if (result.ok) setCatalogByProvider((current) => ({ ...current, [providerId]: result.models }))
+        })
+        .catch(() => undefined)
+    }
+    if (typeof window.api.conversationSecretStatus === 'function') {
+      void window.api
+        .conversationSecretStatus({ providerId })
+        .then((result) => {
+          if (result.ok) setKeyByProvider((current) => ({ ...current, [providerId]: result.status.configured }))
+        })
+        .catch(() => undefined)
+    }
+  }, [])
+
+  // Fetch the active provider up front so the current model's display label,
+  // context length, and readiness resolve before the picker is ever opened.
   useEffect(() => {
     const providerId = conversation?.providerId
-    if (!providerId || typeof window.api.conversationProviderModels !== 'function') return
-    let cancelled = false
-    setLiveModels([])
-    void window.api
-      .conversationProviderModels({ providerId })
-      .then((result) => {
-        if (!cancelled && result.ok) setLiveModels(result.models)
-      })
-      .catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-  }, [conversation?.providerId])
+    if (providerId) fetchProviderCatalog(providerId)
+  }, [conversation?.providerId, fetchProviderCatalog])
 
   const projection = useMemo(() => projectConversation(events, userTurns), [events, userTurns])
   const timelineRows = useMemo(
@@ -944,6 +1552,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       providerId: conversation.providerId,
       modelId: conversation.modelId,
       cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+      // The spawn picker's preset, stamped on the agent record at spawn and
+      // editable from the composer's permission pill until the first turn. No
+      // hardcoded 'default' here: an agent spawned as Bypass starts as Bypass.
+      permissionPreset,
     })
     if (!result.ok) {
       setActionError(result.message)
@@ -951,21 +1563,68 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     }
     setSessionId(result.session.sessionId)
     return result.session.sessionId
-  }, [agentId, cliRuntimes, conversation, sessionId, workspaceId, workspaceRoot])
+  }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot])
 
+  // Change the tool-permission preset. The agent record is the durable source
+  // of truth (it seeds the next session start and survives a remount), so it is
+  // written first; a live session additionally gets the change pushed to its
+  // running query, where it applies from the next tool call. A provider that
+  // refuses (no live-change support, or Claude Code declining) rolls the record
+  // back and surfaces its own message — the pill never shows a preset the
+  // session is not actually on.
+  const [permissionChanging, setPermissionChanging] = useState(false)
+  const changePermissionPreset = useCallback(
+    async (next: SprintEngineCliPermissionPreset) => {
+      if (next === permissionPreset || permissionChanging) return
+      setActionError(null)
+      const previous = permissionPreset
+      updateAgent(workspaceId, agentId, { cliPermissionPreset: next })
+      if (!sessionId) return
+      if (typeof window.api.conversationSessionSetPermission !== 'function') {
+        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+        setActionError('Changing tool permissions mid-conversation needs an app restart.')
+        return
+      }
+      setPermissionChanging(true)
+      try {
+        const result = await window.api.conversationSessionSetPermission({ sessionId, permissionPreset: next })
+        if (!result.ok) {
+          updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+          setActionError(result.message)
+        }
+      } catch (err) {
+        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+        setActionError(err instanceof Error ? err.message : 'Could not change tool permissions.')
+      } finally {
+        setPermissionChanging(false)
+      }
+    },
+    [agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
+  )
+
+  // Send one turn. A turn needs text or at least one image — the runtime accepts
+  // an image-only turn, so the composer does too.
   const sendTurn = useCallback(
-    async (message: string) => {
+    async (message: string, turnAttachments: ConversationImageAttachment[] = []) => {
       const text = message.trim()
-      if (!text || pending) return
+      if ((!text && turnAttachments.length === 0) || pending) return
       setActionError(null)
       setPending('starting')
       const activeSession = await ensureSession()
       if (!activeSession) {
         setPending(null)
+        // The turn never left, so hand the staged images back rather than make
+        // the user re-attach them — unless they already staged new ones.
+        if (turnAttachments.length > 0) {
+          setAttachments((current) => (current.length === 0 ? turnAttachments : current))
+        }
         return
       }
       const localTurnId = `user-${userTurns.length}-${Date.now()}`
-      setUserTurns((current) => [...current, { id: localTurnId, text }])
+      setUserTurns((current) => [
+        ...current,
+        { id: localTurnId, text, ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}) },
+      ])
       setDraft('')
       setPending('sending')
       try {
@@ -973,6 +1632,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
           sessionId: activeSession,
           message: text,
           localTurnId,
+          ...(turnAttachments.length > 0 ? { attachments: turnAttachments } : {}),
         })
         if (!result.ok) setActionError(result.message)
       } catch (err) {
@@ -983,6 +1643,133 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     },
     [ensureSession, pending, userTurns.length]
   )
+
+  // Composer submit (Enter or the send affordance). Sends immediately when the
+  // session is idle; queues the message when a turn is streaming or awaiting
+  // approval, so the user gets terminal-style type-ahead without the send
+  // erroring against the runtime's turn guard (D6/1776). The flush effect below
+  // sends the queued message the moment the session unlocks.
+  const submitComposer = useCallback(() => {
+    const text = draft.trim()
+    if (!text && attachments.length === 0) return
+    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) {
+      const { dropped, ...merged } = mergeQueuedTurn(queuedTurn, text, attachments)
+      setQueuedTurn(merged)
+      setDraft('')
+      setAttachments([])
+      // The cap is the IPC boundary's; trimming to it is right, hiding the trim
+      // is not — the user must know which images did not make the queue.
+      setActionError(
+        dropped > 0
+          ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
+          : null,
+      )
+      return
+    }
+    void sendTurn(text, attachments)
+    setAttachments([])
+  }, [attachments, draft, projection.activeTurn, projection.awaitingApproval, pending, queuedTurn, sendTurn])
+
+  // Open the composer's right-click menu (1793). The clipboard read is awaited
+  // before opening so Paste is never offered against an empty clipboard, and the
+  // pointer/selection state is captured before it, because the event's target is
+  // released once the handler returns. The menu key (Shift+F10) raises the same
+  // event and is the keyboard path in; when it reports no pointer, the menu opens
+  // at the field instead of the viewport corner.
+  const openComposerMenu = useCallback(async (event: React.MouseEvent<HTMLTextAreaElement>) => {
+    event.preventDefault()
+    const field = event.currentTarget
+    const rect = field.getBoundingClientRect()
+    const keyboardInvoked = event.clientX === 0 && event.clientY === 0
+    const x = keyboardInvoked ? rect.left : event.clientX
+    const y = keyboardInvoked ? rect.bottom : event.clientY
+    const selectionStart = field.selectionStart ?? 0
+    const selectionEnd = field.selectionEnd ?? selectionStart
+    const clipboardText = await readClipboardText()
+    setComposerMenu({ x, y, selectionStart, selectionEnd, clipboardText })
+  }, [])
+
+  // Replace the menu's captured selection with `text` ('' for a plain cut) and
+  // put the caret after what was inserted.
+  const replaceComposerSelection = useCallback(
+    (menu: ComposerMenuState, text: string) => {
+      setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
+      pendingCaretRef.current = menu.selectionStart + text.length
+    },
+    [],
+  )
+
+  // Apply the caret position a menu edit asked for, once the rewritten draft has
+  // rendered. Focus comes back to the field so the user can keep typing.
+  useEffect(() => {
+    const caret = pendingCaretRef.current
+    if (caret === null) return
+    pendingCaretRef.current = null
+    const field = composerRef.current
+    if (!field) return
+    field.focus()
+    field.setSelectionRange(caret, caret)
+  }, [draft])
+
+  // Auto-send the queued message as a follow-up turn once the session idles.
+  // Gated on the same busy signal the submit uses, so it never races the guard;
+  // sendTurn's own `pending` guard prevents a re-entrant double send.
+  useEffect(() => {
+    if (queuedTurn === null || readiness.kind !== 'ready') return
+    if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) return
+    const { text, attachments: queuedAttachments } = queuedTurn
+    setQueuedTurn(null)
+    void sendTurn(text, queuedAttachments)
+  }, [queuedTurn, readiness.kind, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+
+  // Stage images for the next turn. Each file is read and resampled on its own
+  // so one unreadable file never drops the rest of a multi-image paste; the
+  // first refusal is what the composer reports, and the rest still attach.
+  const attachFiles = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return
+      let firstError: string | null = null
+      // Refuse on type and count first, so the "Reading N images…" state counts
+      // only what is actually being read.
+      const readable: File[] = []
+      for (const file of files) {
+        const rejection = attachmentRejection(file, attachments.length + readable.length)
+        if (rejection) firstError ??= rejection
+        else readable.push(file)
+      }
+      if (readable.length === 0) {
+        setActionError(firstError)
+        return
+      }
+
+      const accepted: ConversationImageAttachment[] = []
+      setAttachingCount((count) => count + readable.length)
+      try {
+        for (const file of readable) {
+          attachmentSeqRef.current += 1
+          try {
+            accepted.push(await readImageAttachment(file, `att-${attachmentSeqRef.current}-${Date.now()}`))
+          } catch (err) {
+            firstError ??= err instanceof Error ? err.message : 'That image could not be attached.'
+          }
+        }
+      } finally {
+        setAttachingCount((count) => Math.max(0, count - readable.length))
+      }
+      // The slice is the invariant, not the user-facing rule: the per-file check
+      // above already reported the cap, this only holds it under overlapping
+      // batches (a paste landing while a drop is still reading).
+      if (accepted.length > 0) {
+        setAttachments((current) => [...current, ...accepted].slice(0, MAX_ATTACHMENTS_PER_TURN))
+      }
+      setActionError(firstError)
+    },
+    [attachments.length],
+  )
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((current) => current.filter((entry) => entry.id !== id))
+  }, [])
 
   // Approval/question cards resolve mid-turn on stateful providers — while the
   // sendTurn promise is still pending — so they get their own busy latch
@@ -1038,7 +1825,24 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   }
 
   const ready = readiness.kind === 'ready'
-  const composerDisabled = !ready || projection.activeTurn || pending !== null
+  // The session cannot take a live turn right now (streaming, awaiting approval,
+  // or an in-flight send). A submit made while busy queues instead of erroring.
+  const composerBusy = isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)
+  // Retry and other "act now" affordances stay disabled while busy or not ready.
+  const composerDisabled = !ready || composerBusy
+  // The textarea itself is only disabled before the provider is ready — it stays
+  // editable through a stream so type-ahead works (D6/1776).
+  const composerInputDisabled = !ready
+  // One rule for both send affordances — the footer button and the right-click
+  // menu's Send item (1793) — so they can never label or gate a commit
+  // differently from each other or from Enter.
+  const sendAction = composerSendAction({
+    ready,
+    busy: composerBusy,
+    sending: pending === 'starting' || pending === 'sending',
+    hasText: draft.trim().length > 0,
+    attachmentCount: attachments.length,
+  })
 
   // The runtime binds a session to one provider/model, so the model is editable
   // only until the conversation starts: once a turn is sent, a session exists,
@@ -1049,20 +1853,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     sessionId,
     projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
   )
-  // Picker groups: one per provider, using the live catalog for the current
-  // provider when it has loaded, else that provider's manifest seed models.
-  // Subscription providers ('agent-harness') sort first and carry the
-  // subscription annotation so metered API entries are never mistaken for the
-  // user's own plan.
-  const modelGroups = [...providers]
-    .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
-    .map((entry) => ({
-      providerId: entry.id,
-      providerLabel: entry.displayName,
-      subscription: entry.providerType === 'agent-harness',
-      unavailable: entry.unavailable,
-      models: entry.id === conversation.providerId && liveModels.length > 0 ? liveModels : entry.models,
-    }))
+  const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
     ?.models.find((model) => model.id === conversation.modelId)
@@ -1102,6 +1893,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const providerEntry = providers.find((entry) => entry.id === conversation.providerId)
   const isAgentHarness = providerEntry?.providerType === 'agent-harness'
   const assistantName = isAgentHarness ? 'Claude' : currentModelLabel
+  // Image attach (D3/1774) is offered only where a provider actually reads the
+  // turn's attachments, and only once the session can take a turn — a control
+  // that stages images no one will receive is worse than no control.
+  const imagesEnabled = ready && providerAcceptsImages(conversation.providerId)
 
   // Skills doors (agent harness only — plain model chats run no tools):
   // a '/' opening an otherwise-empty draft filters the same inventory the
@@ -1134,9 +1929,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       : pendingApprovalEntry.requestKind === 'plan'
         ? 'Respond to the plan above to continue'
         : 'Respond to the request above to continue'
-    : ready
-      ? 'Send a message…'
-      : readinessLabel(readiness)
+    : !ready
+      ? readinessLabel(readiness)
+      : projection.activeTurn
+        ? 'Reply — sends when the turn finishes'
+        : 'Send a message…'
 
   // Retry lives on the failed turn's error block in the transcript; only the
   // latest failed turn is retryable (retry re-sends the last user message).
@@ -1277,13 +2074,86 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         ) : null}
 
         {/*
+         * Queued message (D6/1776): the user typed ahead and committed while the
+         * turn was busy. It auto-sends the moment the session unlocks; Cancel
+         * drops it before then. Kept truthful so a queued turn is never a
+         * silent, invisible pending action.
+         */}
+        {queuedTurn ? (
+          <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 text-[12px] font-medium leading-5 text-[color:var(--text-default)]">Queued</span>
+              <TruncatedText
+                as="span"
+                text={queuedTurnLabel(queuedTurn.text, queuedTurn.attachments.length)}
+                className="min-w-0 text-[12px] leading-5 text-[color:var(--text-muted)]"
+              />
+            </div>
+            <GhostButton
+              size="sm"
+              onClick={() => setQueuedTurn(null)}
+              className="shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]"
+            >
+              Cancel
+            </GhostButton>
+          </div>
+        ) : null}
+
+        {/*
          * Composer: a single rounded field that holds the textarea and a footer
          * control row (model chip + permission chip + send), so the input reads
          * as one surface. The model lives here — picked before the first
          * message, then locked. While an approval card is pending the disabled
          * placeholder says why the composer is waiting.
          */}
-        <div className="rounded-xl border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] transition-colors focus-within:border-[color:var(--accent-primary)]">
+        <div
+          className={`relative rounded-xl border bg-[color:var(--bg-surface)] transition-colors focus-within:border-[color:var(--accent-primary)] ${
+            dropActive ? 'border-[color:var(--accent-primary)]' : 'border-[color:var(--border-default)]'
+          }`}
+          onDragEnter={(event) => {
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            dragDepthRef.current += 1
+            setDropActive(true)
+          }}
+          onDragOver={(event) => {
+            // Claiming the drag is what stops the window from navigating to the
+            // dropped file, so it has to happen on every dragover.
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            event.preventDefault()
+          }}
+          onDragLeave={(event) => {
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+            if (dragDepthRef.current === 0) setDropActive(false)
+          }}
+          onDrop={(event) => {
+            if (!imagesEnabled || !dataTransferHasFiles(event.dataTransfer)) return
+            event.preventDefault()
+            dragDepthRef.current = 0
+            setDropActive(false)
+            const files = imageFilesFromDataTransfer(event.dataTransfer)
+            if (files.length === 0) {
+              setActionError('Only PNG, JPEG, WebP, and GIF images can be attached.')
+              return
+            }
+            void attachFiles(files)
+          }}
+        >
+          {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
+              can never strand the overlay over a composer that stopped accepting
+              images. */}
+          {dropActive && imagesEnabled ? (
+            // Opaque, not a scrim: the field's own text ghosting through the
+            // drop state reads as a rendering artifact rather than a state.
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[color:var(--bg-surface)] text-[12px] font-medium text-[color:var(--accent-primary)]">
+              Drop to attach
+            </div>
+          ) : null}
+          <ComposerAttachmentStrip
+            attachments={attachments}
+            reading={attachingCount}
+            onRemove={removeAttachment}
+          />
           <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
             Message {label}
           </label>
@@ -1291,11 +2161,21 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             ref={composerRef}
             id={`chat-composer-${agentId}`}
             value={draft}
+            onPaste={(event) => {
+              // A pasted screenshot only exists as a clipboard item; a text
+              // paste reports no image and falls through to the default.
+              if (!imagesEnabled) return
+              const files = imageFilesFromDataTransfer(event.clipboardData)
+              if (files.length === 0) return
+              event.preventDefault()
+              void attachFiles(files)
+            }}
             onChange={(event) => {
               const value = event.target.value
               setDraft(value)
               if (!value.startsWith('/')) setSlashDismissed(false)
             }}
+            onContextMenu={(event) => void openComposerMenu(event)}
             onKeyDown={(event) => {
               // While the slash picker is up, the textarea keeps focus and
               // forwards navigation; Enter picks instead of sending.
@@ -1318,16 +2198,43 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               }
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
-                void sendTurn(draft)
+                submitComposer()
               }
             }}
             placeholder={composerPlaceholder}
             rows={1}
-            disabled={composerDisabled}
+            disabled={composerInputDisabled}
             className={COMPOSER_CLASS}
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
             <div className="flex min-w-0 items-center gap-1">
+              {imagesEnabled ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={ATTACHABLE_IMAGE_TYPES.join(',')}
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? [])
+                      // Clearing lets the same file be picked twice in a row.
+                      event.target.value = ''
+                      void attachFiles(files)
+                    }}
+                  />
+                  <Tooltip content="Attach an image" placement="top">
+                    <button
+                      type="button"
+                      aria-label="Attach an image"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center rounded-md p-1 text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]"
+                    >
+                      <PaperclipGlyph className="icon-sm" />
+                    </button>
+                  </Tooltip>
+                </>
+              ) : null}
               {isAgentHarness ? (
                 <SkillPickerPopover
                   open={skillsMenuOpen}
@@ -1346,17 +2253,30 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 selectedProviderId={conversation.providerId}
                 selectedModelId={conversation.modelId}
                 onSelect={selectModel}
+                onBrowseProvider={fetchProviderCatalog}
+                onAddKey={() => {
+                  setModelMenuOpen(false)
+                  openSettingsOverlay({ initialTab: 'providers' })
+                }}
               />
               {contextLength ? (
                 <ContextMeter used={usedTokens} total={contextLength} />
               ) : null}
               {isAgentHarness ? (
-                <Tooltip content={`${assistantName} asks for approval before running tools in this workspace`} placement="top">
-                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-medium text-[color:var(--text-muted)]">
-                    <LockGlyph className="icon-xs" />
-                    Asks before tools
-                  </span>
-                </Tooltip>
+                <PermissionPresetPill
+                  preset={permissionPreset}
+                  live={sessionId !== null}
+                  changing={permissionChanging}
+                  open={permissionMenuOpen}
+                  onOpenChange={setPermissionMenuOpen}
+                  onChange={(next) => {
+                    // Close on pick like every other picker here: a refusal
+                    // rolls the pill back and writes the reason to the composer
+                    // error line, which an open popover would sit on top of.
+                    setPermissionMenuOpen(false)
+                    void changePermissionPreset(next)
+                  }}
+                />
               ) : null}
             </div>
             {projection.activeTurn ? (
@@ -1371,14 +2291,42 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             ) : (
               <ComposerActionButton
                 tone="accent"
-                ariaLabel={pending === 'starting' || pending === 'sending' ? 'Sending' : 'Send message'}
-                onClick={() => void sendTurn(draft)}
-                disabled={composerDisabled || !draft.trim()}
+                ariaLabel={sendAction.label}
+                onClick={submitComposer}
+                disabled={sendAction.disabled}
               >
                 <SendArrowGlyph className="icon-sm" />
               </ComposerActionButton>
             )}
           </div>
+          {/*
+           * Right-click menu (1793): Send plus the standard editing actions, so
+           * committing a turn is not limited to Enter and the button. Rendered
+           * only while open — it positions itself at the click point.
+           */}
+          {composerMenu ? (
+            <ComposerContextMenu
+              menu={composerMenu}
+              send={sendAction}
+              editable={!composerInputDisabled}
+              onSend={submitComposer}
+              onCut={() => {
+                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                void writeClipboardText(selected).then((written) => {
+                  if (written) replaceComposerSelection(composerMenu, '')
+                  else setActionError('Could not cut to the clipboard.')
+                })
+              }}
+              onCopy={() => {
+                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                void writeClipboardText(selected).then((written) => {
+                  if (!written) setActionError('Could not copy to the clipboard.')
+                })
+              }}
+              onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
+              onClose={() => setComposerMenu(null)}
+            />
+          ) : null}
         </div>
       </div>
     </ChatShell>
@@ -1436,7 +2384,7 @@ function formatTokens(value: number): string {
 // The in-composer model selector. Before the conversation starts it is a pill
 // that opens a grouped provider → model menu; once locked it renders as static
 // muted text (the session is bound to its model).
-type ModelGroup = {
+export type ModelGroup = {
   providerId: string
   providerLabel: string
   // True for agent-harness providers — the user's own subscription, annotated
@@ -1446,6 +2394,177 @@ type ModelGroup = {
   // group disabled instead of hiding it.
   unavailable?: string
   models: ConversationProviderModel[]
+  // Explicit empty state for a dynamic-catalog provider with no models to list,
+  // so it is never dropped nor shown as a silent stale seed. 'add-key' — no key
+  // configured; 'no-models' — key present but the live catalog came back empty.
+  emptyState?: 'add-key' | 'no-models'
+}
+
+// Picker groups: one per provider, merging each provider's own live catalog
+// (fetched when the user browses to it) over its manifest seed. Subscription
+// providers ('agent-harness') sort first and carry the subscription annotation
+// so metered API entries are never mistaken for the user's own plan. A
+// dynamic-catalog provider is never dropped for an empty seed: when its key is
+// missing it shows an explicit add-key state, and when the key is present but
+// the catalog is empty it says so — never a silent stale seed (1772/D5).
+export function buildModelGroups(
+  providers: ConversationProviderListEntry[],
+  catalogByProvider: Record<string, ConversationProviderModel[]>,
+  keyByProvider: Record<string, boolean>,
+): ModelGroup[] {
+  return [...providers]
+    .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
+    .map((entry): ModelGroup => {
+      const base = { providerId: entry.id, providerLabel: entry.displayName, unavailable: entry.unavailable }
+      const liveCatalog = catalogByProvider[entry.id]
+      const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
+      // Subscription (agent-harness) providers need no key: live catalog if it
+      // loaded, else the seed. Static model-providers list their full seed as-is
+      // — it is the complete catalog, not a truncated one.
+      if (entry.providerType === 'agent-harness' || !entry.supportsDynamicModels) {
+        return {
+          ...base,
+          subscription: entry.providerType === 'agent-harness',
+          models: hasLive ? liveCatalog : entry.models,
+        }
+      }
+      // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
+      const hasKey = keyByProvider[entry.id]
+      if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
+      if (hasLive) return { ...base, models: liveCatalog }
+      // Key present but catalog empty/unreachable: say so rather than seed.
+      if (hasKey === true) return { ...base, models: [], emptyState: 'no-models' }
+      // Key state not yet fetched — show the seed provisionally until the user
+      // browses to this provider and its live catalog + key status load.
+      return { ...base, models: entry.models }
+    })
+}
+
+// What the picker actually lists, given the search box and the provider chip.
+// Search matches the provider as well as the model: "claude" must keep the
+// Claude Code (subscription) group visible even though its models are named
+// Sonnet/Opus/Haiku — otherwise the search silently hides the subscription and
+// leaves only metered lookalikes. Browsing (no query) keeps every provider group
+// so a key-configured provider never disappears for an empty catalog — its empty
+// state renders inline (1772/D5) — and respects the active chip; a query looks
+// across every provider, because a filter must never hide a search hit.
+export function filterModelGroups(groups: ModelGroup[], query: string, activeFilter: string): ModelGroup[] {
+  const normalized = query.trim().toLowerCase()
+  const providerMatches = (group: ModelGroup): boolean =>
+    group.providerLabel.toLowerCase().includes(normalized) || group.providerId.toLowerCase().includes(normalized)
+  if (!normalized) {
+    return groups.filter((group) => activeFilter === 'all' || group.providerId === activeFilter)
+  }
+  return groups
+    .map((group) =>
+      providerMatches(group)
+        ? group
+        : {
+            ...group,
+            models: group.models.filter(
+              (model) =>
+                model.id.toLowerCase().includes(normalized)
+                || (model.displayName?.toLowerCase().includes(normalized) ?? false),
+            ),
+          },
+    )
+    .filter((group) => providerMatches(group) || group.models.length > 0)
+}
+
+// Plain-language name for a tool-permission preset, as the composer pill reads
+// it. The spawn picker's own labels ("Default permissions") name the setting;
+// the pill has to name the BEHAVIOR, because at rest it is the answer to "will
+// this agent stop and ask me before it acts?".
+export function permissionPresetLabel(preset: SprintEngineCliPermissionPreset): string {
+  if (preset === 'auto_workspace') return 'Auto in workspace'
+  if (preset === 'bypass_all') return 'Bypass permissions'
+  return 'Asks before tools'
+}
+
+// When a preset change actually bites. A live session takes it on the running
+// query's next tool call; with no session yet it is simply what the session
+// will start with. Stated plainly so the user is never left guessing whether
+// the switch they just made covers the work already in flight.
+export function permissionChangeScopeLabel(live: boolean): string {
+  return live ? 'Applies from the next tool call.' : 'Applies when the conversation starts.'
+}
+
+// The composer footer's tool-permission control. Replaces the read-only "Asks
+// before tools" chip: the preset was start-time-only, so a conversation was
+// stuck with whatever it spawned on. The pill names the current behavior at
+// rest and opens the SHARED Default/Auto/Bypass row (the same control the spawn
+// picker and Automations editor use) rather than three always-on chips, so the
+// footer keeps one control per concern.
+export function PermissionPresetPill({
+  preset,
+  live,
+  changing,
+  open,
+  onOpenChange,
+  onChange,
+}: {
+  preset: SprintEngineCliPermissionPreset
+  // Whether a session is running: only then is this a live mutation.
+  live: boolean
+  // A change is in flight. The pick closes the popover, but the user can reopen
+  // it before the push lands — the row locks so that second click reads as
+  // "wait", instead of being silently dropped by the caller's re-entry guard.
+  changing: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onChange: (preset: SprintEngineCliPermissionPreset) => void
+}) {
+  const asks = preset === 'default'
+  // The surface portals to <body>, so Tab from the trigger would never reach the
+  // chips. Land focus on the preset in force (Escape returns it to the trigger).
+  const focusActivePreset = useCallback((surface: HTMLElement) => {
+    const active = surface.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+    ;(active ?? surface.querySelector<HTMLButtonElement>('button'))?.focus()
+  }, [])
+  return (
+    <Popover
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Tool permissions"
+      popupRole="dialog"
+      placement="top-start"
+      onOpenAutoFocus={focusActivePreset}
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <Tooltip
+          content={
+            AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === preset)?.title
+            ?? permissionPresetLabel(preset)
+          }
+          placement="top"
+        >
+          <button
+            ref={ref}
+            type="button"
+            onClick={togglePopover}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
+              preset === 'bypass_all' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
+            }`}
+            {...triggerProps}
+          >
+            {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
+            {permissionPresetLabel(preset)}
+            <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
+          </button>
+        </Tooltip>
+      )}
+    >
+      <div className="w-[236px] p-2">
+        {/* The surface is already named "Tool permissions"; the chips need no
+            second group label on top of it. */}
+        <div className="flex items-center gap-1">
+          <PermissionPresetChips value={preset} onChange={onChange} disabled={changing} />
+        </div>
+        <p className="px-1 pt-1.5 text-[11px] leading-4 text-[color:var(--text-muted)]">
+          {permissionChangeScopeLabel(live)}
+        </p>
+      </div>
+    </Popover>
+  )
 }
 
 function ModelPickerPill({
@@ -1457,6 +2576,8 @@ function ModelPickerPill({
   selectedProviderId,
   selectedModelId,
   onSelect,
+  onBrowseProvider,
+  onAddKey,
 }: {
   label: string
   locked: boolean
@@ -1466,6 +2587,12 @@ function ModelPickerPill({
   selectedProviderId: string
   selectedModelId: string
   onSelect: (providerId: string, modelId: string) => void
+  // Fired when the user opens the picker or filters to a specific provider, so
+  // the parent fetches THAT provider's live catalog (never a blanket prefetch).
+  // 'all' is not a provider and is not fetched.
+  onBrowseProvider: (providerId: string) => void
+  // Opens provider settings to configure a missing key for the given provider.
+  onAddKey: (providerId: string) => void
 }) {
   const [query, setQuery] = useState('')
   // Provider filter chips (Cursor-style): pick one provider to browse, or All.
@@ -1488,37 +2615,17 @@ function ModelPickerPill({
   const defaultFilter = groups.find((group) => group.subscription && !group.unavailable)?.providerId ?? 'all'
   const activeFilter = providerFilter ?? defaultFilter
   const normalized = query.trim().toLowerCase()
-  // Search matches the provider as well as the model: "claude" must keep the
-  // Claude Code (subscription) group visible even though its models are named
-  // Sonnet/Opus/Haiku — otherwise the search silently hides the subscription
-  // and leaves only metered lookalikes.
-  const searchMatched = groups
-    .map((group) => {
-      if (!normalized) return group
-      if (group.providerLabel.toLowerCase().includes(normalized) || group.providerId.toLowerCase().includes(normalized)) {
-        return group
-      }
-      return {
-        ...group,
-        models: group.models.filter(
-          (model) =>
-            model.id.toLowerCase().includes(normalized)
-            || (model.displayName?.toLowerCase().includes(normalized) ?? false),
-        ),
-      }
-    })
-    .filter((group) => group.models.length > 0)
-  // Searching looks across every provider (a filter must never hide a search
-  // hit); browsing without a query respects the active chip.
-  const filtered = normalized ? searchMatched : searchMatched.filter(
-    (group) => activeFilter === 'all' || group.providerId === activeFilter,
-  )
+  const filtered = filterModelGroups(groups, query, activeFilter)
   const totalModels = groups.reduce((sum, group) => sum + group.models.length, 0)
   return (
     <Popover
       open={open}
       onOpenChange={(next) => {
-        if (next) setQuery('')
+        if (next) {
+          setQuery('')
+          // Load the catalog for the provider the picker opens onto.
+          if (activeFilter !== 'all') onBrowseProvider(activeFilter)
+        }
         onOpenChange(next)
       }}
       ariaLabel="Select model"
@@ -1573,7 +2680,11 @@ function ModelPickerPill({
                     // The subscription-first default view is the baseline, not
                     // an applied filter.
                     defaultValue: defaultFilter,
-                    onChange: setProviderFilter,
+                    onChange: (value) => {
+                      setProviderFilter(value)
+                      // Fetch the newly-selected provider's live catalog.
+                      if (value !== 'all') onBrowseProvider(value)
+                    },
                   },
                 ]}
               />
@@ -1581,13 +2692,9 @@ function ModelPickerPill({
           </div>
         ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
-          {totalModels === 0 ? (
+          {filtered.length === 0 ? (
             <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
-              No models available
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
-              {normalized ? `No models match “${query.trim()}”` : 'No models for this provider'}
+              {normalized ? `No models match “${query.trim()}”` : 'No providers available'}
             </div>
           ) : (
             filtered.map((group) => (
@@ -1595,11 +2702,39 @@ function ModelPickerPill({
                 <div className="flex items-baseline gap-1.5 px-2.5 pb-0.5 pt-1.5">
                   <span className="text-[11px] font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
                   <span className="text-[10.5px] text-[color:var(--text-subtle)]">
-                    {group.unavailable ? 'not available' : group.subscription ? 'your Claude subscription' : 'uses your API key'}
+                    {group.unavailable
+                      ? 'not available'
+                      : group.subscription
+                        ? 'your Claude subscription'
+                        : group.emptyState === 'add-key'
+                          ? 'needs an API key'
+                          : 'uses your API key'}
                   </span>
                 </div>
                 {group.unavailable ? (
                   <p className="px-2.5 pb-1 text-[11px] leading-4 text-[color:var(--text-muted)]">{group.unavailable}</p>
+                ) : group.models.length === 0 ? (
+                  // A key-configured provider with an empty catalog stays visible
+                  // with an explicit state instead of vanishing or showing a
+                  // stale seed. Missing key offers a direct route to add one.
+                  group.emptyState === 'add-key' ? (
+                    <div className="px-2.5 pb-1.5 pt-0.5">
+                      <p className="pb-1 text-[11px] leading-4 text-[color:var(--text-muted)]">
+                        Add an API key to browse this provider’s models.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => onAddKey(group.providerId)}
+                        className="rounded px-2 py-1 text-[12px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+                      >
+                        Add key in Settings
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="px-2.5 pb-1.5 pt-0.5 text-[11px] leading-4 text-[color:var(--text-muted)]" role="status">
+                      No models returned for this provider.
+                    </p>
+                  )
                 ) : null}
                 {group.models.map((model) => {
                   const isCurrent = group.providerId === selectedProviderId && model.id === selectedModelId
@@ -1661,6 +2796,158 @@ function ComposerActionButton({
     >
       {children}
     </button>
+  )
+}
+
+// Clipboard reads/writes go through the main process: an Electron renderer has
+// no permission-free `navigator.clipboard` read, and the app already owns this
+// bridge for the terminal. An unavailable bridge reads as an empty clipboard,
+// which disables Paste rather than offering an item that would do nothing.
+async function readClipboardText(): Promise<string> {
+  if (typeof window.api?.clipboardReadText !== 'function') return ''
+  try {
+    return await window.api.clipboardReadText()
+  } catch {
+    return ''
+  }
+}
+
+// Reports whether the text actually reached the clipboard: Cut removes the
+// selection only on a true, so a failed write can never lose the text from both
+// the draft and the clipboard.
+async function writeClipboardText(text: string): Promise<boolean> {
+  if (typeof window.api?.clipboardWriteText !== 'function') return false
+  try {
+    await window.api.clipboardWriteText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// What the composer's right-click menu was opened over: the point to open at,
+// the selection at the moment of the click (opening the menu moves focus off
+// the field), and the clipboard text read for that open so Paste is enabled
+// only when there is something to paste.
+export type ComposerMenuState = {
+  x: number
+  y: number
+  selectionStart: number
+  selectionEnd: number
+  clipboardText: string
+}
+
+// Right-click menu for the composer (1793). Send leads — it is the reason this
+// menu exists and the action the surrounding field is for — with the standard
+// editing actions below it. Send reads the same rule as the send button and
+// Enter, so all three agree on when a turn commits and whether it queues.
+export function ComposerContextMenu({
+  menu,
+  send,
+  editable,
+  onSend,
+  onCut,
+  onCopy,
+  onPaste,
+  onClose,
+}: {
+  menu: ComposerMenuState
+  send: { label: string; disabled: boolean }
+  editable: boolean
+  onSend: () => void
+  onCut: () => void
+  onCopy: () => void
+  onPaste: () => void
+  onClose: () => void
+}) {
+  const platform = typeof window !== 'undefined' ? (window.api?.platform ?? '') : ''
+  const hasSelection = menu.selectionEnd > menu.selectionStart
+  const run = (action: () => void) => () => {
+    action()
+    onClose()
+  }
+  return (
+    <ContextMenu x={menu.x} y={menu.y} ariaLabel="Message actions" onClose={onClose} surfaceClassName="min-w-[200px]">
+      <MenuItem disabled={send.disabled} shortcut="Enter" onClick={run(onSend)}>
+        {send.label}
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem
+        disabled={!editable || !hasSelection}
+        shortcut={editingShortcut(platform, 'X')}
+        onClick={run(onCut)}
+      >
+        Cut
+      </MenuItem>
+      <MenuItem disabled={!hasSelection} shortcut={editingShortcut(platform, 'C')} onClick={run(onCopy)}>
+        Copy
+      </MenuItem>
+      <MenuItem
+        disabled={!editable || menu.clipboardText === ''}
+        shortcut={editingShortcut(platform, 'V')}
+        onClick={run(onPaste)}
+      >
+        Paste
+      </MenuItem>
+    </ContextMenu>
+  )
+}
+
+// Images staged for the next turn, inside the composer surface above the text
+// field so the message reads as one thing. The remove control is a trailing
+// action revealed on hover or keyboard focus — the thumbnail is the content,
+// not a card of chrome. Renders nothing when there is nothing staged.
+export function ComposerAttachmentStrip({
+  attachments,
+  reading,
+  onRemove,
+}: {
+  attachments: ConversationImageAttachment[]
+  reading: number
+  onRemove: (id: string) => void
+}) {
+  if (attachments.length === 0 && reading === 0) return null
+  return (
+    <ul className="flex flex-wrap items-center gap-2 px-3 pt-2.5">
+      {attachments.map((attachment) => (
+        <li key={attachment.id} className="relative">
+          <img
+            src={attachmentPreviewUrl(attachment)}
+            alt={attachment.name ?? 'Attached image'}
+            className="h-12 w-12 rounded-md border border-[color:var(--border-subtle)] object-cover"
+          />
+          <button
+            type="button"
+            aria-label={`Remove ${attachment.name ?? 'attached image'}`}
+            onClick={() => onRemove(attachment.id)}
+            className="interactive absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-md bg-[color:var(--bg-surface-raised)]/85 text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        </li>
+      ))}
+      {reading > 0 ? (
+        <li className="text-[11.5px] leading-5 text-[color:var(--text-muted)]">
+          Reading {attachmentCountLabel(reading)}…
+        </li>
+      ) : null}
+    </ul>
+  )
+}
+
+function PaperclipGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path
+        d="M13.75 8.5l-4.6 4.6a2.4 2.4 0 0 1-3.4-3.4l5.6-5.6a3.4 3.4 0 0 1 4.8 4.8l-5.6 5.6a4.4 4.4 0 0 1-6.2-6.2l4.6-4.6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
@@ -2194,56 +3481,99 @@ function TimelineRow({ row, chrome }: { row: ConversationTimelineRow; chrome: Ti
   return (
     <div className="conversation-row-enter" data-conversation-row-kind={row.kind}>
       {row.kind === 'user' ? <UserTimelineRow entry={row.entry} /> : null}
-      {row.kind === 'assistant' ? <AssistantTurnBlock entry={row.entry} tools={row.tools} chrome={chrome} /> : null}
-      {row.kind === 'approval' ? <ResolvedDecisionRow entry={row.entry} /> : null}
+      {row.kind === 'assistant' ? (
+        <AssistantTurnBlock entry={row.entry} tools={row.tools} decisions={row.decisions} chrome={chrome} />
+      ) : null}
+      {row.kind === 'approval' ? <ResolvedDecisions rows={row.decisions} className="pb-6" /> : null}
       {row.kind === 'working' ? <WorkingTimelineRow row={row} /> : null}
     </div>
   )
 }
 
-// User message: quiet right-aligned card, no chrome.
-function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+// User message: quiet right-aligned card, no chrome. Images sent with the turn
+// sit above the text; an image-only turn renders no empty text line. Live-only
+// (D3/1774) — a bubble restored from the replayed transcript has no images.
+export function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'user' }> }) {
+  const attachments = entry.attachments ?? []
   return (
     <div className="flex justify-end pb-6">
       <div className="max-w-[76%] rounded-[10px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
-        <p className="whitespace-pre-wrap text-[13px] leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
+        {attachments.length > 0 ? (
+          <div className={`flex flex-wrap justify-end gap-1.5 ${entry.text ? 'mb-2' : ''}`}>
+            {attachments.map((attachment) => (
+              <img
+                key={attachment.id}
+                src={attachmentPreviewUrl(attachment)}
+                alt={attachment.name ?? 'Attached image'}
+                className="h-16 w-16 rounded-md border border-[color:var(--border-subtle)] object-cover"
+              />
+            ))}
+          </div>
+        ) : null}
+        {entry.text ? (
+          <p className="whitespace-pre-wrap text-[13px] leading-normal text-[color:var(--text-strong)]">{entry.text}</p>
+        ) : null}
       </div>
     </div>
   )
 }
 
-// One assistant turn: byline → thought disclosure → work timeline → prose.
-// Glyph-led, no avatar bubble; the reading text gets real size, chrome stays
-// small and quiet.
+// One assistant turn: byline → thought disclosure → work timeline → decisions
+// → prose. Glyph-led, no avatar bubble; the reading text gets real size, chrome
+// stays small and quiet.
 function AssistantTurnBlock({
   entry,
   tools,
+  decisions,
   chrome,
 }: {
   entry: Extract<TranscriptEntry, { kind: 'assistant' }>
   tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
+  decisions: ConversationDecisionRow[]
   chrome: TimelineChrome
 }) {
   const modelLabel = chrome.modelLabelFor(entry.modelId)
-  const metaParts = [
-    ...(modelLabel && modelLabel !== chrome.assistantName ? [modelLabel] : []),
-    ...(entry.startedAt ? [formatClockTime(entry.startedAt)] : []),
-  ]
+  // The model is attribution, not a timestamp fragment, so it gets its own chip
+  // instead of riding a `·`-joined meta string with the clock.
+  const turnModelLabel = modelLabel && modelLabel !== chrome.assistantName ? modelLabel : null
   return (
     <div className="pb-6">
-      <div className="mb-2 flex items-baseline gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
-          <SparkleGlyph className="icon-sm text-[color:var(--accent-primary)]" />
-          {chrome.assistantName}
+      {/* Centered, not baseline-aligned: the glyphs are boxes, and hanging them
+          off the text baseline is what made the star read as jammed. The star
+          stays neutral — the accent belongs to the live step dot and the send
+          button, and one accent star per turn would drown both out. */}
+      {/* Wraps rather than crushes: in a narrow panel the clock drops to a
+          second line instead of every part ellipsing down to "C… meta-llama…". */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        {/* The name truncates too: on a non-harness provider `assistantName` IS
+            the model label, which can be a long `vendor/model-id`. */}
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
+          <SparkleGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
+          <TruncatedText as="span" text={chrome.assistantName} className="max-w-[220px]" />
         </span>
-        {metaParts.length > 0 ? (
-          <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{metaParts.join(' · ')}</span>
+        {turnModelLabel ? (
+          // Mirrors the composer's locked `ModelPickerPill`: same glyph, same
+          // muted label, no affordance — the model for a finished turn is fixed
+          // exactly like the pill is once a conversation starts.
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[11.5px] text-[color:var(--text-muted)]">
+            <ChatGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+            <TruncatedText as="span" text={turnModelLabel} className="max-w-[180px]" />
+          </span>
+        ) : null}
+        {entry.startedAt ? (
+          // `--text-muted`, not `--text-subtle`: at 11px the subtle token only
+          // reaches ~4.1:1 on the dark chat surface (~3.9:1 on Conifer), short
+          // of AA. Muted clears 4.5:1 in every theme.
+          <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-[color:var(--text-muted)]">
+            {formatClockTime(entry.startedAt)}
+          </span>
         ) : null}
       </div>
       {entry.reasoning.trim() ? (
         <ThoughtRow reasoning={entry.reasoning} durationMs={entry.reasoningDurationMs} />
       ) : null}
       {tools.length > 0 ? <WorkTimeline tools={tools} live={entry.status === 'streaming'} /> : null}
+      <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? <div className="max-w-[68ch]">{renderMarkdown(entry.text)}</div> : null}
       {entry.status === 'interrupted' ? (
         <span className="text-[11px] text-[color:var(--text-subtle)]">Interrupted</span>
@@ -2284,18 +3614,21 @@ function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?:
 // a big turn cannot flood the transcript with unbounded rows.
 const MAX_VISIBLE_WORK_STEPS = 12
 
-function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind: 'tool' }>[]; live: boolean }) {
+export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; live: boolean }) {
   const [open, setOpen] = useState(true)
   const [showAllSteps, setShowAllSteps] = useState(false)
   const hiddenSteps = showAllSteps ? 0 : Math.max(0, tools.length - MAX_VISIBLE_WORK_STEPS)
   const visibleTools = hiddenSteps > 0 ? tools.slice(hiddenSteps) : tools
+  // Steps inside subagent lanes are real work: they count toward the header
+  // total and keep the turn "working" while a background agent is still going.
+  const allSteps = flattenToolEntries(tools)
   const first = tools[0]
-  const lastDone = [...tools].reverse().find((tool) => tool.completedAt !== undefined)
+  const lastDone = [...allSteps].reverse().find((tool) => tool.completedAt !== undefined)
   const elapsedMs =
     first?.startedAt !== undefined && lastDone?.completedAt !== undefined
       ? Math.max(0, lastDone.completedAt - first.startedAt)
       : undefined
-  const working = live || tools.some((tool) => tool.status === 'running')
+  const working = live || allSteps.some((tool) => tool.status === 'running')
   return (
     <div className="mb-3">
       <button
@@ -2312,7 +3645,7 @@ function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind:
         ) : (
           <span className="tabular-nums">
             {elapsedMs !== undefined ? `Worked for ${formatStepDuration(elapsedMs)} · ` : ''}
-            {tools.length} {tools.length === 1 ? 'step' : 'steps'}
+            {allSteps.length} {allSteps.length === 1 ? 'step' : 'steps'}
           </span>
         )}
       </button>
@@ -2328,7 +3661,7 @@ function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind:
             </button>
           ) : null}
           {visibleTools.map((tool) => (
-            <WorkStep key={tool.id} tool={tool} />
+            <WorkTimelineStep key={tool.id} tool={tool} />
           ))}
         </div>
       ) : null}
@@ -2336,7 +3669,101 @@ function WorkTimeline({ tools, live }: { tools: Extract<TranscriptEntry, { kind:
   )
 }
 
-function WorkStep({ tool }: { tool: Extract<TranscriptEntry, { kind: 'tool' }> }) {
+// A spawned agent gets a lane; everything else is a plain step.
+function WorkTimelineStep({ tool }: { tool: TranscriptToolEntry }) {
+  return tool.subagentLane ? <SubagentLane tool={tool} /> : <WorkStep tool={tool} />
+}
+
+// A background agent the model spawned: a lane header that stays live for the
+// agent's real duration, over its own rail of the steps that ran inside it.
+// Concurrent agents are sibling lanes in the parent rail, each counting its own
+// time — the fan-out is the most differentiating thing on screen, so it is
+// never flattened into one anonymous "Task" row.
+const MAX_VISIBLE_LANE_STEPS = 6
+
+function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
+  const running = tool.status === 'running'
+  // A live lane mounts open so its work is visible while it happens; a lane
+  // replayed from history mounts collapsed and stays where the user leaves it.
+  const [open, setOpen] = useState(running)
+  const [showAllSteps, setShowAllSteps] = useState(false)
+  const children = tool.children ?? []
+  const hiddenSteps = showAllSteps ? 0 : Math.max(0, children.length - MAX_VISIBLE_LANE_STEPS)
+  const visibleChildren = hiddenSteps > 0 ? children.slice(hiddenSteps) : children
+  // What the model sent this agent to do; the lane's own steps are the rail
+  // beneath it, so the header does not repeat their count.
+  const object = toolObject(tool)
+  const durationMs =
+    tool.startedAt !== undefined && tool.completedAt !== undefined
+      ? Math.max(0, tool.completedAt - tool.startedAt)
+      : undefined
+  // Steps only appear once the agent reports its first tool call, so a lane
+  // with none yet is a plain row rather than an expander onto nothing.
+  const expandable = children.length > 0
+  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-[3px] text-left text-[12px] ${
+    running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
+  }`
+  const header = (
+    <>
+      <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[9px]" />
+      {expandable ? (
+        <ChevronRightGlyph
+          className={`icon-xs shrink-0 self-center text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+      ) : null}
+      <span className="shrink-0 font-medium text-[color:var(--text-default)]">{subagentLaneLabel(tool)}</span>
+      {object ? (
+        <TruncatedText
+          as="span"
+          text={running ? `${object}…` : object}
+          className="min-w-0 text-[11.5px] text-[color:var(--text-muted)]"
+        />
+      ) : null}
+      <span className="ml-auto shrink-0 pl-2 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+        {running ? (
+          tool.startedAt !== undefined ? <LiveElapsed startedAt={tool.startedAt} /> : 'running'
+        ) : durationMs !== undefined ? (
+          formatStepDuration(durationMs)
+        ) : null}
+      </span>
+      {running ? <span className="sr-only">running</span> : null}
+    </>
+  )
+  return (
+    <div>
+      {expandable ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className={`${headerClass} transition-colors hover:bg-[color:var(--bg-hover)]`}
+        >
+          {header}
+        </button>
+      ) : (
+        <div className={headerClass}>{header}</div>
+      )}
+      {open && expandable ? (
+        <div className="ml-[7px] mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
+          {hiddenSteps > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowAllSteps(true)}
+              className="self-start rounded-md px-2 py-[3px] text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+            >
+              Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
+            </button>
+          ) : null}
+          {visibleChildren.map((child) => (
+            <WorkTimelineStep key={child.id} tool={child} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
   const running = tool.status === 'running'
   const object = toolObject(tool)
   const durationMs =
@@ -2466,6 +3893,68 @@ function TurnErrorBlock({
   )
 }
 
+// The turn's decision records, in the order they were answered. Spacing is the
+// caller's (a turn block sits them above its prose; an orphan run stands alone).
+export function ResolvedDecisions({ rows, className }: { rows: ConversationDecisionRow[]; className?: string }) {
+  if (rows.length === 0) return null
+  return (
+    <div className={`flex flex-col gap-2 ${className ?? ''}`}>
+      {rows.map((row) =>
+        row.kind === 'decision' ? (
+          <ResolvedDecisionRow key={row.id} entry={row.entry} />
+        ) : (
+          <ResolvedDecisionGroupRow key={row.id} row={row} />
+        ),
+      )}
+    </div>
+  )
+}
+
+// A batch answered in one go is one line — the outcome and the count — over the
+// same quote rail as a single decision, expandable to the individual requests.
+function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRow, { kind: 'decisionGroup' }> }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-[13px] font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)]"
+      >
+        <ChevronRightGlyph
+          className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        {row.status === 'approved' ? (
+          <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
+        ) : row.status === 'denied' ? (
+          <StatusDot tone="error" />
+        ) : null}
+        {row.label}
+      </button>
+      {expanded ? (
+        <ul className="mt-1 flex flex-col gap-0.5 pl-1">
+          {row.entries.map((entry) => {
+            const object = toolObject({ name: entry.action ?? '', summary: entry.summary })
+            return (
+              <li key={entry.requestId} className="flex items-baseline gap-2 text-[12px] leading-5">
+                {entry.action ? (
+                  <span className="shrink-0 font-medium text-[color:var(--text-default)]">{entry.action}</span>
+                ) : null}
+                <TruncatedText
+                  as="span"
+                  text={object || entry.summary}
+                  className="min-w-0 font-mono text-[11.5px] text-[color:var(--text-muted)]"
+                />
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
 // Resolved requests stay in the transcript as quote-style decision records —
 // the question muted, the chosen answer strong with an accent check.
 function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'approval' }> }) {
@@ -2480,45 +3969,43 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
     </div>
   )
   return (
-    <div className="pb-6">
-      <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
-        {entry.requestKind === 'question' && entry.questions?.length ? (
-          <div className="space-y-2">
-            {entry.questions.map((question) => {
-              const answer = entry.answers?.[question.question]
-              return (
-                <div key={question.question}>
-                  <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{question.question}</div>
-                  {entry.status === 'approved' && answer
-                    ? answerLine(answer, true)
-                    : entry.status === 'denied'
-                      ? (
-                          <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
-                            Dismissed without answering
-                          </div>
-                        )
-                      : null}
-                </div>
-              )
-            })}
+    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
+      {entry.requestKind === 'question' && entry.questions?.length ? (
+        <div className="space-y-2">
+          {entry.questions.map((question) => {
+            const answer = entry.answers?.[question.question]
+            return (
+              <div key={question.question}>
+                <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{question.question}</div>
+                {entry.status === 'approved' && answer
+                  ? answerLine(answer, true)
+                  : entry.status === 'denied'
+                    ? (
+                        <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
+                          Dismissed without answering
+                        </div>
+                      )
+                    : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div>
+          <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
           </div>
-        ) : (
-          <div>
-            <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
-            </div>
-            {entry.status === 'approved'
-              ? answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
-              : entry.status === 'denied'
-                ? answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
-                : (
-                    <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
-                      Cancelled with the turn
-                    </div>
-                  )}
-          </div>
-        )}
-      </div>
+          {entry.status === 'approved'
+            ? answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
+            : entry.status === 'denied'
+              ? answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
+              : (
+                  <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
+                    Cancelled with the turn
+                  </div>
+                )}
+        </div>
+      )}
     </div>
   )
 }
@@ -2685,6 +4172,17 @@ function LockGlyph({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <rect x="2.5" y="6" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
       <path d="M4.5 6V4.5a2.5 2.5 0 015 0V6" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
+}
+
+// Open-shackle twin of LockGlyph: the permission pill's at-rest signal that
+// this agent is NOT stopping to ask before every tool.
+function UnlockedGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="2.5" y="6" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4.5 6V4.5a2.5 2.5 0 015 0" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }

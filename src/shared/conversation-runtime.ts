@@ -44,6 +44,11 @@ export type ConversationSessionSummary = {
   status: ConversationSessionStatus
   createdAt: number
   updatedAt: number
+  // The preset currently in force, when the session carries one. Absent means
+  // the session never set one and the provider's own default ('default', ask
+  // per tool) applies. Changing it mid-conversation goes through
+  // `conversation:sessions:set-permission`.
+  permissionPreset?: ConversationPermissionPreset
 }
 
 // Loose mirror of the CLI runtime override map (`appSettings.cliRuntimes`)
@@ -55,8 +60,11 @@ export type ConversationCliRuntimeOverrides = Record<
 >
 
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
-// (SprintEngineCliPermissionPreset) without importing electron-api types.
-export type ConversationPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+// (SprintEngineCliPermissionPreset) without importing electron-api types. The
+// value tuple is exported so the IPC boundary validates against one list.
+export const CONVERSATION_PERMISSION_PRESETS = ['default', 'auto_workspace', 'bypass_all'] as const
+
+export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
 export type ConversationStartSessionInput = {
   workspaceRoot: string
@@ -91,6 +99,19 @@ export type ConversationTranscriptResult =
   | { ok: true; events: ConversationEvent[] }
   | { ok: false; message: string }
 
+// An image the user attached to a turn, carried live to a vision-capable
+// provider as a base64 content block. `dataBase64` is the raw base64 payload
+// (no data: URI prefix); `mediaType` is the image MIME type. v1 is live-only:
+// attachments reach the provider on the turn they are sent but are not
+// persisted to or replayed from the JSONL transcript.
+export type ConversationImageAttachment = {
+  id: string
+  mediaType: string
+  dataBase64: string
+  name?: string
+  byteLength: number
+}
+
 export type ConversationSendTurnInput = {
   sessionId: string
   message: string
@@ -98,6 +119,10 @@ export type ConversationSendTurnInput = {
   // back on the persisted `user_message` event so the projection can replace
   // the optimistic entry with the authoritative one deterministically.
   localTurnId?: string
+  // Images attached to this turn. Live-only in v1 and honored only by
+  // vision-capable providers (currently the claude-agent provider); other
+  // providers ignore them, so no image block is ever sent to them.
+  attachments?: ConversationImageAttachment[]
 }
 
 export type ConversationInterruptInput = {
@@ -112,6 +137,40 @@ export type ConversationRespondToRequestInput = {
   // text → chosen answer (multi-select answers comma-separated, free-text
   // "other" answers verbatim). Ignored for plain tool approvals.
   answers?: Record<string, string>
+}
+
+// Payload carried on `tool_started`. `parentToolUseId` is what makes subagent
+// work visible: a provider that runs tools inside a spawned agent stamps the
+// child calls with the id of the tool call that spawned them, so consumers can
+// group them under that parent instead of flattening them into the turn (or,
+// as before, dropping them). Absent means an ordinary top-level tool call.
+export type ConversationToolStartedPayload = {
+  turnId?: string
+  toolCallId?: string
+  tool: string
+  summary: string
+  addedLines?: number
+  removedLines?: number
+  parentToolUseId?: string
+  // Set on the tool call that spawns a subagent (Task/Agent). It is the header
+  // of a lane whose rows are the tool calls carrying its `toolCallId` as their
+  // `parentToolUseId`; its own `tool_output` closes the lane, so the lane's
+  // elapsed time is the span between the two events.
+  subagentLane?: boolean
+  // The kind of subagent the model asked for ('Explore', 'general-purpose', a
+  // custom agent id), when the call names one. Lane label; absent means the
+  // consumer falls back to `summary`.
+  subagentType?: string
+}
+
+// Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
+// so a child call's completion lands in the same lane as its start.
+export type ConversationToolOutputPayload = {
+  turnId?: string
+  toolCallId?: string
+  output: string
+  isError: boolean
+  parentToolUseId?: string
 }
 
 // Structured payload shapes carried on `approval_requested` events. `kind`
@@ -131,6 +190,15 @@ export type ConversationQuestion = {
   multiSelect?: boolean
   allowFreeText?: boolean
   options: ConversationQuestionOption[]
+}
+
+// Change how tool permissions behave on a session that is already running. The
+// interactive path only: the change reaches the live provider session and takes
+// effect on its next tool call, without recreating the session or losing
+// history. The automation MCP surface still refuses `bypass_all` outright.
+export type ConversationSetPermissionInput = {
+  sessionId: string
+  permissionPreset: ConversationPermissionPreset
 }
 
 export type ConversationStopSessionInput = {

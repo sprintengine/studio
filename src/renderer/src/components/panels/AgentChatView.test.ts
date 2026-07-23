@@ -1,20 +1,63 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
-import type { ConversationEvent, ConversationEventType } from '../../../../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationEventType,
+  ConversationImageAttachment,
+} from '../../../../shared/conversation-runtime'
+import type { ConversationProviderListEntry } from '../../../../shared/plugin-manifest'
 import {
   activeConversationStage,
+  attachmentCountLabel,
+  attachmentPreviewUrl,
+  attachmentRejection,
+  base64ByteLength,
+  buildModelGroups,
+  ComposerAttachmentStrip,
+  ComposerContextMenu,
+  composerSendAction,
+  editingShortcut,
+  dataTransferHasFiles,
+  filterModelGroups,
   deriveConversationTimelineRows,
+  flattenToolEntries,
+  formatAttachmentBytes,
   formatStepDuration,
+  groupResolvedDecisions,
+  isAttachableImageType,
   isAuthShapedFailure,
+  isConversationBusy,
   isConversationModelLocked,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENT_EDGE,
+  MAX_ATTACHMENTS_PER_TURN,
+  mergeQueuedTurn,
   parseOptionLabel,
+  permissionChangeScopeLabel,
+  permissionPresetLabel,
+  PermissionPresetPill,
   projectConversation,
+  providerAcceptsImages,
+  queuedTurnLabel,
   readinessLabel,
+  ResolvedDecisions,
+  resolvedDecisionGroupLabel,
+  scaledImageDimensions,
+  splitImageDataUrl,
   stopDisabledForPending,
+  subagentLaneLabel,
   toolObject,
   toolVerb,
+  UserTimelineRow,
+  WorkTimeline,
+  type ConversationApprovalEntry,
   type ConversationTimelineRow,
   type TranscriptEntry,
+  type TranscriptToolEntry,
 } from './AgentChatView'
 
 let seq = 0
@@ -242,6 +285,119 @@ assert.equal(stopDisabledForPending('sending'), false, 'unresolved send does not
 assert.equal(stopDisabledForPending('starting'), false)
 assert.equal(stopDisabledForPending('stopping'), true)
 assert.equal(stopDisabledForPending(null), false)
+
+// --- Send-while-busy queues instead of erroring (D6/1776) -------------------
+
+// Idle: a live send is allowed.
+assert.equal(isConversationBusy(false, false, null), false, 'idle session accepts a live send')
+// Streaming: the runtime guard would reject a new turn, so the submit queues.
+assert.equal(isConversationBusy(true, false, null), true, 'streaming turn queues the next message')
+// Awaiting approval queues too (pendingRequestId is set on the runtime).
+assert.equal(isConversationBusy(false, true, null), true, 'awaiting approval queues the next message')
+// An in-flight send (before the turn events land) also queues, so a fast second
+// Enter never fires two overlapping sends.
+assert.equal(isConversationBusy(false, false, 'sending'), true, 'in-flight send queues the next message')
+assert.equal(isConversationBusy(false, false, 'starting'), true)
+
+// --- one send rule behind Enter, the button, and the menu (1793) ------------
+
+const idleSend = { ready: true, busy: false, sending: false, hasText: true, attachmentCount: 0 }
+assert.deepEqual(
+  composerSendAction(idleSend),
+  { label: 'Send message', disabled: false },
+  'an idle session with text sends now'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, busy: true }).label,
+  'Queue message',
+  'a busy session queues, and the affordance says so instead of promising a send'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, busy: true, sending: true }).label,
+  'Sending',
+  'an in-flight send reads as sending, not as a second queue'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, hasText: false }).disabled,
+  true,
+  'an empty composer has nothing to commit'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, hasText: false, attachmentCount: 1 }).disabled,
+  false,
+  'an image-only message is sendable (D3/1774)'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, ready: false }).disabled,
+  true,
+  'nothing commits before the provider is ready'
+)
+// Busy is a routing signal, never a gate: type-ahead must stay committable so
+// the queue can take it.
+assert.equal(composerSendAction({ ...idleSend, busy: true }).disabled, false)
+
+assert.equal(editingShortcut('darwin', 'X'), '⌘X')
+assert.equal(editingShortcut('win32', 'V'), 'Ctrl+V')
+
+const menuState = { x: 20, y: 40, selectionStart: 2, selectionEnd: 7, clipboardText: 'pasted' }
+const composerMenuMarkup = renderToStaticMarkup(
+  createElement(ComposerContextMenu, {
+    menu: menuState,
+    send: composerSendAction(idleSend),
+    editable: true,
+    onSend: () => {},
+    onCut: () => {},
+    onCopy: () => {},
+    onPaste: () => {},
+    onClose: () => {},
+  })
+)
+assert.ok(composerMenuMarkup.includes('role="menu"'), 'the composer menu is a menu surface')
+assert.ok(composerMenuMarkup.includes('aria-label="Message actions"'), 'the menu surface is named')
+for (const label of ['Send message', 'Cut', 'Copy', 'Paste']) {
+  assert.ok(composerMenuMarkup.includes(`>${label}</span>`), `the composer menu offers ${label}`)
+}
+assert.doesNotMatch(composerMenuMarkup, /disabled=""/, 'with a selection and a full clipboard every item is live')
+
+// Nothing selected and an empty clipboard: the editing actions say so rather
+// than sitting enabled and doing nothing.
+const emptyMenuMarkup = renderToStaticMarkup(
+  createElement(ComposerContextMenu, {
+    menu: { ...menuState, selectionEnd: 2, clipboardText: '' },
+    send: composerSendAction({ ...idleSend, hasText: false }),
+    editable: true,
+    onSend: () => {},
+    onCut: () => {},
+    onCopy: () => {},
+    onPaste: () => {},
+    onClose: () => {},
+  })
+)
+assert.equal(
+  (emptyMenuMarkup.match(/disabled=""/g) ?? []).length,
+  4,
+  'Send, Cut, Copy, and Paste each disable when there is nothing to act on'
+)
+
+// A composer that cannot be edited (provider not ready) still allows Copy — it
+// reads the field — but never offers to rewrite it.
+const readOnlyMenuMarkup = renderToStaticMarkup(
+  createElement(ComposerContextMenu, {
+    menu: menuState,
+    send: composerSendAction({ ...idleSend, ready: false }),
+    editable: false,
+    onSend: () => {},
+    onCut: () => {},
+    onCopy: () => {},
+    onPaste: () => {},
+    onClose: () => {},
+  })
+)
+assert.equal(
+  (readOnlyMenuMarkup.match(/disabled=""/g) ?? []).length,
+  3,
+  'Send, Cut, and Paste disable on a non-editable composer; Copy stays available'
+)
 
 // --- Model picker locks once the conversation has started ------------------
 
@@ -473,4 +629,767 @@ const apiKeyAuth = projectConversation([
 ])
 assert.equal(apiKeyAuth.apiKeySource, 'ANTHROPIC_API_KEY', 'latest reported source wins; cursor-only updates keep it')
 
+// --- subagent lanes: parent-linked tool events nest under their Task lane ---
+
+const LANE_TURN = 'turn-lane'
+const fanOutEvents: ConversationEvent[] = [
+  ev('turn_started', { turnId: LANE_TURN }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'lane-a', tool: 'Task', summary: 'Task: map the reducer', subagentLane: true, subagentType: 'Explore' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'lane-b', tool: 'Task', summary: 'Task: audit the IPC', subagentLane: true, subagentType: 'general-purpose' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'a1', tool: 'Read', summary: 'Read: src/a.ts', parentToolUseId: 'lane-a' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'b1', tool: 'Grep', summary: 'Grep: conversation', parentToolUseId: 'lane-b' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'a1', output: 'file body', parentToolUseId: 'lane-a' }),
+  ev('tool_started', { turnId: LANE_TURN, toolCallId: 'top-1', tool: 'Bash', summary: 'Bash: npm test' }),
+]
+const fanOut = projectConversation(fanOutEvents)
+const laneTools = fanOut.entries.filter((entry): entry is TranscriptToolEntry => entry.kind === 'tool')
+assert.deepEqual(
+  laneTools.map((tool) => tool.id),
+  ['lane-a', 'lane-b', 'top-1'],
+  'child tool calls leave the top level and nest under their lane'
+)
+const laneA = laneTools[0]
+assert.equal(laneA?.subagentLane, true)
+assert.equal(laneA?.subagentType, 'Explore')
+assert.equal(laneA?.status, 'running', 'a lane stays running until its own tool_output arrives')
+assert.deepEqual(laneA?.children?.map((child) => child.id), ['a1'])
+assert.equal(laneA?.children?.[0]?.status, 'done', 'a child closes on its own parent-linked output')
+assert.deepEqual(laneTools[1]?.children?.map((child) => child.id), ['b1'])
+assert.equal(laneTools[2]?.subagentLane, undefined, 'ordinary top-level tools are untouched')
+assert.equal(flattenToolEntries(laneTools).length, 5, 'lane children count as real steps')
+assert.equal(subagentLaneLabel(laneA as TranscriptToolEntry), 'Explore agent')
+assert.equal(subagentLaneLabel(laneTools[1] as TranscriptToolEntry), 'general-purpose agent')
+
+// Two lanes running at once are reported as a fan-out, not as the last tool.
+const fanOutRows = deriveConversationTimelineRows(fanOut.entries, fanOut.activeTurn)
+assert.equal(row(fanOutRows, 'working').label, '2 agents working…')
+assert.equal(row(fanOutRows, 'assistant').tools.length, 3, 'the turn row carries lanes, not flattened children')
+
+// One lane closed: the other still names itself, and the closed lane keeps its
+// real duration (start → its own output), not a child's stamp.
+const laneClosed = projectConversation([
+  ...fanOutEvents,
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'lane-b', output: 'audit done' }),
+])
+const closedLaneRows = deriveConversationTimelineRows(laneClosed.entries, laneClosed.activeTurn)
+assert.equal(row(closedLaneRows, 'working').label, 'Explore agent working…')
+const closedLane = laneClosed.entries.find(
+  (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.id === 'lane-b'
+)
+assert.equal(closedLane?.status, 'done')
+assert.ok(
+  closedLane?.startedAt !== undefined
+    && closedLane.completedAt !== undefined
+    && closedLane.completedAt > closedLane.startedAt,
+  'a lane spans from its spawn to its own completion'
+)
+
+// A lane without a subagentLane flag is still a lane once children link to it,
+// and a child whose parent never arrived stays visible at the top level.
+const impliedLane = projectConversation([
+  ev('turn_started', { turnId: 'turn-implied' }),
+  ev('tool_started', { turnId: 'turn-implied', toolCallId: 'p1', tool: 'Task', summary: 'Task: investigate' }),
+  ev('tool_started', { turnId: 'turn-implied', toolCallId: 'p1c', tool: 'Read', summary: 'Read: src/x.ts', parentToolUseId: 'p1' }),
+  ev('tool_started', { turnId: 'turn-implied', toolCallId: 'orphan', tool: 'Read', summary: 'Read: src/y.ts', parentToolUseId: 'missing' }),
+])
+const impliedTools = impliedLane.entries.filter((entry): entry is TranscriptToolEntry => entry.kind === 'tool')
+assert.deepEqual(impliedTools.map((tool) => tool.id), ['p1', 'orphan'])
+assert.equal(impliedTools[0]?.subagentLane, true, 'having children is enough to be a lane')
+assert.equal(subagentLaneLabel(impliedTools[0] as TranscriptToolEntry), 'Agent', 'an untyped lane falls back to the generic noun')
+assert.equal(toolObject(impliedTools[0] as TranscriptToolEntry), 'investigate', 'the spawn summary is the lane object')
+assert.equal(impliedTools[1]?.children, undefined, 'an orphaned child renders rather than disappearing')
+
+// A subagent that reports after its turn's result rides the continuation turn
+// (`<sessionId>_cont_<n>`): its calls, and the lane's own closing output, carry
+// a different turnId than the Task call that spawned them. They still belong to
+// that lane, and must not close some unrelated call on the continuation turn.
+const continuationFanOut = projectConversation([
+  ev('turn_started', { turnId: 'turn-parent' }),
+  ev('tool_started', { turnId: 'turn-parent', toolCallId: 'lane-x', tool: 'Task', summary: 'Task: dig', subagentLane: true, subagentType: 'Explore' }),
+  ev('turn_completed', { turnId: 'turn-parent' }),
+  ev('turn_started', { turnId: 'turn-parent_cont_1' }),
+  ev('tool_started', { turnId: 'turn-parent_cont_1', toolCallId: 'sib-1', tool: 'Bash', summary: 'Bash: npm test' }),
+  ev('tool_started', { turnId: 'turn-parent_cont_1', toolCallId: 'x1', tool: 'Read', summary: 'Read: src/deep.ts', parentToolUseId: 'lane-x' }),
+  ev('tool_output', { turnId: 'turn-parent_cont_1', toolCallId: 'lane-x', output: 'dug' }),
+])
+const continuationTools = continuationFanOut.entries.filter(
+  (entry): entry is TranscriptToolEntry => entry.kind === 'tool'
+)
+assert.deepEqual(
+  continuationTools.map((tool) => tool.id),
+  ['lane-x', 'sib-1'],
+  'a continuation-turn child joins its lane instead of becoming a stray row'
+)
+assert.deepEqual(continuationTools[0]?.children?.map((child) => child.id), ['x1'])
+assert.equal(continuationTools[0]?.status, 'done', 'a lane closes on the continuation turn that carries its result')
+assert.equal(continuationTools[1]?.status, 'running', 'the lane result never closes an unrelated continuation call')
+
+// Output without a call id closes the latest call in its own lane only.
+const idlessOutput = projectConversation([
+  ev('turn_started', { turnId: 'turn-idless' }),
+  ev('tool_started', { turnId: 'turn-idless', toolCallId: 'lane-c', tool: 'Task', summary: 'Task: check', subagentLane: true }),
+  ev('tool_started', { turnId: 'turn-idless', toolCallId: 'c1', tool: 'Read', summary: 'Read: src/z.ts', parentToolUseId: 'lane-c' }),
+  ev('tool_output', { turnId: 'turn-idless', output: 'child done', parentToolUseId: 'lane-c' }),
+])
+const idlessLane = idlessOutput.entries.find(
+  (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.id === 'lane-c'
+)
+assert.equal(idlessLane?.status, 'running', 'a child output never closes its parent lane')
+assert.equal(idlessLane?.children?.[0]?.status, 'done')
+
+// --- the work timeline renders lanes as live rows, children nested ---------
+
+const laneMarkup = renderToStaticMarkup(
+  createElement(WorkTimeline, { tools: laneTools, live: true })
+)
+assert.ok(laneMarkup.includes('Explore agent'), 'a running lane names the agent that was spawned')
+assert.ok(laneMarkup.includes('general-purpose agent'), 'concurrent lanes both render')
+assert.ok(laneMarkup.includes('map the reducer'), 'a lane says what its agent was sent to do')
+assert.ok(laneMarkup.includes('audit the IPC'), 'same-type lanes stay distinguishable by their task')
+assert.ok(laneMarkup.includes('src/a.ts'), 'a live lane shows the steps running inside it')
+assert.equal(
+  (laneMarkup.match(/aria-expanded="true"/g) ?? []).length,
+  3,
+  'the turn timeline and both live lanes mount expanded'
+)
+assert.ok(laneMarkup.includes('Working'), 'the turn header stays live while lanes run')
+assert.equal((laneMarkup.match(/>running</g) ?? []).length, 4, 'running lanes and steps carry an accessible status')
+
+// The same fan-out, finished: the turn counts every step including the ones
+// that ran inside the lanes, and replayed lanes mount collapsed.
+const finishedFanOut = projectConversation([
+  ...fanOutEvents,
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'b1', output: 'hits', parentToolUseId: 'lane-b' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'lane-a', output: 'mapped' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'lane-b', output: 'audited' }),
+  ev('tool_output', { turnId: LANE_TURN, toolCallId: 'top-1', output: '2 passing' }),
+  ev('turn_completed', { turnId: LANE_TURN }),
+])
+const doneLaneMarkup = renderToStaticMarkup(
+  createElement(WorkTimeline, {
+    tools: finishedFanOut.entries.filter((entry): entry is TranscriptToolEntry => entry.kind === 'tool'),
+    live: false,
+  })
+)
+assert.ok(doneLaneMarkup.includes('5 steps'), 'the turn header counts lane children as real steps')
+assert.ok(doneLaneMarkup.includes('general-purpose agent'), 'a finished lane keeps its identity')
+assert.ok(!doneLaneMarkup.includes('src/a.ts'), 'a finished lane replayed from history mounts collapsed')
+assert.ok(!doneLaneMarkup.includes('>running<'), 'nothing claims to be running once the fan-out is done')
+
+// --- resolved approvals collapse into one expandable group (1792) ----------
+
+const BATCH_TURN = 'turn-batch'
+const batchDecision = (requestId: string, action: string, summary: string): ConversationEvent[] => [
+  ev('approval_requested', { turnId: BATCH_TURN, requestId, action, kind: 'tool', summary }),
+  ev('approval_resolved', { turnId: BATCH_TURN, requestId, approved: true }),
+]
+const batch = projectConversation([
+  ev('turn_started', { turnId: BATCH_TURN }),
+  ev('content_delta', { turnId: BATCH_TURN, text: 'Writing the files.' }),
+  ...batchDecision('b1', 'Write', 'Write: src/a.ts'),
+  ...batchDecision('b2', 'Edit', 'Edit: src/b.ts'),
+  ...batchDecision('b3', 'Write', 'Write: src/c.ts'),
+  // Text streamed after the batch was answered: it must not read above it.
+  ev('content_delta', { turnId: BATCH_TURN, text: ' Done.' }),
+  ev('turn_completed', { turnId: BATCH_TURN }),
+])
+const batchRows = deriveConversationTimelineRows(batch.entries, batch.activeTurn)
+assert.equal(
+  batchRows.filter((entry) => entry.kind === 'approval').length,
+  0,
+  "a turn's decisions ride its turn block instead of trailing the prose"
+)
+const batchAssistant = row(batchRows, 'assistant')
+assert.equal(batchAssistant.decisions.length, 1, 'a batch answered together is one row, not one row each')
+const batchGroup = batchAssistant.decisions[0]
+assert.ok(batchGroup && batchGroup.kind === 'decisionGroup')
+assert.equal(batchGroup.label, 'Approved 3 files')
+assert.deepEqual(
+  batchGroup.entries.map((entry) => entry.requestId),
+  ['b1', 'b2', 'b3'],
+  'the group keeps the individual requests for its expanded state'
+)
+
+// Outcomes never merge: a denial keeps its own row ahead of the approved run.
+const mixedOutcomes = projectConversation([
+  ev('turn_started', { turnId: 'turn-mixed' }),
+  ev('approval_requested', { turnId: 'turn-mixed', requestId: 'm1', action: 'Bash', kind: 'tool', summary: 'Bash: rm -rf build' }),
+  ev('approval_resolved', { turnId: 'turn-mixed', requestId: 'm1', approved: false }),
+  ev('approval_requested', { turnId: 'turn-mixed', requestId: 'm2', action: 'Bash', kind: 'tool', summary: 'Bash: npm test' }),
+  ev('approval_resolved', { turnId: 'turn-mixed', requestId: 'm2', approved: true }),
+  ev('approval_requested', { turnId: 'turn-mixed', requestId: 'm3', action: 'Bash', kind: 'tool', summary: 'Bash: npm run lint' }),
+  ev('approval_resolved', { turnId: 'turn-mixed', requestId: 'm3', approved: true }),
+  ev('turn_completed', { turnId: 'turn-mixed' }),
+])
+const mixedDecisions = row(
+  deriveConversationTimelineRows(mixedOutcomes.entries, mixedOutcomes.activeTurn),
+  'assistant'
+).decisions
+assert.deepEqual(mixedDecisions.map((decision) => decision.kind), ['decision', 'decisionGroup'])
+assert.equal(
+  mixedDecisions[1]?.kind === 'decisionGroup' ? mixedDecisions[1].label : '',
+  'Approved 2 tool uses',
+  'a batch of commands counts tool uses, not files'
+)
+
+const decisionEntry = (
+  requestId: string,
+  status: ConversationApprovalEntry['status'],
+  extra: Partial<ConversationApprovalEntry> = {}
+): ConversationApprovalEntry => ({
+  kind: 'approval',
+  requestId,
+  summary: `summary ${requestId}`,
+  status,
+  requestKind: 'tool',
+  ...extra,
+})
+
+assert.deepEqual(groupResolvedDecisions([decisionEntry('p1', 'pending')]), [], 'pending requests stay in the dock')
+assert.deepEqual(
+  groupResolvedDecisions([decisionEntry('t1', 'approved')]).map((decision) => decision.kind),
+  ['decision'],
+  'one resolved permission is not a list'
+)
+assert.deepEqual(
+  groupResolvedDecisions([
+    decisionEntry('t1', 'approved'),
+    decisionEntry('t2', 'approved'),
+    decisionEntry('q1', 'approved', { requestKind: 'question' }),
+    decisionEntry('t3', 'approved'),
+    decisionEntry('t4', 'approved'),
+  ]).map((decision) => decision.kind),
+  ['decisionGroup', 'decision', 'decisionGroup'],
+  'a question records a real answer, so it keeps its own row and splits the runs'
+)
+assert.equal(
+  resolvedDecisionGroupLabel('denied', [decisionEntry('d1', 'denied', { action: 'Write' }), decisionEntry('d2', 'denied', { action: 'Read' })]),
+  'Denied 2 files'
+)
+assert.equal(
+  resolvedDecisionGroupLabel('approved', [decisionEntry('a1', 'approved', { action: 'Write' }), decisionEntry('a2', 'approved', { action: 'Bash' })]),
+  'Approved 2 tool uses',
+  'a mixed batch falls back to the generic noun'
+)
+assert.equal(
+  resolvedDecisionGroupLabel('cancelled', [decisionEntry('c1', 'cancelled'), decisionEntry('c2', 'cancelled')]),
+  'Cancelled 2 tool uses'
+)
+
+// The group renders collapsed: one summary line, the requests behind it.
+const decisionsMarkup = renderToStaticMarkup(
+  createElement(ResolvedDecisions, { rows: batchAssistant.decisions })
+)
+assert.ok(decisionsMarkup.includes('Approved 3 files'), 'the batch reads as one outcome line')
+assert.ok(decisionsMarkup.includes('aria-expanded="false"'), 'a resolved batch mounts collapsed and is expandable')
+assert.ok(!decisionsMarkup.includes('src/a.ts'), 'the individual requests wait behind the expander')
+
+// ── Tool-permission pill (1771) ──────────────────────────────────────────────
+// The preset used to be start-time-only and the footer only ever said "Asks
+// before tools". The pill has to name the preset actually in force, and say
+// truthfully when a change bites.
+assert.equal(permissionPresetLabel('default'), 'Asks before tools')
+assert.equal(permissionPresetLabel('auto_workspace'), 'Auto in workspace')
+assert.equal(permissionPresetLabel('bypass_all'), 'Bypass permissions')
+assert.equal(
+  permissionChangeScopeLabel(true),
+  'Applies from the next tool call.',
+  'a live session keeps its running turn; the new preset lands on the next tool'
+)
+assert.equal(
+  permissionChangeScopeLabel(false),
+  'Applies when the conversation starts.',
+  'with no session yet the preset is simply what the session will start on'
+)
+
+const pillMarkup = (preset: 'default' | 'auto_workspace' | 'bypass_all'): string =>
+  renderToStaticMarkup(
+    createElement(PermissionPresetPill, {
+      preset,
+      live: true,
+      changing: false,
+      open: false,
+      onOpenChange: () => {},
+      onChange: () => {},
+    })
+  )
+
+const defaultPill = pillMarkup('default')
+assert.ok(defaultPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
+assert.ok(
+  defaultPill.includes('aria-haspopup="dialog"') && defaultPill.includes('aria-expanded="false"'),
+  'the retired read-only chip is now a real disclosure control, announced as one'
+)
+assert.ok(!defaultPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
+assert.ok(
+  pillMarkup('bypass_all').includes('--tone-warn'),
+  'a conversation running without permission checks says so in the warn tone'
+)
+assert.ok(
+  pillMarkup('auto_workspace').includes('Auto in workspace'),
+  'the middle preset is nameable too — the pill is never a two-state lie'
+)
+
+// --- image attachments (D3/1774) -------------------------------------------
+
+// The affordance is offered only where a provider actually reads the turn's
+// attachments. Any other provider ignores the field, so staging an image there
+// would be a control whose payload goes nowhere.
+assert.equal(providerAcceptsImages('claude-agent'), true, 'the agent harness composes image blocks')
+assert.equal(providerAcceptsImages('openrouter'), false, 'a model provider does not read attachments yet')
+assert.equal(providerAcceptsImages(undefined), false, 'an unknown provider is never assumed vision-capable')
+
+// The accepted set mirrors the IPC boundary's; offering anything else would
+// only buy the user a rejection one layer down.
+for (const mediaType of ['image/png', 'image/jpeg', 'image/webp', 'image/gif']) {
+  assert.equal(isAttachableImageType(mediaType), true, `${mediaType} is attachable`)
+}
+assert.equal(isAttachableImageType('image/svg+xml'), false, 'SVG is not in the SDK image set')
+assert.equal(isAttachableImageType('application/pdf'), false, 'only images attach')
+
+// Type and count are decidable before the file is read; the byte ceiling is not
+// (downscaling happens first), so it is deliberately not this predicate's job.
+assert.equal(attachmentRejection({ name: 'shot.png', type: 'image/png' }, 0), null, 'a PNG under the cap attaches')
+assert.match(
+  attachmentRejection({ name: 'notes.pdf', type: 'application/pdf' }, 0) ?? '',
+  /notes\.pdf is not an image/,
+  'a refusal names the file and the accepted formats'
+)
+assert.match(
+  attachmentRejection({ type: 'application/pdf' }, 0) ?? '',
+  /^That file is not an image/,
+  'a nameless clipboard item still gets a readable refusal'
+)
+assert.match(
+  attachmentRejection({ name: 'ok.png', type: 'image/png' }, MAX_ATTACHMENTS_PER_TURN) ?? '',
+  new RegExp(`at most ${MAX_ATTACHMENTS_PER_TURN} images`),
+  'the per-turn cap is reported, not silently enforced'
+)
+
+// Decoded length drives every byte guard, so padding must not skew it.
+assert.equal(base64ByteLength('Zm9v'), 3, 'unpadded')
+assert.equal(base64ByteLength('Zm8='), 2, 'one pad byte')
+assert.equal(base64ByteLength('Zg=='), 1, 'two pad bytes')
+assert.equal(base64ByteLength(''), 0, 'empty payload is zero bytes, never negative')
+
+// An image that already fits comes back untouched — resampling it would
+// re-encode for no gain (and flatten an animated GIF).
+assert.deepEqual(scaledImageDimensions(800, 600), { width: 800, height: 600 }, 'a small image is not resampled')
+assert.deepEqual(
+  scaledImageDimensions(MAX_ATTACHMENT_EDGE, MAX_ATTACHMENT_EDGE),
+  { width: MAX_ATTACHMENT_EDGE, height: MAX_ATTACHMENT_EDGE },
+  'exactly at the edge still fits'
+)
+assert.deepEqual(
+  scaledImageDimensions(3200, 1600),
+  { width: MAX_ATTACHMENT_EDGE, height: MAX_ATTACHMENT_EDGE / 2 },
+  'the long edge is what gets constrained, aspect ratio preserved'
+)
+assert.deepEqual(
+  scaledImageDimensions(1000, 4000),
+  { width: 392, height: MAX_ATTACHMENT_EDGE },
+  'a portrait image constrains on height'
+)
+assert.deepEqual(scaledImageDimensions(0, 0), { width: 0, height: 0 }, 'a zero-sized image never divides by zero')
+assert.deepEqual(
+  scaledImageDimensions(20000, 4),
+  { width: MAX_ATTACHMENT_EDGE, height: 1 },
+  'an extreme aspect ratio still yields a drawable canvas'
+)
+
+// The IPC boundary wants the raw payload, not the data: URI it came in as.
+assert.deepEqual(
+  splitImageDataUrl('data:image/png;base64,Zm9v'),
+  { mediaType: 'image/png', dataBase64: 'Zm9v' },
+  'the prefix is stripped and the media type kept'
+)
+assert.equal(splitImageDataUrl('data:image/png,notbase64'), null, 'a non-base64 data URL is refused, not guessed')
+assert.equal(splitImageDataUrl('https://example.com/a.png'), null, 'a remote URL is not a payload')
+assert.equal(splitImageDataUrl('data:image/png;base64,'), null, 'an empty payload is refused')
+
+assert.equal(
+  attachmentPreviewUrl({ id: 'a', mediaType: 'image/webp', dataBase64: 'Zm9v', byteLength: 3 }),
+  'data:image/webp;base64,Zm9v',
+  'the thumbnail reads the base64 already in memory — no object URL to leak'
+)
+
+assert.equal(formatAttachmentBytes(512), '512 B')
+assert.equal(formatAttachmentBytes(2048), '2 KB')
+assert.equal(formatAttachmentBytes(MAX_ATTACHMENT_BYTES), '5.0 MB')
+
+// A queued image-only turn has no text to show, so the count is the label —
+// never a blank row that reads as nothing queued.
+assert.equal(queuedTurnLabel('look at this', 0), 'look at this')
+assert.equal(queuedTurnLabel('look at this', 2), 'look at this · 2 images')
+assert.equal(queuedTurnLabel('', 1), '1 image')
+assert.equal(attachmentCountLabel(1), '1 image', 'the count never reads "1 images"')
+
+// A second commit while the turn is locked folds into the waiting queued turn.
+const img = (n: number): ConversationImageAttachment => ({
+  id: `q${n}`,
+  mediaType: 'image/png',
+  dataBase64: 'Zm9v',
+  byteLength: 3,
+})
+assert.deepEqual(
+  mergeQueuedTurn(null, 'first', [img(1)]),
+  { text: 'first', attachments: [img(1)], dropped: 0 },
+  'the first commit while busy becomes the queued turn'
+)
+assert.deepEqual(
+  mergeQueuedTurn({ text: 'first', attachments: [img(1)] }, 'second', [img(2)]),
+  { text: 'first\nsecond', attachments: [img(1), img(2)], dropped: 0 },
+  'a second commit appends its text and concatenates its images'
+)
+assert.equal(
+  mergeQueuedTurn({ text: '', attachments: [] }, 'only text', []).text,
+  'only text',
+  'an empty queued text does not leave a leading newline'
+)
+assert.equal(
+  mergeQueuedTurn({ text: 'staged', attachments: [] }, '', [img(1)]).text,
+  'staged',
+  'an image-only commit keeps the queued text as-is'
+)
+// The cap is the IPC boundary's, so trimming is right — but a queue that
+// swallowed the tail of a paste in silence would look like it took everything.
+const overflowed = mergeQueuedTurn(
+  { text: 'a', attachments: Array.from({ length: MAX_ATTACHMENTS_PER_TURN }, (_, i) => img(i)) },
+  'b',
+  [img(99), img(98)]
+)
+assert.equal(overflowed.attachments.length, MAX_ATTACHMENTS_PER_TURN, 'the queued turn never exceeds the cap')
+assert.equal(overflowed.dropped, 2, 'the trim is counted so the composer can report it')
+
+// Mid-drag the payload is unreadable — only the item kinds are — so the drop
+// target and the preventDefault gate key off those.
+const transfer = (value: { types?: string[]; items?: { kind: string }[] }): DataTransfer =>
+  value as unknown as DataTransfer
+assert.equal(dataTransferHasFiles(transfer({ types: ['Files'] })), true, 'a file drag is claimed')
+assert.equal(dataTransferHasFiles(transfer({ types: ['text/plain'], items: [{ kind: 'string' }] })), false)
+assert.equal(dataTransferHasFiles(null), false, 'a missing payload never claims the drop')
+assert.equal(
+  dataTransferHasFiles(transfer({ items: [{ kind: 'file' }] })),
+  true,
+  'an item-only payload (some clipboard/drag sources) still reports files'
+)
+
+// The staged strip: thumbnails are the content, remove is a trailing action —
+// hidden at rest but focusable and named, so a keyboard user can reach it.
+const staged: ConversationImageAttachment[] = [
+  { id: 'att-1', mediaType: 'image/png', dataBase64: 'Zm9v', name: 'screenshot.png', byteLength: 3 },
+  { id: 'att-2', mediaType: 'image/jpeg', dataBase64: 'YmFy', byteLength: 3 },
+]
+assert.equal(
+  renderToStaticMarkup(createElement(ComposerAttachmentStrip, { attachments: [], reading: 0, onRemove: () => {} })),
+  '',
+  'nothing staged renders nothing — no empty chrome above the field'
+)
+const stripMarkup = renderToStaticMarkup(
+  createElement(ComposerAttachmentStrip, { attachments: staged, reading: 0, onRemove: () => {} })
+)
+assert.ok(stripMarkup.includes('src="data:image/png;base64,Zm9v"'), 'the staged image renders from its own payload')
+assert.ok(stripMarkup.includes('alt="screenshot.png"'), 'a named file is its own alt text')
+assert.ok(stripMarkup.includes('alt="Attached image"'), 'a pasted screenshot with no name still has an accessible name')
+assert.ok(
+  stripMarkup.includes('aria-label="Remove screenshot.png"'),
+  'remove is named per image, not a row of identical buttons'
+)
+assert.equal(
+  (stripMarkup.match(/<li/g) ?? []).length,
+  2,
+  'the strip is a real list, so a screen reader announces how many images are staged'
+)
+assert.ok(
+  renderToStaticMarkup(
+    createElement(ComposerAttachmentStrip, { attachments: [], reading: 2, onRemove: () => {} })
+  ).includes('Reading 2 images…'),
+  'a large image being read says so instead of looking like nothing happened'
+)
+
+// The user bubble: an image-only turn must not render an empty text line.
+const bubbleWithBoth = renderToStaticMarkup(
+  createElement(UserTimelineRow, { entry: { kind: 'user', id: 'u1', text: 'what is this?', attachments: staged } })
+)
+assert.ok(bubbleWithBoth.includes('what is this?'), 'text still renders alongside the images')
+assert.equal(
+  (bubbleWithBoth.match(/<img/g) ?? []).length,
+  2,
+  'every image sent with the turn shows in the bubble'
+)
+const imageOnlyBubble = renderToStaticMarkup(
+  createElement(UserTimelineRow, { entry: { kind: 'user', id: 'u2', text: '', attachments: staged } })
+)
+assert.ok(!imageOnlyBubble.includes('<p'), 'an image-only turn renders no empty paragraph')
+assert.ok(
+  renderToStaticMarkup(createElement(UserTimelineRow, { entry: { kind: 'user', id: 'u3', text: 'plain' } })).includes(
+    'plain'
+  ),
+  'a text-only bubble is unchanged'
+)
+
+// Attachments are live-only: the persisted user_message event carries text
+// alone, so the bubble looks its images up from the local send that produced
+// it. Without the localTurnId hand-off the thumbnails would blink out the
+// instant the authoritative event replaced the optimistic entry.
+const IMG_TURN = 'turn-img'
+const withImages = projectConversation(
+  [
+    ev('turn_started', { turnId: IMG_TURN }),
+    ev('user_message', { turnId: IMG_TURN, text: 'what is this?', localTurnId: 'local-1' }),
+    ev('content_delta', { turnId: IMG_TURN, text: 'a cat' }),
+  ],
+  [{ id: 'local-1', text: 'what is this?', attachments: staged }]
+)
+const imageUserEntry = withImages.entries.find((entry) => entry.kind === 'user')
+assert.ok(imageUserEntry && imageUserEntry.kind === 'user', 'the user bubble survives the swap to the event entry')
+assert.deepEqual(
+  imageUserEntry.attachments,
+  staged,
+  'the authoritative bubble keeps the images the local send staged'
+)
+assert.equal(
+  withImages.entries.filter((entry) => entry.kind === 'user').length,
+  1,
+  'the optimistic entry is still replaced, not duplicated'
+)
+// A replayed transcript has no local send behind it, so it is text-only — the
+// documented v1 scope, and it must not invent an empty attachments array.
+const replayed = projectConversation([
+  ev('turn_started', { turnId: IMG_TURN }),
+  ev('user_message', { turnId: IMG_TURN, text: 'what is this?', localTurnId: 'local-1' }),
+])
+const replayedUser = replayed.entries.find((entry) => entry.kind === 'user')
+assert.ok(replayedUser && replayedUser.kind === 'user')
+assert.equal(replayedUser.attachments, undefined, 'a replayed bubble carries no attachments')
+
+// The spawn→session wiring lives inside store/window-bound code this DOM-less
+// test cannot mount, so it is pinned at the source. Both ends matter: a spawn
+// that drops the picked preset, or a session start that re-hardcodes 'default',
+// puts the bug back with every rendered assertion above still passing.
+const chatViewSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/panels/AgentChatView.tsx'),
+  'utf8'
+)
+const workspaceManagerSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
+  'utf8'
+)
+assert.match(
+  chatViewSource,
+  /const permissionPreset: SprintEngineCliPermissionPreset = agent\?\.cliPermissionPreset \?\? 'default'/,
+  'the pill and the session start read one persisted field, and an unset one asks per tool'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),
+  /^[\s\S]{0,600}?\n\s+permissionPreset,\n/,
+  'conversationSessionStart carries the agent’s preset instead of the provider default'
+)
+assert.doesNotMatch(
+  chatViewSource,
+  /permissionPreset: 'default'/,
+  'no start path in the chat view pins the preset to a literal'
+)
+assert.match(
+  workspaceManagerSource.slice(workspaceManagerSource.indexOf('conversationAgentRuntimePatch(providerId, modelId)')),
+  /^[\s\S]{0,600}?cliPermissionPreset: agentSpawnPermissionPreset,/,
+  'the conversation spawn stamps the composer’s picked preset like every CLI spawn'
+)
+// A refused change must never leave the pill claiming a preset the session is
+// not on: every failure branch of changePermissionPreset (bridge missing,
+// provider said no, threw) writes the old value back.
+assert.equal(
+  (chatViewSource.match(/cliPermissionPreset: previous/g) ?? []).length,
+  3,
+  'all three failure branches roll the optimistic write back'
+)
+
+// The composer's attach wiring is window/DOM-bound (FileReader, canvas, the
+// send IPC) and cannot be mounted here, so the ends that would silently drop a
+// staged image are pinned at the source.
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('conversationSessionSendTurn({')),
+  /^[\s\S]{0,400}?attachments: turnAttachments/,
+  'the send IPC carries the staged attachments, not just the text'
+)
+for (const handler of ['onPaste=', 'onDrop=', 'onDragOver=', 'type="file"']) {
+  assert.ok(chatViewSource.includes(handler), `the composer wires ${handler}`)
+}
+assert.equal(
+  (chatViewSource.match(/imagesEnabled/g) ?? []).length >= 5,
+  true,
+  'every attach entry point (paste, drag, drop, picker) is gated on provider support'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('mergeQueuedTurn(queuedTurn')),
+  /^[\s\S]{0,600}?dropped > 0\n/,
+  'a queue merge that hit the cap tells the user, instead of trimming in silence'
+)
+
+// The right-click menu (1793) is DOM-bound (pointer coordinates, the field's
+// selection, the clipboard IPC), so its wiring is pinned at the source.
+assert.ok(
+  chatViewSource.includes('onContextMenu={(event) => void openComposerMenu(event)}'),
+  'the composer textarea opens the menu on right-click'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('const openComposerMenu')),
+  /^[\s\S]{0,900}?await readClipboardText\(\)/,
+  'the menu reads the clipboard before opening, so Paste is never offered against an empty one'
+)
+// The button and the menu item must both read the shared rule — a literal
+// re-derivation in either place is how they drift apart.
+assert.ok(
+  chatViewSource.includes('ariaLabel={sendAction.label}') &&
+    chatViewSource.includes('disabled={sendAction.disabled}') &&
+    chatViewSource.includes('send={sendAction}'),
+  'the send button and the menu item share one composerSendAction result'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('onCut={')),
+  /^[\s\S]{0,400}?if \(written\) replaceComposerSelection\(composerMenu, ''\)/,
+  'Cut removes the selection only once the clipboard write actually succeeded'
+)
+assert.ok(
+  chatViewSource.includes('onSend={submitComposer}'),
+  'the menu commits through the same submit path as Enter and the button'
+)
+
 console.log('AgentChatView.test.ts: ok')
+
+// ── Model picker groups (1772) ───────────────────────────────────────────────
+// The picker used to fetch only the ACTIVE provider's catalog and to drop any
+// group with zero models, so a key-configured OpenRouter/xAI whose manifest seed
+// was empty simply vanished — the user could never reach the models they had
+// paid for. Group construction and the search/chip filter are the two places
+// that regression lived, so both are pinned here.
+
+function providerEntry(
+  overrides: Partial<ConversationProviderListEntry> & Pick<ConversationProviderListEntry, 'id'>
+): ConversationProviderListEntry {
+  return {
+    displayName: overrides.id,
+    source: 'user',
+    version: 1,
+    providerType: 'model-provider',
+    models: [],
+    supportsDynamicModels: false,
+    adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
+    ...overrides,
+  }
+}
+
+const HARNESS = providerEntry({
+  id: 'claude-agent',
+  displayName: 'Claude Code',
+  providerType: 'agent-harness',
+  models: [{ id: 'opus', displayName: 'Opus' }],
+})
+const OPENROUTER = providerEntry({
+  id: 'openrouter',
+  displayName: 'OpenRouter',
+  supportsDynamicModels: true,
+  models: [{ id: 'seed-a' }, { id: 'seed-b' }],
+})
+const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels: true, models: [] })
+
+// The subscription provider sorts first so the user's own plan is never buried
+// under metered lookalikes, and it is annotated as the subscription.
+{
+  const groups = buildModelGroups([OPENROUTER, HARNESS, XAI], {}, {})
+  assert.deepEqual(
+    groups.map((group) => group.providerId),
+    ['claude-agent', 'openrouter', 'xai'],
+    'the agent-harness (subscription) group sorts ahead of metered providers'
+  )
+  assert.equal(groups[0]?.subscription, true)
+  assert.equal(groups[1]?.subscription, undefined, 'a metered provider is not annotated as a subscription')
+}
+
+// The headline 1772 case: a key-configured provider that is NOT the active one.
+// Its live catalog is merged in as soon as the picker browses to it, and the
+// group survives an empty seed instead of disappearing.
+{
+  const withKeyNoCatalogYet = buildModelGroups([XAI], {}, { xai: true })
+  assert.deepEqual(withKeyNoCatalogYet[0]?.models, [], 'no catalog loaded yet means no invented models')
+  assert.equal(withKeyNoCatalogYet[0]?.emptyState, 'no-models', 'a key-configured provider says so instead of vanishing')
+
+  const browsed = buildModelGroups([XAI], { xai: [{ id: 'grok-4' }] }, { xai: true })
+  assert.deepEqual(browsed[0]?.models, [{ id: 'grok-4' }], "a non-active provider's live catalog is reachable")
+  assert.equal(browsed[0]?.emptyState, undefined)
+}
+
+// No key configured: an explicit add-key state, never a seed the user cannot use.
+{
+  const groups = buildModelGroups([OPENROUTER], {}, { openrouter: false })
+  assert.deepEqual(groups[0]?.models, [], 'a keyless dynamic provider lists nothing')
+  assert.equal(groups[0]?.emptyState, 'add-key')
+}
+
+// Key state not yet fetched: the seed shows provisionally rather than an empty
+// group, so opening the picker cold is never a blank list.
+{
+  const groups = buildModelGroups([OPENROUTER], {}, {})
+  assert.deepEqual(groups[0]?.models.map((model) => model.id), ['seed-a', 'seed-b'])
+  assert.equal(groups[0]?.emptyState, undefined)
+}
+
+// A static provider's seed IS its full catalog — key state must never blank it.
+{
+  const staticProvider = providerEntry({ id: 'static', models: [{ id: 'only-model' }] })
+  const groups = buildModelGroups([staticProvider], {}, { static: false })
+  assert.deepEqual(groups[0]?.models.map((model) => model.id), ['only-model'], 'a static catalog is not key-gated')
+  assert.equal(groups[0]?.emptyState, undefined)
+}
+
+// Live catalog wins over the seed for the provider it was fetched for, and only
+// for that provider — one fetch must never leak across groups.
+{
+  const groups = buildModelGroups([OPENROUTER, XAI], { openrouter: [{ id: 'live-1' }] }, { openrouter: true, xai: true })
+  assert.deepEqual(groups[0]?.models.map((model) => model.id), ['live-1'], 'the live catalog replaces the seed')
+  assert.equal(groups[1]?.emptyState, 'no-models', "the other provider keeps its own (empty) state")
+}
+
+// --- picker filtering: browsing keeps empty groups, search never hides a hit --
+{
+  // openrouter: key state not fetched yet, so its seed is listed; xai: key
+  // configured but catalog empty, so it is a listed group with no models — the
+  // exact group the old filter used to drop.
+  const groups = buildModelGroups([HARNESS, OPENROUTER, XAI], {}, { xai: true })
+
+  // Browsing with no query: every group survives, empty states included.
+  assert.deepEqual(
+    filterModelGroups(groups, '', 'all').map((group) => group.providerId),
+    ['claude-agent', 'openrouter', 'xai'],
+    'a zero-model key-configured group is still listed while browsing'
+  )
+  // The chip narrows to one provider — including one with no models to show.
+  assert.deepEqual(
+    filterModelGroups(groups, '', 'xai').map((group) => group.providerId),
+    ['xai'],
+    'the provider chip reaches a group that has only an empty state'
+  )
+  // A query searches across providers, so the chip cannot hide a hit.
+  assert.deepEqual(
+    filterModelGroups(groups, 'seed-a', 'claude-agent').map((group) => group.providerId),
+    ['openrouter'],
+    'search looks past the active chip'
+  )
+  assert.deepEqual(
+    filterModelGroups(groups, 'seed-a', 'claude-agent')[0]?.models.map((model) => model.id),
+    ['seed-a'],
+    'a model-name query narrows the group to the matching models'
+  )
+  // Matching the provider name keeps the whole group, models unfiltered — this
+  // is what stops "claude" from hiding the subscription behind metered clones.
+  assert.deepEqual(
+    filterModelGroups(groups, 'claude', 'all').map((group) => group.providerId),
+    ['claude-agent'],
+    'a provider-name query keeps that provider group'
+  )
+  assert.deepEqual(filterModelGroups(groups, 'claude', 'all')[0]?.models.map((model) => model.id), ['opus'])
+  // A query that matches nothing drops the groups rather than listing empties.
+  assert.deepEqual(filterModelGroups(groups, 'nothing-matches-this', 'all'), [])
+}
+
+console.log('AgentChatView.test.ts (model picker 1772): ok')

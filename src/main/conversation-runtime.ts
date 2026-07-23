@@ -12,6 +12,7 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSessionSummary,
+  ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
@@ -50,6 +51,9 @@ type RuntimeSession = ConversationSessionSummary & {
   // All approval request ids currently unresolved on a stateful turn (the
   // provider can hold several permission callbacks open at once).
   pendingApprovalRequestIds: Set<string>
+  // Serializes continuation-channel events (post-`result` turns the provider
+  // opens outside a sendTurn) so their persistence and broadcast stay ordered.
+  continuationTail: Promise<void>
   cliRuntimes?: ConversationCliRuntimeOverrides
   permissionPreset?: ConversationPermissionPreset
   allowedTools?: string[]
@@ -163,6 +167,7 @@ export class ConversationRuntime {
       stateful,
       turnLockRequestId: null,
       pendingApprovalRequestIds: new Set(),
+      continuationTail: Promise.resolve(),
       cliRuntimes: input.cliRuntimes,
       permissionPreset: input.permissionPreset,
       allowedTools: input.allowedTools,
@@ -174,7 +179,16 @@ export class ConversationRuntime {
     const resumeSessionId = stateful
       ? await this.readResumeCursor(session.workspaceRoot, session.workspaceId, session.agentId)
       : undefined
-    await this.emitAll(session, validation.adapter.startSession({ ...session, resumeSessionId }))
+    await this.emitAll(
+      session,
+      validation.adapter.startSession({
+        ...session,
+        resumeSessionId,
+        // Continuation channel: the adapter opens a mirror turn here when its
+        // child resumes after a `result` (background subagents completing).
+        onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
+      })
+    )
     session.status = 'ready'
     session.updatedAt = this.now()
     return { ok: true, session: this.toSummary(session) }
@@ -186,7 +200,9 @@ export class ConversationRuntime {
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
     if (session.pendingRequestId) return { ok: false, message: 'Conversation turn is awaiting approval.' }
     const message = input.message.trim()
-    if (!message) return { ok: false, message: 'Conversation turn message is required.' }
+    const attachments = input.attachments ?? []
+    // A turn needs some payload: either text or at least one image attachment.
+    if (!message && attachments.length === 0) return { ok: false, message: 'Conversation turn message is required.' }
 
     const adapter = this.getAdapterForProviderId(session.providerId)
     if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
@@ -217,9 +233,20 @@ export class ConversationRuntime {
     const messages: ConversationMessage[] | undefined = session.stateful
       ? undefined
       : [...session.history, { role: 'user', content: message }]
+    // Attachments are carried live into the turn call; only vision-capable
+    // adapters read them. They are not persisted into history (v1 is
+    // live-only), so history and JSONL replay stay text-only.
     const events = await this.emitAll(
       session,
-      adapter.sendTurn({ ...session, turnId, requestId, message, messages, signal: turnAbort.signal }),
+      adapter.sendTurn({
+        ...session,
+        turnId,
+        requestId,
+        message,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        messages,
+        signal: turnAbort.signal,
+      }),
       { turnId }
     )
     const currentSession = this.sessions.get(input.sessionId)
@@ -283,6 +310,26 @@ export class ConversationRuntime {
     session.activeTurnId = null
     session.pendingRequestId = null
     session.status = input.approved ? 'ready' : 'failed'
+    session.updatedAt = this.now()
+    return { ok: true, session: this.toSummary(session) }
+  }
+
+  // Change tool-permission behavior on a session that is already running. The
+  // adapter applies it to its live provider session (taking effect on the next
+  // tool call) and only then does the session record the new preset, so a
+  // provider that refuses the change never leaves a preset it is not honoring.
+  async setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
+    const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
+    if (!adapter.setPermissionPreset) {
+      return { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
+    }
+    const applied = await adapter.setPermissionPreset({ ...session, permissionPreset: input.permissionPreset })
+    if (!applied.ok) return { ok: false, message: applied.message }
+    session.permissionPreset = input.permissionPreset
     session.updatedAt = this.now()
     return { ok: true, session: this.toSummary(session) }
   }
@@ -560,6 +607,46 @@ export class ConversationRuntime {
     }
   }
 
+  // The session-scoped continuation channel: a stateful adapter pushes events
+  // here when its child resumes after a `result` with no open sendTurn (e.g. a
+  // background subagent completed and the model issued another tool call). Runs
+  // outside any sendTurn IPC, so the composer stays free to end the prior turn.
+  // Serialized through session.continuationTail to keep persistence ordered.
+  private enqueueContinuationEvent(session: RuntimeSession, event: ConversationEvent): void {
+    session.continuationTail = session.continuationTail
+      .catch(() => undefined)
+      .then(() => this.processContinuationEvent(session, event))
+  }
+
+  private async processContinuationEvent(session: RuntimeSession, event: ConversationEvent): Promise<void> {
+    if (session.status === 'stopped') return
+    const turnId = typeof event.payload?.turnId === 'string' ? event.payload.turnId : null
+    if (turnId && session.canceledTurnIds.has(turnId)) return
+    // First sight of a continuation turn: open a mirror in session state so its
+    // events survive suppression and its approvals track through the normal
+    // pendingRequestId path. A concurrently-completing sendTurn will see its own
+    // turnId no longer active and skip its post-loop reset, so this stands.
+    if (event.type === 'turn_started' && turnId && turnId !== session.activeTurnId) {
+      session.activeTurnId = turnId
+      session.activeTurnAbort = null
+      session.turnLockRequestId = null
+      session.pendingRequestId = null
+      session.pendingApprovalRequestIds.clear()
+      session.status = 'active'
+      session.updatedAt = this.now()
+    }
+    await this.emit(session, event, turnId ? { turnId } : {})
+    if (turnId && session.activeTurnId === turnId && (event.type === 'turn_completed' || event.type === 'turn_failed')) {
+      session.activeTurnId = null
+      session.activeTurnAbort = null
+      session.turnLockRequestId = null
+      session.pendingRequestId = null
+      session.pendingApprovalRequestIds.clear()
+      session.status = event.type === 'turn_completed' ? 'ready' : 'failed'
+      session.updatedAt = this.now()
+    }
+  }
+
   private shouldSuppressEvent(
     session: RuntimeSession,
     event: ConversationEvent,
@@ -690,8 +777,20 @@ export class ConversationRuntime {
   }
 
   private toSummary(session: RuntimeSession): ConversationSessionSummary {
-    const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt } = session
-    return { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt }
+    const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt, permissionPreset } = session
+    return {
+      sessionId,
+      workspaceId,
+      agentId,
+      providerId,
+      modelId,
+      status,
+      createdAt,
+      updatedAt,
+      // Only when the session carries one, so a session that never chose a
+      // preset reports absence rather than an invented 'default'.
+      ...(permissionPreset ? { permissionPreset } : {}),
+    }
   }
 }
 

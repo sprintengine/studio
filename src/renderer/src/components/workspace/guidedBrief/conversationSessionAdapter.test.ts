@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { ConversationEvent, ConversationStartSessionInput } from '../../../../../shared/conversation-runtime'
 import {
   GUIDED_BRIEF_ALLOWED_TOOLS,
+  GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET,
   guidedBriefConversationAgentId,
   startGuidedBriefConversationSession,
   type GuidedBriefConversationApi,
@@ -22,6 +23,7 @@ import type { GuidedInterviewState } from './interviewProtocol'
 async function main(): Promise<void> {
   testAllowedToolsExcludeInteractiveTools()
   await testFreshStartSendsPromptAndDetectsMarker()
+  await testCallerPermissionPresetIsHonored()
   await testQuestionCardMappingAndStructuredAnswer()
   await testMultiQuestionCallsAnswerSequentiallyThenRespondOnce()
   await testNonQuestionApprovalsAutoRespond()
@@ -404,7 +406,8 @@ async function testFreshStartSendsPromptAndDetectsMarker(): Promise<void> {
   // Session start rides the claude-agent provider with wizard tool allowances.
   assert.equal(fake.startInputs[0]?.providerId, 'claude-agent')
   assert.equal(fake.startInputs[0]?.agentId, 'guided-brief-strategist')
-  assert.equal(fake.startInputs[0]?.permissionPreset, 'default')
+  assert.equal(fake.startInputs[0]?.permissionPreset, GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET)
+  assert.equal(GUIDED_BRIEF_DEFAULT_PERMISSION_PRESET, 'default')
   assert.deepEqual(fake.startInputs[0]?.allowedTools, GUIDED_BRIEF_ALLOWED_TOOLS)
 
   // The initial turn carries the AskUserQuestion-protocol prompt.
@@ -419,6 +422,21 @@ async function testFreshStartSendsPromptAndDetectsMarker(): Promise<void> {
   fake.pushEvent({ type: 'content_delta', payload: { turnId: 't1', text: 'READY\n' } })
   assert.deepEqual(markers, ['BRIEF_READY'])
   assert.equal(lifecycles.includes('ready'), true)
+}
+
+// 1771: the start call must carry the CALLER's preset, never a literal baked
+// into the adapter — a caller that has a real user choice has to be able to
+// spend it. The wizard itself passes none and gets the documented default.
+async function testCallerPermissionPresetIsHonored(): Promise<void> {
+  const fake = createFakeApi()
+  const result = await startGuidedBriefConversationSession(STRATEGIST_INPUT, {
+    conversationApi: fake.api,
+    permissionPreset: 'auto_workspace',
+  })
+  assert.equal(result.ok, true)
+  assert.equal(fake.startInputs[0]?.permissionPreset, 'auto_workspace')
+  // The allowlist is orthogonal to the preset and stays intact either way.
+  assert.deepEqual(fake.startInputs[0]?.allowedTools, GUIDED_BRIEF_ALLOWED_TOOLS)
 }
 
 async function testQuestionCardMappingAndStructuredAnswer(): Promise<void> {

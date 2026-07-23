@@ -2064,6 +2064,11 @@ export default function WorkspaceManager() {
     updateAgent(windowActiveWorkspaceId, newId, {
       name: tabName,
       ...conversationAgentRuntimePatch(providerId, modelId),
+      // The composer's permission picker applies to a conversation spawn like
+      // every CLI spawn: the chat's session starts on the chosen preset instead
+      // of always asking per tool. AgentChatView reads this record field and
+      // lets the user change it mid-conversation.
+      cliPermissionPreset: agentSpawnPermissionPreset,
       ...(skill ? { chatComposerPrefill: renderChatSkillPrefill(skill) } : {}),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)

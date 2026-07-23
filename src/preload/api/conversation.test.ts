@@ -108,6 +108,7 @@ async function main(): Promise<void> {
   await api.conversationSessionSendTurn({ sessionId: 'conv_1', message: 'hello' })
   await api.conversationSessionInterrupt({ sessionId: 'conv_1' })
   await api.conversationSessionRespondToRequest({ sessionId: 'conv_1', requestId: 'approval_1', approved: true })
+  await api.conversationSessionSetPermission({ sessionId: 'conv_1', permissionPreset: 'auto_workspace' })
   await api.conversationSessionStop({ sessionId: 'conv_1' })
   await api.conversationSessionsList({ workspaceId: 'workspace' })
   const received: ConversationEvent[] = []
@@ -138,6 +139,7 @@ async function main(): Promise<void> {
     'conversation:sessions:send-turn',
     'conversation:sessions:interrupt',
     'conversation:sessions:respond-to-request',
+    'conversation:sessions:set-permission',
     'conversation:sessions:stop',
     'conversation:sessions:list',
     'conversation:events:subscribe',

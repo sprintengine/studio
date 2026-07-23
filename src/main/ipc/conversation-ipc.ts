@@ -14,21 +14,25 @@ import type {
 import type {
   ConversationCliRuntimeOverrides,
   ConversationEvent,
+  ConversationImageAttachment,
   ConversationInterruptInput,
   ConversationProvidersListInput,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
+  ConversationPermissionPreset,
   ConversationProviderTestInput,
   ConversationProviderTestResult,
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
 } from '../../shared/conversation-runtime'
+import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
 import { ConversationRuntime } from '../conversation-runtime'
 import { detectCli } from '../cli-runtime-install'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
@@ -46,6 +50,7 @@ export type ConversationIpcHandlers = {
   sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>
   interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
+  setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
@@ -155,6 +160,9 @@ export function createConversationIpcHandlers(
     },
     respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult> {
       return runtime.respondToRequest(input)
+    },
+    setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
+      return runtime.setPermission(input)
     },
     stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
       return runtime.stopSession(input)
@@ -280,6 +288,19 @@ export function registerConversationIpc(
       if (!parsed.ok) return parsed
       try {
         return handlers.respondToRequest(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'conversation:sessions:set-permission',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSetPermissionInput(input)
+      if (!parsed.ok) return parsed
+      try {
+        return handlers.setPermission(parsed.input)
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
@@ -412,11 +433,8 @@ function parseStartSessionInput(input: unknown):
   if (cliRuntimes !== undefined && !isObject(cliRuntimes)) {
     return { ok: false, message: 'cliRuntimes must be an object when present.' }
   }
-  if (
-    permissionPreset !== undefined
-    && (typeof permissionPreset !== 'string' || !['default', 'auto_workspace', 'bypass_all'].includes(permissionPreset))
-  ) {
-    return { ok: false, message: 'permissionPreset must be default, auto_workspace, or bypass_all.' }
+  if (permissionPreset !== undefined && !isPermissionPreset(permissionPreset)) {
+    return { ok: false, message: PERMISSION_PRESET_ERROR }
   }
   if (
     allowedTools !== undefined
@@ -433,9 +451,7 @@ function parseStartSessionInput(input: unknown):
       providerId,
       modelId,
       ...(isObject(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
-      ...(typeof permissionPreset === 'string'
-        ? { permissionPreset: permissionPreset as ConversationStartSessionInput['permissionPreset'] }
-        : {}),
+      ...(isPermissionPreset(permissionPreset) ? { permissionPreset } : {}),
       ...(Array.isArray(allowedTools) ? { allowedTools: allowedTools as string[] } : {}),
     },
   }
@@ -452,6 +468,65 @@ function parseTranscriptInput(input: unknown):
   return { ok: true, input: { workspaceRoot, workspaceId, agentId } }
 }
 
+// Image attachments accepted on a send-turn. The set mirrors the base64 image
+// media types the Claude Agent SDK (and the Anthropic API) accept; anything
+// else is rejected at the boundary rather than failing deep in the provider.
+const ALLOWED_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+// Per-image decoded-byte ceiling (matches the Anthropic API's ~5 MB image
+// limit). The renderer downscales before sending; oversized images are
+// rejected here with a clear error so nothing silently truncates.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+// A generous per-turn cap so a runaway paste cannot push an unbounded payload
+// through IPC; well above any realistic manual attach count.
+const MAX_ATTACHMENTS_PER_TURN = 16
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
+
+// Decoded byte length of a base64 string without allocating the buffer.
+function base64ByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  return Math.floor((base64.length * 3) / 4) - padding
+}
+
+function parseImageAttachments(raw: unknown):
+  | { ok: true; attachments: ConversationImageAttachment[] }
+  | { ok: false; message: string } {
+  if (!Array.isArray(raw)) return { ok: false, message: 'attachments must be an array when present.' }
+  if (raw.length > MAX_ATTACHMENTS_PER_TURN) {
+    return { ok: false, message: `A turn can carry at most ${MAX_ATTACHMENTS_PER_TURN} attachments.` }
+  }
+  const attachments: ConversationImageAttachment[] = []
+  for (const entry of raw) {
+    if (!isObject(entry)) return { ok: false, message: 'Each attachment must be an object.' }
+    const { id, mediaType, dataBase64, name, byteLength } = entry
+    if (typeof id !== 'string' || !id.trim()) return { ok: false, message: 'Attachment id is required.' }
+    if (typeof mediaType !== 'string' || !ALLOWED_IMAGE_MEDIA_TYPES.has(mediaType)) {
+      return { ok: false, message: 'Attachments must be PNG, JPEG, WebP, or GIF images.' }
+    }
+    if (typeof dataBase64 !== 'string' || !dataBase64 || !BASE64_PATTERN.test(dataBase64) || dataBase64.length % 4 !== 0) {
+      return { ok: false, message: 'Attachment image data must be base64-encoded.' }
+    }
+    if (name !== undefined && typeof name !== 'string') {
+      return { ok: false, message: 'Attachment name must be a string when present.' }
+    }
+    // Trust the decoded length over the client-supplied byteLength for the guard.
+    const decodedBytes = base64ByteLength(dataBase64)
+    if (decodedBytes > MAX_IMAGE_BYTES) {
+      return { ok: false, message: 'Each attached image must be 5 MB or smaller.' }
+    }
+    if (byteLength !== undefined && typeof byteLength !== 'number') {
+      return { ok: false, message: 'Attachment byteLength must be a number when present.' }
+    }
+    attachments.push({
+      id,
+      mediaType,
+      dataBase64,
+      ...(typeof name === 'string' ? { name } : {}),
+      byteLength: decodedBytes,
+    })
+  }
+  return { ok: true, attachments }
+}
+
 function parseSendTurnInput(input: unknown):
   | { ok: true; input: ConversationSendTurnInput }
   | { ok: false; message: string } {
@@ -461,12 +536,19 @@ function parseSendTurnInput(input: unknown):
   if ('localTurnId' in input && input.localTurnId !== undefined && typeof input.localTurnId !== 'string') {
     return { ok: false, message: 'localTurnId must be a string when present.' }
   }
+  let attachments: ConversationImageAttachment[] | undefined
+  if ('attachments' in input && input.attachments !== undefined) {
+    const parsed = parseImageAttachments(input.attachments)
+    if (!parsed.ok) return parsed
+    if (parsed.attachments.length > 0) attachments = parsed.attachments
+  }
   return {
     ok: true,
     input: {
       sessionId: session.input.sessionId,
       message: input.message,
       ...(typeof input.localTurnId === 'string' ? { localTurnId: input.localTurnId } : {}),
+      ...(attachments ? { attachments } : {}),
     },
   }
 }
@@ -476,6 +558,22 @@ function parseSessionIdInput(input: unknown):
   | { ok: false; message: string } {
   if (!isObject(input) || typeof input.sessionId !== 'string') return { ok: false, message: 'sessionId is required.' }
   return { ok: true, input: { sessionId: input.sessionId } }
+}
+
+const PERMISSION_PRESET_ERROR = 'permissionPreset must be default, auto_workspace, or bypass_all.'
+
+function isPermissionPreset(value: unknown): value is ConversationPermissionPreset {
+  return typeof value === 'string' && CONVERSATION_PERMISSION_PRESETS.includes(value as ConversationPermissionPreset)
+}
+
+function parseSetPermissionInput(input: unknown):
+  | { ok: true; input: ConversationSetPermissionInput }
+  | { ok: false; message: string } {
+  const session = parseSessionIdInput(input)
+  if (!session.ok) return session
+  const permissionPreset = isObject(input) ? input.permissionPreset : undefined
+  if (!isPermissionPreset(permissionPreset)) return { ok: false, message: PERMISSION_PRESET_ERROR }
+  return { ok: true, input: { sessionId: session.input.sessionId, permissionPreset } }
 }
 
 function parseRespondToRequestInput(input: unknown):

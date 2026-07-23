@@ -22,6 +22,7 @@ import type {
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
@@ -43,6 +44,10 @@ type ConversationIpcRenderer = {
   invoke(
     channel: 'conversation:sessions:respond-to-request',
     input: ConversationRespondToRequestInput
+  ): Promise<ConversationSessionActionResult>
+  invoke(
+    channel: 'conversation:sessions:set-permission',
+    input: ConversationSetPermissionInput
   ): Promise<ConversationSessionActionResult>
   invoke(channel: 'conversation:sessions:stop', input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   invoke(channel: 'conversation:sessions:list', input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult>
@@ -80,6 +85,10 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       input: ConversationRespondToRequestInput
     ): Promise<ConversationSessionActionResult> =>
       renderer.invoke('conversation:sessions:respond-to-request', input),
+    conversationSessionSetPermission: (
+      input: ConversationSetPermissionInput
+    ): Promise<ConversationSessionActionResult> =>
+      renderer.invoke('conversation:sessions:set-permission', input),
     conversationSessionStop: (input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> =>
       renderer.invoke('conversation:sessions:stop', input),
     conversationSessionsList: (input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult> =>
@@ -109,6 +118,7 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     | 'conversationSessionSendTurn'
     | 'conversationSessionInterrupt'
     | 'conversationSessionRespondToRequest'
+    | 'conversationSessionSetPermission'
     | 'conversationSessionStop'
     | 'conversationSessionsList'
     | 'conversationTranscript'
