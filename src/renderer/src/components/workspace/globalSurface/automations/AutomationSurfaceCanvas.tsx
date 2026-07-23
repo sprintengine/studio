@@ -49,6 +49,15 @@ export function AutomationSurfaceCanvas({
   }, [state, focusRunId, focusNonce, runs])
 
   const autonomy = definition.autonomyDefault === 'allow_changes' ? 'can make changes' : 'review only'
+  // What the automation actually asks its agent to do. The prompt/command live in
+  // the action's config map; without this the only way to read them was opening
+  // Edit — the canvas must say what the automation is for, not just when it runs.
+  const config =
+    definition.action.config && typeof definition.action.config === 'object'
+      ? (definition.action.config as Record<string, unknown>)
+      : {}
+  const prompt = typeof config.prompt === 'string' && config.prompt.trim() ? config.prompt.trim() : null
+  const command = typeof config.command === 'string' && config.command.trim() ? config.command.trim() : null
 
   return (
     <div className="h-full min-h-0 overflow-y-auto px-6 py-5">
@@ -96,6 +105,22 @@ export function AutomationSurfaceCanvas({
             <WhatRow label="Project" value={projectLabel(workspaceRoot)} />
             <WhatRow label="What runs" value={`${actionLabel(definition.action.kind)} · ${autonomy}`} />
           </dl>
+          {prompt ? (
+            <div className="flex flex-col gap-1 pt-1.5">
+              <span className="text-[12px] text-[color:var(--text-subtle)]">Prompt</span>
+              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-default)]">
+                {prompt}
+              </p>
+            </div>
+          ) : null}
+          {command ? (
+            <div className="flex flex-col gap-1 pt-1.5">
+              <span className="text-[12px] text-[color:var(--text-subtle)]">Command</span>
+              <p className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-mono text-[11.5px] leading-5 text-[color:var(--text-default)]">
+                {command}
+              </p>
+            </div>
+          ) : null}
         </Section>
       </div>
     </div>

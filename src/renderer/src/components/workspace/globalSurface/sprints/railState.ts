@@ -191,6 +191,16 @@ export function sprintRunStateLine(summary: SprintRunSummary): string {
   return `${sprintRunProjectPhrase(summary)} · ${statePhrase(summary)}`
 }
 
+// Whether a run matches the rail's search query — team name or project name,
+// case-insensitive substring. An empty/whitespace query matches everything.
+export function sprintRunMatchesSearch(summary: SprintRunSummary, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return (
+    summary.teamName.toLowerCase().includes(q) || summary.projectName.toLowerCase().includes(q)
+  )
+}
+
 // The filter chips above the rows (mockup §2): one per project that actually has
 // a run, labelled by folder basename and keyed by root. Alphabetical by label so
 // the chip strip does not reshuffle as runs change state.

@@ -58,16 +58,18 @@ function render(over: Partial<Parameters<typeof SprintsRail>[0]> = {}): string {
       runs={runs}
       selectedStatePath={runs[2]!.statePath}
       projectFilter={null}
+      search=""
       onSelect={() => {}}
       onFilter={() => {}}
+      onSearch={() => {}}
       onCreate={() => {}}
       {...over}
     />,
   )
 }
 
-// Mockup §2 rail anatomy: name over one plain state line, "New sprint" at the
-// bottom, the selected row marked.
+// Mockup §2 rail anatomy: name over one plain state line, "New sprint" leading
+// the rail (never below the scroll), the selected row marked.
 run('renders each run with its name, plain state line, and the New sprint affordance', () => {
   const html = render()
   assert.ok(html.includes('wake-filter-sprint'), 'lists the run name')
@@ -75,7 +77,21 @@ run('renders each run with its name, plain state line, and the New sprint afford
   assert.ok(html.includes('multicode-mobile · needs your input'), 'needs-input state line')
   assert.ok(html.includes('multicode +2 repos · 1 merge left'), 'multi-repo state line')
   assert.ok(html.includes('New sprint'), 'carries the New sprint affordance')
+  assert.ok(
+    html.indexOf('New sprint') < html.indexOf('wake-filter-sprint'),
+    'New sprint leads the rail, above the rows',
+  )
   assert.ok(html.includes('aria-current="true"'), 'marks the selected row')
+})
+
+// Every row carries a hover tooltip with the untruncated title AND state, so a
+// clipped name or a terse glyph is always readable in place.
+run('rows carry a tooltip naming the run, its lifecycle state, and its state line', () => {
+  const html = render()
+  assert.ok(
+    html.includes('title="wake-filter-sprint — Running · multicode · running · 4 of 9 tasks"'),
+    'the tooltip joins name, glyph state, and state line',
+  )
 })
 
 run('a run whose workspace is long gone still lists — the rail reads the index, not the rail', () => {
@@ -121,23 +137,37 @@ run('an empty group is omitted, not rendered as an empty header', () => {
   assert.ok(html.includes('Sprints: Active'), 'the one live run still groups')
 })
 
-// One compact project filter (MC-1838) instead of a chip strip.
-run('the project filter is one compact select with counts', () => {
+// The search + filter row (the Backlog toolbar idiom): search is the at-rest
+// control, the project lens collapses behind the filter glyph.
+run('the rail carries a search field with the project lens behind the filter glyph', () => {
   const html = render()
-  assert.ok(html.includes('aria-label="Filter sprints by project"'), 'the filter is a named control')
-  assert.ok(html.includes('All projects · 3'), 'the unfiltered lens carries the total')
-  assert.ok(html.includes('role="combobox"'), 'one control, not a chip per project')
+  assert.ok(html.includes('Search sprints…'), 'the search field leads the list')
+  assert.ok(html.includes('aria-label="Filter sprints"'), 'the project lens is one filter control')
+  assert.ok(!html.includes('role="combobox"'), 'no standing dropdown above the rows')
 })
 
 run('a single-project Multicode shows no filter — a lone option narrows nothing', () => {
   const html = render({ runs: [runs[0]!, runs[2]!] })
-  assert.ok(!html.includes('All projects'), 'no filter when every run shares one project')
+  assert.ok(!html.includes('aria-label="Filter sprints"'), 'no filter when every run shares one project')
+  assert.ok(html.includes('Search sprints…'), 'search stays')
 })
 
 run('a filter that matches no run says so instead of reading as "no sprints"', () => {
   const html = render({ projectFilter: '/work/nowhere' })
   assert.ok(html.includes('No sprints in this project.'))
   assert.ok(html.includes('New sprint'), 'the create path stays reachable')
+})
+
+run('a search that matches no run says so instead of reading as "no sprints"', () => {
+  const html = render({ search: 'zzz-not-a-run' })
+  assert.ok(html.includes('No sprints match.'))
+  assert.ok(html.includes('New sprint'), 'the create path stays reachable')
+})
+
+run('search narrows the rows by team or project name', () => {
+  const html = render({ search: 'relay' })
+  assert.ok(html.includes('relay-traffic-efficiency'), 'the matching run stays')
+  assert.ok(!html.includes('wake-filter-sprint'), 'the rest drop')
 })
 
 run('an empty index renders no rows and no chips, leaving the empty state to the canvas', () => {

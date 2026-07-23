@@ -375,22 +375,27 @@ async function main(): Promise<void> {
   )
   console.log('ok - single-repo run renders one Primary card with no merge order')
 
-  // ── The project filter is one compact select (MC-1838) ──────────────────
+  // ── The project lens sits behind the filter glyph beside search ──────────
   const filterTrigger = (): HTMLElement => {
-    const trigger = container.querySelector('button[role="combobox"][aria-label="Filter sprints by project"]')
-    assert.ok(trigger, 'the project filter renders as one compact select')
+    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter sprints"]')
+    assert.ok(trigger, 'the project lens is one filter control beside search')
     return trigger as HTMLElement
   }
   const pickFilter = async (label: string): Promise<void> => {
     await act(async () => {
       filterTrigger().click()
     })
-    const option = [...dom.window.document.querySelectorAll('[role="option"]')].find(
-      (candidate) => candidate.textContent?.startsWith(label) && candidate.closest('ul[aria-label^="Sprints"]') === null,
+    const option = [...dom.window.document.querySelectorAll('[role="menuitemradio"]')].find(
+      (candidate) => candidate.textContent?.startsWith(label),
     )
     assert.ok(option, `the filter lists ${label}`)
     await act(async () => {
       ;(option as HTMLElement).click()
+    })
+    // Picking keeps the menu open (multi-axis in one visit) — close it so the
+    // rail below is queryable again.
+    await act(async () => {
+      filterTrigger().click()
     })
     await act(async () => {
       await Promise.resolve()

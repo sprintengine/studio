@@ -19,12 +19,14 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 // slim banner offers to prepare the guide walkthrough and surfaces a failed run.
 // All the state, IPC, and mutation live in `useReviewSession`; this is the pure
 // view, so it renders deterministically from a session object with no side effects.
-// `guideActions` is the one slot it does not own: the preparation choices (how
-// deep a walkthrough, which agent builds it) and the link into the guide's
-// terminal need the plugin catalog, the persisted defaults, and the layout
-// registry, which the Reviews door supplies (ReviewGuideControls) so this stays
-// store-free.
-export function ReviewCanvas({ session, guideActions }: { session: ReviewSession; guideActions: ReactNode }): JSX.Element {
+// `guideActions` and `toolbar` are the slots it does not own: the preparation
+// choices (how deep a walkthrough, which agent builds it) and the link into the
+// guide's terminal need the plugin catalog, the persisted defaults, and the
+// layout registry, which the Reviews door supplies (ReviewGuideControls) so this
+// stays store-free. `toolbar` is the slim tools row (diff view, Re-run, Ask the
+// guide) rendered over the walkthrough — it only appears once there is a
+// walkthrough for those tools to act on.
+export function ReviewCanvas({ session, guideActions, toolbar }: { session: ReviewSession; guideActions: ReactNode; toolbar?: ReactNode }): JSX.Element {
   const { status, changeset, run } = session
 
   // No review is selected — an explicit resting state, not a spinner that would
@@ -112,32 +114,37 @@ export function ReviewCanvas({ session, guideActions }: { session: ReviewSession
   ) : null
 
   return (
-    <ReviewWalkthrough
-      changeset={changeset}
-      brief={brief}
-      isDegraded={session.isDegraded}
-      readFiles={session.readFiles}
-      diffView={session.diffView}
-      activePaneId={session.activePaneId}
-      monacoTheme={session.monacoTheme}
-      rerunning={run.running}
-      onSetActivePane={session.onSetActivePane}
-      onSetDiffView={session.onSetDiffView}
-      onToggleRead={session.onToggleRead}
-      onRequestComment={NOOP}
-      onAskGuide={session.askController.askFromCard}
-      onRerun={session.refresh}
-      bannerSlot={bannerSlot}
-      comments={session.comments}
-      onCreateComment={session.onCreateComment}
-      onEditComment={session.onEditComment}
-      onDeleteComment={session.onDeleteComment}
-      onPostReview={isPullRequestReviewSource(changeset) ? session.onPostReview : undefined}
-      postState={session.postState}
-      onOpenAsk={session.openAsk}
-      hideTopBar
-      trayController={session.trayController}
-    />
+    <div className="flex h-full w-full flex-col overflow-hidden">
+      {toolbar}
+      <div className="min-h-0 flex-1">
+        <ReviewWalkthrough
+          changeset={changeset}
+          brief={brief}
+          isDegraded={session.isDegraded}
+          readFiles={session.readFiles}
+          diffView={session.diffView}
+          activePaneId={session.activePaneId}
+          monacoTheme={session.monacoTheme}
+          rerunning={run.running}
+          onSetActivePane={session.onSetActivePane}
+          onSetDiffView={session.onSetDiffView}
+          onToggleRead={session.onToggleRead}
+          onRequestComment={NOOP}
+          onAskGuide={session.askController.askFromCard}
+          onRerun={session.refresh}
+          bannerSlot={bannerSlot}
+          comments={session.comments}
+          onCreateComment={session.onCreateComment}
+          onEditComment={session.onEditComment}
+          onDeleteComment={session.onDeleteComment}
+          onPostReview={isPullRequestReviewSource(changeset) ? session.onPostReview : undefined}
+          postState={session.postState}
+          onOpenAsk={session.openAsk}
+          hideTopBar
+          trayController={session.trayController}
+        />
+      </div>
+    </div>
   )
 }
 

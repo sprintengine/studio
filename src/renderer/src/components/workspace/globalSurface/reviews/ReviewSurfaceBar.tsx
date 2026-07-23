@@ -8,15 +8,16 @@ import type { GlobalSurfaceBar } from '../GlobalSurfaceShell'
 import { BarStatusChip } from '../surfaceSubstrate'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
 
-// The folded Reviews-door surface bar (MC-1708 T6, mockup §4). The walkthrough's
-// own top-bar actions live here instead of stacking a second bar over the canvas:
-// the change title, an In progress / Posted status dot, the "repo · PR · +/−" sub,
-// then the diff-view toggle, Re-run, Ask the guide, and the Post review CTA. The
-// action cluster appears once there is a change to work — a guide walkthrough
-// ('ready') or the raw degraded change (T1). In degraded mode the guide-only
-// actions (Re-run, Ask the guide) drop, since no guide has run; the diff-view
-// toggle and the review/post controls stay so a reviewer can read every diff and
-// post to the PR without a brief.
+// The folded Reviews-door surface bar (MC-1708 T6, mockup §4). The bar stays
+// informational plus the ONE primary action — the change title, an In progress /
+// Posted status dot, the "repo · PR · +/−" sub, and the Your review / Post
+// review CTA. The working tools (diff-view toggle, Re-run, Ask the guide) are a
+// canvas toolbar (`ReviewCanvasTools`), not title-bar chrome: they act on the
+// walkthrough below, so they live with it. The CTA appears once there is a
+// change to work — a guide walkthrough ('ready') or the raw degraded change
+// (T1). In degraded mode the guide-only tools (Re-run, Ask the guide) drop,
+// since no guide has run; the diff-view toggle and the review/post controls stay
+// so a reviewer can read every diff and post to the PR without a brief.
 
 const DIFF_VIEW_ITEMS = [
   { value: 'side-by-side' as const, label: 'Side by side' },
@@ -65,11 +66,27 @@ function ReviewStatusChip({ session, entry }: { session: ReviewSession; entry: R
 function ReviewBarActions({ session }: { session: ReviewSession }) {
   const pending = session.pendingComments
   const showPostCta = session.isPullRequest && pending > 0
-  // Re-run and Ask the guide act on a guide walkthrough; with no guide (degraded)
-  // there is nothing to re-run and no guide to ask, so they drop from the cluster.
+  return showPostCta ? (
+    <PrimaryButton onClick={session.openTray} className="shrink-0">
+      Post review<span className="tabular-nums"> · {pending} {pending === 1 ? 'comment' : 'comments'}</span>
+    </PrimaryButton>
+  ) : (
+    <GhostButton onClick={session.openTray} className="shrink-0">
+      Your review
+      {pending > 0 ? <span className="font-medium tabular-nums text-[color:var(--accent-primary)]"> · {pending}</span> : null}
+    </GhostButton>
+  )
+}
+
+// The canvas toolbar: the tools that act on the walkthrough below, rendered by
+// the Reviews door as ReviewCanvas's `toolbar` slot — one slim row over the
+// walkthrough, never title-bar chrome. Re-run and Ask the guide act on a guide
+// walkthrough; with no guide (degraded) there is nothing to re-run and no guide
+// to ask, so they drop and the diff-view toggle stands alone.
+export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.Element {
   const guideActions = !session.isDegraded
   return (
-    <>
+    <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2">
       <SegmentedControl
         ariaLabel="Diff view"
         items={DIFF_VIEW_ITEMS}
@@ -99,16 +116,6 @@ function ReviewBarActions({ session }: { session: ReviewSession }) {
           Ask the guide
         </GhostButton>
       ) : null}
-      {showPostCta ? (
-        <PrimaryButton onClick={session.openTray} className="shrink-0">
-          Post review<span className="tabular-nums"> · {pending} {pending === 1 ? 'comment' : 'comments'}</span>
-        </PrimaryButton>
-      ) : (
-        <GhostButton onClick={session.openTray} className="shrink-0">
-          Your review
-          {pending > 0 ? <span className="font-medium tabular-nums text-[color:var(--accent-primary)]"> · {pending}</span> : null}
-        </GhostButton>
-      )}
-    </>
+    </div>
   )
 }

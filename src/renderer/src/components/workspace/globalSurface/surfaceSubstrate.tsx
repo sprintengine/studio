@@ -9,15 +9,19 @@
 //   • SurfaceCanvasState — the canvas renders exactly one of three states:
 //       loading (spinner + line), empty (glyph + CTA), error (the shared error
 //       card, ALWAYS with "Try again", never a dead end, never a blocking dialog).
-//   • SurfaceRail — the internal list rail: list semantics (role="list"), a single
-//       status dot + title + state line per row, ↑/↓ + j/k keyboard navigation, and
-//       one "New …" affordance. The rail is the surface's, never the app sidebar.
+//   • SurfaceRail — the internal list rail: list semantics (role="list"), a
+//       status glyph + title + state line per row, ↑/↓ + j/k keyboard navigation,
+//       the "New …" affordance at the top, and an optional search + filter row
+//       (the Backlog toolbar idiom). The rail is the surface's, never the app
+//       sidebar.
 //   • BarStatusChip — the one status idiom in the surface bar: a 6 px dot + label,
 //       never a competing pill or badge.
 
 import React, { useCallback, useRef } from 'react'
 
 import { GhostButton } from '../../ui/Buttons'
+import { FilterMenu, type FilterMenuGroup } from '../../ui/FilterMenu'
+import { InboxSearchInput } from '../../ui/InboxSearchInput'
 import { InlineNotice } from '../../ui/InlineNotice'
 import { Spinner } from '../../ui/Spinner'
 import { StatusDot } from '../../ui/StatusDot'
@@ -158,9 +162,11 @@ export class GlobalSurfaceErrorBoundary extends React.Component<
 }
 
 // ── SurfaceRail ──────────────────────────────────────────────────────────────
-// The internal list rail shared by every door. A row is a single status dot, a
+// The internal list rail shared by every door. A row is a status glyph, a
 // title, and a one-line state; selecting it fills the canvas. Row actions live on
 // the bar or canvas, never here — the rail stays a calm navigation list.
+// Rows never carry a bare tone dot (owner ruling): the mark is the app's
+// lifecycle/type iconography, or nothing — the state line carries the words.
 
 export interface SurfaceRailRow {
   /** Stable selection id (roadmapRef / automation id / reviewId). */
@@ -168,15 +174,26 @@ export interface SurfaceRailRow {
   title: string
   /** The one-line at-a-glance state ("Active · step 3 of 7", "Ran 2h ago · passed"). */
   stateLine: string
-  tone: StatusTone
-  /** Pulse the dot for a live/running row. */
-  pulse?: boolean
-  /** Accessible name for the dot when the state line does not already carry it. */
-  dotLabel?: string
-  /** A full status mark (e.g. a LifecycleGlyph) rendered INSTEAD of the tone
-   *  dot — for rails whose rows carry the app's lifecycle iconography (merged
-   *  branch, ready-for-review, completed disc) rather than a dot. */
+  /** The row's status/type mark (a LifecycleGlyph or a type glyph). Optional —
+   *  a row with no mark renders title + state line only. */
   icon?: React.ReactNode
+  /** Hover tooltip for the whole row; defaults to "title — stateLine" so a
+   *  truncated row is always readable in place. */
+  tooltip?: string
+}
+
+/** The rail's optional search field — the same idiom as the Backlog toolbar. */
+export interface SurfaceRailSearch {
+  value: string
+  onChange: (next: string) => void
+  placeholder: string
+  ariaLabel: string
+}
+
+/** The rail's optional filter affordance beside the search field. */
+export interface SurfaceRailFilter {
+  ariaLabel: string
+  groups: ReadonlyArray<FilterMenuGroup>
 }
 
 export interface SurfaceRailNewAffordance {
@@ -206,6 +223,8 @@ export function SurfaceRail({
   selectedId,
   onSelect,
   newAffordance,
+  search,
+  filter,
 }: {
   /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
   label: string
@@ -218,6 +237,10 @@ export function SurfaceRail({
   selectedId: string | null
   onSelect: (id: string) => void
   newAffordance: SurfaceRailNewAffordance
+  /** Search over the rows, rendered above the list (the Backlog toolbar idiom). */
+  search?: SurfaceRailSearch
+  /** Filter glyph beside the search field. Ignored without `search`. */
+  filter?: SurfaceRailFilter
 }): JSX.Element {
   const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
 
@@ -252,15 +275,16 @@ export function SurfaceRail({
           type="button"
           aria-current={selected ? 'true' : undefined}
           onClick={() => onSelect(row.id)}
+          // The tooltip carries the untruncated row — title AND state — so a
+          // clipped title or a terse state line is always readable on hover.
+          title={row.tooltip ?? `${row.title} — ${row.stateLine}`}
           className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
             selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
         >
-          {row.icon ?? (
-            <StatusDot tone={row.tone} pulse={row.pulse} size={7} label={row.dotLabel} className="shrink-0" />
-          )}
+          {row.icon ?? null}
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]" title={row.title}>
+            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">
               {row.title}
             </span>
             <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
@@ -272,6 +296,41 @@ export function SurfaceRail({
 
   return (
     <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
+      {/* The "New …" affordance and the search row lead the rail and stay
+          pinned while the list scrolls: with a long list they must never hide
+          below (or above) the scroll — creating and narrowing are the rail's
+          always-reachable actions, in the same place on every door. The
+          negative offsets fold the shell aside's p-2.5 into the sticky header
+          so it sits flush with the scrollport and paints over passing rows. */}
+      <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 shrink-0 bg-[color:var(--bg-surface-raised)] px-2.5 pt-2.5">
+        <button
+          type="button"
+          aria-current={newAffordance.selected ? 'true' : undefined}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            newAffordance.onActivate({ x: rect.left, y: rect.bottom })
+          }}
+          className={`mb-2 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
+            newAffordance.selected
+              ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
+              : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+          }`}
+        >
+          {PLUS_ICON}
+          {newAffordance.label}
+        </button>
+        {search ? (
+          <div className="flex items-center gap-1 pb-2">
+            <InboxSearchInput
+              value={search.value}
+              onChange={search.onChange}
+              ariaLabel={search.ariaLabel}
+              placeholder={search.placeholder}
+            />
+            {filter ? <FilterMenu ariaLabel={filter.ariaLabel} groups={filter.groups} className="shrink-0" /> : null}
+          </div>
+        ) : null}
+      </div>
       {groups ? null : (
         <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">{label}</div>
       )}
@@ -294,22 +353,6 @@ export function SurfaceRail({
           {rows.map(renderRow)}
         </ul>
       )}
-      <button
-        type="button"
-        aria-current={newAffordance.selected ? 'true' : undefined}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          newAffordance.onActivate({ x: rect.left, y: rect.bottom })
-        }}
-        className={`mt-1.5 flex w-full items-center gap-2 rounded-md border border-dashed border-[color:var(--border-default)] px-2 py-1.5 text-left text-[12px] transition-colors ${FOCUS_RING_CLASS} ${
-          newAffordance.selected
-            ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
-            : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-        }`}
-      >
-        {PLUS_ICON}
-        {newAffordance.label}
-      </button>
     </div>
   )
 }

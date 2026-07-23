@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { PrimaryButton } from '../../../ui/Buttons'
+import type { FilterMenuGroup } from '../../../ui'
 import { useReviewSession } from '../../../panels/review/useReviewSession'
 import { ReviewCanvas } from '../../../panels/review/ReviewCanvas'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell'
@@ -13,7 +14,7 @@ import { useSurfaceBackNav } from '../surfaceBackNav'
 import { ReviewsRail } from './ReviewsRail'
 import { ReviewChangeForm } from './ReviewChangeForm'
 import { orderReviewRail, resolveReviewAutoSelect } from './reviewRailModel'
-import { buildReviewsSurfaceBar } from './ReviewSurfaceBar'
+import { ReviewCanvasTools, buildReviewsSurfaceBar } from './ReviewSurfaceBar'
 import { AskGuideDrawer, ReviewGuideActions, useReviewGuideRuntime } from './ReviewGuideControls'
 import { useGuideTerminal } from './useGuideTerminal'
 
@@ -30,6 +31,11 @@ const REVIEW_INDEX_REFRESH_MS = 15_000
 // No `onClose`: this is a page, not a dialog.
 
 type SelectedReview = { reviewId: string; workspaceRoot: string }
+
+// Filter sentinels for the rail's project/status lenses. A space prefix keeps
+// the project sentinel from colliding with a real absolute root.
+const ALL_PROJECTS = ' all'
+const ALL_STATUSES = 'all'
 
 type IndexPhase =
   | { phase: 'loading' }
@@ -82,6 +88,66 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   const entries = index.phase === 'ready' ? index.entries : []
   const rows = useMemo(() => orderReviewRail(entries), [entries])
   const selectedEntry = selected ? entries.find((entry) => entry.reviewId === selected.reviewId) ?? null : null
+
+  // The rail's lens (the Backlog toolbar idiom): search over title/project, a
+  // project filter, and a status filter. Transient per-window view state — it
+  // narrows the rail only, never the canvas selection or the auto-select.
+  const [railSearch, setRailSearch] = useState('')
+  const [railProject, setRailProject] = useState<string>(ALL_PROJECTS)
+  const [railStatus, setRailStatus] = useState<string>(ALL_STATUSES)
+
+  const visibleRows = useMemo(() => {
+    const query = railSearch.trim().toLowerCase()
+    const projectByRoot = new Map(entries.map((entry) => [entry.workspaceRoot, entry.projectName]))
+    return rows.filter((row) => {
+      if (railProject !== ALL_PROJECTS && row.workspaceRoot !== railProject) return false
+      if (railStatus !== ALL_STATUSES && row.status !== railStatus) return false
+      if (!query) return true
+      return (
+        row.title.toLowerCase().includes(query) ||
+        (projectByRoot.get(row.workspaceRoot) ?? '').toLowerCase().includes(query)
+      )
+    })
+  }, [rows, entries, railSearch, railProject, railStatus])
+
+  // One filter group per axis. Projects are offered only when there is a second
+  // one to choose between — a lone option beside "All projects" filters nothing.
+  const railFilterGroups = useMemo(() => {
+    const byRoot = new Map<string, { label: string; count: number }>()
+    for (const entry of entries) {
+      const existing = byRoot.get(entry.workspaceRoot)
+      if (existing) existing.count += 1
+      else byRoot.set(entry.workspaceRoot, { label: entry.projectName, count: 1 })
+    }
+    const groups: FilterMenuGroup[] = []
+    if (byRoot.size > 1) {
+      groups.push({
+        label: 'Project',
+        items: [
+          { value: ALL_PROJECTS, label: `All projects · ${entries.length}` },
+          ...[...byRoot.entries()]
+            .map(([root, info]) => ({ value: root, label: `${info.label} · ${info.count}` }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+        ],
+        value: railProject,
+        defaultValue: ALL_PROJECTS,
+        onChange: setRailProject,
+      })
+    }
+    groups.push({
+      label: 'Status',
+      items: [
+        { value: ALL_STATUSES, label: 'All' },
+        { value: 'in-progress', label: 'In progress' },
+        { value: 'draft', label: 'Draft' },
+        { value: 'posted', label: 'Posted' },
+      ],
+      value: railStatus,
+      defaultValue: ALL_STATUSES,
+      onChange: setRailStatus,
+    })
+    return groups
+  }, [entries, railProject, railStatus])
 
   // First load with nothing chosen: reopen the remembered review when the index
   // still has it, else fall back to the first row (the rail is ordered
@@ -160,13 +226,29 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   // change". Only the pristine first load owns the full canvas alone (T20).
   const rail =
     index.phase === 'loading' ? undefined : (
-      <ReviewsRail
-        rows={rows}
-        selectedReviewId={selected?.reviewId ?? null}
-        newSelected={creating}
-        onSelect={onSelect}
-        onNewReview={onNewReview}
-      />
+      <div className="flex min-h-0 flex-col">
+        <ReviewsRail
+          rows={visibleRows}
+          selectedReviewId={selected?.reviewId ?? null}
+          newSelected={creating}
+          search={{
+            value: railSearch,
+            onChange: setRailSearch,
+            placeholder: 'Search reviews…',
+            ariaLabel: 'Search reviews across every project',
+          }}
+          filter={{ ariaLabel: 'Filter reviews', groups: railFilterGroups }}
+          onSelect={onSelect}
+          onNewReview={onNewReview}
+        />
+        {/* The lens is narrower than the reviews behind it. Say so, rather than
+            letting an empty rail read as "you have no reviews". */}
+        {visibleRows.length === 0 && rows.length > 0 ? (
+          <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+            No reviews match.
+          </p>
+        ) : null}
+      </div>
     )
 
   return (
@@ -226,8 +308,11 @@ function renderCanvas({
     return <ReviewChangeForm projectRoots={roots} onCreated={onCreated} onCancel={onCancelCreate} />
   }
   // A selected review renders as soon as it is chosen — the session loads it by id,
-  // so it does not wait for the index re-scan to list a just-created one.
-  if (hasSelection) return <ReviewCanvas session={session} guideActions={guideActions} />
+  // so it does not wait for the index re-scan to list a just-created one. The
+  // walkthrough tools ride the canvas as a slim toolbar, not the door bar.
+  if (hasSelection) {
+    return <ReviewCanvas session={session} guideActions={guideActions} toolbar={<ReviewCanvasTools session={session} />} />
+  }
   if (index.phase === 'loading') {
     return <SurfaceCanvasState kind="loading" label="Loading reviews…" />
   }

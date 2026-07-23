@@ -8,7 +8,7 @@ import { orderedSteps } from '../../../panels/review/reviewSelectors'
 import { synthesizeDegradedBrief } from '../../../panels/review/degradedBrief'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
 import { ReviewCanvas } from '../../../panels/review/ReviewCanvas'
-import { buildReviewsSurfaceBar } from './ReviewSurfaceBar'
+import { ReviewCanvasTools, buildReviewsSurfaceBar } from './ReviewSurfaceBar'
 import { reviewGuideAgentId, resolveGuideTerminal } from './reviewGuideTerminal'
 
 function run(name: string, body: () => void): void {
@@ -103,29 +103,33 @@ run('the surface bar shows no walkthrough actions before there is a change', () 
   assert.equal(bar.title, reviewFixture.changeset.title)
 })
 
-// Degraded (no guide brief): the reviewer still needs the diff-view toggle and the
-// review/post controls, but there is no guide to re-run or ask, so those drop.
-run('the degraded surface bar keeps diff-view + review controls and drops guide actions', () => {
-  const bar = buildReviewsSurfaceBar(
-    entry,
-    stubSession({ status: 'degraded', isDegraded: true, brief: degradedBrief, isPullRequest: true, pendingComments: 2, comments: [pendingComment, pendingComment] }),
-  )
-  assert.ok(bar.actions, 'a degraded change still carries an action cluster')
-  const html = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
-  assert.match(html, /Side by side/, 'the diff-view toggle stays so both diff modes are reachable')
-  assert.match(html, /Post review/, 'post-to-PR stays with no brief')
-  assert.doesNotMatch(html, /Ask the guide/, 'no guide to ask in degraded mode')
-  assert.doesNotMatch(html, /Re-run/, 'nothing to re-run without a guide walkthrough')
+// Degraded (no guide brief): the bar keeps the one CTA (post/review), the canvas
+// toolbar keeps the diff-view toggle — but there is no guide to re-run or ask,
+// so those drop from the tools.
+run('degraded: the bar keeps the post CTA, the canvas tools keep the diff toggle and drop guide actions', () => {
+  const session = stubSession({ status: 'degraded', isDegraded: true, brief: degradedBrief, isPullRequest: true, pendingComments: 2, comments: [pendingComment, pendingComment] })
+  const bar = buildReviewsSurfaceBar(entry, session)
+  assert.ok(bar.actions, 'a degraded change still carries the review CTA')
+  const barHtml = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
+  assert.match(barHtml, /Post review/, 'post-to-PR stays with no brief')
+  assert.doesNotMatch(barHtml, /Side by side/, 'the diff toggle is canvas chrome, never title-bar chrome')
+  const tools = renderToStaticMarkup(<ReviewCanvasTools session={session} />)
+  assert.match(tools, /Side by side/, 'the diff-view toggle stays so both diff modes are reachable')
+  assert.doesNotMatch(tools, /Ask the guide/, 'no guide to ask in degraded mode')
+  assert.doesNotMatch(tools, /Re-run/, 'nothing to re-run without a guide walkthrough')
 })
 
 run('a ready pull-request review with pending comments shows the Post review CTA', () => {
-  const bar = buildReviewsSurfaceBar(entry, stubSession({ isPullRequest: true, pendingComments: 3, comments: [pendingComment, pendingComment, pendingComment] }))
+  const session = stubSession({ isPullRequest: true, pendingComments: 3, comments: [pendingComment, pendingComment, pendingComment] })
+  const bar = buildReviewsSurfaceBar(entry, session)
   const html = renderToStaticMarkup(<>{bar.statusChip}{bar.actions}</>)
   assert.match(html, /Post review/, 'the primary CTA is Post review')
   assert.match(html, /3 comments/, 'the CTA carries the pending count')
-  assert.match(html, /Ask the guide/, 'Ask the guide is folded into the bar')
-  assert.match(html, /Side by side/, 'the diff-view toggle is folded into the bar')
   assert.match(html, /In progress/, 'an unposted review reads as In progress')
+  const tools = renderToStaticMarkup(<ReviewCanvasTools session={session} />)
+  assert.match(tools, /Ask the guide/, 'Ask the guide rides the canvas toolbar')
+  assert.match(tools, /Re-run/, 'so does Re-run')
+  assert.match(tools, /Side by side/, 'with the diff-view toggle')
 })
 
 run('a review with all comments posted reads as Posted, no Post CTA', () => {

@@ -69,6 +69,8 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const [planningRef, setPlanningRef] = useState<string | null>(null)
   // Which rail roadmap the canvas shows. Null falls back to the active roadmap.
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
+  // The rail's search query — transient per-window view state.
+  const [railSearch, setRailSearch] = useState('')
   const laneRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
 
   const runLaneCommand = useCallback(
@@ -372,7 +374,9 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     <RoadmapRail
       rows={railRows}
       selectedRef={effectiveSelectedRef}
+      search={railSearch}
       onSelect={setSelectedRef}
+      onSearch={setRailSearch}
       onNewRoadmap={() => void handleCreateRoadmap()}
     />
   )

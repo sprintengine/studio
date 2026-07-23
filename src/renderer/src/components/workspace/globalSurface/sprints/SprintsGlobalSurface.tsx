@@ -7,6 +7,7 @@ import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import {
   buildSprintRailRows,
+  sprintRunMatchesSearch,
   sprintRunProjectPhrase,
   sprintRunShortDate,
   sprintRunStatusLabel,
@@ -59,19 +60,27 @@ export default function SprintsGlobalSurface(): JSX.Element {
   const { runs, loadState, error, reload } = useSprintRunIndex()
 
   const [selectedStatePath, setSelectedStatePath] = useState<string | null>(initialSelectedStatePath)
-  // Which project the rail is narrowed to. Transient per-window view state — not
-  // persisted and not synced across windows, so one window's lens never moves
-  // another's (D7).
+  // Which project the rail is narrowed to, and the rail's search query. Transient
+  // per-window view state — not persisted and not synced across windows, so one
+  // window's lens never moves another's (D7).
   const [projectFilter, setProjectFilter] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const selectedRun = useMemo(
     () => runs.find((summary) => summary.statePath === selectedStatePath) ?? null,
     [runs, selectedStatePath],
   )
 
-  // The rows the rail is actually showing — the same ordering and filtering it
-  // draws, so "the first row" means the same thing to both of us.
-  const rows = useMemo(() => buildSprintRailRows(runs, projectFilter), [runs, projectFilter])
+  // The rows the rail is actually showing — the same ordering, filtering, and
+  // search it draws, so "the first row" means the same thing to both of us.
+  const rows = useMemo(
+    () =>
+      buildSprintRailRows(
+        runs.filter((summary) => sprintRunMatchesSearch(summary, search)),
+        projectFilter,
+      ),
+    [runs, projectFilter, search],
+  )
 
   const select = useCallback((statePath: string) => {
     lastSelectedStatePath = statePath
@@ -143,8 +152,10 @@ export default function SprintsGlobalSurface(): JSX.Element {
       runs={runs}
       selectedStatePath={selectedStatePath}
       projectFilter={projectFilter}
+      search={search}
       onSelect={select}
       onFilter={filter}
+      onSearch={setSearch}
       onCreate={requestNewSprint}
     />
   )
@@ -227,7 +238,7 @@ function SurfaceBody({
   return (
     <div className="flex h-full items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
       {filteredOut
-        ? 'No sprints in this project. Pick another project, or All projects, to see the rest.'
+        ? 'No sprints match. Clear the search or pick All projects to see the rest.'
         : 'Select a sprint to see where it stands.'}
     </div>
   )

@@ -7,7 +7,7 @@ import { listAutomationProjectFolders } from '../../../../utils/automationsEntry
 import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
 import type { RunTargetRef } from '../../../automations/runTarget'
 import { GhostButton, InlineNotice, OverflowMenu, PointerPopover, PrimaryButton, SidePane, useConfirmDialog } from '../../../ui'
-import type { OverflowMenuItem } from '../../../ui'
+import type { FilterMenuGroup, OverflowMenuItem } from '../../../ui'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import { AutomationReportViewer } from '../../../automations/AutomationReportViewer'
 import { extractReportPaths } from '../../../automations/reportPaths'
@@ -38,6 +38,12 @@ import {
 // paths underneath are unchanged; this relocates the surface and reads the
 // instance-wide index (`useAutomationsController` in instance scope), resolving
 // each automation's store root per-entry.
+
+// Filter sentinels for the rail's project/state lenses. A space prefix keeps the
+// project sentinel from colliding with a real absolute root.
+const ALL_PROJECTS = ' all'
+const ALL_STATES = 'all'
+
 export default function AutomationsGlobalSurface(): JSX.Element {
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace)
@@ -90,6 +96,67 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       return byRank !== 0 ? byRank : a.definition.name.localeCompare(b.definition.name)
     })
   }, [entries, now])
+
+  // The rail's lens (the Backlog toolbar idiom): search over name/project, a
+  // project filter, and a state filter. Transient per-window view state — it
+  // narrows the rail only, never the canvas selection.
+  const [railSearch, setRailSearch] = useState('')
+  const [railProject, setRailProject] = useState<string>(ALL_PROJECTS)
+  const [railState, setRailState] = useState<string>(ALL_STATES)
+
+  const visibleEntries = useMemo(() => {
+    const query = railSearch.trim().toLowerCase()
+    return orderedEntries.filter((entry) => {
+      if (railProject !== ALL_PROJECTS && entry.workspaceRoot !== railProject) return false
+      if (railState !== ALL_STATES) {
+        const state = automationRailState(entry, now)
+        if (railState === 'running' && !state.running) return false
+        if (railState === 'attention' && state.tone !== 'warn') return false
+        if (railState === 'paused' && entry.definition.status !== 'paused') return false
+      }
+      if (!query) return true
+      return (
+        entry.definition.name.toLowerCase().includes(query) ||
+        projectLabel(entry.workspaceRoot).toLowerCase().includes(query)
+      )
+    })
+  }, [orderedEntries, railSearch, railProject, railState, now])
+
+  // One filter group per axis. Projects are offered only when there is a second
+  // one to choose between — a lone option beside "All projects" filters nothing.
+  const railFilterGroups = useMemo(() => {
+    const byRoot = new Map<string, number>()
+    for (const entry of entries) byRoot.set(entry.workspaceRoot, (byRoot.get(entry.workspaceRoot) ?? 0) + 1)
+    const projectItems = [
+      { value: ALL_PROJECTS, label: `All projects · ${entries.length}` },
+      ...[...byRoot.entries()]
+        .map(([root, count]) => ({ value: root, label: `${projectLabel(root)} · ${count}` }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    ]
+    const groups: FilterMenuGroup[] = []
+    if (byRoot.size > 1) {
+      groups.push({
+        label: 'Project',
+        items: projectItems,
+        value: railProject,
+        defaultValue: ALL_PROJECTS,
+        onChange: setRailProject,
+      })
+    }
+    groups.push({
+      label: 'State',
+      items: [
+        { value: ALL_STATES, label: 'All' },
+        { value: 'running', label: 'Running' },
+        { value: 'attention', label: 'Needs attention' },
+        { value: 'paused', label: 'Paused' },
+      ],
+      value: railState,
+      defaultValue: ALL_STATES,
+      onChange: setRailState,
+    })
+    return groups
+  }, [entries, railProject, railState])
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.definition.id === selectedId) ?? null,
@@ -249,13 +316,29 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 
   // ── Rail ────────────────────────────────────────────────────────────────────
   const rail = (
-    <AutomationsRail
-      entries={orderedEntries}
-      selectedId={editorTarget ? null : selectedId}
-      now={now}
-      onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
-      onCreate={openChooser}
-    />
+    <div className="flex min-h-0 flex-col">
+      <AutomationsRail
+        entries={visibleEntries}
+        selectedId={editorTarget ? null : selectedId}
+        now={now}
+        onSelect={(id) => { setSelectedId(id); setEditorTarget(null); setFocusRunId(null) }}
+        onCreate={openChooser}
+        search={{
+          value: railSearch,
+          onChange: setRailSearch,
+          placeholder: 'Search automations…',
+          ariaLabel: 'Search automations across every project',
+        }}
+        filter={{ ariaLabel: 'Filter automations', groups: railFilterGroups }}
+      />
+      {/* The lens is narrower than the automations behind it. Say so, rather
+          than letting an empty rail read as "you have no automations". */}
+      {visibleEntries.length === 0 && entries.length > 0 ? (
+        <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
+          No automations match.
+        </p>
+      ) : null}
+    </div>
   )
 
   return (
