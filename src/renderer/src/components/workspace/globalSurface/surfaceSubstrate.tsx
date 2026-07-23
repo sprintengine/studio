@@ -173,6 +173,10 @@ export interface SurfaceRailRow {
   pulse?: boolean
   /** Accessible name for the dot when the state line does not already carry it. */
   dotLabel?: string
+  /** A full status mark (e.g. a LifecycleGlyph) rendered INSTEAD of the tone
+   *  dot — for rails whose rows carry the app's lifecycle iconography (merged
+   *  branch, ready-for-review, completed disc) rather than a dot. */
+  icon?: React.ReactNode
 }
 
 export interface SurfaceRailNewAffordance {
@@ -252,7 +256,9 @@ export function SurfaceRail({
             selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
         >
-          <StatusDot tone={row.tone} pulse={row.pulse} size={7} label={row.dotLabel} className="shrink-0" />
+          {row.icon ?? (
+            <StatusDot tone={row.tone} pulse={row.pulse} size={7} label={row.dotLabel} className="shrink-0" />
+          )}
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]" title={row.title}>
               {row.title}

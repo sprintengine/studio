@@ -1,3 +1,4 @@
+import type { LifecycleState } from '../../../../../../shared/sprintengine/run-types'
 import type { SprintRunRuntimeState, SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import type { StatusTone } from '../../../ui/tokens'
 
@@ -21,6 +22,41 @@ export type SprintRailRow = {
   tone: StatusTone
   /** A run with work in flight — the dot pulses. */
   pulse: boolean
+  /** The row's status mark, in the SAME LifecycleGlyph vocabulary the Backlog
+   *  rows use (merged branch, ready-for-review branch, completed disc,
+   *  needs-input, running spinner) — never a bare tone dot. */
+  glyph: { state: LifecycleState; live: boolean; label: string }
+}
+
+// One vocabulary with the Backlog's run glyphs (deriveSprintEngineRunGlyph):
+// the rail only holds index summaries, so the mapping reads runtimeState +
+// repoRollup rather than the full projection, but the states and labels match —
+// Merged (purple branch), Ready for review (green branch), Complete (disc).
+export function sprintRunLifecycleGlyph(
+  summary: SprintRunSummary,
+): { state: LifecycleState; live: boolean; label: string } {
+  switch (summary.runtimeState) {
+    case 'needs_input':
+      return { state: 'needs_input', live: false, label: 'Needs input' }
+    case 'running':
+      return { state: 'in_progress', live: true, label: 'Running' }
+    case 'completed': {
+      const { declared, open, merged } = summary.repoRollup
+      if (declared > 0 && open > 0) return { state: 'done_unmerged', live: false, label: 'Ready for review' }
+      if (declared > 0 && merged > 0) return { state: 'done_merged', live: false, label: 'Merged' }
+      return { state: 'done', live: false, label: 'Complete' }
+    }
+    case 'canceled':
+      // The house mapping for a canceled terminal (boardColumn → 'archived').
+      return { state: 'archived', live: false, label: 'Canceled' }
+    case 'idle':
+      return { state: 'ready', live: false, label: 'Not started' }
+    case 'unknown':
+    default:
+      // The run exists but its projection could not be read — a neutral empty
+      // ring, never an alarm mark for what is usually a transient read.
+      return { state: 'todo', live: false, label: 'Details unavailable' }
+  }
 }
 
 export type SprintProjectChip = {
@@ -205,6 +241,7 @@ export function buildSprintRailRows(
     stateLine: sprintRunStateLine(summary),
     tone: sprintRunTone(summary.runtimeState),
     pulse: summary.runtimeState === 'running',
+    glyph: sprintRunLifecycleGlyph(summary),
   }))
 }
 

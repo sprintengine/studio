@@ -87,6 +87,23 @@ run('a run whose workspace is long gone still lists — the rail reads the index
 
 // The rail groups (MC-1838): the list is the inbox — Needs you leads, live work
 // under Active, everything else under Recent, and empty groups are omitted.
+// Rows carry the app's lifecycle iconography — the same marks the Backlog rows
+// use — never a bare tone dot (owner ruling 2026-07-24).
+run('rows carry lifecycle glyphs, not tone dots', () => {
+  const html = render()
+  assert.ok(html.includes('aria-label="Needs input"'), 'the waiting run carries the needs-input mark')
+  assert.ok(html.includes('aria-label="Running"'), 'the live run carries the running spinner')
+  assert.ok(
+    html.includes('aria-label="Ready for review"'),
+    'a completed run with a branch still out carries the review branch mark',
+  )
+  const merged = render({
+    runs: [summary({ teamSlug: 'landed-run', runtimeState: 'completed', repoRollup: { declared: 2, merged: 2, open: 0 } })],
+    selectedStatePath: null,
+  })
+  assert.ok(merged.includes('aria-label="Merged"'), 'a fully-merged run carries the purple merge mark')
+})
+
 run('rows group under Needs you / Active / Recent', () => {
   const html = render()
   assert.ok(html.includes('Sprints: Needs you'), 'the waiting group renders')
