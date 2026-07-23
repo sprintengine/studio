@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   NewChatIcon,
   SprintEngineMarkIcon,
-  SprintEngineWorkspaceTypeIcon,
   resolveEnabledWorkspaceType,
 } from '../AppIcons'
 import { buildModeModels } from './newWorkspace/modeModels'
@@ -520,14 +519,6 @@ export default function WorkspaceSidebar({
     const entry = getRendererHost().getGlobalSurface(activeGlobalSurface)
     return entry !== undefined && selectModuleEnabled(moduleOverrides, entry.moduleId)
   }, [activeGlobalSurface, moduleOverrides])
-  // The Sprints nav entry toggles the global Sprint Engines aside — the
-  // existing "all sprints across every project" survey panel mounted by
-  // WorkspaceManager — rather than a bespoke surface. Gated on the module.
-  const sprintEnginesAsideOpen = useWorkspaceStore((s) => s.sprintEnginesAsideOpen)
-  const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
-  const sprintEngineEnabled = useWorkspaceStore((s) =>
-    selectModuleEnabled(s.appSettings.modules, 'sprint-engine')
-  )
   // Module-contributed top-nav doors (the sidebar-nav host contribution point).
   // The Roadmap door now rides this registry rather than being hardcoded here:
   // it registers unconditionally at boot and is filtered by its module's live
@@ -1523,35 +1514,10 @@ export default function WorkspaceSidebar({
                 </div>
               ),
             },
-            // Automations is now a module-contributed door (order 10) in the
-            // moduleNavEntries block below — automations left the Projects list
-            // for the full-page surface (item 1707), so the hardcoded built-in
-            // button + host project-picker menu retired.
-            // Sprints toggles the global Sprint Engines aside (all sprints across projects).
-            sprintEngineEnabled
-              ? {
-                  id: 'sprints',
-                  order: 20,
-                  node: (
-                    <SidebarNavButton
-                      collapsed={sidebarCollapsed}
-                      icon={<SprintEngineWorkspaceTypeIcon className="icon-xs pointer-events-none shrink-0" />}
-                      label="Sprints"
-                      ariaLabel="Sprints"
-                      tooltip="Sprints — all projects"
-                      tooltipWhenExpanded
-                      // The Sprints aside and Connectors surface live on their own
-                      // persisted flags, independent of `activeGlobalSurface`. A door
-                      // surface is the primary selection while open, so these defer to
-                      // it — otherwise both a door row and (a persisted) Sprints row
-                      // would highlight at once. The aside itself stays open; it just
-                      // yields the "selected" idiom to the door.
-                      active={sprintEnginesAsideOpen && !globalSurfaceActive}
-                      onClick={() => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)}
-                    />
-                  ),
-                }
-              : null,
+            // Automations (order 10) and Sprints (order 20) are both
+            // module-contributed doors in the moduleNavEntries block below —
+            // each left the Projects list for its own full-page surface (items
+            // 1707 and 1763), so their hardcoded built-in buttons retired.
             {
               id: 'connectors',
               order: 30,

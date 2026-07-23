@@ -96,6 +96,7 @@ import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
+import { subscribeNewSprintRequests } from './globalSurface/sprints/sprintCreationRequest'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
@@ -331,6 +332,7 @@ export default function WorkspaceManager() {
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
+  const closeGlobalSurface = useWorkspaceStore((s) => s.closeGlobalSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
@@ -1109,6 +1111,20 @@ export default function WorkspaceManager() {
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [closeSettingsOverlay])
+
+  // "New sprint" on the Sprints door (item 1763). A door-routed surface is
+  // zero-prop by contract, so it signals instead of calling — and because the
+  // door paints over the card region the wizard lives in, the door closes first,
+  // otherwise the wizard would open behind it. Item 1765 gives that wizard its
+  // primary-project picker; it extends what opens here, not this wiring.
+  useEffect(
+    () =>
+      subscribeNewSprintRequests(() => {
+        closeGlobalSurface()
+        openNewWorkspacePanelWithMode('sprintengine')
+      }),
+    [closeGlobalSurface, openNewWorkspacePanelWithMode],
+  )
 
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })

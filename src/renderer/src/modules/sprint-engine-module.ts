@@ -28,6 +28,20 @@ const SprintEngineBoardPanel = React.lazy(
   () => import('../components/panels/SprintEngineBoardPanel')
 )
 
+// The Sprints top-nav door and the full-page surface it opens (item 1763). Both
+// lazy, and deliberately NOT top-level imports: the entry reaches the workspace
+// store (and through it the FlexLayout graph), so keeping them behind a dynamic
+// import leaves the eager module-registry graph store-free — the discipline the
+// other module doors follow.
+const SprintsNavEntry = React.lazy(() =>
+  import('../components/workspace/globalSurface/sprints/SprintsNavEntry').then((module) => ({
+    default: module.SprintsNavEntry,
+  }))
+)
+const SprintsGlobalSurface = React.lazy(
+  () => import('../components/workspace/globalSurface/sprints/SprintsGlobalSurface')
+)
+
 const backlogRunMountCliDefaults: SprintEngineRoleCliDefaults = {
   architect: 'claude-code',
   product: 'claude-code',
@@ -142,6 +156,16 @@ export const sprintEngineRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    // The Sprints door at the order-20 slot the hardcoded WorkspaceSidebar row
+    // used to hold (item 1763 / D4). That row toggled the Sprint Engines aside;
+    // this routes the full page to the instance-global Sprints surface, so runs
+    // stop being nested under one project. Registering here means the door and
+    // its surface follow this module's enablement: switch Sprint Engine off and
+    // both disappear, and a stale `activeGlobalSurface: 'sprints'` resolves to
+    // null in WorkspaceManager's generic mount guard, falling back to the
+    // workspace rather than painting a blank page.
+    host.registerSidebarNavEntry({ id: 'sprints', order: 20, Component: SprintsNavEntry })
+    host.registerGlobalSurface({ id: 'sprints', Component: SprintsGlobalSurface })
     // The `roadmap` board panel + the sidebar Roadmap door belong to the dedicated
     // `roadmap` module (MC-1691), and the `roadmap` workspace type was retired
     // (MC-1692) — Roadmap is an instance-global sidebar door now, not a per-project
