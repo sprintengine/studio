@@ -923,10 +923,9 @@ export function migratePersistedWorkspaceState(
     mapMigrationWorkspaces(migrationState, clearSprintEngineAgentLaunchState)
   }
   if (version < 60) {
-    // The Sprint Engines survey moved from the per-workspace nav rail to the
-    // app-level right aside (SprintEnginesAside); strip the retired
-    // 'sprint-engines' tab from persisted layouts so it cannot render as an
-    // empty surface.
+    // The Sprint Engines survey left the per-workspace nav rail (it is the
+    // Sprints door surface now); strip the retired 'sprint-engines' tab from
+    // persisted layouts so it cannot render as an empty surface.
     mapMigrationWorkspaces(migrationState, (ws) => {
       const next = stripSprintEnginesNavFromLayout(ws.layoutModel)
       return next === ws.layoutModel ? ws : { ...ws, layoutModel: next as Workspace['layoutModel'] }

@@ -189,8 +189,8 @@ function navTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
-// Sprint Engines is NOT a nav-rail component: the survey lives in the
-// app-level right aside (SprintEnginesAside), outside any workspace layout.
+// Sprint Engines is NOT a nav-rail component: the survey is the instance-global
+// Sprints door surface, outside any workspace layout.
 {
   assert.equal(NAV_RAIL_COMPONENTS.has('sprint-engines'), false)
 }

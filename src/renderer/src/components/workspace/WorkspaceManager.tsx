@@ -96,6 +96,7 @@ import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
+import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
 import { subscribeNewSprintRequests } from './globalSurface/sprints/sprintCreationRequest'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
@@ -161,14 +162,13 @@ const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
 // user reaches for it (Cmd-K palette, the diagnostics overlay, the startup-tip
-// modal, the Sprint Engines aside), so its subtree — and the diagnostics report
-// formatter / learning catalog it pulls — is fetched at open time, not at boot.
+// modal), so its subtree — and the diagnostics report formatter / learning
+// catalog it pulls — is fetched at open time, not at boot.
 const CommandPalette = React.lazy(() => import('../CommandPalette'))
 const DiagnosticsOverlay = React.lazy(() => import('../diagnostics/DiagnosticsOverlay'))
 const TipStartupModal = React.lazy(() =>
   import('../learn/TipStartupModal').then((m) => ({ default: m.TipStartupModal })),
 )
-const SprintEnginesAside = React.lazy(() => import('./SprintEnginesAside'))
 
 // Display name for a New Chat project scope: the folder's last path segment.
 function newChatFolderLabel(path: string): string {
@@ -320,8 +320,6 @@ export default function WorkspaceManager() {
   const setSidebarCollapsed = useWorkspaceStore((s) => s.setSidebarCollapsed)
   const sidebarWidth = useWorkspaceStore((s) => s.sidebarWidth)
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth)
-  const sprintEnginesAsideOpen = useWorkspaceStore((s) => s.sprintEnginesAsideOpen)
-  const setSprintEnginesAsideOpen = useWorkspaceStore((s) => s.setSprintEnginesAsideOpen)
   const setSprintEngineRoleRegistry = useWorkspaceStore((s) => s.setSprintEngineRoleRegistry)
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
@@ -432,7 +430,10 @@ export default function WorkspaceManager() {
     [primaryWorkspaceWindowId, workspaceWindowId, workspaceWindows]
   )
   const isPrimaryWorkspaceWindow = workspaceWindowId === (primaryWorkspaceWindowId || PRIMARY_WORKSPACE_WINDOW_ID)
-  const showSprintEnginesAside = sprintEngineEnabled && sprintEnginesAsideOpen
+  // The right-docked aside column, resolved through the mount seam: null unless
+  // a module has claimed it AND the column is open. Unclaimed today (MC-1766),
+  // so the card keeps the full width.
+  const workspaceAsideTenant = useWorkspaceAsideTenant()
   const visibleWorkspaceIdSet = useMemo(
     () => new Set(currentWorkspaceWindow?.workspaceIds ?? workspaces.map((workspace) => workspace.id)),
     [currentWorkspaceWindow, workspaces]
@@ -2283,13 +2284,6 @@ export default function WorkspaceManager() {
       setSidebarCollapsed(!sidebarCollapsed)
       return true
     }
-    if (commandId === 'panel.sprint-engines.toggle') {
-      // Mirrors the command's sprintEngineEnabled availability so a stale
-      // shortcut can't open an aside the disabled module never renders.
-      if (!sprintEngineEnabled) return false
-      setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)
-      return true
-    }
     if (commandId === 'panel.attention-queue.toggle') {
       // Core shell chrome (no module gate) — toggles the same transient popover
       // open state the title-bar trigger drives.
@@ -2469,9 +2463,6 @@ export default function WorkspaceManager() {
     openNewChatPanel,
     sidebarCollapsed,
     setSidebarCollapsed,
-    sprintEngineEnabled,
-    sprintEnginesAsideOpen,
-    setSprintEnginesAsideOpen,
     windowActiveWorkspaceId,
     activeGlobalSurface,
     openGlobalSurface,
@@ -2960,14 +2951,6 @@ export default function WorkspaceManager() {
           activeWorkspaceId: windowActiveWorkspaceId,
           onOpenItem: openSession,
         }}
-        sprintEnginesToggle={
-          sprintEngineEnabled
-            ? {
-                open: sprintEnginesAsideOpen,
-                onToggle: () => setSprintEnginesAsideOpen(!sprintEnginesAsideOpen),
-              }
-            : null
-        }
         onOpenDiagnostics={
           window.api.isDevelopment || window.api.isDiagnosticsEnabled
             ? () => setDiagnosticsOpen(true)
@@ -3031,18 +3014,18 @@ export default function WorkspaceManager() {
           />
         }
       />
-      {/* Card row: the workspace card and (when open) the Sprint Engines aside
-          share the strip under the full-width WorkspaceHeader, so the header's
-          right-edge controls keep the window's true right edge regardless of
-          whether the aside is open. */}
+      {/* Card row: the workspace card and (when a tenant claims it) the aside
+          column share the strip under the full-width WorkspaceHeader, so the
+          header's right-edge controls keep the window's true right edge
+          regardless of whether the column is open. */}
       <div className="flex min-h-0 flex-1 flex-row">
       {/* The workspace card: everything inside the rounded surface belongs to
-          the active workspace. With the Sprint Engines aside open the card
-          also rounds its right edge, reading as a card floating between two
-          pieces of app-level chrome (sidebar left, aside right). */}
+          the active workspace. With the aside column open the card also rounds
+          its right edge, reading as a card floating between two pieces of
+          app-level chrome (sidebar left, column right). */}
       <div
         className={`flex min-w-0 flex-1 flex-col overflow-hidden rounded-bl-[10px] bg-[color:var(--bg-surface)] ${
-          showSprintEnginesAside
+          workspaceAsideTenant
             ? 'rounded-br-[10px] shadow-[inset_-1px_0_0_rgba(255,255,255,0.04)]'
             : ''
         }`}
@@ -3218,24 +3201,12 @@ export default function WorkspaceManager() {
         />
       </div>
       </div>
-      {showSprintEnginesAside ? (
-        <React.Suspense fallback={null}>
-          <SprintEnginesAside
-            activeWorkspaceId={windowActiveWorkspaceId}
-            windowWorkspaceIds={visibleWorkspaceIdSet}
-            onSelectWorkspace={(id) => {
-              setShowNewWorkspacePanel(false)
-              setActiveWorkspaceForWindow(workspaceWindowId, id)
-            }}
-            onClose={() => setSprintEnginesAsideOpen(false)}
-          />
-        </React.Suspense>
-      ) : null}
+      {workspaceAsideTenant ? <WorkspaceAsideMount tenant={workspaceAsideTenant} /> : null}
       </div>
       </div>
       {/* Win/linux caption buttons pin to the window's absolute top-right corner
-          (above whatever column owns that edge — content or the Sprint Engines
-          aside), since the split chrome has no full-width bar to host them. */}
+          (above whatever column owns that edge — content or the aside column),
+          since the split chrome has no full-width bar to host them. */}
       {window.api.platform !== 'darwin' ? (
         <div className="app-no-drag absolute right-0 top-0 z-30 flex h-[36px] items-center">
           <WindowControls isMaximized={windowState.isMaximized} />

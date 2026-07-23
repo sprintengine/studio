@@ -116,9 +116,9 @@ function resolveRunIdentity(statePath: string): {
   }
 }
 
-// The `projectDisplayName` rule from sprintEnginesNav.ts: last path segment,
-// normalizing separators and a trailing slash. Kept node-free-equivalent here so
-// desktop and the aside name a project identically.
+// Project display name: last path segment, normalizing separators and a
+// trailing slash — the same rule the renderer's rail applies, so main and the
+// Sprints door name a project identically.
 function lastPathSegment(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/\/+$/u, '')
   const lastSlash = normalized.lastIndexOf('/')

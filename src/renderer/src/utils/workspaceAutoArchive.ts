@@ -1,6 +1,6 @@
 import type { Workspace } from '../types/workspace'
 import { deriveSprintEngineRunGlyph } from './sprintengine'
-import { isSprintEngineWorkspace } from './sprintEnginesNav'
+import { isSprintEngineWorkspace } from './sprintEngineWorkspace'
 import { isStarred } from './highlight'
 import { workspaceLastWorkedAt } from './workspaceRecency'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'

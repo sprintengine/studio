@@ -307,9 +307,8 @@ const carrier = {
   activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
-  sprintEnginesAsideOpen: false,
-  sprintsAsideWidth: 296,
-  sprintsAsideView: { view: 'active' as const, project: null, sort: 'attention' as const },
+  workspaceAsideOpen: false,
+  workspaceAsideWidth: 296,
   openFilesInExternalWindow: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,
@@ -347,14 +346,22 @@ assert.equal(carrier.activeGlobalSurface, 'roadmap', 'openRoadmapSurface routes 
 assert.equal('roadmapSurface' in carrier, false, 'the legacy overlay store flag is gone')
 slice.closeGlobalSurface()
 
-// Sprints aside view: partial patches merge into the existing axes so setting
-// one axis never resets the others.
-slice.setSprintsAsideView({ view: 'archived' })
-assert.deepEqual(carrier.sprintsAsideView, { view: 'archived', project: null, sort: 'attention' })
-slice.setSprintsAsideView({ project: 'my-app', sort: 'updated_desc' })
-assert.deepEqual(carrier.sprintsAsideView, { view: 'archived', project: 'my-app', sort: 'updated_desc' })
-slice.setSprintsAsideView({ view: 'active', project: null, sort: 'attention' })
-assert.deepEqual(carrier.sprintsAsideView, { view: 'active', project: null, sort: 'attention' })
+// The workspace aside column (MC-1766): the open/close + width halves of the
+// mount seam survive the Sprint Engines aside's retirement, so a future tenant
+// mounts without re-plumbing the store. Width clamps to the column bounds; the
+// retired sprint-specific view lens is gone entirely.
+assert.equal('sprintsAsideView' in carrier, false, 'the retired aside view lens is gone')
+assert.equal('sprintEnginesAsideOpen' in carrier, false, 'the retired aside open flag is gone')
+slice.setWorkspaceAsideOpen(true)
+assert.equal(carrier.workspaceAsideOpen, true)
+slice.setWorkspaceAsideOpen(false)
+assert.equal(carrier.workspaceAsideOpen, false)
+slice.setWorkspaceAsideWidth(10_000)
+assert.equal(carrier.workspaceAsideWidth, 520, 'width clamps to the column max')
+slice.setWorkspaceAsideWidth(10)
+assert.equal(carrier.workspaceAsideWidth, 240, 'width clamps to the column min')
+slice.setWorkspaceAsideWidth(Number.NaN)
+assert.equal(carrier.workspaceAsideWidth, 296, 'a non-finite width falls back to the default')
 
 // T3: the MCPs / Skill packs / Extensions settings tabs folded into the
 // Connectors surface. A deep-link that once opened one of those tabs (by tab
@@ -420,9 +427,8 @@ const permissionCarrier = {
   activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
-  sprintEnginesAsideOpen: false,
-  sprintsAsideWidth: 296,
-  sprintsAsideView: { view: 'active' as const, project: null, sort: 'attention' as const },
+  workspaceAsideOpen: false,
+  workspaceAsideWidth: 296,
   openFilesInExternalWindow: true,
   sprintEngineRoleRegistry: null,
   agentConfigAdoptionResult: null,

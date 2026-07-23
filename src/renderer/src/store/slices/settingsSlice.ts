@@ -42,9 +42,11 @@ import {
 } from '../onboardingState'
 import { normalizeSprintEngineModelCatalog } from '../../utils/modelCatalog'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
-import { SPRINTS_ASIDE_DEFAULT_WIDTH, clampSprintsAsideWidth } from '../../components/workspace/sprintsAsideWidth'
+import {
+  WORKSPACE_ASIDE_DEFAULT_WIDTH,
+  clampWorkspaceAsideWidth,
+} from '../../components/workspace/workspaceAsideWidth'
 import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
-import type { SprintsSort, SprintsView } from '../../utils/sprintEnginesNav'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
@@ -60,15 +62,6 @@ export type RunSummaryOverlayState = {
   open: boolean
   /** Which workspace's run summary the overlay is showing. */
   workspaceId: string | null
-}
-
-// The Sprints aside's view lens / project filter / sort. Store-level (not
-// component state) so the choice survives closing and reopening the aside;
-// transient across app restarts (not in extractSettingsFields).
-export type SprintsAsideViewState = {
-  view: SprintsView
-  project: string | null
-  sort: SprintsSort
 }
 
 export type ConnectorsSurfaceState = {
@@ -992,14 +985,14 @@ export interface SettingsSliceState {
   // the rail reopens at the width the user dragged it to. Only meaningful while
   // expanded; the collapsed rail is a fixed icon width.
   sidebarWidth: number
-  // The global Sprint Engines aside docked on the right of the workspace card.
-  // App-level (not per-workspace layout) because the aside surveys every
-  // workspace and must survive workspace switches.
-  sprintEnginesAsideOpen: boolean
-  // User-resizable width of the Sprint Engines aside, in px. Persisted like
-  // sidebarWidth so the panel reopens at the width the user dragged it to.
-  sprintsAsideWidth: number
-  sprintsAsideView: SprintsAsideViewState
+  // The right-docked workspace aside column (WorkspaceAsideMount). App-level,
+  // not per-workspace layout: the column sits outside the workspace card and
+  // survives workspace switches. Transient — deliberately NOT persisted, so an
+  // unclaimed column can never be reopened by a stale profile (MC-1766).
+  workspaceAsideOpen: boolean
+  // User-resizable width of the aside column, in px. Owned by the mount seam so
+  // a tenant inherits the resize behaviour rather than re-implementing it.
+  workspaceAsideWidth: number
   // Sticky "where do files open" preference. When true, opening a file routes to
   // the external editor window (a tabbed pop-up) instead of a workspace tab.
   // Set by user action — popping a tab out turns it on, docking a file back
@@ -1020,9 +1013,8 @@ export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
-  setSprintEnginesAsideOpen: (open: boolean) => void
-  setSprintsAsideView: (patch: Partial<SprintsAsideViewState>) => void
-  setSprintsAsideWidth: (width: number) => void
+  setWorkspaceAsideOpen: (open: boolean) => void
+  setWorkspaceAsideWidth: (width: number) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
   openSettingsOverlay: (opts?: { initialTab?: string | null; checkForUpdates?: boolean }) => void
   closeSettingsOverlay: () => void
@@ -1139,9 +1131,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     activeGlobalSurface: null,
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
-    sprintEnginesAsideOpen: false,
-    sprintsAsideWidth: SPRINTS_ASIDE_DEFAULT_WIDTH,
-    sprintsAsideView: { view: 'active', project: null, sort: 'attention' },
+    workspaceAsideOpen: false,
+    workspaceAsideWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,
     openFilesInExternalWindow: DEFAULT_OPEN_FILES_IN_EXTERNAL_WINDOW,
     sprintEngineRoleRegistry: null,
     agentConfigAdoptionResult: null,
@@ -1161,9 +1152,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.sidebarWidth = clampSidebarWidth(width)
       }),
 
-    setSprintEnginesAsideOpen: (open) =>
+    // No caller today: the column is unclaimed, so nothing can open it. Kept as
+    // the seam's open/close half — a tenant wires its own trigger to it.
+    setWorkspaceAsideOpen: (open) =>
       set((state) => {
-        state.sprintEnginesAsideOpen = open
+        state.workspaceAsideOpen = open
       }),
 
     setOpenFilesInExternalWindow: (enabled) =>
@@ -1206,14 +1199,9 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.runSummaryOverlay.workspaceId = null
       }),
 
-    setSprintsAsideView: (patch) =>
+    setWorkspaceAsideWidth: (width) =>
       set((state) => {
-        state.sprintsAsideView = { ...state.sprintsAsideView, ...patch }
-      }),
-
-    setSprintsAsideWidth: (width) =>
-      set((state) => {
-        state.sprintsAsideWidth = clampSprintsAsideWidth(width)
+        state.workspaceAsideWidth = clampWorkspaceAsideWidth(width)
       }),
 
     openConnectorsSurface: (opts) =>

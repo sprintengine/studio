@@ -182,18 +182,6 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'memoryGraphEnabled'],
     handlerPath: { kind: 'app-menu', command: 'panel.knowledge-graph.toggle' },
   }),
-  // The Sprint Engines aside is app-level chrome (it surveys every workspace
-  // and survives workspace switches), so unlike the rail panel toggles it is
-  // global scope and needs no active workspace. It ships unbound; users can
-  // bind it in Shortcuts settings.
-  command({
-    id: 'panel.sprint-engines.toggle',
-    title: 'Toggle Sprints',
-    category: 'panel',
-    scopes: ['global'],
-    availability: ['sprintEngineEnabled'],
-    handlerPath: { kind: 'workspace-manager', handler: 'setSprintEnginesAsideOpen(!sprintEnginesAsideOpen)' },
-  }),
   // The Attention Queue is core shell chrome (cross-workspace "agents awaiting
   // you"), so it is global-scope and ungated — no active workspace and no module
   // required. Ships unbound; users can bind it in Shortcuts settings.

@@ -20,11 +20,6 @@ import type { WorkspaceId } from '../../types/workspace'
 const STRIP_BUTTON =
   'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
 
-type SprintEnginesToggle = {
-  open: boolean
-  onToggle: () => void
-}
-
 type WorkspaceHeaderProps<MenuItem extends string> = {
   // Window-scoped active workspace — the panel switches derive their active
   // accent + git badge from it (null while no workspace is active).
@@ -57,8 +52,6 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   // · actions). Filled only while `globalSurfaceActive`.
   surfaceBarSlotRef: React.Ref<HTMLDivElement>
   attentionQueue: AttentionQueueSurface
-  // Null when the sprint-engine module is disabled — the toggle hides entirely.
-  sprintEnginesToggle: SprintEnginesToggle | null
   // Null outside dev/diagnostics builds.
   onOpenDiagnostics: (() => void) | null
 }
@@ -75,28 +68,6 @@ function DiagnosticsButton({ onOpen }: { onOpen: () => void }) {
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-        </svg>
-      </button>
-    </Tooltip>
-  )
-}
-
-function SprintEnginesAsideToggle({ open, onToggle }: SprintEnginesToggle) {
-  return (
-    <Tooltip content="Sprints" placement="bottom">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={open}
-        aria-label="Toggle Sprints"
-        className={`app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
-          open ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]'
-        }`}
-      >
-        {/* `panel-right` mirror of the sidebar's panel-left collapse glyph. */}
-        <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-          <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M10 3V13" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </button>
     </Tooltip>
@@ -159,7 +130,6 @@ export function WorkspaceHeader<MenuItem extends string>({
   globalSurfaceActive,
   surfaceBarSlotRef,
   attentionQueue,
-  sprintEnginesToggle,
   onOpenDiagnostics,
 }: WorkspaceHeaderProps<MenuItem>) {
   // With the sidebar hidden, the window's top-left is this header — so the
@@ -204,7 +174,6 @@ export function WorkspaceHeader<MenuItem extends string>({
         <div className="flex items-center gap-0.5 px-1.5">
           {onOpenDiagnostics ? <DiagnosticsButton onOpen={onOpenDiagnostics} /> : null}
           <AttentionQueuePopover {...attentionQueue} />
-          {sprintEnginesToggle ? <SprintEnginesAsideToggle {...sprintEnginesToggle} /> : null}
         </div>
       </div>
     </div>

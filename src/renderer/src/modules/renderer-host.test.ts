@@ -384,6 +384,59 @@ assert.deepEqual(
 
 console.log('renderer host global surface tests passed')
 
+// --- Workspace aside (single-slot right column seam, MC-1766) -----------------
+
+// The Sprint Engines aside retired with MC-1766 and no module claims the column
+// today, so this registry is exercised only here — that is deliberate: it keeps
+// the seam a future tenant (an embedded browser, a drag-in skills list) mounts
+// into from rotting while it is empty.
+{
+  const asideHost = createRendererHost()
+  assert.equal(
+    asideHost.getWorkspaceAside(),
+    undefined,
+    'an unclaimed column resolves to undefined so the mount renders nothing at all',
+  )
+
+  asideHost.hostFor('acme.browser').registerWorkspaceAside({
+    id: 'browser',
+    label: 'Browser',
+    Component: surfaceComponent,
+  })
+  const claimed = asideHost.getWorkspaceAside()
+  assert.equal(claimed?.moduleId, 'acme.browser', 'the tenant records its owning module for the enablement gate')
+  assert.equal(claimed?.label, 'Browser', 'the label names the column landmark')
+
+  assert.throws(
+    () =>
+      asideHost.hostFor('acme.skills').registerWorkspaceAside({
+        id: 'skills',
+        label: 'Skills',
+        Component: surfaceComponent,
+      }),
+    /already claimed by module "acme.browser"/,
+    'the column is a single slot: a second claimant fails with the holder named',
+  )
+  assert.throws(
+    () =>
+      createRendererHost()
+        .hostFor('acme.browser')
+        .registerWorkspaceAside({ id: '  ', label: 'Browser', Component: surfaceComponent }),
+    /id must be a non-empty string/,
+    'a blank id is rejected before registration',
+  )
+  assert.throws(
+    () =>
+      createRendererHost()
+        .hostFor('acme.browser')
+        .registerWorkspaceAside({ id: 'browser', label: '  ', Component: surfaceComponent }),
+    /label must be a non-empty string/,
+    'a blank label is rejected — the column landmark must have an accessible name',
+  )
+}
+
+console.log('renderer host workspace aside tests passed')
+
 // --- Notification action providers ---
 
 function notification(overrides: Partial<AppNotification> = {}): AppNotification {

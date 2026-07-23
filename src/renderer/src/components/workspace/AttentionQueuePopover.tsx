@@ -8,12 +8,12 @@ import type { AttentionQueueBadge } from '../../utils/attentionQueue'
 import type { SessionItem } from './WorkspaceActions'
 
 // The title-bar Attention Queue: the global "which agents are waiting on me"
-// surface across ALL workspaces. The trigger lives on the app title strip beside
-// the Sprint Engines toggle; the popover lists the needs-input / failed agents
+// surface across ALL workspaces. The trigger lives on the app title strip; the
+// popover lists the needs-input / failed agents
 // (data + ordering from utils/attentionQueue), grouped by workspace and
 // attention-first. It only surfaces and routes — opening a row activates that
 // workspace and focuses the agent so the user answers/relaunches at the terminal.
-// Rows hosted in another window render disabled, mirroring SprintEnginesAside.
+// Rows hosted in another window render disabled, mirroring the Sprints rail.
 
 export type AttentionQueueSurface = {
   items: SessionItem[]

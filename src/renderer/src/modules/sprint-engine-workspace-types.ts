@@ -2,7 +2,7 @@ import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, PreviewSlot, SprintEngineMockConfig } from '../types/workspace'
 import { GuidedBriefWorkspaceTypeIcon, SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
-import { isSprintEngineWorkspace } from '../utils/sprintEnginesNav'
+import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 
 const agent = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'agent', label })

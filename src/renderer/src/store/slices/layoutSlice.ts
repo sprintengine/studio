@@ -160,9 +160,9 @@ export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
   return stripComponentTabsFromLayout(layoutModel, 'settings')
 }
 
-// The Sprint Engines survey moved out of the per-workspace nav rail into the
-// app-level right aside (SprintEnginesAside); a persisted 'sprint-engines' tab
-// would render an empty surface, so drop it from existing layouts.
+// The Sprint Engines survey left the per-workspace nav rail (it is the Sprints
+// door surface now); a persisted 'sprint-engines' tab would render an empty
+// surface, so drop it from existing layouts.
 export function stripSprintEnginesNavFromLayout(layoutModel: unknown): unknown {
   return stripComponentTabsFromLayout(layoutModel, 'sprint-engines')
 }

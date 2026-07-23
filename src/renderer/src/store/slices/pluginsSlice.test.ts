@@ -77,6 +77,25 @@ async function main(): Promise<void> {
   assert.equal('pluginCatalogStatus' in persisted, false)
   assert.equal('pluginCatalogError' in persisted, false)
 
+  // MC-1766 upgrade path: a profile written before the Sprint Engines aside was
+  // retired still carries its keys, and hydration spreads them onto live state.
+  // Nothing reads them, and the next write must drop them rather than round-trip
+  // a flag that would reopen a column no module claims. The aside column's own
+  // open/width flags are transient too — never written.
+  useWorkspaceStore.setState((state) => ({
+    ...state,
+    sprintEnginesAsideOpen: true,
+    sprintsAsideWidth: 400,
+    sprintsAsideView: { view: 'archived', project: null, sort: 'attention' },
+    workspaceAsideOpen: true,
+  }) as unknown as WorkspaceStore)
+  const afterRetirement = __workspaceStorePartializeForTests(
+    useWorkspaceStore.getState() as WorkspaceStore,
+  ) as Record<string, unknown>
+  for (const key of ['sprintEnginesAsideOpen', 'sprintsAsideWidth', 'sprintsAsideView', 'workspaceAsideOpen', 'workspaceAsideWidth']) {
+    assert.equal(key in afterRetirement, false, `${key} must never be persisted`)
+  }
+
   // --- T12: background focus re-sync ---------------------------------------
   // A background refresh must not flip the catalog to loading or wipe a working
   // catalog on a transient failure.
