@@ -378,8 +378,32 @@ async function main(): Promise<void> {
     return { ...built, numericId: id, displayId: `${key}-${id}` }
   }
 
+  // One epic with a member, so the door's DETAIL pane can be proven to render
+  // the workspace panel's epic linkage (MC-1836): the child's parent crumb and
+  // the epic's children roll-up.
+  const doorEpic: BacklogItem = {
+    ...createBacklogItem({
+      path: `${multicode}/backlog/epics/door-quality.md`,
+      relativePath: 'backlog/epics/door-quality.md',
+      sourceContent: '---\ntype: epic\nstatus: in_progress\n---\n# Door quality epic',
+      stats: { modifiedAtMs: 1, sizeBytes: 1 },
+    }),
+    numericId: 1832,
+    displayId: 'MC-1832',
+  }
+  const doorEpicChild: BacklogItem = {
+    ...createBacklogItem({
+      path: `${multicode}/backlog/lockin.md`,
+      relativePath: 'backlog/lockin.md',
+      sourceContent: '---\nstatus: ready\nepic: door-quality\n---\n# Door lock-in child item',
+      stats: { modifiedAtMs: 1, sizeBytes: 1 },
+    }),
+    numericId: 1833,
+    displayId: 'MC-1833',
+  }
+
   const backlogByRoot = new Map<string, BacklogItem[]>([
-    [multicode, [item(multicode, 'MC', 1758, 'backlog/wake-filter.md', 'in_progress'), item(multicode, 'MC', 1745, 'backlog/minimap.md', 'ready')]],
+    [multicode, [item(multicode, 'MC', 1758, 'backlog/wake-filter.md', 'in_progress'), item(multicode, 'MC', 1745, 'backlog/minimap.md', 'ready'), doorEpic, doorEpicChild]],
     [multiauth, [item(multiauth, 'MA', 112, 'backlog/token-refresh.md', 'needs_input')]],
     [mobile, [item(mobile, 'MM', 87, 'backlog/catch-up-brief.md', 'ready')]],
   ])
@@ -436,14 +460,14 @@ async function main(): Promise<void> {
   )
   const backlogRetry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
   assert.ok(backlogRetry, 'and offers Try again')
-  assert.equal(rowText().length, 3, 'the other two projects contribute all of their rows')
+  assert.equal(rowText().length, 5, 'the other two projects contribute all of their rows')
   // Still a working backlog, not a frozen one: every surviving row is a
   // selectable option, so the failure cost rows and nothing else.
   assert.equal(
     container.querySelectorAll(
       'ul[role="listbox"][aria-label="Backlog items across projects"] > li[role="option"]',
     ).length,
-    3,
+    5,
     'and they stay interactive',
   )
   console.log('ok - one project’s scan failing costs only that project’s rows')
@@ -470,6 +494,48 @@ async function main(): Promise<void> {
     'and drops the project tag it no longer needs',
   )
   console.log('ok - filtering to one project reproduces that project’s list')
+
+  // The door's detail pane is the WORKSPACE panel's BacklogDetail (MC-1836):
+  // opening an epic shows the navigable children roll-up, opening a child shows
+  // the parent-epic crumb — the two sections the old door fork dropped.
+  const allChip = chips.find((chip) => chip.querySelector('span')?.textContent === 'All projects')
+  await act(async () => {
+    ;(allChip as HTMLElement).click()
+  })
+  await settle()
+  const rowFor = (needle: string): HTMLElement => {
+    const row = [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')]
+      .find((candidate) => candidate.textContent?.includes(needle))
+    assert.ok(row, `a list row for ${needle}`)
+    return row as HTMLElement
+  }
+  await act(async () => {
+    rowFor('Door quality epic').click()
+  })
+  await settle()
+  assert.ok(
+    container.textContent?.includes('0 of 1 done'),
+    'the epic detail rolls up its children with the panel’s done fraction',
+  )
+  const childRollupRow = [...container.querySelectorAll('button')].find(
+    (candidate) => candidate.title === 'backlog/lockin.md',
+  )
+  assert.ok(childRollupRow, 'the epic’s member renders as a navigable roll-up row')
+  await act(async () => {
+    ;(childRollupRow as HTMLElement).click()
+  })
+  await settle()
+  const crumb = container.querySelector('button[aria-label="Open epic Door quality epic"]')
+  assert.ok(crumb, 'navigating to the child shows the parent-epic crumb (fork never had one)')
+  await act(async () => {
+    ;(crumb as HTMLElement).click()
+  })
+  await settle()
+  assert.ok(
+    container.textContent?.includes('0 of 1 done'),
+    'the crumb navigates back up to the epic detail',
+  )
+  console.log('ok - the door detail is the workspace BacklogDetail: crumb and children link both ways')
 
   await act(async () => {
     backlogRoot.unmount()

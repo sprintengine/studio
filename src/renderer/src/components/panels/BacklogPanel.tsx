@@ -2147,7 +2147,11 @@ function BacklogGroupHeaderRow({
 
 // ---- Detail / preview ------------------------------------------------------
 
-function BacklogDetail({
+// Exported for the Backlog door (MC-1836): the door renders THIS component for
+// an opened item — one detail implementation, so the aside and the door can
+// never drift. The door supplies its per-project feed data and degrades the
+// workspace-only inputs (agent targets, external actions) explicitly.
+export function BacklogDetail({
   scan,
   loading,
   folderPath,

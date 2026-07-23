@@ -6,13 +6,9 @@ import {
   GhostButton,
   InboxSearchInput,
   InlineNotice,
-  LifecycleGlyph,
   MenuItem,
-  OverflowMenu,
   PrimaryButton,
-  StarGlyph,
   Tooltip,
-  TruncatedText,
   useConfirmDialog,
   type SelectItem,
 } from '../../../ui'
@@ -30,7 +26,6 @@ import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { useBacklogDoorViewStore } from '../../../../store/backlogViewStore'
 import {
   backlogItemSlugFromPath,
-  backlogPreviewMarkdown,
   normalizeRelativePath,
   type BacklogItem,
 } from '../../../../utils/backlog'
@@ -57,7 +52,6 @@ import { getHighlightSwatch } from '../../../../utils/highlight'
 import { resolveFirstMockupCandidate } from '../../../../utils/backlogMockups'
 import { FilePreviewPane } from '../../../ui/FilePreviewPane'
 import { HtmlArtifactFrame } from '../../guidedBrief/MockupPreviewPane'
-import { renderMarkdown } from '../../../../utils/markdown'
 import { basename, joinFilePath, parentPath } from '../../../../utils/paths'
 import { focusOrAddFileTab } from '../../../../utils/modelRegistry'
 import { getRendererHost, selectModuleEnabled } from '../../../../modules'
@@ -67,25 +61,17 @@ import {
   BacklogEpicHeaderContent,
   BacklogRowContent,
   BacklogRowHoverCard,
-  BACKLOG_BLOCKED_LABEL,
-  BACKLOG_STATUS_LABEL,
-  backlogStatusToLifecycle,
   type BacklogRunGlyph,
 } from '../../../backlog/BacklogRow'
 import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
-  MenuCheckGlyph,
-  RISK_EDIT_ITEMS,
-  STATUS_MENU_CHOICES,
   type BacklogDependencyChoice,
   type BacklogEpicChoice,
 } from '../../../backlog/BacklogItemContextMenu'
-import { BacklogLinksSection } from '../../../backlog/BacklogLinksSection'
-import { BacklogDependenciesSection } from '../../../backlog/BacklogDependenciesSection'
-import { BacklogMockupsSection } from '../../../backlog/BacklogMockupsSection'
 import { BacklogCreateDialog, type BacklogDraft } from '../../../panels/BacklogCreateDialog'
+import { BacklogDetail } from '../../../panels/BacklogPanel'
 import { ALL_PROJECTS, buildBacklogDoorList } from './backlogSurfaceModel'
 import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlogDoorActions'
 
@@ -556,8 +542,11 @@ export default function BacklogGlobalSurface(): JSX.Element {
       project={selectedRow.project}
       feed={selectedRow.feed}
       runGlyph={runGlyphByRowKey.get(selectedRow.key)}
+      runGlyphByRowKey={runGlyphByRowKey}
+      now={now}
       actions={actions}
       linkProviders={linkProviders}
+      epicChoices={epicChoicesFor(selectedRow.feed)}
       dependencyChoices={dependencyChoicesFor(selectedRow.feed)}
       showBack={!isSplit}
       onBack={() => setShowDetailInSingle(false)}
@@ -1041,13 +1030,29 @@ function BacklogDoorList({
 }
 
 // ── detail ──────────────────────────────────────────────────────────────────
+// The door renders the WORKSPACE panel's BacklogDetail (MC-1836) — one detail
+// implementation, so an epic's crumb, linked-children roll-up, triage, and body
+// can never drift between the aside and the door. This adapter maps the door's
+// per-project feed onto the panel's props and degrades the workspace-only
+// inputs explicitly:
+//   • scan/loading — an item is always selected here, so the panel's pre-scan
+//     early returns are unreachable (scan: null, loading: false).
+//   • agent send — no per-workspace agent roster at the door; the flyout shows
+//     its own "No running agents" state.
+//   • external actions — workspace-launch actions stay on the panel for now.
+//   • mockup preview — hosted here (the panel lifts it to its parent the same
+//     way); pop-out needs a workspace editor tab, so the door's preview keeps
+//     its own back/close-only chrome.
 function BacklogDoorDetail({
   item,
   project,
   feed,
   runGlyph,
+  runGlyphByRowKey,
+  now,
   actions,
   linkProviders,
+  epicChoices,
   dependencyChoices,
   showBack,
   onBack,
@@ -1057,17 +1062,16 @@ function BacklogDoorDetail({
   project: BacklogProjectRef
   feed: BacklogProjectFeed
   runGlyph?: BacklogRunGlyph
+  runGlyphByRowKey: ReadonlyMap<string, BacklogRunGlyph>
+  now: number
   actions: ReturnType<typeof createBacklogDoorActions>
   linkProviders: ReadonlyArray<BacklogLinkProvider>
+  epicChoices: BacklogEpicChoice[]
   dependencyChoices: BacklogDependencyChoice[]
   showBack: boolean
   onBack: () => void
   onNavigate: (itemId: string) => void
 }): JSX.Element {
-  const dependencyState = feed.derived.dependencyStateById.get(item.id) ?? null
-  const blocked = !runGlyph && dependencyState === 'blocked'
-  const statusLabel = runGlyph?.label ?? (blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
-
   // Inline mockup preview: clicking an attached/detected mockup swaps this pane
   // for the rendered file (the panel's behaviour). Resolution re-runs across BOTH
   // tolerated roots from the authored ref, and a missing/unreadable file leaves
@@ -1093,16 +1097,27 @@ function BacklogDoorDetail({
     [project.root],
   )
 
-  // The dependency node for the selected item, derived from its OWN project — a
-  // prerequisite never crosses a project boundary.
-  const node = useMemo(() => {
+  // This project's items and derivations, in the shapes the panel reads. The
+  // dependency node comes from the item's OWN project — a prerequisite never
+  // crosses a project boundary.
+  const projectItems = useMemo(() => feed.items.map((entry) => entry.item), [feed])
+  const dependencyNode = useMemo(() => {
     if (item.isEpic) return null
-    const graph = deriveBacklogDependencies(feed.items.map((entry) => entry.item))
+    const graph = deriveBacklogDependencies(projectItems)
     return graph.nodes.find((candidate) => candidate.item.id === item.id) ?? null
-  }, [feed, item])
+  }, [projectItems, item])
+  const runGlyphById = useMemo(() => {
+    const map = new Map<string, BacklogRunGlyph>()
+    for (const entry of feed.items) {
+      const glyph = runGlyphByRowKey.get(rowKeyOf(feed.rootKey, entry.item.id))
+      if (glyph) map.set(entry.item.id, glyph)
+    }
+    return map
+  }, [feed, runGlyphByRowKey])
 
   // A workspace already open on this project, for the link providers that
-  // resolve a linked run's live state. Null when the project has none.
+  // resolve a linked run's live state. The empty-string sentinel degrades the
+  // workspace-only lookups instead of hiding the whole Links section.
   const workspaceId = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.folderPath === project.root)?.id ?? null,
   )
@@ -1133,189 +1148,40 @@ function BacklogDoorDetail({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-4 py-3">
-        <div className="flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
-          {showBack ? (
-            <GhostButton onClick={onBack} aria-label="Back to the list">
-              Back
-            </GhostButton>
-          ) : null}
-          <Tooltip content={statusLabel} placement="top">
-            <LifecycleGlyph
-              state={runGlyph?.state ?? (blocked ? 'blocked' : backlogStatusToLifecycle(item.status))}
-              live={runGlyph?.live ?? false}
-            />
-          </Tooltip>
-          {item.displayId ? <span className="font-mono tabular-nums">{item.displayId}</span> : null}
-          <span>{statusLabel}</span>
-          <span aria-hidden="true">·</span>
-          {/* The one fact the door adds over the panel: which project's backlog
-              this item lives in, and therefore what every action here edits. */}
-          <span className="font-mono text-[color:var(--text-muted)]">{project.name}</span>
-          <TruncatedText as="span" text={item.relativePath} className="ml-auto min-w-0 font-mono text-[10.5px]" />
-        </div>
-        <div className="mt-1.5 flex items-start gap-2">
-          <TruncatedText
-            as="h3"
-            multiline
-            text={item.title}
-            className="min-w-0 flex-1 text-[14px] font-semibold text-[color:var(--text-strong)]"
-          />
-          {/* Every mutation also lives here, not only on the row's right-click
-              menu: a context menu is mouse-only, so without this the door's
-              status / triage / star / archive actions would be unreachable by
-              keyboard. Same shared choice lists and the same BacklogActions the
-              row menu dispatches, so the two surfaces cannot drift. */}
-          <BacklogDoorActionsMenu item={item} actions={actions} />
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {item.type !== 'mockup' ? (
-          <BacklogMockupsSection
-            item={item}
-            folderPath={project.root}
-            onOpenMockup={openMockup}
-            onSetMockups={actions.setMockups}
-          />
-        ) : null}
-        {workspaceId ? (
-          <BacklogLinksSection
-            item={item}
-            workspaceId={workspaceId}
-            workspaceRoot={project.root}
-            providers={linkProviders}
-            excludeLinkId={null}
-            onRemoveLink={(link) => actions.removeLink(item, link)}
-          />
-        ) : null}
-        {!item.isEpic ? (
-          <BacklogDependenciesSection
-            item={item}
-            node={node}
-            dependencyChoices={dependencyChoices}
-            dependencyStateById={feed.derived.dependencyStateById}
-            actions={actions}
-            onNavigate={onNavigate}
-          />
-        ) : null}
-        <div className="px-4 py-3">
-          <BacklogDoorPreview item={item} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// The detail pane's "More actions" menu — the keyboard-reachable twin of the
-// row's right-click menu. Both dispatch the same `BacklogActions` (already
-// routed to the item's own project), and both read the same shared choice lists,
-// so a status word or size label can never differ between them.
-function BacklogDoorActionsMenu({
-  item,
-  actions,
-}: {
-  item: BacklogItem
-  actions: ReturnType<typeof createBacklogDoorActions>
-}): JSX.Element {
-  const starred = item.highlight?.starred === true
-  const currentColor = item.highlight?.color ?? null
-  const archived = item.status === 'archived'
-  const choiceFlyout = <T,>(
-    id: string,
-    label: string,
-    choices: ReadonlyArray<{ value: T; label: string }>,
-    current: T,
-    apply: (value: T) => void,
-  ) => ({
-    kind: 'flyout' as const,
-    id,
-    label,
-    ariaLabel: label,
-    surfaceClassName: 'min-w-[180px]',
-    render: (close: () => void) => (
-      <>
-        {choices.map((choice) => (
-          <MenuItem
-            key={String(choice.value)}
-            checked={current === choice.value}
-            icon={<MenuCheckGlyph visible={current === choice.value} />}
-            onClick={() => {
-              apply(choice.value)
-              close()
-            }}
-          >
-            {choice.label}
-          </MenuItem>
-        ))}
-      </>
-    ),
-  })
-
-  return (
-    <OverflowMenu
-      ariaLabel="More actions"
-      triggerTooltip="More actions"
-      items={[
-        { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(item) },
-        { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(item) },
-        { kind: 'separator' as const, id: 'sep-files' },
-        choiceFlyout(
-          'set-status',
-          'Status',
-          STATUS_MENU_CHOICES.map((status) => ({ value: status, label: BACKLOG_STATUS_LABEL[status] })),
-          item.status,
-          (status) => actions.setStatus(item, status),
-        ),
-        choiceFlyout('set-priority', 'Priority', CRITICALITY_EDIT_ITEMS, item.criticality ?? 'unset', (value) =>
-          actions.setCriticality(item, value),
-        ),
-        choiceFlyout('set-size', 'Size', DIFFICULTY_EDIT_ITEMS, item.difficulty ?? 'unset', (value) =>
-          actions.setDifficulty(item, value),
-        ),
-        choiceFlyout('set-risk', 'Risk', RISK_EDIT_ITEMS, item.risk ?? 'unset', (value) =>
-          actions.setRisk(item, value),
-        ),
-        { kind: 'separator' as const, id: 'sep-triage' },
-        {
-          id: 'star',
-          label: starred ? 'Unstar' : 'Star',
-          icon: (
-            <StarGlyph
-              filled={starred}
-              stroked
-              className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
-            />
-          ),
-          onSelect: () => actions.setHighlight(item, { starred: !starred, color: currentColor }),
-        },
-        { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(item) },
-        ...(archived
-          ? []
-          : [
-              item.isEpic
-                ? { id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(item) }
-                : { id: 'archive', label: 'Archive', onSelect: () => actions.archive(item) },
-            ]),
-        { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(item) },
-      ]}
+    <BacklogDetail
+      scan={null}
+      loading={false}
+      folderPath={project.root}
+      selected={item}
+      selectedRunGlyph={runGlyph}
+      runGlyphById={runGlyphById}
+      now={now}
+      hasItems
+      externalActions={[]}
+      workspaceId={workspaceId ?? ''}
+      linkProviders={linkProviders}
+      showBack={showBack}
+      onBack={onBack}
+      actions={actions}
+      epicChoices={epicChoices}
+      items={projectItems}
+      epicMetaBySlug={feed.derived.epicMetaBySlug}
+      dependencyNode={dependencyNode}
+      dependencyState={feed.derived.dependencyStateById.get(item.id) ?? null}
+      dependencyStateById={feed.derived.dependencyStateById}
+      epicBlockedRollup={item.isEpic ? feed.derived.epicBlockedBySlug.get(epicSlug(item)) : undefined}
+      dependencyChoices={dependencyChoices}
+      onNavigate={onNavigate}
+      agentTargets={[]}
+      agentSessions={null}
+      onAgentFlyoutOpen={() => {}}
+      onSendToAgent={() => {}}
+      previewedMockup={null}
+      onOpenMockup={openMockup}
+      onCloseMockupPreview={() => {}}
+      onPopOutMockup={() => {}}
     />
   )
-}
-
-function BacklogDoorPreview({ item }: { item: BacklogItem }): JSX.Element {
-  if (!/\.md$/i.test(item.relativePath)) {
-    return (
-      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-[color:var(--text-muted)]">
-        {item.sourceContent}
-      </pre>
-    )
-  }
-  const body = backlogPreviewMarkdown(item.sourceContent)
-  if (!body.trim()) {
-    return <p className="text-[12px] text-[color:var(--text-subtle)]">This item has no description yet.</p>
-  }
-  return <div className="markdown-body">{renderMarkdown(body)}</div>
 }
 
 // ── local helpers ───────────────────────────────────────────────────────────
