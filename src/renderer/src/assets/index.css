@@ -803,9 +803,12 @@
   --bg-app: #d4dcc0;
   --bg-surface: #f4ece0;
   --bg-surface-raised: #fcf4e8;
-  --bg-hover: #e4e8d8;
-  --bg-active: #d8dcc8;
-  --bg-selected: #ccd4b8;
+  /* State tints stay in the parchment family, not the sage (owner ruling
+     2026-07-23 / MC-1844): sage is the chrome canvas's identity only — a
+     hovered or selected row is a working surface, so it darkens neutrally. */
+  --bg-hover: #ece4d4;
+  --bg-active: #e0d8c8;
+  --bg-selected: #d4ccb8;
   --bg-inverted-hover: #1c2018;
   --surface-overlay-backdrop: rgba(32, 36, 24, 0.42);
 
@@ -849,8 +852,8 @@
   --tone-warn-soft: rgba(152, 100, 0, 0.18);
   --tone-error-soft: rgba(196, 36, 36, 0.14);
 
-  --scrollbar-thumb: #c4ccb0;
-  --scrollbar-thumb-hover: #b0b89c;
+  --scrollbar-thumb: #d0c8b4;
+  --scrollbar-thumb-hover: #bcb4a0;
   --skeleton-shimmer-low: rgba(36, 40, 24, 0.04);
   --skeleton-shimmer-high: rgba(36, 40, 24, 0.09);
 
@@ -884,8 +887,10 @@
   --bg-surface: #fbf9f2;    /* warm near-white panel/card, elevated above cream */
   --bg-surface-raised: #fdfcf7;
   --bg-hover: #ece9dc;
-  --bg-active: #e2e4d2;
-  --bg-selected: #d9dec9;   /* website sage — the grouped/selection tint */
+  /* Neutral cream steps, not sage (owner ruling 2026-07-23 / MC-1844): the
+     website sage stays chrome identity; selection darkens the cream neutrally. */
+  --bg-active: #e3dfd0;
+  --bg-selected: #d9d4c4;
   --bg-inverted-hover: #191613;
   --surface-overlay-backdrop: rgba(25, 22, 19, 0.42);
 

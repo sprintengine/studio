@@ -77,7 +77,7 @@ export function GlobalSurfaceShell({
   return (
     <section
       aria-label={ariaLabel}
-      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--bg-app)]"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--bg-surface)]"
     >
       {bar && !liftBar ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-5 py-3">

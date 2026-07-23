@@ -3222,8 +3222,11 @@ export default function WorkspaceManager() {
             activeGlobalSurface. Gated on the surface's owning module: a stale flag
             after a module toggle resolves to null and the workspace shows through.
             Connectors/Settings deliberately keep their overlay pattern below. */}
+        {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
+            the neutral surface ground — the themed canvas (sage in the green
+            themes) stays the sidebar/chrome's identity only. */}
         {activeGlobalSurfaceEntry ? (
-          <div className="absolute inset-0 z-20 bg-[color:var(--bg-app)]">
+          <div className="absolute inset-0 z-20 bg-[color:var(--bg-surface)]">
             <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
               {/* A door failure stays a door failure (MC-1835): render/import
                   throws land in this boundary's contained fallback instead of
