@@ -105,6 +105,18 @@ async function main(): Promise<void> {
     'the selected depth explains what it produces',
   )
   assert.equal(first.current().depth, 'standard', 'and that is what the door passes to the session')
+  // The explanation is visible copy AND the group's description, so it is not a
+  // sighted-only affordance.
+  const group = container.querySelector('[role="radiogroup"]')
+  const describedBy = group?.getAttribute('aria-describedby')
+  assert.ok(describedBy, 'the depth group points at its explanation')
+  // getElementById, not a `#id` selector: React's useId values contain colons,
+  // which are legal in an id but not in a CSS selector.
+  assert.match(
+    dom.window.document.getElementById(describedBy)?.textContent ?? '',
+    /Adds notes on the lines worth pausing on/,
+    'and that description is the same line on screen',
+  )
   console.log('ok - the prepare banner offers three plain depths with the selected one explained')
 
   // Pressing a segment changes the value the door threads into the start IPC, and

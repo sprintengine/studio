@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { ReviewBriefRunDepth } from '../../../../../../shared/electron-api'
 import type { AgentCli } from '../../../../types/workspace'
@@ -118,6 +118,9 @@ export function ReviewGuideActions({
   runtime: ReviewGuideRuntime
   terminal: GuideTerminalLink
 }): JSX.Element | null {
+  // The depth line is visible copy AND the group's description, so a screen
+  // reader hears what the selected depth produces, not just its one-word label.
+  const depthHintId = useId()
   // While the guide works there is nothing to configure and nothing to press —
   // only the terminal it is working in, which is where its progress really is.
   if (session.run.running) {
@@ -134,6 +137,7 @@ export function ReviewGuideActions({
       <span className="flex items-center gap-2">
         <SegmentedControl
           ariaLabel="Walkthrough depth"
+          ariaDescribedBy={depthHintId}
           items={DEPTH_SEGMENTS}
           value={runtime.depth}
           onChange={runtime.setDepth}
@@ -154,7 +158,9 @@ export function ReviewGuideActions({
           {failed ? 'Try again' : 'Prepare walkthrough'}
         </PrimaryButton>
       </span>
-      <span className="text-[11px] leading-4 text-[color:var(--text-subtle)]">{DEPTH_HINT[runtime.depth]}</span>
+      <span id={depthHintId} className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        {DEPTH_HINT[runtime.depth]}
+      </span>
     </span>
   )
 }
