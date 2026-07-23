@@ -19,9 +19,11 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 // slim banner offers to prepare the guide walkthrough and surfaces a failed run.
 // All the state, IPC, and mutation live in `useReviewSession`; this is the pure
 // view, so it renders deterministically from a session object with no side effects.
-// `guideActions` is the one slot it does not own: picking the agent that runs the
-// guide and opening its terminal need the plugin catalog and the layout registry,
-// which the Reviews door supplies (ReviewGuideControls) so this stays store-free.
+// `guideActions` is the one slot it does not own: the preparation choices (how
+// deep a walkthrough, which agent builds it) and the link into the guide's
+// terminal need the plugin catalog, the persisted defaults, and the layout
+// registry, which the Reviews door supplies (ReviewGuideControls) so this stays
+// store-free.
 export function ReviewCanvas({ session, guideActions }: { session: ReviewSession; guideActions: ReactNode }): JSX.Element {
   const { status, changeset, run } = session
 
@@ -175,7 +177,8 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
 // resting invite, a "the guide is working" line (the guide runs in its own
 // terminal, so the action beside it is the way into that terminal), and a run
 // failure ("keep reviewing without it") — so a failed guide run is never a dead
-// end over a reviewable change.
+// end over a reviewable change. `actions` is the whole right-hand block, choices
+// included (MC-1788), and lays itself out; the banner only places it.
 function DegradedBanner({ run, actions }: { run: ReviewRunProgress; actions: ReactNode }) {
   const failed = Boolean(run.error)
   return (
@@ -195,7 +198,7 @@ function DegradedBanner({ run, actions }: { run: ReviewRunProgress; actions: Rea
           'No guide walkthrough yet — you’re viewing the raw change.'
         )}
       </span>
-      <span className="flex shrink-0 items-center gap-2">{actions}</span>
+      {actions}
     </div>
   )
 }

@@ -38,6 +38,7 @@ async function main(): Promise<void> {
   type ReviewBrief = import('../../../../../shared/review').ReviewBrief
   type ReviewComment = import('../../../../../shared/review').ReviewComment
   type ReviewWorkspaceState = import('../../../../../shared/review').ReviewWorkspaceState
+  type ReviewBriefRunDepth = import('../../../../../shared/electron-api').ReviewBriefRunDepth
   type ReviewBriefRunEvent = import('../../../../../shared/electron-api').ReviewBriefRunEvent
   type ReviewGuideRunStatus = import('../../../../../shared/electron-api').ReviewGuideRunStatus
   type ReviewPostReviewResult = import('../../../../../shared/electron-api').ReviewPostReviewResult
@@ -71,7 +72,7 @@ async function main(): Promise<void> {
     // the guide-run lifecycle the hook subscribes to.
     let briefValue: ReviewBrief | null = null
     let runEventCb: ((event: ReviewBriefRunEvent) => void) | null = null
-    const starts: { cli?: string; restart?: boolean }[] = []
+    const starts: { cli?: string; depth?: string; restart?: boolean }[] = []
     const api = {
       reviewReadState: async () => ({ ok: true, state: stored }),
       reviewReadChangeset: async () => ({ ok: true, changeset: fixtureChangeSet }),
@@ -86,10 +87,13 @@ async function main(): Promise<void> {
         return () => {}
       },
       reviewBriefRunStatus: async () => runStatus,
+      // A freshness re-run re-ingests before it restarts the guide. The fixture PR
+      // is re-fetched unchanged; what this suite watches is the start that follows.
+      reviewIngestSource: async () => ({ ok: true, changeset: fixtureChangeSet }),
       // The terminal guide (MC-1783): `ok` means its terminal has the prompt, not
       // that a walkthrough exists — the brief arrives later as a `done` event.
-      reviewStartBriefRun: async (input: { cli?: string; restart?: boolean }) => {
-        starts.push({ cli: input.cli, restart: input.restart })
+      reviewStartBriefRun: async (input: { cli?: string; depth?: string; restart?: boolean }) => {
+        starts.push({ cli: input.cli, depth: input.depth, restart: input.restart })
         return {
           ok: true,
           guide: { workspaceId: 'ws-1', agentId: 'review-guide-r1', sessionId: 'review-guide-r1', cli: input.cli ?? 'codex' },
@@ -109,8 +113,11 @@ async function main(): Promise<void> {
     })
 
     let session: ReviewSession | null = null
-    function Harness(): null {
-      session = useReviewSession({ reviewId: 'r1', workspaceRoot: '/repo', guideCli: 'codex' })
+    // Depth is a required prop now (MC-1788) — the reviewer picks it on the
+    // prepare banner, so the harness renders it the way the door does rather than
+    // leaning on a default the hook no longer has.
+    function Harness({ depth }: { depth: ReviewBriefRunDepth }): null {
+      session = useReviewSession({ reviewId: 'r1', workspaceRoot: '/repo', depth, guideCli: 'codex' })
       return null
     }
     const container = dom.window.document.createElement('div')
@@ -124,8 +131,8 @@ async function main(): Promise<void> {
       },
       // Two passes: the mount, then a flush for the loads it chains (change set →
       // brief, and the run-status seed), so assertions see a settled session.
-      render: async () => {
-        await act(async () => root.render(React.createElement(Harness)))
+      render: async (depth: ReviewBriefRunDepth = 'standard') => {
+        await act(async () => root.render(React.createElement(Harness, { depth })))
         await act(async () => {})
       },
       resolvePost: (result: ReviewPostReviewResult) =>
@@ -300,7 +307,11 @@ async function main(): Promise<void> {
     await act(async () => {
       h.current().startRun()
     })
-    assert.deepEqual(h.starts(), [{ cli: 'codex', restart: undefined }], 'the picked agent CLI rides the start; a fresh start never restarts')
+    assert.deepEqual(
+      h.starts(),
+      [{ cli: 'codex', depth: 'standard', restart: undefined }],
+      'the picked agent CLI and depth ride the start; a fresh start never restarts',
+    )
     assert.equal(h.current().run.running, true, 'the run stays open after the start resolves — the brief is not there yet')
     assert.equal(h.current().status, 'degraded', 'the raw change is still what renders')
     assert.equal(h.current().guide?.agentId, 'review-guide-r1', 'the guide terminal it reported is exposed for the focus link')
@@ -335,12 +346,37 @@ async function main(): Promise<void> {
     console.log('ok - a remount after a failed run still explains why it failed')
   }
 
+  // MC-1788: depth is the reviewer's choice on the prepare banner, so it must ride
+  // every guide invocation from the UI value — never a default inside the hook.
+  // Changing the control and pressing Prepare has to change what the IPC carries,
+  // and a freshness re-run has to reuse the same choice without asking again.
+  async function chosenDepthRidesEveryGuideInvocation(): Promise<void> {
+    const h = setup([])
+    await h.render('thorough')
+    await act(async () => {
+      h.current().startRun()
+    })
+    assert.equal(h.starts()[0]?.depth, 'thorough', 'the depth the reviewer chose is what the start IPC carries')
+
+    // The reviewer moves the control to Overview before the next invocation.
+    await h.render('brief')
+    await act(async () => {
+      h.current().refresh()
+    })
+    assert.equal(h.starts().length, 2, 'the freshness re-run started the guide again')
+    assert.equal(h.starts()[1]?.depth, 'brief', 'the re-run silently reuses the current choice, not the first one')
+    assert.equal(h.starts()[1]?.restart, true, 'and it replaces the run in flight, as a re-run must')
+    h.root.unmount()
+    console.log('ok - the chosen depth rides both the first start and a freshness re-run')
+  }
+
   await successPreservesMidPostEdits()
   await failureSparesMidPostComment()
   await degradedUpgradesInPlaceWithCommentsIntact()
   await remountMidRunSeedsWithoutRestarting()
   await degradedToWorkingToReady()
   await remountAfterFailureExplainsIt()
+  await chosenDepthRidesEveryGuideInvocation()
   console.log('all useReviewSession concurrency tests passed')
 }
 

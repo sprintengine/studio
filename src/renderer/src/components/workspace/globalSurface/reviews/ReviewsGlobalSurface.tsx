@@ -95,13 +95,16 @@ export default function ReviewsGlobalSurface(): JSX.Element {
     if (decision.select) setSelected(decision.select)
   }, [index.phase, creating, selected, rows, entries, lastSelectedReview, setLastSelectedReview])
 
-  // Which agent runs the guide, and where its terminal is. Both are door-level
-  // concerns — the canvas stays a pure projection of the session — so they are
-  // resolved here and handed down as a slot.
+  // The preparation choices (how deep, which agent) and where the guide's terminal
+  // is. Both are door-level concerns — the canvas stays a pure projection of the
+  // session — so they are resolved here and handed down as a slot. Depth rides the
+  // session explicitly: every start and freshness re-run carries the reviewer's
+  // persisted pick, and there is no default further down to fall back on.
   const guideRuntime = useReviewGuideRuntime()
   const session = useReviewSession({
     reviewId: selected?.reviewId ?? null,
     workspaceRoot: selected?.workspaceRoot ?? null,
+    depth: guideRuntime.depth,
     guideCli: guideRuntime.cli,
     ...(guideRuntime.model ? { guideModel: guideRuntime.model } : {}),
   })

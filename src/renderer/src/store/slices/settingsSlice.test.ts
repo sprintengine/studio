@@ -1040,4 +1040,59 @@ assert.equal(
   'hydration drops a persisted pair that lost its project root',
 )
 
+// MC-1788: the guide preparation choices (depth + agent) are remembered where the
+// guide is invoked, not configured in a settings tab. The store is where they
+// outlive the door's unmount, so this pins both the patch semantics the banner
+// controls rely on and the hydration a restart goes through.
+assert.deepEqual(
+  defaultAppSettings().reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a fresh profile prepares at standard depth with no agent picked yet',
+)
+const cliBeforeGuidePicks = useWorkspaceStore.getState().appSettings.lastSelectedCli
+reviewStore.setReviewGuideDefaults({ depth: 'thorough' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
+  { depth: 'thorough', cli: null, model: null },
+  'choosing a depth leaves the agent choice alone',
+)
+reviewStore.setReviewGuideDefaults({ cli: 'codex', model: 'gpt-5-codex' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
+  { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
+  'and choosing an agent leaves the depth alone — the two choices are independent',
+)
+reviewStore.setReviewGuideDefaults({ cli: 'claude-code', model: null })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
+  { depth: 'thorough', cli: 'claude-code', model: null },
+  'a new agent drops the model picked for the previous one',
+)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.lastSelectedCli,
+  cliBeforeGuidePicks,
+  'the guide agent is stored under its own key, so it never rewrites what New chat spawns',
+)
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { depth: 'thorough', cli: ' codex ', model: ' gpt-5-codex ' } } as never, [])
+    .reviewGuideDefaults,
+  { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
+  'a restart restores the last-used pair, trimmed',
+)
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { depth: 'exhaustive' } } as never, []).reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a depth the guide cannot render falls back to standard instead of riding to the prompt',
+)
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { model: 'gpt-5-codex' } } as never, []).reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a stored model with no engine to run it is dropped',
+)
+assert.deepEqual(
+  normalizeAppSettings({} as never, []).reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a profile predating the choices hydrates to the defaults',
+)
+
 console.log('settingsSlice.test.ts: ok')

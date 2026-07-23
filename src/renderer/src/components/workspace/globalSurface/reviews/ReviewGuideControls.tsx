@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { ReviewBriefRunDepth } from '../../../../../../shared/electron-api'
 import type { AgentCli } from '../../../../types/workspace'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { CliModelPickerButton } from '../../../ui/CliModelListbox'
 import { Drawer } from '../../../ui/Drawer'
 import { GhostButton, PrimaryButton } from '../../../ui/Buttons'
 import { KbdChord } from '../../../ui/KbdChord'
+import { SegmentedControl, type SegmentedControlItem } from '../../../ui/SegmentedControl'
 import { FOCUS_RING_CLASS } from '../../../ui/tokens'
 import {
   resolveAvailableAgentCli,
@@ -20,16 +22,19 @@ import type { GuideTerminalLink } from './useGuideTerminal'
 // the settings slice, or the layout registry lives here and reaches the canvas
 // through its `guideActions` slot.
 
-// Which runtime the guide runs under, plus the picker that changes it. The default
-// is the agent CLI the reviewer used last (`lastSelectedCli`), so it is the engine
-// they actually work with rather than a hardcoded one; an explicit pick overrides
-// it for as long as the door is open. T11 turns that pick into a persisted
-// review-guide default (with depth), which is why nothing here writes settings —
-// changing the guide's agent must not silently change what "New chat" spawns.
+// The two preparation choices, and the controls that change them (MC-1788): how
+// deep a walkthrough to build, and which agent builds it. Both are persisted as
+// `reviewGuideDefaults`, so the next review opens on the pair the reviewer used
+// last and a freshness re-run reuses them without asking. That key is deliberately
+// separate from `lastSelectedCli`: picking a guide agent must not change what
+// "New chat" spawns. A first-time reviewer, having picked nothing, gets the agent
+// CLI they use elsewhere rather than a hardcoded engine.
 export interface ReviewGuideRuntime {
+  depth: ReviewBriefRunDepth
   cli: AgentCli
   model?: string
   catalog: AgentCliCatalogOption[]
+  setDepth: (depth: ReviewBriefRunDepth) => void
   setCli: (cli: AgentCli) => void
   setModel: (cli: AgentCli, model: string | null) => void
 }
@@ -41,7 +46,8 @@ export function useReviewGuideRuntime(): ReviewGuideRuntime {
   const cliAvailability = useWorkspaceStore((state) => state.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((state) => state.cliAvailabilityStatus)
   const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
-  const [picked, setPicked] = useState<{ cli: AgentCli; model?: string } | null>(null)
+  const defaults = useWorkspaceStore((state) => state.appSettings.reviewGuideDefaults)
+  const setDefaults = useWorkspaceStore((state) => state.setReviewGuideDefaults)
 
   // The same catalog every other spawn picker offers, filtered to the CLIs whose
   // binary is actually installed — offering the guide an engine that is not there
@@ -56,28 +62,53 @@ export function useReviewGuideRuntime(): ReviewGuideRuntime {
   )
   // A remembered CLI that is no longer installed falls back to the first entry the
   // catalog does offer, so the picker never opens on a runtime that cannot run.
-  const cli = resolveAvailableAgentCli(picked?.cli ?? lastSelectedCli, catalog, catalog[0]?.value ?? lastSelectedCli)
+  const cli = resolveAvailableAgentCli(defaults.cli ?? lastSelectedCli, catalog, catalog[0]?.value ?? lastSelectedCli)
 
-  const setCli = useCallback((next: AgentCli) => setPicked({ cli: next }), [])
+  const setDepth = useCallback((depth: ReviewBriefRunDepth) => setDefaults({ depth }), [setDefaults])
+  // A new engine drops the model picked for the previous one; a model pick keeps
+  // the engine it belongs to. Both write through the same normalizing setter.
+  const setCli = useCallback((next: AgentCli) => setDefaults({ cli: next, model: null }), [setDefaults])
   const setModel = useCallback(
-    (nextCli: AgentCli, nextModel: string | null) =>
-      setPicked(nextModel ? { cli: nextCli, model: nextModel } : { cli: nextCli }),
-    [],
+    (nextCli: AgentCli, nextModel: string | null) => setDefaults({ cli: nextCli, model: nextModel }),
+    [setDefaults],
   )
 
   return {
+    depth: defaults.depth,
     cli,
-    // Model ids are only meaningful for the CLI they were picked for.
-    ...(picked?.model && picked.cli === cli ? { model: picked.model } : {}),
+    // Model ids are only meaningful for the CLI they were picked for — a stored
+    // model whose engine has since fallen out of the catalog is not offered.
+    ...(defaults.model && defaults.cli === cli ? { model: defaults.model } : {}),
     catalog,
+    setDepth,
     setCli,
     setModel,
   }
 }
 
-// The action side of the guide banner: pick the runtime and prepare, or — while a
-// guide is working — the one link that matters, into the terminal where it is
-// working. The message side (resting / working / failed) stays with the canvas.
+// Depth in the reviewer's words. The wire values are the ones the guide skill
+// renders against (`brief` / `standard` / `thorough`); these labels and one-liners
+// say what each actually produces, so the choice is legible without opening the
+// skill. Kept to three so the segmented control stays scannable.
+const DEPTH_SEGMENTS: SegmentedControlItem<ReviewBriefRunDepth>[] = [
+  { value: 'brief', label: 'Overview' },
+  { value: 'standard', label: 'Standard' },
+  { value: 'thorough', label: 'Deep' },
+]
+
+const DEPTH_HINT: Record<ReviewBriefRunDepth, string> = {
+  brief: 'Steps and files with the reason for each — the fastest way in.',
+  standard: 'Adds notes on the lines worth pausing on, and a change map.',
+  thorough: 'Adds the detail behind each note and links to project knowledge.',
+}
+
+// The action side of the guide banner: the two preparation choices and Prepare,
+// or — while a guide is working — the one link that matters, into the terminal
+// where it is working. The message side (resting / working / failed) stays with
+// the canvas. The choices sit here, at the moment of invoking the guide, rather
+// than in a settings tab: they are per-review decisions that happen to be
+// remembered, not configuration. The depth one-liner sits under the control it
+// describes so the difference between the three is on screen, not in a tooltip.
 export function ReviewGuideActions({
   session,
   runtime,
@@ -99,22 +130,32 @@ export function ReviewGuideActions({
   }
   const failed = Boolean(session.run.error)
   return (
-    <>
-      <CliModelPickerButton
-        ariaLabel="Guide agent"
-        options={runtime.catalog}
-        cli={runtime.cli}
-        effectiveModelFor={(candidate) => (candidate === runtime.cli ? runtime.model : undefined)}
-        onSelectCli={runtime.setCli}
-        onSelectModel={(nextCli, nextModel) => {
-          if (nextCli !== runtime.cli) runtime.setCli(nextCli)
-          runtime.setModel(nextCli, nextModel)
-        }}
-      />
-      <PrimaryButton onClick={session.startRun} className="shrink-0">
-        {failed ? 'Try again' : 'Prepare walkthrough'}
-      </PrimaryButton>
-    </>
+    <span className="flex shrink-0 flex-col gap-1">
+      <span className="flex items-center gap-2">
+        <SegmentedControl
+          ariaLabel="Walkthrough depth"
+          items={DEPTH_SEGMENTS}
+          value={runtime.depth}
+          onChange={runtime.setDepth}
+          size="sm"
+        />
+        <CliModelPickerButton
+          ariaLabel="Guide agent"
+          options={runtime.catalog}
+          cli={runtime.cli}
+          effectiveModelFor={(candidate) => (candidate === runtime.cli ? runtime.model : undefined)}
+          onSelectCli={runtime.setCli}
+          onSelectModel={(nextCli, nextModel) => {
+            if (nextCli !== runtime.cli) runtime.setCli(nextCli)
+            runtime.setModel(nextCli, nextModel)
+          }}
+        />
+        <PrimaryButton onClick={session.startRun} className="shrink-0">
+          {failed ? 'Try again' : 'Prepare walkthrough'}
+        </PrimaryButton>
+      </span>
+      <span className="text-[11px] leading-4 text-[color:var(--text-subtle)]">{DEPTH_HINT[runtime.depth]}</span>
+    </span>
   )
 }
 

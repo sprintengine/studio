@@ -149,7 +149,11 @@ function defaultReviewState(changeSetId: string): ReviewWorkspaceState {
 export interface UseReviewSessionParams {
   reviewId: string | null
   workspaceRoot: string | null
-  depth?: ReviewBriefRunDepth
+  // How deep a walkthrough to ask for. Required, and with no default here on
+  // purpose (MC-1788): the reviewer picks it on the prepare banner and it is
+  // persisted, so a default parameter would silently outrank their choice the
+  // moment a caller forgot to thread it.
+  depth: ReviewBriefRunDepth
   // Which agent CLI (and model) runs the guide. The guide is an ordinary terminal
   // agent, so this is the reviewer's pick from the door's runtime picker. Omitted,
   // the main process falls back to a live guide's CLI, then the project's last
@@ -175,7 +179,7 @@ function runFromStatus(status: ReviewGuideRunStatus): ReviewRunProgress {
 export function useReviewSession({
   reviewId,
   workspaceRoot,
-  depth = 'standard',
+  depth,
   guideCli,
   guideModel,
 }: UseReviewSessionParams): ReviewSession {

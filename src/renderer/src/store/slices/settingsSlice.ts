@@ -15,6 +15,7 @@ import type {
   McpSettings,
   MultiloopRole,
   NewChatAgentChoice,
+  ReviewGuideDefaults,
   SprintEngineRoleId,
   SprintEngineModelCatalogEntry,
   AgentConversationRuntime,
@@ -576,6 +577,22 @@ export function normalizeLastSelectedReview(
   return { reviewId, workspaceRoot }
 }
 
+const REVIEW_GUIDE_DEPTHS: ReviewGuideDefaults['depth'][] = ['brief', 'standard', 'thorough']
+
+// The reviewer's last-used guide preparation choices. An unknown persisted depth
+// falls back to `standard` rather than riding a value the guide skill cannot
+// render, and a model is dropped without the CLI it was picked for — a model id
+// only means something to one engine.
+export function normalizeReviewGuideDefaults(input: Partial<ReviewGuideDefaults> | null | undefined): ReviewGuideDefaults {
+  const source = input && typeof input === 'object' ? input : {}
+  const depth = REVIEW_GUIDE_DEPTHS.includes(source.depth as ReviewGuideDefaults['depth'])
+    ? (source.depth as ReviewGuideDefaults['depth'])
+    : 'standard'
+  const cli = typeof source.cli === 'string' && source.cli.trim() ? source.cli.trim() : null
+  const model = cli && typeof source.model === 'string' && source.model.trim() ? source.model.trim() : null
+  return { depth, cli, model }
+}
+
 // Persisted specialist menu order. Keeps only known ids and drops duplicates;
 // missing ids are resolved against the canonical roster at render time, so an
 // incomplete or stale list is safe to store.
@@ -869,6 +886,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedCli: 'claude-code',
   lastSelectedConversationModel: null,
   lastSelectedReview: null,
+  reviewGuideDefaults: { depth: 'standard', cli: null, model: null },
   lastSelectedSpecialist: 'architect',
   lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
@@ -936,6 +954,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedCli: normalizeSelectedCli(settings?.lastSelectedCli, defaults.lastSelectedCli),
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
     lastSelectedReview: normalizeLastSelectedReview(settings?.lastSelectedReview),
+    reviewGuideDefaults: normalizeReviewGuideDefaults(settings?.reviewGuideDefaults),
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
@@ -1076,6 +1095,12 @@ export interface SettingsSliceActions {
   setLastSelectedConversationModel: (selection: AgentConversationRuntime | null) => void
   /** Remember (or clear with `null`) the review last opened in the Reviews door. */
   setLastSelectedReview: (selection: LastSelectedReview | null) => void
+  /**
+   * Remember the guide preparation choices made on the prepare banner. Patches
+   * merge over the stored value, so changing the depth leaves the agent alone;
+   * pass `model: null` alongside a new `cli` to drop a model that engine cannot run.
+   */
+  setReviewGuideDefaults: (patch: Partial<ReviewGuideDefaults>) => void
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
@@ -1362,6 +1387,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setLastSelectedReview: (selection) =>
       set((state) => {
         state.appSettings.lastSelectedReview = normalizeLastSelectedReview(selection)
+      }),
+
+    setReviewGuideDefaults: (patch) =>
+      set((state) => {
+        state.appSettings.reviewGuideDefaults = normalizeReviewGuideDefaults({
+          ...state.appSettings.reviewGuideDefaults,
+          ...patch,
+        })
       }),
 
     setLastSelectedSpecialist: (specialistId) =>

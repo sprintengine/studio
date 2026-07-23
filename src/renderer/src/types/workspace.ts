@@ -154,6 +154,7 @@ export type {
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
 import type { ReviewWorkspaceState } from '../../../shared/review'
+import type { ReviewBriefRunDepth } from '../../../shared/electron-api'
 
 export type { ReviewWorkspaceState }
 
@@ -814,12 +815,33 @@ export type AppSettings = {
    * attention-first auto-select. See ReviewsGlobalSurface.
    */
   lastSelectedReview: LastSelectedReview | null
+  /**
+   * The preparation choices the reviewer last used for a guide walkthrough: how
+   * deep to render it, and which agent renders it. They are offered where the
+   * guide is invoked (the prepare banner in the Reviews door), never in a
+   * settings tab, and a freshness re-run reuses them without asking again. See
+   * ReviewGuideControls.
+   */
+  reviewGuideDefaults: ReviewGuideDefaults
 }
 
 /** A remembered Reviews-door selection: a review id scoped to its project root. */
 export type LastSelectedReview = {
   reviewId: string
   workspaceRoot: string
+}
+
+/**
+ * Last-used review-guide preparation choices. `cli: null` means the reviewer has
+ * never picked one for the guide, which resolves to the agent CLI they last used
+ * elsewhere rather than a hardcoded engine — and keeps this key independent of
+ * `lastSelectedCli`, so picking a guide agent never changes what "New chat"
+ * spawns. `model` is only meaningful for the `cli` it was picked for.
+ */
+export type ReviewGuideDefaults = {
+  depth: ReviewBriefRunDepth
+  cli: AgentCli | null
+  model: string | null
 }
 
 export type PendingAgentConfigAdoption = {
