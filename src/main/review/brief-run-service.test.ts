@@ -10,7 +10,8 @@ import {
   type CompanionAgentService,
   type CompanionRunStructuredOptions,
 } from '../companion-agent-service'
-import { GUIDE_SYSTEM_PROMPT, REVIEW_BRIEF_SCHEMA_DOC } from './guide-prompt'
+import { buildGuideRunPrompt, guideSystemPrompt, reviewBriefSchemaDoc } from './guide-prompt'
+import { GuideRunRegistry } from './guide-run-registry'
 import {
   ReviewBriefRunService,
   type BriefRunEvent,
@@ -163,8 +164,10 @@ function homePathBrief(): ReviewBrief {
 // wiring, persistence, and failure handling without a live agent.
 type StubOptions = {
   scripted: Map<string, unknown[]>
-  // When set for a workspace, runStructured hangs until the handle is
-  // interrupted, then rejects — used to test interrupt behavior.
+  // When set for a workspace, that workspace's FIRST run hangs until the handle
+  // is interrupted, then rejects — used to test interrupt, join, and restart
+  // behavior. Later runs for the same workspace replay their scripted output, so
+  // a restart can be observed finishing while the run it replaced unwinds.
   hangUntilInterrupt?: Set<string>
   // When provided, each run's prompt is pushed here so a test can assert the
   // incremental-re-run prompt was chosen.
@@ -201,6 +204,7 @@ function makeStubCompanion(opts: StubOptions): {
         async runStructured<T>(runOpts: CompanionRunStructuredOptions<T>): Promise<T> {
           opts.capturedPrompts?.push(runOpts.prompt)
           if (opts.hangUntilInterrupt?.has(spec.workspaceId)) {
+            opts.hangUntilInterrupt.delete(spec.workspaceId)
             runOpts.onPhase?.('running')
             await new Promise<never>((_resolve, reject) => {
               rejectHang = reject
@@ -229,10 +233,13 @@ function makeStubCompanion(opts: StubOptions): {
   return { service, attachedWorkspaces }
 }
 
+// Each service gets its own registry unless a test passes one, so run state never
+// leaks between cases (and no test touches the process-wide default).
 function makeDeps(
   companion: Pick<CompanionAgentService, 'attach'>,
   changeset: ReviewChangeSet | null,
-  events: BriefRunEvent[]
+  events: BriefRunEvent[],
+  guideRuns: GuideRunRegistry = new GuideRunRegistry()
 ): ReviewBriefRunServiceDeps {
   return {
     companionAgents: companion,
@@ -240,7 +247,27 @@ function makeDeps(
       read: async (): Promise<ReviewChangeSetReadResult> => ({ ok: true, changeset }),
     },
     emit: (event) => events.push(event),
+    guideRuns,
   }
+}
+
+// Give a pending run time to reach its hang without awaiting it.
+function tick(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 10))
+}
+
+// Whether a promise is still unsettled, without awaiting it — used to prove a run
+// that must not have been interrupted is still in flight.
+async function isPending(promise: Promise<unknown>): Promise<boolean> {
+  const stillPending = Symbol('still-pending')
+  const raced = await Promise.race([
+    promise.then(
+      () => 'settled',
+      () => 'settled'
+    ),
+    tick().then(() => stillPending),
+  ])
+  return raced === stillPending
 }
 
 function briefPath(root: string): string {
@@ -418,13 +445,216 @@ run('a re-run with no previous brief falls back to a full run', async () => {
   assert.doesNotMatch(prompt, /This is a REFRESH/, 'fell back to the full-run prompt')
 })
 
-run('GUIDE_SYSTEM_PROMPT embeds the schema doc verbatim and forbids verdict language', () => {
-  // The test runs from the repo root (npm run), so resolve the doc from cwd.
+// --- Run state of record (MC-1784) --------------------------------------------
+
+run('run status is null before the first run and retains done afterwards', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const registry = new GuideRunRegistry()
+  const { service } = makeStubCompanion({ scripted: new Map([[WORKSPACE_ID, [validBrief()]]]) })
+  const svc = new ReviewBriefRunService(makeDeps(service, fixtureChangeSet(), events, registry))
+
+  assert.equal(registry.status(WORKSPACE_ID), null, 'no run recorded before the guide has ever run')
+
+  await svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+
+  const after = registry.status(WORKSPACE_ID)
+  assert.equal(after?.running, false, 'the finished run is no longer live')
+  assert.equal(after?.phase, 'done', 'the terminal phase is retained for a remount to read')
+  assert.ok(after?.startedAt, 'carries when the run started')
+})
+
+run('a failed run retains its phase and reason', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const registry = new GuideRunRegistry()
+  const { service } = makeStubCompanion({ scripted: new Map() })
+  // No change set ingested -> a visible guide-error failure.
+  const svc = new ReviewBriefRunService(makeDeps(service, null, events, registry))
+
+  await svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+
+  const after = registry.status(WORKSPACE_ID)
+  assert.equal(after?.running, false)
+  assert.equal(after?.phase, 'failed', 'the failure survives the run')
+  assert.match(after?.detail ?? '', /No change set/, 'a remount can still say why')
+})
+
+run('a run whose change-set read throws still ends terminal, so later starts are not stuck joining', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const registry = new GuideRunRegistry()
+  const { service } = makeStubCompanion({ scripted: new Map([[WORKSPACE_ID, [validBrief()]]]) })
+  const deps = makeDeps(service, fixtureChangeSet(), events, registry)
+  const svc = new ReviewBriefRunService({
+    ...deps,
+    changeSets: {
+      read: async (): Promise<ReviewChangeSetReadResult> => {
+        throw new Error('disk went away')
+      },
+    },
+  })
+
+  const result = await svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+
+  assert.equal(result.ok, false, 'a throw is a visible failure, not a rejected promise')
+  if (!result.ok) assert.ok(result.errors.some((e) => /disk went away/.test(e)), 'carries the cause')
+  assert.equal(registry.status(WORKSPACE_ID)?.running, false, 'the run is not left marked live')
+})
+
+run('a live run reports running with its current phase', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const registry = new GuideRunRegistry()
+  const { service } = makeStubCompanion({
+    scripted: new Map([[WORKSPACE_ID, [validBrief()]]]),
+    hangUntilInterrupt: new Set([WORKSPACE_ID]),
+  })
+  const svc = new ReviewBriefRunService(makeDeps(service, fixtureChangeSet(), events, registry))
+
+  const pending = svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+  await tick()
+
+  const live = registry.status(WORKSPACE_ID)
+  assert.equal(live?.running, true)
+  assert.equal(live?.phase, 'grouping', 'reports the phase the run actually reached')
+
+  svc.interrupt(WORKSPACE_ID)
+  await pending
+})
+
+run('a second start without restart joins the live run instead of interrupting it', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const registry = new GuideRunRegistry()
+  const { service, attachedWorkspaces } = makeStubCompanion({
+    scripted: new Map([[WORKSPACE_ID, [validBrief()]]]),
+    hangUntilInterrupt: new Set([WORKSPACE_ID]),
+  })
+  const svc = new ReviewBriefRunService(makeDeps(service, fixtureChangeSet(), events, registry))
+
+  const first = svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+  await tick()
+
+  const joined = await svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+
+  assert.equal(joined.ok, true)
+  assert.ok(joined.ok && 'joined' in joined && joined.joined, 'reported a join, not a new run')
+  if (joined.ok && 'status' in joined && joined.status) {
+    assert.equal(joined.status.running, true)
+    assert.equal(joined.status.phase, 'grouping', "the join carries the live run's phase")
+  }
+  assert.equal(attachedWorkspaces.length, 1, 'no second guide session was spawned')
+  assert.equal(await isPending(first), true, 'the first run was not interrupted')
+  assert.equal(registry.status(WORKSPACE_ID)?.running, true, 'the live run still owns the review')
+
+  svc.interrupt(WORKSPACE_ID)
+  await first
+})
+
+run('a start with restart replaces the live run and the replaced run cannot clobber it', async () => {
+  const root = makeWorkspaceRoot()
+  const events: BriefRunEvent[] = []
+  const registry = new GuideRunRegistry()
+  const { service, attachedWorkspaces } = makeStubCompanion({
+    scripted: new Map([[WORKSPACE_ID, [validBrief()]]]),
+    hangUntilInterrupt: new Set([WORKSPACE_ID]),
+  })
+  const svc = new ReviewBriefRunService(makeDeps(service, fixtureChangeSet(), events, registry))
+
+  const first = svc.start({ workspaceId: WORKSPACE_ID, workspaceRoot: root, depth: 'standard' })
+  await tick()
+
+  const second = await svc.start({
+    workspaceId: WORKSPACE_ID,
+    workspaceRoot: root,
+    depth: 'standard',
+    restart: true,
+  })
+  const firstResult = await first
+
+  assert.equal(second.ok, true, 'the replacement run finished')
+  assert.ok(second.ok && !('joined' in second && second.joined), 'a restart is a real run, not a join')
+  assert.equal(firstResult.ok, false, 'the replaced run ended without a brief')
+  assert.equal(attachedWorkspaces.length, 2, 'the restart spawned its own guide session')
+  assert.ok(existsSync(briefPath(root)), 'the replacement persisted the walkthrough')
+  // The interrupted run reports `failed` as it unwinds, after the replacement
+  // already began. That late report must not become the review's run state.
+  const after = registry.status(WORKSPACE_ID)
+  assert.equal(after?.phase, 'done', 'the replacement owns the run state')
+  assert.equal(after?.running, false)
+})
+
+// The tests run from the repo root (npm run), so resolve repo files from cwd.
+const skillPath = join(process.cwd(), 'resources', 'skills', 'review-guide', 'SKILL.md')
+
+run('the system prompt embeds the schema doc verbatim and forbids verdict language', () => {
   const doc = readFileSync(join(process.cwd(), 'docs', 'review-brief-schema.md'), 'utf-8')
-  assert.equal(REVIEW_BRIEF_SCHEMA_DOC, doc, 'embedded schema doc is verbatim (drift guard)')
-  assert.ok(GUIDE_SYSTEM_PROMPT.includes(doc), 'system prompt embeds the schema doc')
-  assert.ok(/never judge/i.test(GUIDE_SYSTEM_PROMPT), 'system prompt states the no-judgment rule')
-  assert.ok(/narrator/i.test(GUIDE_SYSTEM_PROMPT), 'system prompt frames the guide as a narrator')
+  // The doc reaches the prompt through the review-guide skill, so this equality
+  // guards the skill's embedded copy against drift from the canonical doc.
+  assert.equal(reviewBriefSchemaDoc(), doc, 'embedded schema doc is verbatim (drift guard)')
+  const prompt = guideSystemPrompt()
+  assert.ok(prompt.includes(doc), 'system prompt embeds the schema doc')
+  assert.ok(/never judge/i.test(prompt), 'system prompt states the no-judgment rule')
+  assert.ok(/narrator/i.test(prompt), 'system prompt frames the guide as a narrator')
+})
+
+run('the guide wording lives only in the skill, never duplicated in guide-prompt.ts', () => {
+  const skill = readFileSync(skillPath, 'utf-8')
+  const promptSource = readFileSync(join(process.cwd(), 'src', 'main', 'review', 'guide-prompt.ts'), 'utf-8')
+
+  // Sentences that carry the guide's craft and contract. Each must live in the
+  // skill and nowhere else: a copy in guide-prompt.ts is a second source of
+  // truth that can drift away from what a skill-driven terminal agent reads.
+  const wording = [
+    'THE ONE RULE THAT OVERRIDES EVERYTHING',
+    'STEPS — group the change for understanding:',
+    'ANNOTATIONS — mark the lines worth pausing on:',
+    'CHANGE MAP (optional)',
+    'Copy these fields verbatim from the changeset',
+    'Depth: BRIEF.',
+    'Depth: STANDARD.',
+    'Depth: THOROUGH.',
+    'You are the Review guide:',
+  ]
+  for (const phrase of wording) {
+    assert.ok(skill.includes(phrase), `the skill carries the canonical wording: ${phrase}`)
+    assert.ok(!promptSource.includes(phrase), `guide-prompt.ts must not re-state: ${phrase}`)
+  }
+})
+
+run('every shared block the companion prompts read exists in the skill', () => {
+  const skill = readFileSync(skillPath, 'utf-8')
+  const blocks = [
+    'role-contract',
+    'brief-craft',
+    'chat-persona',
+    'chat-grounding',
+    'schema-doc',
+    'depth-brief',
+    'depth-standard',
+    'depth-thorough',
+  ]
+  for (const name of blocks) {
+    assert.ok(skill.includes(`<!-- shared:${name} -->`), `skill opens the ${name} block`)
+    assert.ok(skill.includes(`<!-- /shared:${name} -->`), `skill closes the ${name} block`)
+  }
+  // Reading a block the skill does not define is a hard failure, never an empty
+  // section silently spliced into a prompt.
+  assert.throws(
+    () => buildGuideRunPrompt(fixtureChangeSet(), 'nonexistent' as never),
+    /missing its "depth-nonexistent" block/,
+  )
+})
+
+run('the skill instructs delivery through the review tools, not a JSON reply', () => {
+  const skill = readFileSync(skillPath, 'utf-8')
+  for (const tool of ['review_get_changeset', 'review_get_brief', 'review_submit_brief']) {
+    assert.ok(skill.includes(tool), `the skill names ${tool}`)
+  }
+  // The companion's "reply with one JSON object" contract is transport glue and
+  // must not leak into the skill, which delivers through the tool instead.
+  assert.ok(!skill.includes('Reply with ONLY the ReviewBrief JSON object'), 'no companion-only reply contract in the skill')
 })
 
 async function main(): Promise<void> {

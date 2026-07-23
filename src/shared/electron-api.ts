@@ -2328,6 +2328,11 @@ export interface ReviewBriefRunInput {
   // the previous walkthrough. When present and a previous walkthrough exists, the
   // run is incremental — unaffected steps keep their ids verbatim. Absent = full.
   affectedStepIds?: string[]
+  // Replace a run that is already in flight (MC-1784). Without it a start against
+  // a live run joins: the result reports that run instead of interrupting it, so
+  // a remount or a second Prepare never throws away work in progress. The
+  // freshness re-run sets it, because its point is to rebuild against the new head.
+  restart?: boolean
 }
 
 // Freshness probe (MC-1682): rebuild the current change set WITHOUT persisting it,
@@ -2349,11 +2354,26 @@ export interface ReviewBriefRunEvent {
   detail?: string
 }
 
+// The guide run as the main process records it (MC-1784), so run state outlives
+// the renderer: navigating away from a review and back re-reads it instead of
+// showing "no run". A terminal phase is retained with `running: false` until the
+// next start, so a remount can still explain why the last run failed.
+export interface ReviewGuideRunStatus {
+  running: boolean
+  phase: ReviewBriefRunPhase
+  detail?: string
+  startedAt: string
+}
+
 // Terminal result of starting the guide. On success the brief was persisted and
 // the renderer re-reads it; on failure the reason distinguishes a guide that
 // produced an invalid brief (`validation`) from one that could not run at all.
+// `joined: true` means a run was already in flight and this start reported it
+// instead of replacing it — no brief was produced by this call, so the caller
+// follows the live run's phase events rather than re-reading the walkthrough.
 export type ReviewBriefRunResult =
-  | { ok: true }
+  | { ok: true; joined?: false; status?: undefined }
+  | { ok: true; joined: true; status: ReviewGuideRunStatus }
   | { ok: false; reason: 'validation' | 'guide-error'; errors: string[] }
 
 // "Ask the guide" chat: one free-text turn sent to the workspace's guide
@@ -3086,6 +3106,10 @@ export type ElectronApi = {
   reviewReadBrief: (target: ReviewTarget) => Promise<ReviewBriefReadResult>
   reviewProbeChangeset: (input: ReviewSourceInput) => Promise<ReviewProbeResult>
   reviewStartBriefRun: (input: ReviewBriefRunInput) => Promise<ReviewBriefRunResult>
+  // The main process's record of this review's guide run; null when the guide has
+  // never run for it in this app session. The panel seeds its run state from this
+  // on mount so a remount mid-run shows progress instead of a prepare button.
+  reviewBriefRunStatus: (target: ReviewTarget) => Promise<ReviewGuideRunStatus | null>
   reviewAskGuide: (input: ReviewAskGuideInput) => Promise<ReviewAskGuideResult>
   reviewPostReview: (input: ReviewPostReviewInput) => Promise<ReviewPostReviewResult>
   reviewReadState: (target: ReviewTarget) => Promise<ReviewStateReadResult>

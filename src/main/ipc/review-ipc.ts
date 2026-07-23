@@ -13,6 +13,7 @@ import type {
   ReviewBriefRunInput,
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
+  ReviewGuideRunStatus,
   ReviewIngestResult,
   ReviewListResult,
   ReviewMatchPrProjectResult,
@@ -30,6 +31,7 @@ import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-
 import { enumerateReviews } from '../review/review-index'
 import { readReviewState, writeReviewState } from '../review/review-state-store'
 import type { ReviewBriefRunService } from '../review/brief-run-service'
+import { guideRunRegistry, type GuideRunRegistry } from '../review/guide-run-registry'
 // Named import that also runs the module's side effect: registering the
 // 'pull-request' source provider (MC-1678) so the service can ingest GitHub PR URLs
 // (the local branch/patch providers register from within changeset-service itself),
@@ -55,6 +57,9 @@ export interface ReviewIpcDeps {
   isUserWindowSender?: (event: IpcMainInvokeEvent) => boolean
   // The GitHub transport postReview uses; injected so tests drive it with a stub.
   reviewSyncDeps?: GithubReviewSyncDeps
+  // Run state of record (MC-1784). Defaults to the process-wide registry every
+  // guide transport writes into; injected in tests.
+  guideRuns?: Pick<GuideRunRegistry, 'status'>
 }
 
 // Read and validate the guide's brief for a workspace. A missing file is the
@@ -81,8 +86,10 @@ async function readBrief(targetDir: string): Promise<ReviewBriefReadResult> {
 
 export function registerReviewIpc(
   ipcMain: IpcMain,
-  { changeSetService, briefRunService, isUserWindowSender, reviewSyncDeps }: ReviewIpcDeps
+  { changeSetService, briefRunService, isUserWindowSender, reviewSyncDeps, guideRuns }: ReviewIpcDeps
 ): void {
+  const guideRunState = guideRuns ?? guideRunRegistry
+
   ipcMain.handle('review:detect-source', (_event, input: ReviewSourceInput): Promise<ReviewSourceProbe> => {
     return changeSetService.detect(input)
   })
@@ -186,15 +193,26 @@ export function registerReviewIpc(
     }
   })
 
-  // Start (or restart) the guide run for a workspace. The service enforces one
-  // live run per workspace and forwards phase events over BRIEF_RUN_EVENT_CHANNEL;
-  // this handler returns only the terminal result — the renderer re-reads the
-  // brief on success.
+  // Start the guide run for a workspace. The service enforces one live run per
+  // workspace and forwards phase events over BRIEF_RUN_EVENT_CHANNEL; this
+  // handler returns only the terminal result — the renderer re-reads the brief on
+  // success. A start against a live run joins it (result carries `joined`) unless
+  // the caller asked for a restart, so the brief is never produced twice at once.
   ipcMain.handle('review:start-brief-run', async (_event, input: ReviewBriefRunInput): Promise<ReviewBriefRunResult> => {
     const result = await briefRunService.start(input)
-    if (result.ok) return { ok: true }
-    return { ok: false, reason: result.reason, errors: result.errors }
+    if (!result.ok) return { ok: false, reason: result.reason, errors: result.errors }
+    if ('joined' in result) return { ok: true, joined: true, status: result.status }
+    return { ok: true }
   })
+
+  // The main process's record of a review's guide run (MC-1784). Run state lives
+  // here rather than only in the renderer, so leaving the Reviews door and coming
+  // back re-reads a live run's progress — or the reason the last one failed —
+  // instead of falling back to "the guide has not run". Null = never run here.
+  ipcMain.handle(
+    'review:brief-run-status',
+    (_event, target: ReviewTarget): ReviewGuideRunStatus | null => guideRunState.status(target.workspaceId)
+  )
 
   // Ask-the-guide chat: forward one turn to the workspace's guide companion. The
   // reply streams back over the conversation event channel the chat pane already

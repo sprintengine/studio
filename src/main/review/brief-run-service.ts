@@ -29,10 +29,17 @@ import {
 } from '../companion-agent-service'
 import { ReviewChangeSetService, reviewChangeSetDir } from './changeset-service'
 import {
-  GUIDE_SYSTEM_PROMPT,
+  guideRunRegistry,
+  type GuideRunPhase,
+  type GuideRunRecorder,
+  type GuideRunRegistry,
+  type GuideRunStatus,
+} from './guide-run-registry'
+import {
   buildGuideChatSystemPrompt,
   buildGuideRerunPrompt,
   buildGuideRunPrompt,
+  guideSystemPrompt,
   type BriefRunDepth,
 } from './guide-prompt'
 
@@ -52,8 +59,10 @@ const GUIDE_AGENT_NAME = 'Guide'
 // `grouping` is the guide generating (a retry re-enters it); `annotating` is the
 // produced brief being validated (its annotations and coverage cross-checked);
 // `writing` persists; `done`/`failed` are terminal. A single generation turn is
-// opaque, so these are coarse milestones, never inferred sub-steps.
-export type BriefRunPhase = 'reading' | 'grouping' | 'annotating' | 'writing' | 'done' | 'failed'
+// opaque, so these are coarse milestones, never inferred sub-steps. Owned by the
+// guide-run registry so the live event stream and the polled run status speak
+// the same vocabulary.
+export type BriefRunPhase = GuideRunPhase
 
 export interface BriefRunEvent {
   workspaceId: string
@@ -70,6 +79,11 @@ export interface ReviewBriefRunInput {
   // the run is incremental — unaffected steps are carried over verbatim (stable
   // ids) and only the affected ones regenerate. Absent = a full first run.
   affectedStepIds?: string[]
+  // Replace a run that is already in flight. Without it a start against a live
+  // run joins: it reports that run's status and leaves it alone, so pressing
+  // Prepare twice never kills work in progress. The freshness re-run sets it,
+  // because its whole point is to rebuild against the moved head.
+  restart?: boolean
 }
 
 export interface ReviewAskGuideInput {
@@ -90,6 +104,9 @@ export type BriefRunFailureReason = 'validation' | 'guide-error'
 
 export type BriefRunResult =
   | { ok: true; brief: ReviewBrief; path: string }
+  // Joined an already-live run instead of starting a second one. No brief was
+  // produced by this call; the caller follows the run through its phase events.
+  | { ok: true; joined: true; status: GuideRunStatus }
   | { ok: false; reason: BriefRunFailureReason; errors: string[] }
 
 export interface ReviewBriefRunServiceDeps {
@@ -98,92 +115,107 @@ export interface ReviewBriefRunServiceDeps {
   // Sink for review:brief-run-event. The review module wires this to the
   // renderer over IPC; tests capture the events.
   emit: (event: BriefRunEvent) => void
+  // Run state of record. Defaults to the process-wide registry the review IPC
+  // reads back; tests inject their own so runs never leak between cases.
+  guideRuns?: GuideRunRegistry
 }
 
 export class ReviewBriefRunService {
   private readonly companionAgents: Pick<CompanionAgentService, 'attach'>
   private readonly changeSets: Pick<ReviewChangeSetService, 'read'>
   private readonly emit: (event: BriefRunEvent) => void
+  private readonly guideRuns: GuideRunRegistry
   private readonly handles = new Map<string, CompanionAgentHandle>()
-  private readonly inFlight = new Set<string>()
 
   constructor(deps: ReviewBriefRunServiceDeps) {
     this.companionAgents = deps.companionAgents
     this.changeSets = deps.changeSets
     this.emit = deps.emit
+    this.guideRuns = deps.guideRuns ?? guideRunRegistry
   }
 
-  // Start (or restart) the guide run for a workspace. One live run per workspace:
-  // an in-flight run is interrupted first, so the guide never writes two briefs
-  // at once. On success the brief is persisted atomically and returned; on a
-  // double validation failure or a guide error the run fails visibly, carrying
+  // Start (or join) the guide run for a workspace. One live run per workspace:
+  // a start against a run already in flight joins it and reports its status,
+  // unless `restart` was asked for, in which case the live run is interrupted
+  // and replaced. On success the brief is persisted atomically and returned; on
+  // a double validation failure or a guide error the run fails visibly, carrying
   // the errors, and the previous brief.json (if any) is left untouched.
   async start(input: ReviewBriefRunInput): Promise<BriefRunResult> {
-    const { workspaceId, workspaceRoot, depth, affectedStepIds } = input
+    const { workspaceId, workspaceRoot, depth, affectedStepIds, restart } = input
     const targetDir = reviewChangeSetDir(workspaceRoot, workspaceId)
 
-    // One live run per workspace: cancel a run already in flight for it. The
-    // canceled run's start() promise rejects into its own catch; it wrote
-    // nothing (writing is the last step), so any earlier brief.json survives.
-    const prior = this.handles.get(workspaceId)
-    if (prior && this.inFlight.has(workspaceId)) prior.interrupt()
+    // Join, don't kill: a second Prepare (a remount, an impatient click) reports
+    // the live run rather than throwing away the work it has already done. The
+    // registry, not a local flag, answers "is one live" — it is the same answer
+    // the status IPC gives the renderer, and it survives whoever started the run.
+    const live = this.guideRuns.status(workspaceId)
+    if (live?.running && !restart) return { ok: true, joined: true, status: live }
 
-    this.emitPhase(workspaceId, 'reading')
+    // A restart cancels the run already in flight. The canceled run's start()
+    // promise rejects into its own catch; it wrote nothing (writing is the last
+    // step), so any earlier brief.json survives.
+    if (live?.running) this.handles.get(workspaceId)?.interrupt()
 
-    const read = await this.changeSets.read(targetDir)
-    if (!read.ok) return this.fail(workspaceId, 'guide-error', [read.error])
-    if (!read.changeset) {
-      return this.fail(workspaceId, 'guide-error', [
-        'No change set has been ingested for this workspace yet.',
-      ])
-    }
-    const changeset = read.changeset
+    // This run's own recorder: phases it reports late (an interrupted run
+    // failing on its way out) never land on the run that replaced it.
+    const recorder = this.guideRuns.begin(workspaceId)
 
-    // A re-run reuses the previous walkthrough so unaffected steps keep their ids.
-    // If the previous brief is missing or unreadable, fall back to a full run
-    // rather than failing — a full walkthrough is always a valid result.
-    const previousBrief = affectedStepIds ? await this.readPreviousBrief(targetDir) : null
-    const prompt =
-      previousBrief && affectedStepIds
-        ? buildGuideRerunPrompt(changeset, depth, previousBrief, affectedStepIds)
-        : buildGuideRunPrompt(changeset, depth)
-
-    const handle = this.companionAgents.attach({
-      workspaceId,
-      agentId: GUIDE_AGENT_ID,
-      name: GUIDE_AGENT_NAME,
-      workspaceRoot,
-      contextRoots: { knowledge: true },
-      systemPrompt: GUIDE_SYSTEM_PROMPT,
-    })
-    this.handles.set(workspaceId, handle)
-    this.inFlight.add(workspaceId)
-
+    // Every path out of a begun run ends on a terminal phase, including a throw
+    // from reading the change set or attaching the companion. A run left marked
+    // live would make every later start join a run that is already dead.
     try {
+      this.emitPhase(recorder, workspaceId, 'reading')
+
+      const read = await this.changeSets.read(targetDir)
+      if (!read.ok) return this.fail(recorder, workspaceId, 'guide-error', [read.error])
+      if (!read.changeset) {
+        return this.fail(recorder, workspaceId, 'guide-error', [
+          'No change set has been ingested for this workspace yet.',
+        ])
+      }
+      const changeset = read.changeset
+
+      // A re-run reuses the previous walkthrough so unaffected steps keep their ids.
+      // If the previous brief is missing or unreadable, fall back to a full run
+      // rather than failing — a full walkthrough is always a valid result.
+      const previousBrief = affectedStepIds ? await this.readPreviousBrief(targetDir) : null
+      const prompt =
+        previousBrief && affectedStepIds
+          ? buildGuideRerunPrompt(changeset, depth, previousBrief, affectedStepIds)
+          : buildGuideRunPrompt(changeset, depth)
+
+      const handle = this.companionAgents.attach({
+        workspaceId,
+        agentId: GUIDE_AGENT_ID,
+        name: GUIDE_AGENT_NAME,
+        workspaceRoot,
+        contextRoots: { knowledge: true },
+        systemPrompt: guideSystemPrompt(),
+      })
+      this.handles.set(workspaceId, handle)
+
       const brief = await handle.runStructured<ReviewBrief>({
         prompt,
         validate: (raw) => this.validateBrief(raw, changeset),
         retries: 1,
-        onPhase: (phase) => this.onCompanionPhase(workspaceId, phase),
+        onPhase: (phase) => this.onCompanionPhase(recorder, workspaceId, phase),
       })
-      this.emitPhase(workspaceId, 'writing')
+      this.emitPhase(recorder, workspaceId, 'writing')
       const briefPath = join(targetDir, BRIEF_FILE)
       await writeBriefAtomic(targetDir, brief)
-      this.emitPhase(workspaceId, 'done')
+      this.emitPhase(recorder, workspaceId, 'done')
       return { ok: true, brief, path: briefPath }
     } catch (error) {
       if (error instanceof CompanionValidationError) {
-        return this.fail(workspaceId, 'validation', error.errors)
+        return this.fail(recorder, workspaceId, 'validation', error.errors)
       }
-      return this.fail(workspaceId, 'guide-error', [messageOf(error)])
-    } finally {
-      this.inFlight.delete(workspaceId)
+      return this.fail(recorder, workspaceId, 'guide-error', [messageOf(error)])
     }
   }
 
   // Cancel a workspace's in-flight guide run. No-op if nothing is running.
   interrupt(workspaceId: string): void {
-    if (this.inFlight.has(workspaceId)) this.handles.get(workspaceId)?.interrupt()
+    if (this.guideRuns.status(workspaceId)?.running) this.handles.get(workspaceId)?.interrupt()
   }
 
   // "Ask the guide": send one chat turn to the SAME 'review-guide' companion the
@@ -235,19 +267,32 @@ export class ReviewBriefRunService {
   }
 
   // Map the companion's generic run phases onto the brief's semantic milestones.
-  private onCompanionPhase(workspaceId: string, phase: string): void {
-    if (phase === 'running') this.emitPhase(workspaceId, 'grouping')
-    else if (phase === 'retrying') this.emitPhase(workspaceId, 'grouping', 'retrying')
-    else if (phase === 'validating') this.emitPhase(workspaceId, 'annotating')
+  private onCompanionPhase(recorder: GuideRunRecorder, workspaceId: string, phase: string): void {
+    if (phase === 'running') this.emitPhase(recorder, workspaceId, 'grouping')
+    else if (phase === 'retrying') this.emitPhase(recorder, workspaceId, 'grouping', 'retrying')
+    else if (phase === 'validating') this.emitPhase(recorder, workspaceId, 'annotating')
   }
 
-  private emitPhase(workspaceId: string, phase: BriefRunPhase, detail?: string): void {
+  // Every phase goes to both sinks: the registry (survives the renderer) and the
+  // event channel (drives a panel that is already open).
+  private emitPhase(
+    recorder: GuideRunRecorder,
+    workspaceId: string,
+    phase: BriefRunPhase,
+    detail?: string
+  ): void {
+    recorder.record(phase, detail)
     this.emit(detail ? { workspaceId, phase, detail } : { workspaceId, phase })
   }
 
-  private fail(workspaceId: string, reason: BriefRunFailureReason, errors: string[]): BriefRunResult {
+  private fail(
+    recorder: GuideRunRecorder,
+    workspaceId: string,
+    reason: BriefRunFailureReason,
+    errors: string[]
+  ): BriefRunResult {
     const safe = errors.length > 0 ? errors : ['The guide run failed.']
-    this.emitPhase(workspaceId, 'failed', safe[0])
+    this.emitPhase(recorder, workspaceId, 'failed', safe[0])
     return { ok: false, reason, errors: safe }
   }
 }
