@@ -187,6 +187,32 @@ assert.equal(
   '',
 )
 
+// Past the collapse limit the rail cuts off at four rows behind "Show N more";
+// the heading still reports the full population (MC-1847 A1).
+{
+  const many = Array.from({ length: 6 }, (_, i) => ({
+    ...railway,
+    id: `svc-${i}`,
+    name: `Service ${i}`,
+  }))
+  const markup = renderToStaticMarkup(
+    <ReadyConnectorsRail connectors={many} onLaunchConnector={noop} onUseInAutomation={noop} />,
+  )
+  assert.match(markup, /Ready to launch/)
+  assert.match(markup, /Service 0/)
+  assert.match(markup, /Service 3/)
+  assert.doesNotMatch(markup, /Service 4/)
+  assert.match(markup, /Show 2 more/)
+  assert.match(markup, />6</)
+
+  // At or under the limit there is no toggle.
+  const few = renderToStaticMarkup(
+    <ReadyConnectorsRail connectors={many.slice(0, 4)} onLaunchConnector={noop} onUseInAutomation={noop} />,
+  )
+  assert.doesNotMatch(few, /Show \d+ more/)
+  assert.doesNotMatch(few, /Show fewer/)
+}
+
 // --- data-URI icons from the generated catalogue render through PluginIcon --
 
 {

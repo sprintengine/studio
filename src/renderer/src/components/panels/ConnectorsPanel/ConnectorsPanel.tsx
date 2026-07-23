@@ -416,8 +416,15 @@ function ConnectorsBrowser({
   )
 }
 
+// How many launchable rows the rail shows before its "Show N more" toggle —
+// tighter than SECTION_COLLAPSE_LIMIT because each row carries two actions and
+// the rail sits above the whole browse grid (MC-1847 A1).
+const READY_COLLAPSE_LIMIT = 4
+
 // The "ready to launch" rail: your runnable connectors, each offering New chat
-// (T1 runtime) and Use in automation. Hidden when none are ready.
+// (T1 runtime) and Use in automation. Hidden when none are ready; collapses
+// past READY_COLLAPSE_LIMIT so a long launchable list never pushes the browse
+// grid off-screen.
 export function ReadyConnectorsRail({
   connectors,
   onLaunchConnector,
@@ -427,12 +434,15 @@ export function ReadyConnectorsRail({
   onLaunchConnector: (connector: AgentComposerConnector) => void
   onUseInAutomation: (serverId: string) => void
 }) {
+  const [showAll, setShowAll] = useState(false)
   if (connectors.length === 0) return null
+  const visible = showAll ? connectors : connectors.slice(0, READY_COLLAPSE_LIMIT)
+  const hiddenCount = connectors.length - visible.length
   return (
     <section className="mt-4 space-y-2">
       <ConnectorSectionHeading label="Ready to launch" count={connectors.length} />
       <ul className="space-y-1">
-        {connectors.map((server) => (
+        {visible.map((server) => (
           <li
             key={server.id}
             className="group flex items-center gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-3 py-2"
@@ -460,6 +470,11 @@ export function ReadyConnectorsRail({
           </li>
         ))}
       </ul>
+      {connectors.length > READY_COLLAPSE_LIMIT ? (
+        <GhostButton size="sm" onClick={() => setShowAll((value) => !value)}>
+          {showAll ? 'Show fewer' : `Show ${hiddenCount} more`}
+        </GhostButton>
+      ) : null}
     </section>
   )
 }
