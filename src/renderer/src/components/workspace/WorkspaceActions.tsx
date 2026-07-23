@@ -14,7 +14,7 @@ import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import { ChangePulse, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
 import {
-  compareSessionItemsByAttention,
+  groupSessionItems,
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
@@ -50,9 +50,22 @@ import {
   platformKeybindingsFromApiPlatform,
 } from '../../commands/effectiveKeybindings'
 
+// The bucket a session row is listed under. Almost every session belongs to a
+// resident workspace. One keyed to an id no workspace row claims — a review
+// guide (keyed to the review id), a door surface, an agent still running in a
+// workspace that was closed — is `detached`: it gets its own labeled bucket so
+// it stays visible and stoppable instead of vanishing from the list.
+export type SessionGroup =
+  | { kind: 'workspace'; id: string; label: string; workspace: Workspace }
+  | { kind: 'detached'; id: string; label: string }
+
 export type SessionItem = {
-  workspace: Workspace
+  group: SessionGroup
   kind: TerminalKind
+  // Which runtime owns the process behind `sessionId`. Conversation agents have
+  // no PTY, so stopping and suspending them go through the conversation runtime
+  // rather than the terminal one.
+  transport: 'terminal' | 'conversation'
   agentId: string | null
   terminalId: string | null
   label: string
@@ -191,32 +204,18 @@ function SessionsPopover({
   onOpen,
   onPause,
   onStop,
-  onStopWorkspace,
+  onStopGroup,
 }: {
   items: SessionItem[]
   workspaceOrder: Map<string, number>
   onOpen: (item: SessionItem) => void | Promise<void>
   onPause: (item: SessionItem) => void
   onStop: (item: SessionItem) => void
-  onStopWorkspace: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
+  onStopGroup: (group: SessionGroup, items: SessionItem[]) => void | Promise<void>
 }) {
   // Re-render every 30s so relative times ("idle · 12m") stay fresh while open.
   const now = useRelativeNow(30_000)
-  const groups = items
-    .reduce<Array<{ workspace: Workspace; items: SessionItem[] }>>((acc, item) => {
-      const group = acc.find((candidate) => candidate.workspace.id === item.workspace.id)
-      if (group) {
-        group.items.push(item)
-      } else {
-        acc.push({ workspace: item.workspace, items: [item] })
-      }
-      return acc
-    }, [])
-    .sort((a, b) => {
-      const aIdx = workspaceOrder.get(a.workspace.id) ?? Number.MAX_SAFE_INTEGER
-      const bIdx = workspaceOrder.get(b.workspace.id) ?? Number.MAX_SAFE_INTEGER
-      return aIdx - bIdx
-    })
+  const groups = groupSessionItems(items, workspaceOrder)
 
   return (
     <div className="w-[420px] overflow-hidden p-1">
@@ -236,11 +235,15 @@ function SessionsPopover({
       ) : (
         <div className="max-h-[420px] overflow-y-auto py-1">
           {groups.map((group) => {
-            const accent = getWorkspaceAccentHex(group.workspace)
-            const starred = isStarred(group.workspace.highlight)
+            // A detached bucket has no workspace identity to wear: no accent
+            // rail, no type icon, no star — the bare label is what distinguishes
+            // it from the workspace groups above it.
+            const workspace = group.group.kind === 'workspace' ? group.group.workspace : null
+            const accent = workspace ? getWorkspaceAccentHex(workspace) : null
+            const starred = workspace ? isStarred(workspace.highlight) : false
             const headerColor = accent ?? 'var(--text-subtle)'
             return (
-              <div key={group.workspace.id} className="relative py-1 pl-2">
+              <div key={group.group.id} className="relative py-1 pl-2">
                 {accent ? (
                   <span
                     aria-hidden="true"
@@ -252,8 +255,10 @@ function SessionsPopover({
                   className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] font-semibold"
                   style={{ color: headerColor }}
                 >
-                  <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
-                  <TruncatedText as="span" text={group.workspace.name} className="min-w-0" />
+                  {workspace ? (
+                    <WorkspaceTypeIcon mode={workspace.mode} className="h-3.5 w-3.5 shrink-0" />
+                  ) : null}
+                  <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                   {starred ? (
                     <StarGlyph
                       filled
@@ -264,9 +269,9 @@ function SessionsPopover({
                   {group.items.length > 1 ? (
                     <button
                       type="button"
-                      onClick={() => void onStopWorkspace(group.workspace, group.items)}
+                      onClick={() => void onStopGroup(group.group, group.items)}
                       className="ml-auto flex h-6 shrink-0 items-center gap-1 rounded border border-transparent px-1.5 text-[11px] font-medium text-[color:var(--text-subtle)] transition-colors hover:border-[color:var(--tone-error-soft)] hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)]"
-                      aria-label={`Stop all ${group.items.length} sessions in ${group.workspace.name}`}
+                      aria-label={`Stop all ${group.items.length} sessions in ${group.group.label}`}
                     >
                       <StopIcon className="icon-xs" />
                       Stop all
@@ -274,7 +279,7 @@ function SessionsPopover({
                   ) : null}
                 </div>
                 <div className="space-y-1">
-                  {group.items.slice().sort(compareSessionItemsByAttention).map((item) => {
+                  {group.items.map((item) => {
                     const chipStyle = item.role
                       ? {
                           borderColor: getSprintEngineRoleAccent(item.role),
@@ -293,7 +298,7 @@ function SessionsPopover({
                     const dot = sessionStatusDot(item.status)
                     return (
                       <div
-                        key={`${item.workspace.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
+                        key={`${item.group.id}:${item.agentId ?? item.terminalId ?? item.sessionId}`}
                         className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-[13px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
                       >
                         <div className="flex min-w-0 items-center gap-2">
@@ -323,15 +328,26 @@ function SessionsPopover({
                         </div>
 
                         <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void onOpen(item)}
-                          className="h-7 rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
-                        >
-                          Open
-                        </button>
+                        {/* Open activates the row's workspace and focuses its
+                            pane. A detached session has no workspace to activate,
+                            so the button is absent rather than present-and-inert;
+                            Pause and Stop act on the process and still work. */}
+                        {item.group.kind === 'workspace' ? (
+                          <button
+                            type="button"
+                            onClick={() => void onOpen(item)}
+                            className="h-7 rounded border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] px-2.5 text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)]"
+                          >
+                            Open
+                          </button>
+                        ) : null}
 
-                        {item.kind === 'agent' && item.status !== 'failed' ? (
+                        {/* Pause suspends a PTY. A conversation agent has none,
+                            so the control is absent for those rows instead of
+                            failing quietly against the terminal runtime. */}
+                        {item.kind === 'agent'
+                        && item.transport === 'terminal'
+                        && item.status !== 'failed' ? (
                           <Tooltip content="Pause — suspends the agent to free memory; reopen resumes it">
                             <button
                               type="button"
@@ -388,7 +404,7 @@ export type WorkspaceActionsProps = {
   openSession: (item: SessionItem) => void | Promise<void>
   pauseSession: (item: SessionItem) => void
   stopSession: (item: SessionItem) => void
-  stopWorkspaceSessions: (workspace: Workspace, items: SessionItem[]) => void | Promise<void>
+  stopSessionGroup: (group: SessionGroup, items: SessionItem[]) => void | Promise<void>
 
   viewMenuOpen: boolean
   setViewMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
@@ -487,7 +503,7 @@ export function WorkspaceActions({
   openSession,
   pauseSession,
   stopSession,
-  stopWorkspaceSessions,
+  stopSessionGroup,
   viewMenuOpen,
   setViewMenuOpen,
   viewMenuTick,
@@ -612,7 +628,7 @@ export function WorkspaceActions({
                 onOpen={openSession}
                 onPause={pauseSession}
                 onStop={stopSession}
-                onStopWorkspace={stopWorkspaceSessions}
+                onStopGroup={stopSessionGroup}
               />
             </Popover>
           </div>

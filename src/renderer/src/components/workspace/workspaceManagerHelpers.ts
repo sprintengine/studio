@@ -19,7 +19,7 @@ import {
 import { GUIDED_BRIEF_AGENT_LABELS } from './guidedBrief/sessionAdapter'
 import type { Workspace } from '../../types/workspace'
 import type { MultiloopRoleDescriptor } from '../../specialists/specialistActions'
-import type { SessionItem } from './WorkspaceActions'
+import type { SessionGroup, SessionItem } from './WorkspaceActions'
 import type {
   ConversationSessionStatus,
   ConversationSessionSummary,
@@ -210,28 +210,62 @@ export function terminalSessionLabel(terminalId: string): string {
   return 'Terminal'
 }
 
+// Bucket label for a session whose workspaceId matches no workspace row and
+// whose caller offered no better name.
+export const DETACHED_SESSION_LABEL = 'Other sessions'
+
+export type SessionItemOptions = {
+  // Names the bucket a workspace-less session is listed under — the Reviews
+  // integration recognises review ids and answers "Reviews". Returning null (or
+  // omitting the hook) falls back to DETACHED_SESSION_LABEL; it never drops the
+  // session.
+  resolveDetachedLabel?: (workspaceId: string) => string | null
+}
+
+function workspaceSessionGroup(workspace: Workspace): SessionGroup {
+  return { kind: 'workspace', id: workspace.id, label: workspace.name, workspace }
+}
+
+// The bucket for a session no workspace row claims. Keyed by LABEL rather than
+// by the unmatched id, so several orphaned reviews read as one "Reviews" group
+// instead of N identically-named ones.
+function detachedSessionGroup(
+  workspaceId: string | null,
+  options: SessionItemOptions,
+): SessionGroup {
+  const label = (workspaceId ? options.resolveDetachedLabel?.(workspaceId) : null) ?? DETACHED_SESSION_LABEL
+  return { kind: 'detached', id: `detached:${label}`, label }
+}
+
 export function getSessionItems(
   workspaces: Workspace[],
   terminalSessions: TerminalSessionSnapshot[],
   // Conversation (chat) agents have no PTY snapshot; their runtime session
   // summaries are a second, equally truthful status source.
   conversationSessions: ConversationSessionSummary[] = [],
+  options: SessionItemOptions = {},
 ): SessionItem[] {
   const conversationItems = conversationSessions.flatMap((summary): SessionItem[] => {
     const status = CONVERSATION_SESSION_STATUS[summary.status]
     if (!status) return []
+    // A summary keyed to an id no workspace row claims (the review guide runs
+    // under its review id) is NOT dropped — it lands in a detached bucket. An
+    // agent the user cannot see is worse than an oddly-grouped one.
     const workspace =
       findWorkspaceForAgentPreferring(workspaces, summary.agentId, summary.workspaceId)
       ?? workspaces.find((candidate) => candidate.id === summary.workspaceId)
-    if (!workspace) return []
+      ?? null
     // Wizard specialist sessions (guided-brief-*) have no AgentState entry —
     // like their terminal twins, they must still be visible in the session
     // manager, so the agent lookup is a label source, not a gate.
-    const agent = workspace.agents[summary.agentId]
+    const agent = workspace?.agents[summary.agentId]
     return [
       {
-        workspace,
+        group: workspace
+          ? workspaceSessionGroup(workspace)
+          : detachedSessionGroup(summary.workspaceId, options),
         kind: 'agent',
+        transport: 'conversation',
         agentId: summary.agentId,
         terminalId: null,
         label: agent?.name || conversationAgentFallbackLabel(summary.agentId),
@@ -256,21 +290,25 @@ export function getSessionItems(
   // A specialist can leave a stale PTY session behind and run again on the
   // conversation transport under the same agent id (both transports share the
   // guided-brief-* ids). The conversation summary is the current run — drop
-  // the terminal twin instead of listing the agent twice.
+  // the terminal twin instead of listing the agent twice. This is the one
+  // remaining terminal-branch drop, and the agent it drops is still on screen:
+  // its conversation row represents it.
   const conversationAgentKeys = new Set(
-    conversationItems.map((item) => `${item.workspace.id} ${item.agentId}`),
+    conversationItems.map((item) => `${item.group.id} ${item.agentId}`),
   )
 
   return terminalSessions
     .filter(
+      // Live sessions, plus retained *failed* agent sessions so a crashed agent
+      // demands attention instead of silently disappearing from the list. A
+      // session with no usable workspaceId is NOT filtered here — it groups as
+      // detached below.
       (session) =>
-        typeof session.workspaceId === 'string'
-        // Live sessions, plus retained *failed* agent sessions so a crashed agent
-        // demands attention instead of silently disappearing from the list.
-        && (isLiveTerminal(session)
-          || (session.kind === 'agent' && session.activity.kind === 'failed')),
+        isLiveTerminal(session)
+        || (session.kind === 'agent' && session.activity.kind === 'failed'),
     )
     .flatMap((session): SessionItem[] => {
+      const workspaceId = typeof session.workspaceId === 'string' ? session.workspaceId : null
       // Agent terminals can be moved between workspaces after spawn, but the PTY
       // session keeps its spawn-time workspaceId. Resolve an agent's *current*
       // workspace preferring that recorded workspace (it disambiguates shared ids
@@ -279,16 +317,22 @@ export function getSessionItems(
       // agent would open and mutate state in the workspace it left.
       const workspace =
         (session.kind === 'agent' && session.agentId
-          ? findWorkspaceForAgentPreferring(workspaces, session.agentId, session.workspaceId)
+          ? findWorkspaceForAgentPreferring(workspaces, session.agentId, workspaceId)
           : null)
-        ?? workspaces.find((candidate) => candidate.id === session.workspaceId)
-      if (!workspace) return []
+        ?? (workspaceId ? workspaces.find((candidate) => candidate.id === workspaceId) : null)
+        ?? null
+      // No workspace row claims this session (its workspace was closed, or it
+      // was keyed to a door surface's id). It stays listed, under a bucket.
+      const group = workspace
+        ? workspaceSessionGroup(workspace)
+        : detachedSessionGroup(workspaceId, options)
 
       if (session.kind === 'agent') {
-        if (!session.agentId) return []
-        if (conversationAgentKeys.has(`${workspace.id} ${session.agentId}`)) return []
-        const agent = workspace.agents[session.agentId]
-        const runtime = workspace.sprintEngineState?.sprintEngineAgents[session.agentId]
+        if (session.agentId && conversationAgentKeys.has(`${group.id} ${session.agentId}`)) return []
+        const agent = session.agentId ? workspace?.agents[session.agentId] : undefined
+        const runtime = session.agentId
+          ? workspace?.sprintEngineState?.sprintEngineAgents[session.agentId]
+          : undefined
         const statusInfo = deriveSessionStatus(session, runtime?.status === 'needs_input')
         const specialistId =
           agent?.kind === 'specialist' || agent?.kind === 'watchtower'
@@ -298,14 +342,16 @@ export function getSessionItems(
 
         return [
           {
-            workspace,
+            group,
             kind: session.kind,
-            agentId: session.agentId,
+            transport: 'terminal',
+            agentId: session.agentId ?? null,
             terminalId: null,
             // Wizard specialists (and any agent spawned with only snapshot
             // metadata) have no workspace.agents record — label from the
-            // snapshot's agentName before falling back to the raw id.
-            label: agent?.name || session.agentName || session.agentId,
+            // snapshot's agentName before falling back to the raw id, and to a
+            // plain noun when the snapshot carries neither.
+            label: agent?.name || session.agentName || session.agentId || 'Agent',
             cli: session.cli ?? agent?.cli ?? '',
             status: statusInfo.status,
             source: statusInfo.source,
@@ -327,8 +373,9 @@ export function getSessionItems(
       const statusInfo = deriveSessionStatus(session, false)
       return [
         {
-          workspace,
+          group,
           kind: session.kind,
+          transport: 'terminal',
           agentId: null,
           terminalId,
           label: terminalSessionLabel(terminalId),
@@ -347,6 +394,33 @@ export function getSessionItems(
       ]
     })
     .concat(conversationItems)
+}
+
+// Session rows folded into the buckets the sessions popover renders: one entry
+// per group, rows inside it attention-first. Real workspaces keep the sidebar's
+// order; detached buckets trail every workspace, ordered by label among
+// themselves, so a session with no workspace never displaces a real one.
+export function groupSessionItems(
+  items: SessionItem[],
+  workspaceOrder: Map<string, number>,
+): Array<{ group: SessionGroup; items: SessionItem[] }> {
+  const groups = items.reduce<Array<{ group: SessionGroup; items: SessionItem[] }>>((acc, item) => {
+    const bucket = acc.find((candidate) => candidate.group.id === item.group.id)
+    if (bucket) bucket.items.push(item)
+    else acc.push({ group: item.group, items: [item] })
+    return acc
+  }, [])
+  for (const bucket of groups) bucket.items.sort(compareSessionItemsByAttention)
+  return groups.sort((a, b) => {
+    const aDetached = a.group.kind === 'detached'
+    const bDetached = b.group.kind === 'detached'
+    if (aDetached !== bDetached) return aDetached ? 1 : -1
+    if (aDetached && bDetached) return a.group.label.localeCompare(b.group.label)
+    return (
+      (workspaceOrder.get(a.group.id) ?? Number.MAX_SAFE_INTEGER)
+      - (workspaceOrder.get(b.group.id) ?? Number.MAX_SAFE_INTEGER)
+    )
+  })
 }
 
 /**

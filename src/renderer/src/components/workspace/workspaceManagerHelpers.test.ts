@@ -6,6 +6,7 @@ import {
   compareSessionItemsByAttention,
   deriveSessionStatus,
   getSessionItems,
+  groupSessionItems,
   sessionsAttentionTone,
 } from './workspaceManagerHelpers'
 import type { SessionItem } from './WorkspaceActions'
@@ -22,7 +23,124 @@ function main(): void {
   assertAttentionToneNeverLies()
   assertConversationSessionsSurfaceInSessionItems()
   assertWizardPtySessionsSurfaceWithHumanLabel()
+  assertWorkspacelessSessionsStillSurface()
+  assertDetachedBucketsTrailRealWorkspaces()
   console.log('workspaceManagerHelpers.test.ts: all assertions passed')
+}
+
+// The sessions popover groups by bucket: workspaces in sidebar order, detached
+// buckets after all of them, rows attention-first inside each.
+function assertDetachedBucketsTrailRealWorkspaces(): void {
+  const workspaceGroup = (id: string, name: string): SessionItem['group'] => ({
+    kind: 'workspace',
+    id,
+    label: name,
+    workspace: { id, name } as unknown as Workspace,
+  })
+  const reviews: SessionItem['group'] = { kind: 'detached', id: 'detached:Reviews', label: 'Reviews' }
+  const other: SessionItem['group'] = { kind: 'detached', id: 'detached:Other sessions', label: 'Other sessions' }
+  const rows = [
+    { ...item({ status: 'idle', lastActivityAt: 1 }), group: other },
+    { ...item({ status: 'working' }), group: workspaceGroup('ws-b', 'Bravo') },
+    { ...item({ status: 'needs-input' }), group: reviews },
+    { ...item({ status: 'idle', lastActivityAt: 2 }), group: workspaceGroup('ws-a', 'Alpha') },
+    { ...item({ status: 'needs-input' }), group: workspaceGroup('ws-a', 'Alpha') },
+  ]
+  const grouped = groupSessionItems(rows, new Map([['ws-a', 0], ['ws-b', 1]]))
+  assert.deepEqual(
+    grouped.map((entry) => entry.group.label),
+    ['Alpha', 'Bravo', 'Other sessions', 'Reviews'],
+    'sidebar order for workspaces, detached buckets last and alphabetical',
+  )
+  assert.deepEqual(
+    grouped[0]?.items.map((row) => row.status),
+    ['needs-input', 'idle'],
+    'rows inside a bucket stay attention-first',
+  )
+}
+
+// The regression this file was missing (MC-1786): a session keyed to an id no
+// workspace row claims — the review guide runs under its review id — used to be
+// dropped on BOTH branches, so a live agent was invisible in the one surface
+// users audit. Both branches must now yield a row in a labeled detached bucket,
+// with truthful status and its sessionId intact so stop still works.
+function assertWorkspacelessSessionsStillSurface(): void {
+  const guideSummary: ConversationSessionSummary = {
+    sessionId: 'conv-guide',
+    workspaceId: 'review-2026-07-22',
+    agentId: 'review-guide',
+    providerId: 'claude-agent',
+    modelId: 'sonnet',
+    status: 'active',
+    createdAt: 10,
+    updatedAt: 20,
+  }
+  const orphanPty = {
+    sessionId: 'pty-orphan',
+    processAlive: true,
+    kind: 'agent',
+    workspaceId: 'ws-closed',
+    agentId: 'agent-1',
+    agentName: 'Implementer',
+    cli: 'claude-code',
+    activity: { kind: 'idle', since: 10 },
+    lastOutputAt: 20,
+    lastInputAt: null,
+    agentState: { phase: 'awaiting_input', since: 30, source: 'hook' },
+  } as unknown as TerminalSessionSnapshot
+
+  const items = getSessionItems([], [orphanPty], [guideSummary])
+  assert.equal(items.length, 2, 'conversation AND terminal orphans both yield items')
+
+  const conversationItem = items.find((item) => item.sessionId === 'conv-guide')
+  assert.ok(conversationItem, 'the workspace-less conversation session surfaces')
+  assert.equal(conversationItem?.status, 'working', 'its status is the truthful mapped one')
+  assert.equal(conversationItem?.group.kind, 'detached')
+  assert.equal(conversationItem?.group.label, 'Other sessions', 'default bucket label')
+  // Stop routes by transport: a conversation agent has no PTY, so the row must
+  // say so or the session manager kills the wrong runtime and reports success.
+  assert.equal(conversationItem?.transport, 'conversation')
+  assert.equal(conversationItem?.sessionId, 'conv-guide', 'the runtime session id survives for stop')
+
+  const terminalItem = items.find((item) => item.sessionId === 'pty-orphan')
+  assert.ok(terminalItem, 'the workspace-less terminal session surfaces')
+  assert.equal(terminalItem?.status, 'needs-input', 'hook phase still drives status without a workspace')
+  assert.equal(terminalItem?.label, 'Implementer', 'labels from the snapshot, not the raw id')
+  assert.equal(terminalItem?.group.kind, 'detached')
+  assert.equal(terminalItem?.transport, 'terminal')
+
+  // Callers name the bucket; unrecognised ids keep the default. Sessions sharing
+  // a label share ONE bucket, so N orphaned reviews are not N "Reviews" groups.
+  const labeled = getSessionItems([], [orphanPty], [guideSummary], {
+    resolveDetachedLabel: (workspaceId) => (workspaceId.startsWith('review-') ? 'Reviews' : null),
+  })
+  const labeledGroups = new Map(labeled.map((item) => [item.group.id, item.group.label]))
+  assert.deepEqual(
+    [...labeledGroups.values()].sort(),
+    ['Other sessions', 'Reviews'],
+    'the resolver names the review bucket and leaves the rest generic',
+  )
+
+  const twoReviews = getSessionItems(
+    [],
+    [],
+    [guideSummary, { ...guideSummary, sessionId: 'conv-guide-2', workspaceId: 'review-other' }],
+    { resolveDetachedLabel: () => 'Reviews' },
+  )
+  assert.equal(new Set(twoReviews.map((item) => item.group.id)).size, 1, 'one bucket per label')
+
+  // A live session with no workspaceId at all is still a live session.
+  const idlessPty = {
+    sessionId: 'pty-idless',
+    processAlive: true,
+    kind: 'terminal',
+    activity: { kind: 'working', since: 5 },
+    lastOutputAt: 10,
+    lastInputAt: null,
+  } as unknown as TerminalSessionSnapshot
+  const idless = getSessionItems([], [idlessPty], [])
+  assert.equal(idless.length, 1, 'a session with no workspaceId is not filtered out')
+  assert.equal(idless[0]?.group.label, 'Other sessions')
 }
 
 // Wizard specialists on the PTY fallback transport spawn with workspaceId and
@@ -114,11 +232,6 @@ function assertConversationSessionsSurfaceInSessionItems(): void {
   assert.equal(getSessionItems([workspace], [], [summary('ready')])[0]?.status, 'idle')
   assert.equal(getSessionItems([workspace], [], [summary('failed')])[0]?.status, 'failed')
   assert.equal(getSessionItems([workspace], [], [summary('stopped')]).length, 0, 'stopped sessions drop out')
-  assert.equal(
-    getSessionItems([], [], [summary('active')]).length,
-    0,
-    'summaries without a matching workspace are ignored',
-  )
 
   // Wizard specialist sessions have no AgentState entry but must stay visible
   // in the session manager, with a readable role label.

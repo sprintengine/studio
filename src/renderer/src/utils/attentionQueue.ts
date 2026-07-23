@@ -9,6 +9,7 @@ import {
   compareSessionItemsByAttention,
   getSessionItems,
   sessionsAttentionTone,
+  type SessionItemOptions,
 } from '../components/workspace/workspaceManagerHelpers'
 import type { SessionItem } from '../components/workspace/WorkspaceActions'
 import type { Workspace } from '../types/workspace'
@@ -25,12 +26,16 @@ export type AttentionQueueBadge = {
 const ATTENTION_STATUSES: ReadonlySet<SessionItem['status']> = new Set(['needs-input', 'failed'])
 
 // Every session across every workspace that is awaiting the user, attention-first
-// (needs-input before failed, then most-recently-active within a tier).
+// (needs-input before failed, then most-recently-active within a tier). A session
+// whose workspace no longer exists is included too — an agent nobody can see is
+// exactly the one that strands the user — carrying the detached bucket label the
+// caller's `options` resolve for it.
 export function buildAttentionQueueItems(
   workspaces: Workspace[],
   terminalSessions: TerminalSessionSnapshot[],
+  options: SessionItemOptions = {},
 ): SessionItem[] {
-  return getSessionItems(workspaces, terminalSessions)
+  return getSessionItems(workspaces, terminalSessions, [], options)
     .filter((item) => ATTENTION_STATUSES.has(item.status))
     .sort(compareSessionItemsByAttention)
 }
