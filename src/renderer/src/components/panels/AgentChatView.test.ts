@@ -13,6 +13,9 @@ import {
   isConversationBusy,
   isConversationModelLocked,
   parseOptionLabel,
+  permissionChangeScopeLabel,
+  permissionPresetLabel,
+  PermissionPresetPill,
   projectConversation,
   readinessLabel,
   ResolvedDecisions,
@@ -751,5 +754,51 @@ const decisionsMarkup = renderToStaticMarkup(
 assert.ok(decisionsMarkup.includes('Approved 3 files'), 'the batch reads as one outcome line')
 assert.ok(decisionsMarkup.includes('aria-expanded="false"'), 'a resolved batch mounts collapsed and is expandable')
 assert.ok(!decisionsMarkup.includes('src/a.ts'), 'the individual requests wait behind the expander')
+
+// ── Tool-permission pill (1771) ──────────────────────────────────────────────
+// The preset used to be start-time-only and the footer only ever said "Asks
+// before tools". The pill has to name the preset actually in force, and say
+// truthfully when a change bites.
+assert.equal(permissionPresetLabel('default'), 'Asks before tools')
+assert.equal(permissionPresetLabel('auto_workspace'), 'Auto in workspace')
+assert.equal(permissionPresetLabel('bypass_all'), 'Bypass permissions')
+assert.equal(
+  permissionChangeScopeLabel(true),
+  'Applies from the next tool call.',
+  'a live session keeps its running turn; the new preset lands on the next tool'
+)
+assert.equal(
+  permissionChangeScopeLabel(false),
+  'Applies when the conversation starts.',
+  'with no session yet the preset is simply what the session will start on'
+)
+
+const pillMarkup = (preset: 'default' | 'auto_workspace' | 'bypass_all'): string =>
+  renderToStaticMarkup(
+    createElement(PermissionPresetPill, {
+      preset,
+      live: true,
+      changing: false,
+      open: false,
+      onOpenChange: () => {},
+      onChange: () => {},
+    })
+  )
+
+const defaultPill = pillMarkup('default')
+assert.ok(defaultPill.includes('Asks before tools'), 'the pill names the current behavior at rest')
+assert.ok(
+  defaultPill.includes('aria-haspopup="dialog"') && defaultPill.includes('aria-expanded="false"'),
+  'the retired read-only chip is now a real disclosure control, announced as one'
+)
+assert.ok(!defaultPill.includes('--tone-warn'), 'asking before tools is the quiet, unremarkable state')
+assert.ok(
+  pillMarkup('bypass_all').includes('--tone-warn'),
+  'a conversation running without permission checks says so in the warn tone'
+)
+assert.ok(
+  pillMarkup('auto_workspace').includes('Auto in workspace'),
+  'the middle preset is nameable too — the pill is never a two-state lie'
+)
 
 console.log('AgentChatView.test.ts: ok')

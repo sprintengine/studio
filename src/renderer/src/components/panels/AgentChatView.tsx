@@ -21,7 +21,9 @@ import type {
   ConversationSessionStatus,
 } from '../../../../shared/conversation-runtime'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
+import type { SprintEngineCliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../workspace/agentComposer/agentSpawnShared'
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
@@ -956,6 +958,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const conversation = agent?.conversation
   const label = agent?.name ?? agentId
   const workspaceRoot = workspace?.folderPath ?? null
+  // Tool-permission preset for this agent: the same persisted per-agent field
+  // every CLI spawn stamps from the picker, so a conversation agent spawned as
+  // Auto/Bypass keeps that choice. An agent record predating the field reads as
+  // 'default' (ask per tool) — the safe end of the scale, never the loose one.
+  const permissionPreset: SprintEngineCliPermissionPreset = agent?.cliPermissionPreset ?? 'default'
 
   const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
@@ -971,6 +978,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // current-model label, context length, and the tab self-heal below.
   const liveModels = catalogByProvider[conversation?.providerId ?? ''] ?? EMPTY_MODELS
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [events, setEvents] = useState<ConversationEvent[]>([])
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
@@ -1224,6 +1232,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       providerId: conversation.providerId,
       modelId: conversation.modelId,
       cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides,
+      // The spawn picker's preset, stamped on the agent record at spawn and
+      // editable from the composer's permission pill until the first turn. No
+      // hardcoded 'default' here: an agent spawned as Bypass starts as Bypass.
+      permissionPreset,
     })
     if (!result.ok) {
       setActionError(result.message)
@@ -1231,7 +1243,44 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     }
     setSessionId(result.session.sessionId)
     return result.session.sessionId
-  }, [agentId, cliRuntimes, conversation, sessionId, workspaceId, workspaceRoot])
+  }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot])
+
+  // Change the tool-permission preset. The agent record is the durable source
+  // of truth (it seeds the next session start and survives a remount), so it is
+  // written first; a live session additionally gets the change pushed to its
+  // running query, where it applies from the next tool call. A provider that
+  // refuses (no live-change support, or Claude Code declining) rolls the record
+  // back and surfaces its own message — the pill never shows a preset the
+  // session is not actually on.
+  const [permissionChanging, setPermissionChanging] = useState(false)
+  const changePermissionPreset = useCallback(
+    async (next: SprintEngineCliPermissionPreset) => {
+      if (next === permissionPreset || permissionChanging) return
+      setActionError(null)
+      const previous = permissionPreset
+      updateAgent(workspaceId, agentId, { cliPermissionPreset: next })
+      if (!sessionId) return
+      if (typeof window.api.conversationSessionSetPermission !== 'function') {
+        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+        setActionError('Changing tool permissions mid-conversation needs an app restart.')
+        return
+      }
+      setPermissionChanging(true)
+      try {
+        const result = await window.api.conversationSessionSetPermission({ sessionId, permissionPreset: next })
+        if (!result.ok) {
+          updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+          setActionError(result.message)
+        }
+      } catch (err) {
+        updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
+        setActionError(err instanceof Error ? err.message : 'Could not change tool permissions.')
+      } finally {
+        setPermissionChanging(false)
+      }
+    },
+    [agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
+  )
 
   const sendTurn = useCallback(
     async (message: string) => {
@@ -1713,12 +1762,14 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 <ContextMeter used={usedTokens} total={contextLength} />
               ) : null}
               {isAgentHarness ? (
-                <Tooltip content={`${assistantName} asks for approval before running tools in this workspace`} placement="top">
-                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-medium text-[color:var(--text-muted)]">
-                    <LockGlyph className="icon-xs" />
-                    Asks before tools
-                  </span>
-                </Tooltip>
+                <PermissionPresetPill
+                  preset={permissionPreset}
+                  live={sessionId !== null}
+                  changing={permissionChanging}
+                  open={permissionMenuOpen}
+                  onOpenChange={setPermissionMenuOpen}
+                  onChange={(next) => void changePermissionPreset(next)}
+                />
               ) : null}
             </div>
             {projection.activeTurn ? (
@@ -1818,6 +1869,100 @@ type ModelGroup = {
   // so it is never dropped nor shown as a silent stale seed. 'add-key' — no key
   // configured; 'no-models' — key present but the live catalog came back empty.
   emptyState?: 'add-key' | 'no-models'
+}
+
+// Plain-language name for a tool-permission preset, as the composer pill reads
+// it. The spawn picker's own labels ("Default permissions") name the setting;
+// the pill has to name the BEHAVIOR, because at rest it is the answer to "will
+// this agent stop and ask me before it acts?".
+export function permissionPresetLabel(preset: SprintEngineCliPermissionPreset): string {
+  if (preset === 'auto_workspace') return 'Auto in workspace'
+  if (preset === 'bypass_all') return 'Bypass permissions'
+  return 'Asks before tools'
+}
+
+// When a preset change actually bites. A live session takes it on the running
+// query's next tool call; with no session yet it is simply what the session
+// will start with. Stated plainly so the user is never left guessing whether
+// the switch they just made covers the work already in flight.
+export function permissionChangeScopeLabel(live: boolean): string {
+  return live ? 'Applies from the next tool call.' : 'Applies when the conversation starts.'
+}
+
+// The composer footer's tool-permission control. Replaces the read-only "Asks
+// before tools" chip: the preset was start-time-only, so a conversation was
+// stuck with whatever it spawned on. The pill names the current behavior at
+// rest and opens the SHARED Default/Auto/Bypass row (the same control the spawn
+// picker and Automations editor use) rather than three always-on chips, so the
+// footer keeps one control per concern.
+export function PermissionPresetPill({
+  preset,
+  live,
+  changing,
+  open,
+  onOpenChange,
+  onChange,
+}: {
+  preset: SprintEngineCliPermissionPreset
+  // Whether a session is running: only then is this a live mutation.
+  live: boolean
+  // A change is in flight; the row locks so a second pick can't race it.
+  changing: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onChange: (preset: SprintEngineCliPermissionPreset) => void
+}) {
+  const asks = preset === 'default'
+  // The surface portals to <body>, so Tab from the trigger would never reach the
+  // chips. Land focus on the preset in force (Escape returns it to the trigger).
+  const focusActivePreset = useCallback((surface: HTMLElement) => {
+    const active = surface.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
+    ;(active ?? surface.querySelector<HTMLButtonElement>('button'))?.focus()
+  }, [])
+  return (
+    <Popover
+      open={open}
+      onOpenChange={onOpenChange}
+      ariaLabel="Tool permissions"
+      popupRole="dialog"
+      placement="top-start"
+      onOpenAutoFocus={focusActivePreset}
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <Tooltip
+          content={
+            AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === preset)?.title
+            ?? permissionPresetLabel(preset)
+          }
+          placement="top"
+        >
+          <button
+            ref={ref}
+            type="button"
+            onClick={togglePopover}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
+              preset === 'bypass_all' ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-muted)]'
+            }`}
+            {...triggerProps}
+          >
+            {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
+            {permissionPresetLabel(preset)}
+            <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
+          </button>
+        </Tooltip>
+      )}
+    >
+      <div className="w-[236px] p-2">
+        {/* The surface is already named "Tool permissions"; the chips need no
+            second group label on top of it. */}
+        <div className="flex items-center gap-1">
+          <PermissionPresetChips value={preset} onChange={onChange} disabled={changing} />
+        </div>
+        <p className="px-1 pt-1.5 text-[11px] leading-4 text-[color:var(--text-muted)]">
+          {permissionChangeScopeLabel(live)}
+        </p>
+      </div>
+    </Popover>
+  )
 }
 
 function ModelPickerPill({
@@ -3267,6 +3412,17 @@ function LockGlyph({ className }: { className?: string }) {
     <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
       <rect x="2.5" y="6" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
       <path d="M4.5 6V4.5a2.5 2.5 0 015 0V6" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  )
+}
+
+// Open-shackle twin of LockGlyph: the permission pill's at-rest signal that
+// this agent is NOT stopping to ask before every tool.
+function UnlockedGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <rect x="2.5" y="6" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M4.5 6V4.5a2.5 2.5 0 015 0" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }

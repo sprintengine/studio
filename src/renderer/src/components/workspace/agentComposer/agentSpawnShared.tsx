@@ -32,14 +32,20 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
 
 // The Default / Auto / Bypass preset chip row — the one interactive permission
 // control every spawn surface renders (composer panel, picker popover footer,
-// Automations editor runtime row), so the options and their tone can't drift.
-// Bypass carries the warn tone when active; inactive chips stay quiet.
+// Automations editor runtime row, and the chat composer's live permission
+// pill), so the options and their tone can't drift. Bypass carries the warn
+// tone when active; inactive chips stay quiet. `disabled` is for surfaces that
+// change a LIVE session's preset: the row locks while the change is in flight
+// so a second pick can't race the first. Selection is carried by aria-pressed
+// as well as tint, so the active chip reads without color.
 export function PermissionPresetChips({
   value,
   onChange,
+  disabled = false,
 }: {
   value: SprintEngineCliPermissionPreset
   onChange: (preset: SprintEngineCliPermissionPreset) => void
+  disabled?: boolean
 }) {
   return (
     <>
@@ -50,8 +56,10 @@ export function PermissionPresetChips({
           <Tooltip key={option.value} content={option.title} placement="bottom">
             <button
               type="button"
+              aria-pressed={active}
+              disabled={disabled}
               onClick={() => onChange(option.value)}
-              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 ${
                 active
                   ? isBypass
                     ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
