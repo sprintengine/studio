@@ -33,8 +33,10 @@ import type {
 import type {
   ConversationProviderAdapter,
   ConversationProviderLiveSession,
+  ConversationProviderPermissionResult,
   ConversationSessionEventSink,
   MockAdapterApprovalInput,
+  MockAdapterPermissionInput,
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from './mock-conversation-provider'
@@ -66,6 +68,7 @@ export type ClaudeAgentProviderAdapter = ConversationProviderAdapter & {
   listLiveSessions(): ConversationProviderLiveSession[]
   disposeChildProcess(sessionId: string): boolean
   disposeAll(): void
+  setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
 }
 
 type PermissionDecision = {
@@ -517,6 +520,34 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // approval_resolved is emitted through the still-open turn stream so the
       // transcript stays ordered; nothing to return here.
       return []
+    },
+
+    // Live permission switch. With a running child the new mode goes down the
+    // SDK control channel, so the next tool call honors it; the recorded preset
+    // also carries into any later respawn (idle disposal keeps the session).
+    // With no child yet the recorded preset is the whole job — ensureQuery reads
+    // it at spawn, including the bypass opt-in flag.
+    async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
+      const state = sessions.get(input.sessionId)
+      if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      if (state.query) {
+        try {
+          await state.query.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset])
+        } catch (error) {
+          // Claude Code owns the decision (it can refuse a mode the session did
+          // not opt into at spawn). Surface its refusal instead of recording a
+          // preset it is not honoring.
+          return {
+            ok: false,
+            message: error instanceof Error && error.message.trim()
+              ? `Claude Code refused the permission change: ${error.message}`
+              : 'Claude Code refused the permission change.',
+          }
+        }
+      }
+      state.permissionPreset = input.permissionPreset
+      state.lastActivityAt = now()
+      return { ok: true }
     },
 
     interrupt(input: MockAdapterSessionInput) {

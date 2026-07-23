@@ -12,6 +12,7 @@ import type {
   ConversationSendTurnInput,
   ConversationSessionActionResult,
   ConversationSessionSummary,
+  ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
@@ -309,6 +310,26 @@ export class ConversationRuntime {
     session.activeTurnId = null
     session.pendingRequestId = null
     session.status = input.approved ? 'ready' : 'failed'
+    session.updatedAt = this.now()
+    return { ok: true, session: this.toSummary(session) }
+  }
+
+  // Change tool-permission behavior on a session that is already running. The
+  // adapter applies it to its live provider session (taking effect on the next
+  // tool call) and only then does the session record the new preset, so a
+  // provider that refuses the change never leaves a preset it is not honoring.
+  async setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, message: 'Conversation session is invalid.' }
+    if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
+    const adapter = this.getAdapterForProviderId(session.providerId)
+    if (!adapter) return { ok: false, message: 'Conversation provider is unavailable.' }
+    if (!adapter.setPermissionPreset) {
+      return { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
+    }
+    const applied = await adapter.setPermissionPreset({ ...session, permissionPreset: input.permissionPreset })
+    if (!applied.ok) return { ok: false, message: applied.message }
+    session.permissionPreset = input.permissionPreset
     session.updatedAt = this.now()
     return { ok: true, session: this.toSummary(session) }
   }
@@ -756,8 +777,20 @@ export class ConversationRuntime {
   }
 
   private toSummary(session: RuntimeSession): ConversationSessionSummary {
-    const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt } = session
-    return { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt }
+    const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt, permissionPreset } = session
+    return {
+      sessionId,
+      workspaceId,
+      agentId,
+      providerId,
+      modelId,
+      status,
+      createdAt,
+      updatedAt,
+      // Only when the session carries one, so a session that never chose a
+      // preset reports absence rather than an invented 'default'.
+      ...(permissionPreset ? { permissionPreset } : {}),
+    }
   }
 }
 

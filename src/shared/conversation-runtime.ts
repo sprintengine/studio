@@ -44,6 +44,11 @@ export type ConversationSessionSummary = {
   status: ConversationSessionStatus
   createdAt: number
   updatedAt: number
+  // The preset currently in force, when the session carries one. Absent means
+  // the session never set one and the provider's own default ('default', ask
+  // per tool) applies. Changing it mid-conversation goes through
+  // `conversation:sessions:set-permission`.
+  permissionPreset?: ConversationPermissionPreset
 }
 
 // Loose mirror of the CLI runtime override map (`appSettings.cliRuntimes`)
@@ -55,8 +60,11 @@ export type ConversationCliRuntimeOverrides = Record<
 >
 
 // Mirrors the terminal-side `cliPermissionPreset` vocabulary
-// (SprintEngineCliPermissionPreset) without importing electron-api types.
-export type ConversationPermissionPreset = 'default' | 'auto_workspace' | 'bypass_all'
+// (SprintEngineCliPermissionPreset) without importing electron-api types. The
+// value tuple is exported so the IPC boundary validates against one list.
+export const CONVERSATION_PERMISSION_PRESETS = ['default', 'auto_workspace', 'bypass_all'] as const
+
+export type ConversationPermissionPreset = (typeof CONVERSATION_PERMISSION_PRESETS)[number]
 
 export type ConversationStartSessionInput = {
   workspaceRoot: string
@@ -148,6 +156,15 @@ export type ConversationQuestion = {
   multiSelect?: boolean
   allowFreeText?: boolean
   options: ConversationQuestionOption[]
+}
+
+// Change how tool permissions behave on a session that is already running. The
+// interactive path only: the change reaches the live provider session and takes
+// effect on its next tool call, without recreating the session or losing
+// history. The automation MCP surface still refuses `bypass_all` outright.
+export type ConversationSetPermissionInput = {
+  sessionId: string
+  permissionPreset: ConversationPermissionPreset
 }
 
 export type ConversationStopSessionInput = {

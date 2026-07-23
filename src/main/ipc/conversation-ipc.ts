@@ -19,17 +19,20 @@ import type {
   ConversationProvidersListInput,
   ConversationListSessionsInput,
   ConversationListSessionsResult,
+  ConversationPermissionPreset,
   ConversationProviderTestInput,
   ConversationProviderTestResult,
   ConversationRespondToRequestInput,
   ConversationSendTurnInput,
   ConversationSessionActionResult,
+  ConversationSetPermissionInput,
   ConversationStartSessionInput,
   ConversationStartSessionResult,
   ConversationStopSessionInput,
   ConversationTranscriptInput,
   ConversationTranscriptResult,
 } from '../../shared/conversation-runtime'
+import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
 import { ConversationRuntime } from '../conversation-runtime'
 import { detectCli } from '../cli-runtime-install'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
@@ -47,6 +50,7 @@ export type ConversationIpcHandlers = {
   sendTurn(input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>
   interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
   respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult>
+  setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult>
   stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
   listSessions(input?: ConversationListSessionsInput): ConversationListSessionsResult
   readTranscript(input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
@@ -156,6 +160,9 @@ export function createConversationIpcHandlers(
     },
     respondToRequest(input: ConversationRespondToRequestInput): Promise<ConversationSessionActionResult> {
       return runtime.respondToRequest(input)
+    },
+    setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
+      return runtime.setPermission(input)
     },
     stopSession(input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> {
       return runtime.stopSession(input)
@@ -281,6 +288,19 @@ export function registerConversationIpc(
       if (!parsed.ok) return parsed
       try {
         return handlers.respondToRequest(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'conversation:sessions:set-permission',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSetPermissionInput(input)
+      if (!parsed.ok) return parsed
+      try {
+        return handlers.setPermission(parsed.input)
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
@@ -413,11 +433,8 @@ function parseStartSessionInput(input: unknown):
   if (cliRuntimes !== undefined && !isObject(cliRuntimes)) {
     return { ok: false, message: 'cliRuntimes must be an object when present.' }
   }
-  if (
-    permissionPreset !== undefined
-    && (typeof permissionPreset !== 'string' || !['default', 'auto_workspace', 'bypass_all'].includes(permissionPreset))
-  ) {
-    return { ok: false, message: 'permissionPreset must be default, auto_workspace, or bypass_all.' }
+  if (permissionPreset !== undefined && !isPermissionPreset(permissionPreset)) {
+    return { ok: false, message: PERMISSION_PRESET_ERROR }
   }
   if (
     allowedTools !== undefined
@@ -434,9 +451,7 @@ function parseStartSessionInput(input: unknown):
       providerId,
       modelId,
       ...(isObject(cliRuntimes) ? { cliRuntimes: cliRuntimes as ConversationCliRuntimeOverrides } : {}),
-      ...(typeof permissionPreset === 'string'
-        ? { permissionPreset: permissionPreset as ConversationStartSessionInput['permissionPreset'] }
-        : {}),
+      ...(isPermissionPreset(permissionPreset) ? { permissionPreset } : {}),
       ...(Array.isArray(allowedTools) ? { allowedTools: allowedTools as string[] } : {}),
     },
   }
@@ -543,6 +558,22 @@ function parseSessionIdInput(input: unknown):
   | { ok: false; message: string } {
   if (!isObject(input) || typeof input.sessionId !== 'string') return { ok: false, message: 'sessionId is required.' }
   return { ok: true, input: { sessionId: input.sessionId } }
+}
+
+const PERMISSION_PRESET_ERROR = 'permissionPreset must be default, auto_workspace, or bypass_all.'
+
+function isPermissionPreset(value: unknown): value is ConversationPermissionPreset {
+  return typeof value === 'string' && CONVERSATION_PERMISSION_PRESETS.includes(value as ConversationPermissionPreset)
+}
+
+function parseSetPermissionInput(input: unknown):
+  | { ok: true; input: ConversationSetPermissionInput }
+  | { ok: false; message: string } {
+  const session = parseSessionIdInput(input)
+  if (!session.ok) return session
+  const permissionPreset = isObject(input) ? input.permissionPreset : undefined
+  if (!isPermissionPreset(permissionPreset)) return { ok: false, message: PERMISSION_PRESET_ERROR }
+  return { ok: true, input: { sessionId: session.input.sessionId, permissionPreset } }
 }
 
 function parseRespondToRequestInput(input: unknown):

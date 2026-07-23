@@ -15,7 +15,7 @@ import type {
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from './providers/mock-conversation-provider'
-import type { ConversationEvent, ConversationEventType } from '../shared/conversation-runtime'
+import type { ConversationEvent, ConversationEventType, ConversationPermissionPreset } from '../shared/conversation-runtime'
 
 async function main(): Promise<void> {
   await testMockSessionTurnApprovalInterruptStopAndPersistence()
@@ -25,6 +25,7 @@ async function main(): Promise<void> {
   await testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint()
   await testMultiTurnHistoryAccumulates()
   await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
+  await testSetPermissionAppliesThroughTheAdapterOrRefuses()
   await testInterruptSuppressesLateAsyncProviderEvents()
   await testStopSessionSuppressesLateAsyncProviderEvents()
   await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
@@ -1218,6 +1219,96 @@ async function testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript(): P
     const userMessages = transcript.events.filter((event) => event.type === 'user_message')
     assert.equal(userMessages.length, 2)
     assert.equal(userMessages[0]?.payload?.text, 'describe')
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// 1771: the preset is switchable mid-conversation. The runtime hands the change
+// to the adapter and only records it once the adapter confirms, so a refusal
+// leaves the session reporting the preset the provider is actually honoring.
+async function testSetPermissionAppliesThroughTheAdapterOrRefuses(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-permission-'))
+  const applied: ConversationPermissionPreset[] = []
+  let refusal: string | null = null
+  try {
+    const captured: ConversationMessage[][] = []
+    const capturing = createCapturingProvider(captured)
+    const runtime = new ConversationRuntime({
+      adapters: [
+        {
+          ...capturing,
+          sessions: 'stateful',
+          async setPermissionPreset(input) {
+            if (refusal) return { ok: false, message: refusal }
+            applied.push(input.permissionPreset)
+            return { ok: true }
+          },
+        },
+        // Second provider with no live permission surface at all.
+        { ...capturing, id: 'static-provider', listModels: () => ['capture-model'] },
+      ],
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+    })
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'w',
+      agentId: 'a',
+      providerId: 'capture-provider',
+      modelId: 'capture-model',
+      permissionPreset: 'default',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    const sessionId = started.session.sessionId
+    assert.equal(started.session.permissionPreset, 'default', 'the summary reports the preset in force')
+
+    const switched = await runtime.setPermission({ sessionId, permissionPreset: 'bypass_all' })
+    assert.equal(switched.ok, true)
+    if (!switched.ok) return
+    assert.deepEqual(applied, ['bypass_all'], 'the adapter applied the preset to its live session')
+    assert.equal(switched.session.permissionPreset, 'bypass_all')
+    assert.equal(runtime.listSessions({ workspaceId: 'w' }).ok, true)
+
+    // A provider refusal is surfaced verbatim and does not move the session.
+    refusal = 'Claude Code refused the permission change.'
+    assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'auto_workspace' }), {
+      ok: false,
+      message: refusal,
+    })
+    const listed = runtime.listSessions({ workspaceId: 'w' })
+    assert.equal(listed.ok && listed.sessions[0]?.permissionPreset, 'bypass_all')
+    refusal = null
+
+    assert.deepEqual(await runtime.setPermission({ sessionId: 'conv_missing', permissionPreset: 'default' }), {
+      ok: false,
+      message: 'Conversation session is invalid.',
+    })
+
+    // A provider with no live permission surface refuses rather than recording a
+    // preset it would never honor.
+    const staticSession = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'w',
+      agentId: 'b',
+      providerId: 'static-provider',
+      modelId: 'capture-model',
+    })
+    assert.equal(staticSession.ok, true)
+    if (!staticSession.ok) return
+    assert.equal(staticSession.session.permissionPreset, undefined, 'no preset chosen means none reported')
+    assert.deepEqual(
+      await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'auto_workspace' }),
+      { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
+    )
+
+    const stopped = await runtime.stopSession({ sessionId })
+    assert.equal(stopped.ok, true)
+    assert.deepEqual(await runtime.setPermission({ sessionId, permissionPreset: 'default' }), {
+      ok: false,
+      message: 'Conversation session is stopped.',
+    })
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   await testRegistersSecretChannels()
   await testRegistersSessionChannelsAndEventSubscription()
   await testSendTurnValidatesImageAttachments()
+  await testSetPermissionValidatesThePreset()
   await testFailureIsExplicit()
 
   console.log('conversation-ipc tests passed')
@@ -56,7 +57,7 @@ async function testRegistersProviderListChannel(): Promise<void> {
 
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
-    listProviders: () => response,
+    listProviders: async () => response,
     testProvider: async () => ({ ok: false, status: { providerId: 'openai-compatible', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
     setSecret: async () => ({ ok: false, message: 'unused' }),
@@ -82,7 +83,7 @@ async function testRegistersProviderTestChannel(): Promise<void> {
   const calls: string[] = []
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
-    listProviders: () => ({ ok: true, providers: [] }),
+    listProviders: async () => ({ ok: true, providers: [] }),
     testProvider: async (input) => {
       calls.push(`${input.providerId}:${input.modelId}`)
       return response
@@ -119,7 +120,7 @@ async function testRegistersSecretChannels(): Promise<void> {
 
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
-    listProviders: () => ({ ok: true, providers: [] }),
+    listProviders: async () => ({ ok: true, providers: [] }),
     testProvider: async () => ({ ok: false, status: { providerId: 'openai-compatible', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async (input) => {
       calls.push(`status:${input.providerId}`)
@@ -173,7 +174,7 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
   const sent: { channel: string; payload: unknown }[] = []
   const ipcMain = createIpcMain()
   registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
-    listProviders: () => ({ ok: true, providers: [] }),
+    listProviders: async () => ({ ok: true, providers: [] }),
     listProviderModels: async () => ({ ok: true, models: [] }),
     testProvider: async () => ({ ok: false, status: { providerId: 'mock-provider', state: 'missing_key', message: 'unused' } }),
     getSecretStatus: async () => ({ ok: false, message: 'unused' }),
@@ -195,6 +196,11 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
       calls.push(`respond:${input.sessionId}:${input.requestId}:${input.approved}`)
       return actionResult
     },
+    setPermission: async (input) => {
+      calls.push(`permission:${input.sessionId}:${input.permissionPreset}`)
+      return actionResult
+    },
+    readTranscript: async () => ({ ok: false, message: 'unused' }),
     stopSession: async (input) => {
       calls.push(`stop:${input.sessionId}`)
       return actionResult
@@ -223,6 +229,10 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
     sessionId: 'conv_1',
     requestId: 'approval_1',
     approved: true,
+  })
+  await ipcMain.handlers.get('conversation:sessions:set-permission')?.(null, {
+    sessionId: 'conv_1',
+    permissionPreset: 'bypass_all',
   })
   await ipcMain.handlers.get('conversation:sessions:stop')?.(null, { sessionId: 'conv_1' })
   assert.deepEqual(await ipcMain.handlers.get('conversation:sessions:list')?.(null, {}), {
@@ -274,8 +284,45 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
     'send:conv_1:hello',
     'interrupt:conv_1',
     'respond:conv_1:approval_1:true',
+    'permission:conv_1:bypass_all',
     'stop:conv_1',
   ])
+}
+
+// The set-permission boundary only accepts the three known presets, so an
+// unknown value never reaches the runtime or the provider.
+async function testSetPermissionValidatesThePreset(): Promise<void> {
+  const captured: string[] = []
+  const ipcMain = createIpcMain()
+  registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
+    listProviders: async () => ({ ok: true, providers: [] }),
+    testProvider: async () => ({ ok: false, status: { providerId: 'mock', state: 'missing_key', message: 'unused' } }),
+    getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+    setSecret: async () => ({ ok: false, message: 'unused' }),
+    clearSecret: async () => ({ ok: false, message: 'unused' }),
+    ...runtimeHandlerStubs(),
+    setPermission: async (input) => {
+      captured.push(input.permissionPreset)
+      return { ok: true, session: { ...SENT_SESSION, permissionPreset: input.permissionPreset } }
+    },
+  })
+  const setPermission = ipcMain.handlers.get('conversation:sessions:set-permission')
+  assert.ok(setPermission, 'conversation:sessions:set-permission should be registered')
+
+  assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'auto_workspace' }), {
+    ok: true,
+    session: { ...SENT_SESSION, permissionPreset: 'auto_workspace' },
+  })
+  assert.deepEqual(captured, ['auto_workspace'])
+
+  const presetError = { ok: false, message: 'permissionPreset must be default, auto_workspace, or bypass_all.' }
+  assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1', permissionPreset: 'yolo' }), presetError)
+  assert.deepEqual(await setPermission?.(null, { sessionId: 'conv_1' }), presetError)
+  assert.deepEqual(await setPermission?.(null, { permissionPreset: 'default' }), {
+    ok: false,
+    message: 'sessionId is required.',
+  })
+  assert.deepEqual(captured, ['auto_workspace'], 'no invalid preset reached the runtime')
 }
 
 // The send-turn boundary guards image attachments: valid images pass through
@@ -397,7 +444,7 @@ async function testFailureIsExplicit(): Promise<void> {
 
 function runtimeHandlerStubs(): Pick<
   ConversationIpcHandlers,
-  'listProviderModels' | 'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'stopSession' | 'listSessions' | 'readTranscript' | 'onEvent'
+  'listProviderModels' | 'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'setPermission' | 'stopSession' | 'listSessions' | 'readTranscript' | 'onEvent'
 > {
   return {
     listProviderModels: async () => ({ ok: true, models: [] }),
@@ -405,6 +452,7 @@ function runtimeHandlerStubs(): Pick<
     sendTurn: async () => ({ ok: false, message: 'unused' }),
     interrupt: async () => ({ ok: false, message: 'unused' }),
     respondToRequest: async () => ({ ok: false, message: 'unused' }),
+    setPermission: async () => ({ ok: false, message: 'unused' }),
     stopSession: async () => ({ ok: false, message: 'unused' }),
     listSessions: () => ({ ok: true, sessions: [] }),
     readTranscript: async () => ({ ok: false, message: 'unused' }),

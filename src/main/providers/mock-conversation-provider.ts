@@ -41,6 +41,13 @@ export type ConversationProviderAdapter = {
   resolveApproval(input: MockAdapterApprovalInput): ConversationProviderEventStream
   interrupt(input: MockAdapterSessionInput): ConversationProviderEventStream
   stopSession(input: MockAdapterSessionInput): ConversationProviderEventStream
+  // Live permission-preset change on a running session. An adapter that owns a
+  // provider session with its own permission mode implements this: it pushes the
+  // new mode into the live session so the next tool call honors it, and records
+  // the preset so a respawn keeps it. Absent means the adapter has no live
+  // permission surface, and the runtime refuses the change instead of recording
+  // a preset the provider would never honor.
+  setPermissionPreset?(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult>
   // Optional lifecycle surface for adapters holding child processes: inventory
   // for diagnostics/status, idle disposal (keeps the session + resume cursor;
   // the next turn respawns), and dispose-everything for app shutdown.
@@ -104,6 +111,17 @@ export type MockAdapterTurnInput = MockAdapterSessionInput & {
   messages?: ConversationMessage[]
   signal?: AbortSignal
 }
+
+// The session context plus the preset to switch to, for `setPermissionPreset`.
+export type MockAdapterPermissionInput = MockAdapterSessionInput & {
+  permissionPreset: ConversationPermissionPreset
+}
+
+// Whether the adapter actually applied the preset. A failure message is shown to
+// the user, so it must say what the provider refused rather than a generic error.
+export type ConversationProviderPermissionResult =
+  | { ok: true }
+  | { ok: false; message: string }
 
 export type MockAdapterApprovalInput = MockAdapterSessionInput & {
   turnId: string

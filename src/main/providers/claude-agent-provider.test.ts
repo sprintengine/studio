@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   await testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack()
   await testExitPlanModeBecomesPlanCard()
   await testPermissionPresetMapsToSdkPermissionMode()
+  await testLivePermissionPresetReachesTheChildAndSurvivesRespawn()
   await testAbortSignalEndsTheTurnStream()
   await testSpawnFailureSurfacesAsTurnFailed()
   await testDisposeChildKeepsSessionAndCursorForRespawn()
@@ -77,11 +78,19 @@ type FakeQueryContext = {
 
 type FakeQueryHandler = (userMessage: Record<string, unknown>, context: FakeQueryContext) => void | Promise<void>
 
-function createFakeSdk(handler: FakeQueryHandler): {
+// Live control requests the fake child records. `onSetPermissionMode` may throw
+// to stand in for a CLI that refuses the mode.
+type FakeSdkHooks = {
+  onSetPermissionMode?: (mode: string) => void
+}
+
+function createFakeSdk(handler: FakeQueryHandler, hooks: FakeSdkHooks = {}): {
   loadQuery: () => Promise<never>
   capturedOptions: Record<string, unknown>[]
+  permissionModes: string[]
 } {
   const capturedOptions: Record<string, unknown>[] = []
+  const permissionModes: string[] = []
   const queryFn = (params: { prompt: AsyncIterable<Record<string, unknown>>; options: Record<string, unknown> }) => {
     capturedOptions.push(params.options)
     const output = new FakeMessageQueue()
@@ -103,26 +112,32 @@ function createFakeSdk(handler: FakeQueryHandler): {
         interrupted = true
         output.end()
       },
+      setPermissionMode: async (mode: string) => {
+        hooks.onSetPermissionMode?.(mode)
+        permissionModes.push(mode)
+      },
     }
   }
   return {
     loadQuery: (() => Promise.resolve(queryFn)) as () => Promise<never>,
     capturedOptions,
+    permissionModes,
   }
 }
 
-function createAdapter(handler: FakeQueryHandler): {
+function createAdapter(handler: FakeQueryHandler, hooks: FakeSdkHooks = {}): {
   adapter: ClaudeAgentProviderAdapter
   capturedOptions: Record<string, unknown>[]
+  permissionModes: string[]
 } {
-  const sdk = createFakeSdk(handler)
+  const sdk = createFakeSdk(handler, hooks)
   const adapter = createClaudeAgentProvider({
     loadQuery: sdk.loadQuery as never,
     resolveExecutable: async () => '/fake/bin/claude',
     buildEnv: (input) => ({ [CLAUDE_AGENT_SESSION_ENV_KEY]: input.sessionId, PATH: '/usr/bin' }),
     now: () => 1000,
   })
-  return { adapter, capturedOptions: sdk.capturedOptions }
+  return { adapter, capturedOptions: sdk.capturedOptions, permissionModes: sdk.permissionModes }
 }
 
 const SESSION_INPUT = {
@@ -637,6 +652,71 @@ async function testPermissionPresetMapsToSdkPermissionMode(): Promise<void> {
   await collect(auto.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(auto.capturedOptions[0]?.permissionMode, 'auto')
   assert.equal(auto.capturedOptions[0]?.allowDangerouslySkipPermissions, undefined)
+}
+
+// 1771: the preset is switchable while the session runs. With a live child the
+// new mode goes down the SDK control channel; the recorded preset also survives
+// into a respawn. A child that refuses the change must not leave the adapter
+// claiming a preset it is not honoring.
+async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Promise<void> {
+  const emitResult = (context: FakeQueryContext): void => {
+    context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'cursor-1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+  }
+
+  const live = createAdapter((_userMessage, context) => emitResult(context))
+  await collect(live.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+
+  // Before the child exists the preset is only recorded — it lands at spawn,
+  // including the bypass opt-in flag the SDK requires.
+  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), { ok: true })
+  assert.deepEqual(live.permissionModes, [], 'no control request without a child')
+  await collect(live.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+  assert.equal(live.capturedOptions[0]?.permissionMode, 'bypassPermissions')
+  assert.equal(live.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
+
+  // With the child running the switch rides the control channel.
+  assert.deepEqual(
+    await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }),
+    { ok: true }
+  )
+  assert.deepEqual(live.permissionModes, ['auto'])
+
+  // The recorded preset carries into the respawn after idle disposal.
+  assert.equal(live.adapter.disposeChildProcess('conv_1'), true)
+  await collect(live.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  assert.equal(live.capturedOptions[1]?.permissionMode, 'auto')
+  assert.equal(live.capturedOptions[1]?.allowDangerouslySkipPermissions, undefined)
+
+  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, sessionId: 'conv_missing', permissionPreset: 'default' }), {
+    ok: false,
+    message: 'Conversation session is not registered with the Claude provider.',
+  })
+  await collect(live.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+
+  // A child that refuses the mode: the failure is surfaced and the preset stays
+  // as it was, so a later respawn does not silently adopt the rejected mode.
+  const refusing = createAdapter((_userMessage, context) => emitResult(context), {
+    onSetPermissionMode: () => {
+      throw new Error('bypassPermissions requires --dangerously-skip-permissions')
+    },
+  })
+  await collect(refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'default' }) as ConversationEvent[])
+  await collect(refusing.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+  assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), {
+    ok: false,
+    message: 'Claude Code refused the permission change: bypassPermissions requires --dangerously-skip-permissions',
+  })
+  assert.equal(refusing.adapter.disposeChildProcess('conv_1'), true)
+  await collect(refusing.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  assert.equal(refusing.capturedOptions[1]?.permissionMode, 'default', 'the refused preset was not recorded')
+  await collect(refusing.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
 }
 
 async function testAbortSignalEndsTheTurnStream(): Promise<void> {
