@@ -4,7 +4,9 @@ import { immer } from 'zustand/middleware/immer'
 
 // `summary` is only reachable when the run is complete (the board adds the tab
 // and routes to it); a persisted `summary` for an incomplete run falls back.
-export type SprintEngineView = 'inbox' | 'roster' | 'tasks' | 'summary'
+// `repos` exists only where a host offers the Repositories tab (the Sprints
+// door, MC-1838); a persisted `repos` elsewhere falls back the same way.
+export type SprintEngineView = 'inbox' | 'roster' | 'tasks' | 'summary' | 'repos'
 
 const SPRINT_ENGINE_VIEW_STORAGE_KEY = 'multicode-sprintengine-view'
 
@@ -56,7 +58,7 @@ export function selectSprintEngineView(
   const view = state.viewByRun[runViewKey(runKey)]
   // `summary` is only valid when the run is complete; the board coerces a stale
   // `summary` to a default view in that case (see `effectiveView`).
-  return view === 'inbox' || view === 'roster' || view === 'tasks' || view === 'summary'
+  return view === 'inbox' || view === 'roster' || view === 'tasks' || view === 'summary' || view === 'repos'
     ? view
     : DEFAULT_VIEW
 }

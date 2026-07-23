@@ -232,7 +232,9 @@ async function main(): Promise<void> {
   })
   await settle()
 
-  const rail = surfaceHost.querySelector('ul[aria-label="Sprints"]')
+  // Rail rows group under Needs you / Active / Recent (MC-1838); any group list
+  // proves the rail rendered.
+  const rail = surfaceHost.querySelector('ul[aria-label^="Sprints:"]')
   assert.ok(rail, 'the door renders its rail')
   assert.ok((rail!.textContent ?? '').includes(runName), 'the door lists the run the rail dropped')
   console.log('ok - the door lists the run, from the index rather than the rail')

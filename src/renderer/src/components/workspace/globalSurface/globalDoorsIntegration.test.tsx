@@ -298,7 +298,8 @@ async function main(): Promise<void> {
     !container.textContent?.includes('Couldn’t load your sprints.'),
     'and the error clears rather than sticking',
   )
-  const railRows = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li')]
+  // Rail rows group under Needs you / Active / Recent (MC-1838).
+  const railRows = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
   assert.equal(railRows.length, 2, 'both runs list once the index reads')
   console.log('ok - retrying an unreadable index recovers the surface in place')
 
@@ -306,7 +307,7 @@ async function main(): Promise<void> {
   // The live run's workspace is open, so its workspace-only actions are live and
   // the canvas reads the workspace's own state rather than re-reading disk.
   const liveRow = [
-    ...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button'),
+    ...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button'),
   ].find((b) => b.textContent?.includes('live-run'))
   assert.ok(liveRow, 'the live run is in the rail')
   await act(async () => {
@@ -332,7 +333,7 @@ async function main(): Promise<void> {
   // board mounts by run identity (item 1762) — and only the workspace-bound
   // action degrades, naming why.
   const orphanRow = [
-    ...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button'),
+    ...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button'),
   ].find((b) => b.textContent?.includes('old-run'))
   assert.ok(orphanRow, 'the historical run is in the rail')
   await act(async () => {

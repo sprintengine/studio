@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
-import { PrimaryButton, Section } from '../../../ui'
+import { PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
@@ -22,7 +22,6 @@ import {
   type SprintRunCanvasModel,
 } from './SprintsCanvas'
 import { SprintsRail } from './SprintsRail'
-import { collectSprintWaitingRows, SprintsWaitingStrip } from './SprintsWaitingStrip'
 import { useSprintRunIndex } from './useSprintRunIndex'
 
 // The Sprints tenant of the door-routed full-page surface (item 1763, mockup §1
@@ -121,10 +120,6 @@ export default function SprintsGlobalSurface(): JSX.Element {
     reload()
   }, [reload])
 
-  // Everything waiting on the operator, across every run in the index — not only
-  // the selected one. Rows jump the rail, so the strip stays a summary.
-  const waitingRows = useMemo(() => collectSprintWaitingRows(runs), [runs])
-
   const bar = useMemo(() => {
     if (!selectedRun) return { title: 'Sprints' }
     return {
@@ -163,18 +158,10 @@ export default function SprintsGlobalSurface(): JSX.Element {
       // The rail is present whenever there is something to navigate — and always
       // on an error, so a failed read is never a dead end (T20). Only the first
       // load and the zero state own the canvas alone.
+      // No "Waiting on you" strip (MC-1838): the rail's "Needs you" group IS
+      // where waiting runs surface, with honest since-dates — a stale sprint
+      // never pins a permanent block above the page.
       rail={loadState === 'error' || (loadState === 'ready' && runs.length > 0) ? rail : undefined}
-      attention={
-        waitingRows.length > 0 ? (
-          <Section title="Waiting on you" count={waitingRows.length} level={3} inset={false}>
-            <SprintsWaitingStrip
-              rows={waitingRows}
-              selectedStatePath={selectedStatePath}
-              onSelect={select}
-            />
-          </Section>
-        ) : undefined
-      }
     >
       <SurfaceBody
         loadState={loadState}

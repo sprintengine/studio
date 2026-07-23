@@ -127,8 +127,12 @@ function statePhrase(summary: SprintRunSummary): string {
   switch (summary.runtimeState) {
     case 'running':
       return total > 0 ? `running · ${done} of ${total} tasks` : 'running'
-    case 'needs_input':
-      return 'needs your input'
+    case 'needs_input': {
+      // An honest age: a sprint that has waited a week says so (concrete date,
+      // per copy-voice — never "recently").
+      const since = sprintRunShortDate(summary.updatedAt ?? summary.startedAt)
+      return since ? `needs your input · since ${since}` : 'needs your input'
+    }
     case 'completed': {
       const { open } = summary.repoRollup
       if (open > 0) return `${open} merge${open === 1 ? '' : 's'} left`
@@ -202,6 +206,40 @@ export function buildSprintRailRows(
     tone: sprintRunTone(summary.runtimeState),
     pulse: summary.runtimeState === 'running',
   }))
+}
+
+// The rail's groups (MC-1838): the list IS the inbox. "Needs you" leads with
+// the runs waiting on a person, "Active" is genuinely live work, everything
+// else — finished, idle, canceled, unreadable — ages into "Recent" with no
+// standing block pinned above the page. Empty groups are omitted, not rendered
+// as empty headers. Within a group, the ordering is buildSprintRailRows' own.
+export type SprintRailGroup = {
+  key: 'needs_you' | 'active' | 'recent'
+  label: string
+  rows: SprintRailRow[]
+}
+
+export function buildSprintRailGroups(
+  summaries: ReadonlyArray<SprintRunSummary>,
+  projectRoot: string | null,
+): SprintRailGroup[] {
+  const scoped = projectRoot
+    ? summaries.filter((summary) => summary.projectRoot === projectRoot)
+    : [...summaries]
+  const byPath = new Map(scoped.map((summary) => [summary.statePath, summary]))
+  const rows = buildSprintRailRows(scoped, null)
+  const groups: SprintRailGroup[] = [
+    { key: 'needs_you', label: 'Needs you', rows: [] },
+    { key: 'active', label: 'Active', rows: [] },
+    { key: 'recent', label: 'Recent', rows: [] },
+  ]
+  for (const row of rows) {
+    const state = byPath.get(row.id)?.runtimeState
+    if (state === 'needs_input') groups[0]!.rows.push(row)
+    else if (state === 'running') groups[1]!.rows.push(row)
+    else groups[2]!.rows.push(row)
+  }
+  return groups.filter((group) => group.rows.length > 0)
 }
 
 // The door dot's aggregate signal, read across every project's runs.

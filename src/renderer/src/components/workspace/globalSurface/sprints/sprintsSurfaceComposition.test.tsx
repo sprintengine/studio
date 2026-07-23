@@ -40,6 +40,9 @@ dom.window.matchMedia = ((query: string) => ({
   addListener: () => {},
   removeListener: () => {},
 })) as unknown as typeof dom.window.matchMedia
+// JSDOM has no scrollIntoView; the filter Select's open effect scrolls its
+// active option into view, so give it a no-op.
+dom.window.HTMLElement.prototype.scrollIntoView = () => {}
 class NoopResizeObserver {
   observe(): void {}
   unobserve(): void {}
@@ -239,6 +242,8 @@ async function main(): Promise<void> {
       root: mobileRoot,
       runtimeState: 'needs_input',
       needsInputCount: 2,
+      // A run that has genuinely waited: the rail row carries the since-date.
+      updatedAt: '2026-07-16T10:00:00Z',
       repoRollup: { declared: 1, merged: 0, open: 1 },
     }),
     // The post-merge-hardening shape: three repositories, two landed, one still
@@ -324,7 +329,7 @@ async function main(): Promise<void> {
   const rail = container.querySelector('aside[aria-label="Sprints list"]')
   assert.ok(rail, 'rail is present once runs load')
 
-  const rows = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li')]
+  const rows = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
   assert.equal(rows.length, 5, 'every run lists')
   // needs_input outranks everything, including the newer completed run.
   assert.ok(rows[0]?.textContent?.includes('relay-traffic'), 'needs-input run leads the rail')
@@ -339,7 +344,24 @@ async function main(): Promise<void> {
   assert.ok(container.textContent?.includes('Waiting on you'), 'bar status chip')
   console.log('ok - runs load, needs-input leads, and the canvas opens on the selected run')
 
+
+  // Repositories are a TAB on the board now (MC-1838), not a strip above it —
+  // open it for the currently selected run before reading the cards.
+  const openReposTab = async (): Promise<void> => {
+    const tab = [...container.querySelectorAll('[role="tab"]')].find((candidate) =>
+      candidate.textContent?.includes('Repositories'),
+    )
+    assert.ok(tab, 'the board offers a Repositories tab at the door')
+    await act(async () => {
+      ;(tab as HTMLElement).click()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+
   // ── A single-repo run renders one Primary card and no merge order ─────────
+  await openReposTab()
   const soloCards = [...container.querySelectorAll('section[aria-label="Repositories"] li')]
   assert.equal(soloCards.length, 1, 'one card for a one-repository run')
   assert.ok(soloCards[0]?.textContent?.includes('Primary'), 'entry zero is tagged Primary')
@@ -353,32 +375,59 @@ async function main(): Promise<void> {
   )
   console.log('ok - single-repo run renders one Primary card with no merge order')
 
-  // ── Project chips filter ─────────────────────────────────────────────────
-  const chips = [...container.querySelectorAll('div[role="group"][aria-label="Filter sprints by project"] button')]
-  assert.deepEqual(
-    chips.map((c) => c.textContent),
-    ['All projects', 'multicode', 'multicode-mobile'],
-    'All projects + one chip per project with a run',
+  // ── The project filter is one compact select (MC-1838) ──────────────────
+  const filterTrigger = (): HTMLElement => {
+    const trigger = container.querySelector('button[role="combobox"][aria-label="Filter sprints by project"]')
+    assert.ok(trigger, 'the project filter renders as one compact select')
+    return trigger as HTMLElement
+  }
+  const pickFilter = async (label: string): Promise<void> => {
+    await act(async () => {
+      filterTrigger().click()
+    })
+    const option = [...dom.window.document.querySelectorAll('[role="option"]')].find(
+      (candidate) => candidate.textContent?.startsWith(label) && candidate.closest('ul[aria-label^="Sprints"]') === null,
+    )
+    assert.ok(option, `the filter lists ${label}`)
+    await act(async () => {
+      ;(option as HTMLElement).click()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+  await pickFilter('multicode ·')
+  const railRowsNow = (): string =>
+    [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
+      .map((row) => row.textContent ?? '')
+      .join('')
+  assert.equal(
+    container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li').length,
+    4,
+    'the filter narrows the rail to that project',
   )
-  await act(async () => {
-    ;(chips[1] as HTMLElement).click()
-  })
-  const railList = container.querySelector('ul[role="list"][aria-label="Sprints"]')
-  const filteredRows = [...(railList?.querySelectorAll(':scope > li') ?? [])]
-  assert.equal(filteredRows.length, 4, 'multicode chip narrows to that project')
-  assert.ok(!railList?.textContent?.includes('relay-traffic'), 'the mobile run drops out of the rail')
-  // …but not out of "Waiting on you": the strip is the whole Multicode's inbox,
-  // and a project filter must never hide a run that is waiting on a person.
-  const waitingList = container.querySelector('ul[aria-label="Waiting on you"]')
-  assert.ok(
-    waitingList?.textContent?.includes('relay-traffic'),
-    'the filtered-out run still surfaces in the waiting strip',
-  )
-  console.log('ok - project chips filter the rail, never the waiting strip')
+  assert.ok(!railRowsNow().includes('relay-traffic'), 'the mobile run drops out of the rail')
+  console.log('ok - the compact project filter narrows the rail')
 
-  await act(async () => {
-    ;(chips[0] as HTMLElement).click()
-  })
+  await pickFilter('All projects')
+
+  // ── The rail groups carry the signal (MC-1838): no waiting strip ─────────
+  // "Needs you" leads with the waiting run and an honest since-date; completed
+  // runs age into "Recent" — nothing is pinned above the page.
+  assert.ok(
+    !container.textContent?.includes('Waiting on you 2'),
+    'no standing waiting strip above the canvas',
+  )
+  const needsYouList = container.querySelector('ul[role="list"][aria-label="Sprints: Needs you"]')
+  assert.ok(needsYouList, 'the rail leads with a Needs you group')
+  assert.ok(needsYouList?.textContent?.includes('relay-traffic'), 'holding the waiting run')
+  assert.ok(needsYouList?.textContent?.includes('since Jul'), 'with an honest waiting-since date')
+  const activeList = container.querySelector('ul[role="list"][aria-label="Sprints: Active"]')
+  assert.ok(activeList?.textContent?.includes('wake-filter-sprint'), 'live work sits under Active')
+  const recentList = container.querySelector('ul[role="list"][aria-label="Sprints: Recent"]')
+  assert.ok(recentList?.textContent?.includes('post-merge-hardening'), 'finished runs age into Recent')
+  assert.ok(recentList?.textContent?.includes('1 merge left'), 'with their remaining-merge state line')
+  console.log('ok - the rail groups Needs you / Active / Recent replace the waiting strip')
 
   // ── "New sprint" really signals the shell ────────────────────────────────
   let newSprintRequests = 0
@@ -395,20 +444,13 @@ async function main(): Promise<void> {
   assert.equal(newSprintRequests, 1, 'New sprint dispatches the creation request the shell listens for')
   console.log('ok - New sprint dispatches a real creation request')
 
-  // ── The waiting strip jumps the rail to ANOTHER run ──────────────────────
-  const waitingRows = [...container.querySelectorAll('ul[aria-label="Waiting on you"] > li')]
-  assert.ok(waitingRows.length >= 2, 'both the parked run and the merge-ready run are waiting')
-  assert.ok(waitingRows[0]?.textContent?.includes('relay-traffic'), 'a question outranks a merge')
-  assert.ok(waitingRows[0]?.textContent?.includes('2 tasks need an answer'))
-  assert.ok(
-    !waitingRows.some((row) => row.textContent?.includes('wake-filter-sprint')),
-    'a run still working its plan is not waiting on anyone',
+  // ── A Recent row selects its run like any other ──────────────────────────
+  const postMergeRow = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints: Recent"] > li button')].find(
+    (candidate) => candidate.textContent?.includes('post-merge-hardening'),
   )
-  const mergeWaitingRow = waitingRows.find((row) => row.textContent?.includes('post-merge-hardening'))
-  assert.ok(mergeWaitingRow, 'the merge-ready run has a row of its own')
-  assert.ok(mergeWaitingRow?.textContent?.includes('one branch'), 'and says what is left')
+  assert.ok(postMergeRow, 'the merge-ready run has a rail row')
   await act(async () => {
-    ;(mergeWaitingRow?.querySelector('button') as HTMLElement).click()
+    ;(postMergeRow as HTMLElement).click()
   })
   await act(async () => {
     await Promise.resolve()
@@ -416,11 +458,12 @@ async function main(): Promise<void> {
   const nowSelected = container.querySelector('li button[aria-current="true"]')
   assert.ok(
     nowSelected?.textContent?.includes('post-merge-hardening'),
-    'clicking a waiting row selects that run in the rail',
+    'clicking a rail row selects that run',
   )
-  console.log('ok - the waiting strip switches the rail to a different run')
+  console.log('ok - rail rows select their run from any group')
 
   // ── The multi-repo canvas (mockup §2 anatomy) ────────────────────────────
+  await openReposTab()
   const cards = [...container.querySelectorAll('section[aria-label="Repositories"] li')]
   assert.equal(cards.length, 3, 'one card per declared repository')
   assert.ok(cards[0]?.textContent?.includes('Primary'), 'entry zero carries the Primary tag')
@@ -447,7 +490,7 @@ async function main(): Promise<void> {
   console.log('ok - the multi-repo canvas renders the post-merge-hardening shape')
 
   // ── A blocked repo is pre-disabled and names its blocker ─────────────────
-  const chainedRow = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button')].find(
+  const chainedRow = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button')].find(
     (b) => b.textContent?.includes('chained-auth'),
   )
   assert.ok(chainedRow, 'the chained run is in the rail')
@@ -457,6 +500,7 @@ async function main(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
   })
+  await openReposTab()
   const chainedCards = [...container.querySelectorAll('section[aria-label="Repositories"] li')]
   assert.equal(chainedCards.length, 3, 'three repositories again')
   const blockedCard = chainedCards[2]
@@ -512,7 +556,7 @@ async function main(): Promise<void> {
   // ── Exactly one projection-refresh driver, and only for a live handle-only run ─
   // chained-auth is COMPLETED — terminal, so nothing polls it.
   assert.equal(projectionDrivers(), 0, 'a completed run is terminal: no driver')
-  const liveRow = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button')].find(
+  const liveRow = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button')].find(
     (b) => b.textContent?.includes('wake-filter-sprint'),
   )
   await act(async () => {
@@ -525,7 +569,7 @@ async function main(): Promise<void> {
   // ── An unreadable projection is a first-class degraded state ─────────────
   // runner-hardening has no projection stubbed — the read refuses.
   const unreadableRow = [
-    ...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button'),
+    ...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button'),
   ].find((b) => b.textContent?.includes('runner-hardening'))
   await act(async () => {
     ;(unreadableRow as HTMLElement).click()

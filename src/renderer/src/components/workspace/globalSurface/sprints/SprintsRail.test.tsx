@@ -85,19 +85,36 @@ run('a run whose workspace is long gone still lists — the rail reads the index
   assert.ok(html.includes('landed Jul 18'))
 })
 
-// Mockup §2 filter chips.
-run('project chips list All projects plus one per project, with the active one pressed', () => {
+// The rail groups (MC-1838): the list is the inbox — Needs you leads, live work
+// under Active, everything else under Recent, and empty groups are omitted.
+run('rows group under Needs you / Active / Recent', () => {
   const html = render()
-  assert.ok(html.includes('All projects'), 'offers the unfiltered lens')
-  assert.ok(html.includes('>multicode<'), 'a chip per project')
-  assert.ok(html.includes('>multicode-mobile<'))
-  assert.ok(html.includes('aria-pressed="true"'), 'the active lens is pressed for screen readers')
-  assert.ok(html.includes('aria-label="Filter sprints by project"'), 'the chip strip is a named group')
+  assert.ok(html.includes('Sprints: Needs you'), 'the waiting group renders')
+  assert.ok(html.includes('Sprints: Active'), 'so does the live group')
+  assert.ok(html.includes('Sprints: Recent'), 'and the rest')
+  assert.ok(
+    html.indexOf('Needs you') < html.indexOf('relay-traffic-efficiency'),
+    'the waiting run sits under Needs you',
+  )
 })
 
-run('a single-project Multicode shows no chip strip — a lone filter narrows nothing', () => {
+run('an empty group is omitted, not rendered as an empty header', () => {
+  const html = render({ runs: [runs[0]!] })
+  assert.ok(!html.includes('Needs you'), 'no waiting group without a waiting run')
+  assert.ok(html.includes('Sprints: Active'), 'the one live run still groups')
+})
+
+// One compact project filter (MC-1838) instead of a chip strip.
+run('the project filter is one compact select with counts', () => {
+  const html = render()
+  assert.ok(html.includes('aria-label="Filter sprints by project"'), 'the filter is a named control')
+  assert.ok(html.includes('All projects · 3'), 'the unfiltered lens carries the total')
+  assert.ok(html.includes('role="combobox"'), 'one control, not a chip per project')
+})
+
+run('a single-project Multicode shows no filter — a lone option narrows nothing', () => {
   const html = render({ runs: [runs[0]!, runs[2]!] })
-  assert.ok(!html.includes('All projects'), 'no chips when every run shares one project')
+  assert.ok(!html.includes('All projects'), 'no filter when every run shares one project')
 })
 
 run('a filter that matches no run says so instead of reading as "no sprints"', () => {

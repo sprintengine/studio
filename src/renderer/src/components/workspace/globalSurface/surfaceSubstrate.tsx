@@ -189,9 +189,16 @@ const PLUS_ICON = (
   </svg>
 )
 
+export interface SurfaceRailGroup {
+  key: string
+  label: string
+  rows: ReadonlyArray<SurfaceRailRow>
+}
+
 export function SurfaceRail({
   label,
   rows,
+  groups,
   selectedId,
   onSelect,
   newAffordance,
@@ -199,6 +206,10 @@ export function SurfaceRail({
   /** The rail's section label ("Roadmaps", "Automations", "Reviews"). */
   label: string
   rows: ReadonlyArray<SurfaceRailRow>
+  /** Optional grouping (the Sprints door): rows render under quiet group
+   *  headers instead of one flat list. `rows` must equal the groups' rows
+   *  flattened — keyboard navigation walks that flat order. */
+  groups?: ReadonlyArray<SurfaceRailGroup>
   /** The selected row id, or null (nothing selected / the "New" affordance is). */
   selectedId: string | null
   onSelect: (id: string) => void
@@ -226,37 +237,57 @@ export function SurfaceRail({
     [rows, selectedId, onSelect],
   )
 
+  const renderRow = (row: SurfaceRailRow): JSX.Element => {
+    const selected = row.id === selectedId
+    return (
+      <li key={row.id}>
+        <button
+          ref={(node) => {
+            rowRefs.current.set(row.id, node)
+          }}
+          type="button"
+          aria-current={selected ? 'true' : undefined}
+          onClick={() => onSelect(row.id)}
+          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
+            selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
+          }`}
+        >
+          <StatusDot tone={row.tone} pulse={row.pulse} size={7} label={row.dotLabel} className="shrink-0" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]" title={row.title}>
+              {row.title}
+            </span>
+            <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
+          </span>
+        </button>
+      </li>
+    )
+  }
+
   return (
     <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
-      <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">{label}</div>
-      <ul role="list" aria-label={label} className="flex min-w-0 flex-col gap-0.5">
-        {rows.map((row) => {
-          const selected = row.id === selectedId
-          return (
-            <li key={row.id}>
-              <button
-                ref={(node) => {
-                  rowRefs.current.set(row.id, node)
-                }}
-                type="button"
-                aria-current={selected ? 'true' : undefined}
-                onClick={() => onSelect(row.id)}
-                className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
-                  selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
-                }`}
-              >
-                <StatusDot tone={row.tone} pulse={row.pulse} size={7} label={row.dotLabel} className="shrink-0" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]" title={row.title}>
-                    {row.title}
-                  </span>
-                  <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+      {groups ? null : (
+        <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">{label}</div>
+      )}
+      {groups ? (
+        groups.map((group) => (
+          <div key={group.key} className="flex min-w-0 flex-col">
+            <div className="flex items-baseline gap-1.5 px-2 pb-1 pt-2 first:pt-0.5">
+              <span className="text-[11px] font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
+              <span className="font-mono text-[10.5px] tabular-nums text-[color:var(--text-disabled)]">
+                {group.rows.length}
+              </span>
+            </div>
+            <ul role="list" aria-label={`${label}: ${group.label}`} className="flex min-w-0 flex-col gap-0.5">
+              {group.rows.map(renderRow)}
+            </ul>
+          </div>
+        ))
+      ) : (
+        <ul role="list" aria-label={label} className="flex min-w-0 flex-col gap-0.5">
+          {rows.map(renderRow)}
+        </ul>
+      )}
       <button
         type="button"
         aria-current={newAffordance.selected ? 'true' : undefined}

@@ -592,10 +592,16 @@ export function SprintRunBoard({
  handle,
  fixedView,
  fixedTasksLayout,
+ reposTab,
 }: {
  handle: SprintRunHandle
  fixedView?: SprintEngineView
  fixedTasksLayout?: SprintEngineTasksLayout
+ /** Host-provided Repositories tab (the Sprints door, MC-1838): repo state is
+  *  sprint-scoped detail, so it joins the board's one tab row there instead of
+  *  occupying a strip above it. Absent (the workspace mount), the tab does not
+  *  exist and a persisted `repos` view falls back to the default. */
+ reposTab?: { count?: number; render: () => React.ReactNode }
 }) {
   // `''` when the run has no resident workspace: workspace-store lookups by that
   // id resolve to nothing (degraded, never a crash), and workspace-scoped store
@@ -750,7 +756,11 @@ export function SprintRunBoard({
  const runComplete = Boolean(sprintEngineState && isCompletedSprintEngineRun(sprintEngineState))
  const requestedView = fixedView ?? activeView
  const effectiveView: SprintEngineView =
- requestedView === 'summary' && !runComplete ? 'tasks' : requestedView
+ requestedView === 'summary' && !runComplete
+ ? 'tasks'
+ : requestedView === 'repos' && !reposTab
+ ? 'inbox'
+ : requestedView
  const effectiveTasksLayout: SprintEngineTasksLayout = fixedTasksLayout ?? activeTasksLayout
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
@@ -2144,6 +2154,10 @@ export function SprintRunBoard({
  ...(allTasksDone
  ? [{ id: 'summary' as const, label: 'Summary', icon: SprintEngineSummaryNavIcon }]
  : []),
+ // Host-provided (the Sprints door): repositories as a tab, not a strip.
+ ...(reposTab
+ ? [{ id: 'repos' as const, label: 'Repositories', count: reposTab.count }]
+ : []),
  ]
  const activateView = (view: SprintEngineView) => {
  if (fixedView) return
@@ -2553,6 +2567,17 @@ export function SprintRunBoard({
  </React.Suspense>
  </div>
  {renderInspectorAside()}
+ </div>
+ ) : null}
+
+ {effectiveView === 'repos' && reposTab ? (
+ <div
+ id="sprintengine-view-panel-repos"
+ role="tabpanel"
+ aria-labelledby="sprintengine-view-tab-repos"
+ className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+ >
+ {reposTab.render()}
  </div>
  ) : null}
 
