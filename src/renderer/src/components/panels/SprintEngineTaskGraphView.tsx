@@ -473,7 +473,7 @@ export function SprintEngineTaskGraphView({
  return (
  <div
  key={node.id}
- className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden [content-visibility:auto] [contain-intrinsic-size:252px_154px] rounded-2xl border-2 border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] px-5 py-4 text-center"
+ className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center overflow-hidden [content-visibility:auto] [contain-intrinsic-size:252px_154px] rounded-lg border-2 border-[color:var(--tone-good-soft)] bg-[color:var(--tone-good-soft)] px-5 py-4 text-center"
  style={{
  left: node.x,
  top: node.y,
