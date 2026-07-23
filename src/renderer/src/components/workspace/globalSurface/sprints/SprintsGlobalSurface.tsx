@@ -14,7 +14,7 @@ import {
   RUN_INDEX_ERROR_HINT,
   RUN_INDEX_ERROR_TITLE,
 } from './railState'
-import { consumeSprintCreatedFromDoor, requestNewSprint } from './sprintCreationRequest'
+import { consumeSprintDoorSelection, requestNewSprint } from './sprintDoorRequests'
 import {
   SprintsBarActions,
   SprintsCanvas,
@@ -44,13 +44,14 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 // open/closed flag (epic-1705 rule).
 let lastSelectedStatePath: string | null = null
 
-// What the rail opens on: the run just created from this door if there is one
-// (item 1765 — creating a sprint here comes back here, on the new run), else
-// wherever the operator last was. The index is re-read on every mount, so a run
-// created moments ago is already listed by the time the rows resolve.
+// What the rail opens on: the run someone handed the door if there is one — a
+// sprint just created here (item 1765) or a Backlog run link jumping in (item
+// 1767) — else wherever the operator last was. The index is re-read on every
+// mount, so a run created moments ago is already listed by the time the rows
+// resolve.
 function initialSelectedStatePath(): string | null {
-  const created = consumeSprintCreatedFromDoor()
-  if (created) lastSelectedStatePath = created
+  const handedOver = consumeSprintDoorSelection()
+  if (handedOver) lastSelectedStatePath = handedOver
   return lastSelectedStatePath
 }
 
@@ -110,6 +111,16 @@ export default function SprintsGlobalSurface(): JSX.Element {
   // and, for a run only this door is watching, its single refresh driver.
   const canvas = useSprintRunCanvas(selectedRun)
 
+  // A run whose store was just deleted (item 1767) is gone, not merely closed:
+  // drop the selection before re-reading the index, so the canvas never spends a
+  // frame on a run that is no longer on disk. The open-on-content effect above
+  // then lands on whatever the rail leads with.
+  const handleRunDeleted = useCallback(() => {
+    lastSelectedStatePath = null
+    setSelectedStatePath(null)
+    reload()
+  }, [reload])
+
   // Everything waiting on the operator, across every run in the index — not only
   // the selected one. Rows jump the rail, so the strip stays a summary.
   const waitingRows = useMemo(() => collectSprintWaitingRows(runs), [runs])
@@ -128,9 +139,9 @@ export default function SprintsGlobalSurface(): JSX.Element {
         />
       ),
       contextSub: runContextLine(selectedRun),
-      actions: canvas ? <SprintsBarActions model={canvas} /> : undefined,
+      actions: canvas ? <SprintsBarActions model={canvas} onRunDeleted={handleRunDeleted} /> : undefined,
     }
-  }, [selectedRun, canvas])
+  }, [selectedRun, canvas, handleRunDeleted])
 
   const rail = (
     <SprintsRail

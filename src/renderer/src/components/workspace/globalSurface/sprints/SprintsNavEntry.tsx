@@ -2,6 +2,7 @@ import React from 'react'
 
 import type { SidebarNavEntryRenderProps } from '../../../../modules/renderer-host'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
+import { isSprintRunWorkspace } from '../../../../utils/workspaceVisibility'
 import { SprintEngineWorkspaceTypeIcon } from '../../../AppIcons'
 import { StatusDot } from '../../../ui/StatusDot'
 import { SidebarNavButton } from '../../SidebarNavButton'
@@ -20,8 +21,19 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 // surface is closed, the way the Roadmap door carries its orchestrator's.
 export function SprintsNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
-  // One selected thing in the sidebar: opening the door deselects the project row.
-  const active = useWorkspaceStore((s) => s.activeGlobalSurface === 'sprints')
+  // One selected thing in the sidebar, and it is never nothing.
+  //
+  // The door is selected while its surface is open — that deselects the project
+  // row, as any door does. It is ALSO selected while the operator is inside a
+  // sprint's agent terminals (item 1767): that workspace left the Projects list,
+  // so no row can carry the selection, and an unselected sidebar would claim the
+  // operator is nowhere. The Sprints door is where they came from and the one
+  // click back, so it holds the context.
+  const active = useWorkspaceStore((s) => {
+    if (s.activeGlobalSurface) return s.activeGlobalSurface === 'sprints'
+    const activeWorkspace = s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)
+    return Boolean(activeWorkspace && isSprintRunWorkspace(activeWorkspace))
+  })
   const { runs } = useSprintRunIndex()
   const attention = sprintDoorAttention(runs)
   return (
