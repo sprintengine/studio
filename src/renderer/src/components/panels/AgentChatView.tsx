@@ -3326,19 +3326,36 @@ function AssistantTurnBlock({
   chrome: TimelineChrome
 }) {
   const modelLabel = chrome.modelLabelFor(entry.modelId)
-  const metaParts = [
-    ...(modelLabel && modelLabel !== chrome.assistantName ? [modelLabel] : []),
-    ...(entry.startedAt ? [formatClockTime(entry.startedAt)] : []),
-  ]
+  // The model is attribution, not a timestamp fragment, so it gets its own chip
+  // instead of riding a `·`-joined meta string with the clock.
+  const turnModelLabel = modelLabel && modelLabel !== chrome.assistantName ? modelLabel : null
   return (
     <div className="pb-6">
-      <div className="mb-2 flex items-baseline gap-2">
+      {/* Centered, not baseline-aligned: the glyphs are boxes, and hanging them
+          off the text baseline is what made the star read as jammed. The star
+          stays neutral — the accent belongs to the live step dot and the send
+          button, and one accent star per turn would drown both out. */}
+      <div className="mb-2 flex items-center gap-2">
         <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
-          <SparkleGlyph className="icon-sm text-[color:var(--accent-primary)]" />
+          <SparkleGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
           {chrome.assistantName}
         </span>
-        {metaParts.length > 0 ? (
-          <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{metaParts.join(' · ')}</span>
+        {turnModelLabel ? (
+          // Mirrors the composer's locked `ModelPickerPill`: same glyph, same
+          // muted label, no affordance — the model for a finished turn is fixed
+          // exactly like the pill is once a conversation starts.
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[11.5px] text-[color:var(--text-muted)]">
+            <ChatGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
+            <TruncatedText as="span" text={turnModelLabel} className="max-w-[180px]" />
+          </span>
+        ) : null}
+        {entry.startedAt ? (
+          // `--text-muted`, not `--text-subtle`: at 11px the subtle token only
+          // reaches ~4.1:1 on the dark chat surface (~3.9:1 on Conifer), short
+          // of AA. Muted clears 4.5:1 in every theme.
+          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+            {formatClockTime(entry.startedAt)}
+          </span>
         ) : null}
       </div>
       {entry.reasoning.trim() ? (
