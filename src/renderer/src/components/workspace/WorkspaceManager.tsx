@@ -768,13 +768,19 @@ export default function WorkspaceManager() {
   const [surfaceBarEl, setSurfaceBarEl] = useState<HTMLDivElement | null>(null)
   const surfaceBarSlot = useMemo(() => ({ el: surfaceBarEl }), [surfaceBarEl])
 
+  // Every creation-hub opener closes the active door surface: the hub mounts
+  // inside the workspace-card container, which is inert and painted over while
+  // a door is active — without this the click is a visible no-op and the armed
+  // panel pops up later (same contract as openNewChatPanel / the New-sprint
+  // door flow).
   const openNewWorkspacePanel = useCallback(() => {
     setNewWorkspacePanelInitialState(null)
     setShowNewWorkspacePanel(true)
+    closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeGlobalSurface, closeSettingsOverlay])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -1128,19 +1134,21 @@ export default function WorkspaceManager() {
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
     setNewWorkspacePanelInitialState({ folderPath })
     setShowNewWorkspacePanel(true)
+    closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeGlobalSurface, closeSettingsOverlay])
 
   // Open the creation hub preselected on a type — the sidebar "+" menu rows.
   const openNewWorkspacePanelWithMode = useCallback((mode: WorkspaceMode) => {
     setNewWorkspacePanelInitialState({ mode })
     setShowNewWorkspacePanel(true)
+    closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeGlobalSurface, closeSettingsOverlay])
 
   // "New sprint" on the Sprints door (item 1763). A door-routed surface is
   // zero-prop by contract, so it signals instead of calling — and because the
@@ -1181,20 +1189,22 @@ export default function WorkspaceManager() {
       futurePlanSource: source,
     })
     setShowNewWorkspacePanel(true)
+    closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeGlobalSurface, closeSettingsOverlay])
 
   // The empty-workspace launcher's Sprint Engine path: open the New Workspace
   // panel pre-set to the team-setup flow (no source plan — "start a new team").
   const openSprintEngineSetup = useCallback(() => {
     setNewWorkspacePanelInitialState({ mode: 'sprintengine' })
     setShowNewWorkspacePanel(true)
+    closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [closeSettingsOverlay])
+  }, [closeGlobalSurface, closeSettingsOverlay])
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
