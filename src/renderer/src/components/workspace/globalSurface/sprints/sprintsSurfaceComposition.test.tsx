@@ -175,6 +175,18 @@ async function main(): Promise<void> {
     './SprintsGlobalSurface'
   )
   const { ConfirmDialogProvider } = await import('../../../ui/ConfirmDialog')
+  const { getTimerRegistrations } = await import('../../../../utils/diagnostics/timerRegistry')
+
+  // Let React.lazy resolve the board chunk and any follow-up effects settle.
+  async function settle(times = 6): Promise<void> {
+    for (let i = 0; i < times; i += 1) {
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+  }
+  const projectionDrivers = (): number =>
+    getTimerRegistrations().filter((timer) => timer.label === 'SprintEngine projection poll').length
 
   // The surface is mounted inside the app's confirm-dialog provider (merging is
   // confirmed, never silent), so the test tree carries it too.
@@ -247,6 +259,14 @@ async function main(): Promise<void> {
       repoRollup: { declared: 3, merged: 1, open: 2 },
     }),
   ]
+  projections.set(
+    statePathOf(projectRoot, 'wake-filter-sprint'),
+    projection({
+      name: 'wake-filter-sprint',
+      repos: [{ id: 'primary', root: '.', pr: null, state: null }],
+      tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress' }],
+    }),
+  )
   // One repository, no merge order to speak of.
   projections.set(
     statePathOf(mobileRoot, 'relay-traffic'),
@@ -474,6 +494,58 @@ async function main(): Promise<void> {
     'the engine merges that one repo, by id',
   )
   console.log('ok - merge order is pre-enforced, and merging goes through the engine per repo')
+
+  // ── The board mounts from the door, on the run's own handle ──────────────
+  await settle()
+  assert.ok(
+    container.querySelector('[role="tablist"]'),
+    'the run board fills the rest of the canvas, mounted by run identity',
+  )
+  // An all-done historical run reads clean and read-only from the door: the board
+  // names the missing workspace instead of offering terminals it cannot open.
+  assert.ok(
+    container.textContent?.includes('This sprint’s workspace was removed'),
+    'the board degrades its workspace-only actions with a plain-word reason',
+  )
+  console.log('ok - the board mounts from the door')
+
+  // ── Exactly one projection-refresh driver, and only for a live handle-only run ─
+  // chained-auth is COMPLETED — terminal, so nothing polls it.
+  assert.equal(projectionDrivers(), 0, 'a completed run is terminal: no driver')
+  const liveRow = [...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button')].find(
+    (b) => b.textContent?.includes('wake-filter-sprint'),
+  )
+  await act(async () => {
+    ;(liveRow as HTMLElement).click()
+  })
+  await settle()
+  assert.equal(projectionDrivers(), 1, 'a live run with no resident workspace gets exactly one driver')
+  console.log('ok - one refresh driver per live handle-only run, none for a terminal one')
+
+  // ── An unreadable projection is a first-class degraded state ─────────────
+  // runner-hardening has no projection stubbed — the read refuses.
+  const unreadableRow = [
+    ...container.querySelectorAll('ul[role="list"][aria-label="Sprints"] > li button'),
+  ].find((b) => b.textContent?.includes('runner-hardening'))
+  await act(async () => {
+    ;(unreadableRow as HTMLElement).click()
+  })
+  await settle()
+  assert.ok(container.textContent?.includes('Couldn’t open this sprint.'), 'the canvas says what failed')
+  assert.ok(
+    container.textContent?.includes('this is usually temporary'),
+    'and what it means, in plain words',
+  )
+  const retry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
+  assert.ok(retry, 'never a dead end: the error card offers a retry')
+  const rawDetail = container.querySelector('details')
+  assert.equal(rawDetail?.open, false, 'the raw failure stays behind a collapsed "Show details"')
+  assert.ok(
+    rawDetail?.textContent?.includes('projection could not be read.'),
+    'and it is the real message, not a swallowed one',
+  )
+  assert.equal(projectionDrivers(), 0, 'and nothing loops against a projection that cannot be read')
+  console.log('ok - an unreadable projection degrades with a reason and a retry')
 
   assert.ok(listCalls >= 1, 'the index was actually read over IPC')
   // Tear the surface down so the door's projection-refresh driver (and its

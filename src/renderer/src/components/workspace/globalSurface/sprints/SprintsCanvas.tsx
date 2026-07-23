@@ -146,6 +146,18 @@ export function useSprintRunCanvas(run: SprintRunSummary | null): SprintRunCanva
   // One merge action for the run, wherever it is started from.
   const merge = useRepoMergeAction({ statePath, onMerged: retry })
 
+  // Browsing the rail opens one run after another, and each door-read run holds a
+  // whole projection in the run store. Release the previous one when the selection
+  // moves on, so a long session over many runs does not accumulate them; coming
+  // back costs one cheap (mtime-short-circuited) read.
+  const closeRun = useSprintRunStore((store) => store.closeRun)
+  const previousStatePath = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = previousStatePath.current
+    previousStatePath.current = statePath || null
+    if (previous && previous !== statePath) closeRun(previous)
+  }, [statePath, closeRun])
+
   const handle = workspaceHandle ?? pathHandle
   const state = handle?.sprintEngineState ?? null
   const completed = Boolean(state && isCompletedSprintEngineRun(state))
@@ -156,7 +168,12 @@ export function useSprintRunCanvas(run: SprintRunSummary | null): SprintRunCanva
   // run is terminal, and a resident workspace already has its own supervisor.
   const refreshRef = useRef<(() => Promise<void>) | undefined>(undefined)
   refreshRef.current = pathHandle?.refresh
-  const shouldPoll = residentWorkspaceId === null && !completed && !canceled
+  // A projection that could not be read does not heal by re-reading it (the run
+  // store is gone, or this build cannot read it) — the workspace supervisor skips
+  // those for the same reason. The canvas shows the failure with "Try again", so
+  // recovery stays explicit instead of a 4 s loop against a missing file.
+  const shouldPoll =
+    residentWorkspaceId === null && !completed && !canceled && entry?.status !== 'error'
   useEffect(() => {
     if (!shouldPoll || !statePath) return
     const loop = createProjectionPollLoop({
