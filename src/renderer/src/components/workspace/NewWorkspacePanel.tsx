@@ -122,7 +122,17 @@ import { KnowledgeStep } from './newWorkspace/KnowledgeStep'
 import { ReviewSourceStep, type ReviewProbeState } from './newWorkspace/ReviewSourceStep'
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
+import { listAutomationProjectFolders } from '../../utils/automationsEntry'
 import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
+import { SprintEngineProjectPanel } from './newWorkspace/SprintEngineProjectPanel'
+import {
+  declareSprintProject,
+  rebaseSprintRepos,
+  resolveDefaultSprintProject,
+  sprintRepoDeclarations,
+  type SprintDeclaredRepo,
+  type SprintProjectOption,
+} from './newWorkspace/sprintProjectSelection'
 import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedTeams'
 import {
@@ -453,6 +463,7 @@ export default function NewWorkspacePanel({
     (s) => s.appSettings.recentWorkspaceFolders ?? [],
   )
   const workspaces = useWorkspaceStore((s) => s.workspaces)
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
   const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const lastSpawnPermissionPreset = useWorkspaceStore(
@@ -595,10 +606,14 @@ export default function NewWorkspacePanel({
   // artifacts), so an untouched or skipped run continues on its own. Manual
   // stays one click away on the run page.
   const [seStartRunner, setSeStartRunner] = useState(true)
-  // A run creates with only its primary project. Sibling projects are no longer
-  // declared up front — an agent brings one into a running sprint on demand via
-  // `sprintengine.vcs.request_repo`, so the wizard offers only the worktree toggle.
   const [seUseWorktrees, setSeUseWorktrees] = useState(false)
+  // "Also works in" (item 1765): the other projects this run works in, declared at
+  // creation so a multi-project run has every worktree the moment it initializes.
+  // The set is fixed for the life of the run — projects nobody foresaw still join
+  // a running sprint through `sprintengine.vcs.request_repo`.
+  const [seDeclaredRepos, setSeDeclaredRepos] = useState<SprintDeclaredRepo[]>([])
+  // Why the last "Also works in" pick was refused, in the user's words.
+  const [seRepoError, setSeRepoError] = useState<string | null>(null)
   // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
   // ceiling). Clamped 1-10 at the input and again by the controller. Plain-agents
   // runs default to 2 ("two agents claiming from one task graph", MC-1585);
@@ -1376,6 +1391,20 @@ export default function NewWorkspacePanel({
 
   const folderHints = useFolderHints(recentFolders)
 
+  // Every project the app knows about, for the sprint wizard's project picker
+  // (item 1765). Deliberately the same root set the Sprints door lists runs from
+  // (`useSprintRunIndex`), so the door and the wizard never disagree about which
+  // projects exist.
+  const sprintProjectOptions: SprintProjectOption[] = useMemo(
+    () => listAutomationProjectFolders(workspaces),
+    [workspaces],
+  )
+  // The project the user is in right now, which the picker opens on.
+  const activeProjectFolderPath = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.folderPath ?? null,
+    [workspaces, activeWorkspaceId],
+  )
+
   // Cold-start fallback location for "Create new folder" when there's no
   // selected/recent folder to derive a parent from. Fetched once; the resolver
   // only uses it when nothing else is known.
@@ -1767,6 +1796,11 @@ export default function NewWorkspacePanel({
     setFolderPath(dir)
     setKnowledgeStepEligible(shouldShowKnowledgeStep(dir, projectKnowledgeRoots))
     resetFolderScopedSourceState()
+    // The other projects survive a change of primary, but their declared roots are
+    // written relative to it — and one that the new primary now contains, or sits
+    // inside, is no longer a separate project at all (item 1765).
+    setSeDeclaredRepos((current) => rebaseSprintRepos(current, dir))
+    setSeRepoError(null)
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
     setMlName(toTitleName(folderName) || 'Product Loop')
@@ -1809,6 +1843,95 @@ export default function NewWorkspacePanel({
     // scans degrade gracefully if the folder has since vanished, and create
     // recreates it exactly as the old wizard's Continue did.
     adoptFolderDraft(dir)
+  }
+
+  // A sprint started from the Sprints door has no project to inherit — the door
+  // sits outside every project — so the wizard opens on the project the user was
+  // last in (item 1765). It only fills a folder nobody has chosen: a launch that
+  // arrives with one (a backlog item, "New workspace" inside a project) and a
+  // path the user typed or browsed both keep theirs, and once the picker owns
+  // the field this never fires again.
+  const sprintProjectSeeded = useRef(false)
+  useEffect(() => {
+    if (!isSprintEngine || sprintProjectSeeded.current) return
+    if (folderPath || folderPathPinned) return
+    const preset = resolveDefaultSprintProject({
+      projects: sprintProjectOptions,
+      activeFolderPath: activeProjectFolderPath,
+      recentFolders,
+    })
+    if (!preset) return
+    sprintProjectSeeded.current = true
+    adoptFolderDraft(preset)
+    // `adoptFolderDraft` is re-created every render and would defeat the guard
+    // list; the ref above is what keeps this to one seeding.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSprintEngine, folderPath, folderPathPinned, sprintProjectOptions, activeProjectFolderPath, recentFolders])
+
+  // The sprint wizard's project fields. The primary project rides the same
+  // folder state as the workspace step (one folder, one source of truth); the
+  // extra projects are creation-time intent, validated against the engine's own
+  // rules before they can be selected.
+  const handleSelectSprintProject = (dir: string) => {
+    if (folderPath && isSameFolder(dir, folderPath)) return
+    adoptFolderDraft(dir)
+  }
+
+  const addSprintRepo = async (candidate: string, displayName: string) => {
+    const outcome = await declareSprintProject(
+      {
+        primaryFolderPath: folderPath,
+        candidateFolderPath: candidate,
+        displayName,
+        alreadyDeclared: seDeclaredRepos,
+      },
+      { pathExists: window.api.pathExists },
+    )
+    if ('rejection' in outcome) {
+      setSeRepoError(outcome.rejection.reason)
+      return
+    }
+    setSeDeclaredRepos((current) => [...current, outcome.repo])
+    // A run can only span projects when each one gets its own worktree — the
+    // engine refuses the pair — so taking on a project turns worktree mode on
+    // with it rather than dropping the choice at creation.
+    setSeUseWorktrees(true)
+  }
+
+  const handleToggleSprintRepo = (candidate: string, displayName: string) => {
+    setSeRepoError(null)
+    const declared = seDeclaredRepos.find((repo) => isSameFolder(repo.folderPath, candidate))
+    if (declared) {
+      setSeDeclaredRepos((current) => current.filter((repo) => repo.folderPath !== declared.folderPath))
+      return
+    }
+    void addSprintRepo(candidate, displayName)
+  }
+
+  const handleBrowseSprintRepo = () => {
+    void (async () => {
+      const dir = await window.api.openDir()
+      if (!dir) return
+      setSeRepoError(null)
+      await addSprintRepo(dir, basename(dir))
+    })()
+  }
+
+  // What creation actually declares: `{id, root}` per extra project, and nothing
+  // at all without worktree mode.
+  const seRepoDeclarations = useMemo(
+    () => sprintRepoDeclarations(seDeclaredRepos, seUseWorktrees),
+    [seDeclaredRepos, seUseWorktrees],
+  )
+
+  // Worktrees off means a single-project run: the extra projects go with it, so
+  // no selection can survive into a creation the engine would reject.
+  const handleChangeUseWorktrees = (value: boolean) => {
+    setSeUseWorktrees(value)
+    if (!value) {
+      setSeDeclaredRepos([])
+      setSeRepoError(null)
+    }
   }
 
   // Leaving the folder field with a typed path that exists adopts it (a fresh
@@ -2616,6 +2739,10 @@ export default function NewWorkspacePanel({
             startRunner: seAutomationMode !== 'manual',
             autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
             useWorktrees: seUseWorktrees,
+            // "Also works in" (item 1765): declared at init so a run that spans
+            // projects has every worktree from the start. Empty without worktree
+            // mode, which the engine requires for a multi-project run.
+            ...(seRepoDeclarations.length > 0 ? { repos: seRepoDeclarations } : {}),
             cliPermissionPreset,
             rosterSource: architectMode ? 'architect' : 'user',
             // "Workflow steps" + "Final sweeps" panels. Each key is present only
@@ -3100,6 +3227,13 @@ export default function NewWorkspacePanel({
               access={sprintEngineAccess}
               onSignIn={() => void startLogin()}
               folderPath={folderPath}
+              projectOptions={sprintProjectOptions}
+              onSelectProject={handleSelectSprintProject}
+              onBrowseProject={() => void pickFolder()}
+              declaredRepos={seDeclaredRepos}
+              onToggleRepo={handleToggleSprintRepo}
+              onBrowseRepo={handleBrowseSprintRepo}
+              repoError={seRepoError}
               isScanning={folderScan.isScanning}
               existingTeams={folderScan.result.teams}
               unreadableTeams={folderScan.result.unreadableTeams}
@@ -3121,6 +3255,15 @@ export default function NewWorkspacePanel({
                   setSeSourcePlanKind('unknown')
                   setSeSourceBundle(null)
                   setSeSourceFromFile(false)
+                }
+                // "Also works in" belongs to a run started here. A run loaded
+                // from a saved team keeps the repo set it was created with, and
+                // one launched from a backlog item works in that item's project
+                // — so leaving this path drops the selection rather than holding
+                // one the create call would never send.
+                if (p !== 'new') {
+                  setSeDeclaredRepos([])
+                  setSeRepoError(null)
                 }
                 setSePlanError(null)
               }}
@@ -3397,8 +3540,9 @@ export default function NewWorkspacePanel({
                 // the same number twice would read as two controls.
                 showMaxParallelAgents={seExistingTeam != null || seUseSpecialistRoles}
                 useWorktrees={seUseWorktrees}
-                onChangeUseWorktrees={setSeUseWorktrees}
+                onChangeUseWorktrees={handleChangeUseWorktrees}
                 worktreesDisabled={seExistingTeam != null}
+                declaredRepoNames={seDeclaredRepos.map((repo) => repo.displayName)}
                 createError={sePlanError}
               />
             )}
@@ -4752,6 +4896,15 @@ function SprintEngineTeamStep(props: {
   access: PremiumFeatureAccessState
   onSignIn: () => void
   folderPath: string | null
+  // The project fields (item 1765, mockup §3). `folderPath` above is the primary
+  // project — one folder, shared with the workspace step, not a second copy.
+  projectOptions: readonly SprintProjectOption[]
+  onSelectProject: (folderPath: string) => void
+  onBrowseProject: () => void
+  declaredRepos: readonly SprintDeclaredRepo[]
+  onToggleRepo: (folderPath: string, displayName: string) => void
+  onBrowseRepo: () => void
+  repoError: string | null
   isScanning: boolean
   existingTeams: ExistingTeam[]
   unreadableTeams: UnreadableTeam[]
@@ -4781,6 +4934,13 @@ function SprintEngineTeamStep(props: {
     access,
     onSignIn,
     folderPath,
+    projectOptions,
+    onSelectProject,
+    onBrowseProject,
+    declaredRepos,
+    onToggleRepo,
+    onBrowseRepo,
+    repoError,
     isScanning,
     existingTeams,
     unreadableTeams,
@@ -4824,6 +4984,23 @@ function SprintEngineTeamStep(props: {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Which project holds the run, and which others it works in (mockup §3).
+          The extra projects are withheld on the plan and existing-team paths: a
+          launch from a backlog item runs in that item's own project, and a saved
+          team's repo set was fixed when it was created. Either can still bring a
+          project in mid-run through `sprintengine.vcs.request_repo`. */}
+      <SprintEngineProjectPanel
+        projects={projectOptions}
+        primaryFolderPath={folderPath}
+        onSelectPrimary={onSelectProject}
+        onBrowsePrimary={onBrowseProject}
+        declaredRepos={declaredRepos}
+        onToggleRepo={onToggleRepo}
+        onBrowseRepo={onBrowseRepo}
+        repoError={repoError}
+        showRepos={path === 'new'}
+      />
+
       {/* One row, not a ~270px stack: the source choice must leave the team
           name and objective — the flow's only required input — above the fold. */}
       <div

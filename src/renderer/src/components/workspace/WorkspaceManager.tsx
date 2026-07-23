@@ -97,7 +97,7 @@ import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
 import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
-import { subscribeNewSprintRequests } from './globalSurface/sprints/sprintCreationRequest'
+import { noteSprintCreatedFromDoor, subscribeNewSprintRequests } from './globalSurface/sprints/sprintCreationRequest'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
@@ -1117,10 +1117,14 @@ export default function WorkspaceManager() {
   // zero-prop by contract, so it signals instead of calling — and because the
   // door paints over the card region the wizard lives in, the door closes first,
   // otherwise the wizard would open behind it. Item 1765 gives that wizard its
-  // primary-project picker; it extends what opens here, not this wiring.
+  // primary-project picker, and the return leg below: a run started at the door
+  // belongs to the door, so creating one comes back here rather than dropping
+  // the operator into the workspace it resides in.
+  const sprintCreationCameFromDoor = useRef(false)
   useEffect(
     () =>
       subscribeNewSprintRequests(() => {
+        sprintCreationCameFromDoor.current = true
         closeGlobalSurface()
         openNewWorkspacePanelWithMode('sprintengine')
       }),
@@ -1633,6 +1637,17 @@ export default function WorkspaceManager() {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineRoleModelOverrides, sprintEngineInitialSpawnRoles, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
+    // Started at the Sprints door: return there on the run that was just created
+    // (item 1765). The workspace is still made and still resident — it holds the
+    // terminals — but reading the run is the door's job, and "Open agents" on the
+    // canvas is the deliberate way into the workspace.
+    if (sprintCreationCameFromDoor.current) {
+      sprintCreationCameFromDoor.current = false
+      if (mode === 'sprintengine' && sprintEngineContext?.statePath) {
+        noteSprintCreatedFromDoor(sprintEngineContext.statePath)
+        openGlobalSurface('sprints')
+      }
+    }
     // Creating the first workspace finishes onboarding outright — no payoff
     // overlay. Jump straight to 'complete' regardless of the current step.
     if (onboardingStep !== 'complete') {
@@ -3048,6 +3063,9 @@ export default function WorkspaceManager() {
                 onClose={() => {
                   setShowNewWorkspacePanel(false)
                   setNewWorkspacePanelInitialState(null)
+                  // Abandoning the wizard ends the door's claim on the next
+                  // creation — the following one may come from anywhere.
+                  sprintCreationCameFromDoor.current = false
                 }}
                 workspaceWindowId={workspaceWindowId}
                 allowClose={railWorkspaces.length > 0}

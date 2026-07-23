@@ -1963,17 +1963,20 @@ async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void
   assert.equal(fs.files.has('/workspace/product/build-handoff.md'), false, 'no handoff file is written when Advanced setup fails')
 }
 
-// MC-1670 D6: sibling projects are no longer declared at creation — a run starts
-// with only its primary repo and expands on demand via request_repo. Both
-// creation controllers must drop any repos from the run init, even if one is
-// supplied, so no wizard path can freeze a repo set again.
-async function testSprintEngineCreationSendsNoRepos(): Promise<void> {
+// Item 1765: a run started from the Sprints door declares the projects it works
+// in up front ("Also works in"), so the new-team controller forwards them to init
+// — but only alongside worktree mode, which the engine requires for a run that
+// spans projects. Mid-run additions still arrive through
+// `sprintengine.vcs.request_repo` (MC-1670 D6), which is why the plan-sourced
+// path below stays repo-free: a backlog or roadmap launch runs in its item's own
+// project and never traverses the wizard's picker.
+async function testSprintEngineNewTeamDeclaresRepos(): Promise<void> {
   const newTeamInit: Array<{ repos: unknown }> = []
   await runSprintEngineNewTeamCreation(
     {
       folderPath: '/p',
-      teamName: 'No Repos',
-      goal: 'Single project only',
+      teamName: 'Three Projects',
+      goal: 'Harden the July landings',
       roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
       visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
       maxParallelAgents: 2,
@@ -1981,20 +1984,51 @@ async function testSprintEngineCreationSendsNoRepos(): Promise<void> {
       startRunner: false,
       autoApproveArtifacts: false,
       useWorktrees: true,
-      // Even a supplied repo set must be dropped — the freeze-at-creation path is gone.
-      repos: [{ id: 'mobile', root: '../multicode-mobile' }],
+      repos: [{ id: 'multiauth', root: '../multiauth' }, { id: 'mobile', root: '../multicode-mobile' }],
       cliPermissionPreset: 'default',
     },
     {
       pathExists: async () => false,
       initializeSprintEngineState: async (input) => {
         newTeamInit.push({ repos: (input as { repos?: unknown }).repos })
-        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'No Repos', goal: 'Single project only' })) } }
+        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Three Projects', goal: 'Harden the July landings' })) } }
       },
     },
   )
   assert.equal(newTeamInit.length, 1)
-  assert.equal(newTeamInit[0].repos, undefined, 'new-team creation never forwards repos to run init')
+  assert.deepEqual(
+    newTeamInit[0].repos,
+    [{ id: 'multiauth', root: '../multiauth' }, { id: 'mobile', root: '../multicode-mobile' }],
+    'the declared projects reach run init verbatim',
+  )
+
+  // Without worktree mode a run cannot span projects at all — the engine refuses
+  // the pair — so a stranded selection is dropped rather than failing at init.
+  const noWorktreeInit: Array<{ repos: unknown }> = []
+  await runSprintEngineNewTeamCreation(
+    {
+      folderPath: '/p',
+      teamName: 'One Project',
+      goal: 'Single project only',
+      roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
+      maxParallelAgents: 2,
+      roleCliDefaults: { architect: 'claude-code', developer: 'claude-code', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
+      startRunner: false,
+      autoApproveArtifacts: false,
+      useWorktrees: false,
+      repos: [{ id: 'mobile', root: '../multicode-mobile' }],
+      cliPermissionPreset: 'default',
+    },
+    {
+      pathExists: async () => false,
+      initializeSprintEngineState: async (input) => {
+        noWorktreeInit.push({ repos: (input as { repos?: unknown }).repos })
+        return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'One Project', goal: 'Single project only' })) } }
+      },
+    },
+  )
+  assert.equal(noWorktreeInit[0].repos, undefined, 'repos are dropped without worktree mode')
 
   const planInit: Array<{ repos: unknown }> = []
   await runSprintEnginePlanSourcedCreation(
@@ -2013,7 +2047,6 @@ async function testSprintEngineCreationSendsNoRepos(): Promise<void> {
       startRunner: false,
       autoApproveArtifacts: false,
       useWorktrees: true,
-      repos: [{ id: 'mobile', root: '../multicode-mobile' }],
       cliPermissionPreset: 'default',
     },
     {
@@ -2041,7 +2074,7 @@ async function main(): Promise<void> {
   testSprintEngineWorkflowInitKeys()
   await testSprintEngineWorkflowKeysFlowToInit()
   await testSprintEngineAdditionalEnabledRolesMergeIntoInit()
-  await testSprintEngineCreationSendsNoRepos()
+  await testSprintEngineNewTeamDeclaresRepos()
   await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
   testSprintEngineEffectiveSpawnAtStartRoles()
   await testSprintEnginePlanSourcedValidation()

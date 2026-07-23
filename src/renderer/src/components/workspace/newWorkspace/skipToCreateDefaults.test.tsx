@@ -259,6 +259,8 @@ const startPage = renderToStaticMarkup(
     useWorktrees={UNTOUCHED.useWorktrees}
     onChangeUseWorktrees={spy('onChangeUseWorktrees')}
     worktreesDisabled={false}
+    // Untouched, a run works in one project: "Also works in" is an explicit pick.
+    declaredRepoNames={[]}
     createError={null}
   />,
 )

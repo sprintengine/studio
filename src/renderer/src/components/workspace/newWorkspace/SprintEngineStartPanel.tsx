@@ -68,6 +68,7 @@ export function SprintEngineStartPanel({
   useWorktrees,
   onChangeUseWorktrees,
   worktreesDisabled,
+  declaredRepoNames,
   createError,
 }: {
   workspaceName: string
@@ -101,6 +102,8 @@ export function SprintEngineStartPanel({
   useWorktrees: boolean
   onChangeUseWorktrees: (value: boolean) => void
   worktreesDisabled: boolean
+  /** The other projects this run works in ("Also works in", item 1765). */
+  declaredRepoNames: readonly string[]
   createError: string | null
 }) {
   const onRoles = listSprintEngineWizardWorkRoles(registry, disabledRoleIds).filter(
@@ -281,6 +284,16 @@ export function SprintEngineStartPanel({
               ? 'Worktree mode is fixed for an existing team and cannot be changed here.'
               : 'All agents work in one shared worktree on a dedicated branch; a pull request opens when the run completes.'}
           </div>
+          {/* The other projects the run works in are chosen on the What step, but
+              they live or die by this switch — a run can only span projects when
+              each one gets its own worktree — so the consequence is named here
+              rather than left to be discovered when the selection vanishes. */}
+          {!worktreesDisabled && declaredRepoNames.length > 0 ? (
+            <div className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+              Also works in {declaredRepoNames.join(', ')} — one worktree, branch, and pull request each.
+              Turning this off drops them.
+            </div>
+          ) : null}
         </RunRow>
       </div>
     </div>

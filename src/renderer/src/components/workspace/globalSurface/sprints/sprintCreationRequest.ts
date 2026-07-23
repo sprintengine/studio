@@ -24,3 +24,26 @@ export function subscribeNewSprintRequests(onRequest: () => void): () => void {
   window.addEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
   return () => window.removeEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
 }
+
+// The return leg (item 1765). A sprint started here belongs to the door, not to
+// the workspace it happens to reside in, so creating one comes back to Sprints
+// with the new run selected instead of dropping the operator into its workspace
+// ("Open agents" on the canvas is the explicit jump). The door had to close for
+// the wizard to mount, so "stays open" is really "reopens, on the new run".
+//
+// A latch rather than an event: the shell hands the run over BEFORE the surface
+// mounts, and the surface reads it as its initial selection. It lives here — a
+// module both the shell and the lazily-loaded surface already import — so the
+// surface stays out of the main bundle.
+let createdRunStatePath: string | null = null
+
+export function noteSprintCreatedFromDoor(statePath: string): void {
+  createdRunStatePath = statePath
+}
+
+/** The run just created from the door, once. Null when creation came elsewhere. */
+export function consumeSprintCreatedFromDoor(): string | null {
+  const statePath = createdRunStatePath
+  createdRunStatePath = null
+  return statePath
+}

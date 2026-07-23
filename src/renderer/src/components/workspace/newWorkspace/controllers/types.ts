@@ -143,9 +143,12 @@ export type SprintEngineNewTeamInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
-  // The other projects this run also changes (MC-1613), each `{id, root}` with a
-  // workspace-relative root. Forwarded verbatim to init as `--repo`. Requires
-  // useWorktrees; omitted for a run in a single project.
+  // The other projects this run also works in (MC-1613, restored by item 1765 as
+  // the wizard's "Also works in" field), each `{id, root}` with a root relative to
+  // the workspace folder. Forwarded verbatim to init as `--repo`. Requires
+  // useWorktrees — the controller drops the list without it — and is omitted for a
+  // run in a single project. Projects nobody foresaw still join a running sprint
+  // through `sprintengine.vcs.request_repo`.
   repos?: Array<{ id: string; root: string }>
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
@@ -195,10 +198,11 @@ export type SprintEnginePlanSourcedInput = {
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
-  // The other projects this run also changes (MC-1613), each `{id, root}` with a
-  // workspace-relative root. Forwarded verbatim to init as `--repo`. Requires
-  // useWorktrees; omitted for a run in a single project.
-  repos?: Array<{ id: string; root: string }>
+  // No `repos` here on purpose (item 1765): a launch sourced from a backlog item,
+  // an epic, or the roadmap orchestrator runs in that item's own project, and the
+  // "Also works in" field is withheld for those paths. Such a run brings another
+  // project in through `sprintengine.vcs.request_repo` when an agent finds it needs
+  // one.
   // "Workflow steps" + "Final sweeps" run-init keys (MC-1542 / MC-1543), same
   // contract as SprintEngineNewTeamInput: forwarded verbatim, each present ONLY
   // when it diverges from the engine default. The plan-sourced path historically

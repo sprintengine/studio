@@ -224,6 +224,15 @@ export async function runSprintEngineNewTeamCreation(
       events: args.sprintEngineState.events,
       artifacts: args.sprintEngineState.artifacts,
       useWorktrees: input.useWorktrees === true,
+      // The other projects this run also works in (item 1765), declared here so a
+      // multi-project run has every worktree the moment it initializes. Only ever
+      // present alongside worktree mode — the engine refuses the pair, and the
+      // wizard drops the selection when the toggle goes off. Mid-run additions
+      // still arrive through `sprintengine.vcs.request_repo`; this is the set the
+      // operator already knew about.
+      ...(input.useWorktrees === true && input.repos && input.repos.length > 0
+        ? { repos: input.repos }
+        : {}),
       // Record the roster's per-role model selection so claimed tasks get
       // stamped with the model that worked them (same as the plan-sourced path).
       // Architect-roster runs pin only the architect seat instead.

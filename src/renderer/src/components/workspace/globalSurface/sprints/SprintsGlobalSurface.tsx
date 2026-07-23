@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
-import { PrimaryButton } from '../../../ui'
+import { PrimaryButton, Section } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
@@ -14,8 +14,15 @@ import {
   RUN_INDEX_ERROR_HINT,
   RUN_INDEX_ERROR_TITLE,
 } from './railState'
-import { requestNewSprint } from './sprintCreationRequest'
+import { consumeSprintCreatedFromDoor, requestNewSprint } from './sprintCreationRequest'
+import {
+  SprintsBarActions,
+  SprintsCanvas,
+  useSprintRunCanvas,
+  type SprintRunCanvasModel,
+} from './SprintsCanvas'
 import { SprintsRail } from './SprintsRail'
+import { collectSprintWaitingRows, SprintsWaitingStrip } from './SprintsWaitingStrip'
 import { useSprintRunIndex } from './useSprintRunIndex'
 
 // The Sprints tenant of the door-routed full-page surface (item 1763, mockup §1
@@ -25,9 +32,11 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 // rail of every run in this Multicode, live and historical, filterable by
 // project, over a canvas.
 //
-// This ships the shell. The canvas here is the selected run's summary — enough to
-// answer "where is this run?" without opening it; item 1764 replaces it with the
-// multi-repo canvas, waiting-on-you strip, and board.
+// The canvas is the selected run in full (item 1764): the repositories it
+// declares, its rollup, and its board — mounted by run identity, so a run whose
+// workspace is gone opens like any other. Above them, "Waiting on you" aggregates
+// across EVERY run, because the run that needs you is rarely the one you are
+// reading.
 
 // The rail selection survives closing the door: reopening Sprints returns you to
 // the run you were reading, not to the top of the list. Module-scoped rather than
@@ -35,11 +44,21 @@ import { useSprintRunIndex } from './useSprintRunIndex'
 // open/closed flag (epic-1705 rule).
 let lastSelectedStatePath: string | null = null
 
+// What the rail opens on: the run just created from this door if there is one
+// (item 1765 — creating a sprint here comes back here, on the new run), else
+// wherever the operator last was. The index is re-read on every mount, so a run
+// created moments ago is already listed by the time the rows resolve.
+function initialSelectedStatePath(): string | null {
+  const created = consumeSprintCreatedFromDoor()
+  if (created) lastSelectedStatePath = created
+  return lastSelectedStatePath
+}
+
 export default function SprintsGlobalSurface(): JSX.Element {
   const back = useSurfaceBackNav()
   const { runs, loadState, error, reload } = useSprintRunIndex()
 
-  const [selectedStatePath, setSelectedStatePath] = useState<string | null>(lastSelectedStatePath)
+  const [selectedStatePath, setSelectedStatePath] = useState<string | null>(initialSelectedStatePath)
   // Which project the rail is narrowed to. Transient per-window view state — not
   // persisted and not synced across windows, so one window's lens never moves
   // another's (D7).
@@ -87,20 +106,31 @@ export default function SprintsGlobalSurface(): JSX.Element {
     setSelectedStatePath(first.id)
   }, [loadState, rows, selectedStatePath])
 
+  // The selected run in full: its projection, its repositories, its merge state —
+  // and, for a run only this door is watching, its single refresh driver.
+  const canvas = useSprintRunCanvas(selectedRun)
+
+  // Everything waiting on the operator, across every run in the index — not only
+  // the selected one. Rows jump the rail, so the strip stays a summary.
+  const waitingRows = useMemo(() => collectSprintWaitingRows(runs), [runs])
+
   const bar = useMemo(() => {
     if (!selectedRun) return { title: 'Sprints' }
     return {
       title: selectedRun.teamName,
       statusChip: (
         <BarStatusChip
-          tone={sprintRunTone(selectedRun.runtimeState)}
-          label={sprintRunStatusLabel(selectedRun.runtimeState)}
+          tone={canvas?.landed ? 'merged' : sprintRunTone(selectedRun.runtimeState)}
+          // Landed is the multi-repo truth (D10): a completed run whose branches
+          // have not all merged still reads "Completed", never "Landed".
+          label={canvas?.landed ? 'Landed' : sprintRunStatusLabel(selectedRun.runtimeState)}
           pulse={selectedRun.runtimeState === 'running'}
         />
       ),
       contextSub: runContextLine(selectedRun),
+      actions: canvas ? <SprintsBarActions model={canvas} /> : undefined,
     }
-  }, [selectedRun])
+  }, [selectedRun, canvas])
 
   const rail = (
     <SprintsRail
@@ -123,6 +153,17 @@ export default function SprintsGlobalSurface(): JSX.Element {
       // on an error, so a failed read is never a dead end (T20). Only the first
       // load and the zero state own the canvas alone.
       rail={loadState === 'error' || (loadState === 'ready' && runs.length > 0) ? rail : undefined}
+      attention={
+        waitingRows.length > 0 ? (
+          <Section title="Waiting on you" count={waitingRows.length} level={3} inset={false}>
+            <SprintsWaitingStrip
+              rows={waitingRows}
+              selectedStatePath={selectedStatePath}
+              onSelect={select}
+            />
+          </Section>
+        ) : undefined
+      }
     >
       <SurfaceBody
         loadState={loadState}
@@ -133,28 +174,29 @@ export default function SprintsGlobalSurface(): JSX.Element {
         // "no sprints at all" — the canvas must not offer a first-run welcome to
         // someone who simply picked a quiet project.
         filteredOut={runs.length > 0 && rows.length === 0}
-        selectedRun={selectedRun}
+        canvas={canvas}
       />
     </GlobalSurfaceShell>
   )
 }
 
-// The canvas: the three shared states (SurfaceCanvasState) plus the selected
-// run's summary. Split out so the surface's return stays readable.
+// The canvas: the three shared states (SurfaceCanvasState) for the INDEX, then
+// the selected run's own canvas (which owns its own degraded states for the run's
+// projection). Split out so the surface's return stays readable.
 function SurfaceBody({
   loadState,
   error,
   onRetry,
   hasRuns,
   filteredOut,
-  selectedRun,
+  canvas,
 }: {
   loadState: 'loading' | 'ready' | 'error'
   error: string | null
   onRetry: () => void
   hasRuns: boolean
   filteredOut: boolean
-  selectedRun: SprintRunSummary | null
+  canvas: SprintRunCanvasModel | null
 }): JSX.Element {
   if (loadState === 'loading') {
     return <SurfaceCanvasState kind="loading" label="Loading your sprints…" />
@@ -181,7 +223,7 @@ function SurfaceBody({
       />
     )
   }
-  if (selectedRun) return <RunSummaryCanvas run={selectedRun} />
+  if (canvas) return <SprintsCanvas model={canvas} />
   // Runs exist but none is showing. Name which of the two reasons it is, so the
   // canvas never asks for a selection the rail cannot offer.
   return (
@@ -191,84 +233,6 @@ function SurfaceBody({
         : 'Select a sprint to see where it stands.'}
     </div>
   )
-}
-
-// The interim canvas (item 1764 replaces it): where the selected run stands, read
-// straight off the run index. Every line is a fact from the summary — nothing here
-// needs the run's workspace to be open, which is the point of the door.
-function RunSummaryCanvas({ run }: { run: SprintRunSummary }): JSX.Element {
-  const started = sprintRunShortDate(run.startedAt)
-  const updated = sprintRunShortDate(run.updatedAt)
-  return (
-    <div className="h-full overflow-y-auto px-6 py-5">
-      <div className="max-w-2xl rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 py-3">
-        <h3 className="pb-1.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">Run</h3>
-        <dl className="flex flex-col">
-          {run.runtimeState === 'unknown' ? (
-            <SummaryRow
-              label="State"
-              value={run.unknownReason ?? 'This run’s details could not be read.'}
-            />
-          ) : (
-            <>
-              <SummaryRow
-                label="Tasks"
-                value={
-                  run.taskCounts.total === 0
-                    ? 'No tasks planned yet'
-                    : `${run.taskCounts.done} done · ${run.taskCounts.inProgress} in progress · ${run.taskCounts.waiting} waiting`
-                }
-              />
-              <SummaryRow label="Repositories" value={repositoriesLine(run)} />
-              {run.needsInputCount > 0 ? (
-                <SummaryRow
-                  label="Waiting on you"
-                  value={`${run.needsInputCount} ${run.needsInputCount === 1 ? 'task needs' : 'tasks need'} an answer`}
-                />
-              ) : null}
-              {run.sourceLabel ? <SummaryRow label="Started from" value={run.sourceLabel} /> : null}
-            </>
-          )}
-          <SummaryRow label="Project" value={run.projectName} detail={run.projectRoot} />
-          {started ? <SummaryRow label="Started" value={started} /> : null}
-          {updated ? <SummaryRow label="Last update" value={updated} /> : null}
-        </dl>
-      </div>
-    </div>
-  )
-}
-
-function SummaryRow({
-  label,
-  value,
-  detail,
-}: {
-  label: string
-  value: string
-  detail?: string
-}): JSX.Element {
-  return (
-    <div className="flex items-baseline gap-3 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0">
-      <dt className="w-[104px] shrink-0 text-[11px] text-[color:var(--text-subtle)]">{label}</dt>
-      <dd className="flex min-w-0 flex-1 items-baseline gap-2 text-[12px] text-[color:var(--text-default)]">
-        <span className="shrink-0 tabular-nums">{value}</span>
-        {detail ? (
-          <span className="truncate font-mono text-[10.5px] text-[color:var(--text-subtle)]" title={detail}>
-            {detail}
-          </span>
-        ) : null}
-      </dd>
-    </div>
-  )
-}
-
-// "3 repositories · 2 merged, 1 open" — the cross-repo rollup the run declares.
-// A run with no branch to merge says so rather than showing three zeros.
-function repositoriesLine(run: SprintRunSummary): string {
-  const { declared, merged, open } = run.repoRollup
-  if (declared === 0) return 'Nothing to merge'
-  const label = declared === 1 ? '1 repository' : `${declared} repositories`
-  return `${label} · ${merged} merged, ${open} open`
 }
 
 // The bar's context line: which project(s), how much work, and when it started.
