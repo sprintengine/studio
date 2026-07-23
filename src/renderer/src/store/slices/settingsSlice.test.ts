@@ -27,6 +27,7 @@ import {
 } from '../../specialists/specialistActions'
 import { createInitialSprintEngineState } from '../../utils/sprintengine'
 import { EXTENSIONS_BROWSE_DEEPLINK } from '../../components/settings/extensionsRoute'
+import { guidedBriefTransportForCli } from '../../components/workspace/guidedBrief/types'
 
 const workspaceWithMemoryRoot = {
   folderPath: '/Users/example/project',
@@ -930,6 +931,174 @@ assert.deepEqual(
   useWorkspaceStore.getState().appSettings.specialistPacks.disabled,
   ['multicode-specialists'],
   'toggling still records the disabled pack',
+)
+
+// --- Design Wizard transport default (T12) ---------------------------------
+// The default profile ships opt-out: conversation sessions are off, so a Claude
+// design specialist takes the terminal path. Pins the acceptance criterion end
+// to end — the hydrated default feeds the transport selector.
+const defaultConversationEnabled =
+  normalizeAppSettings({}, []).guidedBriefConversationSessions === true
+assert.equal(
+  defaultConversationEnabled,
+  false,
+  'guidedBriefConversationSessions defaults to off (opt-out)',
+)
+assert.equal(
+  guidedBriefTransportForCli('claude-code', {
+    conversationSessionsEnabled: defaultConversationEnabled,
+    hasWorkspaceId: true,
+  }),
+  'terminal',
+  "transportForCli('claude-code') === 'terminal' at default settings",
+)
+
+// Opt-in only: hydration turns it on solely for an explicit stored `true`. A
+// user who enabled it keeps the conversation transport; any other stored value
+// (legacy truthy, undefined) resolves to the terminal path.
+assert.equal(
+  normalizeAppSettings({ guidedBriefConversationSessions: true }, []).guidedBriefConversationSessions,
+  true,
+  'an explicitly enabled profile keeps conversation sessions on',
+)
+assert.equal(
+  guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
+  'conversation',
+  'a user who opted in gets the conversation transport for Claude',
+)
+for (const stored of [undefined, false, 1 as unknown as boolean, 'true' as unknown as boolean]) {
+  assert.equal(
+    normalizeAppSettings({ guidedBriefConversationSessions: stored }, []).guidedBriefConversationSessions,
+    false,
+    `a non-true stored value (${String(stored)}) resolves to off`,
+  )
+}
+
+// Non-Claude CLIs and workspace-less runs never take the conversation path,
+// even when the opt-in is on.
+assert.equal(
+  guidedBriefTransportForCli('codex', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
+  'terminal',
+  'non-Claude CLIs always take the terminal path',
+)
+assert.equal(
+  guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: false }),
+  'terminal',
+  'a workspace-less run takes the terminal path',
+)
+
+// The explicit setter records the user's choice verbatim, and stores exactly
+// `true` only for an explicit enable.
+const transportStore = useWorkspaceStore.getState()
+transportStore.setGuidedBriefConversationSessions(true)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
+  true,
+  'setGuidedBriefConversationSessions(true) opts in',
+)
+transportStore.setGuidedBriefConversationSessions(false)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
+  false,
+  'setGuidedBriefConversationSessions(false) opts out',
+)
+
+// The Reviews door's remembered selection (MC-1785). Reached through
+// useWorkspaceStore, so this also pins the setter's dual declaration — a setter
+// missing from the WorkspaceStore interface would not typecheck here.
+const reviewStore = useWorkspaceStore.getState()
+assert.equal(
+  defaultAppSettings().lastSelectedReview,
+  null,
+  'a fresh profile remembers no review, so the door auto-selects attention-first',
+)
+reviewStore.setLastSelectedReview({ reviewId: 'rv_b', workspaceRoot: '/proj/multicode' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.lastSelectedReview,
+  { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
+  'the opened review is remembered with its owning project root',
+)
+reviewStore.setLastSelectedReview(null)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.lastSelectedReview,
+  null,
+  'clearing a dead preference stores null',
+)
+// A half-written pair cannot survive: either id missing means there is nothing
+// to restore, so hydration falls back to attention-first rather than a partial.
+reviewStore.setLastSelectedReview({ reviewId: 'rv_b', workspaceRoot: '  ' })
+assert.equal(
+  useWorkspaceStore.getState().appSettings.lastSelectedReview,
+  null,
+  'a pair missing its project root normalizes away',
+)
+assert.deepEqual(
+  normalizeAppSettings(
+    { lastSelectedReview: { reviewId: ' rv_b ', workspaceRoot: ' /proj/multicode ' } } as never,
+    [],
+  ).lastSelectedReview,
+  { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' },
+  'hydration trims a persisted pair',
+)
+assert.equal(
+  normalizeAppSettings({ lastSelectedReview: { reviewId: 'rv_b' } } as never, []).lastSelectedReview,
+  null,
+  'hydration drops a persisted pair that lost its project root',
+)
+
+// MC-1788: the guide preparation choices (depth + agent) are remembered where the
+// guide is invoked, not configured in a settings tab. The store is where they
+// outlive the door's unmount, so this pins both the patch semantics the banner
+// controls rely on and the hydration a restart goes through.
+assert.deepEqual(
+  defaultAppSettings().reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a fresh profile prepares at standard depth with no agent picked yet',
+)
+const cliBeforeGuidePicks = useWorkspaceStore.getState().appSettings.lastSelectedCli
+reviewStore.setReviewGuideDefaults({ depth: 'thorough' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
+  { depth: 'thorough', cli: null, model: null },
+  'choosing a depth leaves the agent choice alone',
+)
+reviewStore.setReviewGuideDefaults({ cli: 'codex', model: 'gpt-5-codex' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
+  { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
+  'and choosing an agent leaves the depth alone — the two choices are independent',
+)
+reviewStore.setReviewGuideDefaults({ cli: 'claude-code', model: null })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.reviewGuideDefaults,
+  { depth: 'thorough', cli: 'claude-code', model: null },
+  'a new agent drops the model picked for the previous one',
+)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.lastSelectedCli,
+  cliBeforeGuidePicks,
+  'the guide agent is stored under its own key, so it never rewrites what New chat spawns',
+)
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { depth: 'thorough', cli: ' codex ', model: ' gpt-5-codex ' } } as never, [])
+    .reviewGuideDefaults,
+  { depth: 'thorough', cli: 'codex', model: 'gpt-5-codex' },
+  'a restart restores the last-used pair, trimmed',
+)
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { depth: 'exhaustive' } } as never, []).reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a depth the guide cannot render falls back to standard instead of riding to the prompt',
+)
+assert.deepEqual(
+  normalizeAppSettings({ reviewGuideDefaults: { model: 'gpt-5-codex' } } as never, []).reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a stored model with no engine to run it is dropped',
+)
+assert.deepEqual(
+  normalizeAppSettings({} as never, []).reviewGuideDefaults,
+  { depth: 'standard', cli: null, model: null },
+  'a profile predating the choices hydrates to the defaults',
 )
 
 console.log('settingsSlice.test.ts: ok')

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
-import { orderReviewRail, reviewRailRow } from './reviewRailModel'
+import { orderReviewRail, resolveReviewAutoSelect, reviewRailRow } from './reviewRailModel'
 
 function run(name: string, body: () => void): void {
   try {
@@ -84,6 +84,59 @@ run('the rail orders in-progress, then drafts, then posted, stable within a buck
     rows.map((row) => row.reviewId),
     ['progress', 'draft-a', 'draft-b', 'posted'],
   )
+})
+
+// Reopening the door (MC-1785): the remembered review wins over the
+// attention-first first row while the index still has it; a remembered review
+// the index lost is a dead preference to clear, not a selection to honor.
+const REOPEN_INDEX = [
+  entry({ reviewId: 'rv_a', readFileCount: 1 }),
+  entry({ reviewId: 'rv_b', hasWalkthrough: false }),
+]
+const REOPEN_ROWS = orderReviewRail(REOPEN_INDEX)
+
+run('reopening restores the remembered review even when it is not the first row', () => {
+  // rv_b is a draft, so the attention-first rail puts rv_a first — the remembered
+  // pick must still win, which is the whole bug (the door snapped back to rv_a).
+  assert.equal(REOPEN_ROWS[0].reviewId, 'rv_a', 'the rail really does order rv_a first')
+  const decision = resolveReviewAutoSelect(REOPEN_INDEX, REOPEN_ROWS, {
+    reviewId: 'rv_b',
+    workspaceRoot: '/proj/multicode',
+  })
+  assert.deepEqual(decision.select, { reviewId: 'rv_b', workspaceRoot: '/proj/multicode' })
+  assert.equal(decision.clearRemembered, false, 'a live preference is kept')
+})
+
+run('a remembered review the index lost falls back to attention-first and is cleared', () => {
+  const decision = resolveReviewAutoSelect(REOPEN_INDEX, REOPEN_ROWS, {
+    reviewId: 'rv_deleted',
+    workspaceRoot: '/proj/multicode',
+  })
+  assert.deepEqual(decision.select, { reviewId: 'rv_a', workspaceRoot: '/proj/multicode' })
+  assert.equal(decision.clearRemembered, true, 'the dead preference is dropped')
+})
+
+run('no remembered review opens the first row and clears nothing', () => {
+  const decision = resolveReviewAutoSelect(REOPEN_INDEX, REOPEN_ROWS, null)
+  assert.deepEqual(decision.select, { reviewId: 'rv_a', workspaceRoot: '/proj/multicode' })
+  assert.equal(decision.clearRemembered, false, 'there was no preference to clear')
+})
+
+run('a remembered pair pointing at another project is not matched by id alone', () => {
+  // The stored identity is the whole pair, so a remembered review whose root no
+  // longer holds it does not resolve against a same-id dir in another checkout.
+  const decision = resolveReviewAutoSelect(REOPEN_INDEX, REOPEN_ROWS, {
+    reviewId: 'rv_b',
+    workspaceRoot: '/proj/other',
+  })
+  assert.deepEqual(decision.select, { reviewId: 'rv_a', workspaceRoot: '/proj/multicode' })
+  assert.equal(decision.clearRemembered, true)
+})
+
+run('an empty index selects nothing and still clears a dead preference', () => {
+  const decision = resolveReviewAutoSelect([], [], { reviewId: 'rv_gone', workspaceRoot: '/proj/multicode' })
+  assert.equal(decision.select, null, 'nothing to open, so the empty state stands')
+  assert.equal(decision.clearRemembered, true)
 })
 
 console.log('reviewRailModel tests passed')

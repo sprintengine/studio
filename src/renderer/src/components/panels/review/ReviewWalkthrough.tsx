@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type {
@@ -20,7 +20,6 @@ import { ChangeMapView } from './ChangeMapView'
 import { AnnotationsPanel } from './AnnotationsPanel'
 import { ReviewTray, type ReviewPostPhase } from './ReviewTray'
 import { pendingCommentCount } from './commentModel'
-import { anchorRangeLabel } from './anchorLabel'
 import {
   OVERVIEW_PANE_ID,
   buildRailModel,
@@ -28,11 +27,6 @@ import {
   sourceIdentity,
   statsChip,
 } from './reviewSelectors'
-
-// The chat pane pulls the shared conversation projection (and its dependency
-// tree); keep it out of the eager walkthrough chunk and the pure fixture harness,
-// mirroring how the Monaco diff editor is lazily loaded.
-const AskGuidePane = lazy(() => import('./AskGuidePane'))
 
 export interface ReviewWalkthroughProps {
   changeset: ReviewChangeSet
@@ -63,18 +57,22 @@ export interface ReviewWalkthroughProps {
   // Copy-as-markdown alone. `postState` renders the in-flight / failed batch.
   onPostReview?: () => void
   postState?: ReviewPostPhase
-  // Identity of the guide companion to chat with (MC-1681/MC-1684). Present
-  // together: with both the "Ask the guide" chat opens; absent it stays hidden.
-  workspaceId?: string
-  workspaceRoot?: string
+  // Opens a clean "Ask the guide" composer (MC-1783). The guide is an ordinary
+  // terminal agent, so the container owns the composer and the delivery; present
+  // it and the top bar offers the action, omit it and the action stays hidden.
+  onOpenAsk?: () => void
+  // Degraded mode (T1): the brief is the renderer-synthesized raw-change model, not
+  // a guide's. Suppresses the guide-only chrome — "Ask the guide" — so the surface
+  // never offers to consult a guide that has not run. The synthesized brief already
+  // carries zero annotations and no change map, so those simply do not render.
+  isDegraded?: boolean
   // Chrome ownership (MC-1708 T6). On the full-page Reviews door the surface bar
   // folds in the walkthrough's own top-bar actions, so the walkthrough drops its
-  // TopBar and lets the surface drive the tray/chat drawers. Omitted (the pure
-  // harness and any standalone mount) the walkthrough keeps its TopBar and owns the
-  // drawer state itself — the controllers below stay internal.
+  // TopBar and lets the surface drive the tray drawer. Omitted (the pure harness
+  // and any standalone mount) the walkthrough keeps its TopBar and owns the drawer
+  // state itself — the controller below stays internal.
   hideTopBar?: boolean
   trayController?: ReviewDrawerController
-  chatController?: ReviewChatController
 }
 
 // The container drives the "Your review" tray open/closed so its trigger can live
@@ -82,15 +80,6 @@ export interface ReviewWalkthroughProps {
 export interface ReviewDrawerController {
   open: boolean
   setOpen: (open: boolean) => void
-}
-
-// Same for the guide chat, plus the "Ask the guide" from a note/summary card:
-// `askFromCard` opens the chat pre-quoted at that annotation. The prefill (with
-// its re-apply nonce) lives with the container so the surface-bar "Ask the guide"
-// button can open a clean composer.
-export interface ReviewChatController extends ReviewDrawerController {
-  prefill?: { text: string; nonce: number }
-  askFromCard: (annotation: ReviewAnnotation) => void
 }
 
 // The guided walkthrough — a pure projection of a validated changeset + brief +
@@ -118,30 +107,22 @@ export function ReviewWalkthrough({
   onDeleteComment,
   onPostReview,
   postState,
-  workspaceId,
-  workspaceRoot,
+  onOpenAsk,
+  isDegraded = false,
   hideTopBar = false,
   trayController,
-  chatController,
 }: ReviewWalkthroughProps) {
   const commentsEnabled = Boolean(onCreateComment)
-  const chatEnabled = Boolean(workspaceId && workspaceRoot)
-  // Drawer open state: controlled by the surface when it owns the folded bar
+  // No guide to ask in degraded mode — the ask entry points stay hidden even when
+  // the container wires them. Comments and posting are unaffected.
+  const askEnabled = Boolean(onOpenAsk) && !isDegraded
+  // Tray open state: controlled by the surface when it owns the folded bar
   // (Reviews door), internal otherwise (harness / standalone). Resolving both here
   // keeps every drawer trigger below agnostic to who owns the chrome.
   const [internalTrayOpen, setInternalTrayOpen] = useState(false)
-  const [internalChatOpen, setInternalChatOpen] = useState(false)
-  // A prefill quote for the chat composer; the nonce re-applies the same quote on
-  // a repeat "Ask the guide" click without needing to clear it first.
-  const [internalChatPrefill, setInternalChatPrefill] = useState<{ text: string; nonce: number } | undefined>(undefined)
-  const prefillNonce = useRef(0)
 
   const trayOpen = trayController ? trayController.open : internalTrayOpen
   const setTrayOpen = trayController ? trayController.setOpen : setInternalTrayOpen
-  const chatOpen = chatController ? chatController.open : internalChatOpen
-  const setChatOpen = chatController ? chatController.setOpen : setInternalChatOpen
-  const chatPrefill = chatController ? chatController.prefill : internalChatPrefill
-  const changedPaths = useMemo(() => changeset.files.map((file) => file.path), [changeset])
 
   const steps = useMemo(() => orderedSteps(brief), [brief])
   // The change map is a projection of the same steps + nav the rail uses; build
@@ -187,45 +168,9 @@ export function ReviewWalkthrough({
     [jumpToLine],
   )
 
-  // "Ask the guide" from a note or summary card: open the chat with the anchor
-  // pre-quoted so the question arrives grounded. Falls back to the caller's
-  // handler when the chat is not wired (the pure harness).
-  const handleAskGuide = useCallback(
-    (annotation: ReviewAnnotation) => {
-      if (!chatEnabled) {
-        onAskGuide(annotation)
-        return
-      }
-      // When the surface owns the chat, hand the annotation up so its prefill +
-      // nonce live with the folded bar's "Ask the guide" control.
-      if (chatController) {
-        chatController.askFromCard(annotation)
-        return
-      }
-      prefillNonce.current += 1
-      setInternalChatPrefill({
-        text: `> ${annotation.path} ${anchorRangeLabel(annotation.anchor)}\n\n`,
-        nonce: prefillNonce.current,
-      })
-      setInternalChatOpen(true)
-    },
-    [chatEnabled, onAskGuide, chatController],
-  )
-
-  // Jump from a chat citation into the walkthrough: close the chat so the lines
-  // are visible, then reveal them.
-  const handleChatJump = useCallback(
-    (path: string, line: number) => {
-      setChatOpen(false)
-      // Let the drawer begin closing before scrolling the pane underneath.
-      window.requestAnimationFrame(() => jumpToLine(path, line))
-    },
-    [jumpToLine],
-  )
-
   // [ and ] step through the panes (Overview + steps), skipping when focus is in a
   // text field or code editor so the keys insert the character while the reviewer
-  // is typing (comment composer, guide chat, Monaco) instead of switching panes.
+  // is typing (comment composer, ask composer, Monaco) instead of switching panes.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== '[' && event.key !== ']') return
@@ -262,18 +207,7 @@ export function ReviewWalkthrough({
           rerunning={rerunning}
           reviewCount={pendingCommentCount(comments)}
           onOpenReview={commentsEnabled ? () => setTrayOpen(true) : undefined}
-          onOpenChat={
-            chatEnabled
-              ? () => {
-                  // Open a clean composer; drop any quote left from a prior "Ask the
-                  // guide" so the drawer does not remount with a stale prefill. This
-                  // bar renders only when the walkthrough owns its own chrome, so the
-                  // drawer state is always the internal one here.
-                  setInternalChatPrefill(undefined)
-                  setInternalChatOpen(true)
-                }
-              : undefined
-          }
+          onOpenChat={askEnabled ? onOpenAsk : undefined}
         />
       )}
       {bannerSlot}
@@ -298,7 +232,7 @@ export function ReviewWalkthrough({
                   monacoTheme={monacoTheme}
                   onToggleRead={onToggleRead}
                   onRequestComment={onRequestComment}
-                  onAskGuide={handleAskGuide}
+                  onAskGuide={onAskGuide}
                   onOrphans={handleOrphans}
                   registerReveal={registerReveal}
                   comments={comments}
@@ -318,7 +252,7 @@ export function ReviewWalkthrough({
           </div>
           <div className="hidden min-h-0 @[940px]:block">
             {activeStep ? (
-              <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={handleAskGuide} />
+              <AnnotationsPanel annotations={activeStep.annotations} onJumpTo={handleJumpTo} onAskGuide={onAskGuide} />
             ) : (
               <div className="h-full border-l border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-4 py-4">
                 <span className="mb-2.5 block text-[11px] font-medium text-[color:var(--text-subtle)]">In this step</span>
@@ -341,30 +275,6 @@ export function ReviewWalkthrough({
         >
           <Drawer.Body>
             <ReviewTray comments={comments} changeset={changeset} onPost={onPostReview} postState={postState} />
-          </Drawer.Body>
-        </Drawer>
-      ) : null}
-
-      {chatEnabled && workspaceId && workspaceRoot ? (
-        <Drawer
-          open={chatOpen}
-          onClose={() => setChatOpen(false)}
-          title="Ask the guide"
-          ariaLabel="Ask the review guide about this change"
-          width={440}
-        >
-          <Drawer.Body className="flex flex-col">
-            <Suspense
-              fallback={<p className="text-[12px] text-[color:var(--text-subtle)]">Loading the guide chat…</p>}
-            >
-              <AskGuidePane
-                workspaceId={workspaceId}
-                workspaceRoot={workspaceRoot}
-                changedPaths={changedPaths}
-                onJumpToLine={handleChatJump}
-                prefill={chatPrefill}
-              />
-            </Suspense>
           </Drawer.Body>
         </Drawer>
       ) : null}

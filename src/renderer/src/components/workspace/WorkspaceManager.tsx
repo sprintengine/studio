@@ -104,7 +104,7 @@ import {
 } from './globalSurface/sprints/sprintDoorRequests'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
-import { WorkspaceActions, type SessionItem } from './WorkspaceActions'
+import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentComposer/agentSpawnShared'
 import {
   buildMultiloopSpawnPrompt,
@@ -115,6 +115,7 @@ import {
   type WorkspaceActivity,
 } from './workspaceManagerHelpers'
 import { attentionQueueBadge, buildAttentionQueueItems } from '../../utils/attentionQueue'
+import { isReviewGuideAgentId } from './globalSurface/reviews/reviewGuideTerminal'
 import { residentAgentWorkspaceIds } from '../../utils/workspaceResidency'
 import {
   EMPTY_WORKSPACE_NAVIGATION_HISTORY,
@@ -664,11 +665,30 @@ export default function WorkspaceManager() {
     windowActiveWorkspaceId,
     terminalSessions,
   ])
+  // Names the bucket a session with no workspace row is listed under. The review
+  // guide now runs as an agent terminal inside its project workspace, so it is
+  // normally not detached at all; a session left over from a closed project still
+  // reads as "Reviews" through its per-review guide agent id.
+  const resolveDetachedSessionLabel = useCallback(
+    (workspaceId: string): string | null =>
+      [...terminalSessions, ...conversationSessions].some(
+        (summary) => summary.workspaceId === workspaceId && isReviewGuideAgentId(summary.agentId ?? ''),
+      )
+        ? 'Reviews'
+        : null,
+    [terminalSessions, conversationSessions],
+  )
+  // Resolution runs against EVERY workspace, not just this window's, so a session
+  // hosted in another window resolves to its real workspace and is filtered out
+  // below — only a session no workspace anywhere claims becomes detached. Detached
+  // rows belong to no window, so every window lists them: they are stoppable from
+  // wherever the user notices them.
   const sessions = getSessionItems(
-    useWorkspaceStore.getState().workspaces.filter((workspace) => visibleWorkspaceIdSet.has(workspace.id)),
+    useWorkspaceStore.getState().workspaces,
     terminalSessions,
     conversationSessions,
-  )
+    { resolveDetachedLabel: resolveDetachedSessionLabel },
+  ).filter((item) => item.group.kind === 'detached' || visibleWorkspaceIdSet.has(item.group.id))
   const sidebarWorkspaceOrder = useMemo(
     () => buildSidebarWorkspaceOrder(railWorkspaces),
     [railWorkspaces]
@@ -680,8 +700,10 @@ export default function WorkspaceManager() {
   // subscription. Derived over ALL workspaces, not just this window's, so agents
   // in another window still surface (rendered disabled by the popover).
   const attentionItems = useMemo(
-    () => buildAttentionQueueItems(workspaces, terminalSessions),
-    [workspaces, terminalSessions]
+    () => buildAttentionQueueItems(workspaces, terminalSessions, {
+      resolveDetachedLabel: resolveDetachedSessionLabel,
+    }),
+    [workspaces, terminalSessions, resolveDetachedSessionLabel]
   )
   const attentionBadge = useMemo(() => attentionQueueBadge(attentionItems), [attentionItems])
   // The bell badge is an error counter: only unread errors increment it (and
@@ -2756,17 +2778,22 @@ export default function WorkspaceManager() {
   }
 
   const openSession = async (item: SessionItem) => {
+    // A detached row has no workspace to activate and no pane to focus. The
+    // surfaces that list it already withhold their open affordance, so this is
+    // the defensive floor, not a silent fallback path.
+    if (item.group.kind !== 'workspace') return
+    const workspace = item.group.workspace
     // Wizard specialist rows (guided-brief-*) carry an agentId that has no
     // workspace.agents record; updateAgent would fabricate one and
     // focusOrAddAgentTab would open a pane for it. For those rows activation
     // is plain workspace focus only.
     const agentId =
-      item.agentId && item.workspace.agents[item.agentId] ? item.agentId : null
+      item.agentId && workspace.agents[item.agentId] ? item.agentId : null
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))
       if (agentId) {
-        updateAgent(item.workspace.id, agentId, {
+        updateAgent(workspace.id, agentId, {
           cliStartRequested: false,
           cliHasLaunched: false,
           cliOnboardingPromptSent: false,
@@ -2777,7 +2804,7 @@ export default function WorkspaceManager() {
 
     if (agentId) {
       const itemResumeCaps = resumeCapabilitiesForCli(item.cli, pluginCatalogEntries)
-      updateAgent(item.workspace.id, agentId, {
+      updateAgent(workspace.id, agentId, {
         name: item.label,
         cli: item.cli,
         cliSessionId: item.sessionId,
@@ -2789,22 +2816,22 @@ export default function WorkspaceManager() {
     }
 
     setShowNewWorkspacePanel(false)
-    setActiveWorkspaceForWindow(workspaceWindowId, item.workspace.id)
+    setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
     setSessionsOpen(false)
 
     if (!agentId && !item.terminalId) return
     requestAnimationFrame(() => {
       const opened = agentId
-        ? focusOrAddAgentTab(item.workspace.id, agentId, item.label)
+        ? focusOrAddAgentTab(workspace.id, agentId, item.label)
         : item.terminalId
-        ? focusOrAddTerminalTab(item.workspace.id, item.terminalId, item.label)
+        ? focusOrAddTerminalTab(workspace.id, item.terminalId, item.label)
           : false
       if (opened) return
       window.setTimeout(() => {
         if (agentId) {
-          focusOrAddAgentTab(item.workspace.id, agentId, item.label)
+          focusOrAddAgentTab(workspace.id, agentId, item.label)
         } else if (item.terminalId) {
-        focusOrAddTerminalTab(item.workspace.id, item.terminalId, item.label)
+        focusOrAddTerminalTab(workspace.id, item.terminalId, item.label)
         }
       }, 0)
     })
@@ -2814,16 +2841,26 @@ export default function WorkspaceManager() {
   // leave the terminalSessions list to the caller so a batch stop can prune in a
   // single update instead of one render per session.
   const killSessionItem = (item: SessionItem) => {
-    void window.api.terminalKill(item.sessionId).catch(() => {})
-    if (item.workspace.mode === 'sprintengine') {
-      applySprintEngineAutomationStopReason(item.workspace.id, 'agent_terminal_closed', {
+    // A conversation agent has no PTY behind its sessionId: killing it through
+    // the terminal runtime would report nothing and leave the agent running.
+    if (item.transport === 'conversation') {
+      void window.api.conversationSessionStop({ sessionId: item.sessionId }).catch(() => {})
+    } else {
+      void window.api.terminalKill(item.sessionId).catch(() => {})
+    }
+    // Killing the process always works; the derived state resets only exist for
+    // a row that has a workspace behind it.
+    const workspace = item.group.kind === 'workspace' ? item.group.workspace : null
+    if (!workspace) return
+    if (workspace.mode === 'sprintengine') {
+      applySprintEngineAutomationStopReason(workspace.id, 'agent_terminal_closed', {
         ...(item.agentId ? { agentId: item.agentId } : {}),
       })
     }
     // Guarded like openSession: a wizard row's agentId has no
     // workspace.agents record, and updateAgent would fabricate one.
-    if (item.agentId && item.workspace.agents[item.agentId]) {
-      updateAgent(item.workspace.id, item.agentId, {
+    if (item.agentId && workspace.agents[item.agentId]) {
+      updateAgent(workspace.id, item.agentId, {
         cliStartRequested: false,
         cliHasLaunched: false,
         cliOnboardingPromptSent: false,
@@ -2846,14 +2883,14 @@ export default function WorkspaceManager() {
     void window.api.terminalSuspend(item.sessionId).catch(() => {})
   }
 
-  const stopWorkspaceSessions = async (workspace: Workspace, items: SessionItem[]) => {
+  const stopSessionGroup = async (group: SessionGroup, items: SessionItem[]) => {
     if (items.length === 0) return
     const confirmed = await dialog.confirm({
       title:
         items.length === 1
-          ? `Stop the session in ${workspace.name}?`
-          : `Stop all ${items.length} sessions in ${workspace.name}?`,
-      body: 'Running terminals and agent CLIs in this workspace will be stopped.',
+          ? `Stop the session in ${group.label}?`
+          : `Stop all ${items.length} sessions in ${group.label}?`,
+      body: 'The listed terminals and agents will be stopped.',
       confirmLabel: 'Stop all',
       tone: 'danger',
     })
@@ -3012,7 +3049,7 @@ export default function WorkspaceManager() {
             openSession={openSession}
             pauseSession={pauseSession}
             stopSession={stopSession}
-            stopWorkspaceSessions={stopWorkspaceSessions}
+            stopSessionGroup={stopSessionGroup}
             viewMenuOpen={viewMenuOpen}
             setViewMenuOpen={setViewMenuOpen}
             viewMenuTick={viewMenuTick}

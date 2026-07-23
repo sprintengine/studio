@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { AttentionQueuePopover, type AttentionQueueSurface } from './AttentionQueuePopover'
+import { AttentionQueuePopover, groupBySessionGroup, type AttentionQueueSurface } from './AttentionQueuePopover'
 import { attentionQueueBadge } from '../../utils/attentionQueue'
-import type { SessionItem } from './WorkspaceActions'
+import type { SessionGroup, SessionItem } from './WorkspaceActions'
 import type { Workspace } from '../../types/workspace'
 
 // QA regression for the T2 title-bar Attention Queue trigger. The trigger renders
@@ -17,10 +17,15 @@ import type { Workspace } from '../../types/workspace'
 const WS_A = { id: 'ws-a', name: 'Alpha', mode: 'standard' } as unknown as Workspace
 const WS_B = { id: 'ws-b', name: 'Bravo', mode: 'standard' } as unknown as Workspace
 
+function workspaceGroup(workspace: Workspace): SessionGroup {
+  return { kind: 'workspace', id: workspace.id, label: workspace.name, workspace }
+}
+
 function makeItem(overrides: Partial<SessionItem> & Pick<SessionItem, 'sessionId' | 'status'>): SessionItem {
   return {
-    workspace: WS_A,
+    group: workspaceGroup(WS_A),
     kind: 'agent',
+    transport: 'terminal',
     agentId: 'a1',
     terminalId: null,
     label: 'Agent One',
@@ -43,7 +48,7 @@ function renderTrigger(items: SessionItem[], open = false): string {
     badge: attentionQueueBadge(items),
     open,
     onOpenChange: () => {},
-    windowWorkspaceIds: new Set(items.map((i) => i.workspace.id)),
+    windowWorkspaceIds: new Set(items.map((i) => i.group.id)),
     activeWorkspaceId: null,
     onOpenItem: () => {},
   }
@@ -62,7 +67,7 @@ assert.match(oneNeeds, /aria-label="Attention queue — 1 agent waiting"/, 'sing
 
 const twoMixed = renderTrigger([
   makeItem({ sessionId: 's1', status: 'needs-input' }),
-  makeItem({ sessionId: 's2', status: 'failed', exitCode: 1, workspace: WS_B }),
+  makeItem({ sessionId: 's2', status: 'failed', exitCode: 1, group: workspaceGroup(WS_B) }),
 ])
 assert.match(twoMixed, /aria-label="Attention queue — 2 agents waiting"/, 'plural: "2 agents waiting"')
 
@@ -102,5 +107,27 @@ const flood = renderTrigger(
 )
 assert.match(flood, />99\+</, 'badge caps at 99+')
 assert.match(flood, /aria-label="Attention queue — 150 agents waiting"/, 'aria-label keeps the true count')
+
+// --- MC-1786: detached sessions get their own trailing bucket --------------
+// The body renders through a portal the server renderer cannot emit, so the
+// grouping that decides bucket order is asserted directly on the pure function
+// the body maps over.
+const DETACHED: SessionGroup = { kind: 'detached', id: 'detached:Reviews', label: 'Reviews' }
+const grouped = groupBySessionGroup([
+  makeItem({ sessionId: 'd1', status: 'needs-input', group: DETACHED }),
+  makeItem({ sessionId: 'w1', status: 'failed', exitCode: 1 }),
+  makeItem({ sessionId: 'd2', status: 'failed', exitCode: 1, group: DETACHED }),
+  makeItem({ sessionId: 'w2', status: 'needs-input', group: workspaceGroup(WS_B) }),
+])
+assert.deepEqual(
+  grouped.map((entry) => entry.group.label),
+  ['Alpha', 'Bravo', 'Reviews'],
+  'detached buckets render after every workspace, workspaces in encounter order',
+)
+assert.deepEqual(
+  grouped.at(-1)?.items.map((item) => item.sessionId),
+  ['d1', 'd2'],
+  'rows sharing a detached label collapse into one bucket, order preserved',
+)
 
 console.log('AttentionQueuePopover.test.tsx: all assertions passed')

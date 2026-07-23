@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { ReviewWalkthroughHarness } from './ReviewWalkthroughHarness'
 import { ReviewWalkthrough } from './ReviewWalkthrough'
+import { synthesizeDegradedBrief } from './degradedBrief'
 import { reviewFixture, fixtureBrief, fixtureChangeSet } from './fixtures'
 
 function run(name: string, body: () => void): void {
@@ -166,6 +167,38 @@ run('the layout collapses on narrow panels via a container query, not a window m
   )
   // The right "In this step" column is dropped below the threshold so the diff keeps its width.
   assert.ok(html.includes('hidden min-h-0 @[940px]:block'), 'notes column collapses below 940px')
+})
+
+run('degraded: a synthesized brief renders the raw diff and the human review loop, with no guide chat', () => {
+  const degraded = synthesizeDegradedBrief(fixtureChangeSet)
+  const html = renderToStaticMarkup(
+    <ReviewWalkthrough
+      changeset={fixtureChangeSet}
+      brief={degraded}
+      isDegraded
+      readFiles={new Set()}
+      diffView="side-by-side"
+      activePaneId="degraded-all"
+      monacoTheme="vs-dark"
+      rerunning={false}
+      onSetActivePane={() => {}}
+      onSetDiffView={() => {}}
+      onToggleRead={() => {}}
+      onRequestComment={() => {}}
+      onAskGuide={() => {}}
+      onRerun={() => {}}
+      comments={[]}
+      onCreateComment={() => {}}
+      onOpenAsk={() => {}}
+    />,
+  )
+  // The raw change renders: the synthesized step and every changed file's diff card.
+  assert.ok(html.includes('All files'), 'the synthesized step renders')
+  assert.ok(html.includes('prisma/schema.prisma'), 'every changed file renders as a diff card')
+  assert.ok(html.includes('Changed in this review'), 'a neutral why-line stands in for guide narration')
+  // The human loop stays live; the guide ask does not, even with the composer wired.
+  assert.ok(html.includes('Your review'), 'comments stay enabled with no guide')
+  assert.ok(!html.includes('Ask the guide'), 'no guide to ask — the ask action is suppressed in degraded mode')
 })
 
 // Reference the fixture so an unused-import refactor can't silently drop it.

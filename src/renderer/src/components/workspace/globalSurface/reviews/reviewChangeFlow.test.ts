@@ -5,6 +5,7 @@ import {
   ingestReviewChange,
   ReviewControllerError,
 } from '../../newWorkspace/controllers/reviewController'
+import { controlDefaultRoot, looksLikePrUrl, resolvePrProject } from './reviewController'
 
 function run(name: string, body: () => Promise<void>): Promise<void> {
   return body().then(
@@ -65,6 +66,62 @@ async function main(): Promise<void> {
       ),
       (error: unknown) => error instanceof ReviewControllerError && error.code === 'ingest-failed',
     )
+  })
+
+  // ── PR tab URL-first project inference (MC-1787 T10) ──────────────────────
+  // The controller turns T9's match result into the one project control the form
+  // renders, so the form never shows an up-front project picker for a PR link.
+
+  const ROOTS = ['/proj/a', '/proj/b', '/proj/c']
+
+  await run('looksLikePrUrl gates the match call to real PR links, not half-typed URLs', () => {
+    // Complete PR/MR links across the three hosts the URL field accepts.
+    assert.equal(looksLikePrUrl('https://github.com/o/r/pull/123'), true)
+    assert.equal(looksLikePrUrl('https://gitlab.com/o/r/-/merge_requests/9'), true)
+    assert.equal(looksLikePrUrl('https://bitbucket.org/o/r/pull-requests/4'), true)
+    assert.equal(looksLikePrUrl('  https://github.com/o/r/pull/7  '), true, 'tolerates surrounding whitespace')
+    // Partial / non-PR URLs must NOT trigger a match call (else the no-match
+    // picker flashes while the reviewer is still typing).
+    assert.equal(looksLikePrUrl(''), false)
+    assert.equal(looksLikePrUrl('https://github.com/o/r'), false)
+    assert.equal(looksLikePrUrl('https://github.com/o/r/pull/'), false)
+    assert.equal(looksLikePrUrl('github.com/o/r/pull/1'), false, 'needs a scheme')
+    return Promise.resolve()
+  })
+
+  await run('one match → confirmed silently, resolving to that project', () => {
+    const control = resolvePrProject({ ok: true, matches: ['/proj/b'] }, ROOTS)
+    assert.deepEqual(control, { kind: 'confirmed', root: '/proj/b' })
+    assert.equal(controlDefaultRoot(control), '/proj/b', 'the storage root needs no interaction')
+    return Promise.resolve()
+  })
+
+  await run('many matches → picker limited to just those checkouts, first is default', () => {
+    const control = resolvePrProject({ ok: true, matches: ['/proj/a', '/proj/c'] }, ROOTS)
+    assert.deepEqual(control, { kind: 'choose', roots: ['/proj/a', '/proj/c'], reason: 'many' })
+    assert.equal(controlDefaultRoot(control), '/proj/a')
+    return Promise.resolve()
+  })
+
+  await run('zero matches → still creatable via a picker of every open project (T9 D5 fallback)', () => {
+    const control = resolvePrProject({ ok: true, matches: [] }, ROOTS)
+    assert.deepEqual(control, { kind: 'choose', roots: ROOTS, reason: 'none' })
+    assert.equal(controlDefaultRoot(control), '/proj/a')
+    return Promise.resolve()
+  })
+
+  await run('a failed match check falls back to the full picker, flagged as an error not a clean no-match', () => {
+    const control = resolvePrProject({ ok: false, error: 'git unavailable' }, ROOTS)
+    assert.deepEqual(control, { kind: 'choose', roots: ROOTS, reason: 'error' })
+    return Promise.resolve()
+  })
+
+  await run('no open projects → nowhere to store the review, even on a match answer', () => {
+    assert.deepEqual(resolvePrProject({ ok: true, matches: [] }, []), { kind: 'no-projects' })
+    assert.deepEqual(resolvePrProject({ ok: false, error: 'x' }, []), { kind: 'no-projects' })
+    assert.equal(controlDefaultRoot({ kind: 'no-projects' }), null)
+    assert.equal(controlDefaultRoot({ kind: 'matching' }), null)
+    return Promise.resolve()
   })
 
   console.log('reviewChangeFlow tests passed')

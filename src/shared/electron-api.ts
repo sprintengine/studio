@@ -2330,6 +2330,28 @@ export interface ReviewBriefRunInput {
   // the previous walkthrough. When present and a previous walkthrough exists, the
   // run is incremental — unaffected steps keep their ids verbatim. Absent = full.
   affectedStepIds?: string[]
+  // Replace a run that is already in flight (MC-1784). Without it a start against
+  // a live run joins: the result reports that run instead of interrupting it, so
+  // a remount or a second Prepare never throws away work in progress. The
+  // freshness re-run sets it, because its point is to rebuild against the new head.
+  restart?: boolean
+  // Which agent CLI (and model) runs the guide (MC-1783). The guide is an
+  // ordinary terminal agent, so this is the reviewer's pick — any installed CLI.
+  // Omitted falls back to the CLI a live guide terminal is already running, then
+  // to the last agent CLI used in that project; with nothing to go on the start
+  // fails visibly rather than guessing an engine.
+  cli?: string
+  cliModel?: string
+}
+
+// Where a review's guide terminal lives, so a caller can show or focus it. The
+// agent id is stable per review (`review-guide-<reviewId>`) and equals the
+// terminal session id, which is what lets a tab reattach to the running guide.
+export interface ReviewGuideTerminal {
+  workspaceId: string
+  agentId: string
+  sessionId: string
+  cli: string
 }
 
 // Freshness probe (MC-1682): rebuild the current change set WITHOUT persisting it,
@@ -2351,26 +2373,48 @@ export interface ReviewBriefRunEvent {
   detail?: string
 }
 
-// Terminal result of starting the guide. On success the brief was persisted and
-// the renderer re-reads it; on failure the reason distinguishes a guide that
-// produced an invalid brief (`validation`) from one that could not run at all.
+// The guide run as the main process records it (MC-1784), so run state outlives
+// the renderer: navigating away from a review and back re-reads it instead of
+// showing "no run". A terminal phase is retained with `running: false` until the
+// next start, so a remount can still explain why the last run failed.
+export interface ReviewGuideRunStatus {
+  running: boolean
+  phase: ReviewBriefRunPhase
+  detail?: string
+  startedAt: string
+}
+
+// Result of starting the guide (MC-1783). `ok` means its terminal has the
+// prompt, NOT that a walkthrough exists: the guide is an agent working in a
+// terminal, and the brief arrives later as a `done` phase event. `joined: true`
+// means a run was already in flight and this start reported it instead of
+// replacing it. `reason: 'validation'` is retained for a producer that rejects
+// its own output before writing; the terminal guide's failures are all
+// `guide-error` (the brief validators now run inside review_submit_brief, which
+// answers the guide, not the panel).
 export type ReviewBriefRunResult =
-  | { ok: true }
+  | { ok: true; joined?: false; status?: undefined; guide?: ReviewGuideTerminal }
+  | { ok: true; joined: true; status: ReviewGuideRunStatus; guide?: ReviewGuideTerminal }
   | { ok: false; reason: 'validation' | 'guide-error'; errors: string[] }
 
-// "Ask the guide" chat: one free-text turn sent to the workspace's guide
-// companion (the same session the walkthrough was built from). The reply is not
-// in the result — it streams back over the conversation event channel the chat
-// pane observes (onConversationEvent); this only reports whether the turn was
-// accepted, so a dead engine surfaces as a visible error rather than a silent
-// no-op. The guide answers questions; it never creates or edits a review comment.
+// "Ask the guide": one question sent to the review's guide terminal, which is
+// started if none is live. The answer is not in the result — the reviewer reads
+// it in that terminal, which is the point of the redesign; this reports only
+// whether the question was delivered and which terminal to focus, so a guide
+// that could not start surfaces as a visible error rather than a silent no-op.
+// The guide answers questions; it never creates or edits a review comment.
 export interface ReviewAskGuideInput {
   workspaceId: string
   workspaceRoot: string
   message: string
+  // Same fallback chain as ReviewBriefRunInput when omitted.
+  cli?: string
+  cliModel?: string
 }
 
-export type ReviewAskGuideResult = { ok: true } | { ok: false; error: string }
+export type ReviewAskGuideResult =
+  | { ok: true; guide?: ReviewGuideTerminal }
+  | { ok: false; error: string }
 
 // Posting the pending review to the pull request (MC-1683). An explicit,
 // human-initiated, batched action: the reviewer's pending comments post as ONE
@@ -2435,6 +2479,17 @@ export interface ReviewIndexEntry {
 
 export type ReviewListResult =
   | { ok: true; reviews: ReviewIndexEntry[] }
+  | { ok: false; error: string }
+
+// PR-project inference (MC-1787). Given a pasted pull-request URL and the caller's
+// known open project roots, `matches` is exactly the roots whose git remote points
+// at the same repository (host + owner/repo, case-insensitive; ssh and https forms).
+// Zero matches is a valid answer, not an error — the form still creates the review,
+// with the reviewer picking a project. `matches` is always a subset of the roots the
+// caller supplied, so the result never carries a git remote URL or any path the
+// caller did not already hold.
+export type ReviewMatchPrProjectResult =
+  | { ok: true; matches: string[] }
   | { ok: false; error: string }
 
 // Scan-time id allocation: the renderer hands the main process every scanned
@@ -3091,10 +3146,18 @@ export type ElectronApi = {
   reviewReadBrief: (target: ReviewTarget) => Promise<ReviewBriefReadResult>
   reviewProbeChangeset: (input: ReviewSourceInput) => Promise<ReviewProbeResult>
   reviewStartBriefRun: (input: ReviewBriefRunInput) => Promise<ReviewBriefRunResult>
+  // Stop this review's guide: kills its terminal and closes the run as stopped,
+  // so the panel reports who ended it instead of a bare "session ended".
+  reviewStopBriefRun: (target: ReviewTarget) => Promise<void>
+  // The main process's record of this review's guide run; null when the guide has
+  // never run for it in this app session. The panel seeds its run state from this
+  // on mount so a remount mid-run shows progress instead of a prepare button.
+  reviewBriefRunStatus: (target: ReviewTarget) => Promise<ReviewGuideRunStatus | null>
   reviewAskGuide: (input: ReviewAskGuideInput) => Promise<ReviewAskGuideResult>
   reviewPostReview: (input: ReviewPostReviewInput) => Promise<ReviewPostReviewResult>
   reviewReadState: (target: ReviewTarget) => Promise<ReviewStateReadResult>
   reviewWriteState: (target: ReviewTarget, state: ReviewWorkspaceState) => Promise<ReviewStateWriteResult>
   reviewList: (roots: string[]) => Promise<ReviewListResult>
+  reviewMatchPrProject: (url: string, roots: string[]) => Promise<ReviewMatchPrProjectResult>
   onReviewBriefRunEvent: (cb: (event: ReviewBriefRunEvent) => void) => () => void
 }

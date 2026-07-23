@@ -13,8 +13,10 @@ import type {
   ReviewBriefRunInput,
   ReviewBriefRunResult,
   ReviewChangeSetReadResult,
+  ReviewGuideRunStatus,
   ReviewIngestResult,
   ReviewListResult,
+  ReviewMatchPrProjectResult,
   ReviewPostReviewInput,
   ReviewPostReviewResult,
   ReviewProbeResult,
@@ -28,11 +30,13 @@ import { validateReviewBrief, type ReviewWorkspaceState } from '../../shared/rev
 import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-service'
 import { enumerateReviews } from '../review/review-index'
 import { readReviewState, writeReviewState } from '../review/review-state-store'
-import type { ReviewBriefRunService } from '../review/brief-run-service'
-// Side-effect import: registers the 'pull-request' source provider (MC-1678) so
-// the service can ingest GitHub PR URLs. The local branch/patch providers register
-// from within changeset-service itself.
-import '../review/providers/github-pr-provider'
+import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
+import { guideRunRegistry, type GuideRunRegistry } from '../review/guide-run-registry'
+// Named import that also runs the module's side effect: registering the
+// 'pull-request' source provider (MC-1678) so the service can ingest GitHub PR URLs
+// (the local branch/patch providers register from within changeset-service itself),
+// plus the PR-project matcher (MC-1787) the match-pr-project handler calls.
+import { matchPrProjectRoots } from '../review/providers/github-pr-provider'
 import {
   defaultReviewSyncDeps,
   postReview,
@@ -43,7 +47,8 @@ const BRIEF_FILE = 'brief.json'
 
 export interface ReviewIpcDeps {
   changeSetService: ReviewChangeSetService
-  briefRunService: Pick<ReviewBriefRunService, 'start' | 'ask'>
+  // The guide, running as a terminal agent under the review's project (MC-1783).
+  guideTerminals: Pick<ReviewGuideTerminalService, 'startRun' | 'ask' | 'stop'>
   // Gate for outward, human-initiated actions: true only when the invocation came
   // from a real application window. Posting a review is human-outward, so it is
   // refused unless this passes. The module wires a window-sender check; it is
@@ -53,6 +58,9 @@ export interface ReviewIpcDeps {
   isUserWindowSender?: (event: IpcMainInvokeEvent) => boolean
   // The GitHub transport postReview uses; injected so tests drive it with a stub.
   reviewSyncDeps?: GithubReviewSyncDeps
+  // Run state of record (MC-1784). Defaults to the process-wide registry every
+  // guide transport writes into; injected in tests.
+  guideRuns?: Pick<GuideRunRegistry, 'status'>
 }
 
 // Read and validate the guide's brief for a workspace. A missing file is the
@@ -79,8 +87,10 @@ async function readBrief(targetDir: string): Promise<ReviewBriefReadResult> {
 
 export function registerReviewIpc(
   ipcMain: IpcMain,
-  { changeSetService, briefRunService, isUserWindowSender, reviewSyncDeps }: ReviewIpcDeps
+  { changeSetService, guideTerminals, isUserWindowSender, reviewSyncDeps, guideRuns }: ReviewIpcDeps
 ): void {
+  const guideRunState = guideRuns ?? guideRunRegistry
+
   ipcMain.handle('review:detect-source', (_event, input: ReviewSourceInput): Promise<ReviewSourceProbe> => {
     return changeSetService.detect(input)
   })
@@ -153,6 +163,26 @@ export function registerReviewIpc(
     }
   })
 
+  // Infer which open project a pasted PR URL belongs to (MC-1787), so the creation
+  // form does not force an up-front project pick. `matches` is exactly the passed
+  // roots whose git remote points at the same repository; zero matches is a valid,
+  // non-error answer the form renders as "create without a project". The result
+  // echoes only roots the caller supplied — no git remote URL or foreign path leaks.
+  ipcMain.handle(
+    'review:match-pr-project',
+    async (_event, url: string, roots: string[]): Promise<ReviewMatchPrProjectResult> => {
+      try {
+        const matches = await matchPrProjectRoots(
+          typeof url === 'string' ? url : '',
+          Array.isArray(roots) ? roots : []
+        )
+        return { ok: true, matches }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    }
+  )
+
   // Freshness probe (MC-1682): rebuild the current change set without persisting
   // it, so the panel can detect that the reviewed head moved and which steps that
   // affects, without disturbing the change set the current walkthrough walks.
@@ -164,29 +194,64 @@ export function registerReviewIpc(
     }
   })
 
-  // Start (or restart) the guide run for a workspace. The service enforces one
-  // live run per workspace and forwards phase events over BRIEF_RUN_EVENT_CHANNEL;
-  // this handler returns only the terminal result — the renderer re-reads the
-  // brief on success.
+  // Start the guide run for a review. The guide is a terminal agent under the
+  // review's project, so this resolves once its terminal has the prompt — not
+  // when the walkthrough exists. The brief lands later through
+  // review_submit_brief, which announces itself on BRIEF_RUN_EVENT_CHANNEL and
+  // is what the panel re-reads on. One guide per review: a start against a live
+  // run joins it (result carries `joined`) unless the caller asked for a restart.
+  // `guide` names the terminal, so the caller can show and focus it.
   ipcMain.handle('review:start-brief-run', async (_event, input: ReviewBriefRunInput): Promise<ReviewBriefRunResult> => {
-    const result = await briefRunService.start(input)
-    if (result.ok) return { ok: true }
-    return { ok: false, reason: result.reason, errors: result.errors }
+    const result = await guideTerminals.startRun({
+      reviewId: input.workspaceId,
+      projectRoot: input.workspaceRoot,
+      depth: input.depth,
+      ...(input.affectedStepIds ? { affectedStepIds: input.affectedStepIds } : {}),
+      ...(input.cli ? { cli: input.cli } : {}),
+      ...(input.cliModel ? { cliModel: input.cliModel } : {}),
+      ...(input.restart ? { restart: true } : {}),
+    })
+    if (!result.ok) return { ok: false, reason: 'guide-error', errors: [result.error] }
+    if ('joined' in result) return { ok: true, joined: true, status: result.status, guide: result.guide }
+    return { ok: true, guide: result.guide }
   })
 
-  // Ask-the-guide chat: forward one turn to the workspace's guide companion. The
-  // reply streams back over the conversation event channel the chat pane already
-  // subscribes to (onConversationEvent), so this handler returns only whether the
-  // turn was accepted. The guide answers; it never creates or edits a comment.
+  // Stop the guide: kill its terminal and close the run as stopped. Distinct
+  // from a plain terminal kill so the run's record says who ended it.
+  ipcMain.handle('review:stop-brief-run', (_event, target: ReviewTarget): void => {
+    guideTerminals.stop(target.workspaceId)
+  })
+
+  // The main process's record of a review's guide run (MC-1784). Run state lives
+  // here rather than only in the renderer, so leaving the Reviews door and coming
+  // back re-reads a live run's progress — or the reason the last one failed —
+  // instead of falling back to "the guide has not run". Null = never run here.
+  ipcMain.handle(
+    'review:brief-run-status',
+    (_event, target: ReviewTarget): ReviewGuideRunStatus | null => guideRunState.status(target.workspaceId)
+  )
+
+  // Ask-the-guide: send one question to the review's guide terminal, starting it
+  // if none is live. The reviewer reads the answer in that terminal, so this
+  // returns only whether the question was delivered and where it landed — a dead
+  // engine surfaces as a visible error rather than a silent no-op. The guide
+  // answers; it never creates or edits a comment.
   ipcMain.handle('review:ask-guide', async (_event, input: ReviewAskGuideInput): Promise<ReviewAskGuideResult> => {
-    return briefRunService.ask(input)
+    const result = await guideTerminals.ask({
+      reviewId: input.workspaceId,
+      projectRoot: input.workspaceRoot,
+      question: input.message,
+      ...(input.cli ? { cli: input.cli } : {}),
+      ...(input.cliModel ? { cliModel: input.cliModel } : {}),
+    })
+    return result.ok ? { ok: true, guide: result.guide } : { ok: false, error: result.error }
   })
 
   // Post the pending review to the pull request (MC-1683). This is the ONLY entry
   // point to the write path — there is no programmatic caller — and it is
   // human-outward, so it is gated to a real application window's gesture. The guide
-  // companion runs in the main process with no renderer, so it cannot reach an
-  // ipcMain handler at all; the sender gate is defence-in-depth on top of that,
+  // runs in a terminal with no renderer, so it cannot reach an ipcMain handler at
+  // all (nor could its companion predecessor); the sender gate is defence-in-depth,
   // refusing any invocation that does not resolve to an application window.
   ipcMain.handle('review:post-review', async (event, input: ReviewPostReviewInput): Promise<ReviewPostReviewResult> => {
     if (!isUserWindowSender || !isUserWindowSender(event)) {

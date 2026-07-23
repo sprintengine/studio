@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 
 import type { ReviewChangeSet } from '../../../../../shared/review'
 import { InlineNotice } from '../../ui/InlineNotice'
-import { PrimaryButton } from '../../ui/Buttons'
 import { Spinner } from '../../ui/Spinner'
 import { ReviewWalkthrough } from './ReviewWalkthrough'
 import { FreshnessBanner } from './FreshnessBanner'
@@ -13,11 +12,19 @@ import type { ReviewRunProgress, ReviewSession } from './useReviewSession'
 // The Reviews-door canvas (MC-1708 T6): the selected review's walkthrough, minus
 // its own top bar (the folded surface bar carries those actions). It renders the
 // same honest load ladder the retired `ReviewPanel` did — loading, unreadable
-// change set, no change yet, an invalid walkthrough, the prepare invitation, and
-// the walkthrough itself — driven entirely by a `ReviewSession`. All the state,
-// IPC, and mutation live in `useReviewSession`; this is the pure view, so it
-// renders deterministically from a session object with no side effects of its own.
-export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Element {
+// change set, no change yet, an invalid walkthrough, the degraded raw-change view
+// (no guide brief), and the guided walkthrough itself — driven entirely by a
+// `ReviewSession`. In the degraded state (T1) the walkthrough still renders the
+// full diff, read-toggles, comments, and post-to-PR from a synthesized brief; a
+// slim banner offers to prepare the guide walkthrough and surfaces a failed run.
+// All the state, IPC, and mutation live in `useReviewSession`; this is the pure
+// view, so it renders deterministically from a session object with no side effects.
+// `guideActions` is the one slot it does not own: the preparation choices (how
+// deep a walkthrough, which agent builds it) and the link into the guide's
+// terminal need the plugin catalog, the persisted defaults, and the layout
+// registry, which the Reviews door supplies (ReviewGuideControls) so this stays
+// store-free.
+export function ReviewCanvas({ session, guideActions }: { session: ReviewSession; guideActions: ReactNode }): JSX.Element {
   const { status, changeset, run } = session
 
   // No review is selected — an explicit resting state, not a spinner that would
@@ -78,35 +85,17 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
             {session.invalidErrors}
           </pre>
         </InlineNotice>
-        <div className="mt-3">
-          <PrimaryButton onClick={session.startRun} disabled={run.running}>
-            {run.running ? 'Preparing…' : 'Try again'}
-          </PrimaryButton>
-        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">{guideActions}</div>
         <RunLine run={run} />
       </PrepareShell>
     )
   }
 
-  if (status === 'prepare') {
-    const preparing = run.running
-    return (
-      <PrepareShell changeset={changeset}>
-        <p className="max-w-xl text-[13px] leading-6 text-[color:var(--text-muted)]">
-          The guide hasn’t walked this change yet. Prepare the walkthrough to group the files into steps ordered for
-          understanding, with a short note on why each one changed.
-        </p>
-        <div className="mt-3">
-          <PrimaryButton onClick={session.startRun} disabled={preparing}>
-            {preparing ? 'Preparing…' : 'Prepare walkthrough'}
-          </PrimaryButton>
-        </div>
-        <RunLine run={run} />
-      </PrepareShell>
-    )
-  }
-
-  // status === 'ready' — the brief is present.
+  // status === 'ready' or 'degraded' — a brief to project. When ready it is the
+  // guide's; when degraded it is the renderer-synthesized model (raw change, no
+  // guide chrome). Both render the same walkthrough so the diff, read-toggles,
+  // comments, and post-to-PR work identically; degraded just adds a banner and
+  // hides the guide-only affordances (session.isDegraded drives that below).
   const brief = session.brief
   if (!brief) {
     return (
@@ -116,7 +105,9 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
     )
   }
 
-  const bannerSlot = session.bannerModel ? (
+  const bannerSlot = session.isDegraded ? (
+    <DegradedBanner run={run} actions={guideActions} />
+  ) : session.bannerModel ? (
     <FreshnessBanner model={session.bannerModel} refreshing={run.running} refreshPhase={run.phase} onRefresh={session.refresh} />
   ) : null
 
@@ -124,6 +115,7 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
     <ReviewWalkthrough
       changeset={changeset}
       brief={brief}
+      isDegraded={session.isDegraded}
       readFiles={session.readFiles}
       diffView={session.diffView}
       activePaneId={session.activePaneId}
@@ -133,7 +125,7 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
       onSetDiffView={session.onSetDiffView}
       onToggleRead={session.onToggleRead}
       onRequestComment={NOOP}
-      onAskGuide={NOOP}
+      onAskGuide={session.askController.askFromCard}
       onRerun={session.refresh}
       bannerSlot={bannerSlot}
       comments={session.comments}
@@ -142,11 +134,9 @@ export function ReviewCanvas({ session }: { session: ReviewSession }): JSX.Eleme
       onDeleteComment={session.onDeleteComment}
       onPostReview={isPullRequestReviewSource(changeset) ? session.onPostReview : undefined}
       postState={session.postState}
-      workspaceId={session.reviewId ?? undefined}
-      workspaceRoot={session.workspaceRoot ?? undefined}
+      onOpenAsk={session.openAsk}
       hideTopBar
       trayController={session.trayController}
-      chatController={session.chatController}
     />
   )
 }
@@ -182,6 +172,37 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
   )
 }
 
+// The slim degraded banner under the surface bar: honest about the missing guide,
+// with the one affordance that matters in each state. It carries three faces — a
+// resting invite, a "the guide is working" line (the guide runs in its own
+// terminal, so the action beside it is the way into that terminal), and a run
+// failure ("keep reviewing without it") — so a failed guide run is never a dead
+// end over a reviewable change. `actions` is the whole right-hand block, choices
+// included (MC-1788), and lays itself out; the banner only places it.
+function DegradedBanner({ run, actions }: { run: ReviewRunProgress; actions: ReactNode }) {
+  const failed = Boolean(run.error)
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2.5">
+      <span className="min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        {failed ? (
+          <>
+            <span className="font-medium text-[color:var(--tone-error)]">The guide couldn’t finish.</span>{' '}
+            {run.error} You can keep reviewing without it.
+          </>
+        ) : run.running ? (
+          <span className="inline-flex items-center gap-2">
+            <Spinner />
+            {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? RUN_PHASE_LABEL.grouping}
+          </span>
+        ) : (
+          'No guide walkthrough yet — you’re viewing the raw change.'
+        )}
+      </span>
+      {actions}
+    </div>
+  )
+}
+
 function RunLine({ run }: { run: ReviewRunProgress }) {
   if (run.error) {
     return <p className="mt-3 max-w-2xl text-[12px] leading-5 text-[color:var(--tone-error)]">{run.error}</p>
@@ -195,9 +216,13 @@ function RunLine({ run }: { run: ReviewRunProgress }) {
   )
 }
 
+// Phase copy for the terminal guide (MC-1783). `reading` now covers getting the
+// guide's terminal up with the run prompt, and `grouping` is the guide itself
+// working in that terminal — the labels say so rather than describing a
+// generation step this process no longer performs.
 const RUN_PHASE_LABEL: Record<string, string> = {
-  reading: 'Reading the change…',
-  grouping: 'Grouping the change into steps…',
+  reading: 'Starting the guide…',
+  grouping: 'The guide is working on the walkthrough…',
   annotating: 'Checking the walkthrough…',
   writing: 'Saving the walkthrough…',
   done: 'Walkthrough ready',

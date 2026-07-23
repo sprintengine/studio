@@ -77,6 +77,7 @@ import {
 import {
   guidedBriefSkipToHandoffState,
   guidedBriefSteps,
+  guidedBriefTransportForCli,
   mergeGuidedBriefDecisions,
   type GuidedBriefAcceptedArtifact,
   type GuidedBriefRuntimeState,
@@ -161,15 +162,18 @@ export function GuidedBriefFlow({
   const inArchitectStage = stage === 'architect-working' || stage === 'architect-ready'
   const inDesignerStage = stage === 'designer-working' || stage === 'designer-ready'
 
-  // Conversation transport: Claude specialists run as conversation sessions
-  // (structured question cards, streamed chat) unless the user turned the
-  // setting off; other CLIs keep the terminal path. The raw-terminal fallback
-  // stays one setting away until conversation runs have proven artifact parity.
+  // Transport per specialist CLI. Design specialists run on terminals by
+  // default; the conversation transport (structured question cards, streamed
+  // chat) is an experimental opt-in for Claude specialists, on only when the
+  // user explicitly enabled it. Other CLIs always take the terminal path.
   const conversationSessionsEnabled = useWorkspaceStore(
-    (s) => s.appSettings.guidedBriefConversationSessions !== false,
+    (s) => s.appSettings.guidedBriefConversationSessions === true,
   )
   const transportForCli = (cli: AgentCli): 'terminal' | 'conversation' =>
-    conversationSessionsEnabled && workspaceId && cli === 'claude-code' ? 'conversation' : 'terminal'
+    guidedBriefTransportForCli(cli, {
+      conversationSessionsEnabled,
+      hasWorkspaceId: Boolean(workspaceId),
+    })
 
   const strategist = useStrategistSession({
     workspaceRoot,

@@ -23,7 +23,6 @@ import {
   postableComments,
   pullRequestLabel,
 } from './commentModel'
-import { extractGuideCitations } from './guideCitations'
 import { buildDiffFileModel, modifiedZoneLineForAnchor } from './diffModel'
 import { fixtureChangeSet } from './fixtures'
 
@@ -225,18 +224,4 @@ run('a comment anchor maps to a modified-editor line by anchor math (view-indepe
   assert.equal(modifiedZoneLineForAnchor(model, { side: 'new', startLine: 63, endLine: 66 }), 5)
 })
 
-run('guide citations resolve to real changed paths and dedupe', () => {
-  const paths = fixtureChangeSet.files.map((f) => f.path)
-  const text =
-    'The gate at `invitations.ts:L63-66` trusts the invite; see also invitations.ts:L65. ' +
-    'This follows [[auth-tokens]] and knowledge: billing-seats. An unknown ref other.ts:L9 is dropped.'
-  const cites = extractGuideCitations(text, paths)
-  assert.deepEqual(
-    cites.lines.map((l) => l.label),
-    ['src/server/api/invitations.ts:L63–66', 'src/server/api/invitations.ts:L65'],
-  )
-  assert.equal(cites.lines[0].path, 'src/server/api/invitations.ts')
-  assert.deepEqual(cites.knowledge, ['auth-tokens', 'billing-seats'])
-})
-
-console.log('all commentModel + guideCitations tests passed')
+console.log('all commentModel tests passed')

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import type { BrowserWindow } from 'electron'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { readAutomationSettings, writeAutomationSettings } from './automation-settings'
@@ -17,7 +17,10 @@ import { createMcpSocketServer, type McpConnectionContext, type McpToolRegistrat
 import { createAutomationTools, type AutomationBackends } from './automation-tools'
 import { createRendererAutomationDelegate } from './renderer-delegate'
 import { createGatewayAuditStore, STUDIO_GATEWAY_AUDIT_FILENAME } from './gateway-audit'
-import { createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
+import { createReviewGatewayTools, createStudioGatewayTools, isStudioGatewayMutation } from './studio-gateway-tools'
+import { reviewChangeSetDir } from '../review/changeset-service'
+import type { BriefRunEvent } from '../review/brief-run-service'
+import { validateReviewBrief, type ReviewBrief, type ReviewChangeSet } from '../../shared/review'
 import { SPRINTENGINE_TOOL_NAMES } from '../../shared/sprintengineToolNames.generated'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
@@ -2147,6 +2150,249 @@ async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
   }
 }
 
+// --- Review MCP tools on the gateway (plan §3.3) -----------------------------
+
+const REVIEW_ID = 'cs123'
+
+// A valid change set with a branch source, so review_get_changeset has an absolute
+// repoRoot to strip. Two non-binary files with hunks give annotations a real line
+// extent. Hand-built (checkBriefMatchesChangeSet assumes the changeset is valid).
+function reviewFixtureChangeSet(repoRoot: string): ReviewChangeSet {
+  return {
+    schemaVersion: 1,
+    id: 'cs_fixture',
+    source: { kind: 'branch', repoRoot, baseRef: 'main', headRef: 'feature' },
+    title: 'feature → main',
+    baseRef: 'main',
+    headSha: 'abc123def456',
+    files: [
+      {
+        path: 'src/store.ts',
+        status: 'modified',
+        binary: false,
+        additions: 1,
+        deletions: 0,
+        hunks: [
+          {
+            oldStart: 1,
+            oldLines: 2,
+            newStart: 1,
+            newLines: 3,
+            lines: [
+              { kind: 'context', text: 'export const store = {' },
+              { kind: 'add', text: '  next: 1,' },
+              { kind: 'context', text: '}' },
+            ],
+          },
+        ],
+      },
+      {
+        path: 'src/view.tsx',
+        status: 'added',
+        binary: false,
+        additions: 1,
+        deletions: 0,
+        hunks: [
+          { oldStart: 0, oldLines: 0, newStart: 1, newLines: 1, lines: [{ kind: 'add', text: 'export const View = () => null' }] },
+        ],
+      },
+    ],
+    stats: { files: 2, additions: 2, deletions: 0 },
+    fetchedAt: '2026-07-18T00:00:00Z',
+  }
+}
+
+function reviewValidBrief(): ReviewBrief {
+  return {
+    schemaVersion: 1,
+    changeSetId: 'cs_fixture',
+    headSha: 'abc123def456',
+    generatedAt: '2026-07-18T00:00:00Z',
+    overview: {
+      intent: 'Add a next counter to the store and a view that reads it.',
+      blastRadius: 'Touches the store shape and one new view component.',
+      readingGuide: 'Read the store first, then the view that consumes it.',
+      complexity: 'low',
+    },
+    steps: [
+      {
+        id: 'step-store',
+        order: 0,
+        title: 'Store foundation',
+        narrative: 'The store gains a next field; the view later reads it.',
+        files: [{ path: 'src/store.ts', why: 'introduces the next field', readingNote: 'read-closely' }],
+        annotations: [
+          {
+            id: 'ann-1',
+            path: 'src/store.ts',
+            anchor: { side: 'new', startLine: 1, endLine: 2 },
+            kind: 'explain',
+            title: 'New field',
+            summary: 'The store now carries a next counter.',
+            hoverTip: 'This is where the counter enters the store shape.',
+          },
+        ],
+      },
+      {
+        id: 'step-view',
+        order: 1,
+        title: 'View surface',
+        narrative: 'A new component renders against the store.',
+        files: [{ path: 'src/view.tsx', why: 'new component consuming the store', readingNote: 'mechanical-skim' }],
+        annotations: [],
+      },
+    ],
+    knowledgeRefs: [],
+    coverage: { assignedPaths: ['src/store.ts', 'src/view.tsx'], unassignedPaths: [] },
+  }
+}
+
+// Seed a review directory with an ingested change set under a temp project root,
+// and build the review tools scoped to it. `emitted` captures brief-run events.
+function reviewHarness(): {
+  tools: McpToolRegistration[]
+  projectRoot: string
+  reviewDir: string
+  emitted: BriefRunEvent[]
+} {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'review-gw-'))
+  const reviewDir = reviewChangeSetDir(projectRoot, REVIEW_ID)
+  mkdirSync(reviewDir, { recursive: true })
+  writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(reviewFixtureChangeSet(projectRoot), null, 2)}\n`)
+  const emitted: BriefRunEvent[] = []
+  const tools = createReviewGatewayTools({
+    listOpenProjectRoots: () => [projectRoot],
+    homeDir: () => homedir(),
+    emitBriefRunEvent: (event) => emitted.push(event),
+  })
+  return { tools, projectRoot, reviewDir, emitted }
+}
+
+async function testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits(): Promise<void> {
+  const { tools, projectRoot, reviewDir, emitted } = reviewHarness()
+  try {
+    const submit = await tool(tools, 'review_submit_brief').handler({
+      reviewId: REVIEW_ID,
+      projectRoot,
+      brief: reviewValidBrief() as unknown as Record<string, unknown>,
+    })
+    assert.equal(submit.isError, undefined, 'valid brief submits without error')
+    assert.equal(submit.structuredContent?.ok, true)
+
+    // The brief landed on disk atomically and re-validates.
+    const briefPath = join(reviewDir, 'brief.json')
+    assert.ok(existsSync(briefPath), 'brief.json written')
+    assert.ok(validateReviewBrief(JSON.parse(readFileSync(briefPath, 'utf8'))).ok, 'persisted brief is valid')
+    assert.equal(existsSync(join(reviewDir, '.brief.json.tmp')), false, 'no temp file left behind')
+
+    // The brief-run event fired so an open Reviews door reloads.
+    assert.deepEqual(emitted, [{ workspaceId: REVIEW_ID, phase: 'done' }])
+
+    // The read tools now see the landed brief.
+    const listed = await tool(tools, 'review_list_pending').handler({})
+    const reviews = (listed.structuredContent as { reviews: Array<{ reviewId: string; source: string; hasBrief: boolean }> }).reviews
+    assert.deepEqual(reviews, [{ reviewId: REVIEW_ID, projectRoot, source: 'branch', hasBrief: true }])
+    const got = await tool(tools, 'review_get_brief').handler({ reviewId: REVIEW_ID, projectRoot })
+    assert.equal((got.structuredContent as { brief: ReviewBrief | null }).brief?.changeSetId, 'cs_fixture')
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true })
+  }
+}
+
+async function testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing(): Promise<void> {
+  const { tools, projectRoot, reviewDir } = reviewHarness()
+  try {
+    // Pre-seed a prior brief so we can prove garbage never overwrites it.
+    const briefPath = join(reviewDir, 'brief.json')
+    const prior = `${JSON.stringify(reviewValidBrief(), null, 2)}\n`
+    writeFileSync(briefPath, prior)
+
+    // A shapeless object fails many schema checks at once.
+    const submit = await tool(tools, 'review_submit_brief').handler({ reviewId: REVIEW_ID, projectRoot, brief: {} })
+    assert.equal(submit.isError, true, 'invalid brief is an error')
+    const errors = (submit.structuredContent as { errors: string[] }).errors
+    assert.ok(Array.isArray(errors) && errors.length > 1, 'returns every validator message, not just the first')
+    assert.equal(readFileSync(briefPath, 'utf8'), prior, 'prior brief.json is untouched')
+
+    // A shaped-but-mismatched brief (wrong changeSetId + dropped coverage) fails the
+    // cross-check and still writes nothing.
+    const mismatched = reviewValidBrief()
+    mismatched.changeSetId = 'cs_wrong'
+    const cross = await tool(tools, 'review_submit_brief').handler({
+      reviewId: REVIEW_ID,
+      projectRoot,
+      brief: mismatched as unknown as Record<string, unknown>,
+    })
+    assert.equal(cross.isError, true)
+    assert.ok((cross.structuredContent as { errors: string[] }).errors.some((e) => /changeSetId/.test(e)))
+    assert.equal(readFileSync(briefPath, 'utf8'), prior, 'a mismatch never overwrites either')
+
+    // A JSON string instead of the brief object is refused before validation.
+    const stringy = await tool(tools, 'review_submit_brief').handler({
+      reviewId: REVIEW_ID,
+      projectRoot,
+      brief: JSON.stringify(reviewValidBrief()),
+    })
+    assert.equal(stringy.isError, true)
+    assert.equal((stringy.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true })
+  }
+}
+
+async function testReviewSubmitBriefRejectsSeverityAnnotationKind(): Promise<void> {
+  const { tools, projectRoot, reviewDir } = reviewHarness()
+  try {
+    // The no-verdicts firewall: any annotation kind outside explain|context|knowledge
+    // is rejected by the shape validator, so a severity verdict cannot be smuggled in.
+    const brief = reviewValidBrief() as unknown as { steps: Array<{ annotations: Array<{ kind: string }> }> }
+    brief.steps[0].annotations[0].kind = 'severity'
+    const submit = await tool(tools, 'review_submit_brief').handler({
+      reviewId: REVIEW_ID,
+      projectRoot,
+      brief: brief as unknown as Record<string, unknown>,
+    })
+    assert.equal(submit.isError, true, 'a severity kind is rejected')
+    assert.ok((submit.structuredContent as { errors: string[] }).errors.some((e) => /kind/.test(e)), 'names the offending kind')
+    assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'the firewall wrote no brief')
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true })
+  }
+}
+
+async function testReviewToolsRejectUnknownTargetAndStripAbsolutePaths(): Promise<void> {
+  const { tools, projectRoot } = reviewHarness()
+  try {
+    const home = homedir()
+
+    // A projectRoot that is not an open project fails cleanly, and the error never
+    // echoes the absolute path the caller guessed.
+    const foreign = await tool(tools, 'review_get_changeset').handler({ reviewId: REVIEW_ID, projectRoot: join(home, 'not-open') })
+    assert.equal(foreign.isError, true)
+    const foreignError = (foreign.structuredContent as { error: { code: string; message: string } }).error
+    assert.equal(foreignError.code, 'unknown_project')
+    assert.ok(!foreignError.message.includes(home), 'the error leaks no absolute machine path')
+
+    // A malformed reviewId is rejected before any path is built.
+    const badId = await tool(tools, 'review_get_brief').handler({ reviewId: '../escape', projectRoot })
+    assert.equal(badId.isError, true)
+    assert.equal((badId.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
+
+    // review_get_changeset returns the full change set but strips the branch
+    // source's absolute repoRoot — no machine path in the payload.
+    const got = await tool(tools, 'review_get_changeset').handler({ reviewId: REVIEW_ID, projectRoot })
+    assert.equal(got.isError, undefined)
+    const payload = got.structuredContent as { changeset: { source: Record<string, unknown>; files: unknown[] }; truncated: boolean }
+    assert.equal(payload.truncated, false)
+    assert.equal(payload.changeset.files.length, 2, 'the change set is returned in full')
+    assert.equal(payload.changeset.source.kind, 'branch')
+    assert.equal('repoRoot' in payload.changeset.source, false, 'repoRoot is stripped')
+    assert.ok(!JSON.stringify(payload.changeset.source).includes(projectRoot), 'no absolute project path in the source')
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true })
+  }
+}
+
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -2183,6 +2429,10 @@ const tests = [
   testBridgeReportsStaleDiscoveryFile,
   testStudioGatewayMergesCanonicalRunToolsAndRoutesContext,
   testStudioGatewayAuditIsRedactedAndRotated,
+  testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits,
+  testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing,
+  testReviewSubmitBriefRejectsSeverityAnnotationKind,
+  testReviewToolsRejectUnknownTargetAndStripAbsolutePaths,
 ]
 
 async function main(): Promise<void> {

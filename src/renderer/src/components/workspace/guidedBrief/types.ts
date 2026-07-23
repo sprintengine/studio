@@ -1,3 +1,4 @@
+import type { AgentCli } from '../../../../../shared/electron-api'
 import type {
   GuidedBriefHasUi,
   GuidedBriefPreset,
@@ -7,6 +8,22 @@ import type {
   GuidedBriefRuntimeState,
 } from '../../../types/workspace'
 import type { GuidedInterviewDecision } from './interviewProtocol'
+
+/**
+ * Transport for a Design Wizard specialist CLI. A Claude specialist runs as a
+ * conversation session only when the user has explicitly opted into the
+ * experimental chat transport (`guidedBriefConversationSessions === true`) and a
+ * workspace exists to host the session; every other CLI — and the default
+ * profile, which ships opt-out — takes the terminal path.
+ */
+export function guidedBriefTransportForCli(
+  cli: AgentCli,
+  opts: { conversationSessionsEnabled: boolean; hasWorkspaceId: boolean },
+): 'terminal' | 'conversation' {
+  return opts.conversationSessionsEnabled && opts.hasWorkspaceId && cli === 'claude-code'
+    ? 'conversation'
+    : 'terminal'
+}
 
 export type {
   GuidedBriefHasUi,

@@ -49,20 +49,23 @@ function attentionStatusMeta(item: SessionItem, now: number): string {
   return rel ? `Needs input · waiting ${rel}` : 'Needs input'
 }
 
-// Group the already-attention-sorted items by workspace in first-encounter order.
-// Because `items` arrives globally attention-first (needs-input before failed,
-// recent first), the most-urgent agent's workspace leads, and each group keeps
-// that ordering internally — so grouping never reshuffles the priority.
-function groupByWorkspace(
+// Group the already-attention-sorted items by their bucket in first-encounter
+// order. Because `items` arrives globally attention-first (needs-input before
+// failed, recent first), the most-urgent agent's workspace leads, and each group
+// keeps that ordering internally — so grouping never reshuffles the priority.
+// Detached buckets (sessions no workspace row claims) trail every workspace,
+// matching the sessions popover; their rows keep the same internal order, so
+// nothing is hidden — only placed last.
+export function groupBySessionGroup(
   items: SessionItem[],
-): Array<{ workspace: SessionItem['workspace']; items: SessionItem[] }> {
-  const groups: Array<{ workspace: SessionItem['workspace']; items: SessionItem[] }> = []
+): Array<{ group: SessionItem['group']; items: SessionItem[] }> {
+  const groups: Array<{ group: SessionItem['group']; items: SessionItem[] }> = []
   for (const item of items) {
-    const group = groups.find((candidate) => candidate.workspace.id === item.workspace.id)
+    const group = groups.find((candidate) => candidate.group.id === item.group.id)
     if (group) group.items.push(item)
-    else groups.push({ workspace: item.workspace, items: [item] })
+    else groups.push({ group: item.group, items: [item] })
   }
-  return groups
+  return groups.sort((a, b) => Number(a.group.kind === 'detached') - Number(b.group.kind === 'detached'))
 }
 
 function AttentionQueueIcon({ className }: { className?: string }) {
@@ -99,7 +102,7 @@ export function AttentionQueuePopover({
   // while the popover is open. Gated on `open` so the always-mounted trigger
   // doesn't run an idle tick while the popover is closed.
   const now = useRelativeNow(30_000, open)
-  const groups = useMemo(() => groupByWorkspace(items), [items])
+  const groups = useMemo(() => groupBySessionGroup(items), [items])
 
   return (
     <Popover
@@ -155,27 +158,37 @@ export function AttentionQueuePopover({
         ) : (
           <div className="max-h-[420px] overflow-y-auto py-1">
             {groups.map((group) => (
-              <div key={group.workspace.id} className="py-0.5">
+              <div key={group.group.id} className="py-0.5">
                 <div className="flex items-center gap-2 px-3 pb-1 pt-1.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">
-                  <WorkspaceTypeIcon mode={group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
-                  <TruncatedText as="span" text={group.workspace.name} className="min-w-0" />
+                  {group.group.kind === 'workspace' ? (
+                    <WorkspaceTypeIcon mode={group.group.workspace.mode} className="h-3.5 w-3.5 shrink-0" />
+                  ) : null}
+                  <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                 </div>
                 {group.items.map((item) => {
-                  const inWindow = windowWorkspaceIds.has(item.workspace.id)
+                  // A detached session belongs to no workspace, so no window can
+                  // route to it: the row stays visible and states its status, but
+                  // opening it is not something this surface can do. Stopping it
+                  // lives in the sessions popover, which acts on the process.
+                  const detached = item.group.kind === 'detached'
+                  const inWindow = !detached && windowWorkspaceIds.has(item.group.id)
                   const state = item.status === 'failed' ? 'failed' : 'needs_input'
                   const statusMeta = attentionStatusMeta(item, now)
+                  const supporting = detached || inWindow ? statusMeta : 'Open in another window'
                   return (
                     <InboxRow
                       key={item.sessionId}
                       leading={<LifecycleGlyph state={state} label={LIFECYCLE_LABEL[state]} />}
                       title={item.label}
-                      supporting={inWindow ? statusMeta : 'Open in another window'}
-                      selected={inWindow && item.workspace.id === activeWorkspaceId}
+                      supporting={supporting}
+                      selected={inWindow && item.group.id === activeWorkspaceId}
                       disabled={!inWindow}
                       ariaLabel={
-                        inWindow
-                          ? `${item.label} — ${statusMeta}`
-                          : `${item.label} — ${LIFECYCLE_LABEL[state]}, open in another window`
+                        detached
+                          ? `${item.label} — ${statusMeta}, not open in a workspace`
+                          : inWindow
+                            ? `${item.label} — ${statusMeta}`
+                            : `${item.label} — ${LIFECYCLE_LABEL[state]}, open in another window`
                       }
                       onSelect={() => {
                         onOpenChange(false)

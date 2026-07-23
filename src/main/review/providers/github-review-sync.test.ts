@@ -311,7 +311,11 @@ run('the review:post-review IPC handler refuses a sender that is not a real wind
 
   registerReviewIpc(fakeIpcMain as never, {
     changeSetService: changeSetService as never,
-    briefRunService: { start: async () => ({ ok: true }) as never, ask: async () => ({ ok: true }) as never },
+    guideTerminals: {
+      startRun: async () => ({ ok: true }) as never,
+      ask: async () => ({ ok: true }) as never,
+      stop: () => {},
+    },
     isUserWindowSender: () => false, // no window resolves → refuse
     reviewSyncDeps: explodingSyncDeps,
   })

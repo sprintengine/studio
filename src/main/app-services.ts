@@ -6,6 +6,9 @@ import { createAgentConfigImportService } from './agent-config-import'
 import { createAgentStateService } from './agent-state-service'
 import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
+import { createReviewGatewayTools } from './automation/studio-gateway-tools'
+import { BRIEF_RUN_EVENT_CHANNEL } from './review/brief-run-service'
+import { recordGuideRunEvent } from './review/guide-terminal-service'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
@@ -537,6 +540,28 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           return true
         } catch {
           return false
+        }
+      },
+    }),
+    // Review tools on the same gateway (plan §3.3). They validate and persist the
+    // guide's brief server-side; a caller-named projectRoot is trusted only when it
+    // is an open project folder, and a landed brief broadcasts the brief-run event
+    // so an open Reviews door reloads it with no app restart.
+    reviewTools: createReviewGatewayTools({
+      listOpenProjectRoots: () =>
+        workspaceSyncService
+          .getSnapshot()
+          .state.workspaces.map((workspace) => workspace.folderPath)
+          .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
+      homeDir: () => app.getPath('home'),
+      emitBriefRunEvent: (event) => {
+        // The tool knows nothing about runs, so record the landed brief against
+        // the guide-run registry before announcing it: without this a terminal
+        // guide would finish while the run-status IPC still reported it working,
+        // and the next start would join a run that already delivered.
+        recordGuideRunEvent(event)
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
         }
       },
     }),

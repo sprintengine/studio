@@ -234,8 +234,8 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   },
   {
     id: 'guided-brief-conversation-sessions',
-    label: 'Design Wizard chat sessions',
-    help: 'Run Design Wizard specialists on Claude as chat sessions with clickable question cards. Turn off to use raw terminals for every wizard role.',
+    label: 'Run Claude design specialists as chat sessions (experimental)',
+    help: 'Off by default: Design Wizard specialists run in terminals. Turn on to run Claude specialists as chat sessions with clickable question cards instead.',
     scope: 'app',
     group: 'agents',
     field: { type: 'switch' },

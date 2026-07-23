@@ -15,6 +15,10 @@ export type SegmentedControlItem<V extends string = string> = {
 type SegmentedControlProps<V extends string = string> = {
   /** Required accessible name for the radiogroup. */
   ariaLabel: string
+  /** Id of visible copy explaining the choices (e.g. a line describing the
+   *  selected option). Opt-in: without it the group is named but undescribed,
+   *  which is right when the labels stand alone. */
+  ariaDescribedBy?: string
   items: SegmentedControlItem<V>[]
   value: V
   onChange: (value: V) => void
@@ -32,6 +36,7 @@ const SEGMENT_SIZE: Record<'sm' | 'md', string> = {
 
 export function SegmentedControl<V extends string = string>({
   ariaLabel,
+  ariaDescribedBy,
   items,
   value,
   onChange,
@@ -72,6 +77,7 @@ export function SegmentedControl<V extends string = string>({
       ref={groupRef}
       role="radiogroup"
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
       onKeyDown={handleKeyDown}
       className={`inline-flex overflow-hidden rounded-md border border-[color:var(--border-default)] ${className ?? ''}`}
     >

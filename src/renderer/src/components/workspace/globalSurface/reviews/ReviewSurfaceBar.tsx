@@ -12,8 +12,11 @@ import type { ReviewSession } from '../../../panels/review/useReviewSession'
 // own top-bar actions live here instead of stacking a second bar over the canvas:
 // the change title, an In progress / Posted status dot, the "repo · PR · +/−" sub,
 // then the diff-view toggle, Re-run, Ask the guide, and the Post review CTA. The
-// action cluster appears only once the walkthrough is ready — before that there is
-// nothing to view, re-run, or post.
+// action cluster appears once there is a change to work — a guide walkthrough
+// ('ready') or the raw degraded change (T1). In degraded mode the guide-only
+// actions (Re-run, Ask the guide) drop, since no guide has run; the diff-view
+// toggle and the review/post controls stay so a reviewer can read every diff and
+// post to the PR without a brief.
 
 const DIFF_VIEW_ITEMS = [
   { value: 'side-by-side' as const, label: 'Side by side' },
@@ -41,7 +44,10 @@ export function buildReviewsSurfaceBar(entry: ReviewIndexEntry | null, session: 
     ) : (
       entry?.projectName ?? undefined
     ),
-    actions: session.status === 'ready' ? <ReviewBarActions session={session} /> : undefined,
+    actions:
+      session.status === 'ready' || session.status === 'degraded' ? (
+        <ReviewBarActions session={session} />
+      ) : undefined,
   }
 }
 
@@ -59,6 +65,9 @@ function ReviewStatusChip({ session, entry }: { session: ReviewSession; entry: R
 function ReviewBarActions({ session }: { session: ReviewSession }) {
   const pending = session.pendingComments
   const showPostCta = session.isPullRequest && pending > 0
+  // Re-run and Ask the guide act on a guide walkthrough; with no guide (degraded)
+  // there is nothing to re-run and no guide to ask, so they drop from the cluster.
+  const guideActions = !session.isDegraded
   return (
     <>
       <SegmentedControl
@@ -68,24 +77,28 @@ function ReviewBarActions({ session }: { session: ReviewSession }) {
         onChange={session.onSetDiffView}
         className="shrink-0"
       />
-      <GhostButton onClick={session.refresh} disabled={session.run.running} className="shrink-0">
-        <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
-          <path
-            d="M13 8a5 5 0 1 1-1.46-3.54M13 3v2.5h-2.5"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        {session.run.running ? 'Re-running…' : 'Re-run'}
-      </GhostButton>
-      <GhostButton onClick={session.openChat} className="shrink-0">
-        <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">
-          <path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" />
-        </svg>
-        Ask the guide
-      </GhostButton>
+      {guideActions ? (
+        <GhostButton onClick={session.refresh} disabled={session.run.running} className="shrink-0">
+          <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
+            <path
+              d="M13 8a5 5 0 1 1-1.46-3.54M13 3v2.5h-2.5"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {session.run.running ? 'Re-running…' : 'Re-run'}
+        </GhostButton>
+      ) : null}
+      {guideActions ? (
+        <GhostButton onClick={session.openAsk} className="shrink-0">
+          <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">
+            <path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" />
+          </svg>
+          Ask the guide
+        </GhostButton>
+      ) : null}
       {showPostCta ? (
         <PrimaryButton onClick={session.openTray} className="shrink-0">
           Post review<span className="tabular-nums"> · {pending} {pending === 1 ? 'comment' : 'comments'}</span>
