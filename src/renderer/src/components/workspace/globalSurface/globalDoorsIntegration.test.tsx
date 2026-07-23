@@ -184,11 +184,12 @@ async function main(): Promise<void> {
   const container = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
-  // ═══ 1. The five doors coexist on the real kernel ═════════════════════════
+  // ═══ 1. The six doors coexist on the real kernel ══════════════════════════
   // Registration is module-owned and eager, so this reads the SAME host the app
   // boots with — not a hand-built one. Sprints (item 1763) and Backlog (1769)
   // had to join a rail Automations/Roadmap/Reviews already occupied, at the
-  // orders mockup §4's sidebar shows, without colliding with each other.
+  // orders mockup §4's sidebar shows, without colliding with each other;
+  // Extensions (MC-1847) took the retired hardcoded Connectors slot at 30.
   {
     const host = getRendererHost()
     const entries = host.getSidebarNavEntries()
@@ -199,6 +200,7 @@ async function main(): Promise<void> {
         ['automations', 10],
         ['sprints', 20],
         ['backlog', 25],
+        ['extensions', 30],
         ['roadmap', 40],
         ['reviews', 50],
       ],
@@ -223,7 +225,7 @@ async function main(): Promise<void> {
       !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'sprints'),
       'and so does the Sprints surface',
     )
-    console.log('ok - five doors, mockup order, each backed by a surface and gated by its module')
+    console.log('ok - six doors, mockup order, each backed by a surface and gated by its module')
   }
 
   // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════

@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
-import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsPanel'
+import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsBrowseCanvas'
 import { deriveConnectorsView, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
 
 // A static-render smoke test: full Electron drive is not available in the shared

@@ -97,6 +97,10 @@ import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
 import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
+import {
+  setExtensionsSurfaceHost,
+  type ExtensionsSurfaceHostPorts,
+} from './globalSurface/extensions/extensionsSurfaceHost'
 import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
 import {
   noteSprintDoorSelection,
@@ -160,11 +164,6 @@ const NewWorkspacePanel = React.lazy(() => import('./NewWorkspacePanel'))
 // until the user starts the chat. Code-split like NewWorkspacePanel; rendered
 // only when showNewChatPanel is true.
 const NewChatPanel = React.lazy(() => import('./agentComposer/NewChatPanel'))
-
-// The Connectors surface (browse / install / launch). Code-split and mounted only
-// while its store overlay is open, so its catalog reads never run on boot. Opened
-// via the store `openConnectorsSurface` action (the sidebar entry T5 targets).
-const ConnectorsSurface = React.lazy(() => import('../panels/ConnectorsPanel'))
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
 // user reaches for it (Cmd-K palette, the diagnostics overlay, the startup-tip
@@ -330,8 +329,6 @@ export default function WorkspaceManager() {
   const settingsOverlayOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const closeSettingsOverlay = useWorkspaceStore((s) => s.closeSettingsOverlay)
-  const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
-  const closeConnectorsSurface = useWorkspaceStore((s) => s.closeConnectorsSurface)
   // The door-routed full-page surface for this window (global-surfaces epic 1704):
   // its registered id, or null when a workspace owns the card region.
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
@@ -2235,6 +2232,50 @@ export default function WorkspaceManager() {
   const closeNewChatPanel = () => {
     setNewChatPanelState(null)
   }
+
+  // The Extensions door's host-action seam (MC-1847 B1): the door is a
+  // zero-prop registered surface, so the shell's three connector routes are
+  // registered into the extensionsSurfaceHost singleton instead of riding
+  // props the way the retired modal's did. Registered once; the delegates read
+  // the latest handlers through a render-refreshed ref so they never go stale.
+  const extensionsHostRef = useRef<ExtensionsSurfaceHostPorts | null>(null)
+  extensionsHostRef.current = {
+    onLaunchConnector: (connector) => {
+      // "New chat" on a connector opens the composer with it already attached,
+      // rather than auto-spawning: the user still picks the agent, CLI, and
+      // model. openNewChatPanel closes the door itself (the MC-1833 contract).
+      openNewChatPanel(undefined, connector)
+    },
+    onUseSkillInNewAgent: (skill) => {
+      // "Use in agent → New agent…" on an installed skill row: a general agent
+      // on the General-engine default CLI, with the skill ensure-installed and
+      // its invocation prefilled. addNewCliAgent targets the active
+      // workspace's layout, so the door must close first or the new tab lands
+      // behind it.
+      closeGlobalSurface()
+      void addNewCliAgent(
+        resolveTemplateAgentCli(
+          specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
+          lastSelectedCli,
+          agentCliCatalog,
+        ),
+        skill,
+      )
+    },
+    onUseInAutomation: () => {
+      // The route to author a connector automation; the connector
+      // pre-selection lands in T8. openNewWorkspacePanel closes the door.
+      openNewWorkspacePanel()
+    },
+  }
+  useEffect(() => {
+    setExtensionsSurfaceHost({
+      onLaunchConnector: (connector) => extensionsHostRef.current?.onLaunchConnector(connector),
+      onUseInAutomation: (serverId) => extensionsHostRef.current?.onUseInAutomation(serverId),
+      onUseSkillInNewAgent: (skill) => extensionsHostRef.current?.onUseSkillInNewAgent(skill),
+    })
+    return () => setExtensionsSurfaceHost(null)
+  }, [])
   // The panel's project chip: distinct folders across this window's open
   // workspaces, in rail order. Browse admits a folder Multicode doesn't know.
   const newChatProjectOptions = useMemo(() => {
@@ -3257,42 +3298,6 @@ export default function WorkspaceManager() {
           </div>
         ) : null}
         <SettingsOverlay />
-        {connectorsSurfaceOpen ? (
-          <React.Suspense fallback={null}>
-            <ConnectorsSurface
-              onLaunchConnector={(connector) => {
-                // "New chat" on a connector opens the composer with it already
-                // attached, rather than auto-spawning: the user still picks the
-                // agent, CLI, and model. The confirm routes back into
-                // launchConnectorChat with those choices.
-                closeConnectorsSurface()
-                openNewChatPanel(undefined, connector)
-              }}
-              onUseSkillInNewAgent={(skill) => {
-                // "Use in agent → New agent…" on an installed skill row: a
-                // general agent on the General-engine default CLI, with the
-                // skill ensure-installed and its invocation prefilled.
-                closeConnectorsSurface()
-                addNewCliAgent(
-                  resolveTemplateAgentCli(
-                    specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY],
-                    lastSelectedCli,
-                    agentCliCatalog,
-                  ),
-                  skill,
-                )
-              }}
-              onUseInAutomation={() => {
-                // The route to author a connector automation; the connector
-                // pre-selection lands in T8. Close the surface and open the
-                // workspace-creation flow where Automations mode is chosen.
-                closeConnectorsSurface()
-                openNewWorkspacePanel()
-              }}
-              activeWorkspaceRoot={activeWorkspaceFolderPath}
-            />
-          </React.Suspense>
-        ) : null}
         {/* T6 first-run payoff: supply the real app actions it needs. A CLI is
             "configured" when at least one catalog entry is confirmed installed;
             the run reuses createNewChat against the just-created workspace

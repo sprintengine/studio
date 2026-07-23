@@ -19,6 +19,11 @@ import {
 const ExtensionsGlobalSurface = React.lazy(
   () => import('../components/workspace/globalSurface/extensions/ExtensionsGlobalSurface')
 )
+const ExtensionsNavEntry = React.lazy(() =>
+  import('../components/workspace/globalSurface/extensions/ExtensionsNavEntry').then((module) => ({
+    default: module.ExtensionsNavEntry,
+  }))
+)
 
 // Activate the agent's workspace, then focus (or add) its terminal tab. Mirrors
 // MultiloopAutoRunSupervisor.revealMultiloopAgentTerminal: the mounted model is
@@ -90,10 +95,11 @@ export const agentRuntimeRendererModule: RendererModule = {
   },
   registerRenderer(host) {
     // The Extensions door (MC-1847): registered through the always-on core so
-    // the marketplace surface is always reachable, matching the previously
-    // hardcoded Connectors sidebar entry it replaces. The sidebar nav entry
-    // flips from the modal to `openGlobalSurface('extensions')` in B1.
+    // the marketplace surface is always reachable. The nav entry sits at the
+    // slot (order 30) the hardcoded Connectors sidebar button occupied before
+    // it retired with the modal.
     host.registerGlobalSurface({ id: 'extensions', Component: ExtensionsGlobalSurface })
+    host.registerSidebarNavEntry({ id: 'extensions', order: 30, Component: ExtensionsNavEntry })
 
     host.registerBacklogLinkProvider({
       moduleId: AGENT_RUNTIME_MODULE_ID,

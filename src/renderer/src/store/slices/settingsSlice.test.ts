@@ -304,7 +304,6 @@ const carrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
-  connectorsSurface: { open: false, initialView: null },
   activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,
@@ -322,10 +321,18 @@ assert.equal(typeof carrier.settingsOverlay.checkForUpdatesRequestId, 'number')
 slice.closeSettingsOverlay()
 assert.deepEqual(carrier.settingsOverlay, { open: false, initialTab: null, checkForUpdatesRequestId: null })
 
+// openConnectorsSurface opens the Extensions DOOR (MC-1847 B1) — the modal and
+// its store flag are gone; closing is the door's own closeGlobalSurface. A
+// caller can sit inside the open settings overlay (Settings → Modules "Browse
+// marketplace"), and the door mounts UNDER the overlay, so opening the door
+// must also close Settings or the click reads as a dead button.
+carrier.settingsOverlay = { open: true, initialTab: 'modules', checkForUpdatesRequestId: null }
 slice.openConnectorsSurface()
-assert.equal(carrier.connectorsSurface.open, true)
-slice.closeConnectorsSurface()
-assert.equal(carrier.connectorsSurface.open, false)
+assert.equal(carrier.activeGlobalSurface, 'extensions')
+assert.equal('connectorsSurface' in carrier, false, 'the modal-era store flag is gone')
+assert.equal(carrier.settingsOverlay.open, false, 'opening the door closes the settings overlay above it')
+slice.closeGlobalSurface()
+assert.equal(carrier.activeGlobalSurface, null)
 
 // The door-routed full-page surface (global-surfaces epic 1704) is a mount kind,
 // not an overlay: openGlobalSurface sets the active surface id, closeGlobalSurface
@@ -365,14 +372,15 @@ slice.setWorkspaceAsideWidth(Number.NaN)
 assert.equal(carrier.workspaceAsideWidth, 296, 'a non-finite width falls back to the default')
 
 // T3: the MCPs / Skill packs / Extensions settings tabs folded into the
-// Connectors surface. A deep-link that once opened one of those tabs (by tab
-// id, or the legacy Extensions browse deep-link) must route to the Connectors
-// surface, not open a settings overlay on a tab that no longer exists.
+// connectors surface — the Extensions door since MC-1847. A deep-link that once
+// opened one of those tabs (by tab id, or the legacy Extensions browse
+// deep-link) must open the door, not a settings overlay on a tab that no
+// longer exists.
 for (const foldedTab of ['mcps', 'skill-packs', 'extensions', EXTENSIONS_BROWSE_DEEPLINK]) {
-  carrier.connectorsSurface.open = false
+  carrier.activeGlobalSurface = null
   carrier.settingsOverlay = { open: false, initialTab: null, checkForUpdatesRequestId: null }
   slice.openSettingsOverlay({ initialTab: foldedTab })
-  assert.equal(carrier.connectorsSurface.open, true, `${foldedTab} routes to Connectors surface`)
+  assert.equal(carrier.activeGlobalSurface, 'extensions', `${foldedTab} routes to the Extensions door`)
   assert.equal(carrier.settingsOverlay.open, false, `${foldedTab} does not open a settings overlay`)
   assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
 }
@@ -424,7 +432,6 @@ const permissionCarrier = {
   settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
-  connectorsSurface: { open: false, initialView: null },
   activeGlobalSurface: null,
   sidebarCollapsed: false,
   sidebarWidth: 280,

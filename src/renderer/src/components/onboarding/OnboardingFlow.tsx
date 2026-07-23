@@ -46,8 +46,13 @@ export default function OnboardingFlow({
   // The essentials-step extensions teaser (T4) opens the real Settings →
   // Extensions Browse surface. Both overlays share z-50 and this one renders
   // last (on top), so step aside while Settings is open and return to the same
-  // step when it closes — onboarding progress is untouched.
-  const settingsOpen = useWorkspaceStore((s) => s.settingsOverlay.open)
+  // step when it closes — onboarding progress is untouched. The folded browse
+  // deep-link routes to the Extensions DOOR now (MC-1847), which mounts in the
+  // card region under this overlay — step aside for that door too, or the
+  // teaser's click reads as a dead button.
+  const settingsOpen = useWorkspaceStore(
+    (s) => s.settingsOverlay.open || s.activeGlobalSurface === 'extensions',
+  )
 
   const titleId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)

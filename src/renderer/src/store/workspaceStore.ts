@@ -183,12 +183,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   }
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
-  connectorsSurface: {
-    open: boolean
-    initialView: 'browse' | 'installed' | null
-  }
+  // Opens the Extensions door on the requested view (MC-1847 B1; the modal it
+  // used to float is gone — renamed in the D1 sweep).
   openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
-  closeConnectorsSurface: () => void
   // The Roadmap door + the Backlog "Open Roadmap" affordance route to the
   // door-routed full-page surface (global-surfaces epic 1704) via activeGlobalSurface;
   // a named convenience over openGlobalSurface('roadmap'). The legacy centered

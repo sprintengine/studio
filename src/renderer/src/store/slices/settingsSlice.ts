@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab } from '../../components/settings/extensionsRoute'
+import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import type {
   AgentCli,
   AgentCliModelSelection,
@@ -64,17 +65,6 @@ export type RunSummaryOverlayState = {
   open: boolean
   /** Which workspace's run summary the overlay is showing. */
   workspaceId: string | null
-}
-
-export type ConnectorsSurfaceState = {
-  /** The Connectors browse/install/launch surface, opened from the sidebar. A
-   *  store-level overlay (like the settings overlay) so any surface — the
-   *  sidebar entry, the command palette — opens it with one action. */
-  open: boolean
-  /** Deep-link view for the next open (e.g. the skill picker's "Manage skills"
-   *  footer lands on Installed). Consumed by the panel on mount; null keeps the
-   *  panel's own default. */
-  initialView: 'browse' | 'installed' | null
 }
 
 export const defaultLearningSettings = (): LearningSettings => ({
@@ -1013,14 +1003,12 @@ export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
   runSummaryOverlay: RunSummaryOverlayState
-  connectorsSurface: ConnectorsSurfaceState
   // The active door-routed full-page surface for this window (global-surfaces
   // epic 1704): a registered surface id (e.g. 'roadmap') or null when a
-  // workspace — not a door — owns the card region. Parallel to
-  // connectorsSurface (per-window and transient: omitted from
-  // extractSettingsFields / partializeWorkspaceStoreState, so never persisted
-  // and never replicated across windows). Unlike the Connectors/Settings
-  // overlays this is a MOUNT KIND that pre-empts the workspace card region
+  // workspace — not a door — owns the card region. Per-window and transient
+  // (omitted from extractSettingsFields / partializeWorkspaceStoreState, so
+  // never persisted and never replicated across windows). Unlike the Settings
+  // overlay this is a MOUNT KIND that pre-empts the workspace card region
   // rather than floating a dialog over it, so opening a door and activating a
   // workspace are mutually exclusive — the sidebar selection invariant.
   activeGlobalSurface: string | null
@@ -1064,8 +1052,11 @@ export interface SettingsSliceActions {
   closeSettingsOverlay: () => void
   openRunSummaryOverlay: (workspaceId: string) => void
   closeRunSummaryOverlay: () => void
+  // Opens the Extensions door on the requested view (MC-1847 B1): the modal
+  // this action used to float is gone, so every legacy caller — the command
+  // palette, Settings → Modules, the agent "Manage skills" footers — lands on
+  // the door with its deep-link latched. (Renamed in the D1 sweep.)
   openConnectorsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
-  closeConnectorsSurface: () => void
   // The Roadmap door + the Backlog "Open Roadmap" affordance route here; a named
   // convenience over openGlobalSurface('roadmap') so every caller opens the same
   // door-routed full-page surface (global-surfaces epic 1704).
@@ -1179,7 +1170,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     appSettings: defaultAppSettings(),
     settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
     runSummaryOverlay: { open: false, workspaceId: null },
-    connectorsSurface: { open: false, initialView: null },
     activeGlobalSurface: null,
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
@@ -1216,20 +1206,32 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.openFilesInExternalWindow = enabled
       }),
 
-    openSettingsOverlay: (opts) =>
+    openSettingsOverlay: (opts) => {
+      // The MCPs / Skill packs / Extensions settings tabs folded into the
+      // connectors surface (T3), which is the Extensions door now (MC-1847).
+      // Deep-links that once opened one of those tabs land on the door's
+      // marketplace grid, so no caller has to know either move happened. The
+      // latch dispatch stays outside the producer — its listeners run
+      // synchronously and must never observe a mid-update store.
+      if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
+        dispatchExtensionsSurfaceTarget('browse')
+        set((state) => {
+          state.activeGlobalSurface = 'extensions'
+          // The door mounts in the card region UNDER the settings overlay, so
+          // an open overlay (this deep-link can fire from inside Settings)
+          // must close or the click reads as a dead button.
+          state.settingsOverlay.open = false
+          state.settingsOverlay.initialTab = null
+          state.settingsOverlay.checkForUpdatesRequestId = null
+        })
+        return
+      }
       set((state) => {
-        // The MCPs / Skill packs / Extensions settings tabs folded into the
-        // Connectors surface (T3). Deep-links that once opened one of those tabs
-        // route to the Connectors surface instead of a tab that no longer
-        // exists, so no caller has to know the fold happened.
-        if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
-          state.connectorsSurface.open = true
-          return
-        }
         state.settingsOverlay.open = true
         state.settingsOverlay.initialTab = opts?.initialTab ?? null
         state.settingsOverlay.checkForUpdatesRequestId = opts?.checkForUpdates ? Date.now() : null
-      }),
+      })
+    },
 
     closeSettingsOverlay: () =>
       set((state) => {
@@ -1256,17 +1258,22 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.workspaceAsideWidth = clampWorkspaceAsideWidth(width)
       }),
 
-    openConnectorsSurface: (opts) =>
+    openConnectorsSurface: (opts) => {
+      // Latch the deep-link first (the door drains it on mount or live), then
+      // open the door — the same order the automations deep-link uses. The
+      // dispatch stays outside the producer so its synchronous listeners never
+      // observe a mid-update store.
+      dispatchExtensionsSurfaceTarget(opts?.view ?? 'browse')
       set((state) => {
-        state.connectorsSurface.open = true
-        state.connectorsSurface.initialView = opts?.view ?? null
-      }),
-
-    closeConnectorsSurface: () =>
-      set((state) => {
-        state.connectorsSurface.open = false
-        state.connectorsSurface.initialView = null
-      }),
+        state.activeGlobalSurface = 'extensions'
+        // Callers can sit inside the open settings overlay (Settings → Modules
+        // "Browse marketplace"); the door mounts under it, so the overlay must
+        // close or the click reads as a dead button.
+        state.settingsOverlay.open = false
+        state.settingsOverlay.initialTab = null
+        state.settingsOverlay.checkForUpdatesRequestId = null
+      })
+    },
 
     // The Roadmap door + the Backlog "Open Roadmap" affordance route to the
     // door-routed full-page surface (global-surfaces epic 1704). A named

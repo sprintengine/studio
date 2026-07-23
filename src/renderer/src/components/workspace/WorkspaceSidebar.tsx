@@ -6,7 +6,6 @@ import {
 } from '../AppIcons'
 import { buildModeModels } from './newWorkspace/modeModels'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import { SidebarNavButton } from './SidebarNavButton'
 import { FOCUS_RING_CLASS } from '../ui/tokens'
 import {
   SIDEBAR_COLLAPSED_WIDTH,
@@ -508,10 +507,6 @@ export default function WorkspaceSidebar({
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   // Rows for the "+" create menu, matching the creation hub rail's list/order.
   const createMenuModels = useMemo(() => buildModeModels(moduleOverrides), [moduleOverrides])
-  // The Connectors nav entry opens the store-level Connectors surface (mounted
-  // by WorkspaceManager) and reads its open state to carry aria-current.
-  const openConnectorsSurface = useWorkspaceStore((s) => s.openConnectorsSurface)
-  const connectorsSurfaceOpen = useWorkspaceStore((s) => s.connectorsSurface.open)
   // A door-routed full-page surface owns the card region (global-surfaces epic
   // 1704). While one is active no project row is "current" — the door row carries
   // the selection instead, so the sidebar shows exactly one selected thing. This
@@ -1521,26 +1516,11 @@ export default function WorkspaceSidebar({
                 </div>
               ),
             },
-            // Automations (order 10) and Sprints (order 20) are both
+            // Automations (order 10), Sprints (order 20), and Extensions
+            // (order 30, the old Connectors slot — MC-1847 B1) are all
             // module-contributed doors in the moduleNavEntries block below —
-            // each left the Projects list for its own full-page surface (items
-            // 1707 and 1763), so their hardcoded built-in buttons retired.
-            {
-              id: 'connectors',
-              order: 30,
-              node: (
-                <SidebarNavButton
-                  collapsed={sidebarCollapsed}
-                  icon={<ConnectorsNavIcon className="icon-sm pointer-events-none shrink-0" />}
-                  label="Connectors"
-                  ariaLabel="Connectors"
-                  tooltip="Connectors"
-                  tooltipWhenExpanded
-                  active={connectorsSurfaceOpen && !globalSurfaceActive}
-                  onClick={() => openConnectorsSurface()}
-                />
-              ),
-            },
+            // each left this hardcoded list for its own full-page surface, so
+            // their built-in buttons retired.
             // Module-contributed doors (Roadmap). Lazy, so wrapped in Suspense; a
             // brief null while its bundle loads is fine for a nav row. The row id
             // is namespaced so a module entry id can never collide with a shell
@@ -2077,30 +2057,6 @@ export default function WorkspaceSidebar({
           : null}
       </Modal>
     </aside>
-  )
-}
-
-// Link glyph for the Connectors top-nav entry — a connector is a link to an
-// external service (matches the icon family's 16-box round-stroke idiom).
-function ConnectorsNavIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M6.6 9.4L9.4 6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path
-        d="M8.7 4.6l.9-.9a2.3 2.3 0 0 1 3.3 3.3l-1.4 1.4a2.3 2.3 0 0 1-3.3 0"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M7.3 11.4l-.9.9a2.3 2.3 0 0 1-3.3-3.3l1.4-1.4a2.3 2.3 0 0 1 3.3 0"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   )
 }
 
