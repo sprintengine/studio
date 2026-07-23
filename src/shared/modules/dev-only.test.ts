@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import { BUNDLED_MODULE_IDS } from './manifest'
 import { DEV_ONLY_MODULE_IDS, isDevOnlyModule, activeForChannel } from './dev-only'
 
-// The four dev-only ids are the surfaces gated out of production builds.
+// The dev-only ids are the surfaces gated out of production builds.
 assert.deepEqual(
   [...DEV_ONLY_MODULE_IDS].sort(),
-  ['mobile-relay', 'multiloop', 'switchboard', 'voice-dictation'],
-  'dev-only ids must be exactly the four gated surfaces'
+  ['mobile-relay', 'multiloop', 'review', 'roadmap', 'switchboard', 'voice-dictation'],
+  'dev-only ids must be exactly the gated surfaces'
 )
 
 // Every dev-only id must be a real bundled module id — a typo here would
@@ -21,6 +21,8 @@ for (const id of DEV_ONLY_MODULE_IDS) {
 
 assert.equal(isDevOnlyModule('switchboard'), true)
 assert.equal(isDevOnlyModule('voice-dictation'), true)
+assert.equal(isDevOnlyModule('roadmap'), true)
+assert.equal(isDevOnlyModule('review'), true)
 assert.equal(isDevOnlyModule('git'), false)
 assert.equal(isDevOnlyModule('agent-runtime'), false)
 
@@ -32,6 +34,8 @@ const manifests = [
   { id: 'multiloop' },
   { id: 'mobile-relay' },
   { id: 'voice-dictation' },
+  { id: 'roadmap' },
+  { id: 'review' },
 ]
 const getId = (m: { id: string }) => m.id
 

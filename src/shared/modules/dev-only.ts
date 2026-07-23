@@ -21,6 +21,8 @@ export const DEV_ONLY_MODULE_IDS: readonly string[] = [
   'multiloop',
   'mobile-relay',
   'voice-dictation', // Voice module
+  'roadmap', // not production-ready yet; remove from this list to release
+  'review', // not production-ready yet; remove from this list to release
 ]
 
 const DEV_ONLY_MODULE_ID_SET: ReadonlySet<string> = new Set(DEV_ONLY_MODULE_IDS)

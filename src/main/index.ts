@@ -35,8 +35,9 @@ const services = createAppServices(MULTICODE_DIAGNOSTICS)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
 // Dev-only capability surfaces (Voice, Switchboard/Watchtower, Multiloop, Mobile
-// Relay) ship only in from-source dev builds. A packaged/installed build is the
-// production channel, so they are excluded from registration entirely. See
+// Relay, and the not-yet-production-ready Roadmap and Review) ship only in
+// from-source dev builds. A packaged/installed build is the production channel,
+// so they are excluded from registration entirely. See
 // src/shared/modules/dev-only.ts.
 const includeDevModules = !app.isPackaged
 
