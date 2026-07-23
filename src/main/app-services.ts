@@ -8,6 +8,7 @@ import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
 import { createReviewGatewayTools } from './automation/studio-gateway-tools'
 import { BRIEF_RUN_EVENT_CHANNEL } from './review/brief-run-service'
+import { recordGuideRunEvent } from './review/guide-terminal-service'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
@@ -542,6 +543,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
       homeDir: () => app.getPath('home'),
       emitBriefRunEvent: (event) => {
+        // The tool knows nothing about runs, so record the landed brief against
+        // the guide-run registry before announcing it: without this a terminal
+        // guide would finish while the run-status IPC still reported it working,
+        // and the next start would join a run that already delivered.
+        recordGuideRunEvent(event)
         for (const window of BrowserWindow.getAllWindows()) {
           if (!window.isDestroyed()) window.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
         }

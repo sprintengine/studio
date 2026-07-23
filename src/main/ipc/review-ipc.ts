@@ -30,7 +30,7 @@ import { validateReviewBrief, type ReviewWorkspaceState } from '../../shared/rev
 import { ReviewChangeSetService, reviewChangeSetDir } from '../review/changeset-service'
 import { enumerateReviews } from '../review/review-index'
 import { readReviewState, writeReviewState } from '../review/review-state-store'
-import type { ReviewBriefRunService } from '../review/brief-run-service'
+import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
 import { guideRunRegistry, type GuideRunRegistry } from '../review/guide-run-registry'
 // Named import that also runs the module's side effect: registering the
 // 'pull-request' source provider (MC-1678) so the service can ingest GitHub PR URLs
@@ -47,7 +47,8 @@ const BRIEF_FILE = 'brief.json'
 
 export interface ReviewIpcDeps {
   changeSetService: ReviewChangeSetService
-  briefRunService: Pick<ReviewBriefRunService, 'start' | 'ask'>
+  // The guide, running as a terminal agent under the review's project (MC-1783).
+  guideTerminals: Pick<ReviewGuideTerminalService, 'startRun' | 'ask' | 'stop'>
   // Gate for outward, human-initiated actions: true only when the invocation came
   // from a real application window. Posting a review is human-outward, so it is
   // refused unless this passes. The module wires a window-sender check; it is
@@ -86,7 +87,7 @@ async function readBrief(targetDir: string): Promise<ReviewBriefReadResult> {
 
 export function registerReviewIpc(
   ipcMain: IpcMain,
-  { changeSetService, briefRunService, isUserWindowSender, reviewSyncDeps, guideRuns }: ReviewIpcDeps
+  { changeSetService, guideTerminals, isUserWindowSender, reviewSyncDeps, guideRuns }: ReviewIpcDeps
 ): void {
   const guideRunState = guideRuns ?? guideRunRegistry
 
@@ -193,16 +194,32 @@ export function registerReviewIpc(
     }
   })
 
-  // Start the guide run for a workspace. The service enforces one live run per
-  // workspace and forwards phase events over BRIEF_RUN_EVENT_CHANNEL; this
-  // handler returns only the terminal result — the renderer re-reads the brief on
-  // success. A start against a live run joins it (result carries `joined`) unless
-  // the caller asked for a restart, so the brief is never produced twice at once.
+  // Start the guide run for a review. The guide is a terminal agent under the
+  // review's project, so this resolves once its terminal has the prompt — not
+  // when the walkthrough exists. The brief lands later through
+  // review_submit_brief, which announces itself on BRIEF_RUN_EVENT_CHANNEL and
+  // is what the panel re-reads on. One guide per review: a start against a live
+  // run joins it (result carries `joined`) unless the caller asked for a restart.
+  // `guide` names the terminal, so the caller can show and focus it.
   ipcMain.handle('review:start-brief-run', async (_event, input: ReviewBriefRunInput): Promise<ReviewBriefRunResult> => {
-    const result = await briefRunService.start(input)
-    if (!result.ok) return { ok: false, reason: result.reason, errors: result.errors }
-    if ('joined' in result) return { ok: true, joined: true, status: result.status }
-    return { ok: true }
+    const result = await guideTerminals.startRun({
+      reviewId: input.workspaceId,
+      projectRoot: input.workspaceRoot,
+      depth: input.depth,
+      ...(input.affectedStepIds ? { affectedStepIds: input.affectedStepIds } : {}),
+      ...(input.cli ? { cli: input.cli } : {}),
+      ...(input.cliModel ? { cliModel: input.cliModel } : {}),
+      ...(input.restart ? { restart: true } : {}),
+    })
+    if (!result.ok) return { ok: false, reason: 'guide-error', errors: [result.error] }
+    if ('joined' in result) return { ok: true, joined: true, status: result.status, guide: result.guide }
+    return { ok: true, guide: result.guide }
+  })
+
+  // Stop the guide: kill its terminal and close the run as stopped. Distinct
+  // from a plain terminal kill so the run's record says who ended it.
+  ipcMain.handle('review:stop-brief-run', (_event, target: ReviewTarget): void => {
+    guideTerminals.stop(target.workspaceId)
   })
 
   // The main process's record of a review's guide run (MC-1784). Run state lives
@@ -214,12 +231,20 @@ export function registerReviewIpc(
     (_event, target: ReviewTarget): ReviewGuideRunStatus | null => guideRunState.status(target.workspaceId)
   )
 
-  // Ask-the-guide chat: forward one turn to the workspace's guide companion. The
-  // reply streams back over the conversation event channel the chat pane already
-  // subscribes to (onConversationEvent), so this handler returns only whether the
-  // turn was accepted. The guide answers; it never creates or edits a comment.
+  // Ask-the-guide: send one question to the review's guide terminal, starting it
+  // if none is live. The reviewer reads the answer in that terminal, so this
+  // returns only whether the question was delivered and where it landed — a dead
+  // engine surfaces as a visible error rather than a silent no-op. The guide
+  // answers; it never creates or edits a comment.
   ipcMain.handle('review:ask-guide', async (_event, input: ReviewAskGuideInput): Promise<ReviewAskGuideResult> => {
-    return briefRunService.ask(input)
+    const result = await guideTerminals.ask({
+      reviewId: input.workspaceId,
+      projectRoot: input.workspaceRoot,
+      question: input.message,
+      ...(input.cli ? { cli: input.cli } : {}),
+      ...(input.cliModel ? { cliModel: input.cliModel } : {}),
+    })
+    return result.ok ? { ok: true, guide: result.guide } : { ok: false, error: result.error }
   })
 
   // Post the pending review to the pull request (MC-1683). This is the ONLY entry

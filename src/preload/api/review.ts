@@ -36,6 +36,8 @@ export const reviewApi = {
     ipcRenderer.invoke('review:probe-changeset', input),
   reviewStartBriefRun: (input: ReviewBriefRunInput): Promise<ReviewBriefRunResult> =>
     ipcRenderer.invoke('review:start-brief-run', input),
+  reviewStopBriefRun: (target: ReviewTarget): Promise<void> =>
+    ipcRenderer.invoke('review:stop-brief-run', target),
   reviewBriefRunStatus: (target: ReviewTarget): Promise<ReviewGuideRunStatus | null> =>
     ipcRenderer.invoke('review:brief-run-status', target),
   reviewAskGuide: (input: ReviewAskGuideInput): Promise<ReviewAskGuideResult> =>
@@ -62,6 +64,7 @@ export const reviewApi = {
   | 'reviewReadBrief'
   | 'reviewProbeChangeset'
   | 'reviewStartBriefRun'
+  | 'reviewStopBriefRun'
   | 'reviewBriefRunStatus'
   | 'reviewAskGuide'
   | 'reviewPostReview'
