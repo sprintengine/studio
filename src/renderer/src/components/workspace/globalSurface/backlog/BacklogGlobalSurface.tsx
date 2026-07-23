@@ -8,7 +8,9 @@ import {
   InlineNotice,
   LifecycleGlyph,
   MenuItem,
+  OverflowMenu,
   PrimaryButton,
+  StarGlyph,
   Tooltip,
   TruncatedText,
   useConfirmDialog,
@@ -52,8 +54,11 @@ import {
 } from '../../../../utils/sprintengineBacklogLinks'
 import { deriveSprintEngineRunGlyph } from '../../../../utils/sprintengine'
 import { getHighlightSwatch } from '../../../../utils/highlight'
+import { resolveFirstMockupCandidate } from '../../../../utils/backlogMockups'
+import { FilePreviewPane } from '../../../ui/FilePreviewPane'
+import { HtmlArtifactFrame } from '../../guidedBrief/MockupPreviewPane'
 import { renderMarkdown } from '../../../../utils/markdown'
-import { basename } from '../../../../utils/paths'
+import { basename, joinFilePath, parentPath } from '../../../../utils/paths'
 import { focusOrAddFileTab } from '../../../../utils/modelRegistry'
 import { getRendererHost, selectModuleEnabled } from '../../../../modules'
 import type { BacklogLinkProvider } from '../../../../modules/renderer-host'
@@ -71,6 +76,9 @@ import {
   BacklogItemContextMenu,
   CRITICALITY_EDIT_ITEMS,
   DIFFICULTY_EDIT_ITEMS,
+  MenuCheckGlyph,
+  RISK_EDIT_ITEMS,
+  STATUS_MENU_CHOICES,
   type BacklogDependencyChoice,
   type BacklogEpicChoice,
 } from '../../../backlog/BacklogItemContextMenu'
@@ -308,13 +316,18 @@ export default function BacklogGlobalSurface(): JSX.Element {
     [renderRows],
   )
 
-  // Keep the selection valid across re-scans, lens changes, and filter changes.
+  // Keep the cursor valid across re-scans, lens changes, and filter changes. The
+  // cursor may sit on a group header (headers are navigable options), so it is
+  // validated against every nav row — not just the item rows — or collapsing a
+  // group would drop the keyboard cursor on the header the user just landed on.
   useEffect(() => {
-    if (selectedKey && !itemRows.some((row) => row.key === selectedKey)) {
+    if (!selectedKey) return
+    const stillPresent = renderRows.some((row) => row.kind !== 'project' && row.key === selectedKey)
+    if (!stillPresent) {
       setSelectedKey(null)
       setShowDetailInSingle(false)
     }
-  }, [itemRows, selectedKey])
+  }, [renderRows, selectedKey])
 
   const selectedRow = useMemo(
     () => itemRows.find((row) => row.key === selectedKey) ?? null,
@@ -476,6 +489,31 @@ export default function BacklogGlobalSurface(): JSX.Element {
     setShowDetailInSingle(true)
   }, [])
 
+  // Cross-navigation from the detail pane (a prerequisite, or an item this one
+  // blocks). The target may sit outside the active lens or search — a resolved
+  // prerequisite under Active, an archived target, anything the query excludes —
+  // so selecting blindly would dead-click. Mirror the panel: when the target is
+  // not already listed, widen to a lens that contains it and clear the search, so
+  // the row and its detail actually come into view.
+  const navigateWithinProject = useCallback(
+    (feed: BacklogProjectFeed, itemId: string) => {
+      const target = feed.items.find((entry) => entry.item.id === itemId)?.item
+      if (!target) return
+      const key = rowKeyOf(feed.rootKey, itemId)
+      if (!itemRows.some((row) => row.key === key)) {
+        setSearch('')
+        setDoorView({
+          view: target.status === 'archived' ? 'archived' : target.status === 'completed' ? 'completed' : 'active',
+          // A target in another project is only reachable once its project is in
+          // view; dependencies never cross projects, so All always contains it.
+          ...(filter !== ALL_PROJECTS && filter !== feed.rootKey ? { projectFilter: ALL_PROJECTS } : {}),
+        })
+      }
+      selectRow(key)
+    },
+    [itemRows, filter, setDoorView, selectRow],
+  )
+
   const toggleGroup = useCallback((rootKey: string, group: BacklogEpicGroup) => {
     setCollapsedGroups((prev) => {
       const key = `${rootKey}::${epicGroupKey(group)}`
@@ -488,7 +526,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
 
   const bar: GlobalSurfaceBar = {
     title: 'Backlog',
-    contextSub: describeScope(projects.length, list.total, door.view),
+    contextSub: describeScope(projects, filter, list.total, door.view),
     actions: (
       <PrimaryButton ref={newItemRef} onClick={openCreateFlow} disabled={projects.length === 0}>
         New item
@@ -523,10 +561,7 @@ export default function BacklogGlobalSurface(): JSX.Element {
       dependencyChoices={dependencyChoicesFor(selectedRow.feed)}
       showBack={!isSplit}
       onBack={() => setShowDetailInSingle(false)}
-      onNavigate={(itemId) => {
-        const key = rowKeyOf(selectedRow.feed.rootKey, itemId)
-        if (itemRows.some((row) => row.key === key)) selectRow(key)
-      }}
+      onNavigate={(itemId) => navigateWithinProject(selectedRow.feed, itemId)}
     />
   ) : (
     <div className="flex h-full items-center justify-center px-6 text-[12px] text-[color:var(--text-muted)]">
@@ -583,6 +618,9 @@ export default function BacklogGlobalSurface(): JSX.Element {
             projectCount: projects.length,
             loading,
             total: list.total,
+            // True when nothing is listed BECAUSE every project in view failed to
+            // scan — a failed dependency must never read as "you have no work".
+            allVisibleFailed: visibleFeeds.length > 0 && visibleFeeds.every((feed) => Boolean(feed.error)),
             isSplit,
             showDetailInSingle,
             hasSelection: Boolean(selectedRow),
@@ -647,6 +685,7 @@ function renderBody({
   projectCount,
   loading,
   total,
+  allVisibleFailed,
   isSplit,
   showDetailInSingle,
   hasSelection,
@@ -657,6 +696,7 @@ function renderBody({
   projectCount: number
   loading: boolean
   total: number
+  allVisibleFailed: boolean
   isSplit: boolean
   showDetailInSingle: boolean
   hasSelection: boolean
@@ -675,6 +715,19 @@ function renderBody({
     )
   }
   if (loading) return <SurfaceCanvasState kind="loading" label="Reading your backlogs…" />
+  if (total === 0 && allVisibleFailed) {
+    // The list is empty because the scan failed, not because there is no work.
+    // The per-project strips above name which project and offer Try again, so
+    // this states the cause instead of inviting a misread "New item".
+    return (
+      <SurfaceCanvasState
+        kind="empty"
+        glyph="≡"
+        title="This backlog couldn’t be read"
+        body="Nothing can be listed until the folder above is readable again. Your items are untouched."
+      />
+    )
+  }
   if (total === 0) {
     return (
       <SurfaceCanvasState
@@ -836,18 +889,32 @@ function BacklogDoorList({
   onToggleGroup: (rootKey: string, group: BacklogEpicGroup) => void
   onContextMenu: (event: React.MouseEvent, rowKey: string) => void
 }): JSX.Element {
-  const selectable = rows.filter((row): row is Extract<DoorRenderRow, { kind: 'item' }> => row.kind === 'item')
-  const activeIndex = selectedKey ? selectable.findIndex((row) => row.key === selectedKey) : -1
+  // Both epic headers and item rows are navigable options: the group-header
+  // chevron is deliberately out of the tab order (the listbox owns roving focus
+  // via aria-activedescendant), so Enter/← /→ on the cursor is the ONLY keyboard
+  // path to collapse a group — exactly how the per-project panel behaves.
+  const navRows = rows.filter(
+    (row): row is Exclude<DoorRenderRow, { kind: 'project' }> => row.kind !== 'project',
+  )
+  const activeIndex = selectedKey ? navRows.findIndex((row) => row.key === selectedKey) : -1
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
-    if (selectable.length === 0) return
-    const next = event.key === 'ArrowDown' || event.key === 'j'
-    const prev = event.key === 'ArrowUp' || event.key === 'k'
-    if (!next && !prev) return
-    event.preventDefault()
-    const index =
-      activeIndex < 0 ? 0 : next ? Math.min(activeIndex + 1, selectable.length - 1) : Math.max(activeIndex - 1, 0)
-    onSelect(selectable[index].key)
+    if (navRows.length === 0) return
+    const cursor = activeIndex >= 0 ? navRows[activeIndex] : undefined
+    if (event.key === 'ArrowDown' || event.key === 'j' || event.key === 'ArrowUp' || event.key === 'k') {
+      const next = event.key === 'ArrowDown' || event.key === 'j'
+      event.preventDefault()
+      const index =
+        activeIndex < 0 ? 0 : next ? Math.min(activeIndex + 1, navRows.length - 1) : Math.max(activeIndex - 1, 0)
+      onSelect(navRows[index].key)
+      return
+    }
+    if (!cursor || cursor.kind !== 'header') return
+    // On a group header the primary action is collapse/expand.
+    if (event.key === 'Enter' || (event.key === 'ArrowRight' && cursor.collapsed) || (event.key === 'ArrowLeft' && !cursor.collapsed)) {
+      event.preventDefault()
+      onToggleGroup(cursor.feed.rootKey, cursor.group)
+    }
   }
 
   return (
@@ -874,14 +941,20 @@ function BacklogDoorList({
         }
         if (row.kind === 'header') {
           const swatch = row.group.color ? getHighlightSwatch(row.group.color) : null
+          const headerIndex = navRows.findIndex((candidate) => candidate.key === row.key)
           return (
             <li
               key={row.key}
-              role="presentation"
-              className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors hover:bg-[color:var(--bg-hover)] ${
-                swatch ? swatch.border : 'border-l-transparent'
-              }`}
-              onClick={() => onToggleGroup(row.feed.rootKey, row.group)}
+              id={`backlog-door-opt-${headerIndex}`}
+              role="option"
+              aria-selected={row.key === selectedKey}
+              className={`cursor-pointer border-l-[3px] px-3 py-1.5 transition-colors ${
+                row.key === selectedKey ? 'bg-[color:var(--accent-primary-soft)]' : 'hover:bg-[color:var(--bg-hover)]'
+              } ${swatch ? swatch.border : 'border-l-transparent'}`}
+              onClick={() => {
+                onSelect(row.key)
+                onToggleGroup(row.feed.rootKey, row.group)
+              }}
             >
               <BacklogEpicHeaderContent
                 group={row.group}
@@ -897,7 +970,7 @@ function BacklogDoorList({
           )
         }
         const { item, feed, project, indented } = row
-        const index = selectable.findIndex((candidate) => candidate.key === row.key)
+        const index = navRows.findIndex((candidate) => candidate.key === row.key)
         const selected = row.key === selectedKey
         const epicMeta = item.isEpic
           ? feed.derived.epicMetaBySlug.get(epicSlug(item))
@@ -995,6 +1068,31 @@ function BacklogDoorDetail({
   const blocked = !runGlyph && dependencyState === 'blocked'
   const statusLabel = runGlyph?.label ?? (blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
 
+  // Inline mockup preview: clicking an attached/detected mockup swaps this pane
+  // for the rendered file (the panel's behaviour). Resolution re-runs across BOTH
+  // tolerated roots from the authored ref, and a missing/unreadable file leaves
+  // the preview closed rather than opening an empty frame.
+  const [previewedMockup, setPreviewedMockup] = useState<{
+    relativePath: string
+    absolutePath: string
+    content: string
+  } | null>(null)
+  useEffect(() => setPreviewedMockup(null), [item.id, project.rootKey])
+
+  const openMockup = useCallback(
+    (target: { path: string }) => {
+      void (async () => {
+        const found = await resolveFirstMockupCandidate(target.path, async (relativePath) => {
+          const absolutePath = joinFilePath(project.root, relativePath)
+          if (!(await window.api.pathExists(absolutePath))) return null
+          return { relativePath, absolutePath, content: await window.api.readfile(absolutePath) }
+        })
+        if (found) setPreviewedMockup(found)
+      })()
+    },
+    [project.root],
+  )
+
   // The dependency node for the selected item, derived from its OWN project — a
   // prerequisite never crosses a project boundary.
   const node = useMemo(() => {
@@ -1008,6 +1106,31 @@ function BacklogDoorDetail({
   const workspaceId = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.folderPath === project.root)?.id ?? null,
   )
+
+  // Every hook above runs unconditionally — this early return must stay BELOW
+  // them so the preview opening/closing never changes the hook order.
+  if (previewedMockup) {
+    const isHtml = /\.html?$/i.test(previewedMockup.relativePath)
+    return (
+      <FilePreviewPane
+        title={basename(previewedMockup.relativePath)}
+        path={previewedMockup.absolutePath}
+        content={previewedMockup.content}
+        onBack={() => setPreviewedMockup(null)}
+        onClose={() => setPreviewedMockup(null)}
+        body={
+          isHtml ? (
+            <HtmlArtifactFrame
+              absolutePath={previewedMockup.absolutePath}
+              relativePath={previewedMockup.relativePath}
+              watchDirectoryPath={parentPath(previewedMockup.absolutePath)}
+              enableSourceView
+            />
+          ) : undefined
+        }
+      />
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -1032,19 +1155,27 @@ function BacklogDoorDetail({
           <span className="font-mono text-[color:var(--text-muted)]">{project.name}</span>
           <TruncatedText as="span" text={item.relativePath} className="ml-auto min-w-0 font-mono text-[10.5px]" />
         </div>
-        <TruncatedText
-          as="h3"
-          multiline
-          text={item.title}
-          className="mt-1.5 text-[14px] font-semibold text-[color:var(--text-strong)]"
-        />
+        <div className="mt-1.5 flex items-start gap-2">
+          <TruncatedText
+            as="h3"
+            multiline
+            text={item.title}
+            className="min-w-0 flex-1 text-[14px] font-semibold text-[color:var(--text-strong)]"
+          />
+          {/* Every mutation also lives here, not only on the row's right-click
+              menu: a context menu is mouse-only, so without this the door's
+              status / triage / star / archive actions would be unreachable by
+              keyboard. Same shared choice lists and the same BacklogActions the
+              row menu dispatches, so the two surfaces cannot drift. */}
+          <BacklogDoorActionsMenu item={item} actions={actions} />
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {item.type !== 'mockup' ? (
           <BacklogMockupsSection
             item={item}
             folderPath={project.root}
-            onOpenMockup={() => {}}
+            onOpenMockup={openMockup}
             onSetMockups={actions.setMockups}
           />
         ) : null}
@@ -1073,6 +1204,102 @@ function BacklogDoorDetail({
         </div>
       </div>
     </div>
+  )
+}
+
+// The detail pane's "More actions" menu — the keyboard-reachable twin of the
+// row's right-click menu. Both dispatch the same `BacklogActions` (already
+// routed to the item's own project), and both read the same shared choice lists,
+// so a status word or size label can never differ between them.
+function BacklogDoorActionsMenu({
+  item,
+  actions,
+}: {
+  item: BacklogItem
+  actions: ReturnType<typeof createBacklogDoorActions>
+}): JSX.Element {
+  const starred = item.highlight?.starred === true
+  const currentColor = item.highlight?.color ?? null
+  const archived = item.status === 'archived'
+  const choiceFlyout = <T,>(
+    id: string,
+    label: string,
+    choices: ReadonlyArray<{ value: T; label: string }>,
+    current: T,
+    apply: (value: T) => void,
+  ) => ({
+    kind: 'flyout' as const,
+    id,
+    label,
+    ariaLabel: label,
+    surfaceClassName: 'min-w-[180px]',
+    render: (close: () => void) => (
+      <>
+        {choices.map((choice) => (
+          <MenuItem
+            key={String(choice.value)}
+            checked={current === choice.value}
+            icon={<MenuCheckGlyph visible={current === choice.value} />}
+            onClick={() => {
+              apply(choice.value)
+              close()
+            }}
+          >
+            {choice.label}
+          </MenuItem>
+        ))}
+      </>
+    ),
+  })
+
+  return (
+    <OverflowMenu
+      ariaLabel="More actions"
+      triggerTooltip="More actions"
+      items={[
+        { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(item) },
+        { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(item) },
+        { kind: 'separator' as const, id: 'sep-files' },
+        choiceFlyout(
+          'set-status',
+          'Status',
+          STATUS_MENU_CHOICES.map((status) => ({ value: status, label: BACKLOG_STATUS_LABEL[status] })),
+          item.status,
+          (status) => actions.setStatus(item, status),
+        ),
+        choiceFlyout('set-priority', 'Priority', CRITICALITY_EDIT_ITEMS, item.criticality ?? 'unset', (value) =>
+          actions.setCriticality(item, value),
+        ),
+        choiceFlyout('set-size', 'Size', DIFFICULTY_EDIT_ITEMS, item.difficulty ?? 'unset', (value) =>
+          actions.setDifficulty(item, value),
+        ),
+        choiceFlyout('set-risk', 'Risk', RISK_EDIT_ITEMS, item.risk ?? 'unset', (value) =>
+          actions.setRisk(item, value),
+        ),
+        { kind: 'separator' as const, id: 'sep-triage' },
+        {
+          id: 'star',
+          label: starred ? 'Unstar' : 'Star',
+          icon: (
+            <StarGlyph
+              filled={starred}
+              stroked
+              className={`icon-sm shrink-0 ${starred ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-disabled)]'}`}
+            />
+          ),
+          onSelect: () => actions.setHighlight(item, { starred: !starred, color: currentColor }),
+        },
+        { id: 'rename', label: 'Rename…', onSelect: () => actions.rename(item) },
+        ...(archived
+          ? []
+          : [
+              item.isEpic
+                ? { id: 'archive-epic', label: 'Archive epic', onSelect: () => actions.archiveEpic(item) }
+                : { id: 'archive', label: 'Archive', onSelect: () => actions.archive(item) },
+            ]),
+        { id: 'delete', label: 'Delete…', destructive: true, onSelect: () => actions.remove(item) },
+      ]}
+    />
   )
 }
 
@@ -1120,9 +1347,21 @@ function uniqueItemFileName(baseName: string, existingRelativeLower: ReadonlySet
   return candidate
 }
 
-// "3 projects · 214 active items" (mockup §4 bar sub-line).
-function describeScope(projectCount: number, itemCount: number, view: BacklogView): string {
-  const projectWord = `${projectCount} ${projectCount === 1 ? 'project' : 'projects'}`
+// "3 projects · 214 active items" (mockup §4 bar sub-line). The scope names what
+// is ACTUALLY listed: with one project filtered it names that project, so the bar
+// can never claim "3 projects" beside a count that covers only one of them (the
+// filter chips show the same number for that project).
+function describeScope(
+  projects: ReadonlyArray<BacklogProjectFeed>,
+  filter: string,
+  itemCount: number,
+  view: BacklogView,
+): string {
   const scope = view === 'active' ? 'active ' : ''
-  return `${projectWord} · ${itemCount} ${scope}${itemCount === 1 ? 'item' : 'items'}`
+  const items = `${itemCount} ${scope}${itemCount === 1 ? 'item' : 'items'}`
+  if (filter !== ALL_PROJECTS) {
+    const named = projects.find((feed) => feed.rootKey === filter)
+    if (named) return `${named.projectName} · ${items}`
+  }
+  return `${projects.length} ${projects.length === 1 ? 'project' : 'projects'} · ${items}`
 }

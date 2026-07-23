@@ -197,6 +197,27 @@ test('Dependency order stays per-project and concatenates projects in feed order
   assert.equal(ids[ids.length - 1], 'b1')
 })
 
+test('two projects holding the SAME relative path stay distinct rows', () => {
+  // BacklogItem.id IS the project-relative path, so an identically-named file in
+  // two projects carries the same id. The merged list must still contain BOTH
+  // rows, each tagged with its own project — the surface keys selection and
+  // mutation routing on (project, item), never on the bare id.
+  const same = 'backlog/2026-07-22-thing.md'
+  const a = mkFeed('a', 'multicode', [mk({ id: same, relativePath: same, status: 'ready' })])
+  const b = mkFeed('b', 'multiauth', [mk({ id: same, relativePath: same, status: 'ready' })])
+  const list = buildBacklogDoorList([a, b], ALL_PROJECTS, 'all', 'recent', '')
+  assert.equal(list.rows.length, 2, 'both projects’ rows survive the merge')
+  assert.deepEqual(
+    list.rows.map((row) => row.project.rootKey).sort(),
+    ['a', 'b'],
+    'each row still resolves to its own project',
+  )
+  // Filtering to one project yields exactly that project's copy.
+  const onlyB = buildBacklogDoorList([a, b], 'b', 'all', 'recent', '')
+  assert.equal(onlyB.rows.length, 1)
+  assert.equal(onlyB.rows[0].project.rootKey, 'b')
+})
+
 test('anyProjectNeedsInput is the cross-project needs_input signal for the door dot', () => {
   const calm = [mkFeed('a', 'p', [mk({ id: 'x', status: 'ready' })])]
   const waiting = [
