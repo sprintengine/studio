@@ -56,6 +56,10 @@ for understanding, a one-line *why* per file, line-anchored annotations, an
 optional change map, and honest coverage accounting. Its full shape and every
 validation rule are in "The brief schema" at the end of this document.
 
+The rules below are the craft. They describe a normal-sized review; where they
+give a range or a judgement call, "Getting the details right" immediately after
+says how to apply it to the change set actually in front of you.
+
 <!-- shared:brief-craft -->
 Copy these fields verbatim from the changeset so the brief binds to it:
   - brief.changeSetId = the changeset id
@@ -131,7 +135,23 @@ readable.
 **knowledgeRefs.** `note` is the slug the workspace cites a note by — folder plus
 name, with no `knowledge/` prefix and no `.md` extension (for example
 `multicode/review-workspace`), matching the `[[note-name]]` form used inside
-narratives. Cite only notes you actually opened.
+narratives. List a note only if you opened it and it shaped what you wrote; an
+empty array is the honest answer when the change stands on its own, at any depth.
+
+**How many annotations.** Annotate the lines a reader would otherwise stop and
+puzzle over — the decision, the constraint, the non-obvious consequence. A step
+with nothing surprising in it can carry none. Annotating every hunk buries the
+few that matter.
+
+**Change map.** It earns its place when a reader has to hold several interacting
+entities in their head. Skip it when the change is one step, or when every node
+would key to the same step — a map whose nodes all point at one step tells the
+reader nothing the step did not.
+
+**The change set title is a label, not a summary.** It comes from the PR, branch,
+or patch and can be stale, broad, or describe work this diff is only part of.
+Describe what the diff actually does; where the title and the diff disagree, the
+diff wins and the overview can note the gap neutrally.
 
 **Changes with no runtime behaviour.** For a docs, comment, or test-only change
 the default data → behaviour → surface → tests order has nothing to bite on.
