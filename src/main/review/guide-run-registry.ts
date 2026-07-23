@@ -30,9 +30,11 @@ export interface GuideRunStatus {
 // Records phases for ONE run. A replaced run keeps writing through its own
 // recorder as it unwinds (an interrupted run reports `failed` from its catch),
 // and those late writes must not land on the run that replaced it — so the
-// recorder, not the review id, is what a phase belongs to.
+// recorder, not the review id, is what a phase belongs to. `record` reports
+// whether the phase was applied, so a caller with a second sink (the live event
+// channel) can stay silent for a run that no longer owns the review.
 export interface GuideRunRecorder {
-  record(phase: GuideRunPhase, detail?: string): void
+  record(phase: GuideRunPhase, detail?: string): boolean
 }
 
 interface GuideRunEntry extends GuideRunStatus {
@@ -52,8 +54,9 @@ export class GuideRunRegistry {
     this.runs.set(reviewId, { runId, running: true, phase: 'reading', startedAt })
     return {
       record: (phase, detail) => {
-        if (this.runs.get(reviewId)?.runId !== runId) return
+        if (this.runs.get(reviewId)?.runId !== runId) return false
         this.write(reviewId, runId, startedAt, phase, detail)
+        return true
       },
     }
   }

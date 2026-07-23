@@ -274,14 +274,16 @@ export class ReviewBriefRunService {
   }
 
   // Every phase goes to both sinks: the registry (survives the renderer) and the
-  // event channel (drives a panel that is already open).
+  // event channel (drives a panel that is already open). A run the registry has
+  // already replaced goes silent on both — otherwise an interrupted run's parting
+  // `failed` would tell an open panel the live replacement had died.
   private emitPhase(
     recorder: GuideRunRecorder,
     workspaceId: string,
     phase: BriefRunPhase,
     detail?: string
   ): void {
-    recorder.record(phase, detail)
+    if (!recorder.record(phase, detail)) return
     this.emit(detail ? { workspaceId, phase, detail } : { workspaceId, phase })
   }
 

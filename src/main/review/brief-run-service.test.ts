@@ -583,6 +583,10 @@ run('a start with restart replaces the live run and the replaced run cannot clob
   const after = registry.status(WORKSPACE_ID)
   assert.equal(after?.phase, 'done', 'the replacement owns the run state')
   assert.equal(after?.running, false)
+  // ...and it must not reach an open panel over the event channel either, or the
+  // walkthrough would show the live replacement as failed.
+  assert.equal(events.at(-1)?.phase, 'done', 'the replaced run went silent on the event channel')
+  assert.equal(events.filter((e) => e.phase === 'failed').length, 0, 'no stale failure was broadcast')
 })
 
 // The tests run from the repo root (npm run), so resolve repo files from cwd.
