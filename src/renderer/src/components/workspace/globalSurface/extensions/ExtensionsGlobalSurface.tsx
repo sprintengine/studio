@@ -34,16 +34,12 @@ import {
   type ExtensionsSurfaceView,
 } from './extensionsSurfaceTarget'
 
-// Rail rows. Marketplace kinds first (Featured, the full grid), then the
-// manage half. Skill packs / Modules / Agent CLIs join the Marketplace group
-// in C2 of the epic.
-type ExtensionsRailId = 'featured' | 'mcp-servers' | 'installed' | 'automation-server'
-
-// The old modal's two deep-link destinations, mapped onto rail rows: browse →
-// the full marketplace grid, installed → the manage view.
-function railIdForTargetView(view: ExtensionsSurfaceView): ExtensionsRailId {
-  return view === 'installed' ? 'installed' : 'mcp-servers'
-}
+// The canvas sections. The marketplace is ONE section with ONE browse state:
+// its two rail rows (Featured, MCP servers) are projections of the canvas's
+// facet — selecting a row sets the facet, and changing the facet tab moves the
+// rail highlight — so the rail and the facet tabs can never contradict each
+// other. Skill packs / Modules / Agent CLIs rows join the group in C2.
+type ExtensionsSection = 'marketplace' | 'installed' | 'automation-server'
 
 export default function ExtensionsGlobalSurface(): JSX.Element {
   const back = useSurfaceBackNav()
@@ -52,23 +48,36 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   )
   const sources = useConnectorSources(activeWorkspaceRoot)
 
-  const [selectedId, setSelectedId] = useState<ExtensionsRailId>('featured')
-  // Browse state per marketplace row, held here so switching rows (or visiting
-  // Installed) and coming back keeps each row's search/facet/detail.
-  const featuredBrowse = useConnectorsBrowseState('Featured')
-  const allBrowse = useConnectorsBrowseState('All')
+  const [section, setSection] = useState<ExtensionsSection>('marketplace')
+  // The door lands on Featured (the launchable connectors); the facet doubles
+  // as the marketplace rail-row selection.
+  const browse = useConnectorsBrowseState('Featured')
+  const { facet, setFacet } = browse
+
+  const applyTargetView = useCallback(
+    (view: ExtensionsSurfaceView) => {
+      if (view === 'installed') {
+        setSection('installed')
+        return
+      }
+      // The old modal's Browse deep-link landed on the full grid, not Featured.
+      setSection('marketplace')
+      setFacet('All')
+    },
+    [setFacet],
+  )
 
   // Deep-link: drain the latch on mount and subscribe live (the automations
   // surface-target idiom), so entry points land on the right rail row whether
   // the door was already open or just mounted.
   useEffect(() => {
     const pending = consumePendingExtensionsSurfaceTarget()
-    if (pending) setSelectedId(railIdForTargetView(pending))
+    if (pending) applyTargetView(pending)
     return subscribeExtensionsSurfaceTarget((view) => {
       consumePendingExtensionsSurfaceTarget()
-      setSelectedId(railIdForTargetView(view))
+      applyTargetView(view)
     })
-  }, [])
+  }, [applyTargetView])
 
   // Host actions, read at call time from the seam WorkspaceManager fills. A
   // missing host (tests, detached mounts) no-ops rather than throwing.
@@ -82,10 +91,18 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     getExtensionsSurfaceHost()?.onUseSkillInNewAgent(skill)
   }, [])
 
-  // ── Counts for the bar + rail state lines ──────────────────────────────────
+  // ── Counts for the bar + rail state lines (honest per source state) ────────
   const catalog = sources.catalogLoad.status === 'ready' ? sources.catalogLoad.data : []
   const plugins = sources.registryLoad.status === 'ready' ? sources.registryLoad.data : []
-  const settled = sources.catalogLoad.status !== 'loading' && sources.registryLoad.status !== 'loading'
+  const catalogReady = sources.catalogLoad.status === 'ready'
+  const registryReady = sources.registryLoad.status === 'ready'
+  // The launchable population is valid once the catalog stops loading: on a
+  // catalog error it truthfully degrades to the installed servers, which
+  // launch without the catalog (the browse canvas discloses the failure).
+  const catalogSettled = sources.catalogLoad.status !== 'loading'
+  const marketplaceLoading =
+    sources.catalogLoad.status === 'loading' || sources.registryLoad.status === 'loading'
+  const marketplaceDown = !marketplaceLoading && !catalogReady && !registryReady
 
   const readyCount = useMemo(
     () => launchableConnectors(catalog, sources.mcpSettings.servers).length,
@@ -102,13 +119,24 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     title: 'Connectors',
     // Status is earned: the chip appears only when something is launchable.
     statusChip:
-      readyCount > 0 ? (
+      catalogSettled && readyCount > 0 ? (
         <BarStatusChip tone="good" label={`${readyCount} ready to launch`} />
       ) : undefined,
-    contextSub: settled ? `${marketplaceCount} in marketplace · ${installedCount} installed` : undefined,
+    // Counts only once a source has really answered — a failed marketplace must
+    // never read as "0 in marketplace".
+    contextSub:
+      catalogReady || registryReady
+        ? `${marketplaceCount} in marketplace · ${installedCount} installed`
+        : undefined,
   }
 
   // ── Rail ───────────────────────────────────────────────────────────────────
+  const marketplaceStateLine = marketplaceLoading
+    ? 'Loading…'
+    : marketplaceDown
+      ? 'Marketplace unavailable'
+      : `${marketplaceCount} available`
+
   const groups: SurfaceRailGroup[] = [
     {
       key: 'marketplace',
@@ -117,13 +145,13 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
         {
           id: 'featured',
           title: 'Featured',
-          stateLine: settled ? `${readyCount} ready to launch` : 'Loading…',
+          stateLine: catalogSettled ? `${readyCount} ready to launch` : 'Loading…',
           icon: <FeaturedGlyph />,
         },
         {
           id: 'mcp-servers',
           title: 'MCP servers',
-          stateLine: settled ? `${marketplaceCount} available` : 'Loading…',
+          stateLine: marketplaceStateLine,
           icon: <McpGlyph />,
         },
       ],
@@ -152,35 +180,56 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   ]
   const rows = groups.flatMap((group) => group.rows)
 
+  // The marketplace rows project the facet: Featured is selected exactly while
+  // the Featured facet is active; any other facet highlights MCP servers.
+  const selectedRailId =
+    section === 'marketplace' ? (facet === 'Featured' ? 'featured' : 'mcp-servers') : section
+
+  const onRailSelect = useCallback(
+    (id: string) => {
+      if (id === 'featured') {
+        setSection('marketplace')
+        setFacet('Featured')
+        return
+      }
+      if (id === 'mcp-servers') {
+        setSection('marketplace')
+        // Leaving Featured lands on the full grid; a non-Featured facet the
+        // user already picked survives the round-trip.
+        if (facet === 'Featured') setFacet('All')
+        return
+      }
+      setSection(id as ExtensionsSection)
+    },
+    [facet, setFacet],
+  )
+
   const rail = (
     <SurfaceRail
       label="Connectors"
       rows={rows}
       groups={groups}
-      selectedId={selectedId}
-      onSelect={(id) => setSelectedId(id as ExtensionsRailId)}
+      selectedId={selectedRailId}
+      onSelect={onRailSelect}
       // The custom-MCP form lives at the top of the Installed canvas; the
       // affordance lands the user right on it.
-      newAffordance={{ label: 'Add a custom MCP', onActivate: () => setSelectedId('installed') }}
+      newAffordance={{ label: 'Add a custom MCP', onActivate: () => setSection('installed') }}
     />
   )
 
   // ── Canvas ─────────────────────────────────────────────────────────────────
   const canvas = (() => {
-    switch (selectedId) {
-      case 'featured':
-      case 'mcp-servers': {
-        const state = selectedId === 'featured' ? featuredBrowse : allBrowse
+    switch (section) {
+      case 'marketplace':
         return (
           <ConnectorsBrowseCanvas
             sources={sources}
-            state={state}
+            state={browse}
             workspaceRoot={activeWorkspaceRoot}
             onLaunchConnector={launchConnector}
             onUseInAutomation={useInAutomation}
           />
         )
-      }
       case 'installed':
         return (
           <ConnectorsManage
@@ -204,9 +253,11 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       onBack={back.onBack}
       canGoBack={back.canGoBack}
     >
-      {/* Each rail row remounts its scroll container so scroll position never
-          leaks between rows; the browse state itself persists above. */}
-      <div key={selectedId} className="h-full min-h-0 overflow-y-auto px-5 py-4">
+      {/* Each section remounts its scroll container so scroll position never
+          leaks between sections; browse state itself persists above, and the
+          Featured ↔ MCP servers switch is a facet change inside one mounted
+          canvas, not a remount. */}
+      <div key={section} className="h-full min-h-0 overflow-y-auto px-5 py-4">
         {canvas}
       </div>
     </GlobalSurfaceShell>
