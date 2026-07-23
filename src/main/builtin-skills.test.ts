@@ -177,6 +177,7 @@ async function main(): Promise<void> {
       'backlog',
       'use-railway',
       'use-codex',
+      'review-guide',
       'frontend-design',
     ]
   )
