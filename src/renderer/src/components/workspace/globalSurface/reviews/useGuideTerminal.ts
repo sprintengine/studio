@@ -36,13 +36,28 @@ export function useGuideTerminal({
   workspaceRoot: string | null
   guide: ReviewGuideTerminal | null
 }): GuideTerminalLink {
-  // Only the id + folder of each workspace: shallow-compared so an unrelated
-  // store tick (an agent's output, a projection refresh) does not re-render the
-  // review canvas.
-  const projects = useWorkspaceStore(
+  // Only the id + folder + mode of each workspace, selected as PRIMITIVE keys:
+  // useShallow compares array elements with Object.is, so mapping to fresh
+  // objects inside the selector never compares equal — every render produced a
+  // new snapshot, an infinite re-render loop that crashed the renderer the
+  // moment the Reviews door mounted (MC-1834). Strings compare by value, so an
+  // unrelated store tick (an agent's output, a projection refresh) still does
+  // not re-render the review canvas; the object view is rebuilt in a memo only
+  // when a key actually changes.
+  const projectKeys = useWorkspaceStore(
     useShallow((state) =>
-      state.workspaces.map((workspace) => ({ id: workspace.id, folderPath: workspace.folderPath, mode: workspace.mode })),
+      state.workspaces.map((workspace) =>
+        JSON.stringify([workspace.id, workspace.folderPath, workspace.mode]),
+      ),
     ),
+  )
+  const projects = useMemo(
+    () =>
+      projectKeys.map((key) => {
+        const [id, folderPath, mode] = JSON.parse(key) as [string, string | null, string]
+        return { id, folderPath, mode }
+      }),
+    [projectKeys],
   )
   const terminal = useMemo(
     () => resolveGuideTerminal({ reviewId, workspaceRoot, guide, workspaces: projects }),

@@ -474,6 +474,33 @@ async function main(): Promise<void> {
   await act(async () => {
     backlogRoot.unmount()
   })
+
+  // ═══ 5. The Reviews door MOUNTS ═══════════════════════════════════════════
+  // Regression for MC-1834: the guide-terminal hook selected workspaces by
+  // mapping to fresh objects inside useShallow, so every render produced a new
+  // snapshot — an infinite re-render loop ("Maximum update depth exceeded")
+  // that tore down the renderer the moment the door opened. Mounting against
+  // the real store with several workspaces resident is the exact trigger; the
+  // unstubbed review IPC resolving `{ ok: false }` is fine — a degraded pane
+  // is a pass, a render loop is the failure.
+  const { default: ReviewsGlobalSurface } = await import('./reviews/ReviewsGlobalSurface')
+  useWorkspaceStore.setState({ activeGlobalSurface: 'reviews' } as never)
+  const reviewsRoot = createRoot(container)
+  await act(async () => {
+    reviewsRoot.render(
+      React.createElement(ConfirmDialogProvider, null, React.createElement(ReviewsGlobalSurface)),
+    )
+  })
+  await settle()
+  assert.ok(
+    (container.textContent ?? '').length > 0,
+    'the Reviews door mounts and renders content instead of crashing the tree',
+  )
+  await act(async () => {
+    reviewsRoot.unmount()
+  })
+  console.log('ok - the Reviews door mounts without a re-render storm')
+
   // Drop the shared scans (and their watchers) so this process can exit.
   resetScans()
   console.log('all global-door integration checks passed')
