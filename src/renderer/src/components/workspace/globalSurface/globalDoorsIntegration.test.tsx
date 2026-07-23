@@ -501,6 +501,57 @@ async function main(): Promise<void> {
   })
   console.log('ok - the Reviews door mounts without a re-render storm')
 
+  // ═══ 6. A door failure is contained to the door (MC-1835) ═════════════════
+  // A surface that throws during render must land in the boundary's fallback —
+  // with both recoveries working — instead of white-screening the renderer.
+  const { GlobalSurfaceErrorBoundary } = await import('./surfaceSubstrate')
+  let closed = 0
+  let bombArmed = true
+  function BombSurface(): React.ReactElement {
+    if (bombArmed) throw new Error('deliberate door failure')
+    return React.createElement('div', null, 'door content restored')
+  }
+  const boundaryRoot = createRoot(container)
+  await act(async () => {
+    boundaryRoot.render(
+      React.createElement(
+        GlobalSurfaceErrorBoundary,
+        {
+          surfaceId: 'reviews',
+          surfaceLabel: 'Reviews',
+          onClose: () => {
+            closed += 1
+          },
+        },
+        React.createElement(BombSurface),
+      ),
+    )
+  })
+  assert.ok(
+    container.textContent?.includes('Reviews hit a problem and stopped.'),
+    'the fallback names the failed surface',
+  )
+  const fallbackButtons = Array.from(container.querySelectorAll('button'))
+  const closeButton = fallbackButtons.find((b) => b.textContent === 'Close')
+  const reloadButton = fallbackButtons.find((b) => b.textContent === 'Reload surface')
+  assert.ok(closeButton && reloadButton, 'the fallback offers Close and Reload surface')
+  await act(async () => {
+    ;(closeButton as HTMLElement).click()
+  })
+  assert.equal(closed, 1, 'Close hands off to closeGlobalSurface')
+  bombArmed = false
+  await act(async () => {
+    ;(reloadButton as HTMLElement).click()
+  })
+  assert.ok(
+    container.textContent?.includes('door content restored'),
+    'Reload surface remounts the children once the failure is gone',
+  )
+  await act(async () => {
+    boundaryRoot.unmount()
+  })
+  console.log('ok - a door failure is contained: named fallback, Close and Reload both work')
+
   // Drop the shared scans (and their watchers) so this process can exit.
   resetScans()
   console.log('all global-door integration checks passed')

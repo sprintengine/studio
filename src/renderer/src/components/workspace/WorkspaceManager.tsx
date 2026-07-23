@@ -96,6 +96,7 @@ import { WORKSPACE_LAYER_REVEAL_EVENT } from '../../utils/terminalFitScheduler'
 import { SidebarChrome } from './SidebarChrome'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/GlobalSurfaceShell'
+import { GlobalSurfaceErrorBoundary } from './globalSurface/surfaceSubstrate'
 import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
 import {
   noteSprintDoorSelection,
@@ -3224,9 +3225,21 @@ export default function WorkspaceManager() {
         {activeGlobalSurfaceEntry ? (
           <div className="absolute inset-0 z-20 bg-[color:var(--bg-app)]">
             <GlobalSurfaceBarSlotContext.Provider value={surfaceBarSlot}>
-              <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
-                <activeGlobalSurfaceEntry.Component />
-              </React.Suspense>
+              {/* A door failure stays a door failure (MC-1835): render/import
+                  throws land in this boundary's contained fallback instead of
+                  white-screening the renderer. */}
+              <GlobalSurfaceErrorBoundary
+                surfaceId={activeGlobalSurfaceEntry.id}
+                surfaceLabel={
+                  activeGlobalSurfaceEntry.id.charAt(0).toUpperCase()
+                  + activeGlobalSurfaceEntry.id.slice(1)
+                }
+                onClose={closeGlobalSurface}
+              >
+                <React.Suspense fallback={<SuspenseFallback label="Loading surface" />}>
+                  <activeGlobalSurfaceEntry.Component />
+                </React.Suspense>
+              </GlobalSurfaceErrorBoundary>
             </GlobalSurfaceBarSlotContext.Provider>
           </div>
         ) : null}
