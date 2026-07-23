@@ -1773,6 +1773,21 @@ export default function NewWorkspacePanel({
     if (!seTeamNameTouched) setSeTeamName(value)
   }
 
+  // Worktree mode turned on FOR the extra projects belongs to them: when the last
+  // one goes, so does the mode. Otherwise a run whose projects were dropped — by
+  // a path switch, a re-based primary, or an un-ticked chip — would still branch
+  // and open a pull request, and "Skip the rest and create" never shows the
+  // switch that says so. Cleared the moment the user works the switch themselves.
+  const worktreesForcedByRepos = useRef(false)
+
+  const applyDeclaredSprintRepos = (next: SprintDeclaredRepo[]) => {
+    setSeDeclaredRepos(next)
+    if (next.length === 0 && worktreesForcedByRepos.current) {
+      worktreesForcedByRepos.current = false
+      setSeUseWorktrees(false)
+    }
+  }
+
   // Folder-scoped source state is invalidated whenever the target folder changes:
   // a saved team, plan/bundle selection, or error message all belong to the old
   // folder. Shared by every folder-change path (workspace step + chat chip) so the
@@ -1799,7 +1814,7 @@ export default function NewWorkspacePanel({
     // The other projects survive a change of primary, but their declared roots are
     // written relative to it — and one that the new primary now contains, or sits
     // inside, is no longer a separate project at all (item 1765).
-    setSeDeclaredRepos((current) => rebaseSprintRepos(current, dir))
+    applyDeclaredSprintRepos(rebaseSprintRepos(seDeclaredRepos, dir))
     setSeRepoError(null)
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
@@ -1895,14 +1910,19 @@ export default function NewWorkspacePanel({
     // A run can only span projects when each one gets its own worktree — the
     // engine refuses the pair — so taking on a project turns worktree mode on
     // with it rather than dropping the choice at creation.
-    setSeUseWorktrees(true)
+    if (!seUseWorktrees) {
+      worktreesForcedByRepos.current = true
+      setSeUseWorktrees(true)
+    }
   }
 
   const handleToggleSprintRepo = (candidate: string, displayName: string) => {
     setSeRepoError(null)
     const declared = seDeclaredRepos.find((repo) => isSameFolder(repo.folderPath, candidate))
     if (declared) {
-      setSeDeclaredRepos((current) => current.filter((repo) => repo.folderPath !== declared.folderPath))
+      applyDeclaredSprintRepos(
+        seDeclaredRepos.filter((repo) => repo.folderPath !== declared.folderPath),
+      )
       return
     }
     void addSprintRepo(candidate, displayName)
@@ -1925,8 +1945,11 @@ export default function NewWorkspacePanel({
   )
 
   // Worktrees off means a single-project run: the extra projects go with it, so
-  // no selection can survive into a creation the engine would reject.
+  // no selection can survive into a creation the engine would reject. Working the
+  // switch also makes the mode the user's, not the projects' — turning it back on
+  // afterwards is their call, not something dropping a project undoes.
   const handleChangeUseWorktrees = (value: boolean) => {
+    worktreesForcedByRepos.current = false
     setSeUseWorktrees(value)
     if (!value) {
       setSeDeclaredRepos([])
@@ -3262,7 +3285,7 @@ export default function NewWorkspacePanel({
                 // — so leaving this path drops the selection rather than holding
                 // one the create call would never send.
                 if (p !== 'new') {
-                  setSeDeclaredRepos([])
+                  applyDeclaredSprintRepos([])
                   setSeRepoError(null)
                 }
                 setSePlanError(null)

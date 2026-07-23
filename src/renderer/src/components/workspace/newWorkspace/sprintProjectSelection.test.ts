@@ -145,6 +145,13 @@ async function testValidation(): Promise<void> {
     /Choose the project this sprint runs in first/,
     'nothing can be declared before a primary project exists',
   )
+  // A shared name prefix is not containment: `multicode-mobile` sits BESIDE
+  // `multicode`, and a plain `startsWith` would have refused it.
+  assert.equal(
+    await rejection('/work/multicode-mobile'),
+    null,
+    'a neighbour whose name starts with the primary name is still a separate project',
+  )
 
   const declared: SprintDeclaredRepo[] = [
     { id: 'multiauth', root: '../multiauth', folderPath: '/work/multiauth', displayName: 'multiauth' },

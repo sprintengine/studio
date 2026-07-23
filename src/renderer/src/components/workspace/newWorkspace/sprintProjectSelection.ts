@@ -176,9 +176,10 @@ export async function declareSprintProject(
   },
   probe: SprintProjectProbe,
 ): Promise<{ repo: SprintDeclaredRepo } | { rejection: SprintProjectRejection }> {
+  const primary = input.primaryFolderPath
+  if (!primary) return { rejection: { reason: 'Choose the project this sprint runs in first.' } }
   const rejection = await validateSprintProjectSelection(input, probe)
   if (rejection) return { rejection }
-  const primary = input.primaryFolderPath as string
   const taken = new Set(input.alreadyDeclared.map((repo) => repo.id))
   const id = sprintRepoIdFor(input.candidateFolderPath, taken)
   if (!id) {
