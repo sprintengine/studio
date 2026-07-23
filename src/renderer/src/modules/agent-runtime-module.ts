@@ -1,3 +1,5 @@
+import React from 'react'
+
 import type { RendererModule } from './renderer-host'
 import {
   agentLinkForItem,
@@ -8,6 +10,15 @@ import {
   AGENT_TERMINAL_TARGET_KIND,
   type AgentBacklogLinkOpenPorts,
 } from '../utils/agentBacklogLinks'
+
+// The Extensions door surface (MC-1847): the connectors browse/install/launch
+// experience as a door-routed full page. Lazy — and deliberately NOT a
+// top-level import — because the surface reaches the workspace store; keeping
+// it behind a dynamic import leaves the eager module-registry graph store-free,
+// the discipline the other doors follow.
+const ExtensionsGlobalSurface = React.lazy(
+  () => import('../components/workspace/globalSurface/extensions/ExtensionsGlobalSurface')
+)
 
 // Activate the agent's workspace, then focus (or add) its terminal tab. Mirrors
 // MultiloopAutoRunSupervisor.revealMultiloopAgentTerminal: the mounted model is
@@ -56,8 +67,9 @@ async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
 // enabled and Settings → Modules renders it as a locked-on toggle the user can't
 // turn off. Its renderer surfaces (AgentPanel, TerminalView, PlainTerminalPanel,
 // the agents/runState store slices) are always present, so it registers no
-// gated panels with the host — its manifest exists to anchor the dependency
-// graph and present the core in the chooser.
+// gated panels with the host; it does contribute the always-reachable
+// Extensions door surface (MC-1847), and its manifest anchors the dependency
+// graph and presents the core in the chooser.
 //
 // It does own the `agent.terminal` Backlog link kind: when a Backlog item is
 // handed to an agent terminal, the item records which agent is working it and
@@ -77,6 +89,12 @@ export const agentRuntimeRendererModule: RendererModule = {
     core: true,
   },
   registerRenderer(host) {
+    // The Extensions door (MC-1847): registered through the always-on core so
+    // the marketplace surface is always reachable, matching the previously
+    // hardcoded Connectors sidebar entry it replaces. The sidebar nav entry
+    // flips from the modal to `openGlobalSurface('extensions')` in B1.
+    host.registerGlobalSurface({ id: 'extensions', Component: ExtensionsGlobalSurface })
+
     host.registerBacklogLinkProvider({
       moduleId: AGENT_RUNTIME_MODULE_ID,
       targetKinds: [AGENT_TERMINAL_TARGET_KIND],
