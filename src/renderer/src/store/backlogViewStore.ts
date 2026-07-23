@@ -109,3 +109,66 @@ export function selectBacklogProjectView(
   const entry = key ? state.viewByProject[key] : undefined
   return entry ? coerceProjectView(entry) : DEFAULT_BACKLOG_PROJECT_VIEW
 }
+
+// ---------------------------------------------------------------------------
+// Backlog door (cross-project surface) view state — DECISION D7 (plan §2)
+// ---------------------------------------------------------------------------
+//
+// The Backlog door's view is a NEW instance-level record, deliberately NOT the
+// per-project record above: the door filters across every project, so its lens/
+// sort/grouping and its selected project filter are surface-local, transient,
+// per-window state (like `activeGlobalSurface` itself) — never persisted and
+// never cross-window synced. A plain (unpersisted) store keeps the selection for
+// the life of the window so reopening the door restores it, and resets on reload.
+// The per-project panel keeps reading its own persisted record untouched.
+
+// The project-filter sentinel value for "every project". A real filter is a
+// project feed's normalized `rootKey`. Kept in sync with the surface model's
+// ALL_PROJECTS constant (imported there); duplicated as a literal here so this
+// store carries no dependency on the door component graph.
+export const BACKLOG_DOOR_ALL_PROJECTS = 'all'
+
+export interface BacklogDoorView {
+  // The selected project filter: a feed rootKey, or BACKLOG_DOOR_ALL_PROJECTS.
+  projectFilter: string
+  view: BacklogView
+  sort: BacklogSort
+  group: BacklogGroup
+}
+
+export const DEFAULT_BACKLOG_DOOR_VIEW: BacklogDoorView = {
+  projectFilter: BACKLOG_DOOR_ALL_PROJECTS,
+  view: 'active',
+  sort: 'recent',
+  group: 'none',
+}
+
+interface BacklogDoorViewStore {
+  door: BacklogDoorView
+  setDoorView: (patch: Partial<BacklogDoorView>) => void
+}
+
+// Unpersisted: transient per-window state (D7). Reopening the door within the
+// window restores this; a reload starts fresh from the default.
+export const useBacklogDoorViewStore = create<BacklogDoorViewStore>()(
+  immer((set) => ({
+    door: DEFAULT_BACKLOG_DOOR_VIEW,
+    setDoorView: (patch) =>
+      set((state) => {
+        // Lens/sort/group coerce through the shared normalizer so an invalid
+        // patch can never wedge the door; projectFilter is a free string
+        // (rootKey) validated against live feeds by the surface, not here.
+        const normalized = coerceProjectView({
+          view: patch.view ?? state.door.view,
+          sort: patch.sort ?? state.door.sort,
+          group: patch.group ?? state.door.group,
+        })
+        state.door = {
+          projectFilter: patch.projectFilter ?? state.door.projectFilter,
+          view: normalized.view,
+          sort: normalized.sort,
+          group: normalized.group,
+        }
+      }),
+  })),
+)

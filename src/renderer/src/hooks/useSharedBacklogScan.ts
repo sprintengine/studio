@@ -322,7 +322,15 @@ export function subscribeBacklogScan(
   }
 }
 
-function refreshSharedBacklogScan(folderPath: string | null): Promise<BacklogScanResult | null> {
+// Re-scan one project's shared entry imperatively. Exported for cross-project
+// consumers that hold no single `folderPath` hook instance (the Backlog door
+// mutates N projects and must refresh whichever one it just wrote): sidecar-only
+// writes — star, highlight, triage — land in `.multi-code/backlog/items.json`,
+// which sits OUTSIDE the watched `backlog/` directory and therefore never trips
+// the filesystem watcher, so an explicit refresh is the only way those mutations
+// become visible. Coalesces with any in-flight scan, exactly like the hook's own
+// `refresh`.
+export function refreshSharedBacklogScan(folderPath: string | null): Promise<BacklogScanResult | null> {
   if (!folderPath) return Promise.resolve(null)
   return refreshSubscription(getSubscription(folderPath))
 }
