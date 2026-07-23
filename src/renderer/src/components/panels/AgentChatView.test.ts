@@ -563,6 +563,31 @@ assert.equal(subagentLaneLabel(impliedTools[0] as TranscriptToolEntry), 'Agent',
 assert.equal(toolObject(impliedTools[0] as TranscriptToolEntry), 'investigate', 'the spawn summary is the lane object')
 assert.equal(impliedTools[1]?.children, undefined, 'an orphaned child renders rather than disappearing')
 
+// A subagent that reports after its turn's result rides the continuation turn
+// (`<sessionId>_cont_<n>`): its calls, and the lane's own closing output, carry
+// a different turnId than the Task call that spawned them. They still belong to
+// that lane, and must not close some unrelated call on the continuation turn.
+const continuationFanOut = projectConversation([
+  ev('turn_started', { turnId: 'turn-parent' }),
+  ev('tool_started', { turnId: 'turn-parent', toolCallId: 'lane-x', tool: 'Task', summary: 'Task: dig', subagentLane: true, subagentType: 'Explore' }),
+  ev('turn_completed', { turnId: 'turn-parent' }),
+  ev('turn_started', { turnId: 'turn-parent_cont_1' }),
+  ev('tool_started', { turnId: 'turn-parent_cont_1', toolCallId: 'sib-1', tool: 'Bash', summary: 'Bash: npm test' }),
+  ev('tool_started', { turnId: 'turn-parent_cont_1', toolCallId: 'x1', tool: 'Read', summary: 'Read: src/deep.ts', parentToolUseId: 'lane-x' }),
+  ev('tool_output', { turnId: 'turn-parent_cont_1', toolCallId: 'lane-x', output: 'dug' }),
+])
+const continuationTools = continuationFanOut.entries.filter(
+  (entry): entry is TranscriptToolEntry => entry.kind === 'tool'
+)
+assert.deepEqual(
+  continuationTools.map((tool) => tool.id),
+  ['lane-x', 'sib-1'],
+  'a continuation-turn child joins its lane instead of becoming a stray row'
+)
+assert.deepEqual(continuationTools[0]?.children?.map((child) => child.id), ['x1'])
+assert.equal(continuationTools[0]?.status, 'done', 'a lane closes on the continuation turn that carries its result')
+assert.equal(continuationTools[1]?.status, 'running', 'the lane result never closes an unrelated continuation call')
+
 // Output without a call id closes the latest call in its own lane only.
 const idlessOutput = projectConversation([
   ev('turn_started', { turnId: 'turn-idless' }),

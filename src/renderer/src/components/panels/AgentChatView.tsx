@@ -206,6 +206,8 @@ type TurnAccumulator = {
 
 type ToolAccumulator = {
   id: string
+  // The turn this call was reported on — not necessarily its lane's turn.
+  turnId: string
   name: string
   status: 'running' | 'done'
   output?: string
@@ -238,6 +240,11 @@ export function projectConversation(
   const representedLocalTurnIds = new Set<string>()
   const approvals = new Map<string, Omit<Extract<TranscriptEntry, { kind: 'approval' }>, 'kind'>>()
   const approvalOrder: string[] = []
+  // Every tool call of the session by call id. A subagent that finishes after
+  // its turn's result reports over the continuation channel, so its calls (and
+  // the lane's own closing output) carry a *different* turnId than the `Task`
+  // call that spawned them — lookups must not be scoped to one turn.
+  const toolsById = new Map<string, ToolAccumulator>()
   let sessionStatus: ConversationSessionStatus | 'idle' = 'idle'
   let usage: { inputTokens: number; outputTokens: number } | null = null
   let lastError: string | null = null
@@ -327,8 +334,9 @@ export function projectConversation(
         const turn = ensureTurn(turnId)
         closeReasoning(turn, event.createdAt)
         const id = readString(event.payload, 'callId', 'id', 'toolCallId') ?? `${turnId}:${turn.tools.size}`
-        turn.tools.set(id, {
+        const tool: ToolAccumulator = {
           id,
+          turnId,
           name: readString(event.payload, 'name', 'toolName', 'tool') ?? 'tool',
           status: 'running',
           summary: readString(event.payload, 'summary'),
@@ -338,19 +346,22 @@ export function projectConversation(
           subagentLane: readBoolean(event.payload, 'subagentLane'),
           subagentType: readString(event.payload, 'subagentType'),
           parentToolUseId: readString(event.payload, 'parentToolUseId'),
-        })
+        }
+        turn.tools.set(id, tool)
+        toolsById.set(id, tool)
         break
       }
       case 'tool_output': {
         if (!turnId) break
         const turn = ensureTurn(turnId)
         const id = readString(event.payload, 'callId', 'id', 'toolCallId')
-        // Without a call id, close the most recent call from the same lane —
-        // a subagent's output must never land on the parent's row, and vice
-        // versa, now that both share one map.
+        // A call id closes that exact call wherever it started — a lane opened
+        // in an earlier turn closes on the continuation turn that carries its
+        // result. Without an id, fall back inside the event's own turn and
+        // lane: a subagent's output must never land on the parent's row.
         const parentToolUseId = readString(event.payload, 'parentToolUseId')
         const existing =
-          (id && turn.tools.get(id))
+          (id && toolsById.get(id))
           || [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
         if (existing) {
           existing.status = 'done'
@@ -442,6 +453,10 @@ export function projectConversation(
   // user events fall back to index-pairing of local turns, which line up
   // because sends are blocked while a turn is active.
   const entries: TranscriptEntry[] = []
+  const laneIndex = buildLaneIndex(
+    turnOrder.map((id) => turns.get(id)).filter((turn): turn is TurnAccumulator => turn !== undefined),
+    toolsById,
+  )
   const useEventUserTurns = eventUserTurns.size > 0
   const blockCount = useEventUserTurns ? turnOrder.length : Math.max(turnOrder.length, userTurns.length)
   for (let i = 0; i < blockCount; i += 1) {
@@ -472,7 +487,7 @@ export function projectConversation(
           ? Math.max(0, turn.reasoningEndedAt - turn.reasoningStartedAt)
           : undefined,
     })
-    for (const tool of nestSubagentLanes(turn)) entries.push(tool)
+    for (const tool of nestSubagentLanes(turn, laneIndex)) entries.push(tool)
     for (const requestId of turn.approvals) {
       const approval = approvals.get(requestId)
       if (approval) entries.push({ kind: 'approval', ...approval })
@@ -495,31 +510,44 @@ export function projectConversation(
   return { sessionStatus, activeTurn, awaitingApproval, entries, usage, lastError, apiKeySource }
 }
 
-// Fold a turn's flat tool map into lane-nested transcript entries: a call whose
-// `parentToolUseId` names another call of the same turn becomes that call's
-// child instead of a sibling row. A child whose parent never arrived stays a
-// top-level row — subagent work is never dropped just because its lane header
-// is missing from the stream.
-function nestSubagentLanes(turn: TurnAccumulator): TranscriptToolEntry[] {
-  const childrenByParent = new Map<string, ToolAccumulator[]>()
-  for (const tool of turn.tools.values()) {
-    const parentId = tool.parentToolUseId
-    if (!parentId || parentId === tool.id || !turn.tools.has(parentId)) continue
-    const siblings = childrenByParent.get(parentId)
-    if (siblings) siblings.push(tool)
-    else childrenByParent.set(parentId, [tool])
-  }
+// Index of which calls hang off which lane, built once per projection over
+// every turn: a subagent's calls can land on a later continuation turn than the
+// `Task` call that spawned them, and they still belong to that lane.
+type LaneIndex = {
+  toolsById: Map<string, ToolAccumulator>
+  childrenByParent: Map<string, ToolAccumulator[]>
+  // Calls already emitted under a lane, so one never renders twice; also what
+  // stops a cyclic parent chain (provider data, so untrusted) from recursing.
+  claimed: Set<string>
+}
 
-  // A parent chain is provider data, so treat it as untrusted: `seen` keeps a
-  // cycle from recursing forever.
-  const seen = new Set<string>()
+function buildLaneIndex(turns: TurnAccumulator[], toolsById: Map<string, ToolAccumulator>): LaneIndex {
+  const childrenByParent = new Map<string, ToolAccumulator[]>()
+  for (const turn of turns) {
+    for (const tool of turn.tools.values()) {
+      const parentId = tool.parentToolUseId
+      if (!parentId || parentId === tool.id || !toolsById.has(parentId)) continue
+      const siblings = childrenByParent.get(parentId)
+      if (siblings) siblings.push(tool)
+      else childrenByParent.set(parentId, [tool])
+    }
+  }
+  return { toolsById, childrenByParent, claimed: new Set() }
+}
+
+// Fold one turn's tool map into lane-nested transcript entries: a call whose
+// `parentToolUseId` names a known call becomes that call's child instead of a
+// sibling row. A child whose parent never arrived stays a top-level row —
+// subagent work is never dropped just because its lane header is missing.
+function nestSubagentLanes(turn: TurnAccumulator, index: LaneIndex): TranscriptToolEntry[] {
+  const { toolsById, childrenByParent, claimed } = index
   const build = (tool: ToolAccumulator): TranscriptToolEntry => {
-    seen.add(tool.id)
-    const children = (childrenByParent.get(tool.id) ?? []).filter((child) => !seen.has(child.id)).map(build)
+    claimed.add(tool.id)
+    const children = (childrenByParent.get(tool.id) ?? []).filter((child) => !claimed.has(child.id)).map(build)
     return {
       kind: 'tool',
       id: tool.id,
-      turnId: turn.turnId,
+      turnId: tool.turnId,
       name: tool.name,
       status: tool.status,
       output: tool.output,
@@ -540,8 +568,8 @@ function nestSubagentLanes(turn: TurnAccumulator): TranscriptToolEntry[] {
   const rows: TranscriptToolEntry[] = []
   for (const tool of turn.tools.values()) {
     const parentId = tool.parentToolUseId
-    if (parentId && parentId !== tool.id && turn.tools.has(parentId)) continue
-    if (seen.has(tool.id)) continue
+    if (parentId && parentId !== tool.id && toolsById.has(parentId)) continue
+    if (claimed.has(tool.id)) continue
     rows.push(build(tool))
   }
   return rows
