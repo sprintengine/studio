@@ -122,9 +122,9 @@ run('no remembered review opens the first row and clears nothing', () => {
   assert.equal(decision.clearRemembered, false, 'there was no preference to clear')
 })
 
-run('a remembered id from another project is not matched by id alone', () => {
-  // Review ids are only unique within a project, so the root must match too —
-  // otherwise a same-id review in a different checkout would be opened.
+run('a remembered pair pointing at another project is not matched by id alone', () => {
+  // The stored identity is the whole pair, so a remembered review whose root no
+  // longer holds it does not resolve against a same-id dir in another checkout.
   const decision = resolveReviewAutoSelect(REOPEN_INDEX, REOPEN_ROWS, {
     reviewId: 'rv_b',
     workspaceRoot: '/proj/other',

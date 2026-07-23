@@ -76,10 +76,14 @@ export interface ReviewAutoSelectDecision {
 
 // Which review a freshly loaded door opens when the reviewer has not chosen one
 // this session (MC-1785). The remembered review wins while it is still in the
-// index — matched on BOTH ids, because review ids are only unique within a
-// project. A remembered review the index does not have was deleted externally:
-// the door falls back to the first (attention-ordered) row and reports that the
-// dead preference should be cleared, so it can never pin a review that is gone.
+// index. Matched on the WHOLE {reviewId, workspaceRoot} pair — not the id alone
+// — because that pair is the review's stored identity and the key
+// `useReviewSession` loads by, so a review dir copied into another checkout
+// restores against the project it was actually remembered in. (Ids are
+// `rv_<uuid>`, so this is about resolving to the right checkout, not collisions.)
+// A remembered review the index does not have was deleted externally: the door
+// falls back to the first (attention-ordered) row and reports that the dead
+// preference should be cleared, so it can never pin a review that is gone.
 export function resolveReviewAutoSelect(
   entries: readonly ReviewIndexEntry[],
   rows: readonly ReviewRailRow[],
