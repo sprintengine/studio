@@ -627,15 +627,21 @@ export function buildUserMessageContent(
   attachments: ConversationImageAttachment[] | undefined
 ): SDKUserMessage['message']['content'] {
   if (!attachments || attachments.length === 0) return message
-  const blocks: Record<string, unknown>[] = []
+  const blocks: Exclude<SDKUserMessage['message']['content'], string> = []
   if (message) blocks.push({ type: 'text', text: message })
   for (const attachment of attachments) {
     blocks.push({
       type: 'image',
-      source: { type: 'base64', media_type: attachment.mediaType, data: attachment.dataBase64 },
+      source: {
+        type: 'base64',
+        // The IPC boundary already constrains this to the SDK's image set; the
+        // cast is the only widening TS cannot see through.
+        media_type: attachment.mediaType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+        data: attachment.dataBase64,
+      },
     })
   }
-  return blocks as unknown as SDKUserMessage['message']['content']
+  return blocks
 }
 
 // Stamp a continuation turn id onto a turn-scoped event that was mapped before

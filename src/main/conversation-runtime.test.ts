@@ -24,6 +24,7 @@ async function main(): Promise<void> {
   await testBlockedExecutableProviderTrustErrorSurfaces()
   await testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint()
   await testMultiTurnHistoryAccumulates()
+  await testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript()
   await testInterruptSuppressesLateAsyncProviderEvents()
   await testStopSessionSuppressesLateAsyncProviderEvents()
   await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
@@ -1142,6 +1143,81 @@ async function testMultiTurnHistoryAccumulates(): Promise<void> {
       ],
       'the second turn carries the prior completed turn as context',
     )
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// D3: attachments ride the turn call to the adapter, but v1 is live-only —
+// they must never enter replayed history or the persisted JSONL transcript.
+async function testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-attachments-'))
+  const captured: ConversationMessage[][] = []
+  const turns: MockAdapterTurnInput[] = []
+  try {
+    let id = 0
+    let now = 1000
+    const capturing = createCapturingProvider(captured)
+    const runtime = new ConversationRuntime({
+      randomId: () => `${++id}`,
+      now: () => ++now,
+      adapters: [
+        {
+          ...capturing,
+          sendTurn(input: MockAdapterTurnInput) {
+            turns.push(input)
+            return capturing.sendTurn(input)
+          },
+        },
+      ],
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+    })
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'w',
+      agentId: 'a',
+      providerId: 'capture-provider',
+      modelId: 'capture-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    const sessionId = started.session.sessionId
+    const attachment = { id: 'img-1', mediaType: 'image/png', dataBase64: 'Zm9v', byteLength: 3 }
+
+    const withText = await runtime.sendTurn({ sessionId, message: 'describe', attachments: [attachment] })
+    assert.equal(withText.ok, true)
+    assert.deepEqual(turns[0]?.attachments, [attachment], 'attachments reach the adapter turn call')
+
+    // A turn carrying only images (no text) is a valid send.
+    const imageOnly = await runtime.sendTurn({ sessionId, message: '   ', attachments: [attachment] })
+    assert.equal(imageOnly.ok, true, 'an attachments-only turn is accepted')
+
+    // ...but a turn with neither text nor attachments is still rejected.
+    assert.deepEqual(await runtime.sendTurn({ sessionId, message: '  ' }), {
+      ok: false,
+      message: 'Conversation turn message is required.',
+    })
+
+    // History replayed to the provider stays text-only.
+    for (const messages of captured) {
+      for (const message of messages) {
+        assert.equal('attachments' in message, false, 'history carries no attachments')
+      }
+    }
+
+    // The persisted transcript must not contain the base64 payload.
+    const transcript = await runtime.readTranscript({ workspaceRoot, workspaceId: 'w', agentId: 'a' })
+    assert.equal(transcript.ok, true)
+    if (!transcript.ok) return
+    assert.equal(
+      JSON.stringify(transcript.events).includes(attachment.dataBase64),
+      false,
+      'image data is never persisted to the JSONL transcript'
+    )
+    const userMessages = transcript.events.filter((event) => event.type === 'user_message')
+    assert.equal(userMessages.length, 2)
+    assert.equal(userMessages[0]?.payload?.text, 'describe')
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }
