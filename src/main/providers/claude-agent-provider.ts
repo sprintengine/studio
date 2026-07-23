@@ -916,8 +916,8 @@ function readParentToolUseId(message: Record<string, unknown>): string | null {
   return typeof parentToolUseId === 'string' && parentToolUseId ? parentToolUseId : null
 }
 
-// The tool the CLI exposes for spawning a subagent. Both names ship in the
-// wild (the SDK renamed it), and either one is the header of a lane.
+// Names the CLI exposes for spawning a subagent; installed versions differ, so
+// both are recognized and either one is the header of a lane.
 const SUBAGENT_TOOL_NAMES = new Set(['Task', 'Agent'])
 
 function subagentLaneFields(
