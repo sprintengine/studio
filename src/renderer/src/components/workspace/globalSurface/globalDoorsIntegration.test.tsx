@@ -316,6 +316,9 @@ async function main(): Promise<void> {
   ) as HTMLButtonElement | undefined
   assert.ok(openAgentsLive, 'a resident run offers Open agents')
   assert.equal(openAgentsLive?.disabled, false, 'and it is live, because the workspace is still open')
+  // Asserted only once the board is actually up — otherwise "the notice is
+  // absent" would pass on a canvas that never rendered the board at all.
+  assert.ok(container.querySelector('[role="tablist"]'), 'its board mounts from the door')
   assert.ok(
     !container.textContent?.includes('This sprint’s workspace was removed'),
     'a resident run never claims its workspace is gone',
@@ -342,9 +345,15 @@ async function main(): Promise<void> {
     (b) => b.textContent?.trim() === 'Open agents',
   ) as HTMLButtonElement | undefined
   assert.equal(openAgentsOrphan?.disabled, true, 'but cannot open terminals it does not have')
+  // The reason rides the accessible name, so it is not hover-only.
+  assert.match(
+    openAgentsOrphan?.getAttribute('aria-label') ?? '',
+    /workspace is closed, so its agent terminals aren’t running/,
+    'and names why in plain words rather than failing silently',
+  )
   assert.ok(
-    container.textContent?.includes('workspace'),
-    'and says so rather than failing silently',
+    container.textContent?.includes('This sprint’s workspace was removed'),
+    'the board itself degrades its workspace-only reads too',
   )
   assert.ok(
     !container.textContent?.includes('Couldn’t open this sprint.'),
@@ -377,9 +386,8 @@ async function main(): Promise<void> {
 
   // multiauth's folder is unreadable; the other two scan normally. A per-project
   // failure must cost that project's rows and nothing else.
-  let multiauthFails = true
   setScanRunner(async (folderPath: string): Promise<BacklogScanResult> => {
-    if (folderPath === multiauth && multiauthFails) {
+    if (folderPath === multiauth) {
       return { state: 'error', items: [], errors: [{ relativePath: 'backlog', message: 'EACCES: permission denied' }] }
     }
     return { state: 'ready', items: backlogByRoot.get(folderPath) ?? [], errors: [] }
@@ -428,7 +436,16 @@ async function main(): Promise<void> {
   )
   const backlogRetry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
   assert.ok(backlogRetry, 'and offers Try again')
-  assert.ok(rowText().length >= 3, 'the other two projects stay listed and interactive')
+  assert.equal(rowText().length, 3, 'the other two projects contribute all of their rows')
+  // Still a working backlog, not a frozen one: every surviving row is a
+  // selectable option, so the failure cost rows and nothing else.
+  assert.equal(
+    container.querySelectorAll(
+      'ul[role="listbox"][aria-label="Backlog items across projects"] > li[role="option"]',
+    ).length,
+    3,
+    'and they stay interactive',
+  )
   console.log('ok - one project’s scan failing costs only that project’s rows')
 
   // Filtering to one project is exactly that project's list — the door narrowed
@@ -443,16 +460,21 @@ async function main(): Promise<void> {
   assert.equal(filtered.length, 1, 'only the filtered project’s items remain')
   assert.ok(filtered[0]?.includes('MM-87'), 'and they are that project’s')
   assert.ok(
-    filtered.every((text) => !text.includes('multicode-mobile') || !text.includes('MC-')),
-    'a single-project view carries no cross-project rows',
+    filtered.every((text) => !/\b(MC|MA)-\d+/.test(text)),
+    'a single-project view carries no other project’s ids',
+  )
+  // Narrowed to one project, the page IS that project's backlog — so the tag
+  // that only exists to disambiguate an aggregate drops away.
+  assert.ok(
+    filtered.every((text) => !text.includes('multicode-mobile')),
+    'and drops the project tag it no longer needs',
   )
   console.log('ok - filtering to one project reproduces that project’s list')
 
   await act(async () => {
     backlogRoot.unmount()
   })
-  multiauthFails = false
-  setScanRunner(null)
+  // Drop the shared scans (and their watchers) so this process can exit.
   resetScans()
   console.log('all global-door integration checks passed')
 }
