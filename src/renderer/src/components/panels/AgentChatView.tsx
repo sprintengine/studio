@@ -1768,7 +1768,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                   changing={permissionChanging}
                   open={permissionMenuOpen}
                   onOpenChange={setPermissionMenuOpen}
-                  onChange={(next) => void changePermissionPreset(next)}
+                  onChange={(next) => {
+                    // Close on pick like every other picker here: a refusal
+                    // rolls the pill back and writes the reason to the composer
+                    // error line, which an open popover would sit on top of.
+                    setPermissionMenuOpen(false)
+                    void changePermissionPreset(next)
+                  }}
                 />
               ) : null}
             </div>
@@ -1906,7 +1912,9 @@ export function PermissionPresetPill({
   preset: SprintEngineCliPermissionPreset
   // Whether a session is running: only then is this a live mutation.
   live: boolean
-  // A change is in flight; the row locks so a second pick can't race it.
+  // A change is in flight. The pick closes the popover, but the user can reopen
+  // it before the push lands — the row locks so that second click reads as
+  // "wait", instead of being silently dropped by the caller's re-entry guard.
   changing: boolean
   open: boolean
   onOpenChange: (open: boolean) => void

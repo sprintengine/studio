@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -799,6 +801,47 @@ assert.ok(
 assert.ok(
   pillMarkup('auto_workspace').includes('Auto in workspace'),
   'the middle preset is nameable too — the pill is never a two-state lie'
+)
+
+// The spawn→session wiring lives inside store/window-bound code this DOM-less
+// test cannot mount, so it is pinned at the source. Both ends matter: a spawn
+// that drops the picked preset, or a session start that re-hardcodes 'default',
+// puts the bug back with every rendered assertion above still passing.
+const chatViewSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/panels/AgentChatView.tsx'),
+  'utf8'
+)
+const workspaceManagerSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
+  'utf8'
+)
+assert.match(
+  chatViewSource,
+  /const permissionPreset: SprintEngineCliPermissionPreset = agent\?\.cliPermissionPreset \?\? 'default'/,
+  'the pill and the session start read one persisted field, and an unset one asks per tool'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),
+  /^[\s\S]{0,600}?\n\s+permissionPreset,\n/,
+  'conversationSessionStart carries the agent’s preset instead of the provider default'
+)
+assert.doesNotMatch(
+  chatViewSource,
+  /permissionPreset: 'default'/,
+  'no start path in the chat view pins the preset to a literal'
+)
+assert.match(
+  workspaceManagerSource.slice(workspaceManagerSource.indexOf('conversationAgentRuntimePatch(providerId, modelId)')),
+  /^[\s\S]{0,600}?cliPermissionPreset: agentSpawnPermissionPreset,/,
+  'the conversation spawn stamps the composer’s picked preset like every CLI spawn'
+)
+// A refused change must never leave the pill claiming a preset the session is
+// not on: every failure branch of changePermissionPreset (bridge missing,
+// provider said no, threw) writes the old value back.
+assert.equal(
+  (chatViewSource.match(/cliPermissionPreset: previous/g) ?? []).length,
+  3,
+  'all three failure branches roll the optimistic write back'
 )
 
 console.log('AgentChatView.test.ts: ok')
