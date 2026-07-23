@@ -605,18 +605,36 @@ export function activeConversationStage(entries: TranscriptEntry[], activeTurn: 
   return 'thinking'
 }
 
+export type ConversationApprovalEntry = Extract<TranscriptEntry, { kind: 'approval' }>
+
+// A resolved request stays in the transcript as a decision record. A batch of
+// tool permissions answered together is one line ("Approved 10 files"), not ten
+// rows; a question or plan decision carries its own content and always keeps a
+// row of its own.
+export type ConversationDecisionRow =
+  | { kind: 'decision'; id: string; entry: ConversationApprovalEntry }
+  | {
+      kind: 'decisionGroup'
+      id: string
+      status: 'approved' | 'denied' | 'cancelled'
+      label: string
+      entries: ConversationApprovalEntry[]
+    }
+
 export type ConversationTimelineRow =
   | { kind: 'user'; id: string; entry: Extract<TranscriptEntry, { kind: 'user' }> }
   // One row per assistant turn: byline, reasoning disclosure, work timeline
-  // (the turn's tools) and prose all render as a single block, per the
-  // approved MC-1478 mockup.
+  // (the turn's tools), the turn's resolved decisions, and prose all render as
+  // a single block, per the approved MC-1478 mockup.
   | {
       kind: 'assistant'
       id: string
       entry: Extract<TranscriptEntry, { kind: 'assistant' }>
       tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
+      decisions: ConversationDecisionRow[]
     }
-  | { kind: 'approval'; id: string; entry: Extract<TranscriptEntry, { kind: 'approval' }> }
+  // Requests that never named a turn; they surface on their own.
+  | { kind: 'approval'; id: string; decisions: ConversationDecisionRow[] }
   | {
       kind: 'working'
       id: string
@@ -675,6 +693,66 @@ export function isAuthShapedFailure(reason: string | undefined): boolean {
   return Boolean(reason && /auth|login|oauth|credential|401|expired|api key/i.test(reason))
 }
 
+// Tools whose permission request is really about a file, so a batch of them
+// counts files rather than the generic "tool uses".
+const FILE_APPROVAL_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+
+const DECISION_VERB: Record<'approved' | 'denied' | 'cancelled', string> = {
+  approved: 'Approved',
+  denied: 'Denied',
+  cancelled: 'Cancelled',
+}
+
+export function resolvedDecisionGroupLabel(
+  status: 'approved' | 'denied' | 'cancelled',
+  entries: ConversationApprovalEntry[],
+): string {
+  const count = entries.length
+  const files = entries.every((entry) => entry.action !== undefined && FILE_APPROVAL_TOOLS.has(entry.action))
+  const noun = files ? (count === 1 ? 'file' : 'files') : count === 1 ? 'tool use' : 'tool uses'
+  return `${DECISION_VERB[status]} ${count} ${noun}`
+}
+
+// Fold a turn's requests into decision rows. Pending requests are the composer
+// dock's, never the transcript's. A run of consecutive tool permissions sharing
+// one outcome collapses into a single expandable summary; question and plan
+// decisions record a real answer and stay individual rows, and a run of one is
+// left as its own row because a group of one is not a list.
+export function groupResolvedDecisions(approvals: ConversationApprovalEntry[]): ConversationDecisionRow[] {
+  const rows: ConversationDecisionRow[] = []
+  let run: ConversationApprovalEntry[] = []
+  const flush = (): void => {
+    const first = run[0]
+    if (!first) return
+    if (run.length === 1) {
+      rows.push({ kind: 'decision', id: `approval:${first.requestId}`, entry: first })
+      // A pending request never joins a run; the check is what narrows the
+      // group's outcome to a resolved one.
+    } else if (first.status !== 'pending') {
+      rows.push({
+        kind: 'decisionGroup',
+        id: `approvals:${first.requestId}`,
+        status: first.status,
+        label: resolvedDecisionGroupLabel(first.status, run),
+        entries: run,
+      })
+    }
+    run = []
+  }
+  for (const approval of approvals) {
+    if (approval.status === 'pending') continue
+    if ((approval.requestKind ?? 'tool') !== 'tool') {
+      flush()
+      rows.push({ kind: 'decision', id: `approval:${approval.requestId}`, entry: approval })
+      continue
+    }
+    if (run[0] && run[0].status !== approval.status) flush()
+    run.push(approval)
+  }
+  flush()
+  return rows
+}
+
 export function deriveConversationTimelineRows(
   entries: TranscriptEntry[],
   activeTurn: boolean,
@@ -704,21 +782,45 @@ export function deriveConversationTimelineRows(
         tools.push(next)
         cursor += 1
       }
+      // The turn's own requests follow its tools in the entry stream. They ride
+      // the turn block (between the work timeline and the prose) rather than
+      // trailing it, so a decision reads before the text that came after it.
+      const approvals: ConversationApprovalEntry[] = []
+      while (cursor < entries.length) {
+        const next = entries[cursor]
+        if (!next || next.kind !== 'approval' || next.turnId !== entry.turnId) break
+        approvals.push(next)
+        cursor += 1
+      }
+      const decisions = groupResolvedDecisions(approvals)
       if (
         entry.text.trim()
         || entry.reasoning.trim()
         || tools.length > 0
+        || decisions.length > 0
         || entry.status === 'failed'
         || entry.status === 'interrupted'
       ) {
-        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools })
+        rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools, decisions })
       }
       index = cursor - 1
       continue
     }
     if (entry.kind === 'approval') {
-      if (entry.status === 'pending') continue
-      rows.push({ kind: 'approval', id: `approval:${entry.requestId}`, entry })
+      // Requests with no turn to hang off: take the whole consecutive run so
+      // they group like any other batch.
+      let cursor = index
+      const orphans: ConversationApprovalEntry[] = []
+      while (cursor < entries.length) {
+        const next = entries[cursor]
+        if (!next || next.kind !== 'approval') break
+        orphans.push(next)
+        cursor += 1
+      }
+      const decisions = groupResolvedDecisions(orphans)
+      const first = decisions[0]
+      if (first) rows.push({ kind: 'approval', id: `orphan:${first.id}`, decisions })
+      index = cursor - 1
     }
   }
 
@@ -2512,8 +2614,10 @@ function TimelineRow({ row, chrome }: { row: ConversationTimelineRow; chrome: Ti
   return (
     <div className="conversation-row-enter" data-conversation-row-kind={row.kind}>
       {row.kind === 'user' ? <UserTimelineRow entry={row.entry} /> : null}
-      {row.kind === 'assistant' ? <AssistantTurnBlock entry={row.entry} tools={row.tools} chrome={chrome} /> : null}
-      {row.kind === 'approval' ? <ResolvedDecisionRow entry={row.entry} /> : null}
+      {row.kind === 'assistant' ? (
+        <AssistantTurnBlock entry={row.entry} tools={row.tools} decisions={row.decisions} chrome={chrome} />
+      ) : null}
+      {row.kind === 'approval' ? <ResolvedDecisions rows={row.decisions} className="pb-6" /> : null}
       {row.kind === 'working' ? <WorkingTimelineRow row={row} /> : null}
     </div>
   )
@@ -2530,16 +2634,18 @@ function UserTimelineRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'u
   )
 }
 
-// One assistant turn: byline → thought disclosure → work timeline → prose.
-// Glyph-led, no avatar bubble; the reading text gets real size, chrome stays
-// small and quiet.
+// One assistant turn: byline → thought disclosure → work timeline → decisions
+// → prose. Glyph-led, no avatar bubble; the reading text gets real size, chrome
+// stays small and quiet.
 function AssistantTurnBlock({
   entry,
   tools,
+  decisions,
   chrome,
 }: {
   entry: Extract<TranscriptEntry, { kind: 'assistant' }>
   tools: Extract<TranscriptEntry, { kind: 'tool' }>[]
+  decisions: ConversationDecisionRow[]
   chrome: TimelineChrome
 }) {
   const modelLabel = chrome.modelLabelFor(entry.modelId)
@@ -2562,6 +2668,7 @@ function AssistantTurnBlock({
         <ThoughtRow reasoning={entry.reasoning} durationMs={entry.reasoningDurationMs} />
       ) : null}
       {tools.length > 0 ? <WorkTimeline tools={tools} live={entry.status === 'streaming'} /> : null}
+      <ResolvedDecisions rows={decisions} className="mb-3" />
       {entry.text.trim() ? <div className="max-w-[68ch]">{renderMarkdown(entry.text)}</div> : null}
       {entry.status === 'interrupted' ? (
         <span className="text-[11px] text-[color:var(--text-subtle)]">Interrupted</span>
@@ -2881,6 +2988,68 @@ function TurnErrorBlock({
   )
 }
 
+// The turn's decision records, in the order they were answered. Spacing is the
+// caller's (a turn block sits them above its prose; an orphan run stands alone).
+export function ResolvedDecisions({ rows, className }: { rows: ConversationDecisionRow[]; className?: string }) {
+  if (rows.length === 0) return null
+  return (
+    <div className={`flex flex-col gap-2 ${className ?? ''}`}>
+      {rows.map((row) =>
+        row.kind === 'decision' ? (
+          <ResolvedDecisionRow key={row.id} entry={row.entry} />
+        ) : (
+          <ResolvedDecisionGroupRow key={row.id} row={row} />
+        ),
+      )}
+    </div>
+  )
+}
+
+// A batch answered in one go is one line — the outcome and the count — over the
+// same quote rail as a single decision, expandable to the individual requests.
+function ResolvedDecisionGroupRow({ row }: { row: Extract<ConversationDecisionRow, { kind: 'decisionGroup' }> }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="inline-flex items-center gap-1.5 rounded-md py-0.5 pl-1 pr-2 text-[13px] font-medium text-[color:var(--text-strong)] transition-colors hover:bg-[color:var(--bg-hover)]"
+      >
+        <ChevronRightGlyph
+          className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        {row.status === 'approved' ? (
+          <CheckGlyph className="icon-xs shrink-0 text-[color:var(--accent-primary)]" />
+        ) : row.status === 'denied' ? (
+          <StatusDot tone="error" />
+        ) : null}
+        {row.label}
+      </button>
+      {expanded ? (
+        <ul className="mt-1 flex flex-col gap-0.5 pl-1">
+          {row.entries.map((entry) => {
+            const object = toolObject({ name: entry.action ?? '', summary: entry.summary })
+            return (
+              <li key={entry.requestId} className="flex items-baseline gap-2 text-[12px] leading-5">
+                {entry.action ? (
+                  <span className="shrink-0 font-medium text-[color:var(--text-default)]">{entry.action}</span>
+                ) : null}
+                <TruncatedText
+                  as="span"
+                  text={object || entry.summary}
+                  className="min-w-0 font-mono text-[11.5px] text-[color:var(--text-muted)]"
+                />
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
 // Resolved requests stay in the transcript as quote-style decision records —
 // the question muted, the chosen answer strong with an accent check.
 function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind: 'approval' }> }) {
@@ -2895,45 +3064,43 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
     </div>
   )
   return (
-    <div className="pb-6">
-      <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
-        {entry.requestKind === 'question' && entry.questions?.length ? (
-          <div className="space-y-2">
-            {entry.questions.map((question) => {
-              const answer = entry.answers?.[question.question]
-              return (
-                <div key={question.question}>
-                  <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{question.question}</div>
-                  {entry.status === 'approved' && answer
-                    ? answerLine(answer, true)
-                    : entry.status === 'denied'
-                      ? (
-                          <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
-                            Dismissed without answering
-                          </div>
-                        )
-                      : null}
-                </div>
-              )
-            })}
+    <div className="max-w-[68ch] border-l-2 border-[color:var(--border-default)] py-0.5 pl-3.5">
+      {entry.requestKind === 'question' && entry.questions?.length ? (
+        <div className="space-y-2">
+          {entry.questions.map((question) => {
+            const answer = entry.answers?.[question.question]
+            return (
+              <div key={question.question}>
+                <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">{question.question}</div>
+                {entry.status === 'approved' && answer
+                  ? answerLine(answer, true)
+                  : entry.status === 'denied'
+                    ? (
+                        <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
+                          Dismissed without answering
+                        </div>
+                      )
+                    : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div>
+          <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
           </div>
-        ) : (
-          <div>
-            <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
-            </div>
-            {entry.status === 'approved'
-              ? answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
-              : entry.status === 'denied'
-                ? answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
-                : (
-                    <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
-                      Cancelled with the turn
-                    </div>
-                  )}
-          </div>
-        )}
-      </div>
+          {entry.status === 'approved'
+            ? answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
+            : entry.status === 'denied'
+              ? answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
+              : (
+                  <div className="mt-0.5 text-[12px] italic text-[color:var(--text-subtle)]">
+                    Cancelled with the turn
+                  </div>
+                )}
+        </div>
+      )}
     </div>
   )
 }

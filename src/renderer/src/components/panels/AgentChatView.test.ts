@@ -8,17 +8,21 @@ import {
   deriveConversationTimelineRows,
   flattenToolEntries,
   formatStepDuration,
+  groupResolvedDecisions,
   isAuthShapedFailure,
   isConversationBusy,
   isConversationModelLocked,
   parseOptionLabel,
   projectConversation,
   readinessLabel,
+  ResolvedDecisions,
+  resolvedDecisionGroupLabel,
   stopDisabledForPending,
   subagentLaneLabel,
   toolObject,
   toolVerb,
   WorkTimeline,
+  type ConversationApprovalEntry,
   type ConversationTimelineRow,
   type TranscriptEntry,
   type TranscriptToolEntry,
@@ -639,5 +643,113 @@ assert.ok(doneLaneMarkup.includes('5 steps'), 'the turn header counts lane child
 assert.ok(doneLaneMarkup.includes('general-purpose agent'), 'a finished lane keeps its identity')
 assert.ok(!doneLaneMarkup.includes('src/a.ts'), 'a finished lane replayed from history mounts collapsed')
 assert.ok(!doneLaneMarkup.includes('>running<'), 'nothing claims to be running once the fan-out is done')
+
+// --- resolved approvals collapse into one expandable group (1792) ----------
+
+const BATCH_TURN = 'turn-batch'
+const batchDecision = (requestId: string, action: string, summary: string): ConversationEvent[] => [
+  ev('approval_requested', { turnId: BATCH_TURN, requestId, action, kind: 'tool', summary }),
+  ev('approval_resolved', { turnId: BATCH_TURN, requestId, approved: true }),
+]
+const batch = projectConversation([
+  ev('turn_started', { turnId: BATCH_TURN }),
+  ev('content_delta', { turnId: BATCH_TURN, text: 'Writing the files.' }),
+  ...batchDecision('b1', 'Write', 'Write: src/a.ts'),
+  ...batchDecision('b2', 'Edit', 'Edit: src/b.ts'),
+  ...batchDecision('b3', 'Write', 'Write: src/c.ts'),
+  // Text streamed after the batch was answered: it must not read above it.
+  ev('content_delta', { turnId: BATCH_TURN, text: ' Done.' }),
+  ev('turn_completed', { turnId: BATCH_TURN }),
+])
+const batchRows = deriveConversationTimelineRows(batch.entries, batch.activeTurn)
+assert.equal(
+  batchRows.filter((entry) => entry.kind === 'approval').length,
+  0,
+  "a turn's decisions ride its turn block instead of trailing the prose"
+)
+const batchAssistant = row(batchRows, 'assistant')
+assert.equal(batchAssistant.decisions.length, 1, 'a batch answered together is one row, not one row each')
+const batchGroup = batchAssistant.decisions[0]
+assert.ok(batchGroup && batchGroup.kind === 'decisionGroup')
+assert.equal(batchGroup.label, 'Approved 3 files')
+assert.deepEqual(
+  batchGroup.entries.map((entry) => entry.requestId),
+  ['b1', 'b2', 'b3'],
+  'the group keeps the individual requests for its expanded state'
+)
+
+// Outcomes never merge: a denial keeps its own row ahead of the approved run.
+const mixedOutcomes = projectConversation([
+  ev('turn_started', { turnId: 'turn-mixed' }),
+  ev('approval_requested', { turnId: 'turn-mixed', requestId: 'm1', action: 'Bash', kind: 'tool', summary: 'Bash: rm -rf build' }),
+  ev('approval_resolved', { turnId: 'turn-mixed', requestId: 'm1', approved: false }),
+  ev('approval_requested', { turnId: 'turn-mixed', requestId: 'm2', action: 'Bash', kind: 'tool', summary: 'Bash: npm test' }),
+  ev('approval_resolved', { turnId: 'turn-mixed', requestId: 'm2', approved: true }),
+  ev('approval_requested', { turnId: 'turn-mixed', requestId: 'm3', action: 'Bash', kind: 'tool', summary: 'Bash: npm run lint' }),
+  ev('approval_resolved', { turnId: 'turn-mixed', requestId: 'm3', approved: true }),
+  ev('turn_completed', { turnId: 'turn-mixed' }),
+])
+const mixedDecisions = row(
+  deriveConversationTimelineRows(mixedOutcomes.entries, mixedOutcomes.activeTurn),
+  'assistant'
+).decisions
+assert.deepEqual(mixedDecisions.map((decision) => decision.kind), ['decision', 'decisionGroup'])
+assert.equal(
+  mixedDecisions[1]?.kind === 'decisionGroup' ? mixedDecisions[1].label : '',
+  'Approved 2 tool uses',
+  'a batch of commands counts tool uses, not files'
+)
+
+const decisionEntry = (
+  requestId: string,
+  status: ConversationApprovalEntry['status'],
+  extra: Partial<ConversationApprovalEntry> = {}
+): ConversationApprovalEntry => ({
+  kind: 'approval',
+  requestId,
+  summary: `summary ${requestId}`,
+  status,
+  requestKind: 'tool',
+  ...extra,
+})
+
+assert.deepEqual(groupResolvedDecisions([decisionEntry('p1', 'pending')]), [], 'pending requests stay in the dock')
+assert.deepEqual(
+  groupResolvedDecisions([decisionEntry('t1', 'approved')]).map((decision) => decision.kind),
+  ['decision'],
+  'one resolved permission is not a list'
+)
+assert.deepEqual(
+  groupResolvedDecisions([
+    decisionEntry('t1', 'approved'),
+    decisionEntry('t2', 'approved'),
+    decisionEntry('q1', 'approved', { requestKind: 'question' }),
+    decisionEntry('t3', 'approved'),
+    decisionEntry('t4', 'approved'),
+  ]).map((decision) => decision.kind),
+  ['decisionGroup', 'decision', 'decisionGroup'],
+  'a question records a real answer, so it keeps its own row and splits the runs'
+)
+assert.equal(
+  resolvedDecisionGroupLabel('denied', [decisionEntry('d1', 'denied', { action: 'Write' }), decisionEntry('d2', 'denied', { action: 'Read' })]),
+  'Denied 2 files'
+)
+assert.equal(
+  resolvedDecisionGroupLabel('approved', [decisionEntry('a1', 'approved', { action: 'Write' }), decisionEntry('a2', 'approved', { action: 'Bash' })]),
+  'Approved 2 tool uses',
+  'a mixed batch falls back to the generic noun'
+)
+assert.equal(
+  resolvedDecisionGroupLabel('cancelled', [decisionEntry('c1', 'cancelled'), decisionEntry('c2', 'cancelled')]),
+  'Cancelled 2 tool uses'
+)
+
+// The group renders collapsed: one summary line, the requests behind it.
+const decisionsMarkup = renderToStaticMarkup(
+  createElement(ResolvedDecisions, { rows: batchAssistant.decisions })
+)
+assert.ok(decisionsMarkup.includes('Approved 3 files'), 'the batch reads as one outcome line')
+assert.ok(decisionsMarkup.includes('aria-expanded="false"'), 'a resolved batch mounts collapsed and is expandable')
+assert.ok(!decisionsMarkup.includes('src/a.ts'), 'the individual requests wait behind the expander')
 
 console.log('AgentChatView.test.ts: ok')
