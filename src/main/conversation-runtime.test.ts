@@ -30,6 +30,7 @@ async function main(): Promise<void> {
   await testStopSessionSuppressesLateAsyncProviderEvents()
   await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
   await testToolAfterTurnResultResolvesThroughContinuationChannel()
+  await testSubagentToolEventsKeepTheirParentLink()
   await testStatefulProviderResumeCursorReadFromTranscript()
   await testReadTranscriptClosesUnfinishedTurns()
   await testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession()
@@ -634,6 +635,121 @@ async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Prom
     assert.equal(events.some((event) => event.type === 'turn_failed'), false)
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
     assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// Subagent lanes (1777) are a provider-shaped contract: the runtime is a pipe
+// for them. `parentToolUseId` and the lane markers must survive broadcast and
+// persistence untouched, on the in-turn path and the continuation channel alike.
+async function testSubagentToolEventsKeepTheirParentLink(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-lanes-'))
+  try {
+    const capture: { base: MockAdapterSessionInput | null; sink: ConversationSessionEventSink | null } = {
+      base: null,
+      sink: null,
+    }
+    const adapter: ConversationProviderAdapter = {
+      id: 'lane-provider',
+      sessions: 'stateful',
+      listModels: () => ['lane-model'],
+      startSession(input) {
+        capture.base = input
+        capture.sink = input.onSessionEvent ?? null
+        return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+      },
+      async *sendTurn(input: MockAdapterTurnInput) {
+        yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+        yield runtimeEvent(input, 'tool_started', {
+          turnId: input.turnId,
+          toolCallId: 'task_1',
+          tool: 'Task',
+          summary: 'Task: map the router',
+          subagentLane: true,
+          subagentType: 'Explore',
+        })
+        yield runtimeEvent(input, 'tool_started', {
+          turnId: input.turnId,
+          toolCallId: 'child_1',
+          tool: 'Grep',
+          summary: 'Grep: router',
+          parentToolUseId: 'task_1',
+        })
+        yield runtimeEvent(input, 'tool_output', {
+          turnId: input.turnId,
+          toolCallId: 'child_1',
+          output: '12 matches',
+          isError: false,
+          parentToolUseId: 'task_1',
+        })
+        yield runtimeEvent(input, 'turn_completed', { turnId: input.turnId })
+      },
+      resolveApproval: () => [],
+      interrupt: (input) => [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })],
+      stopSession: (input) => [runtimeEvent(input, 'session_closed')],
+    }
+
+    const runtime = new ConversationRuntime({
+      adapters: [adapter],
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+    })
+    const events: ConversationEvent[] = []
+    runtime.onEvent((event) => events.push(event))
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'lane-provider',
+      modelId: 'lane-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+
+    const sent = await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'investigate' })
+    assert.equal(sent.ok, true)
+
+    // A subagent that finishes after the turn closed keeps the same link when
+    // it arrives over the continuation channel.
+    const base = capture.base
+    const sink = capture.sink
+    assert.ok(base && sink, 'the adapter received a session-scoped continuation sink')
+    if (!base || !sink) return
+    sink(runtimeEvent(base, 'turn_started', { turnId: 'cont_turn_1' }))
+    sink(
+      runtimeEvent(base, 'tool_started', {
+        turnId: 'cont_turn_1',
+        toolCallId: 'child_2',
+        tool: 'Read',
+        summary: 'Read: a.ts',
+        parentToolUseId: 'task_1',
+      })
+    )
+    sink(runtimeEvent(base, 'turn_completed', { turnId: 'cont_turn_1' }))
+    // The continuation channel is serialized off the send path, so wait for the
+    // late child rather than assuming it landed.
+    for (let i = 0; i < 100 && !events.some((event) => event.payload?.toolCallId === 'child_2'); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+
+    const laneRows = events.filter((event) => event.type === 'tool_started' || event.type === 'tool_output')
+    assert.deepEqual(
+      laneRows.map((event) => event.payload?.parentToolUseId),
+      [undefined, 'task_1', 'task_1', 'task_1'],
+      'only the lane header is parentless; every child keeps its link'
+    )
+    assert.equal(laneRows[0]?.payload?.subagentLane, true)
+    assert.equal(laneRows[0]?.payload?.subagentType, 'Explore')
+
+    const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
+    const persistedRows = persisted.filter((event) => event.type === 'tool_started' || event.type === 'tool_output')
+    assert.deepEqual(
+      persistedRows.map((event) => event.payload?.parentToolUseId),
+      [undefined, 'task_1', 'task_1', 'task_1'],
+      'the replayed transcript rebuilds the same lanes'
+    )
+    assert.equal(persistedRows[0]?.payload?.subagentLane, true)
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

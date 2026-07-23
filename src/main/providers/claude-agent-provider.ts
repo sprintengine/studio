@@ -29,6 +29,8 @@ import type {
   ConversationImageAttachment,
   ConversationPermissionPreset,
   ConversationQuestion,
+  ConversationToolOutputPayload,
+  ConversationToolStartedPayload,
 } from '../../shared/conversation-runtime'
 import type {
   ConversationProviderAdapter,
@@ -813,6 +815,9 @@ export function mapSdkMessage(
 
   switch (message.type) {
     case 'stream_event': {
+      // Text and thinking deltas produced inside a subagent stay dropped: they
+      // would interleave into the parent assistant's own streaming bubble. A
+      // subagent's visible work rides its parent-linked tool events below.
       if (message.parent_tool_use_id) break
       const streamEvent = asRecord(message.event)
       if (streamEvent?.type !== 'content_block_delta') break
@@ -826,40 +831,44 @@ export function mapSdkMessage(
       break
     }
     case 'assistant': {
-      if (message.parent_tool_use_id) break
+      // A subagent's own tool calls arrive as assistant messages stamped with
+      // the id of the Task call that spawned them; they are emitted as ordinary
+      // tool events carrying that link, so the lane can nest them.
+      const parentToolUseId = readParentToolUseId(message)
       const content = asRecord(message.message)?.content
       if (!Array.isArray(content)) break
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_use' || typeof block.name !== 'string') continue
         const toolInput = asRecord(block.input) ?? {}
-        events.push(
-          eventFor(state, 'tool_started', {
-            turnId,
-            toolCallId: typeof block.id === 'string' ? block.id : undefined,
-            tool: block.name,
-            summary: summarizeToolInput(block.name, toolInput),
-            ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
-          })
-        )
+        const payload: ConversationToolStartedPayload = {
+          turnId,
+          toolCallId: typeof block.id === 'string' ? block.id : undefined,
+          tool: block.name,
+          summary: summarizeToolInput(block.name, toolInput),
+          ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
+          ...(parentToolUseId ? { parentToolUseId } : {}),
+          ...subagentLaneFields(block.name, toolInput),
+        }
+        events.push(eventFor(state, 'tool_started', payload))
       }
       break
     }
     case 'user': {
-      if (message.parent_tool_use_id) break
+      const parentToolUseId = readParentToolUseId(message)
       const content = asRecord(message.message)?.content
       if (!Array.isArray(content)) break
       for (const rawBlock of content) {
         const block = asRecord(rawBlock)
         if (block?.type !== 'tool_result') continue
-        events.push(
-          eventFor(state, 'tool_output', {
-            turnId,
-            toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
-            output: truncate(extractResultText(block.content), 4000),
-            isError: block.is_error === true,
-          })
-        )
+        const payload: ConversationToolOutputPayload = {
+          turnId,
+          toolCallId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
+          output: truncate(extractResultText(block.content), 4000),
+          isError: block.is_error === true,
+          ...(parentToolUseId ? { parentToolUseId } : {}),
+        }
+        events.push(eventFor(state, 'tool_output', payload))
       }
       break
     }
@@ -898,6 +907,26 @@ export function mapSdkMessage(
       break
   }
   return events
+}
+
+// The SDK stamps every message produced inside a spawned agent with the id of
+// the tool call that spawned it; top-level traffic carries null.
+function readParentToolUseId(message: Record<string, unknown>): string | null {
+  const parentToolUseId = message.parent_tool_use_id
+  return typeof parentToolUseId === 'string' && parentToolUseId ? parentToolUseId : null
+}
+
+// The tool the CLI exposes for spawning a subagent. Both names ship in the
+// wild (the SDK renamed it), and either one is the header of a lane.
+const SUBAGENT_TOOL_NAMES = new Set(['Task', 'Agent'])
+
+function subagentLaneFields(
+  tool: string,
+  toolInput: Record<string, unknown>
+): Pick<ConversationToolStartedPayload, 'subagentLane' | 'subagentType'> {
+  if (!SUBAGENT_TOOL_NAMES.has(tool)) return {}
+  const subagentType = typeof toolInput.subagent_type === 'string' ? toolInput.subagent_type.trim() : ''
+  return { subagentLane: true, ...(subagentType ? { subagentType } : {}) }
 }
 
 function eventFor(

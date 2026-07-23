@@ -139,6 +139,40 @@ export type ConversationRespondToRequestInput = {
   answers?: Record<string, string>
 }
 
+// Payload carried on `tool_started`. `parentToolUseId` is what makes subagent
+// work visible: a provider that runs tools inside a spawned agent stamps the
+// child calls with the id of the tool call that spawned them, so consumers can
+// group them under that parent instead of flattening them into the turn (or,
+// as before, dropping them). Absent means an ordinary top-level tool call.
+export type ConversationToolStartedPayload = {
+  turnId?: string
+  toolCallId?: string
+  tool: string
+  summary: string
+  addedLines?: number
+  removedLines?: number
+  parentToolUseId?: string
+  // Set on the tool call that spawns a subagent (Task/Agent). It is the header
+  // of a lane whose rows are the tool calls carrying its `toolCallId` as their
+  // `parentToolUseId`; its own `tool_output` closes the lane, so the lane's
+  // elapsed time is the span between the two events.
+  subagentLane?: boolean
+  // The kind of subagent the model asked for ('Explore', 'general-purpose', a
+  // custom agent id), when the call names one. Lane label; absent means the
+  // consumer falls back to `summary`.
+  subagentType?: string
+}
+
+// Payload carried on `tool_output`. `parentToolUseId` mirrors `tool_started`
+// so a child call's completion lands in the same lane as its start.
+export type ConversationToolOutputPayload = {
+  turnId?: string
+  toolCallId?: string
+  output: string
+  isError: boolean
+  parentToolUseId?: string
+}
+
 // Structured payload shapes carried on `approval_requested` events. `kind`
 // distinguishes a plain tool permission from an interactive question card or
 // a plan-approval card; provider-neutral so any stateful adapter can emit

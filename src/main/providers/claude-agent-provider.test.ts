@@ -31,6 +31,7 @@ async function main(): Promise<void> {
   await testSpawnFailureSurfacesAsTurnFailed()
   await testDisposeChildKeepsSessionAndCursorForRespawn()
   await testToolAfterResultOpensContinuationInsteadOfDenying()
+  await testSubagentEventsAfterResultRideTheContinuationChannel()
 
   console.log('claude-agent-provider tests passed')
 }
@@ -269,7 +270,7 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
   })
   assert.deepEqual(thinking.map((event) => event.type), ['reasoning_delta'])
 
-  // Subagent traffic must not leak into the top-level transcript.
+  // Subagent text must not leak into the parent's streaming bubble.
   const subagent = mapSdkMessage(state, {
     type: 'stream_event',
     session_id: 'sdk-session-1',
@@ -314,6 +315,58 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
   })
   assert.deepEqual(toolResult.map((event) => event.type), ['tool_output'])
   assert.equal(toolResult[0]?.payload?.output, 'file-a')
+  assert.equal('parentToolUseId' in (toolResult[0]?.payload ?? {}), false, 'top-level tools carry no parent link')
+  assert.equal('subagentLane' in (toolUse[0]?.payload ?? {}), false, 'ordinary tools are not subagent lanes')
+
+  // The Task call that spawns a subagent is the header of a lane.
+  const laneHeader = mapSdkMessage(state, {
+    type: 'assistant',
+    session_id: 'sdk-session-1',
+    parent_tool_use_id: null,
+    message: {
+      content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { subagent_type: 'Explore', description: 'map the router' } }],
+    },
+  })
+  assert.deepEqual(laneHeader.map((event) => event.type), ['tool_started'])
+  assert.equal(laneHeader[0]?.payload?.toolCallId, 'task_1')
+  assert.equal(laneHeader[0]?.payload?.subagentLane, true)
+  assert.equal(laneHeader[0]?.payload?.subagentType, 'Explore')
+  assert.equal('parentToolUseId' in (laneHeader[0]?.payload ?? {}), false, 'a top-level lane header has no parent')
+
+  // The subagent's own tool calls are emitted, linked to that lane, with both a
+  // start and a completion so the lane shows live status and derivable elapsed
+  // time. The lane header closes on its own top-level tool_result.
+  const childStart = mapSdkMessage(state, {
+    type: 'assistant',
+    session_id: 'sdk-session-1',
+    parent_tool_use_id: 'task_1',
+    message: { content: [{ type: 'tool_use', id: 'child_1', name: 'Grep', input: { pattern: 'router' } }] },
+  })
+  assert.deepEqual(childStart.map((event) => event.type), ['tool_started'])
+  assert.equal(childStart[0]?.payload?.parentToolUseId, 'task_1')
+  assert.equal(childStart[0]?.payload?.toolCallId, 'child_1')
+  assert.equal(childStart[0]?.payload?.turnId, 'turn_9', 'child rows stay attached to the turn that owns the lane')
+
+  const childOutput = mapSdkMessage(state, {
+    type: 'user',
+    session_id: 'sdk-session-1',
+    parent_tool_use_id: 'task_1',
+    message: { content: [{ type: 'tool_result', tool_use_id: 'child_1', content: '12 matches' }] },
+  })
+  assert.deepEqual(childOutput.map((event) => event.type), ['tool_output'])
+  assert.equal(childOutput[0]?.payload?.parentToolUseId, 'task_1')
+  assert.equal(childOutput[0]?.payload?.output, '12 matches')
+
+  // A nested spawn is both a child row and a lane of its own.
+  const nestedLane = mapSdkMessage(state, {
+    type: 'assistant',
+    session_id: 'sdk-session-1',
+    parent_tool_use_id: 'task_1',
+    message: { content: [{ type: 'tool_use', id: 'task_2', name: 'Agent', input: { description: 'check the tests' } }] },
+  })
+  assert.equal(nestedLane[0]?.payload?.parentToolUseId, 'task_1')
+  assert.equal(nestedLane[0]?.payload?.subagentLane, true)
+  assert.equal('subagentType' in (nestedLane[0]?.payload ?? {}), false, 'no invented type when the call names none')
 
   const success = mapSdkMessage(state, {
     type: 'result',
@@ -841,6 +894,59 @@ async function testToolAfterResultOpensContinuationInsteadOfDenying(): Promise<v
     ['turn_started', 'approval_requested', 'approval_resolved', 'usage_updated', 'turn_completed']
   )
   assert.equal(continuation.find((event) => event.type === 'approval_resolved')?.payload?.approved, true)
+
+  await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+}
+
+// A background subagent that finishes after the turn's `result` — the fan-out
+// case from 1777. Its tool calls must reach the runtime over the session
+// channel instead of being dropped with the closed turn.
+async function testSubagentEventsAfterResultRideTheContinuationChannel(): Promise<void> {
+  const gate = createDeferred<void>()
+  const { adapter } = createAdapter(async (_userMessage, context) => {
+    context.emit({
+      type: 'assistant',
+      session_id: 's1',
+      parent_tool_use_id: null,
+      message: { content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { subagent_type: 'Explore' } }] },
+    })
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    await gate.promise
+    context.emit({
+      type: 'assistant',
+      session_id: 's1',
+      parent_tool_use_id: 'task_1',
+      message: { content: [{ type: 'tool_use', id: 'child_1', name: 'Read', input: { file_path: 'a.ts' } }] },
+    })
+    context.emit({
+      type: 'user',
+      session_id: 's1',
+      parent_tool_use_id: 'task_1',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'child_1', content: 'file body' }] },
+    })
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+  })
+
+  const continuation: ConversationEvent[] = []
+  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+
+  const turnEvents = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+  const lane = turnEvents.find((event) => event.type === 'tool_started')
+  assert.equal(lane?.payload?.subagentLane, true, 'the lane header rides the turn that spawned it')
+
+  gate.resolve()
+  await waitForContinuationEvent(continuation, 'turn_completed')
+  assert.deepEqual(
+    continuation.map((event) => event.type),
+    ['turn_started', 'tool_started', 'tool_output', 'usage_updated', 'turn_completed']
+  )
+  const childStart = continuation[1]
+  assert.equal(childStart?.payload?.parentToolUseId, 'task_1', 'the child stays linked to its lane after the turn closed')
+  assert.equal(childStart?.payload?.tool, 'Read')
+  assert.equal(continuation[2]?.payload?.parentToolUseId, 'task_1')
+  const contTurnId = continuation[0]?.payload?.turnId
+  assert.equal(typeof contTurnId === 'string' && contTurnId.includes('_cont_'), true)
+  assert.equal(childStart?.payload?.turnId, contTurnId, 'child events carry the continuation turn the runtime mirrors')
 
   await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
 }
