@@ -16,6 +16,9 @@ import {
   attachmentRejection,
   base64ByteLength,
   ComposerAttachmentStrip,
+  ComposerContextMenu,
+  composerSendAction,
+  editingShortcut,
   dataTransferHasFiles,
   deriveConversationTimelineRows,
   flattenToolEntries,
@@ -292,6 +295,106 @@ assert.equal(isConversationBusy(false, true, null), true, 'awaiting approval que
 // Enter never fires two overlapping sends.
 assert.equal(isConversationBusy(false, false, 'sending'), true, 'in-flight send queues the next message')
 assert.equal(isConversationBusy(false, false, 'starting'), true)
+
+// --- one send rule behind Enter, the button, and the menu (1793) ------------
+
+const idleSend = { ready: true, busy: false, sending: false, hasText: true, attachmentCount: 0 }
+assert.deepEqual(
+  composerSendAction(idleSend),
+  { label: 'Send message', disabled: false },
+  'an idle session with text sends now'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, busy: true }).label,
+  'Queue message',
+  'a busy session queues, and the affordance says so instead of promising a send'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, busy: true, sending: true }).label,
+  'Sending',
+  'an in-flight send reads as sending, not as a second queue'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, hasText: false }).disabled,
+  true,
+  'an empty composer has nothing to commit'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, hasText: false, attachmentCount: 1 }).disabled,
+  false,
+  'an image-only message is sendable (D3/1774)'
+)
+assert.equal(
+  composerSendAction({ ...idleSend, ready: false }).disabled,
+  true,
+  'nothing commits before the provider is ready'
+)
+// Busy is a routing signal, never a gate: type-ahead must stay committable so
+// the queue can take it.
+assert.equal(composerSendAction({ ...idleSend, busy: true }).disabled, false)
+
+assert.equal(editingShortcut('darwin', 'X'), '⌘X')
+assert.equal(editingShortcut('win32', 'V'), 'Ctrl+V')
+
+const menuState = { x: 20, y: 40, selectionStart: 2, selectionEnd: 7, clipboardText: 'pasted' }
+const composerMenuMarkup = renderToStaticMarkup(
+  createElement(ComposerContextMenu, {
+    menu: menuState,
+    send: composerSendAction(idleSend),
+    editable: true,
+    onSend: () => {},
+    onCut: () => {},
+    onCopy: () => {},
+    onPaste: () => {},
+    onClose: () => {},
+  })
+)
+assert.ok(composerMenuMarkup.includes('role="menu"'), 'the composer menu is a menu surface')
+assert.ok(composerMenuMarkup.includes('aria-label="Message actions"'), 'the menu surface is named')
+for (const label of ['Send message', 'Cut', 'Copy', 'Paste']) {
+  assert.ok(composerMenuMarkup.includes(`>${label}</span>`), `the composer menu offers ${label}`)
+}
+assert.doesNotMatch(composerMenuMarkup, /disabled=""/, 'with a selection and a full clipboard every item is live')
+
+// Nothing selected and an empty clipboard: the editing actions say so rather
+// than sitting enabled and doing nothing.
+const emptyMenuMarkup = renderToStaticMarkup(
+  createElement(ComposerContextMenu, {
+    menu: { ...menuState, selectionEnd: 2, clipboardText: '' },
+    send: composerSendAction({ ...idleSend, hasText: false }),
+    editable: true,
+    onSend: () => {},
+    onCut: () => {},
+    onCopy: () => {},
+    onPaste: () => {},
+    onClose: () => {},
+  })
+)
+assert.equal(
+  (emptyMenuMarkup.match(/disabled=""/g) ?? []).length,
+  4,
+  'Send, Cut, Copy, and Paste each disable when there is nothing to act on'
+)
+
+// A composer that cannot be edited (provider not ready) still allows Copy — it
+// reads the field — but never offers to rewrite it.
+const readOnlyMenuMarkup = renderToStaticMarkup(
+  createElement(ComposerContextMenu, {
+    menu: menuState,
+    send: composerSendAction({ ...idleSend, ready: false }),
+    editable: false,
+    onSend: () => {},
+    onCut: () => {},
+    onCopy: () => {},
+    onPaste: () => {},
+    onClose: () => {},
+  })
+)
+assert.equal(
+  (readOnlyMenuMarkup.match(/disabled=""/g) ?? []).length,
+  3,
+  'Send, Cut, and Paste disable on a non-editable composer; Copy stays available'
+)
 
 // --- Model picker locks once the conversation has started ------------------
 
@@ -1118,6 +1221,35 @@ assert.match(
   chatViewSource.slice(chatViewSource.indexOf('mergeQueuedTurn(queuedTurn')),
   /^[\s\S]{0,600}?dropped > 0\n/,
   'a queue merge that hit the cap tells the user, instead of trimming in silence'
+)
+
+// The right-click menu (1793) is DOM-bound (pointer coordinates, the field's
+// selection, the clipboard IPC), so its wiring is pinned at the source.
+assert.ok(
+  chatViewSource.includes('onContextMenu={(event) => void openComposerMenu(event)}'),
+  'the composer textarea opens the menu on right-click'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('const openComposerMenu')),
+  /^[\s\S]{0,900}?await readClipboardText\(\)/,
+  'the menu reads the clipboard before opening, so Paste is never offered against an empty one'
+)
+// The button and the menu item must both read the shared rule — a literal
+// re-derivation in either place is how they drift apart.
+assert.ok(
+  chatViewSource.includes('ariaLabel={sendAction.label}') &&
+    chatViewSource.includes('disabled={sendAction.disabled}') &&
+    chatViewSource.includes('send={sendAction}'),
+  'the send button and the menu item share one composerSendAction result'
+)
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('onCut={')),
+  /^[\s\S]{0,400}?if \(written\) replaceComposerSelection\(composerMenu, ''\)/,
+  'Cut removes the selection only once the clipboard write actually succeeded'
+)
+assert.ok(
+  chatViewSource.includes('onSend={submitComposer}'),
+  'the menu commits through the same submit path as Enter and the button'
 )
 
 console.log('AgentChatView.test.ts: ok')

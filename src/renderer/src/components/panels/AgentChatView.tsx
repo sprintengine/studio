@@ -28,7 +28,7 @@ import { AGENT_SPAWN_PERMISSION_OPTIONS, PermissionPresetChips } from '../worksp
 import { uniqueAgentName } from '../workspace/workspaceManagerHelpers'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { renderMarkdown } from '../../utils/markdown'
-import { FilterMenu, GhostButton, InlineSkillPicker, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ContextMenu, FilterMenu, GhostButton, InlineSkillPicker, MenuDivider, MenuItem, Popover, PrimaryButton, SkillPickerPopover, StatusDot, Tooltip, TruncatedText } from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -1199,6 +1199,30 @@ export function isConversationBusy(
   return activeTurn || awaitingApproval || pending !== null
 }
 
+// The composer's one commit rule, shared by every affordance that can commit a
+// turn — Enter, the send button, and the right-click menu's Send item (1793) —
+// so the three can never disagree about whether a turn can be committed or
+// whether committing sends now or queues (D6/1776). Content is text OR staged
+// images (D3/1774): an image-only message is sendable.
+export function composerSendAction(options: {
+  ready: boolean
+  busy: boolean
+  sending: boolean
+  hasText: boolean
+  attachmentCount: number
+}): { label: string; disabled: boolean } {
+  return {
+    label: options.sending ? 'Sending' : options.busy ? 'Queue message' : 'Send message',
+    disabled: !options.ready || (!options.hasText && options.attachmentCount === 0),
+  }
+}
+
+// Menu shortcut hints use the platform's own editing chords, so the composer
+// menu teaches the keyboard path instead of inventing one.
+export function editingShortcut(platform: string, key: string): string {
+  return platform === 'darwin' ? `⌘${key}` : `Ctrl+${key}`
+}
+
 // The model is editable only until the conversation starts: the runtime binds a
 // session to one provider/model, so once the user has sent a turn (or a session
 // exists) the in-composer picker locks. A replayed transcript counts as a
@@ -1275,6 +1299,14 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // typed intent is dropped. Attachments ride the queue too — dropping them at
   // the queue boundary would silently lose what the user staged.
   const [queuedTurn, setQueuedTurn] = useState<QueuedTurn | null>(null)
+  // The composer's right-click menu (1793); null when closed. Opening it snapshots
+  // the click point, the field's selection, and the clipboard, so the menu's
+  // enable states describe the moment the user asked for it.
+  const [composerMenu, setComposerMenu] = useState<ComposerMenuState | null>(null)
+  // Where the caret belongs after a menu edit rewrites the controlled draft.
+  // Applied once the new value has rendered, so the caret lands in the edited
+  // text instead of jumping to the end of it.
+  const pendingCaretRef = useRef<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false)
   // Slash trigger: Escape or non-matching text sets dismissed so the slash
@@ -1638,6 +1670,47 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     setAttachments([])
   }, [attachments, draft, projection.activeTurn, projection.awaitingApproval, pending, queuedTurn, sendTurn])
 
+  // Open the composer's right-click menu (1793). The clipboard read is awaited
+  // before opening so Paste is never offered against an empty clipboard, and the
+  // pointer/selection state is captured before it, because the event's target is
+  // released once the handler returns. The menu key (Shift+F10) raises the same
+  // event and is the keyboard path in; when it reports no pointer, the menu opens
+  // at the field instead of the viewport corner.
+  const openComposerMenu = useCallback(async (event: React.MouseEvent<HTMLTextAreaElement>) => {
+    event.preventDefault()
+    const field = event.currentTarget
+    const rect = field.getBoundingClientRect()
+    const keyboardInvoked = event.clientX === 0 && event.clientY === 0
+    const x = keyboardInvoked ? rect.left : event.clientX
+    const y = keyboardInvoked ? rect.bottom : event.clientY
+    const selectionStart = field.selectionStart ?? 0
+    const selectionEnd = field.selectionEnd ?? selectionStart
+    const clipboardText = await readClipboardText()
+    setComposerMenu({ x, y, selectionStart, selectionEnd, clipboardText })
+  }, [])
+
+  // Replace the menu's captured selection with `text` ('' for a plain cut) and
+  // put the caret after what was inserted.
+  const replaceComposerSelection = useCallback(
+    (menu: ComposerMenuState, text: string) => {
+      setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
+      pendingCaretRef.current = menu.selectionStart + text.length
+    },
+    [],
+  )
+
+  // Apply the caret position a menu edit asked for, once the rewritten draft has
+  // rendered. Focus comes back to the field so the user can keep typing.
+  useEffect(() => {
+    const caret = pendingCaretRef.current
+    if (caret === null) return
+    pendingCaretRef.current = null
+    const field = composerRef.current
+    if (!field) return
+    field.focus()
+    field.setSelectionRange(caret, caret)
+  }, [draft])
+
   // Auto-send the queued message as a follow-up turn once the session idles.
   // Gated on the same busy signal the submit uses, so it never races the guard;
   // sendTurn's own `pending` guard prevents a re-entrant double send.
@@ -1760,6 +1833,16 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // The textarea itself is only disabled before the provider is ready — it stays
   // editable through a stream so type-ahead works (D6/1776).
   const composerInputDisabled = !ready
+  // One rule for both send affordances — the footer button and the right-click
+  // menu's Send item (1793) — so they can never label or gate a commit
+  // differently from each other or from Enter.
+  const sendAction = composerSendAction({
+    ready,
+    busy: composerBusy,
+    sending: pending === 'starting' || pending === 'sending',
+    hasText: draft.trim().length > 0,
+    attachmentCount: attachments.length,
+  })
 
   // The runtime binds a session to one provider/model, so the model is editable
   // only until the conversation starts: once a turn is sent, a session exists,
@@ -2124,6 +2207,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               setDraft(value)
               if (!value.startsWith('/')) setSlashDismissed(false)
             }}
+            onContextMenu={(event) => void openComposerMenu(event)}
             onKeyDown={(event) => {
               // While the slash picker is up, the textarea keeps focus and
               // forwards navigation; Enter picks instead of sending.
@@ -2239,20 +2323,42 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             ) : (
               <ComposerActionButton
                 tone="accent"
-                ariaLabel={
-                  pending === 'starting' || pending === 'sending'
-                    ? 'Sending'
-                    : composerBusy
-                      ? 'Queue message'
-                      : 'Send message'
-                }
+                ariaLabel={sendAction.label}
                 onClick={submitComposer}
-                disabled={!ready || (!draft.trim() && attachments.length === 0)}
+                disabled={sendAction.disabled}
               >
                 <SendArrowGlyph className="icon-sm" />
               </ComposerActionButton>
             )}
           </div>
+          {/*
+           * Right-click menu (1793): Send plus the standard editing actions, so
+           * committing a turn is not limited to Enter and the button. Rendered
+           * only while open — it positions itself at the click point.
+           */}
+          {composerMenu ? (
+            <ComposerContextMenu
+              menu={composerMenu}
+              send={sendAction}
+              editable={!composerInputDisabled}
+              onSend={submitComposer}
+              onCut={() => {
+                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                void writeClipboardText(selected).then((written) => {
+                  if (written) replaceComposerSelection(composerMenu, '')
+                  else setActionError('Could not cut to the clipboard.')
+                })
+              }}
+              onCopy={() => {
+                const selected = draft.slice(composerMenu.selectionStart, composerMenu.selectionEnd)
+                void writeClipboardText(selected).then((written) => {
+                  if (!written) setActionError('Could not copy to the clipboard.')
+                })
+              }}
+              onPaste={() => replaceComposerSelection(composerMenu, composerMenu.clipboardText)}
+              onClose={() => setComposerMenu(null)}
+            />
+          ) : null}
         </div>
       </div>
     </ChatShell>
@@ -2683,6 +2789,100 @@ function ComposerActionButton({
     >
       {children}
     </button>
+  )
+}
+
+// Clipboard reads/writes go through the main process: an Electron renderer has
+// no permission-free `navigator.clipboard` read, and the app already owns this
+// bridge for the terminal. An unavailable bridge reads as an empty clipboard,
+// which disables Paste rather than offering an item that would do nothing.
+async function readClipboardText(): Promise<string> {
+  if (typeof window.api?.clipboardReadText !== 'function') return ''
+  try {
+    return await window.api.clipboardReadText()
+  } catch {
+    return ''
+  }
+}
+
+// Reports whether the text actually reached the clipboard: Cut removes the
+// selection only on a true, so a failed write can never lose the text from both
+// the draft and the clipboard.
+async function writeClipboardText(text: string): Promise<boolean> {
+  if (typeof window.api?.clipboardWriteText !== 'function') return false
+  try {
+    await window.api.clipboardWriteText(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// What the composer's right-click menu was opened over: the point to open at,
+// the selection at the moment of the click (opening the menu moves focus off
+// the field), and the clipboard text read for that open so Paste is enabled
+// only when there is something to paste.
+export type ComposerMenuState = {
+  x: number
+  y: number
+  selectionStart: number
+  selectionEnd: number
+  clipboardText: string
+}
+
+// Right-click menu for the composer (1793). Send leads — it is the reason this
+// menu exists and the action the surrounding field is for — with the standard
+// editing actions below it. Send reads the same rule as the send button and
+// Enter, so all three agree on when a turn commits and whether it queues.
+export function ComposerContextMenu({
+  menu,
+  send,
+  editable,
+  onSend,
+  onCut,
+  onCopy,
+  onPaste,
+  onClose,
+}: {
+  menu: ComposerMenuState
+  send: { label: string; disabled: boolean }
+  editable: boolean
+  onSend: () => void
+  onCut: () => void
+  onCopy: () => void
+  onPaste: () => void
+  onClose: () => void
+}) {
+  const platform = typeof window !== 'undefined' ? (window.api?.platform ?? '') : ''
+  const hasSelection = menu.selectionEnd > menu.selectionStart
+  const run = (action: () => void) => () => {
+    action()
+    onClose()
+  }
+  return (
+    <ContextMenu x={menu.x} y={menu.y} ariaLabel="Message actions" onClose={onClose} surfaceClassName="min-w-[200px]">
+      <MenuItem disabled={send.disabled} shortcut="Enter" onClick={run(onSend)}>
+        {send.label}
+      </MenuItem>
+      <MenuDivider />
+      <MenuItem
+        disabled={!editable || !hasSelection}
+        shortcut={editingShortcut(platform, 'X')}
+        onClick={run(onCut)}
+      >
+        Cut
+      </MenuItem>
+      <MenuItem disabled={!hasSelection} shortcut={editingShortcut(platform, 'C')} onClick={run(onCopy)}>
+        Copy
+      </MenuItem>
+      <MenuItem
+        disabled={!editable || menu.clipboardText === ''}
+        shortcut={editingShortcut(platform, 'V')}
+        onClick={run(onPaste)}
+      >
+        Paste
+      </MenuItem>
+    </ContextMenu>
   )
 }
 
