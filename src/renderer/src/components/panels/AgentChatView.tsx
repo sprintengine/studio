@@ -2668,7 +2668,7 @@ function AssistantTurnBlock({
         <ThoughtRow reasoning={entry.reasoning} durationMs={entry.reasoningDurationMs} />
       ) : null}
       {tools.length > 0 ? <WorkTimeline tools={tools} live={entry.status === 'streaming'} /> : null}
-      <ResolvedDecisions rows={decisions} className="mb-3" />
+      <ResolvedDecisions rows={decisions} className={entry.text.trim() ? 'mb-3' : undefined} />
       {entry.text.trim() ? <div className="max-w-[68ch]">{renderMarkdown(entry.text)}</div> : null}
       {entry.status === 'interrupted' ? (
         <span className="text-[11px] text-[color:var(--text-subtle)]">Interrupted</span>
