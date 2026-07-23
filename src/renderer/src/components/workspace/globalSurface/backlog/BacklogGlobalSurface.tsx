@@ -8,6 +8,7 @@ import {
   InlineNotice,
   MenuItem,
   PrimaryButton,
+  Select,
   Tooltip,
   useConfirmDialog,
   type SelectItem,
@@ -777,26 +778,37 @@ function BacklogDoorToolbar({
   onGroupChange: (next: BacklogGroup) => void
 }): JSX.Element {
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0)
+  // One compact control instead of a chip per project (MC-1837): the wall of
+  // chips wrapped to two lines and listed zero-count projects as noise. The
+  // shared Select carries keyboard typeahead; a healthy project with nothing in
+  // the current lens is omitted (selecting it could only show an empty list) —
+  // unless it IS the current filter, so the trigger never shows an unknown
+  // value. A failed project stays listed with the warn tone: unreadable must
+  // remain reachable, never invisible.
+  const filterItems: SelectItem<string>[] = [
+    { value: ALL_PROJECTS, label: `All projects · ${total}` },
+    ...projects
+      .filter(
+        (feed) =>
+          Boolean(feed.error) || (counts.get(feed.rootKey) ?? 0) > 0 || filter === feed.rootKey,
+      )
+      .map((feed) => ({
+        value: feed.rootKey,
+        label: feed.error
+          ? `${feed.projectName} · unavailable`
+          : `${feed.projectName} · ${counts.get(feed.rootKey) ?? 0}`,
+        tone: feed.error ? ('warn' as const) : undefined,
+      })),
+  ]
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2.5">
-      <div role="group" aria-label="Filter by project" className="flex flex-wrap items-center gap-1">
-        <FilterChip
-          label="All projects"
-          count={total}
-          selected={filter === ALL_PROJECTS}
-          onClick={() => onFilter(ALL_PROJECTS)}
-        />
-        {projects.map((feed) => (
-          <FilterChip
-            key={feed.rootKey}
-            label={feed.projectName}
-            count={counts.get(feed.rootKey) ?? 0}
-            selected={filter === feed.rootKey}
-            failed={Boolean(feed.error)}
-            onClick={() => onFilter(feed.rootKey)}
-          />
-        ))}
-      </div>
+      <Select
+        ariaLabel="Filter by project"
+        items={filterItems}
+        value={filter}
+        onChange={onFilter}
+        triggerMinWidthClassName="min-w-[180px]"
+      />
       <div className="ml-auto flex min-w-[220px] max-w-[380px] flex-1 items-center gap-1.5">
         <InboxSearchInput
           value={search}
@@ -818,43 +830,6 @@ function BacklogDoorToolbar({
         />
       </div>
     </div>
-  )
-}
-
-function FilterChip({
-  label,
-  count,
-  selected,
-  failed,
-  onClick,
-}: {
-  label: string
-  count: number
-  selected: boolean
-  failed?: boolean
-  onClick: () => void
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={`flex max-w-[16ch] items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium transition-colors ${
-        selected
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
-          : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-      }`}
-    >
-      <span className="truncate">{label}</span>
-      <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">{count}</span>
-      {failed ? (
-        <Tooltip content="This project’s backlog couldn’t be read." placement="top">
-          <span aria-label="Backlog unavailable" className="shrink-0 text-[color:var(--tone-warn)]">
-            !
-          </span>
-        </Tooltip>
-      ) : null}
-    </button>
   )
 }
 

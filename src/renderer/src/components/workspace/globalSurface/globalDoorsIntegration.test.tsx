@@ -53,6 +53,9 @@ dom.window.matchMedia = ((query: string) => ({
   addListener: () => {},
   removeListener: () => {},
 })) as unknown as typeof dom.window.matchMedia
+// JSDOM has no scrollIntoView; the Select's open effect scrolls its active
+// option into view, so give it a no-op.
+dom.window.HTMLElement.prototype.scrollIntoView = () => {}
 class NoopResizeObserver {
   observe(): void {}
   unobserve(): void {}
@@ -426,14 +429,46 @@ async function main(): Promise<void> {
   })
   await settle(12)
 
-  const chips = [...container.querySelectorAll('div[role="group"][aria-label="Filter by project"] button')]
+  // The project filter is ONE compact control (MC-1837), not a chip per
+  // project: options carry their counts, a failed project stays listed as
+  // "unavailable" (unreadable must remain reachable), and a healthy project
+  // with zero rows in the lens is omitted as noise.
+  const filterTrigger = (): HTMLElement => {
+    const trigger = container.querySelector('button[role="combobox"][aria-label="Filter by project"]')
+    assert.ok(trigger, 'the project filter renders as one compact select')
+    return trigger as HTMLElement
+  }
+  // The Select's listbox portals to document.body, so options are queried
+  // document-wide, excluding the row list (whose rows are options too).
+  const filterOptions = (): HTMLElement[] =>
+    [...dom.window.document.querySelectorAll('[role="listbox"]:not([aria-label="Backlog items across projects"]) [role="option"]')] as HTMLElement[]
+  const pickFilterOption = async (label: string): Promise<void> => {
+    await act(async () => {
+      filterTrigger().click()
+    })
+    const option = filterOptions().find(
+      (candidate) => candidate.textContent?.startsWith(label),
+    )
+    assert.ok(option, `the filter lists ${label}`)
+    await act(async () => {
+      ;(option as HTMLElement).click()
+    })
+    await settle()
+  }
+  await act(async () => {
+    filterTrigger().click()
+  })
   assert.deepEqual(
-    chips.map((chip) => chip.querySelector('span')?.textContent),
+    filterOptions().map((option) => option.textContent),
     // Path-sorted, not workspace-order: the aggregate derives its roots as
-    // sorted descriptors so the chip strip is stable across sessions.
-    ['All projects', 'multiauth', 'multicode', 'multicode-mobile'],
-    'All projects, then one chip per open project (mockup §4 toolbar)',
+    // sorted descriptors so the option order is stable across sessions.
+    ['All projects · 5', 'multiauth · unavailable', 'multicode · 4', 'multicode-mobile · 1'],
+    'All projects with the total, then one counted option per project with rows (mockup §4 toolbar)',
   )
+  await act(async () => {
+    filterTrigger().click()
+  })
+  await settle()
 
   const rowText = (): string[] =>
     [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')].map(
@@ -475,11 +510,7 @@ async function main(): Promise<void> {
   // Filtering to one project is exactly that project's list — the door narrowed
   // to a single project must not show more, less, or a different order than the
   // project's own panel would.
-  const mobileChip = chips.find((chip) => chip.querySelector('span')?.textContent === 'multicode-mobile')
-  await act(async () => {
-    ;(mobileChip as HTMLElement).click()
-  })
-  await settle()
+  await pickFilterOption('multicode-mobile')
   const filtered = rowText()
   assert.equal(filtered.length, 1, 'only the filtered project’s items remain')
   assert.ok(filtered[0]?.includes('MM-87'), 'and they are that project’s')
@@ -498,11 +529,7 @@ async function main(): Promise<void> {
   // The door's detail pane is the WORKSPACE panel's BacklogDetail (MC-1836):
   // opening an epic shows the navigable children roll-up, opening a child shows
   // the parent-epic crumb — the two sections the old door fork dropped.
-  const allChip = chips.find((chip) => chip.querySelector('span')?.textContent === 'All projects')
-  await act(async () => {
-    ;(allChip as HTMLElement).click()
-  })
-  await settle()
+  await pickFilterOption('All projects')
   const rowFor = (needle: string): HTMLElement => {
     const row = [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')]
       .find((candidate) => candidate.textContent?.includes(needle))
