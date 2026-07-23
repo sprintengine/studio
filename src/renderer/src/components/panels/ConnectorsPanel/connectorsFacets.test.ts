@@ -14,6 +14,7 @@ import {
   filterByFacet,
   installedServerAsCatalogEntry,
   launchableConnectors,
+  registryEntriesForKinds,
   searchConnectors,
   sectionConnectors,
   type SourceLoad,
@@ -373,6 +374,36 @@ assert.deepEqual(sectionConnectors([], 'All'), [])
   assert.equal(connector.id, 'acme')
   assert.equal(connector.name, 'Acme')
   assert.equal(connector.icon, undefined)
+}
+
+// --- registry entries by kind (MC-1847 C2) ---------------------------------
+// Module/cli plugins browse on the door's own kind canvases; the connector grid
+// keeps its mcp/skills subset. Same normalized row shape from one builder.
+{
+  const roadmapModule = plugin({ id: 'roadmap-module', name: 'Roadmap', provides: ['module'] })
+  const cursorCli = plugin({ id: 'cursor-cli', name: 'Cursor', provides: ['cli'] })
+  const stack = plugin({ id: 'full-stack', name: 'Full stack', provides: ['mcp', 'skills', 'module', 'cli'] })
+  const all = [plugin(), roadmapModule, cursorCli, stack]
+
+  assert.deepEqual(
+    registryEntriesForKinds(all, ['module']).map((entry) => entry.id),
+    ['roadmap-module', 'full-stack'],
+  )
+  assert.deepEqual(
+    registryEntriesForKinds(all, ['cli']).map((entry) => entry.id),
+    ['cursor-cli', 'full-stack'],
+  )
+  // The connector grid path is the same builder with mcp/skills — module- and
+  // cli-only plugins stay out of it.
+  assert.deepEqual(
+    buildConnectorEntries([], all, new Set()).map((entry) => entry.id),
+    ['stripe-mcp', 'full-stack'],
+  )
+  // Kind entries are never launchable and keep the registry install route.
+  const [moduleEntry] = registryEntriesForKinds(all, ['module'])
+  assert.equal(moduleEntry.canLaunch, false)
+  assert.equal(moduleEntry.source, 'registry')
+  assert.ok(moduleEntry.plugin)
 }
 
 console.log('connectors-facets guard passed')

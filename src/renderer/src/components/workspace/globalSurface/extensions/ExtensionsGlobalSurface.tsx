@@ -19,11 +19,18 @@ import {
   useConnectorsBrowseState,
 } from '../../../panels/ConnectorsPanel/ConnectorsBrowseCanvas'
 import { ConnectorsManage } from '../../../panels/ConnectorsPanel/ConnectorsManage'
+import { ExtensionKindCanvas } from '../../../panels/ConnectorsPanel/ExtensionKindCanvas'
 import {
   buildConnectorEntries,
   launchableConnectors,
+  registryEntriesForKinds,
 } from '../../../panels/ConnectorsPanel/connectorsFacets'
+import {
+  SkillPackCatalogList,
+  useSkillPackCatalog,
+} from '../../../panels/ConnectorsPanel/skillPackCatalog'
 import { useConnectorSources } from '../../../panels/ConnectorsPanel/useConnectorSources'
+import { InlineNotice, Spinner } from '../../../ui'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell'
 import { BarStatusChip, SurfaceRail, type SurfaceRailGroup } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
@@ -34,12 +41,19 @@ import {
   type ExtensionsSurfaceView,
 } from './extensionsSurfaceTarget'
 
-// The canvas sections. The marketplace is ONE section with ONE browse state:
-// its two rail rows (Featured, MCP servers) are projections of the canvas's
-// facet — selecting a row sets the facet, and changing the facet tab moves the
-// rail highlight — so the rail and the facet tabs can never contradict each
-// other. Skill packs / Modules / Agent CLIs rows join the group in C2.
-type ExtensionsSection = 'marketplace' | 'installed' | 'automation-server'
+// The canvas sections. The connector marketplace is ONE section with ONE
+// browse state: its two rail rows (Featured, MCP servers) are projections of
+// the canvas's facet — selecting a row sets the facet, and changing the facet
+// tab moves the rail highlight — so the rail and the facet tabs can never
+// contradict each other. Skill packs, Modules, and Agent CLIs (MC-1847 C2)
+// are their own kind canvases over the same registry source.
+type ExtensionsSection =
+  | 'marketplace'
+  | 'skill-packs'
+  | 'modules'
+  | 'agent-clis'
+  | 'installed'
+  | 'automation-server'
 
 export default function ExtensionsGlobalSurface(): JSX.Element {
   const back = useSurfaceBackNav()
@@ -53,6 +67,9 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // as the marketplace rail-row selection.
   const browse = useConnectorsBrowseState('Featured')
   const { facet, setFacet } = browse
+  // The skill-pack ecosystem catalog (shared hook with ConnectorsManage) — the
+  // Skill packs rail row browses it full-page.
+  const skillPacks = useSkillPackCatalog(activeWorkspaceRoot)
 
   const applyTargetView = useCallback(
     (view: ExtensionsSurfaceView) => {
@@ -112,7 +129,25 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     () => buildConnectorEntries(catalog, plugins, sources.installedServerIds).length,
     [catalog, plugins, sources.installedServerIds],
   )
+  const moduleCount = useMemo(() => registryEntriesForKinds(plugins, ['module']).length, [plugins])
+  const cliCount = useMemo(() => registryEntriesForKinds(plugins, ['cli']).length, [plugins])
   const installedCount = sources.installedServerIds.size
+
+  // The registry alone feeds the module/cli rows; the skill-pack row reads its
+  // own catalog. Same honesty rule as the marketplace row: loading and
+  // unavailable never render as a zero count.
+  const registryStateLine = (count: number): string =>
+    sources.registryLoad.status === 'loading'
+      ? 'Loading…'
+      : sources.registryLoad.status === 'error'
+        ? 'Marketplace unavailable'
+        : `${count} available`
+  const skillPacksStateLine =
+    skillPacks.status === 'loading'
+      ? 'Loading…'
+      : skillPacks.status === 'error'
+        ? 'Catalog unavailable'
+        : `${skillPacks.catalog.length} available`
 
   // ── Bar ────────────────────────────────────────────────────────────────────
   const bar: GlobalSurfaceBar = {
@@ -153,6 +188,24 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           title: 'MCP servers',
           stateLine: marketplaceStateLine,
           icon: <McpGlyph />,
+        },
+        {
+          id: 'skill-packs',
+          title: 'Skill packs',
+          stateLine: skillPacksStateLine,
+          icon: <SkillPackGlyph />,
+        },
+        {
+          id: 'modules',
+          title: 'Modules',
+          stateLine: registryStateLine(moduleCount),
+          icon: <ModuleGlyph />,
+        },
+        {
+          id: 'agent-clis',
+          title: 'Agent CLIs',
+          stateLine: registryStateLine(cliCount),
+          icon: <CliGlyph />,
         },
       ],
     },
@@ -204,6 +257,29 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     [facet, setFacet],
   )
 
+  // The kind canvases (C2): the skill-pack ecosystem catalog full-page, with
+  // its own loading/unavailable/empty states so a failed read never renders as
+  // an empty catalog.
+  const skillPacksCanvas =
+    skillPacks.status === 'loading' ? (
+      <div className="flex items-center gap-2 py-8 text-[12px] text-[color:var(--text-muted)]">
+        <Spinner size={14} />
+        Loading skill packs…
+      </div>
+    ) : skillPacks.status === 'error' ? (
+      <div className="py-4">
+        <InlineNotice tone="error">
+          {skillPacks.message ?? 'The skill-pack catalog is unavailable.'}
+        </InlineNotice>
+      </div>
+    ) : skillPacks.catalog.length === 0 ? (
+      <p className="px-1 py-10 text-center text-[12px] text-[color:var(--text-muted)]">
+        No skill packs are in the catalog yet.
+      </p>
+    ) : (
+      <SkillPackCatalogList state={skillPacks} />
+    )
+
   const rail = (
     <SurfaceRail
       label="Connectors"
@@ -230,6 +306,12 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
             onUseInAutomation={useInAutomation}
           />
         )
+      case 'skill-packs':
+        return skillPacksCanvas
+      case 'modules':
+        return <ExtensionKindCanvas kind="module" sources={sources} workspaceRoot={activeWorkspaceRoot} />
+      case 'agent-clis':
+        return <ExtensionKindCanvas kind="cli" sources={sources} workspaceRoot={activeWorkspaceRoot} />
       case 'installed':
         return (
           <ConnectorsManage
@@ -298,6 +380,47 @@ function InstalledGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
       <path d="M3 8.5 6.5 12 13 4.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function SkillPackGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
+      <path
+        d="M3 3h10v10H3zM3 6h10M6 6v7"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ModuleGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
+      <path
+        d="M8 2 13.5 4.6v6L8 13.9 2.5 10.6v-6zM2.5 4.6 8 7.2l5.5-2.6M8 7.2v6.7"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function CliGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
+      <path
+        d="M2.5 3.5h11v9h-11zM4.8 6.6l2 1.7-2 1.7M8.6 10.3h2.8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

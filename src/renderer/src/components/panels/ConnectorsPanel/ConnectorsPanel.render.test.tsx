@@ -6,7 +6,9 @@ import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { PluginIcon, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { ConnectorsBody, FacetTabs, ReadyConnectorsRail } from './ConnectorsBrowseCanvas'
+import { ExtensionKindCanvas } from './ExtensionKindCanvas'
 import { deriveConnectorsView, type ConnectorFacet, type SourceLoad } from './connectorsFacets'
+import type { ConnectorSources } from './useConnectorSources'
 
 // A static-render smoke test: full Electron drive is not available in the shared
 // run worktree, so this exercises the real presentation tree (the shared
@@ -211,6 +213,84 @@ assert.equal(
   )
   assert.doesNotMatch(few, /Show \d+ more/)
   assert.doesNotMatch(few, /Show fewer/)
+}
+
+// --- kind canvases (MC-1847 C2): modules and agent CLIs browse for real -----
+
+function kindSources(registryLoad: SourceLoad<MarketplacePluginEntry[]>): ConnectorSources {
+  return {
+    catalogLoad: ready<McpCatalogServer[]>([]),
+    registryLoad,
+    registryUrl: null,
+    mcpSettings: { syncEnabled: true, servers: {} },
+    installedServerIds: new Set<string>(),
+    upsertMcpServer: noop,
+    toggleCatalogServer: noop,
+    loadCatalog: async () => {},
+    loadRegistry: async () => {},
+  }
+}
+
+{
+  const roadmapModule: MarketplacePluginEntry = {
+    ...stripePlugin,
+    id: 'roadmap-module',
+    name: 'Roadmap',
+    summary: 'Plan multi-sprint arcs on a shared board.',
+    category: 'Planning',
+    provides: ['module'],
+  }
+  const cursorCli: MarketplacePluginEntry = {
+    ...stripePlugin,
+    id: 'cursor-cli',
+    name: 'Cursor',
+    summary: 'Drive the Cursor agent from Multicode.',
+    category: 'Development',
+    provides: ['cli'],
+  }
+  const loaded = kindSources(ready([roadmapModule, cursorCli, stripePlugin]))
+
+  // A module plugin renders on the module canvas; mcp/cli-only plugins do not.
+  const modules = renderToStaticMarkup(
+    <ExtensionKindCanvas kind="module" sources={loaded} workspaceRoot="/repo" />,
+  )
+  assert.match(modules, /Capability modules/)
+  assert.match(modules, /Roadmap/)
+  assert.match(modules, /Plan multi-sprint arcs/)
+  assert.doesNotMatch(modules, /Cursor/)
+  assert.doesNotMatch(modules, /Stripe/)
+
+  const clis = renderToStaticMarkup(
+    <ExtensionKindCanvas kind="cli" sources={loaded} workspaceRoot="/repo" />,
+  )
+  assert.match(clis, /Agent CLIs/)
+  assert.match(clis, /Cursor/)
+  assert.doesNotMatch(clis, /Roadmap/)
+
+  // Empty, loading, and unavailable each carry their own copy — a down
+  // registry must never read as an empty marketplace.
+  assert.match(
+    renderToStaticMarkup(
+      <ExtensionKindCanvas kind="module" sources={kindSources(ready([stripePlugin]))} workspaceRoot="/repo" />,
+    ),
+    /No capability modules are in the marketplace yet/,
+  )
+  assert.match(
+    renderToStaticMarkup(
+      <ExtensionKindCanvas kind="module" sources={kindSources({ status: 'loading' })} workspaceRoot="/repo" />,
+    ),
+    /Loading the marketplace/,
+  )
+  assert.match(
+    renderToStaticMarkup(
+      <ExtensionKindCanvas
+        kind="cli"
+        sources={kindSources({ status: 'error', message: 'registry down.' })}
+        workspaceRoot="/repo"
+      />,
+    ),
+    /The marketplace is unavailable: registry down\./,
+  )
 }
 
 // --- data-URI icons from the generated catalogue render through PluginIcon --

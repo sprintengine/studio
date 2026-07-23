@@ -11,23 +11,18 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, SkillPackEntry, WorkspaceSkill } from '../../../../../shared/electron-api'
+import type { BuiltinSkill, BuiltinSkillStatus, McpCatalogServer, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/AgentComposer'
-import type {
-  McpSettings,
-  SkillPackCatalogEntry,
-  SkillPackSettings,
-} from '../../../types/workspace'
+import type { McpSettings } from '../../../types/workspace'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { Field, GhostButton, Select, type SelectItem } from '../../ui'
 import { McpBrandIcon } from '../../settings/McpCatalog'
-import { SkillPackInfoPanel, SkillPackMonogram, groupSkillPackCatalog } from '../../settings/SkillPacksCatalog'
 import { AutomationServerSettings } from '../../settings/AutomationServerSettings'
 import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
 import { InstalledExtensionsInventory } from './InstalledExtensionsInventory'
+import { SkillPackCatalogList, useSkillPackCatalog } from './skillPackCatalog'
 
 const EMPTY_MCP_SETTINGS: McpSettings = { syncEnabled: false, servers: {} }
-const EMPTY_SKILL_PACK_SETTINGS: SkillPackSettings = { installed: {} }
 
 const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
   { value: 'stdio', label: 'stdio' },
@@ -73,10 +68,6 @@ export function ConnectorsManage({
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
   const removeMcpServer = useWorkspaceStore((s) => s.removeMcpServer)
-  const skillPackSettings = useWorkspaceStore((s) => s.appSettings.skillPacks ?? EMPTY_SKILL_PACK_SETTINGS)
-  const setSkillPacksInstalled = useWorkspaceStore((s) => s.setSkillPacksInstalled)
-  const upsertSkillPack = useWorkspaceStore((s) => s.upsertSkillPack)
-  const removeSkillPackFromStore = useWorkspaceStore((s) => s.removeSkillPack)
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
 
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
@@ -93,14 +84,14 @@ export function ConnectorsManage({
   const [builtinSkillPendingId, setBuiltinSkillPendingId] = useState<string | null>(null)
   const [builtinSkillMessage, setBuiltinSkillMessage] = useState<string | null>(null)
 
-  const [skillPackCatalog, setSkillPackCatalog] = useState<SkillPackCatalogEntry[]>([])
-  const [skillPackMessage, setSkillPackMessage] = useState<string | null>(null)
-  const [skillPackPendingId, setSkillPackPendingId] = useState<string | null>(null)
-  const [selectedSkillPackId, setSelectedSkillPackId] = useState<string | null>(null)
   // The inventory lists skill packs over IPC, so a successful install/remove
   // bumps this to remount it and re-list; MCP rows ride the store and need no
   // refresh.
   const [inventoryRefresh, setInventoryRefresh] = useState(0)
+  // Skill-pack catalog state shared with the door's Skill packs canvas
+  // (MC-1847 C2) — the load, the install/remove toggle, and the by-slug remove
+  // the inventory rows use all live in the one hook.
+  const skillPacks = useSkillPackCatalog(activeWorkspaceRoot, () => setInventoryRefresh((count) => count + 1))
 
   // Bundled built-in skills: list them always; probe per-workspace install status
   // only when a workspace is open (status is workspace-scoped).
@@ -126,50 +117,6 @@ export function ConnectorsManage({
       cancelled = true
     }
   }, [activeWorkspaceRoot])
-
-  useEffect(() => {
-    let cancelled = false
-    if (typeof window.api.skillPackListCatalog !== 'function') {
-      setSkillPackMessage('Skill packs need an app restart before they are available.')
-      return () => {
-        cancelled = true
-      }
-    }
-    void window.api.skillPackListCatalog().then((result) => {
-      if (cancelled) return
-      if (result.ok) setSkillPackCatalog(result.packs)
-      else setSkillPackMessage(result.message)
-    }).catch((error) => {
-      if (!cancelled) setSkillPackMessage(error instanceof Error ? error.message : 'Unable to load skill-pack catalog.')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!activeWorkspaceRoot) {
-      setSkillPacksInstalled([])
-      return
-    }
-    if (typeof window.api.skillPackListInstalled !== 'function') return
-    let cancelled = false
-    void window.api
-      .skillPackListInstalled({ workspaceRoot: activeWorkspaceRoot })
-      .then((result) => {
-        if (cancelled) return
-        if (result.ok) setSkillPacksInstalled(result.installed)
-        else setSkillPackMessage(result.message)
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setSkillPackMessage(error instanceof Error ? error.message : 'Unable to read installed skill packs.')
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [activeWorkspaceRoot, setSkillPacksInstalled])
 
   const installBuiltinSkill = useCallback(async (skill: BuiltinSkill) => {
     if (!activeWorkspaceRoot) return
@@ -239,93 +186,6 @@ export function ConnectorsManage({
     upsertMcpServer,
   ])
 
-  const toggleSkillPack = useCallback(
-    async (pack: SkillPackCatalogEntry) => {
-      if (!activeWorkspaceRoot) {
-        setSkillPackMessage('Open a workspace folder before installing skill packs.')
-        return
-      }
-      const installed = skillPackSettings.installed[pack.id]
-      setSkillPackPendingId(pack.id)
-      setSkillPackMessage(null)
-      try {
-        if (installed) {
-          const result = await window.api.skillPackRemove({
-            workspaceRoot: activeWorkspaceRoot,
-            slug: pack.slug,
-            installedDirName: pack.installedDirName,
-          })
-          if (result.ok) {
-            removeSkillPackFromStore(pack.id)
-            setSkillPackMessage(`${pack.name} removed.`)
-            setInventoryRefresh((count) => count + 1)
-          } else {
-            setSkillPackMessage(result.message)
-          }
-        } else {
-          const result = await window.api.skillPackInstall({
-            workspaceRoot: activeWorkspaceRoot,
-            slug: pack.slug,
-            harnesses: pack.harnesses,
-            installedDirName: pack.installedDirName,
-          })
-          if (result.ok) {
-            const entry: SkillPackEntry = {
-              ...result.installed,
-              id: pack.id,
-              name: pack.name,
-              category: pack.category,
-              description: pack.description,
-              version: pack.version,
-              sourceUrl: pack.sourceUrl,
-              installedDirName: pack.installedDirName ?? result.installed.installedDirName,
-            }
-            upsertSkillPack(entry)
-            setSkillPackMessage(
-              pack.setupNotes ? `${pack.name} installed. ${pack.setupNotes}` : `${pack.name} installed.`,
-            )
-            setInventoryRefresh((count) => count + 1)
-          } else {
-            setSkillPackMessage(result.message)
-          }
-        }
-      } catch (error) {
-        setSkillPackMessage(error instanceof Error ? error.message : 'Skill pack action failed.')
-      } finally {
-        setSkillPackPendingId(null)
-      }
-    },
-    [activeWorkspaceRoot, removeSkillPackFromStore, skillPackSettings.installed, upsertSkillPack],
-  )
-
-  // Inventory rows key skill packs by slug; resolve back to the catalog entry
-  // (or the store's installed record) and route through the existing
-  // toggleSkillPack removal path — no new IPC.
-  const removeSkillPackBySlug = useCallback(
-    (slug: string) => {
-      const catalogEntry = skillPackCatalog.find((entry) => entry.slug === slug)
-      if (catalogEntry) {
-        void toggleSkillPack(catalogEntry)
-        return
-      }
-      const pack = Object.values(skillPackSettings.installed).find((entry) => entry.slug === slug)
-      if (pack) {
-        void toggleSkillPack({
-          id: pack.id,
-          slug: pack.slug,
-          name: pack.name,
-          installedDirName: pack.installedDirName,
-          harnesses: pack.harnesses,
-        })
-      }
-    },
-    [skillPackCatalog, skillPackSettings.installed, toggleSkillPack],
-  )
-
-  const groupedSkillPackCatalog = useMemo(() => groupSkillPackCatalog(skillPackCatalog), [skillPackCatalog])
-  const selectedSkillPack = selectedSkillPackId
-    ? skillPackCatalog.find((pack) => pack.id === selectedSkillPackId) ?? null
-    : null
   const mcpServers = useMemo(() => Object.values(mcpSettings.servers), [mcpSettings.servers])
 
   return (
@@ -343,7 +203,7 @@ export function ConnectorsManage({
             removeMcpServer(serverId)
             setMcpMessage(null)
           }}
-          onRemoveSkillPack={removeSkillPackBySlug}
+          onRemoveSkillPack={skillPacks.removeBySlug}
           onUseSkillInNewAgent={onUseSkillInNewAgent}
         />
       </section>
@@ -492,62 +352,15 @@ export function ConnectorsManage({
             <span>Get more skill packs</span>
             <span className="flex items-center gap-2">
               <span className="tabular-nums font-mono text-[10px] font-normal text-[color:var(--text-subtle)]">
-                {skillPackCatalog.length}
+                {skillPacks.catalog.length}
               </span>
               <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
             </span>
           </summary>
-          <div className="flex gap-4">
-            <div className="min-w-0 flex-1 space-y-4">
-              {groupedSkillPackCatalog.map(([category, packs]) => (
-                <div key={category} className="space-y-2">
-                  <ConnectorSectionHeading label={category} count={packs.length} />
-                  <div className="divide-y divide-[color:var(--border-subtle)] overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
-                    {packs.map((pack) => {
-                      const installed = Boolean(skillPackSettings.installed[pack.id])
-                      const pending = skillPackPendingId === pack.id
-                      return (
-                        <ConnectorRow
-                          key={pack.id}
-                          variant="compact"
-                          icon={<SkillPackMonogram name={pack.name} size={24} />}
-                          name={pack.name}
-                          summary={pack.description}
-                          selected={selectedSkillPackId === pack.id}
-                          onOpen={() =>
-                            setSelectedSkillPackId((current) => (current === pack.id ? null : pack.id))
-                          }
-                          status={installed ? <span>Installed</span> : undefined}
-                          actions={
-                            <GhostButton
-                              size="sm"
-                              onClick={() => void toggleSkillPack(pack)}
-                              disabled={pending}
-                              className="border border-[color:var(--border-default)]"
-                            >
-                              {pending ? (installed ? 'Removing…' : 'Installing…') : installed ? 'Remove' : 'Install'}
-                            </GhostButton>
-                          }
-                        />
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {selectedSkillPack ? (
-              <SkillPackInfoPanel
-                pack={selectedSkillPack}
-                installed={Boolean(skillPackSettings.installed[selectedSkillPack.id])}
-                pending={skillPackPendingId === selectedSkillPack.id}
-                onToggle={() => void toggleSkillPack(selectedSkillPack)}
-                onClose={() => setSelectedSkillPackId(null)}
-              />
-            ) : null}
-          </div>
+          <SkillPackCatalogList state={skillPacks} />
         </details>
 
-        {skillPackMessage ? <ManageNote tone="accent">{skillPackMessage}</ManageNote> : null}
+        {skillPacks.message ? <ManageNote tone="accent">{skillPacks.message}</ManageNote> : null}
       </section>
     </div>
   )

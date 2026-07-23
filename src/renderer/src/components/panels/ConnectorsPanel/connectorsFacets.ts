@@ -187,10 +187,24 @@ export function buildConnectorEntries(
     }
   })
 
-  // Only mcp/skills plugins are connectors; a module- or cli-only plugin is a
-  // different kind of extension and does not belong on this surface.
-  const registryEntries: ConnectorEntry[] = plugins
-    .filter((plugin) => plugin.provides.some((kind) => kind === 'mcp' || kind === 'skills'))
+  // Only mcp/skills plugins are connectors; module- and cli-only plugins are
+  // different extension kinds — they browse on the door's own kind canvases
+  // (MC-1847 C2, registryEntriesForKinds) rather than in the connector grid.
+  const registryEntries: ConnectorEntry[] = registryEntriesForKinds(plugins, ['mcp', 'skills'])
+
+  return [...catalogEntries, ...registryEntries]
+}
+
+// Registry plugins presented as normalized entries for a set of component
+// kinds. The connector grid uses mcp/skills; the door's Modules and Agent CLIs
+// canvases use module/cli — same row shape, same detail/install flow, no
+// parallel presentation model.
+export function registryEntriesForKinds(
+  plugins: MarketplacePluginEntry[],
+  kinds: readonly MarketplaceComponentKind[],
+): ConnectorEntry[] {
+  return plugins
+    .filter((plugin) => plugin.provides.some((kind) => kinds.includes(kind)))
     .map((plugin) => {
       const category = plugin.category.trim() || 'Other'
       return {
@@ -208,8 +222,6 @@ export function buildConnectorEntries(
         plugin,
       }
     })
-
-  return [...catalogEntries, ...registryEntries]
 }
 
 export function searchConnectors(entries: ConnectorEntry[], query: string): ConnectorEntry[] {
