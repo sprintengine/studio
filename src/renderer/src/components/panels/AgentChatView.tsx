@@ -3335,10 +3335,14 @@ function AssistantTurnBlock({
           off the text baseline is what made the star read as jammed. The star
           stays neutral — the accent belongs to the live step dot and the send
           button, and one accent star per turn would drown both out. */}
-      <div className="mb-2 flex items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
+      {/* Wraps rather than crushes: in a narrow panel the clock drops to a
+          second line instead of every part ellipsing down to "C… meta-llama…". */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        {/* The name truncates too: on a non-harness provider `assistantName` IS
+            the model label, which can be a long `vendor/model-id`. */}
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] font-semibold text-[color:var(--text-strong)]">
           <SparkleGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
-          {chrome.assistantName}
+          <TruncatedText as="span" text={chrome.assistantName} className="max-w-[220px]" />
         </span>
         {turnModelLabel ? (
           // Mirrors the composer's locked `ModelPickerPill`: same glyph, same
@@ -3353,7 +3357,7 @@ function AssistantTurnBlock({
           // `--text-muted`, not `--text-subtle`: at 11px the subtle token only
           // reaches ~4.1:1 on the dark chat surface (~3.9:1 on Conifer), short
           // of AA. Muted clears 4.5:1 in every theme.
-          <span className="text-[11px] tabular-nums text-[color:var(--text-muted)]">
+          <span className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-[color:var(--text-muted)]">
             {formatClockTime(entry.startedAt)}
           </span>
         ) : null}
