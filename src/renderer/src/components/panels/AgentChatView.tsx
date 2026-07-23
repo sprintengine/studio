@@ -1001,14 +1001,10 @@ export function attachmentPreviewUrl(attachment: ConversationImageAttachment): s
 export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
   if (!data) return []
   const files: File[] = []
-  const seen = new Set<File>()
   for (const item of Array.from(data.items ?? [])) {
     if (item.kind !== 'file') continue
     const file = item.getAsFile()
-    if (file && isAttachableImageType(file.type) && !seen.has(file)) {
-      seen.add(file)
-      files.push(file)
-    }
+    if (file && isAttachableImageType(file.type)) files.push(file)
   }
   if (files.length === 0) {
     for (const file of Array.from(data.files ?? [])) {
@@ -1016,6 +1012,24 @@ export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
     }
   }
   return files
+}
+
+// Fold a commit made while the turn was locked into the waiting queued turn
+// (D6/1776): text appends, images concatenate. Reports how many images the
+// per-turn cap left behind so the composer can say so — a queue that quietly
+// swallowed the tail of a paste would look like it had taken everything.
+export function mergeQueuedTurn(
+  previous: { text: string; attachments: ConversationImageAttachment[] } | null,
+  text: string,
+  attachments: ConversationImageAttachment[],
+): { text: string; attachments: ConversationImageAttachment[]; dropped: number } {
+  const previousText = previous?.text ?? ''
+  const combined = [...(previous?.attachments ?? []), ...attachments]
+  return {
+    text: previousText && text ? `${previousText}\n${text}` : previousText || text,
+    attachments: combined.slice(0, MAX_ATTACHMENTS_PER_TURN),
+    dropped: Math.max(0, combined.length - MAX_ATTACHMENTS_PER_TURN),
+  }
 }
 
 export function attachmentCountLabel(count: number): string {
@@ -1607,19 +1621,22 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     const text = draft.trim()
     if (!text && attachments.length === 0) return
     if (isConversationBusy(projection.activeTurn, projection.awaitingApproval, pending)) {
-      setQueuedTurn((prev) => ({
-        text: prev?.text ? (text ? `${prev.text}\n${text}` : prev.text) : text,
-        // A second commit while busy merges into the same queued turn; the cap
-        // is the IPC boundary's, so trim rather than send a rejected payload.
-        attachments: [...(prev?.attachments ?? []), ...attachments].slice(0, MAX_ATTACHMENTS_PER_TURN),
-      }))
+      const { dropped, ...merged } = mergeQueuedTurn(queuedTurn, text, attachments)
+      setQueuedTurn(merged)
       setDraft('')
       setAttachments([])
+      // The cap is the IPC boundary's; trimming to it is right, hiding the trim
+      // is not — the user must know which images did not make the queue.
+      setActionError(
+        dropped > 0
+          ? `Only ${MAX_ATTACHMENTS_PER_TURN} images fit in one message — ${attachmentCountLabel(dropped)} were not queued.`
+          : null,
+      )
       return
     }
     void sendTurn(text, attachments)
     setAttachments([])
-  }, [attachments, draft, projection.activeTurn, projection.awaitingApproval, pending, sendTurn])
+  }, [attachments, draft, projection.activeTurn, projection.awaitingApproval, pending, queuedTurn, sendTurn])
 
   // Auto-send the queued message as a follow-up turn once the session idles.
   // Gated on the same busy signal the submit uses, so it never races the guard;
@@ -2071,7 +2088,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             void attachFiles(files)
           }}
         >
-          {dropActive ? (
+          {/* Gated on imagesEnabled too, so a provider/readiness change mid-drag
+              can never strand the overlay over a composer that stopped accepting
+              images. */}
+          {dropActive && imagesEnabled ? (
             // Opaque, not a scrim: the field's own text ghosting through the
             // drop state reads as a rendering artifact rather than a state.
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[color:var(--bg-surface)] text-[12px] font-medium text-[color:var(--accent-primary)]">

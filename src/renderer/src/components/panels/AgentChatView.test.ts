@@ -29,6 +29,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_ATTACHMENT_EDGE,
   MAX_ATTACHMENTS_PER_TURN,
+  mergeQueuedTurn,
   parseOptionLabel,
   permissionChangeScopeLabel,
   permissionPresetLabel,
@@ -917,6 +918,43 @@ assert.equal(queuedTurnLabel('look at this', 2), 'look at this · 2 images')
 assert.equal(queuedTurnLabel('', 1), '1 image')
 assert.equal(attachmentCountLabel(1), '1 image', 'the count never reads "1 images"')
 
+// A second commit while the turn is locked folds into the waiting queued turn.
+const img = (n: number): ConversationImageAttachment => ({
+  id: `q${n}`,
+  mediaType: 'image/png',
+  dataBase64: 'Zm9v',
+  byteLength: 3,
+})
+assert.deepEqual(
+  mergeQueuedTurn(null, 'first', [img(1)]),
+  { text: 'first', attachments: [img(1)], dropped: 0 },
+  'the first commit while busy becomes the queued turn'
+)
+assert.deepEqual(
+  mergeQueuedTurn({ text: 'first', attachments: [img(1)] }, 'second', [img(2)]),
+  { text: 'first\nsecond', attachments: [img(1), img(2)], dropped: 0 },
+  'a second commit appends its text and concatenates its images'
+)
+assert.equal(
+  mergeQueuedTurn({ text: '', attachments: [] }, 'only text', []).text,
+  'only text',
+  'an empty queued text does not leave a leading newline'
+)
+assert.equal(
+  mergeQueuedTurn({ text: 'staged', attachments: [] }, '', [img(1)]).text,
+  'staged',
+  'an image-only commit keeps the queued text as-is'
+)
+// The cap is the IPC boundary's, so trimming is right — but a queue that
+// swallowed the tail of a paste in silence would look like it took everything.
+const overflowed = mergeQueuedTurn(
+  { text: 'a', attachments: Array.from({ length: MAX_ATTACHMENTS_PER_TURN }, (_, i) => img(i)) },
+  'b',
+  [img(99), img(98)]
+)
+assert.equal(overflowed.attachments.length, MAX_ATTACHMENTS_PER_TURN, 'the queued turn never exceeds the cap')
+assert.equal(overflowed.dropped, 2, 'the trim is counted so the composer can report it')
+
 // Mid-drag the payload is unreadable — only the item kinds are — so the drop
 // target and the preventDefault gate key off those.
 const transfer = (value: { types?: string[]; items?: { kind: string }[] }): DataTransfer =>
@@ -1076,10 +1114,10 @@ assert.equal(
   true,
   'every attach entry point (paste, drag, drop, picker) is gated on provider support'
 )
-assert.doesNotMatch(
-  chatViewSource,
-  /attachments\.slice\(0, MAX_ATTACHMENTS_PER_TURN\)(?![\s\S]{0,200}invariant)/,
-  'the per-turn cap is reported to the user before it is silently trimmed'
+assert.match(
+  chatViewSource.slice(chatViewSource.indexOf('mergeQueuedTurn(queuedTurn')),
+  /^[\s\S]{0,600}?dropped > 0\n/,
+  'a queue merge that hit the cap tells the user, instead of trimming in silence'
 )
 
 console.log('AgentChatView.test.ts: ok')
