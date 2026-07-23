@@ -528,10 +528,12 @@ function SprintRunDisposalMenu({
   // review history — and the door is the only place it was listed. The folder
   // goes to the system trash, so the copy says that rather than claiming it is
   // unrecoverable.
+  const runDirectory = sprintRunDirectory(model.statePath)
   const deleteRun = useCallback(async () => {
+    if (!runDirectory) return
     const typed = await dialog.prompt({
       title: `Delete the sprint “${runName}”?`,
-      body: 'Its agents stop and the sprint’s stored plan, tasks, and history move to your system trash. Committed work and branches are kept.',
+      body: 'Any running agents stop, and the sprint’s stored plan, tasks, and history move to your system trash. Committed work and branches are kept.',
       inputLabel: 'Type the sprint name to confirm',
       placeholder: runName,
       required: true,
@@ -543,7 +545,7 @@ function SprintRunDisposalMenu({
     setBusy(true)
     try {
       if (model.residentWorkspaceId) requestCloseSprintWorkspace(model.residentWorkspaceId)
-      await window.api.deletePath(sprintRunDirectory(model.statePath))
+      await window.api.deletePath(runDirectory)
       onRunDeleted()
     } catch (error) {
       publishDiagnosticSync({
@@ -556,12 +558,13 @@ function SprintRunDisposalMenu({
     } finally {
       setBusy(false)
     }
-  }, [dialog, runName, model.residentWorkspaceId, model.statePath, onRunDeleted])
+  }, [dialog, runName, model.residentWorkspaceId, runDirectory, onRunDeleted])
 
   // "Close workspace" drops out entirely for a run with no workspace, rather than
   // sitting there greyed: there is nothing to close, the canvas already says so on
   // the Agents row, and the Projects row's own menu hid inapplicable actions the
-  // same way. Delete is always offered — every listed run has a folder.
+  // same way. Delete stays visible but disabled when the run's folder could not be
+  // resolved — an unexplained missing action reads as a bug.
   const items: OverflowMenuItem[] = []
   if (model.residentWorkspaceId) {
     items.push({
@@ -574,9 +577,9 @@ function SprintRunDisposalMenu({
   }
   items.push({
     id: 'delete-run',
-    label: busy ? 'Deleting…' : 'Delete sprint…',
+    label: busy ? 'Deleting…' : runDirectory ? 'Delete sprint…' : 'Delete sprint (its folder can’t be found)',
     destructive: true,
-    disabled: busy,
+    disabled: busy || !runDirectory,
     onSelect: () => void deleteRun(),
   })
 
@@ -584,8 +587,12 @@ function SprintRunDisposalMenu({
 }
 
 // A run's own directory: the folder holding `run.yaml` and everything beside it.
-function sprintRunDirectory(statePath: string): string {
-  return statePath.replace(/[\\/]+run\.ya?ml$/iu, '')
+// Null when the state path is not a `run.yaml` — deleting the state FILE and
+// leaving the rest of the folder behind is worse than refusing, so the caller
+// disables the action rather than trimming nothing and deleting the wrong thing.
+function sprintRunDirectory(statePath: string): string | null {
+  const directory = statePath.replace(/[\\/]+run\.ya?ml$/iu, '')
+  return directory && directory !== statePath ? directory : null
 }
 
 // Token usage as a readout, not a page: the run's total with its honest coverage
