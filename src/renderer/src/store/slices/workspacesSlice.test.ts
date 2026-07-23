@@ -947,4 +947,37 @@ assert.equal(
   'addWorkspace omits the worktree marker when not provided',
 )
 
+// Creation activates too, so it must clear the door as well (item 1833: the
+// New-chat-behind-the-door lock-in) — including the reuse early-returns.
+useWorkspaceStore.getState().openGlobalSurface('roadmap')
+const doorChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Chat created at a door',
+  folderPath: '/Users/example/door-chat',
+})
+assert.equal(useWorkspaceStore.getState().activeWorkspaceId, doorChatId)
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  null,
+  'addWorkspace clears the active surface (new-workspace path)',
+)
+useWorkspaceStore.getState().openGlobalSurface('roadmap')
+const switchboardReuseId = useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
+  folderPath: '/Users/example/door-chat',
+  mode: 'switchboard',
+})
+useWorkspaceStore.getState().openGlobalSurface('roadmap')
+assert.equal(
+  useWorkspaceStore.getState().addWorkspace(switchboardTemplate, {
+    folderPath: '/Users/example/door-chat',
+    mode: 'switchboard',
+  }),
+  switchboardReuseId,
+  'second switchboard add for the folder reuses the existing workspace',
+)
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  null,
+  'addWorkspace clears the active surface (switchboard reuse early-return)',
+)
+
 console.log('workspacesSlice.test.ts: ok')

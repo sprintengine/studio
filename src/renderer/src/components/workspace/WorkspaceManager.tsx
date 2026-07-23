@@ -2213,10 +2213,14 @@ export default function WorkspaceManager() {
     // armed panel to pop up later (first-run keeps the hub pinned open).
     setShowNewWorkspacePanel(false)
     setNewWorkspacePanelInitialState(null)
+    // The panel mounts inside the workspace-card container, which is inert and
+    // painted over while a door surface is active — the door closes first or
+    // this click is a visible no-op (same contract as the New-sprint flow).
+    closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [activeWorkspace?.folderPath, closeSettingsOverlay])
+  }, [activeWorkspace?.folderPath, closeGlobalSurface, closeSettingsOverlay])
   const closeNewChatPanel = () => {
     setNewChatPanelState(null)
   }

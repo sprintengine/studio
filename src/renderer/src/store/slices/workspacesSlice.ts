@@ -1024,6 +1024,9 @@ export function createWorkspacesSlice(
           id = existingSwitchboard.id
           existingSwitchboard.folderMissing = false
           state.activeWorkspaceId = existingSwitchboard.id
+          // Activation always dismisses a door-routed surface (epic 1704) —
+          // otherwise the workspace opens behind the door's opaque layer.
+          state.activeGlobalSurface = null
           const targetWindow = ensureWorkspaceWindow(
             state,
             options?.windowId ?? findWorkspaceWindow(state, existingSwitchboard.id)?.id ?? targetWindowId,
@@ -1057,6 +1060,7 @@ export function createWorkspacesSlice(
           id = existingAutomationsHost.id
           existingAutomationsHost.folderMissing = false
           state.activeWorkspaceId = existingAutomationsHost.id
+          state.activeGlobalSurface = null
           const targetWindow = ensureWorkspaceWindow(
             state,
             options?.windowId ?? findWorkspaceWindow(state, existingAutomationsHost.id)?.id ?? targetWindowId,
@@ -1262,6 +1266,7 @@ export function createWorkspacesSlice(
           )
         }
         state.activeWorkspaceId = id
+        state.activeGlobalSurface = null
         const targetWindow = ensureWorkspaceWindow(
           state,
           targetWindowId,
