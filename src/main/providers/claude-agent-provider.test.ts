@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   await testDisposeChildKeepsSessionAndCursorForRespawn()
   await testToolAfterResultOpensContinuationInsteadOfDenying()
   await testSubagentEventsAfterResultRideTheContinuationChannel()
+  await testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack()
 
   console.log('claude-agent-provider tests passed')
 }
@@ -947,6 +948,90 @@ async function testSubagentEventsAfterResultRideTheContinuationChannel(): Promis
   const contTurnId = continuation[0]?.payload?.turnId
   assert.equal(typeof contTurnId === 'string' && contTurnId.includes('_cont_'), true)
   assert.equal(childStart?.payload?.turnId, contTurnId, 'child events carry the continuation turn the runtime mirrors')
+
+  await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+}
+
+// 1775, the exact acceptance case: an AskUserQuestion raised AFTER the turn's
+// `result` — the model resuming once its background subagents report — must
+// surface as a real question card and route the human's answer back into the
+// tool, not be auto-denied with "Conversation turn is not active."
+async function testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack(): Promise<void> {
+  const gate = createDeferred<void>()
+  const decisions: Array<Record<string, unknown>> = []
+  const { adapter } = createAdapter(async (_userMessage, context) => {
+    // A fan-out turn: the Task lane opens, then the turn resolves at `result`.
+    context.emit({
+      type: 'assistant',
+      session_id: 's1',
+      parent_tool_use_id: null,
+      message: { content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { subagent_type: 'Explore' } }] },
+    })
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    await gate.promise
+    // The subagent finished and the model came back with a question for the user.
+    const canUseTool = context.options.canUseTool as (
+      toolName: string,
+      input: Record<string, unknown>,
+      options: { signal?: AbortSignal }
+    ) => Promise<Record<string, unknown>>
+    decisions.push(
+      await canUseTool(
+        'AskUserQuestion',
+        {
+          questions: [
+            {
+              question: 'Ship the fix or keep digging?',
+              header: 'Next',
+              multiSelect: false,
+              options: [
+                { label: 'Ship it', description: 'The repro is covered' },
+                { label: 'Keep digging', description: 'Two lanes disagree' },
+              ],
+            },
+          ],
+        },
+        {}
+      )
+    )
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+  })
+
+  const continuation: ConversationEvent[] = []
+  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+  const turnEvents = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+  assert.equal(turnEvents.at(-1)?.type, 'turn_completed', 'the fan-out turn resolves at `result`')
+
+  gate.resolve()
+  const requestId = await waitForContinuationEvent(continuation, 'approval_requested')
+  const card = continuation.find((event) => event.type === 'approval_requested')
+  assert.equal(card?.payload?.kind, 'question', 'it arrives as a question card, not a bare permission prompt')
+  assert.equal(card?.payload?.summary, 'Ship the fix or keep digging?')
+  assert.equal((card?.payload?.questions as unknown[]).length, 1)
+  const contTurnId = continuation[0]?.payload?.turnId
+  assert.equal(card?.payload?.turnId, contTurnId, 'the card is stamped with the continuation turn the runtime mirrors')
+
+  await collect(
+    adapter.resolveApproval({
+      ...SESSION_INPUT,
+      turnId: contTurnId as string,
+      requestId,
+      approved: true,
+      answers: { 'Ship the fix or keep digging?': 'Ship it' },
+    }) as ConversationEvent[]
+  )
+  await waitForContinuationEvent(continuation, 'turn_completed')
+
+  assert.equal(decisions[0]?.behavior, 'allow', 'the post-`result` question was answered, not auto-denied')
+  assert.deepEqual(
+    (decisions[0]?.updatedInput as Record<string, unknown>).answers,
+    { 'Ship the fix or keep digging?': 'Ship it' },
+    "the human's answer reaches the tool"
+  )
+  assert.deepEqual(
+    continuation.find((event) => event.type === 'approval_resolved')?.payload?.answers,
+    { 'Ship the fix or keep digging?': 'Ship it' }
+  )
 
   await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
 }

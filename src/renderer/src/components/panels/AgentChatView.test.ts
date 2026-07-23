@@ -9,17 +9,20 @@ import type {
   ConversationEventType,
   ConversationImageAttachment,
 } from '../../../../shared/conversation-runtime'
+import type { ConversationProviderListEntry } from '../../../../shared/plugin-manifest'
 import {
   activeConversationStage,
   attachmentCountLabel,
   attachmentPreviewUrl,
   attachmentRejection,
   base64ByteLength,
+  buildModelGroups,
   ComposerAttachmentStrip,
   ComposerContextMenu,
   composerSendAction,
   editingShortcut,
   dataTransferHasFiles,
+  filterModelGroups,
   deriveConversationTimelineRows,
   flattenToolEntries,
   formatAttachmentBytes,
@@ -1253,3 +1256,140 @@ assert.ok(
 )
 
 console.log('AgentChatView.test.ts: ok')
+
+// ── Model picker groups (1772) ───────────────────────────────────────────────
+// The picker used to fetch only the ACTIVE provider's catalog and to drop any
+// group with zero models, so a key-configured OpenRouter/xAI whose manifest seed
+// was empty simply vanished — the user could never reach the models they had
+// paid for. Group construction and the search/chip filter are the two places
+// that regression lived, so both are pinned here.
+
+function providerEntry(
+  overrides: Partial<ConversationProviderListEntry> & Pick<ConversationProviderListEntry, 'id'>
+): ConversationProviderListEntry {
+  return {
+    displayName: overrides.id,
+    source: 'user',
+    version: 1,
+    providerType: 'model-provider',
+    models: [],
+    supportsDynamicModels: false,
+    adapter: { kind: 'declarative', execution: 'declarative', trust: 'not_required' },
+    ...overrides,
+  }
+}
+
+const HARNESS = providerEntry({
+  id: 'claude-agent',
+  displayName: 'Claude Code',
+  providerType: 'agent-harness',
+  models: [{ id: 'opus', displayName: 'Opus' }],
+})
+const OPENROUTER = providerEntry({
+  id: 'openrouter',
+  displayName: 'OpenRouter',
+  supportsDynamicModels: true,
+  models: [{ id: 'seed-a' }, { id: 'seed-b' }],
+})
+const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels: true, models: [] })
+
+// The subscription provider sorts first so the user's own plan is never buried
+// under metered lookalikes, and it is annotated as the subscription.
+{
+  const groups = buildModelGroups([OPENROUTER, HARNESS, XAI], {}, {})
+  assert.deepEqual(
+    groups.map((group) => group.providerId),
+    ['claude-agent', 'openrouter', 'xai'],
+    'the agent-harness (subscription) group sorts ahead of metered providers'
+  )
+  assert.equal(groups[0]?.subscription, true)
+  assert.equal(groups[1]?.subscription, undefined, 'a metered provider is not annotated as a subscription')
+}
+
+// The headline 1772 case: a key-configured provider that is NOT the active one.
+// Its live catalog is merged in as soon as the picker browses to it, and the
+// group survives an empty seed instead of disappearing.
+{
+  const withKeyNoCatalogYet = buildModelGroups([XAI], {}, { xai: true })
+  assert.deepEqual(withKeyNoCatalogYet[0]?.models, [], 'no catalog loaded yet means no invented models')
+  assert.equal(withKeyNoCatalogYet[0]?.emptyState, 'no-models', 'a key-configured provider says so instead of vanishing')
+
+  const browsed = buildModelGroups([XAI], { xai: [{ id: 'grok-4' }] }, { xai: true })
+  assert.deepEqual(browsed[0]?.models, [{ id: 'grok-4' }], "a non-active provider's live catalog is reachable")
+  assert.equal(browsed[0]?.emptyState, undefined)
+}
+
+// No key configured: an explicit add-key state, never a seed the user cannot use.
+{
+  const groups = buildModelGroups([OPENROUTER], {}, { openrouter: false })
+  assert.deepEqual(groups[0]?.models, [], 'a keyless dynamic provider lists nothing')
+  assert.equal(groups[0]?.emptyState, 'add-key')
+}
+
+// Key state not yet fetched: the seed shows provisionally rather than an empty
+// group, so opening the picker cold is never a blank list.
+{
+  const groups = buildModelGroups([OPENROUTER], {}, {})
+  assert.deepEqual(groups[0]?.models.map((model) => model.id), ['seed-a', 'seed-b'])
+  assert.equal(groups[0]?.emptyState, undefined)
+}
+
+// A static provider's seed IS its full catalog — key state must never blank it.
+{
+  const staticProvider = providerEntry({ id: 'static', models: [{ id: 'only-model' }] })
+  const groups = buildModelGroups([staticProvider], {}, { static: false })
+  assert.deepEqual(groups[0]?.models.map((model) => model.id), ['only-model'], 'a static catalog is not key-gated')
+  assert.equal(groups[0]?.emptyState, undefined)
+}
+
+// Live catalog wins over the seed for the provider it was fetched for, and only
+// for that provider — one fetch must never leak across groups.
+{
+  const groups = buildModelGroups([OPENROUTER, XAI], { openrouter: [{ id: 'live-1' }] }, { openrouter: true, xai: true })
+  assert.deepEqual(groups[0]?.models.map((model) => model.id), ['live-1'], 'the live catalog replaces the seed')
+  assert.equal(groups[1]?.emptyState, 'no-models', "the other provider keeps its own (empty) state")
+}
+
+// --- picker filtering: browsing keeps empty groups, search never hides a hit --
+{
+  // openrouter: key state not fetched yet, so its seed is listed; xai: key
+  // configured but catalog empty, so it is a listed group with no models — the
+  // exact group the old filter used to drop.
+  const groups = buildModelGroups([HARNESS, OPENROUTER, XAI], {}, { xai: true })
+
+  // Browsing with no query: every group survives, empty states included.
+  assert.deepEqual(
+    filterModelGroups(groups, '', 'all').map((group) => group.providerId),
+    ['claude-agent', 'openrouter', 'xai'],
+    'a zero-model key-configured group is still listed while browsing'
+  )
+  // The chip narrows to one provider — including one with no models to show.
+  assert.deepEqual(
+    filterModelGroups(groups, '', 'xai').map((group) => group.providerId),
+    ['xai'],
+    'the provider chip reaches a group that has only an empty state'
+  )
+  // A query searches across providers, so the chip cannot hide a hit.
+  assert.deepEqual(
+    filterModelGroups(groups, 'seed-a', 'claude-agent').map((group) => group.providerId),
+    ['openrouter'],
+    'search looks past the active chip'
+  )
+  assert.deepEqual(
+    filterModelGroups(groups, 'seed-a', 'claude-agent')[0]?.models.map((model) => model.id),
+    ['seed-a'],
+    'a model-name query narrows the group to the matching models'
+  )
+  // Matching the provider name keeps the whole group, models unfiltered — this
+  // is what stops "claude" from hiding the subscription behind metered clones.
+  assert.deepEqual(
+    filterModelGroups(groups, 'claude', 'all').map((group) => group.providerId),
+    ['claude-agent'],
+    'a provider-name query keeps that provider group'
+  )
+  assert.deepEqual(filterModelGroups(groups, 'claude', 'all')[0]?.models.map((model) => model.id), ['opus'])
+  // A query that matches nothing drops the groups rather than listing empties.
+  assert.deepEqual(filterModelGroups(groups, 'nothing-matches-this', 'all'), [])
+}
+
+console.log('AgentChatView.test.ts (model picker 1772): ok')

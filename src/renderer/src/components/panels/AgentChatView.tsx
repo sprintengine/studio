@@ -1853,39 +1853,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
     sessionId,
     projection.entries.some((entry) => entry.kind === 'user' || entry.kind === 'assistant'),
   )
-  // Picker groups: one per provider, merging each provider's own live catalog
-  // (fetched when the user browses to it) over its manifest seed. Subscription
-  // providers ('agent-harness') sort first and carry the subscription annotation
-  // so metered API entries are never mistaken for the user's own plan. A
-  // dynamic-catalog provider is never dropped for an empty seed: when its key is
-  // missing it shows an explicit add-key state, and when the key is present but
-  // the catalog is empty it says so — never a silent stale seed.
-  const modelGroups: ModelGroup[] = [...providers]
-    .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
-    .map((entry): ModelGroup => {
-      const base = { providerId: entry.id, providerLabel: entry.displayName, unavailable: entry.unavailable }
-      const liveCatalog = catalogByProvider[entry.id]
-      const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
-      // Subscription (agent-harness) providers need no key: live catalog if it
-      // loaded, else the seed. Static model-providers list their full seed as-is
-      // — it is the complete catalog, not a truncated one.
-      if (entry.providerType === 'agent-harness' || !entry.supportsDynamicModels) {
-        return {
-          ...base,
-          subscription: entry.providerType === 'agent-harness',
-          models: hasLive ? liveCatalog : entry.models,
-        }
-      }
-      // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
-      const hasKey = keyByProvider[entry.id]
-      if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
-      if (hasLive) return { ...base, models: liveCatalog }
-      // Key present but catalog empty/unreachable: say so rather than seed.
-      if (hasKey === true) return { ...base, models: [], emptyState: 'no-models' }
-      // Key state not yet fetched — show the seed provisionally until the user
-      // browses to this provider and its live catalog + key status load.
-      return { ...base, models: entry.models }
-    })
+  const modelGroups = buildModelGroups(providers, catalogByProvider, keyByProvider)
   const currentModel = modelGroups
     .find((group) => group.providerId === conversation.providerId)
     ?.models.find((model) => model.id === conversation.modelId)
@@ -2416,7 +2384,7 @@ function formatTokens(value: number): string {
 // The in-composer model selector. Before the conversation starts it is a pill
 // that opens a grouped provider → model menu; once locked it renders as static
 // muted text (the session is bound to its model).
-type ModelGroup = {
+export type ModelGroup = {
   providerId: string
   providerLabel: string
   // True for agent-harness providers — the user's own subscription, annotated
@@ -2430,6 +2398,77 @@ type ModelGroup = {
   // so it is never dropped nor shown as a silent stale seed. 'add-key' — no key
   // configured; 'no-models' — key present but the live catalog came back empty.
   emptyState?: 'add-key' | 'no-models'
+}
+
+// Picker groups: one per provider, merging each provider's own live catalog
+// (fetched when the user browses to it) over its manifest seed. Subscription
+// providers ('agent-harness') sort first and carry the subscription annotation
+// so metered API entries are never mistaken for the user's own plan. A
+// dynamic-catalog provider is never dropped for an empty seed: when its key is
+// missing it shows an explicit add-key state, and when the key is present but
+// the catalog is empty it says so — never a silent stale seed (1772/D5).
+export function buildModelGroups(
+  providers: ConversationProviderListEntry[],
+  catalogByProvider: Record<string, ConversationProviderModel[]>,
+  keyByProvider: Record<string, boolean>,
+): ModelGroup[] {
+  return [...providers]
+    .sort((a, b) => Number(b.providerType === 'agent-harness') - Number(a.providerType === 'agent-harness'))
+    .map((entry): ModelGroup => {
+      const base = { providerId: entry.id, providerLabel: entry.displayName, unavailable: entry.unavailable }
+      const liveCatalog = catalogByProvider[entry.id]
+      const hasLive = Array.isArray(liveCatalog) && liveCatalog.length > 0
+      // Subscription (agent-harness) providers need no key: live catalog if it
+      // loaded, else the seed. Static model-providers list their full seed as-is
+      // — it is the complete catalog, not a truncated one.
+      if (entry.providerType === 'agent-harness' || !entry.supportsDynamicModels) {
+        return {
+          ...base,
+          subscription: entry.providerType === 'agent-harness',
+          models: hasLive ? liveCatalog : entry.models,
+        }
+      }
+      // Dynamic model-providers (OpenRouter, xAI): key state gates the catalog.
+      const hasKey = keyByProvider[entry.id]
+      if (hasKey === false) return { ...base, models: [], emptyState: 'add-key' }
+      if (hasLive) return { ...base, models: liveCatalog }
+      // Key present but catalog empty/unreachable: say so rather than seed.
+      if (hasKey === true) return { ...base, models: [], emptyState: 'no-models' }
+      // Key state not yet fetched — show the seed provisionally until the user
+      // browses to this provider and its live catalog + key status load.
+      return { ...base, models: entry.models }
+    })
+}
+
+// What the picker actually lists, given the search box and the provider chip.
+// Search matches the provider as well as the model: "claude" must keep the
+// Claude Code (subscription) group visible even though its models are named
+// Sonnet/Opus/Haiku — otherwise the search silently hides the subscription and
+// leaves only metered lookalikes. Browsing (no query) keeps every provider group
+// so a key-configured provider never disappears for an empty catalog — its empty
+// state renders inline (1772/D5) — and respects the active chip; a query looks
+// across every provider, because a filter must never hide a search hit.
+export function filterModelGroups(groups: ModelGroup[], query: string, activeFilter: string): ModelGroup[] {
+  const normalized = query.trim().toLowerCase()
+  const providerMatches = (group: ModelGroup): boolean =>
+    group.providerLabel.toLowerCase().includes(normalized) || group.providerId.toLowerCase().includes(normalized)
+  if (!normalized) {
+    return groups.filter((group) => activeFilter === 'all' || group.providerId === activeFilter)
+  }
+  return groups
+    .map((group) =>
+      providerMatches(group)
+        ? group
+        : {
+            ...group,
+            models: group.models.filter(
+              (model) =>
+                model.id.toLowerCase().includes(normalized)
+                || (model.displayName?.toLowerCase().includes(normalized) ?? false),
+            ),
+          },
+    )
+    .filter((group) => providerMatches(group) || group.models.length > 0)
 }
 
 // Plain-language name for a tool-permission preset, as the composer pill reads
@@ -2576,39 +2615,7 @@ function ModelPickerPill({
   const defaultFilter = groups.find((group) => group.subscription && !group.unavailable)?.providerId ?? 'all'
   const activeFilter = providerFilter ?? defaultFilter
   const normalized = query.trim().toLowerCase()
-  // Search matches the provider as well as the model: "claude" must keep the
-  // Claude Code (subscription) group visible even though its models are named
-  // Sonnet/Opus/Haiku — otherwise the search silently hides the subscription
-  // and leaves only metered lookalikes.
-  const searchMatched = groups
-    .map((group) => {
-      if (!normalized) return group
-      if (group.providerLabel.toLowerCase().includes(normalized) || group.providerId.toLowerCase().includes(normalized)) {
-        return group
-      }
-      return {
-        ...group,
-        models: group.models.filter(
-          (model) =>
-            model.id.toLowerCase().includes(normalized)
-            || (model.displayName?.toLowerCase().includes(normalized) ?? false),
-        ),
-      }
-    })
-    // Browsing (no query) keeps every provider group so a key-configured
-    // provider never disappears for an empty catalog — its empty state renders
-    // inline. A query drops non-matching groups unless the provider name matched.
-    .filter((group) => {
-      if (!normalized) return true
-      const providerMatches =
-        group.providerLabel.toLowerCase().includes(normalized) || group.providerId.toLowerCase().includes(normalized)
-      return providerMatches || group.models.length > 0
-    })
-  // Searching looks across every provider (a filter must never hide a search
-  // hit); browsing without a query respects the active chip.
-  const filtered = normalized ? searchMatched : searchMatched.filter(
-    (group) => activeFilter === 'all' || group.providerId === activeFilter,
-  )
+  const filtered = filterModelGroups(groups, query, activeFilter)
   const totalModels = groups.reduce((sum, group) => sum + group.models.length, 0)
   return (
     <Popover
