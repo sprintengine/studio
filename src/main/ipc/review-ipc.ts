@@ -250,8 +250,8 @@ export function registerReviewIpc(
   // Post the pending review to the pull request (MC-1683). This is the ONLY entry
   // point to the write path — there is no programmatic caller — and it is
   // human-outward, so it is gated to a real application window's gesture. The guide
-  // companion runs in the main process with no renderer, so it cannot reach an
-  // ipcMain handler at all; the sender gate is defence-in-depth on top of that,
+  // runs in a terminal with no renderer, so it cannot reach an ipcMain handler at
+  // all (nor could its companion predecessor); the sender gate is defence-in-depth,
   // refusing any invocation that does not resolve to an application window.
   ipcMain.handle('review:post-review', async (event, input: ReviewPostReviewInput): Promise<ReviewPostReviewResult> => {
     if (!isUserWindowSender || !isUserWindowSender(event)) {

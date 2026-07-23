@@ -158,19 +158,21 @@ export interface GuideTerminalDeps {
   delay?: (ms: number) => Promise<void>
 }
 
-// What the watchdog needs to know about the run that owns a terminal.
+// What the watchdog needs to know about a review's open run: the terminal it is
+// waiting on, and the recorder that run's phases belong to.
 interface InFlightRun {
-  reviewId: string
+  executionId: string
   recorder: GuideRunRecorder
 }
 
 export class ReviewGuideTerminalService {
   private readonly deps: GuideTerminalDeps
   private readonly guideRuns: GuideRunRegistry
-  // Keyed by the terminal's execution id — unique per pty, unlike the session id,
-  // which is deliberately stable across relaunches of a review's guide. A
-  // replaced terminal's exit therefore lands on the run that owned THAT pty, and
-  // can never fail the one that just took its place.
+  // At most ONE open run per review, so starting a run replaces (and thereby
+  // clears) whatever the review had before — no record accumulates. The entry
+  // remembers the terminal's EXECUTION id, which is unique per pty unlike the
+  // deliberately stable session id, so a replaced terminal's exit is recognised
+  // as belonging to a run that is over and can never fail its successor.
   private readonly inFlight = new Map<string, InFlightRun>()
   private nextExecution = 1
   private readonly stopWatchdog: () => void
@@ -226,7 +228,7 @@ export class ReviewGuideTerminalService {
     // The guide owns the terminal until it delivers: the idle reaper must not
     // suspend a session that is mid-walkthrough.
     this.deps.terminal.setReapExempt(prepared.handle.sessionId, true)
-    this.inFlight.set(prepared.executionId, { reviewId, recorder })
+    this.inFlight.set(reviewId, { executionId: prepared.executionId, recorder })
     this.emitPhase(recorder, reviewId, 'grouping')
     return { ok: true, guide: prepared.handle, reused: delivered.reused }
   }
@@ -260,7 +262,8 @@ export class ReviewGuideTerminalService {
   // watchdog stays silent for the exit it is about to see.
   stop(reviewId: string): void {
     const sessionId = reviewGuideAgentId(reviewId)
-    const entry = this.takeInFlight(reviewId)
+    const entry = this.inFlight.get(reviewId)
+    this.inFlight.delete(reviewId)
     if (entry) this.emitPhase(entry.recorder, reviewId, 'failed', STOPPED_DETAIL)
     else if (this.guideRuns.status(reviewId)?.running) {
       // A run this process did not start (a registry record adopted from the
@@ -278,24 +281,13 @@ export class ReviewGuideTerminalService {
   // landed through review_submit_brief already closed it, and the terminal
   // exiting afterwards is just the CLI quitting.
   private onAgentExit(event: GuideAgentExit): void {
-    const entry = this.inFlight.get(event.executionId)
-    if (!entry) return
-    this.inFlight.delete(event.executionId)
-    this.deps.terminal.setReapExempt(reviewGuideAgentId(entry.reviewId), false)
-    if (!this.guideRuns.status(entry.reviewId)?.running) return
-    this.emitPhase(entry.recorder, entry.reviewId, 'failed', ENDED_WITHOUT_BRIEF_DETAIL)
-  }
-
-  // Drop and return a review's in-flight record whichever terminal it belongs to.
-  // Keyed by execution id for the watchdog's sake, so a review-keyed caller (the
-  // reviewer pressing Stop) looks it up by its run instead.
-  private takeInFlight(reviewId: string): InFlightRun | null {
-    for (const [executionId, entry] of this.inFlight) {
-      if (entry.reviewId !== reviewId) continue
-      this.inFlight.delete(executionId)
-      return entry
-    }
-    return null
+    const found = [...this.inFlight].find(([, entry]) => entry.executionId === event.executionId)
+    if (!found) return
+    const [reviewId, entry] = found
+    this.inFlight.delete(reviewId)
+    this.deps.terminal.setReapExempt(reviewGuideAgentId(reviewId), false)
+    if (!this.guideRuns.status(reviewId)?.running) return
+    this.emitPhase(entry.recorder, reviewId, 'failed', ENDED_WITHOUT_BRIEF_DETAIL)
   }
 
   // Resolve the workspace, the CLI, and the live-or-fresh terminal for a review.

@@ -4,10 +4,11 @@
 // failure lost its reason. This module holds that state in the main process,
 // which outlives every remount.
 //
-// It is deliberately transport-neutral: it knows nothing about companions,
-// terminals, MCP, or IPC. Whatever runs the guide records its phases here, and
-// the review IPC reads them back. That makes it the contract of record across
-// the companion path (today) and the terminal path (MC-1783).
+// It is deliberately transport-neutral: it knows nothing about terminals, MCP,
+// or IPC. Whatever runs the guide records its phases here, and the review IPC
+// reads them back. That is what let the producer change underneath it: the
+// companion path wrote here first, the guide terminal (MC-1783) does now, and
+// the review MCP tools record the brief they land — one contract of record.
 
 // Honest run progress, shared with BriefRunEvent so one vocabulary describes a
 // run whether it is read live off the event channel or polled from here.
@@ -97,8 +98,8 @@ export class GuideRunRegistry {
   }
 }
 
-// One registry per main process. The guide can be driven from several places
-// (the companion brief run, the guide terminal, the review MCP tools) and they
+// One registry per main process. The guide is driven from more than one place
+// (the guide terminal service, the review MCP tools) and they
 // all have to agree on whether a run is live, so the instance is shared rather
 // than threaded through each call site. Injectable everywhere it is consumed so
 // tests drive their own.

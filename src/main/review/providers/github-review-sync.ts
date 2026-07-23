@@ -19,8 +19,8 @@
 //
 // Node/Electron-main only; the renderer reaches it exclusively through
 // review:post-review IPC (src/main/ipc/review-ipc.ts), which gates the call to a
-// real application window — the guide companion (main-process, no renderer) can
-// never reach it.
+// real application window — the guide (an agent in a terminal, with no renderer)
+// can never reach it.
 
 import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
