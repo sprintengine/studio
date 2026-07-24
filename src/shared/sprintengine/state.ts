@@ -2324,6 +2324,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       : []
     const triage = normalizeSprintEngineTaskTriage(task.triage)
     const source = normalizeSprintEngineTaskSource(task.source)
+    const sourceDocs = stringArray(task.sourceDocs)
     const needsInput = normalizeSprintEngineTaskNeedsInput(task.needsInput)
     const activity = normalizeSprintEngineTaskActivity(task.activity)
     // A pre-MC-1542 store carrying a retired status never reaches here: the
@@ -2368,6 +2369,7 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ownedPaths: stringArray(task.ownedPaths),
       acceptanceCriteria: stringArray(task.acceptanceCriteria),
       implementationNotes: stringArray(task.implementationNotes),
+      ...(sourceDocs.length > 0 ? { sourceDocs } : {}),
       evidence: normalizeSprintEngineTaskEvidence(task.evidence),
       ...(feedback ? { feedback } : {}),
       ...(feedbackAssessments.length > 0 ? { feedbackAssessments } : {}),

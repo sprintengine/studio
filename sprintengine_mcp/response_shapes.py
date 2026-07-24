@@ -175,6 +175,9 @@ def slim_task_card(task: Any) -> dict[str, Any] | None:
             "description",
             "acceptanceCriteria",
             "implementationNotes",
+            # Canonical source documents (reference-sourced runs): the worker's
+            # read-in-full operating brief; the card is only the delta.
+            "sourceDocs",
             "ownedPaths",
             "dependsOn",
         )

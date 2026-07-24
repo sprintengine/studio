@@ -108,6 +108,8 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
                 args.acceptance,
                 args.clear_notes,
                 args.note,
+                getattr(args, "clear_source_docs", False),
+                getattr(args, "source_doc", None),
                 args.clear_task_notes,
                 args.task_note,
                 args.product_facing,
@@ -186,6 +188,10 @@ def cmd_plan_update_task(args: argparse.Namespace) -> Dict[str, Any]:
         if args.clear_notes:
             task["implementationNotes"] = []
         set_unique_list(task, "implementationNotes", args.note)
+
+        if getattr(args, "clear_source_docs", False):
+            task.pop("sourceDocs", None)
+        set_unique_list(task, "sourceDocs", getattr(args, "source_doc", None))
 
         if args.clear_task_notes:
             task["notes"] = []

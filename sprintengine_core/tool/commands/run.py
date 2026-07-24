@@ -504,12 +504,13 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Architect plan artifact is marked ready for user approval after review.",
                 "Implementation, validation, and required review tasks are created with Sprint Engine plan commands.",
                 "Task cards include real integration contracts and verification checks from the reviewed plan.",
+                f"Every task derived from the referenced plan carries `{reference_path}` in its sourceDocs (--source-doc), and the plan's acceptance criteria are collectively covered by task acceptance criteria.",
             ]
             plan_task["implementationNotes"] = [
                 "In worktree-mode runs, edit the copy of the referenced plan in its own project's worktree so updates ride that project's run branch and pull request.",
                 "Do not copy valid plan prose into plan.md; the manifest references the plan and records verification, the codebase index, decisions, risks, and the task graph summary.",
                 "Run-scoped material (codebase index, roster adaptation, task graph summary) belongs in the plan.md manifest, not in the referenced plan file.",
-                "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the referenced plan.",
+                "Set --source-doc to the referenced plan on every task derived from it: the plan is the worker's canonical brief, injected into the claim prompt as read-in-full context. Keep the task card the delta — verified/corrected pointers, pinned decisions, cross-task contracts, and role scope — never a restatement.",
                 *source_bundle_reference_notes(state, state_path),
             ]
             apply_source_context_to_task(plan_task, state, state_path)
@@ -558,6 +559,8 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "Each design document is verified against the current codebase; stale, missing, or incorrect design content is updated in the backlog files themselves, not re-authored into plan.md.",
                 "plan.md is a manifest: it references every source document by project-root-relative path with a per-document verification note, and adds only cross-cutting decisions, risks, and the task graph summary.",
                 "The task graph covers all child items of the epic; every child maps to at least one task.",
+                "Every task derived from a child design document carries that document's project-root-relative path in its sourceDocs (--source-doc).",
+                "Each child item's acceptance criteria are collectively covered by the acceptance criteria of the task(s) derived from it; no criterion is left owned by no task.",
                 "Architect plan artifact is marked ready for user approval after review.",
             ]
             plan_task["implementationNotes"] = [
@@ -565,7 +568,8 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
                 "In worktree-mode runs, edit the copies of the backlog files in their own project's worktree so design updates ride that project's run branch and pull request.",
                 "Do not copy valid design prose into plan.md; the manifest only references the design documents and records verification, decisions, risks, and the task graph summary.",
                 "Additional relevant documents (design systems, mockups, Knowledge Graph notes) may be added to the manifest as project-root-relative references.",
-                "Keep task cards self-contained per the Task Card Quality Bar; workers should rarely need to open the design documents.",
+                "Set --source-doc on every task derived from a child design document: the child backlog file is the worker's canonical brief, injected into the claim prompt as read-in-full context. Keep the task card the delta — verified/corrected pointers, pinned decisions, cross-task contracts, and role scope — never a restatement of the document.",
+                "A child item is usually already sized for one agent: one task per child is the normal outcome. Split a child when it genuinely needs it (role boundary, size, sequencing) and note the reason in plan.md.",
                 "The final review scheduling task must set each child item's frontmatter `status: completed` when the sprint completes (in worktree mode, editing the copies in their own project's worktree so the flips ride that project's pull request).",
                 *source_bundle_reference_notes(state, state_path),
             ]

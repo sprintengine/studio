@@ -743,6 +743,8 @@ export type SprintEngineTask = {
   ownedPaths: string[]
   acceptanceCriteria: string[]
   implementationNotes: string[]
+  /** Canonical source documents (reference-sourced runs): the worker's read-in-full brief. */
+  sourceDocs?: string[]
   evidence: SprintEngineTaskEvidence
   feedback?: SprintEngineTaskFeedback
   /** Reviewer assessments captured against this task (one per review pass). */

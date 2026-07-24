@@ -173,15 +173,24 @@ def build_rework_prompt(state_path: Path, task: Dict[str, Any]) -> str:
         if open_feedback_count
         else "No open feedback. Implement against the task card, then publish with `sprintengine.task.publish`."
     )
-    return "\n".join([
+    lines = [
         "# Sprint Engine Task Context",
         "",
         f"Plan path: `{plan_path}`",
         f"Task: `{task.get('id')}` - {task.get('title')}",
         f"Status: `{task.get('status')}`",
-        "",
-        feedback_line,
-    ])
+    ]
+    source_docs = [str(p).strip() for p in (task.get("sourceDocs") or []) if str(p).strip()]
+    if source_docs:
+        lines.extend([
+            "",
+            "Canonical sources — read each in full before implementing. They are your "
+            "operating brief; the task card carries only the delta (verified pointers, "
+            "decisions, contracts):",
+            *[f"- `{doc}`" for doc in source_docs],
+        ])
+    lines.extend(["", feedback_line])
+    return "\n".join(lines)
 
 # ---------------------------------------------------------------------------
 # Phase directives (MC-1542)

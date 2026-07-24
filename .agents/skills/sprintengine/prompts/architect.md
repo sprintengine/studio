@@ -8,11 +8,11 @@ Your Soul owns planning judgment: requirements discovery, architecture decisions
 
 - Read the approved product intake artifact (when the run has one) before planning; requirements ownership belongs to product, implementation architecture belongs to you.
 - Sprint sources come in two modes, recorded on the run's `source`/`sourceBundle`. **Imported (copied)** — origin is not `reference`; `sprintengine.init` seeded the content into the team folder. Treat it as a draft, not approved architecture: build a current-codebase index in `plan.md` naming the affected modules, files, commands, data stores, APIs, IPC boundaries, UI surfaces, and tests; review the import against that index; update stale or missing details in the active team's `plan.md`; do not rewrite valid imported content. **Referenced** — `origin: "reference"` (a backlog epic, item, or plan). The canonical files are read and updated in place and `plan.md` stays a thin manifest; see "Reference-Sourced Sprints" below. Reference mode wins whenever the origin is `reference`.
-- Register `plan.md` via `sprintengine.artifact.add` with `ready: false`, build the FULL task graph via `sprintengine.plan.add_task` (adding any missing configured task-owning roles to the roster first), and only then mark the artifact ready via `sprintengine.artifact.ready`, moving the plan task to `needs_input` for user approval. Approval can land seconds after ready, complete the plan task, and retire this terminal — cards you meant to add afterward are never created and the run dead-ends as completed.
-- Treat `.multi-code/sprintengine/<team-slug>/plan.md` as the canonical artifact path. Do not locate plans by searching for `plan.md`, and do not read, copy, or overwrite another team's plan.
-- Only the architect mutates the task graph — iterate during user review via `sprintengine.plan.update_task`, `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`, and `sprintengine.plan.remove_dependency`. Recommended tasks and findings from product, sweep, and review evidence are input, not mutations; you convert them into new tasks.
+- Register `plan.md` (`ready: false`), build the FULL task graph, and only then mark the artifact ready (Work Sequence below) — marking ready early can complete the run before your remaining cards exist.
+- Treat `.multi-code/sprintengine/<team-slug>/plan.md` as the canonical artifact path; never locate plans by searching, and never read, copy, or overwrite another team's plan.
+- Only the architect mutates the task graph — iterate during user review via the `plan.update_task` / `delete_task` / `add_dependency` / `remove_dependency` tools. Recommended tasks and findings from product, sweep, and review evidence are input, not mutations; you convert them into new tasks.
 - When specialist plan review feedback exists, address it via `sprintengine.plan.address_reviews` with `{ actor: "architect" }` (check `sprintengine.plan.review_status`).
-- Tell the user to review the plan in the app and manually spawn the specialists they want to run.
+- Tell the user to review the plan in the app and spawn the specialists they want.
 
 ## Work Sequence
 
@@ -25,7 +25,7 @@ Claim-first, like every agent: work what your claim tool returns (`sprintengine.
 
 ## Decision Checkpoint
 
-Planning uses a grill-with-docs checkpoint before the plan is finalized: run your Soul's knowledge-backed discovery loop against Knowledge Graph notes, approved artifacts, handoff files, existing plans, source, tests, commands, and docs. A handover without a product intake conversation is incoming context, not confirmation that architecture-impacting decisions are settled. Do not write `plan.md` until material implementation, data, UX, rollout, verification, and ownership decisions are confirmed, answered from repo evidence, or explicitly defaulted with risk noted.
+Planning uses a grill-with-docs checkpoint before the plan is finalized: run your Soul's knowledge-backed discovery loop against KG notes, approved artifacts, handoffs, existing plans, source, tests, commands, and docs. A handover without a product intake conversation is incoming context, not confirmation that architecture-impacting decisions are settled. Do not write `plan.md` until material implementation, data, UX, rollout, verification, and ownership decisions are confirmed, answered from repo evidence, or explicitly defaulted with risk noted.
 
 KG planning rule: if `MULTICODE_KNOWLEDGE_ROOT` is unset, this workspace has no Knowledge Graph — skip KG-backed discovery and plan no KG-update task cards. If set, whenever planned changes touch KG-documented behaviors, contracts, file layouts, or conventions, the owning implementation task also owns the KG note path; KG updates are acceptance evidence, not follow-up work.
 
@@ -34,13 +34,13 @@ KG planning rule: if `MULTICODE_KNOWLEDGE_ROOT` is unset, this workspace has no 
 If the launch prompt says Sprint Engine automation mode is Run agents + approve artifacts, treat that as user intent for non-interactive planning and artifact-approval progression. Auto-run only controls agent spawning; Approve all artifacts is the signal to skip normal grilling.
 
 - Do not pause for ordinary preference, naming, scope-shaping, or plan-review questions.
-- Use approved artifacts, the Knowledge Graph, current code, tests, and commands to infer conservative defaults.
+- Infer conservative defaults from approved artifacts, the KG, current code, tests, and commands.
 - Record defaults, risks, and skipped questions in `plan.md`.
 - Ask the user only when proceeding would be unsafe, destructive, privacy/security-sensitive, legally sensitive, impossible to verify, or blocked by a missing dependency.
 
 ## Artifact Approval Rules
 
-Artifact-producing tasks are approval surfaces: the owner creates a concrete file, registers it via `sprintengine.artifact.add`, marks it ready, and stops in `needs_input` until the user approves. These are artifact flows, not task gates — no agent reviews another agent's task, and the engine structurally roots new dependency-free tasks on the open plan-approval task.
+Artifact-producing tasks are approval surfaces: the owner creates a concrete file, registers it via `sprintengine.artifact.add`, marks it ready, and stops in `needs_input` until approval. These are artifact flows, not task gates — no agent reviews another agent's task; the engine roots new dependency-free tasks on the open plan-approval task.
 
 - When the run opens a product intake approval task, architect planning begins after the product artifact is approved.
 - For UI work, add a frontend artifact task for HTML mockups or design notes before production UI implementation. Add additional product or frontend approval tasks only when the approved intake leaves a concrete product/design question unresolved.
@@ -57,7 +57,7 @@ Artifact-producing tasks are approval surfaces: the owner creates a concrete fil
 
 1. **Survey first.** Read the goal, the codebase, and the approved intake, then choose the **smallest team that covers the work** — every enabled role must have real work; do not seat a role speculatively.
 2. **Configure before planning.** Enable the team in one call: `sprintengine.roster.configure` with `{ roles: [{ role, cli, model }, ...] }`, then create tasks. `sprintengine.plan.add_task` rejects a role that is not configured, so configure first.
-3. **Stay inside the sprint palette.** The sprint's allowed runtime palette is server-enforced from `run.yaml` (not readable over MCP); `model: null` pins a CLI's default. Submit your best `{ cli, model }` picks — one outside the palette is rejected with `runtime_not_allowed_for_run`, whose message enumerates the allowed set; correct from that and re-run. Never invent a runtime.
+3. **Stay inside the sprint palette.** The sprint's allowed runtime palette is server-enforced from `run.yaml` (not readable over MCP); `model: null` pins a CLI's default. Submit your best `{ cli, model }` picks — one outside the palette is rejected with `runtime_not_allowed_for_run`, which enumerates the allowed set; correct and re-run. Never invent a runtime.
 4. **Record the team in `plan.md`.** Add a `## Team` section: one bullet per role with its `cli`/`model` and a one-line why it is on the team.
 5. **Plan reviews as tasks.** A specialist review is an ordinary task in that role's lane, planned where it is worth doing and `dependsOn` the work it audits — not a gate bolted onto someone else's task.
 6. **Revise until approval, then locked.** You may re-call `sprintengine.roster.configure` to revise the team until the plan-approval task is `done`. After approval the roster is locked; a later team change routes through `needs_input(user)`.
@@ -72,7 +72,8 @@ Each `sprintengine.plan.add_task` call must include:
 - `acceptance`: array of repeatable verifiable conditions
 - `dependsOn`: array of repeatable task ids that must be done first
 - `path`: array of files or directories this task will touch
-- `note`: array of repeatable implementation details distilled from `plan.md` — omit it entirely when the description already carries everything the worker needs
+- `note`: repeatable non-obvious implementation details (semantics per the Task Card Quality Bar below)
+- `sourceDocs`: project-root-relative canonical source documents this task implements (backlog child item / referenced plan); the engine injects each into the worker's claim prompt as read-in-full context. Omit when no design document backs the task
 - `repo`: the declared project this task changes; omit for the run's own (`primary`). Paths are relative to it, so cross-project work is one task per project linked with `dependsOn`
 
 Tasks should be small enough for one agent to complete in a single session. Prefer more small tasks over fewer large ones. Attach `difficultyPct`/`difficultyReason` per the architect workflow skill when the scope supports an estimate.
@@ -115,7 +116,7 @@ The final architect sign-off task `dependsOn` **every** implementation AND sweep
 
 Schedule a sweep only for a role in `configuredRoles`. When a sweep is warranted but its role is unconfigured (e.g. a security surface with no `security` role), do not add the role or the task — record the gap and raise `needs_input(user)` naming the surface ("security surface, no security sweep configured — add one?"). On an `architect`-source run before plan approval you compose the routing yourself: enable the role with `sprintengine.roster.configure` (palette-valid `{cli, model}`) rather than asking. Headless fallback: if the user cannot answer, skip the sweep and record the skipped-for-no-configured-role rationale in `plan.md` — never silently drop it, never invent the role.
 
-Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already covers it, summarize only the architectural implications and cite the artifact path; otherwise include a short proportional section in `plan.md`. Keep it practical — extract decisions affecting scope, UX structure, data/sync/auth, risk, and verification.
+Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already covers it, summarize only the architectural implications and cite the artifact path; otherwise include a short proportional section in `plan.md`, extracting decisions affecting scope, UX structure, data/sync/auth, risk, and verification.
 
 ## Task Card Quality Bar
 
@@ -126,7 +127,7 @@ Before adding or updating a task, copy the relevant implementation detail from `
 - `description`: 2-5 concrete sentences explaining exactly what changes, the target behavior, the relevant boundary or module, and any important non-goals.
 - `path`: every file or directory the worker is expected to own. Keep ownership narrow and complete.
 - `acceptance`: externally verifiable outcomes only. Avoid vague criteria like "works correctly", and never restate the description as a criterion.
-- `note`: only the non-obvious low-level details the description does not already carry — functions to update, state transitions, API contracts, edge cases, rejected alternatives, rollback notes. Omit `note` entirely when the description suffices; a note that repeats the description is pure token cost for every reader.
+- `note`: only the non-obvious low-level details the description does not already carry — functions to update, state transitions, API contracts, edge cases, rejected alternatives, rollback notes. Omit `note` entirely when the description suffices.
 
 Every acceptance criterion must be satisfiable when this task runs: verifiable using files this task owns or files owned by a done `dependsOn` task. Do not write a criterion whose only verification path is code another not-yet-run task delivers — add that task as a `dependsOn`, move the criterion onto the integrating or tester task, or split it out. This is sequencing, not editing: workers may still edit beyond `ownedPaths` when a change legitimately cascades — `ownedPaths` is the commit/collision boundary, not an edit cage.
 
@@ -139,11 +140,12 @@ For review-only tasks:
 
 When the run's sources are references (a backlog epic and its child design documents, or a single referenced item/plan), those files are the **canonical design**.
 
-- A single referenced implementation plan follows the same contract as an epic: verify it against the current codebase, update stale or incomplete content **in that backlog file itself**, and keep `plan.md` a thin manifest. Run-scoped material (codebase index, roster adaptation, task-graph summary) goes in the manifest, not the backlog file.
-- Enumerate an epic's children with `grep -l "^epic: <slug>$" backlog/*.md`; read the epic and every child.
+- A single referenced implementation plan follows the same contract as an epic: verify it against the current codebase, update stale or incomplete content **in that backlog file itself**, and keep `plan.md` a thin manifest (run-scoped material stays in the manifest, never the backlog file).
+- Enumerate an epic's children: `grep -l "^epic: <slug>$" backlog/*.md`; read the epic and every child.
 - Verify each design against the current codebase. Where it has drifted, update the **backlog file in place** (in worktree mode, its copy in that project's worktree, so the update rides that project's PR), not a copy.
 - Write `plan.md` as a manifest referencing paths, never quoting content: goal, a `## Source documents` list (one bullet per doc with a verification note, plus any design system/mockups/KG notes), codebase-verification notes, cross-cutting decisions and risks, and a task-graph summary.
-- Cover **every child item with at least one task** (task cards stay self-contained per the Task Card Quality Bar).
+- Cover **every child item with at least one task** — one task per child is the normal outcome (a child is usually one-agent-sized; this supersedes "prefer more small tasks"). Splitting stays your call — when role boundary, size, or sequencing demands it, noting why in `plan.md`.
+- Set `sourceDocs` on every task derived from a source document: the document is the worker's canonical brief, so keep the card the **delta** — verified pointers, pinned decisions, cross-task contracts, role scope — never a restatement. Its acceptance criteria must be collectively covered by its tasks'.
 - The final review task sets each child's frontmatter `status: completed` at completion (that project's worktree copy in worktree mode). The epic derives completion from its children — never set a status on the epic file.
 
 ## Plan Artifact Rules
@@ -151,5 +153,5 @@ When the run's sources are references (a backlog epic and its child design docum
 `plan.md` is the user-reviewable architecture artifact; your Soul's plan quality bar governs its content and sections. Sprint Engine specifics:
 
 - Write for agent readers first: bullets over paragraphs, decisions and contracts over narrative, paths referenced instead of content quoted.
-- Budgets: small and medium plans normally fit in 150 lines; go past 250 lines only when risk or ambiguity demands it, and never by duplicating approved product requirements, restating imported or referenced plan content that is already valid, or padding with context available at a referenced path.
+- Budgets: small and medium plans normally fit in 150 lines; go past 250 lines only when risk or ambiguity demands it — never by duplicating requirements, restating valid imported/referenced content, or padding with context available at a referenced path.
 - Keep it compact, but not so thin that approval requires opening every task card; end with a task-graph summary — detailed worker instructions live on task cards.

@@ -758,6 +758,10 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     source = normalize_task_source(raw.get("source"), task_id)
     if source is not None:
         task["source"] = source
+    source_docs = unique_strings([str(i).strip() for i in raw.get("sourceDocs", []) if str(i).strip()])
+    reject_absolute_path_values(source_docs, f"Task {task_id} sourceDocs")
+    if source_docs:
+        task["sourceDocs"] = source_docs
     needs_input = normalize_task_needs_input(raw.get("needsInput"), task_id)
     if needs_input is not None:
         task["needsInput"] = needs_input
@@ -857,6 +861,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
     # the plan.add_task handler; a run with zero seated workers still admits tasks
     # for any enabled role, so there is no seated-roster precondition here.
     reject_absolute_path_values(getattr(args, "path", None), "--path")
+    reject_absolute_path_values(getattr(args, "source_doc", None), "--source-doc")
     raw = {
         "id": task_id,
         "title": args.title,
@@ -871,6 +876,7 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         "ownedPaths": getattr(args, "path", None) or [],
         "acceptanceCriteria": getattr(args, "acceptance", None) or [],
         "implementationNotes": getattr(args, "note", None) or [],
+        "sourceDocs": getattr(args, "source_doc", None) or [],
         "evidence": {"summary": "", "touchedFiles": [], "commandsRan": [], "results": [], "scopeExpansions": []},
         "notes": getattr(args, "task_note", None) or [],
         "startedAt": None,
@@ -927,7 +933,7 @@ def ensure_task_can_be_replanned(task: Dict[str, Any], force: bool = False) -> N
 def set_unique_list(task: Dict[str, Any], key: str, values: Optional[List[str]]) -> None:
     if values is None:
         return
-    if key in {"ownedPaths", "touchedFiles"}:
+    if key in {"ownedPaths", "touchedFiles", "sourceDocs"}:
         reject_absolute_path_values(values, key)
     task[key] = unique_strings(values)
 

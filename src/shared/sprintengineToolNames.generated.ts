@@ -801,6 +801,10 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "note": {
           "type": "array"
         },
+        "sourceDocs": {
+          "type": "array",
+          "description": "Project-root-relative canonical source documents this task implements (e.g. the backlog item on a reference-sourced run). Workers are directed to read each in full on claim; keep the task card the delta, never a restatement."
+        },
         "taskNote": {
           "type": "array"
         },
@@ -1026,6 +1030,13 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "note": {
           "type": "array"
+        },
+        "sourceDocs": {
+          "type": "array",
+          "description": "Replace the task's canonical source documents with this list of project-root-relative paths."
+        },
+        "clearSourceDocs": {
+          "type": "boolean"
         },
         "taskNote": {
           "type": "array"
