@@ -222,11 +222,12 @@ def test_projection_carries_the_store_schema_version(tmp_path: Path) -> None:
 
 
 def test_store_schema_version_matches_the_main_process_mirror() -> None:
-    """`SPRINT_ENGINE_RUN_SCHEMA_VERSION` in src/main/sprintengine-artifacts.ts is
-    what actually rejects a stale store at the app surfaces. Pin the pair."""
-    source = (REPO_ROOT / "src/main/sprintengine-artifacts.ts").read_text(encoding="utf-8")
+    """`SPRINT_ENGINE_RUN_SCHEMA_VERSION` in src/shared/sprintengine/store-schema.ts
+    (re-exported by src/main/sprintengine-artifacts.ts) is what actually rejects a
+    stale store at the app surfaces. Pin the pair."""
+    source = (REPO_ROOT / "src/shared/sprintengine/store-schema.ts").read_text(encoding="utf-8")
     match = re.search(r"export const SPRINT_ENGINE_RUN_SCHEMA_VERSION = (\d+)", source)
-    assert match, "SPRINT_ENGINE_RUN_SCHEMA_VERSION not found in src/main/sprintengine-artifacts.ts"
+    assert match, "SPRINT_ENGINE_RUN_SCHEMA_VERSION not found in src/shared/sprintengine/store-schema.ts"
     assert int(match.group(1)) == folder_store.RUN_SCHEMA_VERSION
 
 
