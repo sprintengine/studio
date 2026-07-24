@@ -59,6 +59,8 @@ An epic groups related items. It is itself a file at `backlog/epics/<slug>.md` w
 - **Enumerate children**: `grep -l "^epic: <slug>$" backlog/*.md`.
 - **Completion**: an epic is `completed` only when every one of its children is `completed`.
 
+When authoring an epic's children, prefer items sized for one agent in one session and, where practical, within one discipline (frontend / backend / main-process / engine), so a sprint architect can route each child to one task without re-slicing. Work that genuinely spans disciplines is either split into sibling children linked in prose, or states its seam — the contract between the halves — so an architect splitting it has the contract handed to them. Keep acceptance criteria self-contained per child: a criterion only verifiable by another child's work belongs on that other child.
+
 ## Working A Dropped Backlog Item
 
 When a user drags a `backlog/...` item into a terminal and asks you to work it directly, treat the dragged file as the intake brief:

@@ -116,6 +116,8 @@ An **epic** groups related items. It is itself a file at `backlog/epics/<slug>.m
 - **Enumerate** an epic's children: `grep -l "^epic: <slug>$" backlog/*.md`.
 - **Completion**: an epic is `completed` only when every one of its children is `completed`; never mark an epic `completed` while any child is still open.
 
+When authoring an epic's children, prefer items sized for one agent in one session and, where practical, within one discipline (frontend / backend / main-process / engine), so a sprint architect can route each child to one task without re-slicing. Work that genuinely spans disciplines is either split into sibling children linked in prose, or states its seam — the contract between the halves — so an architect splitting it has the contract handed to them. Keep acceptance criteria self-contained per child: a criterion only verifiable by another child's work belongs on that other child.
+
 ## Recording The Working Agent
 
 When you pick up an item by **typing** its path (rather than dragging it onto your terminal), the app cannot observe the handoff, so record it yourself — this is what links the item to you in the Backlog panel and shows the Backlog glyph on your terminal. The drag-drop and "Send to agent" paths already do this automatically; this step is only for typed pickup.
