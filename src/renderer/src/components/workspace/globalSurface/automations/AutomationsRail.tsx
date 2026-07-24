@@ -70,7 +70,7 @@ export function AutomationTypeGlyph({ kind }: { kind: string }): JSX.Element {
 }
 
 const glyphSvg = (paths: JSX.Element): JSX.Element => (
-  <svg viewBox="0 0 16 16" fill="none" className="h-4 w-4" aria-hidden="true">
+  <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
     {paths}
   </svg>
 )
