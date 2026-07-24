@@ -1,8 +1,8 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
-/* Shared UI tokens — shared by Switchboard, Watchtower, Sprint Engine, and
- * Multiloop panel rebuilds. Existing tool-identity / theme variables are kept
+/* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
+ * panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
  * Source of truth: future-plans/2026-05-12-linear-grade-ui-redesign.md,
  * .multi-code/sprintengine/2026-05-12-linear-grade-ui-redesign2/plan.md, and
@@ -150,7 +150,6 @@
   --tool-switchboard: #7c5cf0;
   --tool-watchtower: #d87858;
   --tool-sprintengine: #fcc030;
-  --tool-multiloop: #38d8fc;
   /* Sprint mark ink: the brand yellow pulled toward the theme's strongest text
      color, so small glyphs stay legible everywhere — pure #fcc030 vanishes on
      light backgrounds. Derived, so every theme (and any future one) adapts

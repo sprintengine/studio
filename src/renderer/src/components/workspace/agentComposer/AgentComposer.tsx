@@ -83,7 +83,6 @@ export default function AgentComposer({
   embedded = false,
 }: AgentComposerProps) {
   const composer = useAgentComposer({
-    mode: 'specialist',
     showTerminal: true,
     conversationAvailable: false,
     initialSelection,

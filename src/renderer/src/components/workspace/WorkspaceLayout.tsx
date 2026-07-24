@@ -443,7 +443,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
   }, [workspaceAgents, sprintEngineAgents])
 
   // Capability-module gate. Host-registered panels (editor, git, sprintengine,
-  // switchboard, multiloop, memory-graph, …) are gated generically in the
+  // switchboard, memory-graph, …) are gated generically in the
   // factory's default case by their owning module's enablement, so a disabled
   // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
   // hides its button. Only the panels with bespoke props (file-editor, explorer, the
@@ -491,7 +491,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
       // paths, the sprintengine fixed-view/summary fallbacks, guided-brief).
       // Every plain `{ workspaceId }` host panel — editor, content-search, git,
-      // sprintengine, multiloop-board, switchboard-*, memory-graph — falls
+      // sprintengine, switchboard-*, memory-graph — falls
       // through to `default`, which renders it gated by its owning module.
       switch (component) {
         case 'agent':
@@ -1140,7 +1140,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       const sprintEngineRole = agent?.kind === 'sprintengine'
         ? runtimeAgent?.role ?? null
         : null
-      const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole : null
 
       if (specialist) {
         renderValues.leading = (
@@ -1160,16 +1159,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
             aria-label={`${sprintEngineRole} sprint agent`}
           >
             <SprintEngineRoleIcon role={sprintEngineRole} className="h-3.5 w-3.5" />
-          </span>
-        )
-      } else if (multiloopRole) {
-        renderValues.leading = (
-          <span
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px]"
-            title={`${multiloopRole} Multiloop agent`}
-            aria-label={`${multiloopRole} Multiloop agent`}
-          >
-            <WorkspaceTypeIcon mode="multiloop" moduleOverrides={moduleOverrides} className="h-3.5 w-3.5" />
           </span>
         )
       } else if (agent?.cli) {
@@ -1259,9 +1248,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         ? `${specialist.shortLabel} specialist`
         : sprintEngineRole
           ? `${prettyRole(sprintEngineRole)} · sprint`
-          : multiloopRole
-            ? `${prettyRole(multiloopRole)} · multiloop`
-            : 'General agent'
+          : 'General agent'
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
       // Otherwise mirror the tab dot, then sprint lifecycle, then the honest

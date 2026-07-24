@@ -654,7 +654,6 @@ export function AutomationEditor({
                     )}
                   >
                     <AgentComposerPopover
-                      roster="specialist"
                       conversationAvailable={false}
                       initialSelection={
                         (form.config.specialistId

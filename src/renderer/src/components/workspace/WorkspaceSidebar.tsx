@@ -218,15 +218,6 @@ const modeAccents: Record<Workspace['mode'], RowAccent> = {
     chip: 'bg-[color:var(--bg-hover)]',
     glyph: 'text-[color:var(--tool-switchboard)]',
   },
-  multiloop: {
-    border: 'border-l-[color:var(--tool-multiloop)]',
-    bg: 'bg-[color:var(--bg-selected)]',
-    text: 'text-[color:var(--text-strong)]',
-    shadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    collapsedShadow: 'shadow-[inset_0_0_0_1px_var(--border-strong)]',
-    chip: 'bg-[color:var(--bg-hover)]',
-    glyph: 'text-[color:var(--tool-multiloop)]',
-  },
   'guided-brief': {
     border: 'border-l-[color:var(--accent-primary)]',
     bg: 'bg-[color:var(--bg-selected)]',
@@ -378,7 +369,6 @@ function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLEleme
 
 function workspaceHasOnDiskState(workspace: Workspace): boolean {
   if (workspace.mode === 'sprintengine') return Boolean(workspace.sprintEngineContext?.teamDirectoryPath)
-  if (workspace.mode === 'multiloop') return Boolean(workspace.multiloopContext?.loopDirectoryPath)
   return false
 }
 
@@ -1998,7 +1988,7 @@ export default function WorkspaceSidebar({
         ) : null}
       </Modal>
 
-      {/* Delete with on-disk state (sprintengine / multiloop) */}
+      {/* Delete with on-disk state (sprintengine) */}
       <Modal
         open={confirmDelete !== null}
         onClose={() => setConfirmDelete(null)}
@@ -2012,9 +2002,7 @@ export default function WorkspaceSidebar({
               const dirPath =
                 workspace.mode === 'sprintengine'
                   ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
-                  : workspace.mode === 'multiloop'
-                    ? workspace.multiloopContext?.loopDirectoryPath ?? null
-                    : null
+                  : null
               const typedOk = deleteTypedName.trim() === workspace.name.trim()
               return (
                 <>

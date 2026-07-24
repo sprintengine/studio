@@ -25,7 +25,6 @@ import { pluginsApi } from './api/plugins'
 import { reviewApi } from './api/review'
 import { skillPackApi } from './api/skill-pack'
 import { mobileBridgeApi } from './api/mobile-bridge'
-import { multiloopApi } from './api/multiloop'
 import { soulsApi } from './api/souls'
 import { sprintEngineApi } from './api/sprintengine'
 import { switchboardApi } from './api/switchboard'
@@ -74,7 +73,6 @@ const api = {
   ...sprintEngineApi,
   ...switchboardApi,
   ...trackerApi,
-  ...multiloopApi,
   ...terminalApi,
   ...updateApi,
   ...voiceApi,

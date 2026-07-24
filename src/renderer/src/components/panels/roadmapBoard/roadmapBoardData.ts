@@ -56,6 +56,10 @@ export type RoadmapFileSummary = {
   status: BacklogItemStatus
   tracks: { title: string; steps: number }[]
   totalSteps: number
+  // The file's board model with NO runtime overlay — the read-only tracks a
+  // selected DRAFT shows (its plan at a glance, resolved against live backlog
+  // status), never steering chrome.
+  lanes: RoadmapBoardLane[]
 }
 
 // The backlog statuses under which the orchestrator treats a roadmap as active
@@ -197,8 +201,16 @@ export function useRoadmapBoard(): RoadmapBoardData {
     [states, contentByRef],
   )
 
+  // Every roadmap FILE in the home project (active + drafts), parsed once per
+  // scan tick — the source of the rail summaries and the draft board lanes.
+  // Reads the shared home scan, so this needs the scan hook below; the scan-root
+  // list must not depend on it (cycle), so draft projects ride a separate pass.
+  const [draftProjectRoots, setDraftProjectRoots] = useState<string[]>([])
+
   // Every project root the plan spans that the instance can resolve: the home
-  // project plus each alias mapping to a known workspace root.
+  // project plus each alias mapping to a known workspace root — for the ACTIVE
+  // roadmap via its parsed state, and for draft files via their own parsed
+  // `projects:` maps (fed back from the parse pass below).
   const scanRoots = useMemo(() => {
     const roots: string[] = []
     if (homePath) roots.push(homePath)
@@ -207,10 +219,29 @@ export function useRoadmapBoard(): RoadmapBoardData {
         if (knownRootKeys.has(rootKey(project.path))) roots.push(project.path)
       }
     }
+    for (const root of draftProjectRoots) {
+      if (knownRootKeys.has(rootKey(root))) roots.push(root)
+    }
     return Array.from(new Set(roots))
-  }, [homePath, parsedRoadmaps, knownRootKeys])
+  }, [homePath, parsedRoadmaps, knownRootKeys, draftProjectRoots])
 
   const itemsByRootKey = useMultiRootBacklogScan(scanRoots)
+
+  // Parse every home roadmap file once per scan tick (cheap — a handful of small
+  // files), and feed the alias roots the drafts span back into the scan set.
+  const parsedFiles = useMemo(() => {
+    const homeItems = homePath ? (itemsByRootKey.get(rootKey(homePath)) ?? []) : []
+    return homeItems
+      .filter((item) => isRoadmapContent(item.relativePath, item.rawType) && item.status !== 'archived')
+      .map((item) => ({ item, roadmap: parseRoadmap(item.sourceContent) }))
+  }, [homePath, itemsByRootKey])
+
+  useEffect(() => {
+    const roots = Array.from(
+      new Set(parsedFiles.flatMap(({ roadmap }) => roadmap.projects.map((project) => project.path))),
+    ).sort()
+    setDraftProjectRoots((current) => (current.join('|') === roots.join('|') ? current : roots))
+  }, [parsedFiles])
 
   const roadmaps = useMemo<LoadedRoadmap[]>(() => {
     return parsedRoadmaps.map(({ view, roadmap }) => {
@@ -232,18 +263,26 @@ export function useRoadmapBoard(): RoadmapBoardData {
   // one, or nothing). Its ref is the rail's "Active" identity.
   const activeRef = useMemo(() => roadmaps[0]?.roadmapRef ?? null, [roadmaps])
 
-  // Every roadmap file in the home project (active + drafts), for the rail. Read
-  // off the shared home-project scan — the home root is always a scanRoot, so its
-  // items (with `sourceContent`) are already loaded; no extra IPC. The active
-  // roadmap is unioned in defensively so it is always a rail citizen even on the
-  // first tick before the scan has caught up with readRoadmapStates.
+  // Every roadmap file in the home project (active + drafts), for the rail and
+  // the read-only draft canvas. Read off the shared home-project scan — the home
+  // root is always a scanRoot, so its items (with `sourceContent`) are already
+  // loaded; no extra IPC. The active roadmap is unioned in defensively so it is
+  // always a rail citizen even on the first tick before the scan has caught up
+  // with readRoadmapStates. (Archived roadmaps are filtered in the parse pass.)
   const roadmapFiles = useMemo<RoadmapFileSummary[]>(() => {
-    const homeItems = homePath ? (itemsByRootKey.get(rootKey(homePath)) ?? []) : []
-    const summaries = homeItems
-      // Archived roadmaps are retired, not activatable drafts — keep them out of
-      // the rail so a stale file never clutters it as a misleading "Draft" row.
-      .filter((item) => isRoadmapContent(item.relativePath, item.rawType) && item.status !== 'archived')
-      .map(summarizeRoadmapFile)
+    const summaries = parsedFiles.map(({ item, roadmap }) => {
+      const resolver = buildInstanceResolver(roadmap, homePath, itemsByRootKey, knownRootKeys)
+      const tracks = roadmap.lanes.map((lane) => ({ title: lane.title, steps: flattenLaneUnits(lane).length }))
+      return {
+        roadmapRef: normalizeRelativePath(item.relativePath),
+        title: item.title,
+        ...(item.numericId !== undefined ? { numericId: item.numericId } : {}),
+        status: item.status,
+        tracks,
+        totalSteps: tracks.reduce((sum, track) => sum + track.steps, 0),
+        lanes: buildRoadmapBoardModel(roadmap, resolver, EMPTY_LANE_RUNTIME),
+      }
+    })
     if (activeRef && !summaries.some((summary) => summary.roadmapRef === normalizeRelativePath(activeRef))) {
       summaries.push({
         roadmapRef: normalizeRelativePath(activeRef),
@@ -251,10 +290,11 @@ export function useRoadmapBoard(): RoadmapBoardData {
         status: 'in_progress',
         tracks: [],
         totalSteps: 0,
+        lanes: [],
       })
     }
     return summaries
-  }, [homePath, itemsByRootKey, activeRef, roadmaps])
+  }, [parsedFiles, homePath, itemsByRootKey, knownRootKeys, activeRef, roadmaps])
 
   // Loading is the first-read-only state; once states resolves (to a list or, on
   // failure, []), the board stays populated and later reads are `refreshing`.
@@ -308,6 +348,9 @@ export function useRoadmapAttention(enabled: boolean): RoadmapAttention {
   return attention
 }
 
+// The no-runtime overlay a draft's board model is built with.
+const EMPTY_LANE_RUNTIME: ReadonlyMap<string, RoadmapLaneStateView> = new Map()
+
 const EMPTY_ROADMAP: Roadmap = {
   policy: { advance: 'approve', merge: 'manual', concurrency: 1 },
   projects: [],
@@ -323,22 +366,6 @@ function parseRoadmapContent(content: string | undefined): Roadmap {
 function roadmapTitleFromRef(ref: string): string {
   const stem = ref.split('/').filter(Boolean).at(-1) ?? ref
   return stem.replace(/\.md$/i, '')
-}
-
-// A rail summary for one roadmap file, parsed from the scan's own sourceContent —
-// track titles + step counts + a total. Cheap enough to run per file; the shared
-// scan already holds the content, so this adds no read.
-function summarizeRoadmapFile(item: BacklogItem): RoadmapFileSummary {
-  const parsed = parseRoadmap(item.sourceContent)
-  const tracks = parsed.lanes.map((lane) => ({ title: lane.title, steps: flattenLaneUnits(lane).length }))
-  return {
-    roadmapRef: normalizeRelativePath(item.relativePath),
-    title: item.title,
-    ...(item.numericId !== undefined ? { numericId: item.numericId } : {}),
-    status: item.status,
-    tracks,
-    totalSteps: tracks.reduce((sum, track) => sum + track.steps, 0),
-  }
 }
 
 // The normalized project-root key backlog scans are shared under (mirrors

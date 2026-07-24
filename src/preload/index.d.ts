@@ -75,9 +75,6 @@ import type {
   MobileControlCommandType as SharedMobileControlCommandType,
   MobileControlDevice as SharedMobileControlDevice,
   MulticodeAuthState as SharedMulticodeAuthState,
-  MultiloopRole as SharedMultiloopRole,
-  MultiloopInitInput as SharedMultiloopInitInput,
-  MultiloopInitResult as SharedMultiloopInitResult,
   OpenDialogOptions as SharedOpenDialogOptions,
   PremiumAccessDecision as SharedPremiumAccessDecision,
   PremiumAccessRequest as SharedPremiumAccessRequest,
@@ -181,7 +178,6 @@ declare global {
   type AppMenuAcceleratorUpdateResult = SharedAppMenuAcceleratorUpdateResult
   type SpecialistActionId = SharedSpecialistActionId
   type SoulPromptResult = SharedSoulPromptResult
-  type MultiloopRole = SharedMultiloopRole
   type GitFileStatus = SharedGitFileStatus
   type GitStatusEntry = SharedGitStatusEntry
   type GitStatusSnapshot = SharedGitStatusSnapshot
@@ -214,8 +210,6 @@ declare global {
   type SprintEngineProjectionReadResult = SharedSprintEngineProjectionReadResult
   type SprintEngineRegistryRoleReadInput = SharedSprintEngineRegistryRoleReadInput
   type SprintEngineRegistryRolesReadInput = SharedSprintEngineRegistryRolesReadInput
-  type MultiloopInitInput = SharedMultiloopInitInput
-  type MultiloopInitResult = SharedMultiloopInitResult
   type SessionUser = SharedSessionUser
   type SessionOrganization = SharedSessionOrganization
   type FeatureValue = SharedFeatureValue

@@ -19,12 +19,8 @@ import type {
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
-  MultiloopAutoPendingSpawn,
-  MultiloopAutoState,
   SprintEngineState,
   SprintEngineWorkspaceContext,
-  MultiloopState,
-  MultiloopWorkspaceContext,
   SprintEngineRoleId,
   SprintEngineRoleCliDefaults,
   SprintEngineRosterSession,
@@ -45,7 +41,6 @@ import type {
   SpecialistActionId,
   SprintEngineRoleRegistry,
   NewChatAgentChoice,
-  MultiloopRole,
   AgentExecution,
   WorkspaceWorktreeState,
   WorktreeEntry,
@@ -68,10 +63,8 @@ import {
 } from './slices/workspacesSlice'
 import {
   createLayoutSlice,
-  ensureMultiloopLayoutModel,
   hideNavRailTabStrip,
   migrateSprintEngineLayout,
-  multiloopTabsLayoutModel,
   sprintEngineTabsLayoutModel,
 } from './slices/layoutSlice'
 import {
@@ -84,8 +77,6 @@ import {
 } from './slices/agentsSlice'
 import {
   createRunStateSlice,
-  normalizeMultiloopAutoState,
-  normalizeMultiloopWorkspaceContext,
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
   normalizeSprintEngineWorkspaceContext,
@@ -109,6 +100,7 @@ import {
 } from './slices/pluginsSlice'
 import {
   dedupeAutomationsHostWorkspaces,
+  dropRetiredMultiloopWorkspaces,
   dropRetiredRoadmapWorkspaces,
   nameGenericWorkspaceAgents,
   normalizeWorkspaceForPartialize,
@@ -240,12 +232,9 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
-  setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
-  setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
-  setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   markBundledSpecialistPackMigrated: () => void
@@ -296,8 +285,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
       worktree?: WorkspaceWorktree | null
       sprintEngineState?: SprintEngineState | null
       sprintEngineContext?: SprintEngineWorkspaceContext | null
-      multiloopState?: MultiloopState | null
-      multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
@@ -305,7 +292,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-      multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: GuidedBriefRuntimeState | null
       reviewGuideConfig?: ReviewGuideConfig | null
       mode?: Workspace['mode']
@@ -320,10 +306,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
-  setMultiloopContext: (
-    id: WorkspaceId,
-    multiloopContext: MultiloopWorkspaceContext | null
-  ) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
   setFileExplorerExpandedPaths: (id: WorkspaceId, expandedPaths: string[]) => void
   setFileExplorerSelectedPath: (id: WorkspaceId, selectedPath: string | null) => void
@@ -356,7 +338,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
-  setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
@@ -385,16 +366,6 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   ) => void
   setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
-  setMultiloopCliPermissionPreset: (
-    workspaceId: WorkspaceId,
-    cliPermissionPreset: SprintEngineCliPermissionPreset
-  ) => void
-  setMultiloopAutoPendingSpawns: (
-    workspaceId: WorkspaceId,
-    pendingSpawns: MultiloopAutoPendingSpawn[]
-  ) => void
-  setMultiloopCoordinatorAutoSpawnKey: (workspaceId: WorkspaceId, key: string | null) => void
   setGuidedBriefState: (workspaceId: WorkspaceId, guidedBriefState: GuidedBriefRuntimeState | null) => void
   addSprintEngineMember: (
     workspaceId: WorkspaceId,
@@ -434,13 +405,9 @@ const workspacesSliceDeps: WorkspacesSliceDependencies = {
   normalizeAgentState,
   normalizeWorkspaceWorktreeState,
   normalizeSprintEngineWorkspaceContext,
-  normalizeMultiloopWorkspaceContext,
   normalizeSprintEngineAutoState,
-  normalizeMultiloopAutoState,
   normalizeSprintEngineRoleCliDefaults,
-  multiloopTabsLayoutModel,
   sprintEngineTabsLayoutModel,
-  ensureMultiloopLayoutModel,
   hideNavRailTabStrip,
   migrateSprintEngineLayout,
   pickWorkspaceAgentName,
@@ -1065,6 +1032,11 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = dropRetiredRoadmapWorkspaces(
       envelope.state.workspaces as Workspace[],
     )
+    // Multiloop retired outright (store v66); same migrate-ladder bypass, same
+    // drop before re-persisting.
+    envelope.state.workspaces = dropRetiredMultiloopWorkspaces(
+      envelope.state.workspaces as Workspace[],
+    )
     // Same bypass applies to the one-host-per-project invariant (store v64):
     // a recovered backup can carry one Automations host per automation run,
     // and once recovery writes it back the state is stamped current-version so
@@ -1228,13 +1200,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // workspace-row invariants: a dev-HMR module swap (or any write path that
         // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
         // un-migrated rows — duplicate Automations hosts, or a retired
-        // roadmap-mode workspace (store v65) — in a "current-version" envelope the
-        // migrate ladder will never look at again, exactly how the v63 dedupe was
-        // bypassed in the wild. merge() runs on every hydration regardless of
-        // version, so the invariants self-heal here.
+        // roadmap-mode (store v65) or multiloop-mode (store v66) workspace — in a
+        // "current-version" envelope the migrate ladder will never look at again,
+        // exactly how the v63 dedupe was bypassed in the wild. merge() runs on
+        // every hydration regardless of version, so the invariants self-heal here.
         const rawWorkspaces = nameGenericWorkspaceAgents(
-          dropRetiredRoadmapWorkspaces(
-            dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
+          dropRetiredMultiloopWorkspaces(
+            dropRetiredRoadmapWorkspaces(
+              dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
+            ),
           ),
         )
         const hydrated = hydrateSprintEngineLocalRunSettings(
@@ -1422,11 +1396,14 @@ function syncWorkspaceRegistryAcrossWindows(): void {
     if (!incoming || !Array.isArray(incoming.workspaces)) return
     // Cross-window sync adopts another window's list without the migrate
     // ladder, so a writer still holding pre-migration state would re-import
-    // duplicate Automations hosts (store v64) or a retired roadmap-mode
-    // workspace (store v65) here. Both filters are deterministic, so every
-    // window converges on the same list regardless of which window wrote last.
-    const incomingWorkspaces = dropRetiredRoadmapWorkspaces(
-      dedupeAutomationsHostWorkspaces(incoming.workspaces as Workspace[]),
+    // duplicate Automations hosts (store v64) or a retired roadmap-mode (store
+    // v65) or multiloop-mode (store v66) workspace here. The filters are
+    // deterministic, so every window converges on the same list regardless of
+    // which window wrote last.
+    const incomingWorkspaces = dropRetiredMultiloopWorkspaces(
+      dropRetiredRoadmapWorkspaces(
+        dedupeAutomationsHostWorkspaces(incoming.workspaces as Workspace[]),
+      ),
     )
     let appliedRegistrySerialized: string | null = null
     suppressNextPersistWrite = true

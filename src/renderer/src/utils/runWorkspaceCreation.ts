@@ -13,7 +13,7 @@ export type RunWorkspaceContext = {
 }
 
 /**
- * Derive the workspace-creation context that Sprint Engine and Multiloop share:
+ * Derive the workspace-creation context Sprint Engine uses:
  * slug + directory + state-file path under the run's project-relative root.
  * Domain-specific creation flows wrap this and attach their own state shape,
  * prompt builders, and registration logic.
@@ -59,8 +59,7 @@ export class RunWorkspaceStateParseError<TError extends { message: string }> ext
 
 /**
  * Shared loader: build the canonical run context, read the state file, and
- * run a domain-supplied parser. The same helper drives Sprint Engine and
- * Multiloop creation paths — the parser is the only domain-specific input.
+ * run a domain-supplied parser. The parser is the only domain-specific input.
  * On parse failure the typed error is rethrown via RunWorkspaceStateParseError
  * so the caller can surface the original title/path; on read failure the
  * underlying IO error propagates unchanged.
@@ -69,7 +68,7 @@ export async function loadRunWorkspaceState<TState, TError extends { message: st
   kind: RunKind
   rootPath: string
   name: string
-  /** Optional overrides coming from a domain initializer (e.g. Multiloop CLI return). */
+  /** Optional overrides coming from a domain initializer. */
   statePathOverride?: string | null
   slugOverride?: string | null
   directoryOverride?: string | null

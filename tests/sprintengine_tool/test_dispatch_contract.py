@@ -21,7 +21,6 @@ from sprintengine_mcp.schemas import TOOL_SCHEMAS
 # AutoRun's only tool reference), so listing them would only assert an empty set.
 RENDERER_PROMPT_SOURCES = [
     "src/renderer/src/utils/sprintengineHandoff.ts",
-    "src/renderer/src/utils/multiloop.ts",
     "src/main/mobile/sprintengine/session.ts",
 ]
 

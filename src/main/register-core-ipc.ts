@@ -46,7 +46,7 @@ import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
-import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
+import { readSpecialistSoul } from './souls-service'
 
 export type CoreIpcOptions = {
   includeDevModules?: boolean
@@ -102,7 +102,6 @@ export function registerCoreIpc(
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
   registerSoulsIpc(ipcMain, {
     readSpecialistSoul,
-    readMultiloopPrompt,
   })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
   registerBacklogIpc(ipcMain)

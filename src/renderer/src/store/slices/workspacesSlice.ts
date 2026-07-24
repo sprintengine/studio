@@ -45,9 +45,6 @@ import type {
   EditorState,
   LayoutTemplate,
   MemoryGraphSettings,
-  MultiloopAutoState,
-  MultiloopState,
-  MultiloopWorkspaceContext,
   SprintEngineAutoState,
   SprintEngineState,
   SprintEngineRole,
@@ -96,10 +93,8 @@ export function workspaceFolderKey(value: string | null | undefined): string | n
 
 export function normalizeWorkspaceMode(
   input: unknown,
-  sprintEngineState?: SprintEngineState | null,
-  multiloopState?: MultiloopState | null
+  sprintEngineState?: SprintEngineState | null
 ): WorkspaceMode {
-  if (multiloopState) return 'multiloop'
   if (sprintEngineState) return 'sprintengine'
   if (typeof input === 'string' && input.trim().length > 0) return input
   return 'standard'
@@ -290,8 +285,6 @@ export interface WorkspacesSliceActions {
       worktree?: WorkspaceWorktree | null
       sprintEngineState?: SprintEngineState | null
       sprintEngineContext?: SprintEngineWorkspaceContext | null
-      multiloopState?: MultiloopState | null
-      multiloopContext?: MultiloopWorkspaceContext | null
       sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       // Explicit per-role launch model from the new-workspace roster. String =
@@ -305,7 +298,6 @@ export interface WorkspacesSliceActions {
       // When set, overrides the remembered `lastSelectedCli` default below.
       templateAgentCli?: AgentCli | null
       sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-      multiloopAutoState?: Partial<MultiloopAutoState> | null
       guidedBriefState?: import('../../types/workspace').GuidedBriefRuntimeState | null
       // Guide preparation choices for a review workspace (MC-1677), persisted on
       // the new workspace for the guide run to consume.
@@ -376,11 +368,6 @@ export interface WorkspacesSliceDependencies {
     folderPath: string | null | undefined,
     sprintEngineState: SprintEngineState | null
   ) => SprintEngineWorkspaceContext | null
-  normalizeMultiloopWorkspaceContext: (
-    input: Partial<MultiloopWorkspaceContext> | null | undefined,
-    folderPath: string | null | undefined,
-    multiloopState: MultiloopState | null
-  ) => MultiloopWorkspaceContext | null
   normalizeSprintEngineAutoState: (
     input:
       | (Partial<SprintEngineAutoState> & {
@@ -389,19 +376,14 @@ export interface WorkspacesSliceDependencies {
       | null
       | undefined
   ) => SprintEngineAutoState
-  normalizeMultiloopAutoState: (
-    input: Partial<MultiloopAutoState> | null | undefined
-  ) => MultiloopAutoState
   normalizeSprintEngineRoleCliDefaults: (
     input: SprintEngineRoleCliDefaults | null | undefined
   ) => Required<SprintEngineRoleCliDefaults>
-  multiloopTabsLayoutModel: () => IJsonModel
   sprintEngineTabsLayoutModel: (
     sprintEngineState: SprintEngineState,
     agents: Workspace['agents'],
     options?: { includeAgentTabs?: boolean }
   ) => IJsonModel
-  ensureMultiloopLayoutModel: (model: IJsonModel | null | undefined) => IJsonModel
   hideNavRailTabStrip: (model: IJsonModel | null | undefined) => IJsonModel | null | undefined
   migrateSprintEngineLayout: (ws: Workspace) => Workspace
   pickWorkspaceAgentName: (agents: Workspace['agents']) => string
@@ -1003,7 +985,6 @@ export function createWorkspacesSlice(
         const explicitMode = options?.mode
         const isSwitchboard = explicitMode === 'switchboard' || template.id === 'switchboard-mode'
         const isSprintEngine = !isSwitchboard && (template.id === 'sprintengine-mode' || Boolean(options?.sprintEngineState))
-        const isMultiloop = template.id === 'multiloop-mode' || Boolean(options?.multiloopState)
         const guidedBriefState = normalizeGuidedBriefState(options?.guidedBriefState)
         const isGuidedBrief = explicitMode === 'guided-brief' || template.id === 'guided-brief-mode' || Boolean(guidedBriefState)
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
@@ -1099,7 +1080,6 @@ export function createWorkspacesSlice(
               roleCounts: options?.sprintEngineState?.roleCounts ?? createEmptySprintEngineRoleCounts(),
             })
           : null
-        const multiloopState = isMultiloop ? options?.multiloopState ?? null : null
         const workspaceName = sprintEngineState
           ? sprintEngineState.name
           : options?.name?.trim() || fallbackName
@@ -1186,11 +1166,6 @@ export function createWorkspacesSlice(
           folderPath,
           sprintEngineState
         )
-        const multiloopContext = deps.normalizeMultiloopWorkspaceContext(
-          options?.multiloopContext,
-          folderPath,
-          multiloopState
-        )
         const savedSprintEngineRunSettings = sprintEngineContext
           ? normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[
             sprintEngineRunSettingsKey(sprintEngineContext.statePath)
@@ -1206,24 +1181,21 @@ export function createWorkspacesSlice(
         const newWorkspace: Workspace = {
           id,
           name: workspaceName,
-          mode: multiloopState || isMultiloop
-            ? 'multiloop'
-            : isSwitchboard
-              ? 'switchboard'
-              : isGuidedBrief
-                ? 'guided-brief'
-                : sprintEngineState
-                  ? 'sprintengine'
-                  : isAutomationsHost
-                    ? AUTOMATIONS_HOST_WORKSPACE_MODE
-                    : isReview
-                      ? REVIEW_WORKSPACE_MODE
-                      : 'standard',
+          mode: isSwitchboard
+            ? 'switchboard'
+            : isGuidedBrief
+              ? 'guided-brief'
+              : sprintEngineState
+                ? 'sprintengine'
+                : isAutomationsHost
+                  ? AUTOMATIONS_HOST_WORKSPACE_MODE
+                  : isReview
+                    ? REVIEW_WORKSPACE_MODE
+                    : 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.worktree ? { worktree: options.worktree } : {}),
           sprintEngineContext,
-          multiloopContext,
           // Review workspaces start with no human review progress (populated by
           // the walkthrough surface, MC-1680) and carry the guide preparation
           // choices captured at creation for the guide run (MC-1679) to consume.
@@ -1231,10 +1203,8 @@ export function createWorkspacesSlice(
             ? { reviewState: null, reviewGuideConfig: options?.reviewGuideConfig ?? null }
             : {}),
           templateId: template.id,
-          layoutModel: isMultiloop
-            ? deps.multiloopTabsLayoutModel()
-            : isGuidedBrief
-              ? guidedBriefLayoutModel()
+          layoutModel: isGuidedBrief
+            ? guidedBriefLayoutModel()
             : sprintEngineState
             ? deps.sprintEngineTabsLayoutModel(sprintEngineState, agents, { includeAgentTabs: false })
             : standardLayout,
@@ -1244,12 +1214,10 @@ export function createWorkspacesSlice(
           editorState: deps.defaultEditorState(),
           fileExplorerState: defaultWorkspaceFileExplorerState(),
           sprintEngineState,
-          multiloopState,
           guidedBriefState,
           sprintEngineRoleCliDefaults,
           ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
           sprintEngineAutoState,
-          multiloopAutoState: deps.normalizeMultiloopAutoState(options?.multiloopAutoState),
           createdAt: Date.now(),
         }
         // New workspaces appear at the top of their folder's block (newest
@@ -1359,11 +1327,6 @@ export function createWorkspacesSlice(
             folderPath,
             normalizeSprintEngineState(ws.sprintEngineState)
           )
-          ws.multiloopContext = deps.normalizeMultiloopWorkspaceContext(
-            ws.multiloopContext,
-            folderPath,
-            ws.multiloopState ?? null
-          )
         }
       }),
 
@@ -1442,12 +1405,7 @@ export function createWorkspacesSlice(
       set((state) => {
         const id = nanoid()
         const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-        const multiloopState = ws.multiloopState ?? null
-        const mode = multiloopState
-          ? 'multiloop'
-            : sprintEngineState
-              ? 'sprintengine'
-              : ws.mode ?? 'standard'
+        const mode = sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
         const agents = Object.fromEntries(
           Object.entries(ws.agents).map(([k, v]) => [
             k,
@@ -1474,24 +1432,12 @@ export function createWorkspacesSlice(
           gitPanelState: normalizeWorkspaceGitPanelState(ws.gitPanelState),
           sprintEngineState,
           sprintEngineContext: deps.normalizeSprintEngineWorkspaceContext(ws.sprintEngineContext, ws.folderPath, sprintEngineState),
-          multiloopState,
-          multiloopContext: deps.normalizeMultiloopWorkspaceContext(
-            ws.multiloopContext,
-            ws.folderPath,
-            multiloopState
-          ),
           sprintEngineRoleCliDefaults: deps.normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults),
           sprintEngineAutoState: deps.normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-          multiloopAutoState: deps.normalizeMultiloopAutoState(ws.multiloopAutoState),
         } satisfies Workspace)
         const imported = state.workspaces.at(-1)
         if (imported) {
-          Object.assign(
-            imported,
-            imported.mode === 'multiloop'
-              ? { ...imported, layoutModel: deps.ensureMultiloopLayoutModel(imported.layoutModel) }
-              : deps.migrateSprintEngineLayout(imported)
-          )
+          Object.assign(imported, deps.migrateSprintEngineLayout(imported))
         }
         state.activeWorkspaceId = id
         const targetWindow = ensureWorkspaceWindow(state, state.primaryWorkspaceWindowId)

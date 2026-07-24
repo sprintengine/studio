@@ -36,7 +36,6 @@ function makeItem(overrides: Partial<SessionItem> & Pick<SessionItem, 'sessionId
     exitCode: null,
     role: null,
     specialistId: null,
-    multiloopRole: null,
     taskId: null,
     ...overrides,
   } as SessionItem

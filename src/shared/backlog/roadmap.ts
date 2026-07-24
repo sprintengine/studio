@@ -75,6 +75,10 @@ export type RoadmapPolicy = {
   // repoBusy guard). Real per-repo concurrency is a separate backlog item; until
   // then the editor shows no control for it.
   concurrency: number
+  // The saved team (roster) name every sprint this roadmap starts is staffed
+  // with. Unset = the user's last-used roster (the sprint.create default). An
+  // unknown name fails the start explicitly, never a silent fallback roster.
+  team?: string
 }
 
 export const DEFAULT_ROADMAP_POLICY: RoadmapPolicy = {
@@ -405,7 +409,8 @@ function parseRoadmapPolicy(fields: Record<string, string>): RoadmapPolicy {
   const advance = fields.advance === 'auto' ? 'auto' : 'approve'
   const merge = fields.merge === 'auto' ? 'auto' : 'manual'
   const concurrency = parsePositiveInt(fields.concurrency) ?? DEFAULT_ROADMAP_POLICY.concurrency
-  return { advance, merge, concurrency }
+  const team = fields.team?.trim()
+  return { advance, merge, concurrency, ...(team ? { team } : {}) }
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {
@@ -451,6 +456,9 @@ export function setRoadmapPolicy(content: string, updates: Partial<RoadmapPolicy
     }
     frontmatterUpdates.concurrency = String(updates.concurrency)
   }
+  // Key presence (not definedness) decides: `{ team: undefined }` clears the
+  // frontmatter scalar, an absent key leaves it untouched.
+  if ('team' in updates) frontmatterUpdates.team = updates.team?.trim() ? updates.team.trim() : null
   return serializeBacklogFrontmatterFields(content, frontmatterUpdates)
 }
 
@@ -606,6 +614,10 @@ export function validateRoadmap(
   }
 
   const knownAliases = new Set(roadmap.projects.map((project) => project.alias))
+  // Epic members collapse onto their step's node for ordering: the step (entry)
+  // is the dispatch unit, so a member's dependency edge lands on the epic node —
+  // a member depending on a later loose item still closes a cycle with the step.
+  const memberOf = new Map<string, string>()
   for (const lane of roadmap.lanes) {
     // Dangling is checked over every reference an author wrote — item and epic
     // entry refs plus each snapshotted child — so a stale epic file or child is
@@ -617,8 +629,15 @@ export function validateRoadmap(
         markDangling(resolved.ref, resolved.projectKey, resolved.relativePath)
       }
     }
-    // Order edges sequence the runnable units (an epic contributes its children).
+    // Order edges sequence the runnable units (one per entry).
     const units = flattenLaneUnits(lane)
+    for (const unit of units) {
+      for (const child of unit.children) {
+        const resolved = resolveEpicChildRef(child, unit.projectKey)
+        const childKey = qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath))
+        if (!memberOf.has(childKey)) memberOf.set(childKey, unit.key)
+      }
+    }
     for (let index = 1; index < units.length; index += 1) {
       addEdge(units[index - 1].key, units[index].key)
     }
@@ -628,13 +647,15 @@ export function validateRoadmap(
   // that dependsOn slug S gets an edge key(S) -> item.key. Only edges between refs
   // that both appear in the graph matter for cycle detection; a dependency on an
   // item outside the roadmap cannot close a cycle inside it. Slugs resolve within
-  // the dependent's own project.
+  // the dependent's own project. Epic members remap to their step's node (an
+  // intra-epic dependency collapses to a self-edge and is dropped).
+  const nodeOf = (key: string): string => memberOf.get(key) ?? key
   for (const item of items) {
     const project = itemProjectKey(item)
     const dependentKey = qualifiedRef(project, normalizeRef(item.ref))
     for (const slug of item.dependsOn ?? []) {
       const prerequisiteKey = slugToKey.get(projectSlugKey(project, slug))
-      if (prerequisiteKey) addEdge(prerequisiteKey, dependentKey)
+      if (prerequisiteKey) addEdge(nodeOf(prerequisiteKey), nodeOf(dependentKey))
     }
   }
 
@@ -805,49 +826,38 @@ export type LaneUnit = {
   ref: string
   projectKey: ProjectKey
   relativePath: string
-  // The epic entry raw ref this unit was snapshotted under, if any.
-  epic?: string
+  // The entry kind the unit was built from ('unknown' is a validation verdict,
+  // never assigned here).
+  kind: RoadmapEntryKind
+  // The snapshotted child refs (raw, verbatim) for an epic unit; [] otherwise.
+  // Children are display/derivation data — they are NOT dispatched individually.
+  children: string[]
 }
 
-// The runnable units of a lane: an item entry is one unit; an epic entry expands
-// to its snapshotted children in order (the epic derives from children, MC-1617);
-// an unknown entry still contributes its ref so a dangling frontier is visible.
-// Children inherit the epic entry's project unless they carry their own `alias:`.
+// The runnable units of a lane: ONE unit per entry. A step is the dispatch
+// granularity — an epic entry runs as a single sprint (the sprint plans the
+// epic's children as its tasks), so the epic itself is the unit; its snapshotted
+// children ride along for progress display and for deriving shared-mode
+// completion (an epic is delivered only when all its children are terminal).
 // Exported so the steering surface (MC-1620) renders and counts exactly the units
 // the orchestrator schedules — the board's "done vs up next" split is the frontier
 // index over this same flattening, never a parallel re-derivation.
 export function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
-  const units: LaneUnit[] = []
-  const unitOf = (ref: string, projectKey: ProjectKey, relativePath: string, epic?: string): LaneUnit => ({
-    key: qualifiedRef(projectKey, relativePath),
-    ref,
-    projectKey,
-    relativePath,
-    ...(epic ? { epic } : {}),
-  })
-  for (const entry of lane.entries) {
-    if (entry.kind === 'epic') {
-      if (entry.children.length === 0) {
-        // A snapshot with no children can never advance on its own; carry the
-        // epic ref so the lane reports it rather than silently skipping.
-        units.push(unitOf(entry.ref, entry.projectKey, entry.relativePath, entry.ref))
-      } else {
-        for (const child of entry.children) {
-          const { projectKey, relativePath } = resolveChildRef(child, entry.projectKey)
-          units.push(unitOf(normalizeRef(child), projectKey, relativePath, entry.ref))
-        }
-      }
-      continue
-    }
-    units.push(unitOf(entry.ref, entry.projectKey, entry.relativePath))
-  }
-  return units
+  return lane.entries.map((entry) => ({
+    key: qualifiedRef(entry.projectKey, entry.relativePath),
+    ref: entry.ref,
+    projectKey: entry.projectKey,
+    relativePath: entry.relativePath,
+    kind: entry.kind,
+    children: entry.kind === 'epic' ? [...entry.children] : [],
+  }))
 }
 
 // Resolve a snapshotted child ref: inherit the parent epic's project unless the
 // child carries its own `alias:` prefix. (Validation of the alias against the
-// projects map happens in parse; here we only split the reference.)
-function resolveChildRef(child: string, inherited: ProjectKey): { projectKey: ProjectKey; relativePath: string } {
+// projects map happens in parse; here we only split the reference.) Exported so
+// the board surface resolves an epic unit's children against the same rule.
+export function resolveEpicChildRef(child: string, inherited: ProjectKey): { projectKey: ProjectKey; relativePath: string } {
   const { alias, relativePath } = splitAliasRef(child)
   return { projectKey: alias ?? inherited, relativePath }
 }
@@ -860,9 +870,10 @@ const TERMINAL_STATUSES: ReadonlySet<BacklogItemStatusPayload> = new Set<Backlog
 // The next eligible entry per lane. For each lane the frontier is the first unit
 // that is not yet MERGED (its predecessor, by construction, is merged); the lane
 // is eligible when that frontier is `ready` with every prerequisite resolved.
-// Epic entries derive from their children — the children ARE the units, so an
-// epic entry is terminal only when all its children are, and an epic frontier
-// resolves to its first non-merged child.
+// A step (entry) is the dispatch granularity: an epic entry is ONE unit — one
+// sprint delivers the whole epic — whose effective status derives from its
+// snapshotted children (terminal only when all children are terminal), so the
+// lane still advances truthfully when members are worked outside a tracked run.
 //
 // `items` is the backlog universe (flat, each tagged with its `projectKey`); a
 // unit resolves against the items sharing its project. `resolvableProjects`, when
@@ -888,11 +899,52 @@ export function nextEligible(
   }
   const resolvable = resolvableProjects ?? presentProjects
 
+  // A unit's effective backlog state. An item unit reads its own state. An epic
+  // unit runs as ONE sprint but is DELIVERED by its members, so its effective
+  // status derives from the snapshotted children when they say more than the
+  // epic's own frontmatter:
+  //   1. every known child terminal (and at least one known) → completed
+  //   2. the epic's own status when it is live or terminal (a started sprint
+  //      stamps the epic in_progress via the execution link)
+  //   3. any child in_progress/needs_input → in_progress
+  //   4. any child ready → ready
+  //   5. else the epic's own status (idea etc. read as blocked, like any entry)
+  const effectiveState = (unit: LaneUnit): RoadmapItemState | undefined => {
+    const own = byKey.get(unit.key)
+    if (unit.kind !== 'epic' || unit.children.length === 0 || !own) return own
+    const childStatuses: BacklogItemStatusPayload[] = []
+    for (const child of unit.children) {
+      const resolved = resolveEpicChildRef(child, unit.projectKey)
+      const state = byKey.get(qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath)))
+      if (state) childStatuses.push(state.status)
+    }
+    if (childStatuses.length > 0 && childStatuses.every((status) => TERMINAL_STATUSES.has(status))) {
+      return { ...own, status: 'completed' }
+    }
+    if (own.status === 'in_progress' || own.status === 'needs_input' || TERMINAL_STATUSES.has(own.status)) return own
+    if (childStatuses.some((status) => status === 'in_progress' || status === 'needs_input')) {
+      return { ...own, status: 'in_progress' }
+    }
+    if (childStatuses.some((status) => status === 'ready')) return { ...own, status: 'ready' }
+    return own
+  }
+
   const isMerged = (unit: LaneUnit): boolean => {
     const link = runLinks.get(unit.key)
     if (link?.mode === 'worktree') return link.prMerged === true
-    // Shared runs and manual/untracked items: terminal status is the signal.
-    const state = byKey.get(unit.key)
+    // Migration guard: a run started under the old child-granularity keyed its
+    // execution link on a MEMBER, not the epic. An unmerged child worktree PR
+    // still holds the step — the lane must not advance past it.
+    if (unit.kind === 'epic') {
+      for (const child of unit.children) {
+        const resolved = resolveEpicChildRef(child, unit.projectKey)
+        const childLink = runLinks.get(qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath)))
+        if (childLink?.mode === 'worktree' && childLink.prMerged !== true) return false
+      }
+    }
+    // Shared runs and manual/untracked items: terminal (effective) status is the
+    // signal — an epic unit is delivered when all its children are.
+    const state = effectiveState(unit)
     return state !== undefined && TERMINAL_STATUSES.has(state.status)
   }
 
@@ -903,6 +955,28 @@ export function nextEligible(
       // as satisfied (Fallback Discipline). A prerequisite is resolved once its
       // target is terminal — the backlogDependencies.ts RESOLVED_STATUSES rule.
       if (!target || !TERMINAL_STATUSES.has(target.status)) return false
+    }
+    return true
+  }
+
+  // A step's full dependency gate. For an item unit that is its own dependsOn.
+  // For an epic unit the MEMBERS' prerequisites gate the step too: one sprint
+  // delivers the whole epic, so it must not start while any member depends on
+  // unfinished work OUTSIDE the epic. Intra-epic dependencies are the sprint's
+  // own ordering, never a start gate.
+  const unitDependenciesResolved = (unit: LaneUnit, state: RoadmapItemState): boolean => {
+    if (!dependsOnResolved(state, unit.projectKey)) return false
+    if (unit.kind !== 'epic') return true
+    const memberSlugs = new Set(unit.children.map((child) => roadmapRefSlug(child)))
+    for (const child of unit.children) {
+      const resolved = resolveEpicChildRef(child, unit.projectKey)
+      const childState = byKey.get(qualifiedRef(resolved.projectKey, normalizeRef(resolved.relativePath)))
+      if (!childState) continue
+      for (const slug of childState.dependsOn ?? []) {
+        if (memberSlugs.has(slug)) continue
+        const target = bySlug.get(projectSlugKey(resolved.projectKey, slug))
+        if (!target || !TERMINAL_STATUSES.has(target.status)) return false
+      }
     }
     return true
   }
@@ -932,11 +1006,11 @@ export function nextEligible(
       return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'unknown_project', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
 
-    const state = byKey.get(frontier.key)
+    const state = effectiveState(frontier)
     if (!state) {
       return { lane: lane.title, eligibleRef: null, eligible: null, reason: 'dangling', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
-    if (state.status === 'ready' && dependsOnResolved(state, frontier.projectKey)) {
+    if (state.status === 'ready' && unitDependenciesResolved(frontier, state)) {
       return { lane: lane.title, eligibleRef: frontier.ref, eligible: frontierUnitRef, reason: 'eligible', frontierRef: frontier.ref, frontier: frontierUnitRef }
     }
     if (state.status === 'in_progress' || state.status === 'needs_input') {

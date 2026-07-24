@@ -32,7 +32,7 @@
 // - `ipc:agents` — launching and controlling agents and terminals:
 //   `terminalSpawn`/`terminalWrite`/`terminalKill` and terminal event streams,
 //   conversation provider sessions, Sprint Engine runner/roster controls,
-//   Switchboard runner and executions, Multiloop initialization, soul prompts.
+//   Switchboard runner and executions, soul prompts.
 // - `ipc:settings` — reading and changing Multicode settings and integrations:
 //   module enablement, third-party module install/trust, MCP catalog/sync,
 //   skill packs, plugin and role/template registries, GitHub token, app

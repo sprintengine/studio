@@ -120,7 +120,7 @@ export function relativePathBetween(fromPath: string, toPath: string): string | 
 
 /**
  * Distinct projects across the given open workspaces, deduped by resolved
- * project root. Sprint Engine / Multiloop workspaces that inherit a configured
+ * project root. Sprint Engine workspaces that inherit a configured
  * ancestor collapse onto that ancestor; unconfigured workspaces stand as their
  * own project. Sorted by display name.
  */

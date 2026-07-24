@@ -131,13 +131,15 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       return result.ok ? { ok: true } : { ok: false, message: result.message }
     },
 
-    startSprint: async ({ workspaceRoot, itemRelativePath }) => {
+    startSprint: async ({ workspaceRoot, itemRelativePath, team }) => {
       // The shared plan-sourced creation flow — the same `sprint.create` delegate a
       // human backlog start and sprint chaining use. It creates the workspace, inits
       // the run store (worktree mode), starts the runner, and records the execution
-      // link + epic children fan-out, in the item's own project root. Worktree mode
-      // is on so the lane gates on a PR (MC-1439). The delegate refuses an epic
-      // source, so callers only ever pass a concrete child item.
+      // link, in the item's own project root. Worktree mode is on so the lane gates
+      // on a PR (MC-1439). An epic source is fine — the run's brief is the epic and
+      // the architect plans its members as tasks (one sprint per roadmap STEP).
+      // `team` names the roadmap's saved roster; the delegate fails explicitly on an
+      // unknown name rather than silently staffing a fallback.
       const response = await deps.delegateToRenderer({
         kind: 'sprint.create',
         folderPath: workspaceRoot,
@@ -145,6 +147,7 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
         sourceRelativePath: itemRelativePath,
         startRunner: true,
         useWorktrees: true,
+        ...(team ? { team } : {}),
       })
       return response.ok ? { ok: true } : { ok: false, message: response.message }
     },

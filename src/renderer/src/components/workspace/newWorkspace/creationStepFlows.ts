@@ -8,7 +8,7 @@ import type { CreationMode } from './types'
 //
 // Every flow is shaped: 'workspace' (always required — you must pick a folder),
 // then AT MOST ONE required-intent step, then only defaulted refinement steps.
-// The intent steps are 'multiloop-goal', 'guided-idea', and 'sprintengine-team':
+// The intent steps are 'guided-idea' and 'sprintengine-team':
 // they carry something only the user knows, so they are never defaulted (a sprint
 // with an auto-generated objective is worse than one that asks). Everything after
 // them is seeded with a working default, which is what lets the footer offer
@@ -25,7 +25,6 @@ export type StepId =
   | 'skill-packs'
   | 'knowledge'
   | 'standard-layout'
-  | 'multiloop-goal'
   | 'sprintengine-team'
   | 'sprintengine-roster'
   | 'sprintengine-reviews'
@@ -38,7 +37,7 @@ export type StepId =
 // type points at one of these via its creationStepsId; 'standard' is the
 // shell-owned default and the fallback for any mode whose registry entry is
 // missing or names an unknown flow.
-export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'multiloop' | 'sprintengine' | 'guided-brief' | 'review'
+export type CreationStepsId = 'standard' | 'switchboard' | 'automations' | 'sprintengine' | 'guided-brief' | 'review'
 
 // Default flows keep only the steps a person needs to reach the thing they came
 // to make. The developer-configuration steps — 'mcp-servers', 'skill-packs', and
@@ -57,7 +56,6 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   // single-surface template (control center + right-docked run terminals) means
   // no layout-picker step.
   automations: ['workspace'],
-  multiloop: ['workspace', 'multiloop-goal'],
   // The sprint's team page carries the only required intent (an objective, or a
   // backlog item / plan file / existing team). Everything after it — the team
   // roster, the review passes, the optional tools & skills, and the final

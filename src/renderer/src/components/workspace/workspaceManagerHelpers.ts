@@ -1,14 +1,8 @@
 // Pure helpers extracted from WorkspaceManager.tsx. Workspace activity,
-// session shaping, sidebar ordering, and multiloop-spawn prompt construction
-// live here so the orchestrator stays focused on layout, IPC, and state
-// coordination. Nothing in this module reaches into the store directly;
+// session shaping, and sidebar ordering live here so the orchestrator stays
+// focused on layout, IPC, and state coordination. Nothing in this module reaches into the store directly;
 // every function takes its data via arguments.
 
-import {
-  buildMultiloopLaunchContextLines,
-  getActiveMultiloopMilestone,
-  getMultiloopTasksForMilestone,
-} from '../../utils/multiloop'
 import { isStarred } from '../../utils/highlight'
 import { findWorkspaceForAgentPreferring } from '../../utils/agentLocation'
 import { sortWorkspacesByActivity } from '../../utils/workspaceRecency'
@@ -18,7 +12,6 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { GUIDED_BRIEF_AGENT_LABELS } from './guidedBrief/sessionAdapter'
 import type { Workspace } from '../../types/workspace'
-import type { MultiloopRoleDescriptor } from '../../specialists/specialistActions'
 import type { SessionGroup, SessionItem } from './WorkspaceActions'
 import type {
   ConversationSessionStatus,
@@ -280,7 +273,6 @@ export function getSessionItems(
         exitCode: null,
         role: null,
         specialistId: null,
-        multiloopRole: null,
         taskId: null,
         sessionId: summary.sessionId,
       },
@@ -338,7 +330,6 @@ export function getSessionItems(
           agent?.kind === 'specialist' || agent?.kind === 'watchtower'
             ? agent.specialistId ?? null
             : null
-        const multiloopRole = agent?.kind === 'multiloop' ? agent.multiloopRole ?? null : null
 
         return [
           {
@@ -360,7 +351,6 @@ export function getSessionItems(
             exitCode: statusInfo.exitCode,
             role: runtime?.role ?? null,
             specialistId,
-            multiloopRole,
             taskId: runtime?.currentTaskId ?? null,
             sessionId: session.sessionId,
           },
@@ -387,7 +377,6 @@ export function getSessionItems(
           exitCode: statusInfo.exitCode,
           role: null,
           specialistId: null,
-          multiloopRole: null,
           taskId: null,
           sessionId: session.sessionId,
         },
@@ -465,57 +454,3 @@ export function buildSidebarWorkspaceOrder(
 // getTerminalSessionsSignature moved to ../../hooks/useTerminalSessions to avoid
 // an import cycle (the hook now uses it internally to dedupe no-op broadcasts).
 
-export function toProjectRelativeStatePath(
-  path: string | null | undefined,
-  workspaceRoot: string | null | undefined,
-): string {
-  if (!path) return 'multiloop/<loop>/state.json'
-
-  const normalizedPath = path.replace(/\\/g, '/')
-  const normalizedRoot = workspaceRoot?.replace(/\\/g, '/').replace(/\/+$/u, '')
-  if (
-    normalizedRoot &&
-    (normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`))
-  ) {
-    return normalizedPath.slice(normalizedRoot.length).replace(/^\/+/u, '') || '.'
-  }
-
-  const multiloopIndex = normalizedPath.lastIndexOf('/multiloop/')
-  return multiloopIndex >= 0 ? normalizedPath.slice(multiloopIndex + 1) : 'multiloop/<loop>/state.json'
-}
-
-export function buildMultiloopSpawnPrompt({
-  soul,
-  multiloopPrompt,
-  workspace,
-  agentId,
-}: {
-  soul: MultiloopRoleDescriptor
-  multiloopPrompt: string
-  workspace: Workspace
-  agentId: string
-}): string {
-  const state = workspace.multiloopState
-  const currentMilestone = state ? getActiveMultiloopMilestone(state) : null
-  const readyTaskIdsForRole =
-    state && currentMilestone
-      ? getMultiloopTasksForMilestone(state, currentMilestone.id)
-          .filter((task) => task.role === soul.role && task.status === 'ready')
-          .map((task) => task.id)
-      : []
-  const context = buildMultiloopLaunchContextLines({
-    roleLabel: soul.label,
-    role: soul.role,
-    agentId,
-    readyTaskIdsForRole,
-    loopName: state?.loop.displayName ?? workspace.multiloopContext?.loopName ?? workspace.name,
-    finalGoal: state?.loop.finalGoal ?? null,
-    currentMilestone,
-    statePath: toProjectRelativeStatePath(
-      workspace.multiloopContext?.statePath,
-      workspace.folderPath,
-    ),
-  })
-
-  return [multiloopPrompt.trim(), ...context].join('\n')
-}

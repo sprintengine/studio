@@ -31,10 +31,9 @@ Use this checklist for every preview or stable desktop release.
 - Confirm bundled Python tools work:
   - `scripts/souls`
   - `scripts/sprintengine_tool.py`
-  - `scripts/multiloop_tool.py`
 - Confirm terminal sessions launch.
 - Confirm Git panel reads status in a real repository.
-- Confirm Sprint Engine and Multiloop boards can load existing state.
+- Confirm Sprint Engine boards can load existing state.
 - Confirm protocol registration for `multicode://` auth callbacks still works.
 
 ## Update Validation

@@ -29,13 +29,10 @@ import { useAutomationRequests } from '../../hooks/useAutomationRequests'
 import { useVoiceDictation } from '../../hooks/useVoiceDictation'
 import { useConversationSessions } from '../../hooks/useConversationSessions'
 import {
-  MULTILOOP_ROLES,
   GENERAL_AGENT_ENGINE_KEY,
   orderSpecialistActions,
-  getMultiloopRole,
   getSpecialistAction,
   buildSpecialistSoulStartupPrompt,
-  loadMultiloopPrompt,
 } from '../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../specialists/specialistPacks'
 import type {
@@ -45,7 +42,6 @@ import type {
   AppNotification,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
-  MultiloopRole,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   SprintEngineRoleId,
@@ -80,7 +76,6 @@ import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { type NewWorkspacePanelInitialState } from './NewWorkspacePanel'
 import { type AgentComposerConfirm, type AgentComposerConnector, type AgentComposerSelection } from './agentComposer/AgentComposer'
 import AgentComposerPopover from './agentComposer/AgentComposerPopover'
-import MultiloopStateSynchronizer from './MultiloopStateSynchronizer'
 import SprintEngineProjectionSupervisor from './SprintEngineProjectionSupervisor'
 import SprintEnginePullRequestPollSupervisor from './SprintEnginePullRequestPollSupervisor'
 // Always-on observer of background automation run events (raises run
@@ -112,7 +107,6 @@ import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import { AGENT_SPAWN_PERMISSION_OPTIONS } from './agentComposer/agentSpawnShared'
 import {
-  buildMultiloopSpawnPrompt,
   buildSidebarWorkspaceOrder,
   getSessionItems,
   getWorkspaceActivity,
@@ -186,9 +180,7 @@ function newChatFolderLabel(path: string): string {
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
-const EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
-const EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_PROJECT_KNOWLEDGE_ROOTS: Record<string, string | null> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_SPECIALIST_PACKS: string[] = []
@@ -218,7 +210,6 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.folderPath === right.folderPath
     && left.folderMissing === right.folderMissing
     && left.sprintEngineContext === right.sprintEngineContext
-    && left.multiloopContext === right.multiloopContext
     && left.templateId === right.templateId
     && left.layoutModel === right.layoutModel
     && left.worktreeState === right.worktreeState
@@ -226,11 +217,9 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.editorState === right.editorState
     && left.fileExplorerState === right.fileExplorerState
     && left.sprintEngineState === right.sprintEngineState
-    && left.multiloopState === right.multiloopState
     && left.sprintEngineRoleCliDefaults === right.sprintEngineRoleCliDefaults
     && left.sprintEngineInitialSpawnAgentIds === right.sprintEngineInitialSpawnAgentIds
     && left.sprintEngineAutoState === right.sprintEngineAutoState
-    && left.multiloopAutoState === right.multiloopAutoState
     && left.guidedBriefState === right.guidedBriefState
     && left.highlight === right.highlight
     && left.createdAt === right.createdAt
@@ -300,7 +289,6 @@ export default function WorkspaceManager() {
   const workspaceWindows = useWorkspaceStore((s) => s.workspaceWindows)
   const primaryWorkspaceWindowId = useWorkspaceStore((s) => s.primaryWorkspaceWindowId)
   const moduleEnablement = useWorkspaceStore((s) => s.appSettings.modules)
-  const multiloopEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'multiloop'))
   const sprintEngineEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'sprint-engine'))
   const mobileRelayEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'mobile-relay'))
   const automationsEnabled = useWorkspaceStore((s) => selectModuleEnabled(s.appSettings.modules, 'automations'))
@@ -376,10 +364,6 @@ export default function WorkspaceManager() {
   const setLastSpawnWasGeneral = useWorkspaceStore((s) => s.setLastSpawnWasGeneral)
   const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
-  const lastSelectedMultiloopRole = useWorkspaceStore(
-    (s) => s.appSettings.lastSelectedMultiloopRole ?? MULTILOOP_ROLES[0].role
-  )
-  const setLastSelectedMultiloopRole = useWorkspaceStore((s) => s.setLastSelectedMultiloopRole)
   const lastAgentSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default'
   )
@@ -389,14 +373,8 @@ export default function WorkspaceManager() {
   const specialistCliDefaults = useWorkspaceStore(
     (s) => s.appSettings.specialistCliDefaults ?? EMPTY_SPECIALIST_CLI_DEFAULTS
   )
-  const multiloopRoleCliDefaults = useWorkspaceStore(
-    (s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_ROLE_CLI_DEFAULTS
-  )
   const specialistModelDefaults = useWorkspaceStore(
     (s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS
-  )
-  const multiloopRoleModelDefaults = useWorkspaceStore(
-    (s) => s.appSettings.multiloopRoleModelDefaults ?? EMPTY_MULTILOOP_ROLE_MODEL_DEFAULTS
   )
   const keybindingSettings = useWorkspaceStore((s) => s.appSettings.keybindings)
   const notifications = useNotificationStore((s) => s.notifications)
@@ -503,8 +481,6 @@ export default function WorkspaceManager() {
   const selectedSpecialistAction =
     enabledSpecialists.find((action) => action.id === lastSelectedSpecialist) ??
     getSpecialistAction(lastSelectedSpecialist)
-  const selectedMultiloopRoleDescriptor = getMultiloopRole(lastSelectedMultiloopRole)
-  const multiloopLaunchMenu = activeWorkspace?.mode === 'multiloop'
 
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
@@ -600,17 +576,14 @@ export default function WorkspaceManager() {
     if (activeWorkspace.mode === 'sprintengine' || activeWorkspace.sprintEngineContext) {
       scopes.push('panel:sprintengine')
     }
-    if (activeWorkspace.mode === 'multiloop' || activeWorkspace.multiloopContext) {
-      scopes.push('panel:multiloop')
-    }
     if (activeWorkspace.mode === 'switchboard') {
       scopes.push('panel:switchboard', 'panel:watchtower')
     }
     return scopes
-  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, activeWorkspace?.multiloopContext, workspaceActionsEnabled])
+  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, workspaceActionsEnabled])
   // Runtime preconditions for registry commands, derived from the same active
   // scopes the dispatcher uses plus the panels' own availability predicates
-  // (architect on roster, focusable agent, loaded multiloop state). The
+  // (architect on roster, focusable agent). The
   // dispatcher and the command palette both read this context so keyboard
   // dispatch and palette rows agree on which commands are actually runnable.
   // `activeFile` is intentionally omitted: no command declares it yet, and
@@ -640,10 +613,6 @@ export default function WorkspaceManager() {
       if (roster.some((agent) => agent.role === 'architect')) context.sprintengineHasArchitect = true
       const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, commandWorkspace?.agents ?? {})
       if (focusAvailability.showFocusAgentAction) context.sprintengineFocusAgentVisible = true
-    }
-    if (activeCommandScopes.includes('panel:multiloop')) {
-      context.multiloopWorkspace = true
-      if (commandWorkspace?.multiloopState) context.multiloopStateLoaded = true
     }
     if (activeCommandScopes.includes('panel:switchboard')) context.switchboardWorkspace = true
     if (commandWorkspace?.layoutModel && jsonModelHasComponent(commandWorkspace.layoutModel, 'git')) {
@@ -804,12 +773,12 @@ export default function WorkspaceManager() {
     [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   // First available catalog entry used to rescue new spawns whose remembered CLI
-  // (lastSelectedCli / specialist / multiloop default) is no longer installed.
+  // (lastSelectedCli / specialist default) is no longer installed.
   const fallbackSpawnCli = (cli: AgentCli): AgentCli =>
     resolveAvailableAgentCli(cli, agentCliCatalog, agentCliCatalog[0]?.value ?? cli)
 
-  // Conversation spawn is offered only in standard workspaces; Sprint Engine and
-  // Multiloop agents stay terminal/MCP-owned (AgentPanel enforces this too).
+  // Conversation spawn is offered only in standard workspaces; Sprint Engine
+  // agents stay terminal/MCP-owned (AgentPanel enforces this too).
   const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
   // Load the conversation provider catalog when the spawn menu opens in a
   // standard workspace. Defensive: if the IPC is absent the feature is simply
@@ -1711,9 +1680,7 @@ export default function WorkspaceManager() {
       const dirPath =
         workspace.mode === 'sprintengine'
           ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
-          : workspace.mode === 'multiloop'
-            ? workspace.multiloopContext?.loopDirectoryPath ?? null
-            : null
+          : null
       if (dirPath) {
         try {
           await window.api.deletePath(dirPath)
@@ -1950,74 +1917,6 @@ export default function WorkspaceManager() {
       ...(skill
         ? skillSpawnAgentPatch(skill, pluginCatalogEntries.find((entry) => entry.id === cliForSpawn)?.skillIntegration)
         : {}),
-    })
-    addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
-    if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
-  }
-
-  const addNewMultiloopAgent = async (
-    role: MultiloopRole = lastSelectedMultiloopRole,
-    requestedName = '',
-    selectedCli?: AgentCli
-  ) => {
-    if (showNewWorkspacePanel || !windowActiveWorkspaceId) return
-    const model = getModel(windowActiveWorkspaceId)
-    if (!model) return
-
-    const activeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === windowActiveWorkspaceId)
-    if (!multiloopEnabled || !activeWorkspace || activeWorkspace.mode !== 'multiloop') return
-
-    const soul = getMultiloopRole(role)
-    const agentName = normalizeAgentIdentifier(requestedName)
-    const tabName = agentName || uniqueAgentName(soul.label, activeWorkspace.agents)
-    const newId = `multiloop-${role}-${nanoid(6)}`
-    if (!(model.getActiveTabset() ?? firstTabset(model))) return
-
-    if (activeWorkspace.folderPath && activeWorkspace.multiloopState) {
-      const repaired = await window.api.initializeMultiloopState({
-        workspaceRoot: activeWorkspace.folderPath,
-        loopName: activeWorkspace.multiloopState.loop.displayName,
-        finalGoal: activeWorkspace.multiloopState.loop.finalGoal,
-      })
-      if (!repaired.ok) {
-        publishDiagnosticSync({
-          level: 'error',
-          source: 'workspace',
-          title: 'Multiloop CLI unavailable',
-          message: repaired.message || 'Could not prepare the Multiloop CLI wrapper for this workspace.',
-          workspaceId: windowActiveWorkspaceId,
-          workspaceName: activeWorkspace.name,
-        })
-        return
-      }
-    }
-
-    const prompt = await loadMultiloopPrompt(soul.role)
-    const startupPrompt = buildMultiloopSpawnPrompt({
-      soul,
-      multiloopPrompt: prompt,
-      workspace: activeWorkspace,
-      agentId: newId,
-    })
-    const cliForSpawn = fallbackSpawnCli(
-      normalizeSelectedCli(selectedCli ?? multiloopRoleCliDefaults[soul.role], lastSelectedCli)
-    )
-
-    updateAgent(windowActiveWorkspaceId, newId, {
-      name: tabName,
-      cli: cliForSpawn,
-      cliModel: resolveSurfaceModel(cliForSpawn, multiloopRoleModelDefaults[soul.role]),
-      cliPermissionPreset: agentSpawnPermissionPreset,
-      debugMode: agentSpawnDebugMode,
-      kind: 'multiloop',
-      specialistId: undefined,
-      multiloopRole: soul.role,
-      cliStartupPrompt: prependAgentIdentifier(startupPrompt, tabName, `Multiloop ${soul.shortLabel}`),
-      cliStartRequested: true,
-      cliOnboardingPromptSent: false,
-      cliHasLaunched: false,
-      cliResumeAvailable: false,
-      cliSessionId: crypto.randomUUID(),
     })
     addAgentTabTiled(windowActiveWorkspaceId, newId, tabName)
     if (agentSpawnDebugMode) setAgentSpawnDebugMode(false)
@@ -2345,8 +2244,8 @@ export default function WorkspaceManager() {
         }
         break
       default:
-        // The New Chat panel is specialist-mode with no conversation/multiloop
-        // rows, so those confirm kinds are unreachable here.
+        // The New Chat panel is specialist-mode with no conversation rows, so
+        // those confirm kinds are unreachable here.
         break
     }
     closeNewChatPanel()
@@ -2566,7 +2465,6 @@ export default function WorkspaceManager() {
     }
     if (
       commandId.startsWith('sprintengine.')
-      || commandId.startsWith('multiloop.')
       || commandId.startsWith('watchtower.')
       || commandId.startsWith('switchboard.')
     ) {
@@ -2736,20 +2634,12 @@ export default function WorkspaceManager() {
     void addNewSpecialist(specialistId, '', selectedCli, skill, worktree)
   }
 
-  const handleSelectMultiloopRole = (role: MultiloopRole, selectedCli?: AgentCli) => {
-    setLastSelectedMultiloopRole(role)
-    setSpecialistMenuOpen(false)
-    void addNewMultiloopAgent(role, '', selectedCli)
-  }
-
   // The agent a picker opens preselected — the remembered specialist (standard
-  // workspaces) or multiloop role. The composer falls back to its first roster
-  // row if this is absent.
-  const composerInitialSelection: AgentComposerSelection = multiloopLaunchMenu
-    ? { kind: 'multiloop', role: lastSelectedMultiloopRole }
-    : lastSpawnWasGeneral
-      ? { kind: 'general' }
-      : { kind: 'specialist', specialistId: lastSelectedSpecialist }
+  // workspaces). The composer falls back to its first roster row if this is
+  // absent.
+  const composerInitialSelection: AgentComposerSelection = lastSpawnWasGeneral
+    ? { kind: 'general' }
+    : { kind: 'specialist', specialistId: lastSelectedSpecialist }
 
   // Map a composer confirm to the real spawn into the active workspace.
   // Shared by every AgentComposerPopover host (top bar, launcher); fresh chats
@@ -2769,9 +2659,6 @@ export default function WorkspaceManager() {
       case 'specialist':
         handleSelectSpecialist(confirm.specialistId, confirm.cli, confirm.skill, confirm.worktree)
         break
-      case 'multiloop':
-        handleSelectMultiloopRole(confirm.role, confirm.cli)
-        break
     }
   }
 
@@ -2780,7 +2667,6 @@ export default function WorkspaceManager() {
   // (active) workspace — a single `here` destination, no new-chat toggle.
   const renderSpecialistPicker = (close: () => void) => (
     <AgentComposerPopover
-      roster={multiloopLaunchMenu ? 'multiloop' : 'specialist'}
       conversationAvailable={conversationSpawnAvailable}
       initialSelection={composerInitialSelection}
       action={{
@@ -2994,11 +2880,6 @@ export default function WorkspaceManager() {
         </React.Suspense>
       ))}
       {automationsEnabled && ownsGlobalSupervisors ? <AutomationsRunSupervisor /> : null}
-      {multiloopEnabled && visibleWorkspaces.map((workspace) => (
-        workspace.id === windowActiveWorkspaceId && (workspace.mode === 'multiloop' || workspace.multiloopContext)
-          ? <MultiloopStateSynchronizer key={workspace.id} workspaceId={workspace.id} />
-          : null
-      ))}
 
       <div className="relative flex min-h-0 flex-1 flex-row">
       <WorkspaceSidebar
@@ -3125,13 +3006,10 @@ export default function WorkspaceManager() {
             specialistMenuOpen={specialistMenuOpen}
             setSpecialistMenuOpen={setSpecialistMenuOpen}
             agentCliOptions={agentCliCatalog}
-            multiloopLaunchMenu={multiloopLaunchMenu}
             selectedSpecialistAction={selectedSpecialistAction}
-            selectedMultiloopRoleDescriptor={selectedMultiloopRoleDescriptor}
             selectedAgentPermissionOption={selectedAgentPermissionOption}
             lastSelectedCli={lastSelectedCli}
             specialistCliDefaults={specialistCliDefaults}
-            multiloopRoleCliDefaults={multiloopRoleCliDefaults}
             agentSpawnPermissionPreset={agentSpawnPermissionPreset}
             setAgentSpawnPermissionPreset={setAgentSpawnPermissionPreset}
             agentSpawnDebugMode={agentSpawnDebugMode}
@@ -3139,7 +3017,6 @@ export default function WorkspaceManager() {
             addNewSpecialist={(cli) => addNewSpecialist(lastSelectedSpecialist, '', cli)}
             addNewGeneralAgent={(cli) => void addNewCliAgent(cli)}
             standardSpawnIsGeneral={lastSpawnWasGeneral}
-            addNewMultiloopAgent={(cli) => addNewMultiloopAgent(lastSelectedMultiloopRole, '', cli)}
             conversationSpawnAvailable={conversationSpawnAvailable}
             composerInitialSelection={composerInitialSelection}
             runComposerSpawn={runComposerSpawn}

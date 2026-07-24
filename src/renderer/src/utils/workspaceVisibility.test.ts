@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
   GUIDED_BRIEF_WORKSPACE_MODE,
-  MULTILOOP_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   STANDARD_WORKSPACE_MODE,
   SWITCHBOARD_WORKSPACE_MODE,
@@ -32,7 +31,6 @@ const EXPECTED_HIDDEN: Record<BundledWorkspaceMode, boolean> = {
   // run's agent terminals, but never as a Projects-list row.
   [SPRINT_ENGINE_WORKSPACE_MODE]: true,
   [SWITCHBOARD_WORKSPACE_MODE]: false,
-  [MULTILOOP_WORKSPACE_MODE]: false,
   [GUIDED_BRIEF_WORKSPACE_MODE]: false,
   // Automations moved to an instance-level surface (the sidebar door), so their
   // host workspaces are rail-hidden background runtime containers — never a

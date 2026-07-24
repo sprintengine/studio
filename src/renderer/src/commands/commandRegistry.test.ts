@@ -22,7 +22,6 @@ for (const id of [
   'specialist.spawn.performance',
   'voice.toggle',
   'sprintengine.refresh.board',
-  'multiloop.open.settings',
   'watchtower.run.review',
   'switchboard.open.runner',
   'git.worktrees.open',

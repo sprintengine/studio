@@ -104,7 +104,7 @@ run('board: eligible frontier is up_next with no runtime', () => {
   assert.equal(backend.attention, 'none')
 })
 
-run('board: epic children flatten into the lane in order', () => {
+run('board: an epic step is one unit carrying its members with live status', () => {
   const info = infoMap({
     'backlog/foo.md': { status: 'ready' },
     'backlog/bar.md': { status: 'ready' },
@@ -117,13 +117,22 @@ run('board: epic children flatten into the lane in order', () => {
   const lanes = buildRoadmapBoardModel(ROADMAP, info, new Map())
   const platform = lanes.find((lane) => lane.lane === 'Platform')
   assert.ok(platform)
-  // auth-1 done, auth-2 up next, ship queued.
-  assert.equal(platform.units[0].ref, 'backlog/auth-1.md')
-  assert.equal(platform.units[0].epicRef, 'backlog/epics/auth.md')
-  assert.equal(platform.units[0].state, 'done')
-  assert.equal(platform.units[1].state, 'up_next')
-  assert.equal(platform.units[2].ref, 'backlog/ship.md')
-  assert.equal(platform.units[2].state, 'queued')
+  // The auth STEP (one sprint) is up next; ship queues behind the whole step.
+  assert.equal(platform.units.length, 2)
+  assert.equal(platform.units[0].ref, 'backlog/epics/auth.md')
+  assert.equal(platform.units[0].kind, 'epic')
+  assert.equal(platform.units[0].state, 'up_next')
+  // Members ride the step for its inner progress display, statuses resolved live.
+  assert.deepEqual(
+    platform.units[0].children?.map((child) => [child.ref, child.done]),
+    [
+      ['backlog/auth-1.md', true],
+      ['backlog/auth-2.md', false],
+    ],
+  )
+  assert.equal(platform.units[1].ref, 'backlog/ship.md')
+  assert.equal(platform.units[1].kind, 'item')
+  assert.equal(platform.units[1].state, 'queued')
 })
 
 run('board: pending approval surfaces attention=approval', () => {
@@ -461,10 +470,11 @@ run('progress: aggregates done/step/total/running across tracks', () => {
     'backlog/auth-2.md': { status: 'ready' },
     'backlog/ship.md': { status: 'ready' },
   })
-  // Backend: foo done, bar in_progress (running), baz queued. Platform: 3 up-next/queued.
+  // Backend: foo done, bar in_progress (running), baz queued. Platform: the
+  // auth STEP (one unit) up next, ship queued — steps, not flattened members.
   const lanes = buildRoadmapBoardModel(ROADMAP, info, new Map())
   const progress = roadmapProgress(lanes)
-  assert.equal(progress.total, 6, 'two tracks, six steps total')
+  assert.equal(progress.total, 5, 'two tracks, five steps total')
   assert.equal(progress.done, 1, 'only foo has delivered')
   assert.equal(progress.step, 2, 'on step 2 (done + 1)')
   assert.equal(progress.running, 1, 'bar is the one running sprint')

@@ -51,7 +51,7 @@ export function RoadmapRail({
       <LifecycleGlyph
         state={row.active ? 'in_progress' : 'todo'}
         live={row.running}
-        label={row.active ? 'Active roadmap' : 'Draft roadmap'}
+        label={row.active ? 'Active horizon' : 'Draft horizon'}
         className="shrink-0"
       />
     ),
@@ -59,21 +59,21 @@ export function RoadmapRail({
   return (
     <div className="flex min-h-0 flex-col">
       <SurfaceRail
-        label="Roadmaps"
+        label="Horizons"
         rows={railRows}
         selectedId={selectedRef}
         onSelect={onSelect}
-        newAffordance={{ label: 'New roadmap', onActivate: onNewRoadmap }}
+        newAffordance={{ label: 'New horizon', onActivate: onNewRoadmap }}
         search={{
           value: search,
           onChange: onSearch,
-          placeholder: 'Search roadmaps…',
-          ariaLabel: 'Search roadmaps',
+          placeholder: 'Search horizons…',
+          ariaLabel: 'Search horizons',
         }}
       />
       {visible.length === 0 && rows.length > 0 ? (
         <p className="px-2 pt-2 text-[11px] leading-4 text-[color:var(--text-muted)]">
-          No roadmaps match.
+          No horizons match.
         </p>
       ) : null}
     </div>

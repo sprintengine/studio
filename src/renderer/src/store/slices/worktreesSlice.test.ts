@@ -9,7 +9,7 @@ import {
   normalizeWorkspaceWorktreeState,
 } from './worktreesSlice'
 import { defaultWorkspaceMemoryConfig } from './memorySlice'
-import { defaultSprintEngineAutoState, defaultMultiloopAutoState } from './runStateSlice'
+import { defaultSprintEngineAutoState } from './runStateSlice'
 
 const standardTemplate: LayoutTemplate = {
   id: 'worktrees-slice-standard',
@@ -104,9 +104,7 @@ const carrier: { workspaces: Workspace[] } = {
       editorState: { openFiles: [], activeFilePath: null },
       worktreeState: defaultWorkspaceWorktreeState(),
       sprintEngineState: null,
-      multiloopState: null,
       sprintEngineAutoState: defaultSprintEngineAutoState(),
-      multiloopAutoState: defaultMultiloopAutoState(),
       createdAt: 1,
     },
   ],

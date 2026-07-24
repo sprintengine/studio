@@ -3,7 +3,6 @@ import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost } from '../../modules'
-import { createMultiloopTemplate } from '../../modules/multiloop-workspace-types'
 import { createGuidedBriefTemplate } from '../../modules/sprint-engine-workspace-types'
 import { createReviewTemplate } from '../../modules/review-workspace-types'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
@@ -123,7 +122,7 @@ import { ReviewSourceStep, type ReviewProbeState } from './newWorkspace/ReviewSo
 import { shouldShowKnowledgeStep } from './newWorkspace/knowledgeFolders'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { listAutomationProjectFolders } from '../../utils/automationsEntry'
-import { CliPermissionPresetRow, PathRadio } from './newWorkspace/WizardControls'
+import { PathRadio } from './newWorkspace/WizardControls'
 import { SprintEngineProjectPanel } from './newWorkspace/SprintEngineProjectPanel'
 import {
   declareSprintProject,
@@ -145,7 +144,6 @@ import {
   DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
   GuidedBriefStartBuildError,
-  MultiloopControllerError,
   SprintEngineNewTeamCreationError,
   SprintEnginePlanSourcedError,
   buildSprintEngineEffectiveSpawnAtStartRoles,
@@ -159,7 +157,6 @@ import {
   runDesignSystemScaffold,
   runGuidedBriefScaffold,
   runGuidedBriefStartBuild,
-  runMultiloopCreation,
   runSprintEngineNewTeamCreation,
   runSprintEnginePlanSourcedCreation,
 } from './newWorkspace/controllers'
@@ -192,10 +189,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
   'standard-layout': {
     title: 'Pick an IDE layout',
     subtitle: 'You can change this any time. The default fits most projects.',
-  },
-  'multiloop-goal': {
-    title: 'Set the loop goal',
-    subtitle: 'What outcome should this loop reach?',
   },
   'sprintengine-team': {
     title: 'What should the team work on?',
@@ -237,7 +230,6 @@ const STEP_LABEL: Record<StepId, string> = {
   'skill-packs': 'Skills',
   knowledge: 'Knowledge',
   'standard-layout': 'Layout',
-  'multiloop-goal': 'What',
   'sprintengine-team': 'What',
   'sprintengine-roster': 'Team',
   'sprintengine-reviews': 'Reviews',
@@ -693,9 +685,6 @@ export default function NewWorkspacePanel({
     })
   }
 
-  const [mlName, setMlName] = useState('')
-  const [mlGoal, setMlGoal] = useState('')
-  const [mlError, setMlError] = useState<string | null>(null)
 
   // Review workspace creation state (MC-1677). The source segment leads with
   // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
@@ -1620,7 +1609,6 @@ export default function NewWorkspacePanel({
     folderDraftExists === true || analyzeWorkspaceTargetPath(folderDraftPath).ok
   const workspaceStepReady = folderTargetUsable && name.trim().length > 0
   const standardLayoutStepReady = Boolean(layoutId)
-  const multiloopGoalReady = mlGoal.trim().length > 0
   const sePlanReady =
     sePath !== 'plan' || (sePlanPath !== '' && sePlanContent != null && !sePlanError)
   const seTeamDetailsReady =
@@ -1662,7 +1650,6 @@ export default function NewWorkspacePanel({
   const stepReadiness = {
     workspaceStepReady,
     standardLayoutStepReady,
-    multiloopGoalReady,
     sprintEngineTeamReady,
     sprintEngineRosterReady,
     guidedIdeaReady,
@@ -1699,7 +1686,6 @@ export default function NewWorkspacePanel({
     step: hintStep,
     workspaceFolderReady: folderTargetUsable,
     name,
-    mlGoal,
     sprintEngineAccess,
     sePath,
     sePlanReady,
@@ -1735,8 +1721,6 @@ export default function NewWorkspacePanel({
     if (next === 'standard' && !nameTouched) setName(basename(folderPath ?? '') || 'workspace')
     if (next === 'switchboard' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Switchboard')
-    if (next === 'multiloop')
-      setMlName(toTitleName(basename(folderPath ?? '')) || 'Product Loop')
     if (next === 'guided-brief' && !nameTouched)
       setName(toTitleName(basename(folderPath ?? '')) || 'Design Wizard')
     if (next !== 'sprintengine') {
@@ -1769,7 +1753,6 @@ export default function NewWorkspacePanel({
     // Mirror the single workspace name into mode-specific name slots so the
     // user never re-types the same name later. Mode-specific edits below still
     // override these values.
-    setMlName(value)
     if (!seTeamNameTouched) setSeTeamName(value)
   }
 
@@ -1803,7 +1786,6 @@ export default function NewWorkspacePanel({
     setSeEpicChildRelativePaths(null)
     setSeSourceFromFile(false)
     setSePlanError(null)
-    setMlError(null)
   }
 
   const handleSelectFolder = (dir: string) => {
@@ -1818,10 +1800,9 @@ export default function NewWorkspacePanel({
     setSeRepoError(null)
     if (!nameTouched) setName(folderName || 'workspace')
     if (!seTeamNameTouched) setSeTeamName(toTitleName(folderName) || 'Sprint Roster')
-    setMlName(toTitleName(folderName) || 'Product Loop')
     // The hub picks the type first (the rail), so a folder hint never
     // auto-switches the selected pane out from under the user; the Recent rows
-    // still surface sprint/multiloop hints on the folder itself.
+    // still surface sprint hints on the folder itself.
   }
 
   // Unified folder field edits. Editing or browsing pins the path so the
@@ -2477,42 +2458,6 @@ export default function NewWorkspacePanel({
               : error instanceof Error
                 ? error.message
                 : 'Could not set up the Design Wizard workspace.',
-        )
-      } finally {
-        setIsCreating(false)
-      }
-      return
-    }
-
-    if (mode === 'multiloop') {
-      if (!folderPath) return
-      setIsCreating(true)
-      setMlError(null)
-      try {
-        if (await persistAdvancedSetup(folderPath)) return
-        await runMultiloopCreation(
-          {
-            folderPath,
-            workspaceName: name,
-            loopName: mlName,
-            finalGoal: mlGoal,
-            cliPermissionPreset,
-            workspaceWindowId,
-          },
-          {
-            initializeMultiloopState: window.api.initializeMultiloopState,
-            readFile: window.api.readfile,
-            addWorkspace,
-            createMultiloopTemplate,
-          },
-        )
-        persistLastPermissionPreset()
-        onClose()
-      } catch (error) {
-        setMlError(
-          error instanceof MultiloopControllerError || error instanceof Error
-            ? error.message
-            : 'Could not create the Multiloop workspace.',
         )
       } finally {
         setIsCreating(false)
@@ -3210,9 +3155,7 @@ export default function NewWorkspacePanel({
               // A hint matching the selected flow is decoration, not signal
               // (MC-1646): in the sprint flow every candidate folder would wear
               // the same gold "Sprint" pill. Hints for OTHER flows still show.
-              suppressedHint={
-                mode === 'sprintengine' ? 'sprintengine' : mode === 'multiloop' ? 'multiloop' : null
-              }
+              suppressedHint={mode === 'sprintengine' ? 'sprintengine' : null}
               inputRef={nameInputRef}
             />
                         </>
@@ -3225,21 +3168,6 @@ export default function NewWorkspacePanel({
               onChange={setLayoutId}
               userTemplates={userLayoutTemplates}
               onTemplatesChanged={loadUserLayoutTemplates}
-            />
-            </ConfigStepSection>
-          ) : null}
-
-          {step === 'multiloop-goal' ? (
-            <ConfigStepSection stepId="multiloop-goal" headingRef={headingRef}>
-            <MultiloopGoalStep
-              goal={mlGoal}
-              onChangeGoal={(value) => {
-                setMlGoal(value)
-                setMlError(null)
-              }}
-              cliPermissionPreset={cliPermissionPreset}
-              onChangeCliPermissionPreset={setCliPermissionPreset}
-              error={mlError}
             />
             </ConfigStepSection>
           ) : null}
@@ -3704,7 +3632,7 @@ function WorkspaceStep({
   recentFolders: string[]
   folderHints: ReturnType<typeof useFolderHints>
   /** Hint chip suppressed because it matches the selected flow (MC-1646). */
-  suppressedHint: 'sprintengine' | 'multiloop' | null
+  suppressedHint: 'sprintengine' | null
   inputRef: React.MutableRefObject<HTMLInputElement | null>
 }) {
   const trimmedPath = folderDraftPath.trim()
@@ -3789,9 +3717,8 @@ function WorkspaceStep({
           <div className="flex min-h-[88px] flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
             {recentFolders.map((recent) => {
               const hint = folderHints.get(recent)
-              const hints: Array<'sprintengine' | 'multiloop'> = []
+              const hints: Array<'sprintengine'> = []
               if (hint?.hasSprintEngineTeam && suppressedHint !== 'sprintengine') hints.push('sprintengine')
-              if (hint?.hasMultiloop && suppressedHint !== 'multiloop') hints.push('multiloop')
               return (
                 <RecentFolderRow
                   key={recent}
@@ -4276,54 +4203,6 @@ function StandardLayoutStep({
           <div className={`border-l-2 pl-3 text-[12px] leading-5 ${messageClass}`}>{installMessage.text}</div>
         ) : null}
       </div>
-    </div>
-  )
-}
-
-function MultiloopGoalStep({
-  goal,
-  onChangeGoal,
-  cliPermissionPreset,
-  onChangeCliPermissionPreset,
-  error,
-}: {
-  goal: string
-  onChangeGoal: (value: string) => void
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  onChangeCliPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  error: string | null
-}) {
-  return (
-    <div className="flex flex-col gap-4">
-      <label className="flex flex-col gap-2">
-        <FieldLabel>Final goal</FieldLabel>
-        <textarea
-          value={goal}
-          onChange={(event) => onChangeGoal(event.target.value)}
-          placeholder="What outcome should this loop reach?"
-          autoFocus
-          className="
-            min-h-[140px] w-full resize-none rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3.5 py-3
-            text-[14px] leading-6 text-[color:var(--text-strong)] outline-none transition-colors
-            placeholder:text-[color:var(--text-disabled)]
-            hover:border-[color:var(--color-5)] focus:border-[color:var(--text-strong)]
-          "
-        />
-      </label>
-      <div className="flex flex-col gap-2">
-        <FieldLabel>Run settings</FieldLabel>
-        <div className="overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
-          <CliPermissionPresetRow
-            preset={cliPermissionPreset}
-            onChange={onChangeCliPermissionPreset}
-          />
-        </div>
-      </div>
-      {error ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
-          {error}
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -5355,8 +5234,6 @@ function createLabelFor(mode: CreationMode, isCreating: boolean, hasExistingTeam
       return 'Start sprint'
     case 'switchboard':
       return 'Create Switchboard'
-    case 'multiloop':
-      return 'Create Multiloop'
     case 'guided-brief':
       return 'Start design'
     case 'standard':
@@ -5371,7 +5248,6 @@ function isStepReady(
   readiness: {
     workspaceStepReady: boolean
     standardLayoutStepReady: boolean
-    multiloopGoalReady: boolean
     sprintEngineTeamReady: boolean
     sprintEngineRosterReady: boolean
     guidedIdeaReady: boolean
@@ -5389,8 +5265,6 @@ function isStepReady(
       return true
     case 'standard-layout':
       return readiness.standardLayoutStepReady
-    case 'multiloop-goal':
-      return readiness.multiloopGoalReady
     case 'sprintengine-team':
       return readiness.sprintEngineTeamReady
     case 'sprintengine-roster':
@@ -5428,7 +5302,6 @@ function getStepBlockingMessage(args: {
   step: StepId
   workspaceFolderReady: boolean
   name: string
-  mlGoal: string
   sprintEngineAccess: PremiumFeatureAccessState
   sePath: SprintEnginePath
   sePlanReady: boolean
@@ -5454,7 +5327,6 @@ function getStepBlockingMessage(args: {
     step,
     workspaceFolderReady,
     name,
-    mlGoal,
     sprintEngineAccess,
     sePath,
     sePlanReady,
@@ -5493,9 +5365,6 @@ function getStepBlockingMessage(args: {
         : 'Pick a knowledge folder, or skip to set it later in Settings.'
     case 'standard-layout':
       return 'Pick a layout, then create.'
-    case 'multiloop-goal':
-      if (!mlGoal.trim()) return 'Describe the loop goal to create.'
-      return 'Ready to create the loop.'
     case 'sprintengine-team':
       if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       if (sePath === 'plan' && !sePlanReady) return 'Select a backlog item or source file.'

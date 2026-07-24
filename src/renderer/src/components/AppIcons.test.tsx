@@ -11,7 +11,6 @@ const EXPECTED_ICON_PATH: Record<string, string> = {
   standard: 'M7.25 10L10 12.5L7.25 15',
   switchboard: 'M9 5.5V18.5M15 5.5V18.5',
   sprintengine: 'M10.85 8.2L7.65 14.35',
-  multiloop: 'M12 4.5 A7.5 7.5 0 0 1 19.5 12',
   'guided-brief': 'M5 6.25C5 5.42',
 }
 
@@ -41,25 +40,12 @@ const sprintEngineOnIcon = renderToStaticMarkup(
 )
 assert.ok(sprintEngineOnIcon.includes(EXPECTED_ICON_PATH.sprintengine), 'enabled sprint-engine renders its glyph')
 
-// AC4 tab icon-shape degradation + re-enable recovery for the multiloop tab
-// (its wrapper is neutral, so only the icon shape degrades).
-const multiloopOffIcon = renderToStaticMarkup(
-  <WorkspaceTypeIcon mode="multiloop" moduleOverrides={{ multiloop: false }} className="icon-sm" />,
-)
-assert.ok(multiloopOffIcon.includes(EXPECTED_ICON_PATH.standard), 'disabled multiloop tab renders the generic glyph')
-assert.ok(!multiloopOffIcon.includes(EXPECTED_ICON_PATH.multiloop), 'disabled multiloop tab drops the multiloop glyph')
-const multiloopOnIcon = renderToStaticMarkup(
-  <WorkspaceTypeIcon mode="multiloop" moduleOverrides={{ multiloop: true }} className="icon-sm" />,
-)
-assert.ok(multiloopOnIcon.includes(EXPECTED_ICON_PATH.multiloop), 're-enabled multiloop tab restores its glyph')
-
 // AC4: enablement gating — a disabled module resolves to no definition, so the
 // caller degrades to the generic icon/default accent. resolveEnabledWorkspaceType
 // is the pure seam both WorkspaceTypeIcon and workspaceTabIconClass use.
 const allEnabled: ModuleEnablementOverrides = {}
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.id, 'sprintengine')
 assert.equal(resolveEnabledWorkspaceType('switchboard', allEnabled)?.id, 'switchboard')
-assert.equal(resolveEnabledWorkspaceType('multiloop', allEnabled)?.accentToken, '--text-muted')
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.accentToken, '--tool-sprintengine')
 assert.equal(resolveEnabledWorkspaceType('standard', allEnabled), undefined, 'standard is shell-owned, not registered')
 assert.equal(resolveEnabledWorkspaceType('future-x' as Workspace['mode'], allEnabled), undefined, 'unknown id resolves to undefined')
@@ -69,11 +55,6 @@ assert.equal(
   undefined,
   'disabled sprint-engine module resolves to no definition (generic degradation)',
 )
-assert.equal(
-  resolveEnabledWorkspaceType('multiloop', { multiloop: false }),
-  undefined,
-  'disabled multiloop module resolves to no definition',
-)
 // guided-brief is registered under the sprint-engine module, so disabling
 // sprint-engine also degrades guided-brief.
 assert.equal(
@@ -82,13 +63,9 @@ assert.equal(
   'disabling sprint-engine also degrades guided-brief',
 )
 
-// AC1: top-bar view set lives on the registry. Only Multiloop contributes one
-// (verbatim from the former VIEWS_FOR_MODE); Sprint Engine and Switchboard do
-// not, and a disabled module exposes none.
-const multiloopViews = resolveEnabledWorkspaceType('multiloop', allEnabled)?.topBarViews
-assert.deepEqual(multiloopViews, { label: 'Multiloop', views: [{ component: 'multiloop-board', name: 'Multiloop' }] })
+// AC1: top-bar view sets live on the registry; no bundled type contributes one
+// today, and a disabled module exposes none.
 assert.equal(resolveEnabledWorkspaceType('sprintengine', allEnabled)?.topBarViews, undefined, 'sprintengine has no top-bar views')
 assert.equal(resolveEnabledWorkspaceType('switchboard', allEnabled)?.topBarViews, undefined, 'switchboard has no top-bar views')
-assert.equal(resolveEnabledWorkspaceType('multiloop', { multiloop: false })?.topBarViews, undefined, 'disabled multiloop exposes no views')
 
 console.log('workspace type icon tests passed')

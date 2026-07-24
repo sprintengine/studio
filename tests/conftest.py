@@ -3,7 +3,7 @@
 The specialist roles ship as an installable pack (``resources/specialist-pack``),
 not in the bundled registry root, so a raw checkout resolves zero specialists.
 The running app makes an installed pack visible to the engine by exporting the
-session registry-roots env on agent terminals; the Sprint Engine and Multiloop
+session registry-roots env on agent terminals; the Sprint Engine
 suites exercise real specialist roles (developer, architect, tester, …), so we
 model that install here by pointing the same env at the in-repo pack.
 

@@ -8,7 +8,7 @@
 import { basename, folderKey } from './helpers'
 import { Tooltip } from '../../ui/Tooltip'
 
-type Hint = 'sprintengine' | 'multiloop'
+type Hint = 'sprintengine'
 
 interface RecentFolderRowProps {
   path: string
@@ -19,7 +19,6 @@ interface RecentFolderRowProps {
 
 const HINT_LABEL: Record<Hint, string> = {
   sprintengine: 'Sprint',
-  multiloop: 'Multiloop',
 }
 
 const HINT_STYLES: Record<Hint, { dot: string; text: string; bg: string; border: string }> = {
@@ -28,12 +27,6 @@ const HINT_STYLES: Record<Hint, { dot: string; text: string; bg: string; border:
     text: 'text-[color:var(--tone-warn)]',
     bg: 'bg-[color:var(--tone-warn-soft)]',
     border: 'border-[color:var(--tone-warn-soft)]',
-  },
-  multiloop: {
-    dot: 'bg-[color:var(--accent-primary)]',
-    text: 'text-[color:var(--text-strong)]',
-    bg: 'bg-[color:var(--accent-primary-soft)]',
-    border: 'border-[color:var(--accent-primary-soft-strong)]',
   },
 }
 

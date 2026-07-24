@@ -224,8 +224,9 @@ run('validate: cycle across roadmap order + dependsOn is detected', () => {
 })
 
 run('validate: cycle detection spans epic children in lane order', () => {
-  // auth's child c1 runs before loose item z (lane order); z is a prerequisite of
-  // c1 (edge z->c1). c1 -> z (order) and z -> c1 (dep) closes a cycle.
+  // The auth STEP runs before loose item z (lane order); z is a prerequisite of
+  // auth's member c1. Members collapse onto their step's node, so step -> z
+  // (order) and z -> step (member dep) closes a cycle on the step itself.
   const roadmap = parseRoadmap(
     '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n- backlog/z.md\n',
   )
@@ -234,7 +235,7 @@ run('validate: cycle detection spans epic children in lane order', () => {
     item('backlog/z.md', 'ready'),
   ])
   assert.equal(result.hasCycle, true)
-  assert.deepEqual([...result.cycleRefs].sort(), ['backlog/c1.md', 'backlog/z.md'])
+  assert.deepEqual([...result.cycleRefs].sort(), ['backlog/epics/auth.md', 'backlog/z.md'])
 })
 
 // ---------------------------------------------------------------------------
@@ -312,22 +313,44 @@ run('eligibility: dependsOn resolved across lanes', () => {
   assert.equal(blocked[1].eligibleRef, null)
 })
 
-run('eligibility: epic entry with mixed children resolves to the first runnable child', () => {
+run('eligibility: an epic step is ONE dispatch unit — the epic itself is eligible', () => {
+  // A step runs as a single sprint. Mixed member statuses (one delivered, one
+  // ready) make the epic's effective status `ready`, so the STEP is dispatched —
+  // never an individual child.
   const roadmap = parseRoadmap(
     '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n  - backlog/c3.md\n',
   )
-  const runs = homeRuns([['backlog/c1.md', { mode: 'shared' }]])
   const [lane] = nextEligible(
     roadmap,
     [
-      item('backlog/c1.md', 'completed'), // merged (shared + completed) — skipped
-      item('backlog/c2.md', 'ready'), // the first runnable child
+      item('backlog/epics/auth.md', 'idea'),
+      item('backlog/c1.md', 'completed'),
+      item('backlog/c2.md', 'ready'),
       item('backlog/c3.md', 'idea'),
     ],
-    runs,
+    NO_RUNS,
   )
   assert.equal(lane.reason, 'eligible')
-  assert.equal(lane.eligibleRef, 'backlog/c2.md')
+  assert.equal(lane.eligibleRef, 'backlog/epics/auth.md')
+})
+
+run('eligibility: an epic step with a live sprint reports in_progress', () => {
+  // The execution link stamps the epic in_progress at start; the step must not
+  // re-dispatch while its one sprint runs.
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n',
+  )
+  const [lane] = nextEligible(
+    roadmap,
+    [
+      item('backlog/epics/auth.md', 'in_progress'),
+      item('backlog/c1.md', 'completed'),
+      item('backlog/c2.md', 'ready'),
+    ],
+    NO_RUNS,
+  )
+  assert.equal(lane.reason, 'in_progress')
+  assert.equal(lane.eligibleRef, null)
 })
 
 run('eligibility: epic lane completes only when every child is terminal', () => {
@@ -336,10 +359,92 @@ run('eligibility: epic lane completes only when every child is terminal', () => 
   )
   const [lane] = nextEligible(
     roadmap,
-    [item('backlog/c1.md', 'completed'), item('backlog/c2.md', 'archived')],
+    [
+      // The epic's own frontmatter may lag behind its members: derived
+      // completion (all children terminal) still finishes the lane.
+      item('backlog/epics/auth.md', 'in_progress'),
+      item('backlog/c1.md', 'completed'),
+      item('backlog/c2.md', 'archived'),
+    ],
     NO_RUNS,
   )
   assert.equal(lane.reason, 'lane_complete')
+  assert.equal(lane.eligibleRef, null)
+})
+
+run('eligibility: a member’s outside prerequisite gates the epic step', () => {
+  // c2 depends on loose item z (another lane, not a member): the STEP must not
+  // dispatch until z is delivered. c1's dep on sibling c2 is intra-epic — the
+  // sprint's own ordering — and never a gate.
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n  - backlog/c2.md\n## M\n- backlog/z.md\n',
+  )
+  const blocked = nextEligible(
+    roadmap,
+    [
+      item('backlog/epics/auth.md', 'idea'),
+      item('backlog/c1.md', 'ready', ['c2']),
+      item('backlog/c2.md', 'ready', ['z']),
+      item('backlog/z.md', 'ready'),
+    ],
+    NO_RUNS,
+  )
+  assert.equal(blocked[0].reason, 'blocked')
+  assert.equal(blocked[0].eligibleRef, null)
+
+  const unblocked = nextEligible(
+    roadmap,
+    [
+      item('backlog/epics/auth.md', 'idea'),
+      item('backlog/c1.md', 'ready', ['c2']),
+      item('backlog/c2.md', 'ready', ['z']),
+      item('backlog/z.md', 'completed'),
+    ],
+    NO_RUNS,
+  )
+  assert.equal(unblocked[0].reason, 'eligible')
+  assert.equal(unblocked[0].eligibleRef, 'backlog/epics/auth.md')
+})
+
+run('eligibility: a pre-migration child-keyed worktree run still holds the epic step', () => {
+  // A run started under the old per-child granularity keyed its link on the
+  // MEMBER. Its unmerged PR must keep the lane on this step, and the following
+  // step queued, even though the members all read terminal by status.
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n- backlog/z.md\n',
+  )
+  const runs = homeRuns([['backlog/c1.md', { mode: 'worktree', prMerged: false }]])
+  const [lane] = nextEligible(
+    roadmap,
+    [
+      item('backlog/epics/auth.md', 'in_progress'),
+      item('backlog/c1.md', 'completed'),
+      item('backlog/z.md', 'ready'),
+    ],
+    runs,
+  )
+  assert.equal(lane.frontierRef, 'backlog/epics/auth.md')
+  assert.notEqual(lane.eligibleRef, 'backlog/z.md')
+})
+
+run('eligibility: an unmerged worktree run on an epic step gates on the PR', () => {
+  // One sprint delivered the whole step but its PR has not merged — the lane
+  // waits on the merge, keyed by the EPIC's run link.
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md\n- backlog/z.md\n',
+  )
+  const runs = homeRuns([['backlog/epics/auth.md', { mode: 'worktree', prMerged: false }]])
+  const [lane] = nextEligible(
+    roadmap,
+    [
+      item('backlog/epics/auth.md', 'completed'),
+      item('backlog/c1.md', 'completed'),
+      item('backlog/z.md', 'ready'),
+    ],
+    runs,
+  )
+  assert.equal(lane.reason, 'awaiting_merge')
+  assert.equal(lane.frontierRef, 'backlog/epics/auth.md')
   assert.equal(lane.eligibleRef, null)
 })
 

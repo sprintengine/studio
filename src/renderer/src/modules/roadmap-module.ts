@@ -26,7 +26,7 @@ const RoadmapGlobalSurface = React.lazy(() => import('../components/workspace/gl
 export const roadmapRendererModule: RendererModule = {
   manifest: {
     id: 'roadmap',
-    displayName: 'Roadmap',
+    displayName: 'Horizon',
     version: 1,
     publisher: 'multicode',
     category: 'orchestration',

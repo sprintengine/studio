@@ -23,12 +23,11 @@ const PANEL_FILES = [
   'src/renderer/src/components/panels/SwitchboardBoardPanel.tsx',
   'src/renderer/src/components/panels/WatchtowerPanel.tsx',
   'src/renderer/src/components/panels/SprintEngineBoardPanel.tsx',
-  'src/renderer/src/components/panels/MultiloopBoardPanel.tsx',
 ]
 
 // Command ids match `<panel>.<verb>.<noun>` with lowercase letters, dots and
 // hyphens. Anchored on the surrounding quote to avoid false matches in prose.
-const COMMAND_ID_RE = /'(switchboard|watchtower|sprintengine|multiloop)\.[a-z0-9.\-]+'/g
+const COMMAND_ID_RE = /'(switchboard|watchtower|sprintengine)\.[a-z0-9.\-]+'/g
 
 function extractIds(source) {
   const ids = new Set()

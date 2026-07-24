@@ -7,7 +7,6 @@ import {
   addLane,
   addLibraryEntry,
   authoredRef,
-  buildRoadmapLibrary,
   composeRoadmapSaveContent,
   draftContainsRef,
   draftFromRoadmap,
@@ -384,41 +383,6 @@ run('composeRoadmapSaveContent: a projects-only churn does not perturb the body'
   assert.match(saved, /mobile: \/abs\/mobile/)
 })
 
-run('buildRoadmapLibrary: groups by project, epics first, loose items only, excludes roadmaps/archived/epic-children', () => {
-  const groups = buildRoadmapLibrary([HOME, MOBILE], [])
-  const mobile = groups.find((g) => g.projectKey === 'mobile')
-  assert.ok(mobile)
-  const refs = mobile.entries.map((e) => e.ref)
-  // Epic first, then the loose item; children, roadmaps, archived excluded.
-  assert.deepEqual(refs, ['mobile:backlog/epics/sync.md', 'mobile:backlog/phone.md'])
-  const epic = mobile.entries[0]
-  assert.equal(epic.kind, 'epic')
-  assert.deepEqual(epic.children.map((c) => c.ref), ['backlog/sync-a.md', 'backlog/sync-b.md'])
-})
-
-run('buildRoadmapLibrary: a placed item/epic dims (planned) but is never dropped', () => {
-  const baseline = draftFromRoadmap(parseRoadmap(newRoadmapFileContent('P')))
-  const draft = addLibraryEntry(baseline, 0, MOBILE, 'backlog/epics/sync.md')
-  const groups = buildRoadmapLibrary([HOME, MOBILE], draft.lanes)
-  const mobile = groups.find((g) => g.projectKey === 'mobile')
-  const epic = mobile?.entries.find((e) => e.ref === 'mobile:backlog/epics/sync.md')
-  assert.equal(epic?.planned, true)
-  // The loose item is still un-planned and present.
-  assert.equal(mobile?.entries.find((e) => e.ref === 'mobile:backlog/phone.md')?.planned, false)
-})
-
-run('buildRoadmapLibrary: a query filters rows and drops empty groups', () => {
-  const groups = buildRoadmapLibrary([HOME, MOBILE], [], 'phone')
-  assert.equal(groups.length, 1)
-  assert.equal(groups[0].projectKey, 'mobile')
-  assert.deepEqual(groups[0].entries.map((e) => e.ref), ['mobile:backlog/phone.md'])
-})
-
-run('buildRoadmapLibrary: an epic is kept when a child matches the query', () => {
-  const groups = buildRoadmapLibrary([MOBILE], [], 'Sync A')
-  assert.deepEqual(groups[0].entries.map((e) => e.ref), ['mobile:backlog/epics/sync.md'])
-})
-
 run('refDisplayMapMulti + entryPickerOptionsMulti: keyed by authored ref across projects', () => {
   const display = refDisplayMapMulti([HOME, MOBILE])
   assert.equal(display.get('backlog/foo.md')?.title, 'Foo')
@@ -429,6 +393,29 @@ run('refDisplayMapMulti + entryPickerOptionsMulti: keyed by authored ref across 
   // Archived + roadmap excluded from the picker.
   assert.ok(!values.includes('mobile:backlog/gone.md'))
   assert.ok(!values.includes('mobile:backlog/roadmaps/mobile.md'))
+})
+
+run('snapshotEpicChildren: finished members never ride into a new plan', () => {
+  const project: RoadmapProjectItems = {
+    projectKey: null,
+    projectName: 'multicode',
+    path: '/abs/home',
+    items: [
+      item({ relativePath: 'backlog/epics/hardening.md', title: 'Hardening', isEpic: true }),
+      item({ relativePath: 'backlog/open-a.md', title: 'Open A', epic: 'hardening' }),
+      item({ relativePath: 'backlog/done-b.md', title: 'Done B', epic: 'hardening', status: 'completed' }),
+      item({ relativePath: 'backlog/gone-c.md', title: 'Gone C', epic: 'hardening', status: 'archived' }),
+    ],
+  }
+  const baseline = draftFromRoadmap(parseRoadmap(newRoadmapFileContent('P')))
+  const draft = addLibraryEntry(baseline, 0, project, 'backlog/epics/hardening.md')
+  const entry = draft.lanes[0].entries[0]
+  assert.equal(entry.kind, 'epic')
+  // Only the open member is snapshotted — the step plans what remains.
+  assert.deepEqual(entry.children, ['backlog/open-a.md'])
+  // And the drift check agrees: an already-open-only snapshot reports no drift,
+  // so "Update" never offers to re-add delivered work.
+  assert.equal(epicEntryDrift(project.items, entry), null)
 })
 
 let failures = 0

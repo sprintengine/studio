@@ -21,30 +21,25 @@ const contractIds = (overrides: ModuleEnablementOverrides) =>
     .filter((id) => id !== 'automations-host')
 
 // AC1: Chat and Workspace lead, then Sprint Engine and Design Wizard, then the
-// remaining contributed types (Switchboard/Multiloop) in pickerOrder.
+// remaining contributed types (Switchboard) in pickerOrder.
 assert.deepEqual(
   contractIds({}),
-  ['chat', 'standard', 'sprintengine', 'guided-brief', 'switchboard', 'multiloop'],
+  ['chat', 'standard', 'sprintengine', 'guided-brief', 'switchboard'],
   'rail leads with Chat + Workspace, then the featured types, then the rest',
 )
 assert.equal(contractIds({})[0], 'chat', 'Chat is always the first rail entry')
 
 // AC2 (real-path gating): disabling sprint-engine drops both sprintengine and
 // guided-brief (guided-brief is registered under the sprint-engine module);
-// disabling multiloop/switchboard drops only that one; Chat and Workspace persist.
+// disabling switchboard drops only that one; Chat and Workspace persist.
 assert.deepEqual(
   contractIds({ 'sprint-engine': false }),
-  ['chat', 'standard', 'switchboard', 'multiloop'],
+  ['chat', 'standard', 'switchboard'],
   'disabling sprint-engine hides sprintengine and guided-brief',
 )
 assert.deepEqual(
-  contractIds({ multiloop: false }),
-  ['chat', 'standard', 'sprintengine', 'guided-brief', 'switchboard'],
-  'disabling multiloop hides only multiloop',
-)
-assert.deepEqual(
   contractIds({ switchboard: false }),
-  ['chat', 'standard', 'sprintengine', 'guided-brief', 'multiloop'],
+  ['chat', 'standard', 'sprintengine', 'guided-brief'],
   'disabling switchboard hides only switchboard',
 )
 
@@ -57,7 +52,6 @@ const EXPECTED_ICON_PATH: Record<string, string> = {
   standard: 'M7.25 10L10 12.5L7.25 15',
   switchboard: 'M9 5.5V18.5M15 5.5V18.5',
   sprintengine: 'M10.85 8.2L7.65 14.35',
-  multiloop: 'M12 4.5 A7.5 7.5 0 0 1 19.5 12',
   'guided-brief': 'M5 6.25C5 5.42',
 }
 

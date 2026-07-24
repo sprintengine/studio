@@ -64,21 +64,6 @@ assert.equal(
   true,
 )
 
-// Multiloop: open-coordinator needs a loaded state.
-const multiloopScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:multiloop']
-assert.equal(
-  isCommandIdEnabled('multiloop.open.coordinator', multiloopScopes, { multiloopWorkspace: true }),
-  false,
-)
-assert.equal(
-  isCommandIdEnabled('multiloop.open.coordinator', multiloopScopes, {
-    multiloopWorkspace: true,
-    multiloopStateLoaded: true,
-  }),
-  true,
-)
-assert.equal(isCommandIdEnabled('multiloop.open.settings', multiloopScopes, { multiloopWorkspace: true }), true)
-
 // Switchboard / Watchtower: scope-only, active together in switchboard mode.
 const switchboardScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:switchboard', 'panel:watchtower']
 assert.equal(isCommandIdEnabled('switchboard.open.runner', switchboardScopes, { switchboardWorkspace: true }), true)

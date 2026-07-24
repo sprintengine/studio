@@ -430,10 +430,6 @@ function workspaceFixture(overrides: Partial<Workspace> = {}): Workspace {
       maxConcurrentAgents: 3,
       deliveredAgentNotificationEventKeys: [],
     },
-    multiloopAutoState: {
-      enabled: false,
-      maxConcurrentAgents: 3,
-    },
     createdAt: 1,
     ...overrides,
   } as Workspace

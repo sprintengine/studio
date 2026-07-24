@@ -10,6 +10,8 @@
 import {
   flattenLaneUnits,
   nextEligible,
+  qualifiedRef,
+  resolveEpicChildRef,
   roadmapRefSlug,
   type ProjectKey,
   type Roadmap,
@@ -71,6 +73,15 @@ export type RoadmapUnitState =
   | 'unknown'
   | 'unknown_project'
 
+// One snapshotted member of an epic step, resolved live for the board's per-step
+// progress display. `done` = the member's backlog status is terminal.
+export type RoadmapBoardUnitChild = {
+  ref: string
+  title: string
+  status?: BacklogItemStatusPayload
+  done: boolean
+}
+
 export type RoadmapBoardUnit = {
   ref: string
   slug: string
@@ -82,8 +93,9 @@ export type RoadmapBoardUnit = {
   // name (the board's per-step project tag, mockup §2).
   projectKey: ProjectKey
   projectName: string
-  // The epic entry this unit was snapshotted under, if any (for a grouping badge).
-  epicRef?: string
+  // An epic step's snapshotted members with live status — one sprint delivers
+  // the whole step; these show its inner progress. Absent for item steps.
+  children?: RoadmapBoardUnitChild[]
   // The delivering pull request, when the item recorded one (done units link out).
   prUrl?: string
 }
@@ -149,12 +161,22 @@ export function buildRoadmapBoardModel(
 ): RoadmapBoardLane[] {
   const itemStates: RoadmapItemState[] = []
   const seenKeys = new Set<string>()
+  const pushItemState = (projectKey: ProjectKey, relativePath: string): void => {
+    const key = qualifiedRef(projectKey, relativePath)
+    if (seenKeys.has(key)) return
+    seenKeys.add(key)
+    const info = resolve.itemInfo(projectKey, relativePath)
+    if (info) itemStates.push({ ref: relativePath, status: info.status, projectKey })
+  }
   for (const lane of roadmap.lanes) {
     for (const unit of flattenLaneUnits(lane)) {
-      if (seenKeys.has(unit.key)) continue
-      seenKeys.add(unit.key)
-      const info = resolve.itemInfo(unit.projectKey, unit.relativePath)
-      if (info) itemStates.push({ ref: unit.relativePath, status: info.status, projectKey: unit.projectKey })
+      pushItemState(unit.projectKey, unit.relativePath)
+      // An epic unit's effective status derives from its members (nextEligible),
+      // so their states must be in the universe too.
+      for (const child of unit.children) {
+        const resolved = resolveEpicChildRef(child, unit.projectKey)
+        pushItemState(resolved.projectKey, resolved.relativePath)
+      }
     }
   }
 
@@ -183,7 +205,7 @@ export function buildRoadmapBoardModel(
       const resolvable = resolve.resolvableProjects.has(unit.projectKey)
       const info = resolvable ? resolve.itemInfo(unit.projectKey, unit.relativePath) : undefined
       const slug = roadmapRefSlug(unit.ref)
-      const kind: RoadmapEntryKind = info ? 'item' : 'unknown'
+      const kind: RoadmapEntryKind = info ? unit.kind : 'unknown'
       const state = classifyUnit({
         key: unit.key,
         index,
@@ -194,6 +216,21 @@ export function buildRoadmapBoardModel(
         parkedKey,
         laneParked: Boolean(runtime?.parked),
       })
+      const children: RoadmapBoardUnitChild[] | undefined =
+        unit.children.length > 0
+          ? unit.children.map((child) => {
+              const resolved = resolveEpicChildRef(child, unit.projectKey)
+              const childInfo = resolve.resolvableProjects.has(resolved.projectKey)
+                ? resolve.itemInfo(resolved.projectKey, resolved.relativePath)
+                : undefined
+              return {
+                ref: child,
+                title: childInfo?.title ?? roadmapRefSlug(child),
+                ...(childInfo ? { status: childInfo.status } : {}),
+                done: isTerminalRoadmapStatus(childInfo?.status),
+              }
+            })
+          : undefined
       return {
         ref: unit.ref,
         slug,
@@ -203,7 +240,7 @@ export function buildRoadmapBoardModel(
         projectKey: unit.projectKey,
         projectName: resolve.projectName(unit.projectKey),
         ...(info ? { itemStatus: info.status } : {}),
-        ...(unit.epic ? { epicRef: unit.epic } : {}),
+        ...(children ? { children } : {}),
         ...(info?.prUrl ? { prUrl: info.prUrl } : {}),
       }
     })

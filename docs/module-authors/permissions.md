@@ -49,7 +49,7 @@ the `window.api` areas they call:
 - **`ipc:agents`** — launching and controlling agents and terminals: terminal
   spawn/write/kill and terminal event streams, conversation provider sessions,
   Sprint Engine runner and roster controls, Switchboard runner and executions,
-  Multiloop initialization, soul prompts.
+  soul prompts.
 - **`ipc:settings`** — reading and changing Multicode settings and
   integrations: module enablement, third-party module install/trust, MCP
   catalog and sync, skill packs, plugin and role/template registries, GitHub

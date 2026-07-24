@@ -1,5 +1,5 @@
 // Shared UI primitives. Consumed by Switchboard, Watchtower,
-// Sprint Engine, and Multiloop panel rebuilds. Tokens live in
+// and Sprint Engine panel rebuilds. Tokens live in
 // src/renderer/src/assets/index.css; tone vocabulary lives in ./tokens.
 
 export { PanelHeader } from './PanelHeader'

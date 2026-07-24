@@ -1283,17 +1283,6 @@ export type SoulPromptResult =
   | { ok: true; prompt: string; path: string }
   | { ok: false; message: string; path: string | null }
 
-export type MultiloopRole =
-  | 'coordinator'
-  | 'architect'
-  | 'product'
-  | 'developer'
-  | 'frontend'
-  | 'tester'
-  | 'security'
-  | 'performance'
-  | 'cross_platform'
-
 export type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 
 export type GitStatusEntry = {
@@ -1939,26 +1928,6 @@ export type SprintEngineRosterEnableInput = {
   /** Model id; only meaningful with `cli`. */
   model?: string | null
 }
-
-export type MultiloopInitInput = {
-  workspaceRoot: string
-  loopName: string
-  finalGoal: string
-}
-
-export type MultiloopInitResult =
-  | {
-      ok: true
-      data: {
-        workspaceRoot: string
-        loopName: string
-        loopSlug: string
-        loopDirectory: string
-        statePath: string
-        created: boolean
-      }
-    }
-  | { ok: false; message: string; stdout?: string; stderr?: string; exitCode?: number | string }
 
 export type SessionUser = {
   id: string
@@ -2806,7 +2775,6 @@ export type ElectronApi = {
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
-  readMultiloopPrompt: (role: MultiloopRole) => Promise<SoulPromptResult>
   writefile: (path: string, content: string) => Promise<void>
   writeBinaryFile: (path: string, base64Content: string) => Promise<void>
   createFile: (parentDir: string, name: string) => Promise<string>
@@ -3055,7 +3023,6 @@ export type ElectronApi = {
   listWatchtowerRuns: (workspaceRoot: string) => Promise<WatchtowerRunListResult>
   importGitHubIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
   importJiraIssuesToWatchtower: (workspaceRoot: string) => Promise<SwitchboardImportResult>
-  initializeMultiloopState: (input: MultiloopInitInput) => Promise<MultiloopInitResult>
   terminalSpawn: (
     sessionId: string,
     cols: number,

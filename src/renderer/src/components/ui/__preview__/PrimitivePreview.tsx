@@ -45,7 +45,6 @@ const TOOLS: { id: ToolIdentity; label: string }[] = [
   { id: 'switchboard', label: 'Switchboard' },
   { id: 'watchtower', label: 'Watchtower' },
   { id: 'sprintengine', label: 'Sprint engine' },
-  { id: 'multiloop', label: 'Multiloop' },
 ]
 
 const TAB_ITEMS = [

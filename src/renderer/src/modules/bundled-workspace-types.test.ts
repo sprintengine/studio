@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { getRendererHost } from './index'
-import { createMultiloopTemplate } from './multiloop-workspace-types'
 import { createGuidedBriefTemplate, createSprintEngineTemplate } from './sprint-engine-workspace-types'
 import { createSwitchboardTemplate } from './switchboard-workspace-types'
 import { collectWorkspaceTypeSupervisors } from './workspace-type-supervisors'
@@ -101,70 +100,34 @@ const expectedTemplates: Record<string, LayoutTemplate> = {
       },
     },
   },
-  multiloop: {
-    id: 'multiloop-mode',
-    name: 'Multiloop Mode',
-    description: 'Milestone roadmap, active work, blockers, and evidence.',
-    previewSlots: [
-      { label: 'Goal', x: 4, y: 4, w: 292, h: 22, type: 'editor' },
-      { label: 'Roadmap', x: 4, y: 30, w: 92, h: 76, type: 'editor' },
-      { label: 'Active Milestone', x: 100, y: 30, w: 196, h: 76, type: 'editor' },
-    ],
-    layout: {
-      global: { tabSetEnableDrop: true, tabEnableClose: true },
-      borders: [],
-      layout: {
-        type: 'row',
-        children: [
-          {
-            type: 'tabset',
-            weight: 100,
-            children: [
-              { type: 'tab', name: 'Multiloop', component: 'multiloop-board' },
-            ],
-          },
-        ],
-      },
-    },
-  },
 }
 
 assert.deepEqual(createSprintEngineTemplate(sprintEngineConfig), expectedTemplates.sprintengine)
 assert.deepEqual(createGuidedBriefTemplate(), expectedTemplates['guided-brief'])
 assert.deepEqual(createSwitchboardTemplate(), expectedTemplates.switchboard)
-assert.deepEqual(createMultiloopTemplate(), expectedTemplates.multiloop)
 
 const host = getRendererHost()
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'],
+  ['switchboard', 'sprintengine', 'automations-host', 'guided-brief'],
   'bundled workspace types keep picker order; the review workspace type retired (MC-1708 — reviews are an instance-level surface) and the roadmap type retired (MC-1692)',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine').map((definition) => definition.id),
-  ['switchboard', 'multiloop', 'automations-host'],
+  ['switchboard', 'automations-host'],
   'sprint-engine disablement hides sprintengine and dependent guided-brief',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
-  ['switchboard', 'sprintengine', 'multiloop', 'guided-brief'],
+  ['switchboard', 'sprintengine', 'guided-brief'],
   'disabling the automations module removes the automations-host workspace type from the picker',
 )
-assert.deepEqual(
-  host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine')
-    .flatMap((definition) => definition.supervisors ?? [])
-    .map((supervisor) => supervisor.scope),
-  ['global'],
-  'workspace-type supervisor listings are gated by module enablement (only multiloop remains)',
-)
-
 assert.equal(host.getWorkspaceTypeModule('sprintengine'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('review'), undefined, 'the review workspace type retired (MC-1708); the review module owns the instance-level Reviews surface + panel, not a workspace type')
 assert.equal(host.getWorkspaceTypeModule('roadmap'), undefined, 'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type')
 assert.equal(host.getWorkspaceTypeModule('guided-brief'), 'sprint-engine')
 assert.equal(host.getWorkspaceTypeModule('switchboard'), 'switchboard')
-assert.equal(host.getWorkspaceTypeModule('multiloop'), 'multiloop')
 assert.equal(host.getWorkspaceTypeModule('automations-host'), 'automations', 'automations-host is owned by the automations module')
 assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id is 'automations-host', not 'automations'")
 
@@ -181,7 +144,7 @@ assert.equal(
 )
 
 assert.deepEqual(
-  ['switchboard', 'sprintengine', 'multiloop', 'automations-host', 'guided-brief'].map((id) => {
+  ['switchboard', 'sprintengine', 'automations-host', 'guided-brief'].map((id) => {
     const definition = host.getWorkspaceType(id)
     assert.ok(definition, `expected ${id} registration`)
     return {
@@ -209,14 +172,6 @@ assert.deepEqual(
       description: 'Specialist team, architect plan, kanban, and evidence trail.',
       accentToken: '--tool-sprintengine',
       creationStepsId: 'sprintengine',
-    },
-    {
-      id: 'multiloop',
-      moduleId: 'multiloop',
-      label: 'Multiloop',
-      description: 'Roadmap, milestones, decisions, and evidence for long-running work.',
-      accentToken: '--text-muted',
-      creationStepsId: 'multiloop',
     },
     {
       id: 'automations-host',
@@ -251,32 +206,14 @@ assert.equal(
   'Sprint Engine contributes no renderer supervisor (main-process scheduler owns auto-run)',
 )
 assert.deepEqual(
-  host.getWorkspaceType('multiloop')?.supervisors?.map((supervisor) => ({
-    scope: supervisor.scope,
-    hasComponent: Boolean(supervisor.Component),
-  })),
-  [
-    { scope: 'global', hasComponent: true },
-  ],
-  'Multiloop owns its global auto-run supervisor contribution',
-)
-assert.deepEqual(
   collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), true).map((supervisor) => supervisor.key),
-  ['multiloop:global:0'],
-  'primary workspace window mounts global supervisor contributions in registry order (automations mounts its observer directly)',
+  [],
+  'no bundled workspace type contributes a renderer supervisor (automations mounts its observer directly)',
 )
 assert.deepEqual(
   collectWorkspaceTypeSupervisors(host.getWorkspaceTypes(), false).map((supervisor) => supervisor.key),
   [],
   'secondary workspace windows do not mount global supervisor contributions',
-)
-assert.deepEqual(
-  collectWorkspaceTypeSupervisors(
-    host.getWorkspaceTypes((moduleId) => moduleId !== 'sprint-engine'),
-    true,
-  ).map((supervisor) => supervisor.key),
-  ['multiloop:global:0'],
-  'disabling a module removes its supervisor contribution without affecting others',
 )
 
 // The always-mounted observer's per-event decision. A timer

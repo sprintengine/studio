@@ -1,9 +1,7 @@
 {
   "id": "coordinator",
   "label": "Coordinator",
-  "aliases": [
-    "multiloop-coordinator"
-  ],
+  "aliases": [],
   "summary": "Coordinates multi-agent work across Multicode sessions.",
   "icon": "architecture",
   "directives": {

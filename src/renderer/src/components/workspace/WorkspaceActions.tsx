@@ -25,15 +25,12 @@ import AgentComposerPopover from './agentComposer/AgentComposerPopover'
 import { type AgentComposerConfirm, type AgentComposerSelection } from './agentComposer/AgentComposer'
 import {
   GENERAL_AGENT_ENGINE_KEY,
-  getMultiloopRole,
   getSpecialistAction,
-  type MultiloopRoleDescriptor,
   type SpecialistAction,
 } from '../../specialists/specialistActions'
 import type {
   AgentCli,
   AppNotification,
-  MultiloopRole,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
   Workspace,
@@ -82,14 +79,12 @@ export type SessionItem = {
   exitCode: number | null
   role: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'][string]['role'] | null
   specialistId: SpecialistActionId | null
-  multiloopRole: MultiloopRole | null
   taskId: string | null
   sessionId: string
 }
 
 function sessionAgentTypeLabel(item: SessionItem): string | null {
   if (item.specialistId) return getSpecialistAction(item.specialistId).shortLabel
-  if (item.multiloopRole) return getMultiloopRole(item.multiloopRole).shortLabel
   return null
 }
 
@@ -100,10 +95,6 @@ function SessionAgentIcon({ item, className }: { item: SessionItem; className?: 
   }
   if (item.role) {
     return <SprintEngineRoleIcon role={item.role} className={className} />
-  }
-  if (item.multiloopRole) {
-    const descriptor = getMultiloopRole(item.multiloopRole)
-    return <SpecialistActionIcon icon={descriptor.icon} className={className} />
   }
   if (item.kind === 'terminal') {
     return <TerminalSessionIcon className={className} />
@@ -430,16 +421,13 @@ export type WorkspaceActionsProps = {
 
   specialistMenuOpen: boolean
   setSpecialistMenuOpen: React.Dispatch<React.SetStateAction<boolean>>
-  multiloopLaunchMenu: boolean
   selectedSpecialistAction: SpecialistAction
-  selectedMultiloopRoleDescriptor: MultiloopRoleDescriptor
   selectedAgentPermissionOption: typeof AGENT_SPAWN_PERMISSION_OPTIONS[number]
   lastSelectedCli: AgentCli
   // Per-agent CLI choice (e.g. Architect → Codex) used by the split-button
   // trigger's default-spawn icon and CLI badge. The menu reads these from the
   // store itself; the trigger needs them to resolve its default spawn.
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
-  multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   // Plugin-aware agent CLI catalog (bundled + configured cliRuntimes). The
   // trigger resolves its default CLI against this list.
   agentCliOptions: AgentCliCatalogOption[]
@@ -448,15 +436,14 @@ export type WorkspaceActionsProps = {
   // Transient Debug Mode toggle, forwarded to the spawn menu's mode row.
   agentSpawnDebugMode: boolean
   setAgentSpawnDebugMode: (next: boolean) => void
-  // Primary split-button half: spawn the remembered specialist / multiloop role
-  // straight into the active workspace with the trigger CLI.
+  // Primary split-button half: spawn the remembered specialist straight into
+  // the active workspace with the trigger CLI.
   addNewSpecialist: (cli: AgentCli) => void | Promise<void>
   // Standard-mode alternative to `addNewSpecialist`: when the remembered
   // top-bar spawn is the General agent (`standardSpawnIsGeneral`), the primary
   // half spawns General with the trigger CLI instead of a specialist.
   addNewGeneralAgent: (cli: AgentCli) => void | Promise<void>
   standardSpawnIsGeneral: boolean
-  addNewMultiloopAgent: (cli: AgentCli) => void | Promise<void>
   // The dropdown renders the shared AgentComposerPopover. `conversationAvailable`
   // gates its Conversation row; `composerInitialSelection` preselects the
   // remembered agent; `runComposerSpawn` maps a confirm to the real spawn into
@@ -522,13 +509,10 @@ export function WorkspaceActions({
   toggleVoiceDictation,
   specialistMenuOpen,
   setSpecialistMenuOpen,
-  multiloopLaunchMenu,
   selectedSpecialistAction,
-  selectedMultiloopRoleDescriptor,
   selectedAgentPermissionOption,
   lastSelectedCli,
   specialistCliDefaults,
-  multiloopRoleCliDefaults,
   agentCliOptions,
   agentSpawnPermissionPreset,
   setAgentSpawnPermissionPreset,
@@ -537,7 +521,6 @@ export function WorkspaceActions({
   addNewSpecialist,
   addNewGeneralAgent,
   standardSpawnIsGeneral,
-  addNewMultiloopAgent,
   conversationSpawnAvailable,
   composerInitialSelection,
   runComposerSpawn,
@@ -816,11 +799,9 @@ export function WorkspaceActions({
           const resolvePickerCli = (cli: AgentCli): AgentCli =>
             resolveAvailableAgentCli(cli, agentCliOptions, agentCliOptions[0]?.value ?? cli)
           const triggerCli: AgentCli = resolvePickerCli(
-            multiloopLaunchMenu
-              ? (multiloopRoleCliDefaults[selectedMultiloopRoleDescriptor.role] ?? lastSelectedCli)
-              : standardSpawnIsGeneral
-                ? (specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
-                : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
+            standardSpawnIsGeneral
+              ? (specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
+              : (specialistCliDefaults[selectedSpecialistAction.id] ?? lastSelectedCli)
           )
           const triggerCliOption =
             agentCliOptions.find((option) => option.value === triggerCli)
@@ -838,23 +819,19 @@ export function WorkspaceActions({
               <Tooltip
                 placement="bottom"
                 content={
-                  multiloopLaunchMenu
-                    ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label} with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
-                    : standardSpawnIsGeneral
-                      ? `Spawn General agent with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
-                      : withShortcut(
-                          `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`,
-                          getSpecialistCommandId(selectedSpecialistAction.id)
-                            ? shortcutFor(getSpecialistCommandId(selectedSpecialistAction.id)!)
-                            : null,
-                        )
+                  standardSpawnIsGeneral
+                    ? `Spawn General agent with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`
+                    : withShortcut(
+                        `Spawn ${selectedSpecialistAction.label} specialist with ${triggerCliOption.label}, ${selectedAgentPermissionOption.label}`,
+                        getSpecialistCommandId(selectedSpecialistAction.id)
+                          ? shortcutFor(getSpecialistCommandId(selectedSpecialistAction.id)!)
+                          : null,
+                      )
                 }
               >
                 <button
                   onClick={() => {
-                    if (multiloopLaunchMenu) {
-                      void addNewMultiloopAgent(triggerCliOption.value)
-                    } else if (standardSpawnIsGeneral) {
+                    if (standardSpawnIsGeneral) {
                       void addNewGeneralAgent(triggerCliOption.value)
                     } else {
                       void addNewSpecialist(triggerCliOption.value)
@@ -863,20 +840,18 @@ export function WorkspaceActions({
                   disabled={!activeWorkspaceId}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
                   aria-label={
-                    multiloopLaunchMenu
-                      ? `Spawn Multiloop ${selectedMultiloopRoleDescriptor.label}`
-                      : standardSpawnIsGeneral
-                        ? 'Spawn General agent'
-                        : `Spawn ${selectedSpecialistAction.label} specialist`
+                    standardSpawnIsGeneral
+                      ? 'Spawn General agent'
+                      : `Spawn ${selectedSpecialistAction.label} specialist`
                   }
                 >
-                  {standardSpawnIsGeneral && !multiloopLaunchMenu ? (
+                  {standardSpawnIsGeneral ? (
                     // The General agent has no specialist glyph; mirror the
                     // composer's General row, which wears its bound CLI icon.
                     <CliIcon cli={triggerCli} className="h-[18px] w-[18px]" />
                   ) : (
                     <SpecialistActionIcon
-                      icon={multiloopLaunchMenu ? selectedMultiloopRoleDescriptor.icon : selectedSpecialistAction.icon}
+                      icon={selectedSpecialistAction.icon}
                       className="h-[18px] w-[18px]"
                     />
                   )}
@@ -914,7 +889,6 @@ export function WorkspaceActions({
                 )}
               >
                 <AgentComposerPopover
-                  roster={multiloopLaunchMenu ? 'multiloop' : 'specialist'}
                   conversationAvailable={conversationSpawnAvailable}
                   initialSelection={composerInitialSelection}
                   action={{

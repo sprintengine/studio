@@ -25,10 +25,10 @@ const ExtensionsNavEntry = React.lazy(() =>
   }))
 )
 
-// Activate the agent's workspace, then focus (or add) its terminal tab. Mirrors
-// MultiloopAutoRunSupervisor.revealMultiloopAgentTerminal: the mounted model is
-// tried first; if the workspace was just activated and its model isn't mounted
-// yet, the persisted layout model is mutated so the tab is present on mount.
+// Activate the agent's workspace, then focus (or add) its terminal tab. The
+// mounted model is tried first; if the workspace was just activated and its
+// model isn't mounted yet, the persisted layout model is mutated so the tab is
+// present on mount.
 async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
   const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel, flashAgentTab }, { findWorkspaceForAgentPreferring }] =
     await Promise.all([

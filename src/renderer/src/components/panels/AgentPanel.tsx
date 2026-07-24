@@ -57,8 +57,8 @@ export function isStoredAgentCliUnavailable(
   return isAgentCliMissing(cli, catalog)
 }
 
-// Decide which runtime drives the `agent` panel. Sprint Engine and Multiloop
-// agents are always terminal/MCP-owned regardless of any stored selection; only
+// Decide which runtime drives the `agent` panel. Sprint Engine agents are
+// always terminal/MCP-owned regardless of any stored selection; only
 // standard workspace agents that opted into a valid conversation runtime route
 // to the conversation UI. Mirrors `normalizeAgentRuntime` for the standard case
 // so a partial/corrupt selection falls back to terminal.
@@ -68,8 +68,8 @@ export function resolveAgentRuntimeKind(
 ): AgentRuntimeKind {
   if (!agent) return 'terminal'
   if (context.isSprintEngineAgent) return 'terminal'
-  if (context.workspaceMode === 'sprintengine' || context.workspaceMode === 'multiloop') return 'terminal'
-  if (agent.kind === 'sprintengine' || agent.kind === 'multiloop') return 'terminal'
+  if (context.workspaceMode === 'sprintengine') return 'terminal'
+  if (agent.kind === 'sprintengine') return 'terminal'
   return normalizeAgentRuntime(agent).runtimeKind
 }
 

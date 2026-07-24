@@ -11,11 +11,11 @@ Workspace direction:
 
 - **Switchboard**: long-lived issue board and agent-pool execution workspace.
 - **Sprint Engine**: scoped dependency-graph execution workspace.
-- **Campaign**: adaptive goal/milestone workspace, replacing Multiloop.
+- **Campaign**: adaptive goal/milestone workspace.
 - **Watchtower**: intake, inspection, and triage panel inside Switchboard.
 
 Swarm should be renamed to Watchtower. Symphony should be renamed to
-Switchboard. Campaign should replace Multiloop.
+Switchboard.
 
 Do not collapse Sprint Engine and Switchboard into one engine. They solve
 different execution problems.
@@ -136,7 +136,7 @@ Multicode-specific difference:
 
 ### Campaign
 
-Campaign replaces Multiloop as the adaptive outcome mode.
+Campaign is the adaptive outcome mode.
 
 It owns:
 
@@ -320,7 +320,6 @@ MVP shortcut:
   Switchboard tasks.
 - Execute both Switchboard queue tasks and Sprint Engine run tasks through
   managed local terminal sessions.
-- Rename Multiloop to Campaign in user-facing surfaces.
 - Add a Campaign panel with goal, milestone, current run, and reassessment
   sections.
 - Let Campaign launch Sprint Engine runs without requiring Switchboard.
@@ -395,7 +394,6 @@ remain separate execution models.
 ### Naming
 
 - Swarm becomes **Watchtower**.
-- Multiloop becomes **Campaign**.
 - Symphony is replaced by **Switchboard**.
 - Sprint Engine remains **Sprint Engine**.
 

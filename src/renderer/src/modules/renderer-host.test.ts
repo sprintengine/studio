@@ -45,11 +45,11 @@ function workspaceType(id: string, pickerOrder?: number): WorkspaceTypeDefinitio
 const host = createRendererHost()
 const sprintType = workspaceType('sprintengine', 20)
 const switchboardType = workspaceType('switchboard', 10)
-const multiloopType = workspaceType('multiloop', 10)
+const notebookType = workspaceType('notebook', 10)
 
 host.hostFor('sprint-engine').registerWorkspaceType(sprintType)
 host.hostFor('switchboard').registerWorkspaceType(switchboardType)
-host.hostFor('multiloop').registerWorkspaceType(multiloopType)
+host.hostFor('notebook').registerWorkspaceType(notebookType)
 
 assert.throws(
   () => host.hostFor('other').registerWorkspaceType(workspaceType('sprintengine')),
@@ -80,12 +80,12 @@ assert.equal(host.getWorkspaceTypeModule('missing'), undefined)
 
 assert.deepEqual(
   host.getWorkspaceTypes().map((definition) => definition.id),
-  ['multiloop', 'switchboard', 'sprintengine'],
+  ['notebook', 'switchboard', 'sprintengine'],
   'workspace types sort by pickerOrder, then id',
 )
 assert.deepEqual(
   host.getWorkspaceTypes((moduleId) => moduleId !== 'switchboard').map((definition) => definition.id),
-  ['multiloop', 'sprintengine'],
+  ['notebook', 'sprintengine'],
   'disabled modules are filtered from workspace type listings',
 )
 

@@ -166,8 +166,8 @@ def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> No
             assert needle not in rendered, f"{role} base Soul leaked runtime language: {needle}"
 
 
-def test_souls_get_returns_multiloop_coordinator() -> None:
-    completed = run_souls("get", "multiloop-coordinator", "--format", "json")
+def test_souls_get_returns_coordinator() -> None:
+    completed = run_souls("get", "coordinator", "--format", "json")
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
@@ -176,7 +176,6 @@ def test_souls_get_returns_multiloop_coordinator() -> None:
     assert payload["role"] == "coordinator"
     assert payload["path"].endswith("resources/specialist-pack/roles/coordinator.json")
     assert "principal-level coordination agent" in payload["content"]
-    assert "Multiloop" not in payload["content"]
     assert "{{final_goal}}" not in payload["content"]
 
 

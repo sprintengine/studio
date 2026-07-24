@@ -17,13 +17,19 @@ assert.equal(globalConflict[0].conflictingCommandId, 'commandPalette.open')
 assert.equal(hasBlockingKeybindingConflict(globalConflict), true)
 
 const sprintSettings = getCommandDefinition('sprintengine.open.settings')
-const multiloopSettings = getCommandDefinition('multiloop.open.settings')
 assert.ok(sprintSettings)
-assert.ok(multiloopSettings)
-const panelConflict = findKeybindingConflicts(sprintSettings, [multiloopSettings])
+// A same-keybinding command in a mutually exclusive panel scope is a warning,
+// not a blocking conflict — the two panels can never be active together.
+const switchboardSettingsLike: KeybindingConflictCandidate = {
+  commandId: 'custom.switchboard.settings',
+  commandTitle: 'Switchboard: Settings',
+  keybindings: ['Primary+,'],
+  scopes: ['panel:switchboard'],
+}
+const panelConflict = findKeybindingConflicts(sprintSettings, [switchboardSettingsLike])
 assert.equal(panelConflict.length, 1)
 assert.equal(panelConflict[0].severity, 'warning')
-assert.equal(panelConflict[0].conflictingCommandTitle, 'Multiloop: Settings')
+assert.equal(panelConflict[0].conflictingCommandTitle, 'Switchboard: Settings')
 assert.equal(hasBlockingKeybindingConflict(panelConflict), false)
 
 const sameScopePanelConflict = findKeybindingConflicts(
@@ -42,9 +48,6 @@ assert.equal(sameScopePanelConflict.some((conflict) => (
 const globalPanelConflict = findKeybindingConflicts(getCommandDefinition('app.settings.open')!, COMMAND_REGISTRY)
 assert.equal(globalPanelConflict.some((conflict) => (
   conflict.severity === 'blocking' && conflict.conflictingCommandId === 'sprintengine.open.settings'
-)), true)
-assert.equal(globalPanelConflict.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'multiloop.open.settings'
 )), true)
 
 const workspaceGlobalConflict = findKeybindingConflicts(

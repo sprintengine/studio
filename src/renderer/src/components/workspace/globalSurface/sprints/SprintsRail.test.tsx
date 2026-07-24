@@ -59,9 +59,11 @@ function render(over: Partial<Parameters<typeof SprintsRail>[0]> = {}): string {
       selectedStatePath={runs[2]!.statePath}
       projectFilter={null}
       search=""
+      sort="recent"
       onSelect={() => {}}
       onFilter={() => {}}
       onSearch={() => {}}
+      onSort={() => {}}
       onCreate={() => {}}
       {...over}
     />,
@@ -142,7 +144,7 @@ run('an empty group is omitted, not rendered as an empty header', () => {
 run('the rail carries a search field with the project lens behind the filter glyph', () => {
   const html = render()
   assert.ok(html.includes('Search sprints…'), 'the search field leads the list')
-  assert.ok(html.includes('aria-label="Filter sprints"'), 'the project lens is one filter control')
+  assert.ok(html.includes('aria-label="Filter and sort sprints"'), 'the project lens + sort are one filter control')
   assert.ok(!html.includes('role="combobox"'), 'no standing dropdown above the rows')
 })
 

@@ -377,7 +377,7 @@ async function main(): Promise<void> {
 
   // ── The project lens sits behind the filter glyph beside search ──────────
   const filterTrigger = (): HTMLElement => {
-    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter sprints"]')
+    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter and sort sprints"]')
     assert.ok(trigger, 'the project lens is one filter control beside search')
     return trigger as HTMLElement
   }

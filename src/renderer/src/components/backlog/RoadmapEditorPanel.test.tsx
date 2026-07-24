@@ -157,6 +157,38 @@ run('cross-project: an already-planned library row is dimmed (planned), never dr
   assert.match(renderCrossProject(), /opacity-40/)
 })
 
+run('cross-project: completed work is hidden by the default Active lens', () => {
+  const done = backlogItem('backlog/done-thing.md', '---\nstatus: completed\n---\n# Shipped thing\n')
+  const markup = renderToStaticMarkup(
+    <ConfirmDialogProvider>
+      <RoadmapEditorPanel
+        roadmapItem={roadmapItem}
+        items={items}
+        libraryProjects={[{ projectKey: null, projectName: 'multicode', path: '/repo', items: [...items, done] }]}
+        onSaved={() => {}}
+        onOpenInEditor={() => {}}
+        onNavigate={() => {}}
+        showBack={false}
+        onBack={() => {}}
+      />
+    </ConfirmDialogProvider>,
+  )
+  assert.doesNotMatch(markup, /Shipped thing/)
+})
+
+run('autosave replaces the Save button with a quiet state readout', () => {
+  const markup = render()
+  assert.match(markup, /Saved/)
+  assert.doesNotMatch(markup, />Save</)
+  assert.doesNotMatch(markup, /Discard/)
+})
+
+run('renders the per-roadmap sprint team control with the last-used default', () => {
+  const markup = render()
+  assert.match(markup, /Sprint team/)
+  assert.match(markup, /Last used roster/)
+})
+
 if (failures > 0) {
   console.error(`\n${failures} render smoke checks failed`)
   process.exit(1)

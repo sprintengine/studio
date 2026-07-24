@@ -20,7 +20,6 @@
 
 import type {
   AgentCli,
-  MultiloopRole,
   SpecialistActionId,
   SprintEngineCliPermissionPreset,
 } from '../../types/workspace'
@@ -29,7 +28,7 @@ import { APP_THEMES, type AppTheme } from '../../types/appTheme'
 // Scope marks where a field is surfaced:
 // - 'app'   — app-wide preferences shown in SettingsPanel.
 // - 'panel' — per-panel popover (Switchboard, Watchtower, Sprint Engine).
-// - 'role'  — per-agent-role defaults (specialist, multiloop, sprint engine).
+// - 'role'  — per-agent-role defaults (specialist, sprint engine).
 export type SettingScope = 'app' | 'panel' | 'role'
 
 export type SelectOption<V extends string = string> = {
@@ -133,18 +132,6 @@ const SPECIALIST_OPTIONS: ReadonlyArray<SelectOption<SpecialistActionId>> = [
 const APP_THEME_OPTIONS: ReadonlyArray<SelectOption<AppTheme>> = APP_THEMES.map(
   (t) => ({ value: t.id, label: t.label }),
 )
-
-const MULTILOOP_ROLE_OPTIONS: ReadonlyArray<SelectOption<MultiloopRole>> = [
-  { value: 'coordinator', label: 'Coordinator' },
-  { value: 'architect', label: 'Architect' },
-  { value: 'product', label: 'Product' },
-  { value: 'developer', label: 'Developer' },
-  { value: 'frontend', label: 'Frontend' },
-  { value: 'tester', label: 'Tester' },
-  { value: 'security', label: 'Security' },
-  { value: 'performance', label: 'Performance' },
-  { value: 'cross_platform', label: 'Cross-platform' },
-]
 
 export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   // Appearance — app-wide theme.
@@ -252,17 +239,6 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
     storePath: 'appSettings.lastSelectedSpecialist',
     storeSetter: 'setLastSelectedSpecialist',
   },
-  {
-    id: 'last-selected-multiloop-role',
-    label: 'Default Multiloop role',
-    help: 'Preselected role when spawning a Multiloop agent.',
-    scope: 'role',
-    group: 'agents',
-    field: { type: 'select', items: MULTILOOP_ROLE_OPTIONS },
-    storePath: 'appSettings.lastSelectedMultiloopRole',
-    storeSetter: 'setLastSelectedMultiloopRole',
-  },
-
   // Learn center — tips startup toggle.
   {
     id: 'learning-show-tips-on-startup',

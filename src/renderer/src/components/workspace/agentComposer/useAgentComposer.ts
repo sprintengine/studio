@@ -1,16 +1,13 @@
 import React from 'react'
 import {
   GENERAL_AGENT_ENGINE_KEY,
-  MULTILOOP_ROLES,
   orderSpecialistActions,
-  type MultiloopRoleDescriptor,
   type SpecialistAction,
 } from '../../../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
 import type {
   AgentCli,
   AgentCliModelSelection,
-  MultiloopRole,
   SpecialistActionId,
 } from '../../../types/workspace'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -24,14 +21,12 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 
 // Stable empty fallbacks so store selectors returning a default don't churn refs.
 const EMPTY_SPECIALIST_CLI_DEFAULTS: Partial<Record<SpecialistActionId, AgentCli>> = {}
-const EMPTY_MULTILOOP_CLI_DEFAULTS: Partial<Record<MultiloopRole, AgentCli>> = {}
 const EMPTY_SPECIALIST_MODEL_DEFAULTS: Partial<Record<SpecialistActionId, AgentCliModelSelection>> = {}
-const EMPTY_MULTILOOP_MODEL_DEFAULTS: Partial<Record<MultiloopRole, AgentCliModelSelection>> = {}
 const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
 const EMPTY_DISABLED_PACKS: string[] = []
 
 // The agent a composer surface picks. Terminal / General / Conversation have no
-// soul; a specialist or multiloop role carries its id. The engine (CLI/model)
+// soul; a specialist carries its id. The engine (CLI/model)
 // is bound to the selection and read from the store's per-agent defaults, so a
 // confirm only needs the agent identity plus the resolved CLI — the model
 // round-trips through the defaults.
@@ -40,18 +35,16 @@ export type AgentComposerSelection =
   | { kind: 'general' }
   | { kind: 'conversation' }
   | { kind: 'specialist'; specialistId: SpecialistActionId }
-  | { kind: 'multiloop'; role: MultiloopRole }
 
 export type AgentComposerConfirm = (
   | { kind: 'terminal' }
   | { kind: 'general'; cli: AgentCli }
   | { kind: 'conversation' }
   | { kind: 'specialist'; specialistId: SpecialistActionId; cli: AgentCli }
-  | { kind: 'multiloop'; role: MultiloopRole; cli: AgentCli }
 ) & {
   // Optional "+ Skill" attachment: the spawn ensure-installs it and prefills
-  // the invocation as the agent's first input (never auto-sent). Terminal and
-  // multiloop confirms ignore it.
+  // the invocation as the agent's first input (never auto-sent). Terminal
+  // confirms ignore it.
   skill?: WorkspaceSkill
   // Optional "+ Worktree" attachment (general/specialist only): the spawn
   // creates a git worktree off the workspace repo and executes the agent in it.
@@ -69,28 +62,23 @@ export type AgentComposerConfirm = (
 export type AgentComposerConnector = { id: string; name: string; icon?: string }
 
 // One roster row. Quick rows (terminal/general/conversation) precede the
-// specialist or multiloop roster; arrow keys rove this flat list so navigation
-// is uniform across both groups.
+// specialist roster; arrow keys rove this flat list so navigation is uniform
+// across both groups.
 export type ComposerRow =
   | { key: string; kind: 'terminal' }
   | { key: string; kind: 'general' }
   | { key: string; kind: 'conversation' }
   | { key: string; kind: 'specialist'; action: SpecialistAction }
-  | { key: string; kind: 'multiloop'; role: MultiloopRoleDescriptor }
 
 export function rowMatchesSelection(row: ComposerRow, selection: AgentComposerSelection): boolean {
   if (row.kind === 'specialist') {
     return selection.kind === 'specialist' && selection.specialistId === row.action.id
-  }
-  if (row.kind === 'multiloop') {
-    return selection.kind === 'multiloop' && selection.role === row.role.role
   }
   return selection.kind === row.kind
 }
 
 export function selectionForRow(row: ComposerRow): AgentComposerSelection {
   if (row.kind === 'specialist') return { kind: 'specialist', specialistId: row.action.id }
-  if (row.kind === 'multiloop') return { kind: 'multiloop', role: row.role.role }
   return { kind: row.kind }
 }
 
@@ -105,14 +93,11 @@ export function resolveInitialSelection(
   preferred: AgentComposerSelection,
 ): AgentComposerSelection {
   if (rows.some((row) => rowMatchesSelection(row, preferred))) return preferred
-  const first = rows.find((row) => row.kind === 'specialist' || row.kind === 'multiloop') ?? rows[0]
+  const first = rows.find((row) => row.kind === 'specialist') ?? rows[0]
   return first ? selectionForRow(first) : preferred
 }
 
 type UseAgentComposerOptions = {
-  // Specialist roster (New chat, top-bar standard, launcher) or the multiloop
-  // role roster (top-bar multiloop workspaces).
-  mode: 'specialist' | 'multiloop'
   // Whether the Terminal quick row is offered (spawn surfaces yes; the
   // Automations select picker no — it chooses a soul, not a runtime session).
   showTerminal: boolean
@@ -134,7 +119,6 @@ type UseAgentComposerOptions = {
 // the engine controls always reflect the selected agent's remembered pair and
 // persist edits as that agent's default.
 export function useAgentComposer({
-  mode,
   showTerminal,
   conversationAvailable,
   initialSelection,
@@ -149,14 +133,6 @@ export function useAgentComposer({
     (s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS,
   )
   const setSpecialistModelDefault = useWorkspaceStore((s) => s.setSpecialistModelDefault)
-  const multiloopRoleCliDefaults = useWorkspaceStore(
-    (s) => s.appSettings.multiloopRoleCliDefaults ?? EMPTY_MULTILOOP_CLI_DEFAULTS,
-  )
-  const setMultiloopRoleCliDefault = useWorkspaceStore((s) => s.setMultiloopRoleCliDefault)
-  const multiloopRoleModelDefaults = useWorkspaceStore(
-    (s) => s.appSettings.multiloopRoleModelDefaults ?? EMPTY_MULTILOOP_MODEL_DEFAULTS,
-  )
-  const setMultiloopRoleModelDefault = useWorkspaceStore((s) => s.setMultiloopRoleModelDefault)
   const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
   const disabledSpecialistPacks = useWorkspaceStore(
     (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS,
@@ -190,9 +166,6 @@ export function useAgentComposer({
   const generalCliOptions = agentCliOptions
 
   const allRows = React.useMemo<ComposerRow[]>(() => {
-    if (mode === 'multiloop') {
-      return MULTILOOP_ROLES.map((role) => ({ key: `multiloop:${role.role}`, kind: 'multiloop', role }))
-    }
     const rows: ComposerRow[] = []
     if (showTerminal) rows.push({ key: 'terminal', kind: 'terminal' })
     rows.push({ key: 'general', kind: 'general' })
@@ -201,7 +174,7 @@ export function useAgentComposer({
       rows.push({ key: `specialist:${action.id}`, kind: 'specialist', action })
     }
     return rows
-  }, [mode, showTerminal, conversationAvailable, specialistActions])
+  }, [showTerminal, conversationAvailable, specialistActions])
 
   const [query, setQuery] = React.useState('')
   const [selection, setSelection] = React.useState<AgentComposerSelection>(() =>
@@ -227,12 +200,6 @@ export function useAgentComposer({
       if (row.kind === 'terminal') return 'terminal'.includes(trimmedQuery)
       if (row.kind === 'general') return 'general agent'.includes(trimmedQuery)
       if (row.kind === 'conversation') return 'conversation agent'.includes(trimmedQuery)
-      if (row.kind === 'multiloop') {
-        return (
-          row.role.label.toLowerCase().includes(trimmedQuery) ||
-          row.role.shortLabel.toLowerCase().includes(trimmedQuery)
-        )
-      }
       return (
         row.action.label.toLowerCase().includes(trimmedQuery) ||
         row.action.shortLabel.toLowerCase().includes(trimmedQuery) ||
@@ -261,33 +228,28 @@ export function useAgentComposer({
       if (target.kind === 'specialist') {
         return resolvePickerCli(specialistCliDefaults[target.specialistId] ?? lastSelectedCli)
       }
-      if (target.kind === 'multiloop') {
-        return resolvePickerCli(multiloopRoleCliDefaults[target.role] ?? lastSelectedCli)
-      }
       // General is just another keyed agent: its own entry in the specialist
       // defaults map (falling back to the shared default for first display).
       return resolvePickerCli(specialistCliDefaults[GENERAL_AGENT_ENGINE_KEY] ?? lastSelectedCli)
     },
-    [resolvePickerCli, specialistCliDefaults, multiloopRoleCliDefaults, lastSelectedCli],
+    [resolvePickerCli, specialistCliDefaults, lastSelectedCli],
   )
   const selectionCli = cliForSelection(selection)
 
   const modelForSelection = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli): string | undefined => {
       if (target.kind === 'specialist') return resolveSurfaceModel(cli, specialistModelDefaults[target.specialistId])
-      if (target.kind === 'multiloop') return resolveSurfaceModel(cli, multiloopRoleModelDefaults[target.role])
       if (target.kind === 'general') return resolveSurfaceModel(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
       return undefined
     },
-    [specialistModelDefaults, multiloopRoleModelDefaults],
+    [specialistModelDefaults],
   )
 
   const buildConfirm = React.useCallback(
     (target: AgentComposerSelection): AgentComposerConfirm => {
       const skill = skillAttachment ? { skill: skillAttachment } : {}
       // Worktree execution only applies to CLI agents spawned into the active
-      // workspace: terminal/conversation have no agent execution; multiloop
-      // roles belong to the loop's shared checkout.
+      // workspace: terminal/conversation have no agent execution.
       const worktree = worktreeName !== null ? { worktree: { name: worktreeName } } : {}
       // Connectors ride the CLI spawn's isolated-worktree runtime, so only
       // general/specialist confirms carry the attachment.
@@ -296,9 +258,6 @@ export function useAgentComposer({
       if (target.kind === 'conversation') return { kind: 'conversation', ...skill }
       if (target.kind === 'specialist') {
         return { kind: 'specialist', specialistId: target.specialistId, cli: cliForSelection(target), ...skill, ...worktree, ...connector }
-      }
-      if (target.kind === 'multiloop') {
-        return { kind: 'multiloop', role: target.role, cli: cliForSelection(target) }
       }
       return { kind: 'general', cli: cliForSelection(target), ...skill, ...worktree, ...connector }
     },
@@ -319,27 +278,23 @@ export function useAgentComposer({
   const setEngineCli = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli) => {
       if (target.kind === 'specialist') setSpecialistCliDefault(target.specialistId, cli)
-      else if (target.kind === 'multiloop') setMultiloopRoleCliDefault(target.role, cli)
       // General writes its own key in the specialist map — never the shared
       // lastSelectedCli, so choosing General's CLI never moves any specialist.
       else setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, cli)
     },
-    [setSpecialistCliDefault, setMultiloopRoleCliDefault],
+    [setSpecialistCliDefault],
   )
   const setEngineModel = React.useCallback(
     (target: AgentComposerSelection, cli: AgentCli, model: string | null) => {
       if (target.kind === 'specialist') {
         setSpecialistCliDefault(target.specialistId, cli)
         setSpecialistModelDefault(target.specialistId, model ? { cli, model } : null)
-      } else if (target.kind === 'multiloop') {
-        setMultiloopRoleCliDefault(target.role, cli)
-        setMultiloopRoleModelDefault(target.role, model ? { cli, model } : null)
       } else {
         setSpecialistCliDefault(GENERAL_AGENT_ENGINE_KEY, cli)
         setSpecialistModelDefault(GENERAL_AGENT_ENGINE_KEY, model ? { cli, model } : null)
       }
     },
-    [setSpecialistCliDefault, setSpecialistModelDefault, setMultiloopRoleCliDefault, setMultiloopRoleModelDefault],
+    [setSpecialistCliDefault, setSpecialistModelDefault],
   )
 
   return {

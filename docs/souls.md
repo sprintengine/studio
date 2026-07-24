@@ -69,7 +69,6 @@ Bundled roles:
 
 Supported aliases:
 
-- `multiloop-coordinator` -> `coordinator`
 - `product-strategist` -> `product`
 - `devops-infra` -> `devops`
 - `frontend-design-review` -> `frontend`

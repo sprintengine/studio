@@ -24,7 +24,7 @@ export type CommandDispatcherContext = {
   commands?: readonly CommandContribution[]
   disabledCommandIds?: ReadonlySet<string>
   keybindingOverrides?: Readonly<Record<string, readonly string[]>>
-  // Runtime preconditions (architect on roster, multiloop state loaded, voice
+  // Runtime preconditions (architect on roster, voice
   // dictation enabled, …). A keybinding only matches when its command's
   // declared availability is satisfied, so the dispatcher refuses commands the
   // command palette would hide instead of firing a silent no-op.

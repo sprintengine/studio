@@ -14,6 +14,7 @@ import {
   sprintRunTone,
   RUN_INDEX_ERROR_HINT,
   RUN_INDEX_ERROR_TITLE,
+  type SprintSort,
 } from './railState'
 import { consumeSprintDoorSelection, requestNewSprint } from './sprintDoorRequests'
 import {
@@ -65,19 +66,23 @@ export default function SprintsGlobalSurface(): JSX.Element {
   // window's lens never moves another's (D7).
   const [projectFilter, setProjectFilter] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<SprintSort>('recent')
 
   const selectedRun = useMemo(
     () => runs.find((summary) => summary.statePath === selectedStatePath) ?? null,
     [runs, selectedStatePath],
   )
 
-  // The rows the rail is actually showing — the same ordering, filtering, and
-  // search it draws, so "the first row" means the same thing to both of us.
+  // The rows the rail could show under the current filter/search. Deliberately
+  // the attention-first 'status' order regardless of the rail's sort: falling to
+  // "the first row" should land on the run most worth looking at (needs-input
+  // first), not merely the most recently touched.
   const rows = useMemo(
     () =>
       buildSprintRailRows(
         runs.filter((summary) => sprintRunMatchesSearch(summary, search)),
         projectFilter,
+        'status',
       ),
     [runs, projectFilter, search],
   )
@@ -131,15 +136,24 @@ export default function SprintsGlobalSurface(): JSX.Element {
 
   const bar = useMemo(() => {
     if (!selectedRun) return { title: 'Sprints' }
+    // The canvas reads the run's LIVE projection; the index summary is a cached
+    // snapshot that only refreshes on a runs-changed event. When they disagree
+    // (a cancel/completion the index has not heard about yet), the projection
+    // wins — the chip must never keep pulsing "Running" on a canceled run.
+    const runtimeState = canvas?.canceled
+      ? 'canceled'
+      : canvas?.completed
+        ? 'completed'
+        : selectedRun.runtimeState
     return {
       title: selectedRun.teamName,
       statusChip: (
         <BarStatusChip
-          tone={canvas?.landed ? 'merged' : sprintRunTone(selectedRun.runtimeState)}
+          tone={canvas?.landed ? 'merged' : sprintRunTone(runtimeState)}
           // Landed is the multi-repo truth (D10): a completed run whose branches
           // have not all merged still reads "Completed", never "Landed".
-          label={canvas?.landed ? 'Landed' : sprintRunStatusLabel(selectedRun.runtimeState)}
-          pulse={selectedRun.runtimeState === 'running'}
+          label={canvas?.landed ? 'Landed' : sprintRunStatusLabel(runtimeState)}
+          pulse={runtimeState === 'running'}
         />
       ),
       contextSub: runContextLine(selectedRun),
@@ -153,9 +167,11 @@ export default function SprintsGlobalSurface(): JSX.Element {
       selectedStatePath={selectedStatePath}
       projectFilter={projectFilter}
       search={search}
+      sort={sort}
       onSelect={select}
       onFilter={filter}
       onSearch={setSearch}
+      onSort={setSort}
       onCreate={requestNewSprint}
     />
   )

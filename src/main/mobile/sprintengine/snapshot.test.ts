@@ -68,7 +68,6 @@ async function main(): Promise<void> {
   await assertWorkspacePathScopingReturnsOnlyThatRoot()
   await assertScopedRequestSkipsSheddingLadder()
   await assertIncludeScopingOmitsUnrequestedCollections()
-  await assertMalformedMultiloopStateIsSkipped()
   await assertSnapshotOmitsNonMobileStatePayloads()
   await assertSnapshotSkipsMalformedStateFiles()
   await assertPublishingIsThrottled()
@@ -84,7 +83,7 @@ async function main(): Promise<void> {
 // mobileControlProtocol.regression.test.js. If you change the wire schema in
 // either copy, mirror the edit into the other repo and set both pins to the new
 // shared hash.
-const mobileProtocolSourceSha256 = 'b1e95448d62f4a6c897fe76f8ded987e110fbd793e115d3c5034a0f45e4554c9'
+const mobileProtocolSourceSha256 = '9c7799c026a5059030aa83924f6b577a41e037adff8c21727b6c02cf6eeaadf7'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'src/shared/mobile-control/protocol.ts'))
@@ -620,7 +619,6 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
     artifacts: [artifact('A1', 'architect_plan', 'approved', 'T1')],
   })
   const workspaceRoot = workspaceRootForStatePath(statePath)
-  await writeMultiloopFixture(workspaceRoot)
   const service = new MobileSprintEngineSnapshotService({
     stateReaders: {
       readSwitchboardTasks: async () => ({
@@ -689,7 +687,7 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
     },
   })
 
-  // The switchboard/watchtower/multiloop projections are off in the default
+  // The switchboard/watchtower projections are off in the default
   // composition (item 1600); a surface that wants them names `desktopWorkspaces`.
   const snapshot = await service.readSnapshot({
     desktopSessionId: 'desktop_1',
@@ -716,7 +714,6 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
     'sprintengine',
     'switchboard',
     'watchtower',
-    'multiloop',
   ])
   assert.deepEqual(snapshot.workspaces?.find((workspace) => workspace.kind === 'switchboard')?.capabilities, ['summary.read', 'detail.read'])
   assert.deepEqual(snapshot.workspaces?.find((workspace) => workspace.kind === 'watchtower')?.capabilities, ['summary.read', 'detail.read'])
@@ -734,10 +731,6 @@ async function assertSnapshotIncludesDesktopWorkspaceEntries(): Promise<void> {
   assert.equal(watchtowerDetail?.kind, 'watchtower')
   assert.equal(watchtowerDetail?.kind === 'watchtower' ? watchtowerDetail.data.runs?.[0]?.runId : '', 'run_1')
   assert.equal(watchtowerDetail?.kind === 'watchtower' ? watchtowerDetail.data.generatedInboxItems?.length : 0, 2)
-  const multiloopDetail = snapshot.workspaces?.find((workspace) => workspace.kind === 'multiloop')?.detail
-  assert.equal(multiloopDetail?.kind, 'multiloop')
-  assert.equal(multiloopDetail?.kind === 'multiloop' ? multiloopDetail.data.milestones?.[0]?.title : '', 'Milestone One')
-  assert.equal(multiloopDetail?.kind === 'multiloop' ? multiloopDetail.data.blockers?.[0]?.title : '', 'Blocked by validation')
   service.shutdown()
 }
 
@@ -792,7 +785,6 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       // The real reader spawns the Sprint Engine MCP; stub it so this stays a unit test.
       readRoleCatalog: async () => [
         { roleId: 'architect', label: 'Architect', summary: 'Plans the run.', source: 'bundled' },
@@ -881,7 +873,6 @@ async function assertAutomationsJoinTheirSprintEngineOnProjectKey(): Promise<voi
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       readRoleCatalog: async () => [],
     },
   })
@@ -959,7 +950,6 @@ async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promis
           },
         ],
       }),
-      readMultiloopStates: async () => [],
       readRoleCatalog: async () => [],
     },
   })
@@ -1142,7 +1132,6 @@ function backlogAutomationsUnitService(): MobileSprintEngineSnapshotService {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       readRoleCatalog: async () => [],
     },
   })
@@ -1200,7 +1189,6 @@ async function assertCappedAutomationsFitTheRelayResultBudget(): Promise<void> {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       readRoleCatalog: async () => [],
     },
   })
@@ -1255,7 +1243,6 @@ async function assertShedDropsRecentRunsBeforeAnySprintEngine(): Promise<void> {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       readRoleCatalog: async () => [],
     },
   })
@@ -1426,7 +1413,6 @@ async function assertSnapshotSurfacesCreatedSpikeBacklogItem(): Promise<void> {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       // A registry that cannot be read publishes no catalog — the backlog is
       // unaffected, and the phone falls back to its bundled list (MC-1543).
       readRoleCatalog: async () => undefined,
@@ -1462,7 +1448,6 @@ async function assertSnapshotOmitsBacklogWhenWorkspaceHasNone(): Promise<void> {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
     },
   })
 
@@ -1487,7 +1472,6 @@ async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
     },
   })
 
@@ -1503,7 +1487,7 @@ async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
 }
 
 // Item 1600 part 1: the unscoped default keeps every live run but only the
-// most-recent few terminal ones, and drops the switchboard/watchtower/multiloop
+// most-recent few terminal ones, and drops the switchboard/watchtower
 // projections entirely.
 async function assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow(): Promise<void> {
   // Newest-first, mirroring discovery's updatedAt-descending order.
@@ -1529,7 +1513,7 @@ async function assertUnscopedSnapshotShedsTerminalRunsBeyondKeepWindow(): Promis
   // Both live runs plus the three most-recent terminal runs survive; the fourth is shed.
   assert.deepEqual(ids, ['done-1', 'done-2', 'done-3', 'live-a', 'live-b'])
   assert.equal(snapshot.sprintEngines.some((sprintEngine) => sprintEngine.sprintEngineId === 'done-4'), false)
-  // Default composition carries no switchboard/watchtower/multiloop projections.
+  // Default composition carries no switchboard/watchtower projections.
   assert.equal(snapshot.workspaces?.every((workspace) => workspace.kind === 'sprintengine'), true)
   service.shutdown()
 }
@@ -1640,35 +1624,6 @@ async function assertIncludeScopingOmitsUnrequestedCollections(): Promise<void> 
   })
   assert.equal(backlogNoRoles.backlog?.length, 1)
   assert.equal(backlogNoRoles.backlog?.[0]?.roles, undefined)
-}
-
-async function assertMalformedMultiloopStateIsSkipped(): Promise<void> {
-  const statePath = await writeStateFixture({
-    sprintengine: { name: 'Malformed Multiloop Fixture', updatedAt: generatedAt },
-    tasks: [task('T1', 'done', [])],
-    artifacts: [],
-  })
-  const workspaceRoot = workspaceRootForStatePath(statePath)
-  const malformedMultiloopDirectory = join(workspaceRoot, 'multiloop', 'bad-loop')
-  await mkdir(malformedMultiloopDirectory, { recursive: true })
-  await writeFile(join(malformedMultiloopDirectory, 'state.json'), '{"loop":', 'utf8')
-  const service = new MobileSprintEngineSnapshotService({
-    stateReaders: {
-      readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
-      getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
-      listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-    },
-  })
-
-  const snapshot = await service.readSnapshot({
-    desktopSessionId: 'desktop_1',
-    statePaths: [statePath],
-    generatedAt,
-    include: ['sprintEngines', 'desktopWorkspaces'],
-  })
-
-  assert.equal(snapshot.workspaces?.some((workspace) => workspace.kind === 'multiloop'), false)
-  service.shutdown()
 }
 
 async function assertSnapshotOmitsNonMobileStatePayloads(): Promise<void> {
@@ -1831,41 +1786,6 @@ async function writeStateText(content: string): Promise<string> {
   const statePath = join(teamDirectory, 'run.yaml')
   await writeFile(statePath, content, 'utf8')
   return statePath
-}
-
-async function writeMultiloopFixture(workspaceRoot: string): Promise<void> {
-  const loopDirectory = join(workspaceRoot, 'multiloop', 'loop_1')
-  await mkdir(loopDirectory, { recursive: true })
-  await writeFile(join(loopDirectory, 'state.json'), `${JSON.stringify({
-    loop: {
-      name: 'loop_1',
-      displayName: 'Loop 1',
-      status: 'blocked',
-      updatedAt: generatedAt,
-    },
-    roadmap: [
-      {
-        id: 'milestone-1',
-        title: 'Milestone One',
-        status: 'active',
-        updatedAt: generatedAt,
-        sprintEngine: { teamSlug: 'team' },
-      },
-      {
-        id: 'milestone-2',
-        title: 'Milestone Two',
-        status: 'todo',
-      },
-    ],
-    blockers: [
-      {
-        id: 'blocker-1',
-        title: 'Blocked by validation',
-        status: 'active',
-        updatedAt: generatedAt,
-      },
-    ],
-  }, null, 2)}\n`, 'utf8')
 }
 
 function task(id: string, status: string, dependsOn: string[]): Record<string, unknown> {

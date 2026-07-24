@@ -3,9 +3,7 @@ import type { ModuleEnablementOverrides } from '../../../../shared/modules/manif
 
 // Leading-icon accent for a workspace panel tab, gated by module enablement: the
 // tool identity color when the owning module is enabled, the muted default when
-// it is off (AC4 tab degradation). Multiloop agent tabs use a neutral wrapper
-// (no tool accent) and are not represented here; their icon shape still degrades
-// via WorkspaceTypeIcon's moduleOverrides prop.
+// it is off (AC4 tab degradation).
 export type PanelTabAccentKind = 'watchtower' | 'switchboard' | 'sprintengine'
 
 const PANEL_TAB_ACCENT: Record<PanelTabAccentKind, { moduleId: string; enabledClass: string }> = {

@@ -267,43 +267,6 @@ const validSnapshot: MobileControlSnapshot = {
         },
       },
     },
-    {
-      workspaceId: "multiloop-main",
-      kind: "multiloop",
-      name: "Multiloop",
-      updatedAt: now,
-      capabilities: ["summary.read", "detail.read"],
-      detailVersion: mobileControlWorkspaceSnapshotVersion,
-      summary: {
-        status: "blocked",
-      },
-      detail: {
-        kind: "multiloop",
-        data: {
-          loopId: "loop_1",
-          milestoneCount: 4,
-          blockerCount: 1,
-          linkedSprintEngineId: "mobile-sprintengine-companion-integration",
-          milestones: [
-            {
-              milestoneId: "milestone_1",
-              title: "Milestone one",
-              status: "active",
-              updatedAt: now,
-              linkedSprintEngineId: "mobile-sprintengine-companion-integration",
-            },
-          ],
-          blockers: [
-            {
-              blockerId: "blocker_1",
-              title: "Needs validation",
-              status: "active",
-              updatedAt: now,
-            },
-          ],
-        },
-      },
-    },
   ],
 };
 

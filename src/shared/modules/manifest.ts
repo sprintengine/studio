@@ -24,7 +24,6 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'git',
   'memory-graph',
   'switchboard',
-  'multiloop',
   'sprint-engine',
   'review',
   'automations',

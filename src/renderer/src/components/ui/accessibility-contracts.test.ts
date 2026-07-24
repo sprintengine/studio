@@ -50,9 +50,7 @@ const watchtowerPanel = [
 ].join('\n')
 const sprintEnginePanel = read('src/renderer/src/components/panels/SprintEngineBoardPanel.tsx')
 const settingsPanel = read('src/renderer/src/components/settings/SettingsPanel.tsx')
-const multiloopSettingsPanel = read('src/renderer/src/components/panels/MultiloopBoardPanel/MultiloopSettingsPopover.tsx')
 const sprintEngineSettingsPopover = sliceFunction(sprintEnginePanel, 'SprintEngineSettingsPopover')
-const multiloopSettingsPopover = sliceFunction(multiloopSettingsPanel, 'MultiloopSettingsPopover')
 
 // Popover — shared anchored surface contract for app-shell dropdowns.
 expectIncludes(popover, "popupRole: 'menu' | 'listbox' | 'dialog'", 'Popover exposes a thin popup role API')
@@ -204,14 +202,6 @@ expectIncludes(sprintEnginePanel, 'aria-label={`Run configuration: ${runConfigLa
 expectIncludes(sprintEnginePanel, 'aria-haspopup="dialog"', 'Run configuration chip advertises its dialog popover')
 expectIncludes(sprintEngineSettingsPopover, 'role="radiogroup"', 'Sprint Engine automation modes form a radio group')
 expectIncludes(sprintEngineSettingsPopover, 'aria-checked={checked}', 'Sprint Engine automation mode radios expose checked state')
-assert.ok(
-  !/window\.addEventListener\('keydown'/.test(multiloopSettingsPopover),
-  'Multiloop settings delegates Escape dismissal to Popover',
-)
-assert.ok(
-  !/window\.addEventListener\('mousedown'/.test(multiloopSettingsPopover),
-  'Multiloop settings delegates outside-click dismissal to Popover',
-)
 
 // Drawer — right-slide-in primitive with focus trap, ESC close, focus restoration, scroll-lock, reduced-motion.
 expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role')

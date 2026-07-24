@@ -20,7 +20,7 @@ import type { CapabilityModule } from '../module-host/load-modules'
 export const roadmapModule: CapabilityModule = {
   manifest: {
     id: 'roadmap',
-    displayName: 'Roadmap',
+    displayName: 'Horizon',
     version: 1,
     publisher: 'multicode',
     category: 'orchestration',

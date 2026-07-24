@@ -18,7 +18,6 @@ import {
 } from './guidedBriefSlice'
 import {
   consolidateSwitchboardWorkspaceLayout,
-  ensureMultiloopLayoutModel,
   hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
@@ -31,8 +30,6 @@ import {
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import {
   migrateSprintEngineAgentNames,
-  normalizeMultiloopAutoState,
-  normalizeMultiloopWorkspaceContext,
   normalizeSprintEngineAutoState,
   normalizeSprintEngineRoleCliDefaults,
   normalizeSprintEngineWorkspaceContext,
@@ -53,13 +50,14 @@ import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import {
   clearSprintEngineAgentLaunchState,
   dedupeAutomationsHostWorkspaces,
+  dropRetiredMultiloopWorkspaces,
   dropRetiredRoadmapWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 65
+export const WORKSPACE_STORE_VERSION = 66
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -667,8 +665,7 @@ export function migratePersistedWorkspaceState(
   if (version < 30) {
     mapMigrationWorkspaces(migrationState, (ws) => {
       const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-      const multiloopState = ws.multiloopState ?? null
-      const mode = multiloopState ? 'multiloop' : sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
+      const mode = sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
       const nextWorkspace: Workspace = {
         ...ws,
         mode,
@@ -678,19 +675,10 @@ export function migratePersistedWorkspaceState(
           ws.folderPath,
           sprintEngineState,
         ),
-        multiloopState,
-        multiloopContext: normalizeMultiloopWorkspaceContext(
-          ws.multiloopContext,
-          ws.folderPath,
-          multiloopState,
-        ),
         sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-        multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
       }
 
-      return mode === 'multiloop'
-        ? { ...nextWorkspace, layoutModel: ensureMultiloopLayoutModel(nextWorkspace.layoutModel) }
-        : migrateSprintEngineLayout(nextWorkspace)
+      return migrateSprintEngineLayout(nextWorkspace)
     })
   }
   if (version < 31) {
@@ -706,8 +694,6 @@ export function migratePersistedWorkspaceState(
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       lastSelectedSpecialist:
         current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-      lastSelectedMultiloopRole:
-        current.appSettings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
       lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(
         current.appSettings?.lastAgentSpawnPermissionPreset,
       ),
@@ -720,12 +706,6 @@ export function migratePersistedWorkspaceState(
         current.appSettings?.usageTelemetry,
       ),
     }
-  }
-  if (version < 32) {
-    state.workspaces = state.workspaces.map((ws) => ({
-      ...ws,
-      multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
-    }))
   }
   if (version < 33) {
     const current = migrationState
@@ -757,14 +737,11 @@ export function migratePersistedWorkspaceState(
   if (version < 40) {
     mapMigrationWorkspaces(migrationState, (ws) => {
       const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-      const multiloopState = ws.multiloopState ?? null
       return {
         ...ws,
-        mode: normalizeWorkspaceMode(ws.mode, sprintEngineState, multiloopState),
+        mode: normalizeWorkspaceMode(ws.mode, sprintEngineState),
         sprintEngineState,
-        multiloopState,
         sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-        multiloopAutoState: normalizeMultiloopAutoState(ws.multiloopAutoState),
       }
     })
   }
@@ -1025,6 +1002,21 @@ export function migratePersistedWorkspaceState(
     // normalizeWorkspaceWindows during merge; keep the top-level active pointer
     // honest too (mirrors the v62 automations-mode drop).
     migrationState.workspaces = dropRetiredRoadmapWorkspaces(migrationState.workspaces ?? [])
+    if (
+      migrationState.activeWorkspaceId
+      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+    ) {
+      migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
+    }
+  }
+  if (version < 66) {
+    // The `multiloop` workspace mode retired: the Multiloop feature was removed
+    // outright (the Roadmap/Horizon door replaces it). Drop any persisted
+    // multiloop-mode workspace — any loop state on disk under the project folder
+    // is untouched. Window membership is reconciled by normalizeWorkspaceWindows
+    // during merge; keep the top-level active pointer honest too (mirrors the
+    // v65 roadmap-mode drop above).
+    migrationState.workspaces = dropRetiredMultiloopWorkspaces(migrationState.workspaces ?? [])
     if (
       migrationState.activeWorkspaceId
       && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)

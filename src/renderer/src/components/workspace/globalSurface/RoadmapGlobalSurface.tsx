@@ -117,7 +117,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       const ok = await dialog.confirm({
         title: `Pause ${roadmap.title}?`,
         body: 'Every track stops starting or merging new work until you resume it. Sprints already running keep going.',
-        confirmLabel: 'Pause roadmap',
+        confirmLabel: 'Pause horizon',
       })
       if (!ok) return
       await runBoardCommand(lanes, (lane) => window.api.pauseRoadmapLane({ roadmapRef: roadmap.roadmapRef, lane }))
@@ -172,7 +172,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     async (lane: string, unit: RoadmapBoardUnit) => {
       const reason = await dialog.prompt({
         title: `Skip “${unit.title}”?`,
-        body: 'This removes the step from this track so the roadmap moves past it. Tell us why — it is recorded in the roadmap file.',
+        body: 'This removes the step from this track so the horizon moves past it. Tell us why — it is recorded in the horizon file.',
         confirmLabel: 'Skip step',
         inputLabel: 'Reason for skipping',
         placeholder: 'e.g. superseded by another item',
@@ -186,7 +186,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         if (!result.ok) {
           setActionError(
             result.message ??
-              'This step was not found in the roadmap file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
+              'This step was not found in the horizon file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
           )
         }
       } finally {
@@ -199,12 +199,16 @@ export default function RoadmapGlobalSurface(): JSX.Element {
 
   // Reveal a backlog file in its project's Backlog panel. Cross-project safe: the
   // item may live in any project, so it routes to that project's workspace (which
-  // clears this surface) and otherwise leaves the surface in place.
+  // clears this surface) and otherwise leaves the surface in place. Several
+  // workspaces can share the project root — every sprint run mounts one — so
+  // prefer a PLAIN workspace: clicking a step must open the item's detail, never
+  // dump the user into whichever sprint happens to share the folder.
   const openPlanning = useCallback(
     (projectRoot: string, relativePath: string) => {
-      const workspace = useWorkspaceStore
+      const candidates = useWorkspaceStore
         .getState()
-        .workspaces.find((candidate) => samePath(candidate.folderPath, projectRoot))
+        .workspaces.filter((candidate) => samePath(candidate.folderPath, projectRoot))
+      const workspace = candidates.find((candidate) => !candidate.sprintEngineContext) ?? candidates[0]
       if (!workspace) return
       setActiveWorkspace(workspace.id)
       revealNavRailComponent(workspace.id, 'backlog', 'Backlog')
@@ -240,17 +244,17 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     const active = store.workspaces.find((w) => w.id === store.activeWorkspaceId)
     const projectRoot = homePath ?? active?.folderPath ?? store.workspaces[0]?.folderPath ?? null
     if (!projectRoot) {
-      setActionError('Open a project first. A roadmap lines up work across your projects, so it needs at least one open.')
+      setActionError('Open a project first. A horizon lines up work across your projects, so it needs at least one open.')
       return
     }
     const projectName = basename(projectRoot)
     const name = (
       await dialog.prompt({
-        title: 'New roadmap',
+        title: 'New horizon',
         body: homePath
-          ? 'Name your roadmap. It can line up work from every project in this Multicode.'
+          ? 'Name your horizon. It can line up work from every project in this Multicode.'
           : `Your roadmap will live in ${projectName} and can line up work from every project in this Multicode.`,
-        inputLabel: 'Roadmap name',
+        inputLabel: 'Horizon name',
         placeholder: 'e.g. Next quarter',
         confirmLabel: 'Create',
         required: true,
@@ -286,11 +290,11 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         (candidate) => candidate.roadmapRef !== file.roadmapRef && ACTIVE_ROADMAP_STATUSES.has(candidate.status),
       )
       const ok = await dialog.confirm({
-        title: `Make “${file.title}” the active roadmap?`,
+        title: `Make “${file.title}” the active horizon?`,
         body:
           demoting.length > 0
-            ? `Multicode runs one roadmap at a time. “${demoting[0].title}” becomes a draft — its running sprints finish, but nothing new starts on it until you make it active again.`
-            : 'Multicode will start working this roadmap, one sprint at a time.',
+            ? `Multicode runs one horizon at a time. “${demoting[0].title}” becomes a draft — its running sprints finish, but nothing new starts on it until you make it active again.`
+            : 'Multicode will start working this horizon, one sprint at a time.',
         confirmLabel: 'Make active',
       })
       if (!ok) return
@@ -300,7 +304,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         if (result.ok) {
           setSelectedRef(file.roadmapRef)
         } else {
-          setActionError(result.message ?? 'The roadmap could not be made active.')
+          setActionError(result.message ?? 'The horizon could not be made active.')
         }
       } finally {
         setActivating(false)
@@ -331,20 +335,14 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     roadmaps.find((roadmap) => normalizeRelativePath(roadmap.roadmapRef) === normActiveRef) ?? null
   const inbox = activeRoadmap ? collectRoadmapInbox([activeRoadmap]) : []
 
-  // The cross-project planner takes over the whole surface while editing.
-  if (planningRef && homePath) {
-    return (
-      <RoadmapPlannerView
-        homePath={homePath}
-        roadmapRef={planningRef}
-        onBack={() => {
-          setPlanningRef(null)
-          reload()
-        }}
-        onSaved={reload}
-        onRevealItem={openPlanning}
-      />
-    )
+  // The cross-project planner shows in the CANVAS while editing — the shell (and
+  // its lifted top bar) stays mounted, so the door keeps its title, status, and
+  // back affordance exactly like every other door's sub-views (Sprints pattern).
+  const planning = planningRef && homePath ? normalizeRelativePath(planningRef) : null
+  const planningFile = planning ? roadmapFiles.find((file) => file.roadmapRef === planning) ?? null : null
+  const exitPlanning = (): void => {
+    setPlanningRef(null)
+    reload()
   }
 
   const railRows: RoadmapRailRow[] = railEntries.map((entry) => {
@@ -361,27 +359,34 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     return { roadmapRef: entry.roadmapRef, title: entry.title, active: false, running: false, stateLine: 'Draft' }
   })
 
-  const bar = selectedFile
-    ? buildBar(selectedFile, isActiveSelected, activeRoadmap, {
-        onEditPlan: handleEditPlan,
-        onPauseRoadmap: handlePauseRoadmap,
-        onResumeRoadmap: handleResumeRoadmap,
-        busyBoard,
-        refreshing,
-      })
-    : undefined
+  const bar = planning
+    ? buildEditingBar(planningFile, planning === normActiveRef)
+    : selectedFile
+      ? buildBar(selectedFile, isActiveSelected, activeRoadmap, {
+          onEditPlan: handleEditPlan,
+          onPauseRoadmap: handlePauseRoadmap,
+          onResumeRoadmap: handleResumeRoadmap,
+          busyBoard,
+          refreshing,
+        })
+      : undefined
   const rail = (
     <RoadmapRail
       rows={railRows}
-      selectedRef={effectiveSelectedRef}
+      selectedRef={planning ?? effectiveSelectedRef}
       search={railSearch}
-      onSelect={setSelectedRef}
+      onSelect={(ref) => {
+        // Selecting from the rail while editing leaves the planner (edits
+        // autosave, so nothing is lost) and shows that roadmap's canvas.
+        if (planning) setPlanningRef(null)
+        setSelectedRef(ref)
+      }}
       onSearch={setRailSearch}
       onNewRoadmap={() => void handleCreateRoadmap()}
     />
   )
   const attention =
-    isActiveSelected && inbox.length > 0 ? (
+    !planning && isActiveSelected && inbox.length > 0 ? (
       <Section title="Waiting on you" count={inbox.length} level={3} inset={false}>
         <RoadmapWaitingOnYou entries={inbox} onSelect={handleSelectInbox} />
       </Section>
@@ -389,12 +394,12 @@ export default function RoadmapGlobalSurface(): JSX.Element {
 
   return (
     <GlobalSurfaceShell
-      ariaLabel="Roadmap"
+      ariaLabel="Horizon"
       bar={bar}
       attention={attention}
       rail={hasRoadmaps || error ? rail : undefined}
-      onBack={back.onBack}
-      canGoBack={back.canGoBack}
+      onBack={planning ? exitPlanning : back.onBack}
+      canGoBack={planning ? true : back.canGoBack}
     >
       <div className="flex h-full min-h-0 flex-col">
         {actionError ? (
@@ -405,28 +410,36 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           </div>
         ) : null}
         <div className="min-h-0 flex-1">
-          {!hasRoadmaps ? (
+          {planning && planningRef && homePath ? (
+            <RoadmapPlannerView
+              homePath={homePath}
+              roadmapRef={planningRef}
+              onBack={exitPlanning}
+              onSaved={reload}
+              onRevealItem={openPlanning}
+            />
+          ) : !hasRoadmaps ? (
             // A read failure with nothing loaded offers only the retry, never the
             // creation pitch (which would risk a duplicate file).
             error ? (
               <SurfaceCanvasState
                 kind="error"
-                title="Couldn’t load your roadmap."
+                title="Couldn’t load your horizon."
                 hint="This is usually temporary."
                 detail={error}
                 onRetry={reload}
               />
             ) : loading ? (
-              <SurfaceCanvasState kind="loading" label="Loading your roadmap…" />
+              <SurfaceCanvasState kind="loading" label="Loading your horizon…" />
             ) : (
               <SurfaceCanvasState
                 kind="empty"
                 glyph={<RoadmapDoorGlyph />}
-                title="No roadmap yet"
-                body={projectCount === 0 ? 'Open a project to plan a roadmap.' : undefined}
+                title="No horizon yet"
+                body={projectCount === 0 ? 'Open a project to plan a horizon.' : undefined}
                 action={
                   <PrimaryButton onClick={() => void handleCreateRoadmap()} disabled={creating}>
-                    {creating ? 'Creating…' : 'Plan your roadmap'}
+                    {creating ? 'Creating…' : 'Plan your horizon'}
                   </PrimaryButton>
                 }
               />
@@ -452,7 +465,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
             ) : (
               <SurfaceCanvasState
                 kind="error"
-                title="Couldn’t read this roadmap."
+                title="Couldn’t read this horizon."
                 hint="This is usually temporary."
                 detail={error ?? undefined}
                 onRetry={reload}
@@ -470,7 +483,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           ) : (
             <SurfaceCanvasState
               kind="error"
-              title="Couldn’t read this roadmap."
+              title="Couldn’t read this horizon."
               hint="This is usually temporary."
               detail={error ?? undefined}
               onRetry={reload}
@@ -480,6 +493,17 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       </div>
     </GlobalSurfaceShell>
   )
+}
+
+// The surface bar while EDITING a plan: the roadmap's identity plus an honest
+// "changes save automatically" sub — no actions (the editor's controls live with
+// the plan), back exits to the board.
+function buildEditingBar(file: RoadmapFileSummary | null, isActive: boolean): GlobalSurfaceBar {
+  return {
+    title: file?.title ?? 'Plan horizon',
+    statusChip: <BarStatusChip tone={isActive ? 'accent' : 'neutral'} label={isActive ? 'Active' : 'Draft'} />,
+    contextSub: 'Editing the plan — changes save automatically',
+  }
 }
 
 // The surface bar for the selected roadmap (mockup §2): name · Active/Draft · the
@@ -530,7 +554,7 @@ function buildBar(
     actions: (
       <>
         {active ? (
-          <span className="text-[11px] text-[color:var(--text-subtle)]" title="How this roadmap merges delivered work">
+          <span className="text-[11px] text-[color:var(--text-subtle)]" title="How this horizon merges delivered work">
             Merges: {active.roadmap.policy.merge === 'auto' ? 'automatic' : 'you approve'}
           </span>
         ) : null}
@@ -583,7 +607,7 @@ function RoadmapTracks({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
         <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
-          This roadmap has no tracks yet.
+          This horizon has no tracks yet.
         </p>
         <RoadmapVocabulary />
         <PrimaryButton onClick={() => onEditPlan(roadmap.roadmapRef)}>Edit plan</PrimaryButton>
@@ -625,9 +649,23 @@ function RoadmapTracks({
   )
 }
 
-// A selected DRAFT: not orchestrated, so no steering chrome. It shows the plan at
-// a glance (tracks + step counts), teaches the vocabulary, and offers the two
-// honest actions — Edit plan and the explicit Make active.
+// Inert callbacks for the read-only draft tracks — the column renders no
+// controls in readOnly mode, so none of these can fire.
+const DRAFT_LANE_CALLBACKS: RoadmapLaneCallbacks = {
+  onApprove: () => undefined,
+  onPause: () => undefined,
+  onResume: () => undefined,
+  onMerge: () => undefined,
+  onSkip: () => undefined,
+  onEditPlan: () => undefined,
+  onOpenRun: () => undefined,
+  busyLane: null,
+}
+
+// A selected DRAFT: not orchestrated, so no steering chrome — but the PLAN
+// itself shows in full (the same track columns the active board uses, read-only,
+// resolved against live backlog status), with the two honest actions on top:
+// Edit plan and the explicit Make active.
 function RoadmapDraftCanvas({
   file,
   activating,
@@ -639,41 +677,45 @@ function RoadmapDraftCanvas({
   onEditPlan: () => void
   onMakeActive: () => void
 }): JSX.Element {
+  const spansProjects = file.lanes.some((lane) => lane.units.some((unit) => unit.projectKey !== null))
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto">
-      <div className="mx-auto flex w-full max-w-[640px] flex-col gap-4 px-6 py-8">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-[14px] font-semibold text-[color:var(--text-strong)]">Draft roadmap</h3>
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            This plan isn’t running yet. Make it active to have Multicode work it, one sprint at a time.
-          </p>
+      <div className="flex w-full flex-col gap-4 px-6 py-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex max-w-[62ch] flex-col gap-1">
+            <h3 className="text-[14px] font-semibold text-[color:var(--text-strong)]">Draft horizon</h3>
+            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              This plan isn’t running yet. Make it active to have Multicode work it, one sprint at a time.
+            </p>
+            <RoadmapVocabulary />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <PrimaryButton onClick={onMakeActive} disabled={activating}>
+              {activating ? 'Making active…' : 'Make active'}
+            </PrimaryButton>
+            <GhostButton onClick={onEditPlan}>Edit plan</GhostButton>
+          </div>
         </div>
-        <RoadmapVocabulary />
-        {file.tracks.length > 0 ? (
-          <ul className="flex flex-col gap-px rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]">
-            {file.tracks.map((track, index) => (
-              <li
-                key={`${track.title}:${index}`}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-[12px]"
-              >
-                <span className="min-w-0 truncate text-[color:var(--text-default)]" title={track.title}>
-                  {track.title}
-                </span>
-                <span className="shrink-0 tabular-nums text-[color:var(--text-subtle)]">{plural(track.steps, 'step')}</span>
-              </li>
+        {file.lanes.length > 0 ? (
+          <div className="flex flex-wrap gap-3">
+            {file.lanes.map((lane) => (
+              <div key={lane.lane} className="flex">
+                <RoadmapLaneColumn
+                  lane={lane}
+                  folderPath={null}
+                  callbacks={DRAFT_LANE_CALLBACKS}
+                  onReloadBoard={() => undefined}
+                  showProjectTag={spansProjects}
+                  readOnly
+                />
+              </div>
             ))}
-          </ul>
+          </div>
         ) : (
           <p className="rounded-md border border-dashed border-[color:var(--border-default)] px-3 py-4 text-center text-[12px] text-[color:var(--text-muted)]">
             No tracks yet — open Edit plan to lay out the work.
           </p>
         )}
-        <div className="flex items-center gap-2">
-          <PrimaryButton onClick={onMakeActive} disabled={activating}>
-            {activating ? 'Making active…' : 'Make active'}
-          </PrimaryButton>
-          <GhostButton onClick={onEditPlan}>Edit plan</GhostButton>
-        </div>
       </div>
     </div>
   )
@@ -691,17 +733,16 @@ function RoadmapVocabulary(): JSX.Element {
   )
 }
 
+// The Horizon door mark: a sun setting on the horizon line (16-box round-stroke
+// idiom, matching the nav entry's glyph).
 function RoadmapDoorGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="h-7 w-7" aria-hidden="true">
-      <circle cx="4" cy="3.6" r="1.9" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="12" cy="12.4" r="1.9" stroke="currentColor" strokeWidth="1.4" />
-      <path
-        d="M6 3.6 H10.6 A2.2 2.2 0 0 1 10.6 8 H5.4 A2.2 2.2 0 0 0 5.4 12.4 H10"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
+      <path d="M4.8 11 a3.2 3.2 0 0 1 6.4 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2 11 H14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M8 5.4 V3.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M4.2 6.8 3.2 5.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M11.8 6.8 12.8 5.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }

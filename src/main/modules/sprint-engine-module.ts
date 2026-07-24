@@ -1,11 +1,14 @@
+import { app } from 'electron'
+
 import { registerSprintEngineIpc } from '../ipc/sprintengine-ipc'
+import { readRoadmapHomeProjectPath } from '../roadmap-home-store'
 import { registerSprintEngineAutomationIpc } from '../ipc/sprintengine-automation-ipc'
 import { registerSprintRuntimeIpc } from '../ipc/sprint-runtime-ipc'
 import { computeSprintEngineTokenUsageReport, tokenLedgerVersion } from '../sprintengine-token-usage'
 import { listSprintRuns } from '../sprintengine-run-index'
 import { sprintTokenUsageDeps } from '../sprintengine-token-sampling'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
-import { SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintRuntimeToken } from '../module-host/service-tokens'
+import { RoadmapAppFrontDoorToken, SprintEngineArtifactsToken, SprintEngineAutomationFrontDoorsToken, SprintEngineAutomationServiceToken, SprintEngineLaunchSettingsToken, SprintEngineMcpHubToken, SprintRuntimeToken } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import type { SidecarRunState } from '../module-host/main-host'
 import type { SprintEngineMcpHubStatus } from '../sprintengine-mcp-hub'
@@ -97,7 +100,18 @@ export const sprintEngineModule: CapabilityModule = {
       // truth even if the run was never registered with the scheduler.
       cancelRun: async (payload) => {
         const result = await artifacts.cancelRun(payload)
-        if (result.ok) sprintRuntime.cancelRun(payload.statePath)
+        if (result.ok) {
+          sprintRuntime.cancelRun(payload.statePath)
+          // A roadmap lane may be running this sprint: reconcile now so the
+          // board parks promptly instead of on the next 60s engine tick.
+          // Resolved lazily — the roadmap lives in the automations module,
+          // which may be disabled or not yet registered.
+          try {
+            void host.requireService(RoadmapAppFrontDoorToken).reconcile().catch(() => undefined)
+          } catch {
+            /* roadmap module absent — nothing to steer */
+          }
+        }
         return result
       },
       createPullRequest: artifacts.createPullRequest,
@@ -110,7 +124,14 @@ export const sprintEngineModule: CapabilityModule = {
       readRegistryRole: artifacts.readRegistryRole,
       summarizeFeedback: artifacts.summarizeFeedback,
       readTokenUsage: ({ statePath }) => readTokenUsageCached(statePath),
-      listRuns: ({ roots }) => listSprintRuns(roots),
+      // The renderer sends its OPEN-workspace roots; union in the roadmap's home
+      // project so a run the roadmap orchestrator started there is listed even
+      // when that project is not an open workspace (the Sprints door must show
+      // every run this Multicode is driving).
+      listRuns: ({ roots }) => {
+        const home = readRoadmapHomeProjectPath(app.getPath('userData'))
+        return listSprintRuns(home && !roots.includes(home) ? [...roots, home] : roots)
+      },
     })
 
     // MC-1567: the main-owned automation mode intent (read / set / one-time

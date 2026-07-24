@@ -141,10 +141,41 @@ export function sprintRunShortDate(iso: string | null): string | null {
 // Sort stamp: last update, falling back to creation. An undated run sorts last
 // within its rank rather than jumping the queue.
 function runStamp(summary: SprintRunSummary): number {
-  const iso = summary.updatedAt ?? summary.startedAt
+  return stampOf(summary.updatedAt ?? summary.startedAt)
+}
+
+function createdStamp(summary: SprintRunSummary): number {
+  return stampOf(summary.startedAt)
+}
+
+function stampOf(iso: string | null): number {
   if (!iso) return Number.NEGATIVE_INFINITY
   const parsed = Date.parse(iso)
   return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed
+}
+
+// The rail's sort axis (the Backlog sort idiom, restated for runs): recency is
+// the default — a run touched a minute ago leads its group, whatever its state —
+// with created-date and status-band orders behind the filter glyph.
+export type SprintSort = 'recent' | 'created' | 'status'
+
+export const SPRINT_SORT_ITEMS: ReadonlyArray<{ value: SprintSort; label: string }> = [
+  { value: 'recent', label: 'Recently updated' },
+  { value: 'created', label: 'Recently created' },
+  { value: 'status', label: 'Status' },
+]
+
+function compareSprintRuns(a: SprintRunSummary, b: SprintRunSummary, sort: SprintSort): number {
+  if (sort === 'status') {
+    // Attention order: needs-input, then running, then finished/quiet/decided,
+    // recency inside each band.
+    const byRank = RUNTIME_STATE_RANK[a.runtimeState] - RUNTIME_STATE_RANK[b.runtimeState]
+    if (byRank !== 0) return byRank
+  }
+  const stamp = sort === 'created' ? createdStamp : runStamp
+  const byStamp = stamp(b) - stamp(a)
+  if (byStamp !== 0) return byStamp
+  return a.teamName.localeCompare(b.teamName)
 }
 
 // "multicode" for a single-repo run, "multicode +2 repos" for a run that declares
@@ -226,25 +257,21 @@ export function deriveSprintProjectChips(
 }
 
 /**
- * The rail's rows: every run, narrowed to one project when `projectRoot` is set,
- * ordered attention-first. An unknown `projectRoot` yields no rows — the caller
- * shows the "no runs in this project" state rather than silently listing all of
- * them.
+ * The rail's rows: every run, narrowed to one project when `projectRoot` is set.
+ * `sort` picks the order — recency by default; 'status' is the attention-first
+ * order (needs-input leads) the door's auto-select uses. An unknown
+ * `projectRoot` yields no rows — the caller shows the "no runs in this project"
+ * state rather than silently listing all of them.
  */
 export function buildSprintRailRows(
   summaries: ReadonlyArray<SprintRunSummary>,
   projectRoot: string | null,
+  sort: SprintSort = 'recent',
 ): SprintRailRow[] {
   const scoped = projectRoot
     ? summaries.filter((summary) => summary.projectRoot === projectRoot)
     : [...summaries]
-  scoped.sort((a, b) => {
-    const byRank = RUNTIME_STATE_RANK[a.runtimeState] - RUNTIME_STATE_RANK[b.runtimeState]
-    if (byRank !== 0) return byRank
-    const byStamp = runStamp(b) - runStamp(a)
-    if (byStamp !== 0) return byStamp
-    return a.teamName.localeCompare(b.teamName)
-  })
+  scoped.sort((a, b) => compareSprintRuns(a, b, sort))
   return scoped.map((summary) => ({
     id: summary.statePath,
     title: summary.teamName,
@@ -269,12 +296,13 @@ export type SprintRailGroup = {
 export function buildSprintRailGroups(
   summaries: ReadonlyArray<SprintRunSummary>,
   projectRoot: string | null,
+  sort: SprintSort = 'recent',
 ): SprintRailGroup[] {
   const scoped = projectRoot
     ? summaries.filter((summary) => summary.projectRoot === projectRoot)
     : [...summaries]
   const byPath = new Map(scoped.map((summary) => [summary.statePath, summary]))
-  const rows = buildSprintRailRows(scoped, null)
+  const rows = buildSprintRailRows(scoped, null, sort)
   const groups: SprintRailGroup[] = [
     { key: 'needs_you', label: 'Needs you', rows: [] },
     { key: 'active', label: 'Active', rows: [] },

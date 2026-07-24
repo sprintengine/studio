@@ -821,10 +821,8 @@ const legacyBackupAppSettings = {
   },
   lastSelectedCli: 'claude-code',
   lastSelectedSpecialist: 'architect',
-  lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
-  multiloopRoleCliDefaults: {},
   searchExcludes: [],
   projectKnowledgeRoots: {
     '/Users/dev/workspace/multicode': 'knowledge',

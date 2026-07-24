@@ -19,7 +19,6 @@ import type {
   SprintEngineModelCatalogEntry,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
-  SprintEngineRoleId,
   SprintEngineRoleSettings,
   SprintEngineRosterSessions,
   SprintEngineRunSettings,
@@ -35,7 +34,6 @@ import type {
   McpScope,
   McpServerConfig,
   McpSettings,
-  MultiloopRole,
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
 
@@ -150,7 +148,6 @@ export type {
   McpServerSource,
   McpSettings,
   McpTransport,
-  MultiloopRole,
   SpecialistActionId,
 } from '../../../shared/sprintengine/agent-state'
 import type { ReviewWorkspaceState } from '../../../shared/review'
@@ -163,7 +160,6 @@ export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
 export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
 export const SWITCHBOARD_WORKSPACE_MODE = 'switchboard'
-export const MULTILOOP_WORKSPACE_MODE = 'multiloop'
 export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
 // Guided walkthrough of a pull request, branch, or pasted patch (MC-1677). A
 // single-surface type: one non-closeable review tab, its change set persisted on
@@ -178,7 +174,6 @@ export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
   | typeof SPRINT_ENGINE_WORKSPACE_MODE
   | typeof SWITCHBOARD_WORKSPACE_MODE
-  | typeof MULTILOOP_WORKSPACE_MODE
   | typeof GUIDED_BRIEF_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
   | typeof REVIEW_WORKSPACE_MODE
@@ -229,24 +224,6 @@ export type {
   SprintEngineCliPermissionPreset,
 } from '../../../shared/sprintengine/automation-types'
 
-export type MultiloopAutoPendingSpawn = {
-  // Accepts a fixed Multiloop role or any registry-keyed Sprint Engine role
-  // id (bundled or custom) so spawn records survive projection ingestion
-  // even when the active Sprint Engine team includes custom roles.
-  role: MultiloopRole | SprintEngineRoleId
-  taskId?: string | null
-  agentId: string
-  startedAt?: number
-}
-
-export type MultiloopAutoState = {
-  enabled: boolean
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  maxConcurrentAgents: number
-  coordinatorAutoSpawnKey?: string | null
-  pendingSpawns: MultiloopAutoPendingSpawn[]
-}
-
 export type WatchtowerReviewSectorId =
   | 'code_review'
   | 'spec_review'
@@ -263,178 +240,6 @@ export type WatchtowerReviewSectorId =
   | 'product_strategy'
   | 'accessibility'
   | 'documentation'
-
-export type MultiloopWorkspaceContext = {
-  loopName: string
-  loopSlug: string
-  loopDirectoryPath: string
-  statePath: string
-}
-
-export type MultiloopLoopStatus = 'active' | 'blocked' | 'accepted'
-export type MultiloopMilestoneStatus = 'planned' | 'active' | 'blocked' | 'accepted'
-export type MultiloopTaskStatus = 'todo' | 'ready' | 'in_progress' | 'needs_input' | 'done' | 'blocked'
-export type MultiloopAgentStatus = 'idle' | 'running' | 'blocked'
-export type MultiloopBlockerStatus = 'active' | 'resolved'
-export type MultiloopBlockerScope = 'loop' | 'milestone' | 'task'
-export type MultiloopReviewVerdictValue = 'accepted' | 'needs_follow_up' | 'blocked' | 'revise_scope'
-
-export type MultiloopLoop = {
-  name: string
-  displayName: string
-  finalGoal: string
-  iteration: number
-  status: MultiloopLoopStatus
-  currentMilestoneId: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export type MultiloopMilestoneReviewVerdict = {
-  id: string
-  role: string
-  createdBy: string
-  verdict: MultiloopReviewVerdictValue
-  evidence: string[]
-  blockers: string[]
-  finalGoalImplications: string[]
-  nextRecommendation: string
-  createdAt: string
-}
-
-export type MultiloopLegacyMilestoneReviewVerdict = {
-  id: string
-  role: 'legacy'
-  createdBy: 'legacy'
-  verdict: 'legacy'
-  evidence: string[]
-  blockers: string[]
-  finalGoalImplications: string[]
-  nextRecommendation: string
-  createdAt: null
-}
-
-export type MultiloopMilestoneRevision = {
-  id: string
-  rationale: string
-  changes: string[]
-  createdAt: string
-  revisedBy?: string
-}
-
-export type MultiloopMilestoneSprintEngineLink = {
-  teamSlug: string
-  statePath: string
-  planPath: string
-}
-
-export type MultiloopMilestone = {
-  id: string
-  title: string
-  goal: string
-  status: MultiloopMilestoneStatus
-  entryCriteria: string[]
-  acceptanceCriteria: string[]
-  finalGoalContribution: string
-  learnedFacts: string[]
-  blockers: string[]
-  reviewVerdicts: Array<MultiloopMilestoneReviewVerdict | MultiloopLegacyMilestoneReviewVerdict>
-  revisions: MultiloopMilestoneRevision[]
-  sprintEngine: MultiloopMilestoneSprintEngineLink | null
-  createdAt: string | null
-  updatedAt: string | null
-}
-
-export type MultiloopTaskEvidence = {
-  summary: string
-  touchedFiles: string[]
-  commandsRan: string[]
-  results: string[]
-}
-
-export type MultiloopTask = {
-  id: string
-  milestoneId: string
-  role: string
-  status: MultiloopTaskStatus
-  title: string
-  description: string
-  ownerAgentId: string | null
-  dependsOn: string[]
-  ownedPaths: string[]
-  acceptanceCriteria: string[]
-  implementationNotes: string[]
-  learnedFacts: string[]
-  blockers: string[]
-  evidence: MultiloopTaskEvidence
-  feedback: Record<string, number | string>
-  createdAt: string | null
-  updatedAt: string | null
-  startedAt: string | null
-  completedAt: string | null
-}
-
-export type MultiloopArtifact = {
-  id: string
-  kind: string
-  title: string
-  path: string
-  milestoneId: string | null
-  taskId: string | null
-  createdBy: string | null
-  createdAt: string | null
-  updatedAt: string | null
-  raw: Record<string, unknown>
-}
-
-export type MultiloopAgent = {
-  id: string
-  role: string
-  status: MultiloopAgentStatus
-  currentTaskId: string | null
-}
-
-export type MultiloopDecision = {
-  id: string
-  summary: string
-  createdBy: string | null
-  createdAt: string | null
-  raw: Record<string, unknown>
-}
-
-export type MultiloopBlocker = {
-  id: string
-  summary: string
-  scope: MultiloopBlockerScope
-  status: MultiloopBlockerStatus
-  milestoneId: string | null
-  taskId: string | null
-  detail: string | null
-  createdBy: string | null
-  createdAt: string | null
-  resolvedAt: string | null
-}
-
-export type MultiloopState = {
-  schemaVersion: number
-  loop: MultiloopLoop
-  roadmap: MultiloopMilestone[]
-  tasks: MultiloopTask[]
-  artifacts: MultiloopArtifact[]
-  agents: Record<string, MultiloopAgent>
-  decisions: MultiloopDecision[]
-  blockers: MultiloopBlocker[]
-}
-
-export type MultiloopStateDisplayError = {
-  title: string
-  message: string
-  path?: string
-}
-
-export type MultiloopStateReadResult =
-  | { ok: true; state: MultiloopState }
-  | { ok: false; error: MultiloopStateDisplayError }
 
 export type FuturePlanWorkspaceSource = {
   folderPath: string
@@ -675,7 +480,7 @@ export type AppSettings = {
   skillPacks: SkillPackSettings
   /**
    * The user's global default CLI — the fallback shown for any specialist,
-   * multiloop role, Sprint Engine role, or automation with no per-agent default,
+   * Sprint Engine role, or automation with no per-agent default,
    * and settable directly in Settings. The General agent, like every specialist,
    * carries its own entry in `specialistCliDefaults` / `specialistModelDefaults`
    * (keyed by `GENERAL_AGENT_ENGINE_KEY`), so its engine is isolated from this.
@@ -703,18 +508,14 @@ export type AppSettings = {
    * next plain click repeats that choice and the menu can show what will spawn.
    */
   lastNewChatAgent: NewChatAgentChoice
-  lastSelectedMultiloopRole: MultiloopRole
   lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
   specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
-  multiloopRoleCliDefaults: Partial<Record<MultiloopRole, AgentCli>>
   /**
    * Per-specialist model override, stored with the CLI it was picked for so a
    * later CLI switch cannot leak a stale model across CLIs. Honored only when
    * the row's effective CLI matches; otherwise no model flag is passed.
    */
   specialistModelDefaults: Partial<Record<SpecialistActionId, AgentCliModelSelection>>
-  /** Per-Multiloop-role model override; same matching rules as specialists. */
-  multiloopRoleModelDefaults: Partial<Record<MultiloopRole, AgentCliModelSelection>>
   /**
    * User-defined display order for the spawn-agent specialist menu. Holds the
    * specialist ids in the sequence the user dragged them into; ids absent here
@@ -1156,7 +957,6 @@ export type Workspace = {
   folderMissing?: boolean
   worktree?: WorkspaceWorktree | null
   sprintEngineContext?: SprintEngineWorkspaceContext | null
-  multiloopContext?: MultiloopWorkspaceContext | null
   // The human's mutable review progress (files read, view mode, line comments)
   // for a `review` workspace (MC-1675). Kept OUTSIDE the change set / brief so a
   // re-run never clobbers it; null until the walkthrough surface (MC-1680) writes
@@ -1175,7 +975,6 @@ export type Workspace = {
   backlogState?: WorkspaceBacklogState
   gitPanelState?: WorkspaceGitPanelState
   sprintEngineState: SprintEngineState | null
-  multiloopState?: MultiloopState | null
   sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   // Durable per-agent CLI session records, keyed by roster agent id. Populated
   // when a sprint agent gets a live session and just before completion teardown
@@ -1188,7 +987,6 @@ export type Workspace = {
   // at persist so an app restart never replays the spawns.
   sprintEngineInitialSpawnAgentIds?: AgentId[]
   sprintEngineAutoState: SprintEngineAutoState
-  multiloopAutoState: MultiloopAutoState
   guidedBriefState?: GuidedBriefRuntimeState | null
   highlight?: WorkspaceHighlight
   createdAt: number

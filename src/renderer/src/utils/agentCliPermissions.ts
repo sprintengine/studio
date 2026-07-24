@@ -11,9 +11,5 @@ export function resolveAgentCliPermissionPreset(
     return workspace.sprintEngineAutoState.cliPermissionPreset
   }
 
-  if (agent.kind === 'multiloop') {
-    return agent.cliPermissionPreset ?? workspace.multiloopAutoState.cliPermissionPreset
-  }
-
   return agent.cliPermissionPreset
 }

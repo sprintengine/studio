@@ -20,18 +20,7 @@ export type AgentMessage = {
 
 export type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 
-export type MultiloopRole =
-  | 'coordinator'
-  | 'architect'
-  | 'product'
-  | 'developer'
-  | 'frontend'
-  | 'tester'
-  | 'security'
-  | 'performance'
-  | 'cross_platform'
-
-export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine' | 'multiloop'
+export type AgentKind = 'general' | 'specialist' | 'watchtower' | 'sprintengine'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
 
 // A specialist id is a registry role id. Specialists ship as an installable
@@ -83,8 +72,8 @@ export type AgentExecution = {
 }
 
 // Standard workspace agents run through one of two runtimes. `terminal` is the
-// default CLI/PTY path (and the only runtime for Sprint Engine and Multiloop
-// agents). `conversation` is the plugin-driven conversation runtime backed by a
+// default CLI/PTY path (and the only runtime for Sprint Engine agents).
+// `conversation` is the plugin-driven conversation runtime backed by a
 // provider/model selection. Older persisted agents have no `runtimeKind` and
 // must be treated as `terminal`.
 export type AgentRuntimeKind = 'terminal' | 'conversation'
@@ -189,7 +178,6 @@ export type AgentState = {
   chatComposerPrefill?: string
   kind?: AgentKind
   specialistId?: SpecialistActionId
-  multiloopRole?: MultiloopRole
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins

@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 import {
   GhostButton,
   IconButton,
+  InboxSearchInput,
   InlineNotice,
   Popover,
-  PrimaryButton,
   SegmentedControl,
+  Select,
   StatusDot,
   Tooltip,
   TruncatedText,
   useConfirmDialog,
+  type SelectItem,
 } from '../ui'
 import type { Tone } from '../ui/tokens'
 import type { BacklogItem } from '../../utils/backlog'
 import {
+  isRoadmapContent,
   nextEligible,
   validateRoadmap,
   parseRoadmap,
@@ -24,13 +28,25 @@ import {
   type RoadmapLaneReason,
   type RoadmapPolicy,
 } from '../../../../shared/backlog/roadmap'
-import { BACKLOG_STATUS_LABEL } from './BacklogRow'
+import { BACKLOG_STATUS_LABEL, BacklogEpicHeaderContent, BacklogRowContent } from './BacklogRow'
+import { BacklogFilterMenu } from './BacklogFilterMenu'
 import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
+import {
+  epicProgressBySlug,
+  groupItemsByEpic,
+  type BacklogEpicGroup,
+} from '../../utils/backlogEpics'
+import {
+  compareBacklogItems,
+  matchesBacklogView,
+  type BacklogSort,
+  type BacklogView,
+} from '../../utils/backlogTriage'
+import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   addLane,
   addLibraryEntry,
   authoredRef,
-  buildRoadmapLibrary,
   composeRoadmapSaveContent,
   draftFromRoadmap,
   entryPickerOptionsMulti,
@@ -47,8 +63,6 @@ import {
   splitAuthoredRef,
   splitLane,
   type RoadmapDraft,
-  type RoadmapLibraryEntry,
-  type RoadmapLibraryGroup,
   type RoadmapProjectItems,
   type RoadmapRefDisplay,
 } from './roadmapAuthoring'
@@ -72,6 +86,8 @@ import type { ProjectKey } from '../../../../shared/backlog/roadmap'
 // shows the author which step each track would reach next from backlog status
 // alone, and never claims a merge state it cannot know.
 const NO_RUN_LINKS = new Map()
+
+const AUTOSAVE_DEBOUNCE_MS = 800
 
 type RoadmapEditorPanelProps = {
   roadmapItem: BacklogItem
@@ -184,16 +200,28 @@ export function RoadmapEditorPanel({
     [projectByKey],
   )
 
-  // The library rail feed + its search query. Built from the DRAFT lanes so a row
-  // dims the instant it is placed, and re-computed as the query narrows.
+  // The library rail's search + lens + sort — the same Backlog toolbar idiom
+  // (InboxSearchInput + BacklogFilterMenu over the shared triage logic) as the
+  // Backlog door, so planning filters work exactly like the Backlog. The default
+  // 'active' lens hides completed/archived work — finished epics are not
+  // plannable and only clutter the rail (switch the lens to see them).
   const [libraryQuery, setLibraryQuery] = useState('')
-  const libraryGroups = useMemo(
-    () => (showLibrary ? buildRoadmapLibrary(projectsInput, draft.lanes, libraryQuery) : []),
-    [showLibrary, projectsInput, draft.lanes, libraryQuery],
-  )
+  const [libraryView, setLibraryView] = useState<BacklogView>('active')
+  const [librarySort, setLibrarySort] = useState<BacklogSort>('best')
+  // The refs already placed in the plan (top-level steps): placed rows dim and
+  // stop being draggable, live off the DRAFT so a row dims the instant it lands.
+  const plannedRefs = useMemo(() => {
+    const set = new Set<string>()
+    for (const lane of draft.lanes) for (const entry of lane.entries) set.add(entry.ref)
+    return set
+  }, [draft.lanes])
   // A library drag in flight, shared so a track can accept the drop (the rail and
   // the tracks live in one tree, so React state is the transport — no dataTransfer).
   const [libDrag, setLibDrag] = useState<{ ref: string } | null>(null)
+
+  // A failed autosave must not hot-loop: remember the draft that failed and only
+  // retry once the author edits again (or hits the explicit Try again).
+  const lastFailedDraftRef = useRef<RoadmapDraft | null>(null)
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -205,19 +233,40 @@ export function RoadmapEditorPanel({
       const content = composeRoadmapSaveContent(current, baseline, draft)
       await window.api.writefile(roadmapItem.path, content)
       baselineContentRef.current = content
+      lastFailedDraftRef.current = null
       setBaseline(draft)
       onSaved(content)
     } catch (error) {
+      lastFailedDraftRef.current = draft
       setSaveError(error instanceof Error ? error.message : String(error))
     } finally {
       setSaving(false)
     }
   }, [baseline, draft, onSaved, roadmapItem.path])
 
-  const handleDiscard = useCallback(() => {
-    setDraft(baseline)
-    setSaveError(null)
-  }, [baseline])
+  // Autosave: edits persist themselves — there is no Save button. A short
+  // debounce batches a burst of edits into one write; a save already in flight
+  // defers (its completion re-fires this effect via `saving`).
+  const handleSaveRef = useRef(handleSave)
+  handleSaveRef.current = handleSave
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
+  const savingRef = useRef(saving)
+  savingRef.current = saving
+  useEffect(() => {
+    if (!dirty || saving) return
+    if (saveError && lastFailedDraftRef.current === draft) return
+    const timer = setTimeout(() => void handleSaveRef.current(), AUTOSAVE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [dirty, draft, saving, saveError])
+  // Flush on unmount (back, surface close, workspace switch) so navigating away
+  // never discards edits. Fire-and-forget: the component is gone either way.
+  useEffect(
+    () => () => {
+      if (dirtyRef.current && !savingRef.current) void handleSaveRef.current()
+    },
+    [],
+  )
 
   const confirmRemoveTrack = useCallback(
     async (laneIndex: number) => {
@@ -226,7 +275,7 @@ export function RoadmapEditorPanel({
       if (hasSteps) {
         const ok = await dialog.confirm({
           title: 'Remove this track?',
-          body: `“${lane.title}” has ${lane.entries.length} ${lane.entries.length === 1 ? 'step' : 'steps'}. Removing the track drops them from the roadmap (the backlog items stay).`,
+          body: `“${lane.title}” has ${lane.entries.length} ${lane.entries.length === 1 ? 'step' : 'steps'}. Removing the track drops them from the horizon (the backlog items stay).`,
           confirmLabel: 'Remove track',
           tone: 'danger',
         })
@@ -243,6 +292,10 @@ export function RoadmapEditorPanel({
     return map
   }, [projectsInput])
 
+  const savedTeamNames = useWorkspaceStore(
+    useShallow((s) => (s.appSettings.sprintEngineRoleSettings?.savedTeams ?? []).map((team) => team.name)),
+  )
+
   const title = draft.title ?? roadmapItem.title
   const statusLabel = BACKLOG_STATUS_LABEL[roadmapItem.status] ?? roadmapItem.status
 
@@ -250,53 +303,61 @@ export function RoadmapEditorPanel({
     <div className="flex h-full min-h-0 flex-col bg-[color:var(--bg-surface)]">
       <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
+          {/* The surface-hosted editor rides the door's lifted top bar (back +
+              name + status live there); only the standalone mount draws its own
+              breadcrumb cluster. */}
           {showBack ? (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label="Back to list"
-              className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-            >
-              <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to list"
+                className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              >
+                <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+                  <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                <RoadmapGlyph className="icon-sm text-[color:var(--text-subtle)]" />
+                Horizon
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+                <StatusDot tone={statusTone(roadmapItem.status)} label={statusLabel} />
+                {statusLabel}
+              </span>
+            </>
           ) : null}
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-            <RoadmapGlyph className="icon-sm text-[color:var(--text-subtle)]" />
-            Roadmap
-          </span>
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-            <StatusDot tone={statusTone(roadmapItem.status)} label={statusLabel} />
-            {statusLabel}
-          </span>
+          <div className="min-w-0 flex-1">
+            <TitleField value={title} onChange={(next) => setDraft((d) => ({ ...d, title: next || undefined }))} />
+          </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            <Tooltip content="Open the roadmap file">
-              <IconButton aria-label="Open roadmap file" onClick={() => onOpenInEditor(roadmapItem)}>
+            {/* Autosave state, not a button: edits persist themselves. */}
+            <span aria-live="polite" className="text-[11px] text-[color:var(--text-subtle)]">
+              {saving ? 'Saving…' : dirty ? 'Unsaved edits…' : 'Saved'}
+            </span>
+            <Tooltip content="Open the horizon file">
+              <IconButton aria-label="Open horizon file" onClick={() => onOpenInEditor(roadmapItem)}>
                 <FileGlyph />
               </IconButton>
             </Tooltip>
-            {dirty ? (
-              <GhostButton onClick={handleDiscard} disabled={saving} aria-label="Discard changes">
-                Discard
-              </GhostButton>
-            ) : null}
-            <PrimaryButton onClick={() => void handleSave()} disabled={!dirty || saving}>
-              {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-            </PrimaryButton>
           </div>
         </div>
-        <TitleField value={title} onChange={(next) => setDraft((d) => ({ ...d, title: next || undefined }))} />
-        <PolicyBar policy={draft.policy} onChange={setPolicy} />
+        <PolicyBar policy={draft.policy} teamNames={savedTeamNames} onChange={setPolicy} />
       </header>
 
       <div className="flex min-h-0 flex-1">
         {showLibrary ? (
           <LibraryRail
-            groups={libraryGroups}
+            projects={projectsInput}
+            plannedRefs={plannedRefs}
             query={libraryQuery}
             onQuery={setLibraryQuery}
-            firstLaneIndex={draft.lanes.length > 0 ? 0 : null}
+            view={libraryView}
+            onView={setLibraryView}
+            sort={librarySort}
+            onSort={setLibrarySort}
+            canAdd={draft.lanes.length > 0}
             onAdd={(ref) => addRef(0, ref)}
             onDragStart={(ref) => setLibDrag({ ref })}
             onDragEnd={() => setLibDrag(null)}
@@ -306,14 +367,23 @@ export function RoadmapEditorPanel({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {saveError ? (
             <div className="px-4 pt-3">
-              <InlineNotice tone="error">{saveError}</InlineNotice>
+              <InlineNotice
+                tone="error"
+                title="Your latest edits couldn’t be saved."
+                detail={saveError}
+                action={
+                  <GhostButton size="xs" onClick={() => void handleSave()} disabled={saving}>
+                    Try again
+                  </GhostButton>
+                }
+              />
             </div>
           ) : null}
           {validation.hasCycle ? (
             <div className="px-4 pt-3">
               <InlineNotice tone="warn">
                 Some steps must run before themselves — an ordering loop. Reorder them or remove a
-                prerequisite so the roadmap can run start to finish.
+                prerequisite so the horizon can run start to finish.
               </InlineNotice>
             </div>
           ) : null}
@@ -354,25 +424,42 @@ function TitleField({ value, onChange }: { value: string; onChange: (next: strin
     <input
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      aria-label="Roadmap name"
-      placeholder="Roadmap name"
-      className="mt-2 w-full bg-transparent text-[15px] font-semibold text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:ring-0"
+      aria-label="Horizon name"
+      placeholder="Horizon name"
+      className="w-full bg-transparent text-[15px] font-semibold text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:ring-0"
     />
   )
 }
 
+// The sentinel Select value for "no saved team pinned" (Select items need a
+// non-empty string value).
+const TEAM_LAST_USED = ' last-used'
+
 // The execution policies, in plain human terms: what happens after a step
-// finishes and who merges delivered work. (`policy.concurrency` is parsed and
-// preserved but the orchestrator does not honor it yet — it serializes to one
-// active run per repo — so no editing control is shown for it. See the backlog
-// item for real per-repo concurrency.)
+// finishes, who merges delivered work, and which saved team staffs each sprint.
+// (`policy.concurrency` is parsed and preserved but the orchestrator does not
+// honor it yet — it serializes to one active run per repo — so no editing
+// control is shown for it. See the backlog item for real per-repo concurrency.)
 function PolicyBar({
   policy,
+  teamNames,
   onChange,
 }: {
   policy: RoadmapPolicy
+  // The user's saved teams (rosters), for the per-roadmap team pick.
+  teamNames: ReadonlyArray<string>
   onChange: (patch: Partial<RoadmapPolicy>) => void
 }): JSX.Element {
+  const teamItems = useMemo<SelectItem<string>[]>(() => {
+    const items: SelectItem<string>[] = [{ value: TEAM_LAST_USED, label: 'Last used roster' }]
+    for (const name of teamNames) items.push({ value: name, label: name })
+    // A stored team that is no longer among the saved teams still shows (and
+    // warns) rather than silently reading as "Last used".
+    if (policy.team && !teamNames.includes(policy.team)) {
+      items.push({ value: policy.team, label: `${policy.team} (not found)` })
+    }
+    return items
+  }, [teamNames, policy.team])
   return (
     <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3">
       <PolicyControl label="After a step finishes">
@@ -395,6 +482,14 @@ function PolicyBar({
             { value: 'manual', label: 'I merge' },
             { value: 'auto', label: 'Automatic' },
           ]}
+        />
+      </PolicyControl>
+      <PolicyControl label="Sprint team">
+        <Select
+          ariaLabel="Team for every sprint this horizon starts"
+          items={teamItems}
+          value={policy.team ?? TEAM_LAST_USED}
+          onChange={(value) => onChange({ team: value === TEAM_LAST_USED ? undefined : value })}
         />
       </PolicyControl>
     </div>
@@ -631,7 +726,11 @@ function TrackSection({
     const list = listRef.current
     if (!list) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
+    // The drop effect must be one the drag source allowed, or the browser marks
+    // the target invalid and never fires `drop`: a step reorder drags with
+    // effectAllowed 'move', a library row with 'copy' (the backlog keeps its
+    // item). This mismatch was exactly the rail-drag-refused bug.
+    event.dataTransfer.dropEffect = drag ? 'move' : 'copy'
     onDragOverIndex(computeInsertIndex(list, event.clientY))
   }
 
@@ -1015,31 +1114,138 @@ function AddStepButton({
 
 // ---- Library rail (cross-project planning) ---------------------------------
 
-// The planning rail: every project's backlog, grouped and searchable, the source
-// of drag-in work (mockup §3). A row drags into a track, or adds to the first track
-// on click/Enter (the keyboard path). A placed row dims rather than disappears, so
-// the author always sees the whole backlog. Groups and epics collapse locally.
+// The lens/sort option lists — the Backlog door's labels, restated over the same
+// shared triage behavior (matchesBacklogView / compareBacklogItems).
+const LIBRARY_VIEW_ITEMS: SelectItem<BacklogView>[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'all', label: 'All items' },
+  { value: 'epics', label: 'Epics' },
+  { value: 'quick_wins', label: 'Quick wins' },
+  { value: 'strategic_bets', label: 'Strategic bets' },
+  { value: 'defer', label: 'Defer candidates' },
+  { value: 'unestimated', label: 'Unestimated' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'archived', label: 'Archived' },
+]
+
+const LIBRARY_SORT_ITEMS: SelectItem<BacklogSort>[] = [
+  { value: 'best', label: 'Best' },
+  { value: 'recent', label: 'Recently updated' },
+  { value: 'created', label: 'Recently created' },
+  { value: 'status', label: 'Status' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'largest', label: 'Largest first' },
+  { value: 'smallest', label: 'Smallest first' },
+]
+
+// One epic (or loose-items) group of a project's library, resolved for the rail:
+// the shared BacklogEpicGroup plus each row's authored ref + planned flag.
+type LibraryGroupModel = {
+  key: string
+  group: BacklogEpicGroup
+  // The epic header's authored ref (an epic is added as ONE step), null for the
+  // loose-items bucket and dangling-slug groups.
+  headerRef: string | null
+  headerPlanned: boolean
+  children: Array<{ item: BacklogItem; ref: string; planned: boolean }>
+}
+
+// Build one project's library groups: roadmap files out, the lens + search
+// applied, epic grouping via the shared groupItemsByEpic, children sorted by the
+// shared comparator. Pure so it stays unit-testable without a DOM.
+export function buildLibraryGroupModels(
+  project: RoadmapProjectItems,
+  plannedRefs: ReadonlySet<string>,
+  query: string,
+  view: BacklogView,
+  sort: BacklogSort,
+): LibraryGroupModel[] {
+  const items = project.items.filter((item) => !isRoadmapContent(item.relativePath, item.rawType))
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const matchesQuery = (item: BacklogItem): boolean =>
+    terms.every((term) =>
+      `${item.title} ${item.displayId ?? ''} ${item.relativePath}`.toLowerCase().includes(term),
+    )
+  const refOf = (item: BacklogItem): string => authoredRef(project.projectKey, item.relativePath)
+
+  const models: LibraryGroupModel[] = []
+  for (const group of groupItemsByEpic(items)) {
+    const epic = group.epic
+    const headerRef = epic ? refOf(epic) : null
+    const headerPlanned = headerRef !== null && plannedRefs.has(headerRef)
+    const epicVisible = epic !== null && matchesBacklogView(epic, view)
+    const epicMatchesQuery = epic !== null && matchesQuery(epic)
+    // A matching epic shows all its (lens-visible) members; otherwise members
+    // must match the query themselves.
+    let children = group.children.filter((child) => matchesBacklogView(child, view))
+    if (terms.length > 0 && !epicMatchesQuery) children = children.filter(matchesQuery)
+    children.sort((a, b) => compareBacklogItems(a, b, sort))
+    const keepHeader = epicVisible && (terms.length === 0 || epicMatchesQuery || children.length > 0)
+    if (!keepHeader && children.length === 0) continue
+    models.push({
+      key: `${project.projectKey ?? '(home)'}::${group.slug ?? '(none)'}::${group.kind}`,
+      group,
+      headerRef,
+      headerPlanned,
+      children: children.map((item) => ({
+        item,
+        ref: refOf(item),
+        // A member of a planned epic rides that step — it dims with its epic.
+        planned: plannedRefs.has(refOf(item)) || headerPlanned,
+      })),
+    })
+  }
+  // Epic groups order by their epic item under the same sort; the loose-items
+  // bucket always trails so named work leads the scan.
+  models.sort((a, b) => {
+    const aNone = a.group.kind === 'none' ? 1 : 0
+    const bNone = b.group.kind === 'none' ? 1 : 0
+    if (aNone !== bNone) return aNone - bNone
+    if (a.group.epic && b.group.epic) return compareBacklogItems(a.group.epic, b.group.epic, sort)
+    return a.group.title.localeCompare(b.group.title)
+  })
+  return models
+}
+
+// The planning rail: every project's backlog through the SAME components the
+// Backlog surfaces use — InboxSearchInput + BacklogFilterMenu on top, epic
+// grouping and BacklogRowContent/BacklogEpicHeaderContent rows (status glyphs,
+// progress meters and badges come with them) — so filtering, sorting, and status
+// reading here work exactly like the Backlog. Rail-specific behavior on top: a
+// row drags into a track (or click/Enter adds to the first track), and placed
+// work dims rather than disappears so the author always sees the whole backlog.
 function LibraryRail({
-  groups,
+  projects,
+  plannedRefs,
   query,
   onQuery,
-  firstLaneIndex,
+  view,
+  onView,
+  sort,
+  onSort,
+  canAdd,
   onAdd,
   onDragStart,
   onDragEnd,
 }: {
-  groups: RoadmapLibraryGroup[]
+  projects: RoadmapProjectItems[]
+  plannedRefs: ReadonlySet<string>
   query: string
   onQuery: (next: string) => void
-  // The lane a click/Enter adds to (the first track), or null when there is none.
-  firstLaneIndex: number | null
+  view: BacklogView
+  onView: (next: BacklogView) => void
+  sort: BacklogSort
+  onSort: (next: BacklogSort) => void
+  // False when the plan has no track yet — nothing can be added.
+  canAdd: boolean
   onAdd: (ref: string) => void
   onDragStart: (ref: string) => void
   onDragEnd: () => void
 }): JSX.Element {
-  // Collapsed projects and expanded epics, keyed by their stable ids. A project is
-  // open by default; an epic is collapsed (its children are a peek, not the default).
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // Collapsed projects and epics, keyed stably. A project is open by default; an
+  // epic starts COLLAPSED — in a planning rail the epic is the step, its members
+  // are a peek (deliberately tighter than the Backlog's expanded default).
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
   const [expandedEpics, setExpandedEpics] = useState<Set<string>>(new Set())
   const toggle = (set: Set<string>, key: string): Set<string> => {
     const next = new Set(set)
@@ -1047,174 +1253,281 @@ function LibraryRail({
     else next.add(key)
     return next
   }
-  const canAdd = firstLaneIndex !== null
+  const now = useMemo(() => Date.now(), [])
 
   return (
     <aside
       aria-label="Backlog library"
-      className="flex w-[264px] shrink-0 flex-col gap-3 border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3"
+      className="flex w-[300px] shrink-0 flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)]"
     >
-      <div className="relative shrink-0">
-        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[color:var(--text-disabled)]">
-          <SearchGlyph />
-        </span>
-        <input
+      <div className="flex shrink-0 items-center gap-1.5 px-3 py-2.5">
+        <InboxSearchInput
           value={query}
-          onChange={(event) => onQuery(event.target.value)}
+          onChange={onQuery}
           placeholder="Search all backlogs…"
-          aria-label="Search all project backlogs"
-          className="h-7 w-full rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] pl-7 pr-2 text-[12px] text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:border-[color:var(--border-focus)] focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+          ariaLabel="Search all project backlogs"
+        />
+        <BacklogFilterMenu
+          view={view}
+          sort={sort}
+          group="by_epic"
+          viewItems={LIBRARY_VIEW_ITEMS}
+          sortItems={LIBRARY_SORT_ITEMS}
+          groupItems={[]}
+          onViewChange={onView}
+          onSortChange={onSort}
+          onGroupChange={() => undefined}
+          defaultView="active"
+          defaultSort="best"
+          defaultGroup="by_epic"
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-        {groups.length === 0 ? (
-          <p className="px-1 py-2 text-[11px] text-[color:var(--text-subtle)]">
-            {query.trim() ? 'No matching backlog work.' : 'No backlog work to plan yet.'}
-          </p>
-        ) : (
-          groups.map((group) => {
-            const groupKey = group.projectKey ?? '(home)'
-            const isOpen = !collapsed.has(groupKey)
-            return (
-              <div key={groupKey} className="min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setCollapsed((set) => toggle(set, groupKey))}
-                  aria-expanded={isOpen}
-                  className="interactive flex h-7 w-full min-w-0 items-center gap-1.5 rounded px-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
-                >
-                  <ChevronGlyph className={isOpen ? 'rotate-90' : ''} />
-                  <TruncatedText
-                    as="span"
-                    text={group.projectName}
-                    className="min-w-0 flex-1 text-[12px] font-semibold text-[color:var(--text-strong)]"
-                  />
-                  <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-disabled)]">
-                    {group.entries.length}
-                  </span>
-                </button>
-                {isOpen ? (
-                  <ul className="mb-1 ml-2 flex flex-col gap-0.5">
-                    {group.entries.map((entry) => (
-                      <li key={entry.ref} className="min-w-0">
-                        <LibraryRow
-                          entry={entry}
-                          canAdd={canAdd}
-                          expanded={expandedEpics.has(entry.ref)}
-                          onToggleEpic={() => setExpandedEpics((set) => toggle(set, entry.ref))}
-                          onAdd={() => onAdd(entry.ref)}
-                          onDragStart={() => onDragStart(entry.ref)}
-                          onDragEnd={onDragEnd}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            )
-          })
-        )}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-2">
+        {projects.map((project) => (
+          <LibraryProjectSection
+            key={project.projectKey ?? '(home)'}
+            project={project}
+            plannedRefs={plannedRefs}
+            query={query}
+            view={view}
+            sort={sort}
+            canAdd={canAdd}
+            now={now}
+            collapsed={collapsedProjects.has(project.projectKey ?? '(home)')}
+            onToggleCollapsed={() => setCollapsedProjects((set) => toggle(set, project.projectKey ?? '(home)'))}
+            expandedEpics={expandedEpics}
+            onToggleEpic={(key) => setExpandedEpics((set) => toggle(set, key))}
+            onAdd={onAdd}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
+        ))}
       </div>
 
-      <p className="shrink-0 border-t border-[color:var(--border-subtle)] pt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
-        Grouped by project. Placed work is dimmed. Drag an epic to run all of its items as one sequence.
+      <p className="shrink-0 border-t border-[color:var(--border-subtle)] px-3 pt-2 pb-2.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        Placed work is dimmed. Drag an epic in to deliver all of its items as one step.
       </p>
     </aside>
   )
 }
 
-function LibraryRow({
-  entry,
+function LibraryProjectSection({
+  project,
+  plannedRefs,
+  query,
+  view,
+  sort,
   canAdd,
-  expanded,
+  now,
+  collapsed,
+  onToggleCollapsed,
+  expandedEpics,
   onToggleEpic,
   onAdd,
   onDragStart,
   onDragEnd,
 }: {
-  entry: RoadmapLibraryEntry
+  project: RoadmapProjectItems
+  plannedRefs: ReadonlySet<string>
+  query: string
+  view: BacklogView
+  sort: BacklogSort
   canAdd: boolean
-  expanded: boolean
-  onToggleEpic: () => void
-  onAdd: () => void
-  onDragStart: () => void
+  now: number
+  collapsed: boolean
+  onToggleCollapsed: () => void
+  expandedEpics: ReadonlySet<string>
+  onToggleEpic: (key: string) => void
+  onAdd: (ref: string) => void
+  onDragStart: (ref: string) => void
+  onDragEnd: () => void
+}): JSX.Element | null {
+  const groups = useMemo(
+    () => buildLibraryGroupModels(project, plannedRefs, query, view, sort),
+    [project, plannedRefs, query, view, sort],
+  )
+  const progressBySlug = useMemo(() => epicProgressBySlug([...project.items]), [project.items])
+  const rowCount = groups.reduce((sum, model) => sum + model.children.length + (model.headerRef ? 1 : 0), 0)
+  // A project with nothing under the current lens/search drops out entirely —
+  // never an empty header the author must scroll past.
+  if (rowCount === 0) return null
+  return (
+    <section aria-label={`${project.projectName} backlog`} className="min-w-0">
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+        className="interactive sticky top-0 z-10 flex h-7 w-full min-w-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 text-left transition-colors hover:bg-[color:var(--bg-hover)]"
+      >
+        <ChevronGlyph className={collapsed ? '' : 'rotate-90'} />
+        <TruncatedText
+          as="span"
+          text={project.projectName}
+          className="min-w-0 flex-1 text-[12px] font-semibold text-[color:var(--text-strong)]"
+        />
+        <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-disabled)]">{rowCount}</span>
+      </button>
+      {collapsed ? null : (
+        <ul className="flex flex-col py-0.5">
+          {groups.map((model) => {
+            const epicKey = `${model.key}`
+            const epicExpanded = expandedEpics.has(epicKey)
+            return (
+              <li key={model.key} className="min-w-0">
+                {model.group.kind !== 'none' ? (
+                  <LibraryEpicHeader
+                    model={model}
+                    collapsed={!epicExpanded}
+                    progress={model.group.slug ? progressBySlug.get(model.group.slug) : undefined}
+                    canAdd={canAdd}
+                    onToggle={() => onToggleEpic(epicKey)}
+                    onAdd={onAdd}
+                    onDragStart={onDragStart}
+                    onDragEnd={onDragEnd}
+                  />
+                ) : null}
+                {model.group.kind === 'none' || epicExpanded ? (
+                  <ul className={model.group.kind === 'none' ? '' : 'pb-0.5'}>
+                    {model.children.map((child) => (
+                      <LibraryItemRow
+                        key={child.ref}
+                        item={child.item}
+                        itemRef={child.ref}
+                        planned={child.planned}
+                        indented={model.group.kind !== 'none'}
+                        canAdd={canAdd}
+                        now={now}
+                        onAdd={onAdd}
+                        onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
+                      />
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// An epic group header: the shared Backlog header row (glyph, title, progress
+// meter, collapse chevron), made a plan affordance — click/Enter adds the epic
+// as ONE step, drag carries it into a track.
+function LibraryEpicHeader({
+  model,
+  collapsed,
+  progress,
+  canAdd,
+  onToggle,
+  onAdd,
+  onDragStart,
+  onDragEnd,
+}: {
+  model: LibraryGroupModel
+  collapsed: boolean
+  progress: { done: number; total: number } | undefined
+  canAdd: boolean
+  onToggle: () => void
+  onAdd: (ref: string) => void
+  onDragStart: (ref: string) => void
   onDragEnd: () => void
 }): JSX.Element {
-  const draggable = !entry.planned && canAdd
-  // The row is a draggable container holding real controls (an add button, and for
-  // epics a peek toggle) — not a button-role div wrapping a button, so screen readers
-  // and keyboard focus stay unambiguous while drag stays the pointer affordance.
+  const addable = model.headerRef !== null && !model.headerPlanned && canAdd
   return (
-    <>
-      <div
-        draggable={draggable}
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = 'copy'
-          // A minimal payload keeps the native drag image; the ref rides React state.
-          event.dataTransfer.setData('text/plain', entry.ref)
-          onDragStart()
-        }}
-        onDragEnd={onDragEnd}
-        className={`group flex h-7 min-w-0 items-center gap-1.5 rounded pr-1.5 text-[12px] transition-colors ${
-          entry.planned ? 'opacity-40' : `cursor-grab hover:bg-[color:var(--bg-hover)]`
+    <div
+      role="button"
+      tabIndex={addable ? 0 : -1}
+      aria-label={
+        model.headerPlanned
+          ? `${model.group.title} — already in the plan`
+          : `Add the epic ${model.group.title} to the plan as one step`
+      }
+      aria-disabled={!addable}
+      draggable={addable}
+      onDragStart={(event) => {
+        if (!model.headerRef) return
+        event.dataTransfer.effectAllowed = 'copy'
+        event.dataTransfer.setData('text/plain', model.headerRef)
+        onDragStart(model.headerRef)
+      }}
+      onDragEnd={onDragEnd}
+      onClick={() => {
+        if (addable && model.headerRef) onAdd(model.headerRef)
+      }}
+      onKeyDown={(event) => {
+        if ((event.key === 'Enter' || event.key === ' ') && addable && model.headerRef) {
+          event.preventDefault()
+          onAdd(model.headerRef)
+        } else if (event.key === 'ArrowRight' && collapsed) {
+          // Keyboard member peek — the chevron itself is tabIndex -1, so the
+          // header carries expand/collapse (the tree-view arrow idiom).
+          event.preventDefault()
+          onToggle()
+        } else if (event.key === 'ArrowLeft' && !collapsed) {
+          event.preventDefault()
+          onToggle()
+        }
+      }}
+      className={`px-3 py-1 transition-colors ${
+        model.headerPlanned ? 'opacity-40' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
+      }`}
+    >
+      <BacklogEpicHeaderContent group={model.group} collapsed={collapsed} onToggleCollapse={onToggle} progress={progress} />
+    </div>
+  )
+}
+
+// One addable item row: the shared Backlog row content (status glyph, id, title,
+// badges) inside an add button; drag carries the ref into a track.
+function LibraryItemRow({
+  item,
+  itemRef,
+  planned,
+  indented,
+  canAdd,
+  now,
+  onAdd,
+  onDragStart,
+  onDragEnd,
+}: {
+  item: BacklogItem
+  itemRef: string
+  planned: boolean
+  indented: boolean
+  canAdd: boolean
+  now: number
+  onAdd: (ref: string) => void
+  onDragStart: (ref: string) => void
+  onDragEnd: () => void
+}): JSX.Element {
+  const addable = !planned && canAdd
+  return (
+    <li
+      draggable={addable}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'copy'
+        event.dataTransfer.setData('text/plain', itemRef)
+        onDragStart(itemRef)
+      }}
+      onDragEnd={onDragEnd}
+      className="min-w-0 list-none"
+    >
+      <button
+        type="button"
+        disabled={!addable}
+        onClick={() => onAdd(itemRef)}
+        aria-label={planned ? `${item.title} — already in the plan` : `Add ${item.title} to the plan`}
+        className={`interactive block w-full text-left ${indented ? 'pl-6 pr-3' : 'px-3'} py-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary-soft)] ${
+          planned ? 'opacity-40' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
         }`}
       >
-        {entry.kind === 'epic' ? (
-          <button
-            type="button"
-            aria-label={expanded ? `Hide items in ${entry.title}` : `Show items in ${entry.title}`}
-            aria-expanded={expanded}
-            onClick={onToggleEpic}
-            className="interactive ml-1 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]"
-          >
-            <ChevronGlyph className={expanded ? 'rotate-90' : ''} />
-          </button>
-        ) : (
-          <span aria-hidden="true" className="ml-1 shrink-0 text-[color:var(--text-disabled)] opacity-0 transition-opacity group-hover:opacity-100">
-            <GripGlyph />
-          </span>
-        )}
-        <button
-          type="button"
-          disabled={!draggable}
-          onClick={onAdd}
-          aria-label={
-            entry.planned
-              ? `${entry.title} — already in the plan`
-              : `Add ${entry.title}${entry.kind === 'epic' ? ` (${entry.children.length} items)` : ''} to the plan`
-          }
-          className="interactive flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded text-left text-[color:var(--text-default)] outline-none disabled:cursor-default focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
-        >
-          {entry.kind === 'epic' ? <EpicGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" /> : null}
-          {entry.displayId ? (
-            <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">{entry.displayId}</span>
-          ) : null}
-          <TruncatedText as="span" text={entry.title} className="min-w-0 flex-1" />
-          {entry.kind === 'epic' ? (
-            <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">
-              {entry.children.length}
-            </span>
-          ) : null}
-        </button>
-      </div>
-      {entry.kind === 'epic' && expanded ? (
-        <ul className="ml-6 mb-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-2">
-          {entry.children.length === 0 ? (
-            <li className="py-0.5 text-[11px] text-[color:var(--text-disabled)]">No items in this epic yet.</li>
-          ) : (
-            entry.children.map((child) => (
-              <li key={child.ref} className="flex min-w-0 items-center gap-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)]">
-                {child.displayId ? (
-                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-[color:var(--text-subtle)]">{child.displayId}</span>
-                ) : null}
-                <TruncatedText as="span" text={child.title} className="min-w-0" />
-              </li>
-            ))
-          )}
-        </ul>
-      ) : null}
-    </>
+        <BacklogRowContent item={item} now={now} plainTitle />
+      </button>
+    </li>
   )
 }
 
@@ -1291,13 +1604,15 @@ function statusTone(status: BacklogItem['status']): Tone {
   }
 }
 
+// The Horizon mark: a sun setting on the horizon line (matches the door glyph).
 function RoadmapGlyph({ className }: { className?: string }): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className}>
-      <circle cx="4" cy="4" r="1.6" stroke="currentColor" strokeWidth="1.2" />
-      <circle cx="12" cy="8" r="1.6" stroke="currentColor" strokeWidth="1.2" />
-      <circle cx="4" cy="12" r="1.6" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M5.6 4H9a2 2 0 0 1 2 2v.4M10.4 8H7a2 2 0 0 0-2 2v.4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M4.8 11 a3.2 3.2 0 0 1 6.4 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M2 11 H14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M8 5.4 V3.9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M4.2 6.8 3.2 5.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M11.8 6.8 12.8 5.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   )
 }
@@ -1320,15 +1635,6 @@ function GripGlyph(): JSX.Element {
       <circle cx="10" cy="8" r="1" />
       <circle cx="6" cy="12" r="1" />
       <circle cx="10" cy="12" r="1" />
-    </svg>
-  )
-}
-
-function SearchGlyph(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-      <circle cx="7" cy="7" r="3.4" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M9.6 9.6 13 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }

@@ -2,14 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { readMultiloopPrompt, readSpecialistSoul } from './souls-service'
+import { readSpecialistSoul } from './souls-service'
 
 async function main(): Promise<void> {
   await testUnknownSpecialistIdReturnsStructuredFailure()
   await testKnownSpecialistRendersFromRegistry()
   await testAliasedSpecialistResolvesThroughRegistry()
   await testRegistryFailureSurfacesStructuredMessage()
-  await testMultiloopPromptInstructsCliFetch()
   testPackagedBuildShipsRegistryResources()
 
   console.log('souls-service tests passed')
@@ -105,18 +104,6 @@ function findRepoRootForPackageJson(): string {
     }
   }
   throw new Error('Could not locate repository package.json from test context.')
-}
-
-async function testMultiloopPromptInstructsCliFetch(): Promise<void> {
-  const coordinator = await readMultiloopPrompt('coordinator')
-  assert.equal(coordinator.ok, true)
-  if (!coordinator.ok) return
-  assert.match(coordinator.prompt, /scripts\/multiloop/)
-
-  const architect = await readMultiloopPrompt('architect')
-  assert.equal(architect.ok, true)
-  if (!architect.ok) return
-  assert.match(architect.prompt, /--role architect/)
 }
 
 void main().catch((error) => {

@@ -171,7 +171,10 @@ function FilterGroup<T extends string>({
   onSelect: (value: T) => void
   onOptionKey: (event: React.KeyboardEvent<HTMLButtonElement>) => void
   divider?: boolean
-}): JSX.Element {
+}): JSX.Element | null {
+  // An axis a consumer does not offer (e.g. the roadmap library is always
+  // grouped by epic) renders nothing — never an empty header.
+  if (items.length === 0) return null
   return (
     <div
       role="group"

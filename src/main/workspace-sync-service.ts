@@ -305,12 +305,6 @@ function createRoutingPlaceholderWorkspace(
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },
-    multiloopAutoState: {
-      enabled: false,
-      cliPermissionPreset: 'default',
-      maxConcurrentAgents: 0,
-      pendingSpawns: [],
-    },
     createdAt: 0,
   }
 }

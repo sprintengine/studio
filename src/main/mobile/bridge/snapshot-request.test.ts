@@ -219,7 +219,6 @@ function emptyDesktopService(): MobileSprintEngineSnapshotService {
       readSwitchboardTasks: async () => ({ ok: false, message: 'Switchboard is not initialized.' }),
       getSwitchboardRunnerState: async () => ({ ok: false, message: 'Runner unavailable.' }),
       listWatchtowerRuns: async () => ({ ok: true, runs: [] }),
-      readMultiloopStates: async () => [],
       readRoleCatalog: async () => [],
     },
   })

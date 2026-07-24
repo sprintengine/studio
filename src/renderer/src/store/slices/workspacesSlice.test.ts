@@ -66,7 +66,6 @@ assert.equal(normalizeWorkspaceMode(''), 'standard')
 assert.equal(normalizeWorkspaceMode('   '), 'standard')
 assert.equal(normalizeWorkspaceMode(null), 'standard')
 assert.equal(normalizeWorkspaceMode('standard', { goal: 'ship' } as never), 'sprintengine')
-assert.equal(normalizeWorkspaceMode('standard', null, { goal: 'loop' } as never), 'multiloop')
 
 const store = useWorkspaceStore.getState()
 const firstId = store.addWorkspace(standardTemplate, {

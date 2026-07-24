@@ -55,23 +55,6 @@ export const sprintEngineTabsLayoutModel = (
   },
 })
 
-export const multiloopTabsLayoutModel = (): IJsonModel => ({
-  global: { tabSetEnableDrop: true, tabEnableClose: true },
-  borders: [],
-  layout: {
-    type: 'row',
-    children: [
-      {
-        type: 'tabset',
-        weight: 100,
-        children: [
-          { type: 'tab', name: 'Multiloop', component: 'multiloop-board' },
-        ],
-      },
-    ],
-  },
-})
-
 export function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
   if (Array.isArray(value)) {
@@ -83,14 +66,6 @@ export function modelContainsComponent(value: unknown, component: string): boole
   if (record.component === component) return true
 
   return Object.values(record).some((entry) => modelContainsComponent(entry, component))
-}
-
-export function hasMultiloopBoardLayout(model: IJsonModel | null | undefined): boolean {
-  return modelContainsComponent(model, 'multiloop-board')
-}
-
-export function ensureMultiloopLayoutModel(model: IJsonModel | null | undefined): IJsonModel {
-  return model && hasMultiloopBoardLayout(model) ? model : multiloopTabsLayoutModel()
 }
 
 export function isLegacySprintEngineLayout(model: IJsonModel): boolean {

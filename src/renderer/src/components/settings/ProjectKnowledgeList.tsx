@@ -67,7 +67,7 @@ type ProjectKnowledgeListProps = {
 
 /**
  * Knowledge Graph settings list. One row per open project (deduped across its
- * Sprint Engine / Multiloop workspaces); each row sets that project's knowledge
+ * Sprint Engine workspaces); each row sets that project's knowledge
  * folder. Multi-select + "Point at shared folder…" assigns one real folder to
  * several projects, storing each project's own relative path to it.
  */

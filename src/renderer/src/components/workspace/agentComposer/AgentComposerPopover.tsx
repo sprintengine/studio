@@ -45,8 +45,6 @@ type SelectAction = {
 }
 
 export type AgentComposerPopoverProps = {
-  // Specialist roster (standard workspaces) or the multiloop role roster.
-  roster: 'specialist' | 'multiloop'
   // Whether the Conversation quick row is offered (spawn mode only).
   conversationAvailable: boolean
   // The remembered agent, preselected on open.
@@ -68,7 +66,6 @@ export type AgentComposerPopoverProps = {
  * default without spawning and without moving any other row's chrome.
  */
 export default function AgentComposerPopover({
-  roster,
   conversationAvailable,
   initialSelection,
   action,
@@ -76,7 +73,6 @@ export default function AgentComposerPopover({
 }: AgentComposerPopoverProps) {
   const selectMode = action.kind === 'select'
   const composer = useAgentComposer({
-    mode: roster,
     // Select mode chooses a soul, not a runtime session — no terminal row.
     showTerminal: !selectMode,
     conversationAvailable: !selectMode && conversationAvailable,
@@ -86,20 +82,20 @@ export default function AgentComposerPopover({
   const searchRef = React.useRef<HTMLInputElement>(null)
   // Which row's engine flyout is open (row key). One at a time across the menu.
   const [engineFlyoutRowKey, setEngineFlyoutRowKey] = React.useState<string | null>(null)
-  // "+ Skill" attachment (spawn mode, specialist roster): ensure-installed at
-  // spawn with the invocation prefilled as the agent's first input.
+  // "+ Skill" attachment (spawn mode): ensure-installed at spawn with the
+  // invocation prefilled as the agent's first input.
   const [skillPickerOpen, setSkillPickerOpen] = React.useState(false)
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
-  const skillAttachAvailable = !selectMode && roster === 'specialist' && Boolean(activeWorkspaceRoot)
+  const skillAttachAvailable = !selectMode && Boolean(activeWorkspaceRoot)
   // "+ Worktree" is only offered when the active workspace folder is inside a
   // git repository — probed once per open so a non-repo folder never shows a
   // control whose spawn would fail.
   const [workspaceIsGitRepo, setWorkspaceIsGitRepo] = React.useState(false)
   React.useEffect(() => {
     let cancelled = false
-    if (selectMode || roster !== 'specialist' || !activeWorkspaceRoot) {
+    if (selectMode || !activeWorkspaceRoot) {
       setWorkspaceIsGitRepo(false)
       return
     }
@@ -114,8 +110,8 @@ export default function AgentComposerPopover({
     return () => {
       cancelled = true
     }
-  }, [selectMode, roster, activeWorkspaceRoot])
-  const worktreeAttachAvailable = !selectMode && roster === 'specialist' && workspaceIsGitRepo
+  }, [selectMode, activeWorkspaceRoot])
+  const worktreeAttachAvailable = !selectMode && workspaceIsGitRepo
 
   React.useEffect(() => {
     const id = requestAnimationFrame(() => searchRef.current?.focus())
@@ -220,8 +216,8 @@ export default function AgentComposerPopover({
           value={composer.query}
           onChange={(event) => composer.setQuery(event.currentTarget.value)}
           onKeyDown={onSearchKeyDown}
-          placeholder={roster === 'multiloop' ? 'Search roles' : 'Search agents'}
-          aria-label={roster === 'multiloop' ? 'Search roles' : 'Search agents'}
+          placeholder="Search agents"
+          aria-label="Search agents"
           aria-controls="agent-composer-pop-roster"
           aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
           className="min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
@@ -245,7 +241,7 @@ export default function AgentComposerPopover({
       <div
         id="agent-composer-pop-roster"
         role="listbox"
-        aria-label={roster === 'multiloop' ? 'Roles' : 'Agents'}
+        aria-label="Agents"
         className="min-h-0 flex-1 overflow-y-auto py-1"
       >
         {visibleRows.length === 0 ? (
@@ -254,8 +250,7 @@ export default function AgentComposerPopover({
           visibleRows.map((row, index) => {
             const prev = visibleRows[index - 1]
             const startsSpecialistSection =
-              (row.kind === 'specialist' || row.kind === 'multiloop') &&
-              (!prev || (prev.kind !== 'specialist' && prev.kind !== 'multiloop'))
+              row.kind === 'specialist' && (!prev || prev.kind !== 'specialist')
             const persisted =
               selectMode &&
               action.kind === 'select' &&
@@ -429,14 +424,13 @@ export default function AgentComposerPopover({
 
 // One sentence on what the highlighted row is, for the info strip. Specialist
 // descriptions come from the pack; the quick rows carry the same copy the New
-// Chat panel uses; multiloop roles have no pack description.
+// Chat panel uses.
 function rowDescription(row: ComposerRow): string {
   if (row.kind === 'terminal') return "A plain shell in this project's folder — no agent, no model."
   if (row.kind === 'general') {
     return 'A general-purpose agent with no role prompt — it runs your instructions as written.'
   }
   if (row.kind === 'conversation') return 'A chat agent — pick the provider model in the composer.'
-  if (row.kind === 'multiloop') return `${row.role.label} role in this workspace's multiloop.`
   return row.action.description
 }
 
@@ -444,7 +438,6 @@ function rowLabel(row: ComposerRow): string {
   if (row.kind === 'terminal') return 'Terminal'
   if (row.kind === 'general') return 'General agent'
   if (row.kind === 'conversation') return 'Conversation agent'
-  if (row.kind === 'multiloop') return row.role.label
   return row.action.shortLabel
 }
 
@@ -455,7 +448,6 @@ function rowIcon(row: ComposerRow, rowCli: AgentCli): React.ReactNode {
   if (row.kind === 'terminal') return <TerminalSessionIcon className="h-4 w-4" />
   if (row.kind === 'general') return <CliIcon cli={rowCli} className="h-4 w-4" />
   if (row.kind === 'conversation') return <ConversationProviderIcon className="h-4 w-4" />
-  if (row.kind === 'multiloop') return <SpecialistActionIcon icon={row.role.icon} className="h-4 w-4" />
   return <SpecialistActionIcon icon={row.action.icon} className="h-4 w-4" />
 }
 

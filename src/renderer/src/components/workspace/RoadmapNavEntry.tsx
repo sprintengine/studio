@@ -25,9 +25,9 @@ export function RoadmapNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
     <SidebarNavButton
       collapsed={collapsed}
       icon={<RoadmapNavIcon className="icon-sm pointer-events-none shrink-0" />}
-      label="Roadmap"
-      ariaLabel="Roadmap"
-      tooltip={attention.waiting ? 'Roadmap — waiting on you' : 'Roadmap'}
+      label="Horizon"
+      ariaLabel="Horizon"
+      tooltip={attention.waiting ? 'Horizon — waiting on you' : 'Horizon'}
       tooltipWhenExpanded
       active={roadmapSurfaceActive}
       indicator={roadmapNavIndicator(attention)}
@@ -36,19 +36,19 @@ export function RoadmapNavEntry({ collapsed }: SidebarNavEntryRenderProps) {
   )
 }
 
-// Route glyph for the Roadmap top-nav entry — an ordered path through steps, in the
-// icon family's 16-box round-stroke idiom.
+// Horizon glyph for the top-nav entry — a sun setting on the horizon line, in
+// the icon family's 16-box round-stroke idiom.
 function RoadmapNavIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <circle cx="4" cy="3.6" r="1.9" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="12" cy="12.4" r="1.9" stroke="currentColor" strokeWidth="1.4" />
-      <path
-        d="M6 3.6 H10.6 A2.2 2.2 0 0 1 10.6 8 H5.4 A2.2 2.2 0 0 0 5.4 12.4 H10"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
+      {/* Sun dome resting on the horizon */}
+      <path d="M4.8 11 a3.2 3.2 0 0 1 6.4 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      {/* Horizon line */}
+      <path d="M2 11 H14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      {/* Low-sun rays */}
+      <path d="M8 5.4 V3.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M4.2 6.8 3.2 5.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M11.8 6.8 12.8 5.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -56,7 +56,7 @@ function RoadmapNavIcon({ className }: { className?: string }) {
 // The Roadmap nav dot: waiting-on-you takes precedence (a warn dot the user should
 // act on) over the live-sprint pulse (an accent dot that is merely informational).
 function roadmapNavIndicator(attention: RoadmapAttention): React.ReactNode {
-  if (attention.waiting) return <StatusDot tone="warn" label="Roadmap is waiting on you" />
-  if (attention.running) return <StatusDot tone="accent" pulse label="A roadmap sprint is running" />
+  if (attention.waiting) return <StatusDot tone="warn" label="Horizon is waiting on you" />
+  if (attention.running) return <StatusDot tone="accent" pulse label="A Horizon sprint is running" />
   return null
 }

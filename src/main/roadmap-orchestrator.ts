@@ -142,6 +142,9 @@ export type RoadmapAppFrontDoor = {
   reorderStep(input: { ref: string; toIndex: number; toLane?: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
   skipStep(input: { ref: string; reason: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
   steerLane(lane: string, action: RoadmapSteerAction, actor: RoadmapActor): Promise<RoadmapCommandOutcome>
+  // On-demand reconcile, for events that change a lane's world outside the
+  // 60s engine tick (e.g. a sprint canceled from the Sprints door).
+  reconcile(): Promise<void>
 }
 
 // A parked/active/idle lane as the surface (MC-1620) renders it. The wire shape is
@@ -180,13 +183,15 @@ export type RoadmapOrchestratorPorts = {
   // first, enforces merge order, and is idempotent. `ok:false` carries the
   // refusal reason (conflict/order/gh).
   mergePullRequest(statePath: string): Promise<{ ok: boolean; message?: string }>
-  // Start a sprint from a backlog item through the shared plan-sourced flow
-  // (worktree mode, startRunner) in the item's own project root. Records the
-  // execution link + fans out children.
+  // Start a sprint from a backlog item OR epic (one sprint delivers a whole epic
+  // step) through the shared plan-sourced flow (worktree mode, startRunner) in
+  // the item's own project root. Records the execution link. `team` names the
+  // roadmap's saved roster; unset = the user's last-used roster.
   startSprint(input: {
     workspaceRoot: string
     itemRelativePath: string
     isEpic: boolean
+    team?: string
   }): Promise<{ ok: boolean; message?: string }>
   // Abandon a dead run when the human resumes a parked lane: remove the item's
   // execution link (so the reconcile does not re-adopt the dead run) and reset
@@ -212,18 +217,18 @@ const ACTIVE_ROADMAP_STATUSES = new Set(['ready', 'in_progress', 'needs_input'])
 // Human-readable park copy for the user notification (plain language, per the
 // epic's copy guardrail — no "lane"/"reconciler"/"eligibility" in user text).
 const PARK_NOTICE: Record<RoadmapParkReason, string> = {
-  run_failed: 'A sprint failed. The roadmap is paused until you take a look.',
-  run_canceled: 'A sprint was canceled. The roadmap is paused.',
-  needs_input: 'A sprint is waiting on your input. The roadmap is paused.',
-  pr_closed: 'A pull request was closed without merging. The roadmap is paused.',
-  merge_failed: 'A merge could not complete. The roadmap is paused.',
-  start_failed: 'The next sprint could not start. The roadmap is paused.',
-  eligibility_contradiction: 'The roadmap references an item that no longer exists. It is paused.',
-  unknown_project: 'The roadmap points at a project this Multicode can no longer find. It is paused until you re-point it.',
+  run_failed: 'A sprint failed. The horizon is paused until you take a look.',
+  run_canceled: 'A sprint was canceled. The horizon is paused.',
+  needs_input: 'A sprint is waiting on your input. The horizon is paused.',
+  pr_closed: 'A pull request was closed without merging. The horizon is paused.',
+  merge_failed: 'A merge could not complete. The horizon is paused.',
+  start_failed: 'The next sprint could not start. The horizon is paused.',
+  eligibility_contradiction: 'The horizon references an item that no longer exists. It is paused.',
+  unknown_project: 'The horizon points at a project this Multicode can no longer find. It is paused until you re-point it.',
   // A manual pause is a human action, not an incident — it never notifies (the
   // driver only calls notifyPark for the failure reasons), so this copy is a
   // defensive default the notify path never reaches.
-  paused: 'The roadmap is paused.',
+  paused: 'The horizon is paused.',
 }
 
 export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
@@ -308,8 +313,8 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     if (candidates.length > 1) {
       ports.notify({
         severity: 'warning',
-        title: 'More than one roadmap',
-        body: `Only "${active.title ?? active.relativePath}" is active. Archive the extra roadmap files so the plan is unambiguous.`,
+        title: 'More than one horizon',
+        body: `Only "${active.title ?? active.relativePath}" is active. Archive the extra horizon files so the plan is unambiguous.`,
       })
     }
 
@@ -471,7 +476,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
         const item = entry.items.find(
           (candidate) => candidate.projectKey === action.projectKey && candidate.relativePath === action.relativePath,
         )
-        const started = await executeStart(root, action.relativePath, item?.isEpic ?? false)
+        const started = await executeStart(root, action.relativePath, item?.isEpic ?? false, entry.roadmap.policy.team)
         if (!started.ok) {
           laneRuntimes.set(action.lane, parkedRuntime(runtime, 'start_failed', qualifiedRef(action.projectKey, action.relativePath), started.message, ports.now()))
           notifyPark('start_failed', started.message)
@@ -490,7 +495,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       case 'queue_approval':
         ports.notify({
           severity: 'info',
-          title: 'Roadmap ready to continue',
+          title: 'Horizon ready to continue',
           body: 'The next piece of work is ready to start when you are.',
         })
         return
@@ -517,13 +522,14 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     workspaceRoot: string,
     itemRelativePath: string,
     isEpic: boolean,
+    team: string | undefined,
   ): Promise<{ ok: true; runRef: RoadmapRunRef } | { ok: false; message?: string }> {
     const existing = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (existing) {
       const snapshot = await ports.observeRun(existing)
       if (snapshot && isAdoptable(snapshot)) return { ok: true, runRef: existing }
     }
-    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic })
+    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic, ...(team ? { team } : {}) })
     if (!created.ok) return { ok: false, message: created.message }
     const runRef = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (!runRef) {
@@ -571,7 +577,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   function notifyPark(reason: RoadmapParkReason, detail?: string): void {
     ports.notify({
       severity: reason === 'needs_input' ? 'info' : 'warning',
-      title: 'Roadmap paused',
+      title: 'Horizon paused',
       body: detail ? `${PARK_NOTICE[reason]} (${detail})` : PARK_NOTICE[reason],
     })
   }
@@ -853,7 +859,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       return { ok: false, message: errorMessage(error) }
     }
     const target = roadmaps.find((item) => normalizeRoadmapPath(item.relativePath) === targetRef)
-    if (!target) return { ok: false, message: 'That roadmap file no longer exists.' }
+    if (!target) return { ok: false, message: 'That horizon file no longer exists.' }
     try {
       // Promote first: the one write that must land before anything is demoted.
       if (!ACTIVE_ROADMAP_STATUSES.has(target.status)) {
@@ -881,7 +887,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     input: { projectRoot: string; name: string },
   ): Promise<{ ok: true; roadmapRef: string; projectRoot: string } | { ok: false; message: string }> {
     const name = input.name.trim()
-    if (!name) return { ok: false, message: 'A roadmap name is required.' }
+    if (!name) return { ok: false, message: 'A horizon name is required.' }
     const homeRoot = ports.getHomeProjectRoot()
     // A configured home wins — the roadmap is instance-global; otherwise the caller's
     // project must be an open workspace, never a silent fallback.
@@ -889,12 +895,12 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     if (!homeRoot) {
       const known = new Set(ports.listWorkspaceRoots().map(normalizeRoot))
       if (!known.has(normalizeRoot(input.projectRoot))) {
-        return { ok: false, message: 'Open the project first, then create a roadmap in it.' }
+        return { ok: false, message: 'Open the project first, then create a horizon in it.' }
       }
     }
     const relativePath = `backlog/roadmaps/${roadmapDatePrefix(ports.now())}-${slugify(name)}.md`
     if ((await ports.readRoadmapFile(projectRoot, relativePath)) !== null) {
-      return { ok: false, message: 'A roadmap with that name already exists here. Pick a different name.' }
+      return { ok: false, message: 'A horizon with that name already exists here. Pick a different name.' }
     }
     try {
       await ports.writeRoadmapFile(projectRoot, relativePath, newRoadmapFileContent(name))
@@ -991,11 +997,15 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   }
 
   // The runnable children of an epic, path-sorted for a deterministic snapshot
-  // (matches the renderer's childrenOfEpic scan order). Non-epic members only.
+  // (matches the renderer's snapshotEpicChildren). Non-epic OPEN members only —
+  // finished work never rides into a new plan (mirror the renderer's filter).
   function epicChildRefs(items: ReadonlyArray<RoadmapBacklogItem>, epicRelativePath: string): string[] {
     const slug = roadmapRefSlug(epicRelativePath)
     return items
-      .filter((item) => !item.isEpic && item.epic === slug)
+      .filter(
+        (item) =>
+          !item.isEpic && item.epic === slug && item.status !== 'completed' && item.status !== 'archived',
+      )
       .map((item) => normalizeRoadmapPath(item.relativePath))
       .sort()
   }

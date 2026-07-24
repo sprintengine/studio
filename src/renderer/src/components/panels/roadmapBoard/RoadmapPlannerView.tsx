@@ -125,16 +125,16 @@ export function RoadmapPlannerView({
     // Scan not in yet → genuinely loading. Scan in but the ref is absent → the
     // roadmap file is gone (moved/deleted outside Multicode): a resolvable
     // not-found state with a way back, never "Loading your plan…" forever.
+    // (The door shell's lifted bar carries the back chevron; no local header.)
     return (
       <div className="flex h-full min-h-0 flex-col bg-[color:var(--bg-surface)]">
-        <PlannerHeader onBack={onBack} />
         {homeScanLoaded ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-12 text-center">
             <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--tone-neutral-soft)] text-[18px] text-[color:var(--text-muted)]">
               ?
             </div>
             <h3 className="text-[14px] font-semibold text-[color:var(--text-strong)]">
-              This roadmap file no longer exists
+              This horizon file no longer exists
             </h3>
             <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
               It may have been moved or deleted outside Multicode.
@@ -164,28 +164,8 @@ export function RoadmapPlannerView({
         const project = libraryProjects.find((candidate) => candidate.projectKey === projectKey)
         if (project) onRevealItem(project.path, relativePath)
       }}
-      showBack
+      showBack={false}
       onBack={onBack}
     />
-  )
-}
-
-// The minimal header shown only while the plan is still loading (the editor supplies
-// its own once the roadmap resolves), so the Back affordance is never missing.
-function PlannerHeader({ onBack }: { onBack: () => void }): JSX.Element {
-  return (
-    <header className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label="Back to roadmap"
-        className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
-      >
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-          <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      <span className="text-[13px] font-semibold text-[color:var(--text-strong)]">Plan roadmap</span>
-    </header>
   )
 }

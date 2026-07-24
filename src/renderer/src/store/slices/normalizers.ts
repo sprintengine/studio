@@ -3,10 +3,7 @@ import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeGuidedBriefState } from './guidedBriefSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
-import {
-  normalizeMultiloopAutoState,
-  normalizeSprintEngineAutoState,
-} from './runStateSlice'
+import { normalizeSprintEngineAutoState } from './runStateSlice'
 import {
   normalizeWorkspaceBacklogState,
   normalizeWorkspaceFileExplorerState,
@@ -20,6 +17,11 @@ import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 // rather than a live `WorkspaceMode` constant: it is a legacy value with no
 // producer left, referenced only to filter it out of persisted state.
 const RETIRED_ROADMAP_WORKSPACE_MODE = 'roadmap'
+
+// The retired `multiloop` workspace-mode string. Same contract as the roadmap
+// literal above: the Multiloop feature was removed (the Roadmap/Horizon door
+// replaces it), so the mode survives only as a filter target for persisted state.
+const RETIRED_MULTILOOP_WORKSPACE_MODE = 'multiloop'
 
 export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
@@ -173,6 +175,20 @@ export function dropRetiredRoadmapWorkspaces(workspaces: Workspace[]): Workspace
   return workspaces.filter((workspace) => workspace.mode !== RETIRED_ROADMAP_WORKSPACE_MODE)
 }
 
+// The `multiloop` workspace mode retired in store v66: the Multiloop feature was
+// removed outright (the Roadmap/Horizon door replaces it), so a per-project
+// "Multiloop workspace" no longer exists. Drop any persisted multiloop-mode row
+// on every list-entry path, not only in the v66 migration step — a dev-HMR
+// reload (or any write that stamps the current store version onto un-migrated
+// state) would otherwise leave a multiloop row the migrate ladder never
+// revisits, exactly how the v63 host dedupe was bypassed in the wild. Any
+// on-disk loop state under the project folder is untouched. Returns the input
+// array unchanged when there is no multiloop-mode row.
+export function dropRetiredMultiloopWorkspaces(workspaces: Workspace[]): Workspace[] {
+  if (!workspaces.some((workspace) => workspace.mode === RETIRED_MULTILOOP_WORKSPACE_MODE)) return workspaces
+  return workspaces.filter((workspace) => workspace.mode !== RETIRED_MULTILOOP_WORKSPACE_MODE)
+}
+
 // Every agent carries a real name like the specialists do, but workspaces
 // created before that rule (and layout-template seeds that adopted the tab's
 // generic label) persisted agents literally named "Agent" / "Agent 2" / "A1".
@@ -228,7 +244,7 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
   )
   return {
     ...launchSafeWorkspace,
-    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState, launchSafeWorkspace.multiloopState),
+    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState),
     // The Sprint Engine projection is a cache of the on-disk projection.json
     // (the source of truth), re-read by SprintEngineProjectionSupervisor on its
     // first tick after mount for every Sprint Engine workspace. Persisting it
@@ -247,14 +263,12 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
     // Session-only creation launch intent; never persist it, or a restart
     // would replay the initial spawns.
     sprintEngineInitialSpawnAgentIds: undefined,
-    multiloopAutoState: normalizeMultiloopAutoState(launchSafeWorkspace.multiloopAutoState),
     agents: Object.fromEntries(
       Object.entries(launchSafeWorkspace.agents).map(([id, a]) => {
         const shouldKeepStartupPrompt =
           !a.cliOnboardingPromptSent
           && (
             (a.kind === 'specialist' && Boolean(a.specialistId))
-            || (a.kind === 'multiloop' && Boolean(a.multiloopRole))
             || (a.kind === 'watchtower' && Boolean(a.specialistId))
           )
         const cliStartupPrompt = shouldKeepStartupPrompt ? a.cliStartupPrompt : undefined

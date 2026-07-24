@@ -297,6 +297,9 @@ function policyDiff(baseline: RoadmapPolicy, next: RoadmapPolicy): Partial<Roadm
   if (baseline.advance !== next.advance) diff.advance = next.advance
   if (baseline.merge !== next.merge) diff.merge = next.merge
   if (baseline.concurrency !== next.concurrency) diff.concurrency = next.concurrency
+  // A cleared team must ride the diff as an explicitly-present undefined key —
+  // setRoadmapPolicy keys the frontmatter REMOVAL off `'team' in updates`.
+  if (baseline.team !== next.team) diff.team = next.team
   return Object.keys(diff).length > 0 ? diff : null
 }
 

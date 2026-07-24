@@ -33,12 +33,6 @@ function workspace(id: string, folderPath: string | null = null): Workspace {
       maxConcurrentAgents: 0,
       deliveredAgentNotificationEventKeys: [],
     },
-    multiloopAutoState: {
-      enabled: false,
-      cliPermissionPreset: 'default',
-      maxConcurrentAgents: 0,
-      pendingSpawns: [],
-    },
     createdAt: 1,
   }
 }

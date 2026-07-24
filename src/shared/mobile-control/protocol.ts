@@ -84,7 +84,7 @@ export type MobileNotificationTarget =
   | { kind: "command"; commandId: string; sprintEngineId?: string }
   | { kind: "desktop" };
 
-export type MobileControlWorkspaceKind = "sprintengine" | "switchboard" | "watchtower" | "multiloop";
+export type MobileControlWorkspaceKind = "sprintengine" | "switchboard" | "watchtower";
 
 export type MobileControlWorkspaceCapability =
   | "summary.read"
@@ -143,7 +143,7 @@ export interface MobileControlCommandBase<Type extends MobileControlCommandType,
 }
 
 // Snapshot collections a `snapshot.request` may scope down to (item 1600).
-// `desktopWorkspaces` is the switchboard/watchtower/multiloop projections; it is
+// `desktopWorkspaces` is the switchboard/watchtower projections; it is
 // the one collection absent from the default set, so a phone surface that wants
 // those monitors must name it explicitly. The rest ship by default.
 export const mobileSnapshotCollections = [
@@ -184,7 +184,7 @@ export type SnapshotRequestCommand = MobileControlCommandBase<
      * Restrict the payload to these collections (item 1600) so a list screen can
      * skip the ones it does not render. Absent means the default set — sprint
      * engines, backlog, role catalogs and automations; `desktopWorkspaces`
-     * (switchboard/watchtower/multiloop) is off by default and ships only when
+     * (switchboard/watchtower) is off by default and ships only when
      * named here. Additive and old-client-safe.
      */
     include?: MobileSnapshotCollection[];
@@ -763,35 +763,10 @@ export interface MobileControlWatchtowerWorkspaceDetail {
   generatedInboxItems?: MobileControlWatchtowerGeneratedInboxSummary[];
 }
 
-export interface MobileControlMultiloopMilestoneSummary {
-  milestoneId: string;
-  title: string;
-  status?: string;
-  updatedAt?: string;
-  linkedSprintEngineId?: string;
-}
-
-export interface MobileControlMultiloopBlockerSummary {
-  blockerId: string;
-  title: string;
-  status?: string;
-  updatedAt?: string;
-}
-
-export interface MobileControlMultiloopWorkspaceDetail {
-  loopId?: string;
-  milestoneCount?: number;
-  blockerCount?: number;
-  linkedSprintEngineId?: string;
-  milestones?: MobileControlMultiloopMilestoneSummary[];
-  blockers?: MobileControlMultiloopBlockerSummary[];
-}
-
 export type MobileControlWorkspaceDetail =
   | { kind: "sprintengine"; data: MobileControlSprintEngineWorkspaceDetail }
   | { kind: "switchboard"; data: MobileControlSwitchboardWorkspaceDetail }
-  | { kind: "watchtower"; data: MobileControlWatchtowerWorkspaceDetail }
-  | { kind: "multiloop"; data: MobileControlMultiloopWorkspaceDetail };
+  | { kind: "watchtower"; data: MobileControlWatchtowerWorkspaceDetail };
 
 export interface MobileControlWorkspaceSnapshot {
   workspaceId: string;
@@ -1231,7 +1206,7 @@ const taskCommentTypes = [
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
 const worktreeIsolationValues = ["required", "preferred", "disabled"] as const;
-const workspaceKinds = ["sprintengine", "switchboard", "watchtower", "multiloop"] as const;
+const workspaceKinds = ["sprintengine", "switchboard", "watchtower"] as const;
 const workspaceCapabilities = [
   "summary.read",
   "detail.read",
@@ -2205,15 +2180,6 @@ function validateWorkspaceDetail(kind: MobileControlWorkspaceKind, input: unknow
           validateWatchtowerGeneratedInboxSummary,
         )
       );
-    case "multiloop":
-      return (
-        optionalString(data.value, "loopId") ??
-        optionalNonNegativeInteger(data.value, "milestoneCount") ??
-        optionalNonNegativeInteger(data.value, "blockerCount") ??
-        optionalString(data.value, "linkedSprintEngineId") ??
-        validateOptionalArray(data.value.milestones, "workspace.detail.data.milestones", validateMultiloopMilestoneSummary) ??
-        validateOptionalArray(data.value.blockers, "workspace.detail.data.blockers", validateMultiloopBlockerSummary)
-      );
   }
 }
 
@@ -2327,33 +2293,6 @@ function validateWatchtowerGeneratedInboxSummary(input: unknown, fieldName: stri
     requireString(item.value, "runId") ??
     requireString(item.value, "taskId") ??
     requireLiteral(item.value, "source", ["watchtower"] as const)
-  );
-}
-
-function validateMultiloopMilestoneSummary(input: unknown, fieldName: string): string | null {
-  const milestone = validateObject(input, fieldName);
-  if (milestone.ok === false) {
-    return milestone.error;
-  }
-  return (
-    requireString(milestone.value, "milestoneId") ??
-    requireString(milestone.value, "title") ??
-    optionalString(milestone.value, "status") ??
-    optionalIsoDate(milestone.value, "updatedAt") ??
-    optionalString(milestone.value, "linkedSprintEngineId")
-  );
-}
-
-function validateMultiloopBlockerSummary(input: unknown, fieldName: string): string | null {
-  const blocker = validateObject(input, fieldName);
-  if (blocker.ok === false) {
-    return blocker.error;
-  }
-  return (
-    requireString(blocker.value, "blockerId") ??
-    requireString(blocker.value, "title") ??
-    optionalString(blocker.value, "status") ??
-    optionalIsoDate(blocker.value, "updatedAt")
   );
 }
 

@@ -9,7 +9,12 @@ import React from 'react'
 
 import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, type LifecycleState } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
-import type { RoadmapBoardLane, RoadmapBoardUnit, RoadmapUnitState } from '../../../../../shared/sprintengine/roadmap-surface'
+import type {
+  RoadmapBoardLane,
+  RoadmapBoardUnit,
+  RoadmapBoardUnitChild,
+  RoadmapUnitState,
+} from '../../../../../shared/sprintengine/roadmap-surface'
 import { RoadmapPullRequests } from './RoadmapPullRequests'
 import { useLaneRun } from './roadmapBoardData'
 
@@ -52,6 +57,7 @@ export function RoadmapLaneColumn({
   callbacks,
   onReloadBoard,
   showProjectTag = false,
+  readOnly = false,
 }: {
   lane: RoadmapBoardLane
   folderPath: string | null
@@ -61,6 +67,9 @@ export function RoadmapLaneColumn({
    *  so a step names the one it lives in (mockup §2). Off for a single-project plan
    *  where the tag would be noise. */
   showProjectTag?: boolean
+  /** A DRAFT's plan-at-a-glance: no steering controls, no per-step actions —
+   *  nothing is orchestrated, so offering Pause/Skip would be dishonest. */
+  readOnly?: boolean
 }): JSX.Element {
   const busy = callbacks.busyLane === lane.lane
   return (
@@ -77,7 +86,7 @@ export function RoadmapLaneColumn({
             {lane.doneCount}/{lane.total}
           </span>
         </div>
-        <LaneControls lane={lane} busy={busy} callbacks={callbacks} />
+        {readOnly ? null : <LaneControls lane={lane} busy={busy} callbacks={callbacks} />}
       </header>
 
       {lane.parked ? (
@@ -103,6 +112,7 @@ export function RoadmapLaneColumn({
                 lane={lane.lane}
                 busy={busy}
                 showProjectTag={showProjectTag}
+                readOnly={readOnly}
                 onSkip={() => callbacks.onSkip(lane.lane, unit)}
                 onOpenRun={
                   unit.state === 'running' && lane.activeStatePath
@@ -169,6 +179,7 @@ function RoadmapUnitRow({
   lane,
   busy,
   showProjectTag,
+  readOnly,
   onSkip,
   onOpenRun,
 }: {
@@ -176,13 +187,16 @@ function RoadmapUnitRow({
   lane: string
   busy: boolean
   showProjectTag: boolean
+  readOnly: boolean
   onSkip: () => void
   onOpenRun?: () => void
 }): JSX.Element {
   const isDone = unit.state === 'done'
-  const canSkip = unit.state === 'up_next' || unit.state === 'queued' || unit.state === 'unknown'
+  const canSkip = !readOnly && (unit.state === 'up_next' || unit.state === 'queued' || unit.state === 'unknown')
+  const childrenDone = unit.children?.filter((child) => child.done).length ?? 0
   return (
-    <div className="group relative flex items-center gap-2 px-3 py-1.5">
+    <div className="group relative flex flex-col px-3 py-1.5">
+      <div className="flex items-center gap-2">
       <LifecycleGlyph state={UNIT_LIFECYCLE[unit.state]} live={unit.state === 'running'} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -205,8 +219,13 @@ function RoadmapUnitRow({
               <span className="max-w-[120px] truncate">{unit.projectName}</span>
             </span>
           ) : null}
-          {unit.epicRef ? (
-            <span className="shrink-0 text-[10px] leading-4 text-[color:var(--text-subtle)]">epic</span>
+          {unit.kind === 'epic' && unit.children ? (
+            <span
+              className="shrink-0 text-[10px] leading-4 tabular-nums text-[color:var(--text-subtle)]"
+              title={`Epic — one sprint delivers all ${unit.children.length} items in this step`}
+            >
+              {childrenDone}/{unit.children.length} items
+            </span>
           ) : null}
           {unit.state === 'unknown' ? (
             <span className="shrink-0 text-[10px] font-medium text-[color:var(--tone-warn)]">Unknown</span>
@@ -251,8 +270,37 @@ function RoadmapUnitRow({
           Skip
         </GhostButton>
       ) : null}
+      </div>
+      {unit.children && unit.children.length > 0 ? (
+        <ul className="ml-[1.35rem] mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-2">
+          {unit.children.map((child, index) => (
+            <li key={`${child.ref}:${index}`} className="flex min-w-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+              <LifecycleGlyph state={childLifecycle(child)} />
+              <span className="min-w-0 truncate" title={child.title}>
+                {child.title}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
+}
+
+// A snapshotted epic member's glyph state, from its live backlog status. The
+// members of a step ride ONE sprint, so this is item-status truth, not run state.
+function childLifecycle(child: RoadmapBoardUnitChild): LifecycleState {
+  if (child.done) return 'done'
+  switch (child.status) {
+    case 'in_progress':
+      return 'in_progress'
+    case 'needs_input':
+      return 'blocked'
+    case 'ready':
+      return 'ready'
+    default:
+      return 'todo'
+  }
 }
 
 // The project tag's leading glyph — a small branch mark, matching the design's

@@ -70,7 +70,6 @@ export const defaultAgent = (id: AgentId, name = id, kind: AgentKind = 'general'
   cliStartupPrompt: undefined,
   kind,
   specialistId: undefined,
-  multiloopRole: undefined,
   backlogItemRef: undefined,
 })
 

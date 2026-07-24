@@ -77,6 +77,7 @@ run('only a running run pulses', () => {
       summary({ teamSlug: 'waiting', runtimeState: 'needs_input' }),
     ],
     null,
+    'status',
   )
   assert.deepEqual(
     rows.map((row) => [row.title, row.pulse]),
@@ -84,8 +85,32 @@ run('only a running run pulses', () => {
   )
 })
 
-// ── Ordering: needs-input outranks everything ───────────────────────────────
-run('rows order attention-first, newest within a rank', () => {
+// ── Ordering ────────────────────────────────────────────────────────────────
+run('default sort is pure recency — a just-touched run leads whatever its state', () => {
+  const rows = buildSprintRailRows(
+    [
+      summary({ teamSlug: 'landed-old', runtimeState: 'completed', updatedAt: '2026-07-17T10:00:00Z' }),
+      summary({ teamSlug: 'just-canceled', runtimeState: 'canceled', updatedAt: '2026-07-24T12:00:00Z' }),
+      summary({ teamSlug: 'live', runtimeState: 'running', updatedAt: '2026-07-22T10:00:00Z' }),
+    ],
+    null,
+  )
+  assert.deepEqual(rows.map((row) => row.title), ['just-canceled', 'live', 'landed-old'])
+})
+
+run('created sort orders by start date, not last touch', () => {
+  const rows = buildSprintRailRows(
+    [
+      summary({ teamSlug: 'old-but-busy', startedAt: '2026-07-01T10:00:00Z', updatedAt: '2026-07-24T10:00:00Z' }),
+      summary({ teamSlug: 'brand-new', startedAt: '2026-07-23T10:00:00Z', updatedAt: '2026-07-23T11:00:00Z' }),
+    ],
+    null,
+    'created',
+  )
+  assert.deepEqual(rows.map((row) => row.title), ['brand-new', 'old-but-busy'])
+})
+
+run('status sort orders attention-first, newest within a rank', () => {
   const rows = buildSprintRailRows(
     [
       summary({ teamSlug: 'unknown-run', runtimeState: 'unknown' }),
@@ -97,6 +122,7 @@ run('rows order attention-first, newest within a rank', () => {
       summary({ teamSlug: 'waiting', runtimeState: 'needs_input' }),
     ],
     null,
+    'status',
   )
   assert.deepEqual(
     rows.map((row) => row.title),
@@ -104,18 +130,19 @@ run('rows order attention-first, newest within a rank', () => {
   )
 })
 
-run('a needs-input run leads even when it is the oldest run listed', () => {
+run('status sort: a needs-input run leads even when it is the oldest run listed', () => {
   const rows = buildSprintRailRows(
     [
       summary({ teamSlug: 'fresh', runtimeState: 'running', updatedAt: '2026-07-22T12:00:00Z' }),
       summary({ teamSlug: 'stale-question', runtimeState: 'needs_input', updatedAt: '2026-01-02T09:00:00Z' }),
     ],
     null,
+    'status',
   )
   assert.equal(rows[0]?.title, 'stale-question')
 })
 
-run('undated runs sort last within their rank, never ahead of dated ones', () => {
+run('undated runs sort last, never ahead of dated ones', () => {
   const rows = buildSprintRailRows(
     [
       summary({ teamSlug: 'undated', runtimeState: 'idle' }),

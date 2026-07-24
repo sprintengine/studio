@@ -250,7 +250,7 @@ function ReasoningSegment({
 }
 
 // Runtime listbox shared by the top-bar spawn-row chip popovers (General
-// Agent, specialist rows, Multiloop roles) and the Sprint Engine roster runtime
+// Agent, specialist rows) and the Sprint Engine roster runtime
 // pickers. Grouped by CLI with whitespace between groups: each group leads with a
 // branded CLI header row — that CLI with no `--model` flag, so it rides the CLI's
 // own default — followed by one indented row per model. The header carries the

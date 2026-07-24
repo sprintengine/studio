@@ -276,7 +276,6 @@ const modelNormalized = normalizeAppSettings(
       codex: { command: 'codex', useWsl: false, models: [' gpt-5-codex ', '', 'gpt-5-codex', 'o4-mini'] },
     },
     specialistModelDefaults: { architect: { cli: 'claude-code', model: 'opus' } },
-    multiloopRoleModelDefaults: { coordinator: { cli: 'codex', model: '' } as never },
   },
   [],
 )
@@ -284,7 +283,6 @@ assert.deepEqual(modelNormalized.cliRuntimes.codex.models, ['gpt-5-codex', 'o4-m
 assert.equal(modelNormalized.cliRuntimes['claude-code'].models, undefined)
 assert.equal('cliModelDefaults' in modelNormalized, false)
 assert.deepEqual(modelNormalized.specialistModelDefaults, { architect: { cli: 'claude-code', model: 'opus' } })
-assert.deepEqual(modelNormalized.multiloopRoleModelDefaults, {})
 assert.deepEqual(normalizeSearchExcludes(['!build', 'build', 'src\\gen']), ['build', 'src/gen'])
 assert.deepEqual(
   normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']),
@@ -417,14 +415,6 @@ const permissionCarrier = {
         maxConcurrentAgents: 3,
         deliveredAgentNotificationEventKeys: [],
       },
-      multiloopState: null,
-      multiloopAutoState: {
-        enabled: false,
-        cliPermissionPreset: 'default',
-        maxConcurrentAgents: 1,
-        coordinatorAutoSpawnKey: null,
-        pendingSpawns: [],
-      },
       createdAt: 1,
     } as Workspace,
   ],
@@ -476,14 +466,6 @@ assert.deepEqual(
 )
 store.setSpecialistModelDefault('architect', null)
 assert.deepEqual(useWorkspaceStore.getState().appSettings.specialistModelDefaults, {})
-store.setMultiloopRoleModelDefault('coordinator', { cli: 'codex', model: 'gpt-5-codex' })
-assert.deepEqual(
-  useWorkspaceStore.getState().appSettings.multiloopRoleModelDefaults,
-  { coordinator: { cli: 'codex', model: 'gpt-5-codex' } },
-)
-store.setMultiloopRoleModelDefault('coordinator', null)
-assert.deepEqual(useWorkspaceStore.getState().appSettings.multiloopRoleModelDefaults, {})
-
 store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],

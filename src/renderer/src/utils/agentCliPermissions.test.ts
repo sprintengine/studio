@@ -26,20 +26,12 @@ const workspace = (agent: AgentState): Workspace => ({
   memory: { relativeRoot: null },
   editorState: { openFiles: [], activeFilePath: null },
   sprintEngineState: null,
-  multiloopState: null,
   sprintEngineAutoState: {
     desiredMode: 'manual',
     runtimeState: 'idle',
     cliPermissionPreset: 'bypass_all',
     maxConcurrentAgents: 3,
     deliveredAgentNotificationEventKeys: [],
-  },
-  multiloopAutoState: {
-    enabled: false,
-    cliPermissionPreset: 'auto_workspace',
-    maxConcurrentAgents: 1,
-    coordinatorAutoSpawnKey: null,
-    pendingSpawns: [],
   },
   createdAt: 1,
 })
@@ -48,12 +40,6 @@ assert.equal(
   resolveAgentCliPermissionPreset(workspace(baseAgent('architect', { kind: 'sprintengine' })), 'architect'),
   'bypass_all',
   'Sprint Engine agents use the Sprint Engine permission preset even when auto-run is off'
-)
-
-assert.equal(
-  resolveAgentCliPermissionPreset(workspace(baseAgent('developer', { kind: 'multiloop' })), 'developer'),
-  'auto_workspace',
-  'Multiloop agents fall back to the Multiloop permission preset'
 )
 
 assert.equal(

@@ -226,13 +226,6 @@ export default function CommandPalette({
       { id: 'sprintengine.goto.kanban', label: 'Sprint: Tasks → Kanban layout', shortcut: shortcutFor('sprintengine.goto.kanban'), run: runPanel('sprintengine.goto.kanban') },
       { id: 'sprintengine.open.settings', label: 'Sprint: Run configuration', shortcut: shortcutFor('sprintengine.open.settings'), run: runPanel('sprintengine.open.settings') },
     ].filter((command) => panelCommandEnabled(command.id))
-    // open-coordinator requires a loaded Multiloop state, carried by the shared
-    // availability context.
-    const multiloopCommands: UngroupedCommand[] = [
-      { id: 'multiloop.toggle.auto-run', label: 'Multiloop: Toggle auto-run', run: runPanel('multiloop.toggle.auto-run') },
-      { id: 'multiloop.open.coordinator', label: 'Multiloop: Open coordinator', run: runPanel('multiloop.open.coordinator') },
-      { id: 'multiloop.open.settings', label: 'Multiloop: Settings', shortcut: shortcutFor('multiloop.open.settings'), run: runPanel('multiloop.open.settings') },
-    ].filter((command) => panelCommandEnabled(command.id))
     // Git refresh/fetch/commit run the Git panel's real handlers; the shared
     // availability context (gitPanelActive) keeps them listed only while the Git
     // panel is open, so a selection cannot land on an unmounted handler. They are
@@ -320,7 +313,6 @@ export default function CommandPalette({
       ...switchboardCommands,
       ...watchtowerCommands,
       ...sprintEngineCommands,
-      ...multiloopCommands,
       ...moduleCommands,
     ].map((command) => ({ ...command, group: 'commands' as const }))
 

@@ -34,7 +34,7 @@ const MULTICODE_DIAGNOSTICS = process.env['MULTICODE_DIAGNOSTICS'] === '1'
 const services = createAppServices(MULTICODE_DIAGNOSTICS)
 let applyModuleEnablementLive: ModuleEnablementLiveApplier | undefined
 
-// Dev-only capability surfaces (Voice, Switchboard/Watchtower, Multiloop, Mobile
+// Dev-only capability surfaces (Voice, Switchboard/Watchtower, Mobile
 // Relay, and the not-yet-production-ready Roadmap and Review) ship only in
 // from-source dev builds. A packaged/installed build is the production channel,
 // so they are excluded from registration entirely. See

@@ -1,6 +1,6 @@
 import { joinFilePath as joinPath, slugify } from './paths'
 
-export type RunKind = 'sprintengine' | 'multiloop'
+export type RunKind = 'sprintengine'
 
 type RunKindConfig = {
   rootSegments: string[]
@@ -13,11 +13,6 @@ const RUN_KIND_CONFIG: Record<RunKind, RunKindConfig> = {
     rootSegments: ['.multi-code', 'sprintengine'],
     slugFallback: 'sprintengine-team',
     stateFileName: 'run.yaml',
-  },
-  multiloop: {
-    rootSegments: ['multiloop'],
-    slugFallback: 'multiloop',
-    stateFileName: 'state.json',
   },
 }
 

@@ -14,7 +14,7 @@ import {
   normalizeAgentState,
 } from './agentsSlice'
 import { defaultWorkspaceMemoryConfig } from './memorySlice'
-import { defaultSprintEngineAutoState, defaultMultiloopAutoState } from './runStateSlice'
+import { defaultSprintEngineAutoState } from './runStateSlice'
 import { defaultWorkspaceWorktreeState } from './worktreesSlice'
 
 const standardTemplate: LayoutTemplate = {
@@ -119,9 +119,7 @@ const carrier: { workspaces: Workspace[] } = {
       memory: defaultWorkspaceMemoryConfig(),
       editorState: defaultEditorState(),
       sprintEngineState: null,
-      multiloopState: null,
       sprintEngineAutoState: defaultSprintEngineAutoState(),
-      multiloopAutoState: defaultMultiloopAutoState(),
       createdAt: 1,
     },
   ],

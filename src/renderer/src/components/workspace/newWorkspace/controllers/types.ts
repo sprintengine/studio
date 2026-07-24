@@ -5,9 +5,6 @@ import type {
   GuidedBriefPreset,
   GuidedBriefRuntimeState,
   LayoutTemplate,
-  MultiloopAutoState,
-  MultiloopState,
-  MultiloopWorkspaceContext,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
   SprintEngineAllowedRuntime,
@@ -63,10 +60,6 @@ export type GuidedBriefFilesystemPort = {
 
 export type PathExists = (path: string) => Promise<boolean>
 
-export type MultiloopInitializeStatePort = (
-  input: MultiloopInitInput,
-) => Promise<MultiloopInitResult>
-
 export type AddWorkspacePort = (
   template: LayoutTemplate,
   options?: {
@@ -74,35 +67,16 @@ export type AddWorkspacePort = (
     folderPath?: string | null
     sprintEngineState?: SprintEngineState | null
     sprintEngineContext?: SprintEngineWorkspaceContext | null
-    multiloopState?: MultiloopState | null
-    multiloopContext?: MultiloopWorkspaceContext | null
     sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
     sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
     sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
     sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
     sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
-    multiloopAutoState?: Partial<MultiloopAutoState> | null
     guidedBriefState?: GuidedBriefRuntimeState | null
     mode?: WorkspaceMode
     windowId?: WorkspaceWindowId | null
   }
 ) => WorkspaceId
-
-export type MultiloopControllerInput = {
-  folderPath: string
-  workspaceName: string
-  loopName: string
-  finalGoal: string
-  cliPermissionPreset: SprintEngineCliPermissionPreset
-  workspaceWindowId?: WorkspaceWindowId | null
-}
-
-export type MultiloopControllerPorts = {
-  initializeMultiloopState: MultiloopInitializeStatePort
-  readFile: (path: string) => Promise<string>
-  addWorkspace: AddWorkspacePort
-  createMultiloopTemplate: () => LayoutTemplate
-}
 
 export type SprintEngineExistingTeamInput = {
   folderPath: string | null

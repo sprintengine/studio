@@ -17,7 +17,6 @@ assert.deepEqual(stepsForMode('chat'), ['workspace'], 'chat resolves to the shel
 // modules register eagerly when ./creationStepFlows pulls in ../../../modules.
 assert.deepEqual(stepsForMode('switchboard'), STEPS_BY_MODE.switchboard, 'switchboard resolves via the registry')
 assert.deepEqual(stepsForMode('sprintengine'), STEPS_BY_MODE.sprintengine, 'sprintengine resolves via the registry')
-assert.deepEqual(stepsForMode('multiloop'), STEPS_BY_MODE.multiloop, 'multiloop resolves via the registry')
 assert.deepEqual(stepsForMode('guided-brief'), STEPS_BY_MODE['guided-brief'], 'guided-brief resolves via the registry')
 
 // A mode id with no registry entry routes to the standard flow without
@@ -58,7 +57,7 @@ assert.deepEqual(STEPS_BY_MODE['guided-brief'], ['workspace', 'guided-idea'])
 // a blank the user was actually meant to fill in. The intent steps are the only
 // ones that carry something the hub cannot default. Pin that: nothing may sit
 // after an intent step unless it is a known-defaulted refinement step.
-const INTENT_STEPS = ['multiloop-goal', 'guided-idea', 'sprintengine-team'] as const
+const INTENT_STEPS = ['guided-idea', 'sprintengine-team'] as const
 const DEFAULTED_REFINEMENT_STEPS = [
   'standard-layout',
   'sprintengine-roster',

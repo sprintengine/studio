@@ -150,6 +150,13 @@ export type SprintRuntimeDeps = {
   persistRuntimeResidue(statePath: string, runtime: SprintEngineAutomationRuntimeResidue): void
   powerManager: Pick<SprintPowerManager, 'markRunActive' | 'markRunInactive' | 'shutdown'>
   broadcastOp(op: SprintRuntimeOp): void
+  /**
+   * Tell the cross-project run index (the Sprints door) a run's on-disk state
+   * changed OUTSIDE any registered runtime — e.g. a cancel of a run whose
+   * workspace is not resident. Ops from registered runs already notify the
+   * index via broadcastOp; this is the non-resident escape hatch.
+   */
+  notifyRunsChanged?(statePath: string): void
   logDiagnostic(input: DiagnosticLogInput): Promise<DiagnosticLogEntry | void> | void
   now?(): number
   timers?: {
@@ -760,7 +767,14 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
    */
   function cancelRun(statePath: string): void {
     const entry = runsByStatePath.get(statePath)
-    if (!entry) return
+    if (!entry) {
+      // The run's workspace is not resident (a Sprints-door cancel of a closed
+      // run): there is no runtime to tear down, but the engine already wrote
+      // the canceled state — the cross-project run index must still hear about
+      // it, or the door keeps pulsing the stale "running" summary forever.
+      deps.notifyRunsChanged?.(statePath)
+      return
+    }
     enterTerminalDormancy(entry, { canceled: true })
   }
 

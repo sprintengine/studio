@@ -5,7 +5,9 @@ import {
   buildSprintRailGroups,
   deriveSprintProjectChips,
   sprintRunMatchesSearch,
+  SPRINT_SORT_ITEMS,
   type SprintRailRow,
+  type SprintSort,
 } from './railState'
 
 // The Sprints surface rail (MC-1838): the list IS the inbox. Runs group under
@@ -25,9 +27,11 @@ export function SprintsRail({
   selectedStatePath,
   projectFilter,
   search,
+  sort,
   onSelect,
   onFilter,
   onSearch,
+  onSort,
   onCreate,
 }: {
   runs: ReadonlyArray<SprintRunSummary>
@@ -36,9 +40,12 @@ export function SprintsRail({
   projectFilter: string | null
   /** Search query over team/project names; empty for no narrowing. */
   search: string
+  /** Row order within the groups — recency by default (the Backlog idiom). */
+  sort: SprintSort
   onSelect: (statePath: string) => void
   onFilter: (projectRoot: string | null) => void
   onSearch: (query: string) => void
+  onSort: (sort: SprintSort) => void
   onCreate: () => void
 }): JSX.Element {
   const chips = deriveSprintProjectChips(runs)
@@ -62,13 +69,14 @@ export function SprintsRail({
       ),
     }))
   const searched = runs.filter((summary) => sprintRunMatchesSearch(summary, search))
-  const rawGroups = buildSprintRailGroups(searched, projectFilter)
+  const rawGroups = buildSprintRailGroups(searched, projectFilter, sort)
   const groups = rawGroups.map((group) => ({ ...group, rows: withGlyphIcons(group.rows) }))
   const rows = groups.flatMap((group) => group.rows)
-  // The project lens, offered only when there is a second project to choose
-  // between — a lone option beside "All projects" filters nothing.
-  const filterGroups =
-    chips.length > 1
+  // Sort is always offered (the Backlog idiom); the project lens only when there
+  // is a second project to choose between — a lone option beside "All projects"
+  // filters nothing.
+  const filterGroups = [
+    ...(chips.length > 1
       ? [
           {
             label: 'Project',
@@ -84,7 +92,15 @@ export function SprintsRail({
             onChange: (next: string) => onFilter(next === ALL_PROJECTS ? null : next),
           },
         ]
-      : []
+      : []),
+    {
+      label: 'Sort',
+      items: SPRINT_SORT_ITEMS.map((item) => ({ value: item.value as string, label: item.label })),
+      value: sort as string,
+      defaultValue: 'recent',
+      onChange: (next: string) => onSort(next as SprintSort),
+    },
+  ]
   return (
     <div className="flex min-h-0 flex-col">
       <SurfaceRail
@@ -100,7 +116,7 @@ export function SprintsRail({
           placeholder: 'Search sprints…',
           ariaLabel: 'Search sprints across every project',
         }}
-        filter={filterGroups.length > 0 ? { ariaLabel: 'Filter sprints', groups: filterGroups } : undefined}
+        filter={{ ariaLabel: 'Filter and sort sprints', groups: filterGroups }}
       />
       {/* The lens is narrower than the runs behind it. Say so, rather than
           letting an empty rail read as "you have no sprints". */}

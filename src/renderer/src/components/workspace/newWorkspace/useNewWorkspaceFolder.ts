@@ -126,23 +126,16 @@ export async function scanFolder(folderPath: string): Promise<FolderScanResult> 
  */
 export async function detectFolderHints(folderPath: string): Promise<{
   hasSprintEngineTeam: boolean
-  hasMultiloop: boolean
 }> {
-  const [seEntries, multiEntries] = await Promise.all([
-    window.api
-      .readdir(joinPath(joinPath(folderPath, '.multi-code'), 'sprintengine'))
-      .catch(() => []),
-    window.api
-      .readdir(joinPath(joinPath(folderPath, '.multi-code'), 'multiloop'))
-      .catch(() => []),
-  ])
+  const seEntries = await window.api
+    .readdir(joinPath(joinPath(folderPath, '.multi-code'), 'sprintengine'))
+    .catch(() => [])
   return {
     hasSprintEngineTeam: seEntries.some((entry) => entry.isDir),
-    hasMultiloop: multiEntries.some((entry) => entry.isDir),
   }
 }
 
-export type FolderHintsCache = Map<string, { hasSprintEngineTeam: boolean; hasMultiloop: boolean }>
+export type FolderHintsCache = Map<string, { hasSprintEngineTeam: boolean }>
 
 export function useFolderHints(folderPaths: string[]): FolderHintsCache {
   const [cache, setCache] = useState<FolderHintsCache>(new Map())
@@ -155,7 +148,6 @@ export function useFolderHints(folderPaths: string[]): FolderHintsCache {
       todo.map(async (path) => {
         const hints = await detectFolderHints(path).catch(() => ({
           hasSprintEngineTeam: false,
-          hasMultiloop: false,
         }))
         return [path, hints] as const
       }),

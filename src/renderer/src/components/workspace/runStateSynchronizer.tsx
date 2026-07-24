@@ -29,7 +29,7 @@ export type RunStateReadParseError<TParseError> = {
   ok: false
   kind: 'parse'
   message: string
-  /** The original typed parser error (e.g. MultiloopStateDisplayError) so callers can preserve title/path metadata. */
+  /** The original typed parser error so callers can preserve title/path metadata. */
   error: TParseError
 }
 
@@ -39,7 +39,7 @@ export type RunStateReadResult<TState, TParseError = unknown> =
   | RunStateReadParseError<TParseError>
 
 export type RunStateSynchronizerConfig<TState, TParseError = unknown> = {
-  /** Log scope passed to logPerfEvent — e.g. 'SprintEngineState' or 'MultiloopState'. */
+  /** Log scope passed to logPerfEvent — e.g. 'SprintEngineState'. */
   logScope: string
   /** Watch only for changes to this file basename. */
   watchFileName: string

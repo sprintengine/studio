@@ -198,138 +198,12 @@ export function entryPickerOptionsMulti(
 }
 
 // ---------------------------------------------------------------------------
-// The cross-project library feed (the planning rail's source of truth)
-// ---------------------------------------------------------------------------
-
-// A snapshotted child preview shown under an expanded epic in the library rail.
-export type RoadmapLibraryChild = { ref: string; title: string; displayId?: string }
-
-// One draggable row in the library rail: a loose backlog item, or an epic that
-// drops in as a single step carrying its snapshotted children. `ref` is the
-// authored ref (what lands in the plan); `planned` dims (never hides) a row already
-// in the draft, so the author sees what is placed without losing it from the list.
-export type RoadmapLibraryEntry = {
-  kind: 'item' | 'epic'
-  ref: string
-  projectKey: ProjectKey
-  relativePath: string
-  title: string
-  displayId?: string
-  children: RoadmapLibraryChild[]
-  planned: boolean
-}
-
-// A project's section in the library rail: its name and its draggable rows.
-export type RoadmapLibraryGroup = {
-  projectKey: ProjectKey
-  projectName: string
-  entries: RoadmapLibraryEntry[]
-}
-
-// The authored refs already placed in the draft: every entry ref, plus each
-// snapshotted epic child (resolved to its authored ref, inheriting the epic's
-// project). A library item is "planned" when its ref is in this set; an epic is
-// planned when its own entry ref is (its children dim individually via this set).
-function plannedRefSet(lanes: ReadonlyArray<RoadmapLane>): Set<string> {
-  const placed = new Set<string>()
-  for (const lane of lanes) {
-    for (const entry of lane.entries) {
-      placed.add(entry.ref)
-      if (entry.kind === 'epic') {
-        for (const child of entry.children) {
-          // A child carries its own `alias:` only if authored that way; otherwise
-          // it inherits the epic entry's project.
-          placed.add(child.includes(':') ? normalizeRelativePath(child) : authoredRef(entry.projectKey, child))
-        }
-      }
-    }
-  }
-  return placed
-}
-
-function matchesQuery(query: string, ...fields: Array<string | undefined>): boolean {
-  if (query === '') return true
-  const needle = query.toLowerCase()
-  return fields.some((field) => field !== undefined && field.toLowerCase().includes(needle))
-}
-
-// Build the grouped library feed from every project's live scan. Epics list first
-// (each expandable to its snapshotted children), then the loose items that are not
-// members of any epic — a member is dragged in via its epic, never twice. Roadmaps
-// and archived items are excluded (a roadmap never references another; an archived
-// item is not runnable work). A non-empty `query` filters rows by title, id, or
-// slug (an epic is kept if it or any child matches); empty groups are dropped so
-// the rail shows only projects with matching work.
-export function buildRoadmapLibrary(
-  projects: ReadonlyArray<RoadmapProjectItems>,
-  lanes: ReadonlyArray<RoadmapLane>,
-  query = '',
-): RoadmapLibraryGroup[] {
-  const placed = plannedRefSet(lanes)
-  const trimmedQuery = query.trim()
-  const groups: RoadmapLibraryGroup[] = []
-
-  for (const project of projects) {
-    const usable = project.items.filter((item) => item.status !== 'archived' && item.rawType !== ROADMAP_TYPE)
-    const entries: RoadmapLibraryEntry[] = []
-
-    for (const epic of usable) {
-      if (!epic.isEpic) continue
-      const slug = roadmapRefSlug(epic.relativePath)
-      const children = childrenOfEpic([...project.items], slug)
-        .filter((child) => child.status !== 'archived')
-        .map<RoadmapLibraryChild>((child) => ({
-          ref: normalizeRelativePath(child.relativePath),
-          title: child.title,
-          displayId: child.displayId,
-        }))
-      const ref = authoredRef(project.projectKey, epic.relativePath)
-      if (
-        trimmedQuery !== '' &&
-        !matchesQuery(trimmedQuery, epic.title, epic.displayId, slug) &&
-        !children.some((child) => matchesQuery(trimmedQuery, child.title, child.displayId))
-      ) {
-        continue
-      }
-      entries.push({
-        kind: 'epic',
-        ref,
-        projectKey: project.projectKey,
-        relativePath: normalizeRelativePath(epic.relativePath),
-        title: epic.title,
-        displayId: epic.displayId,
-        children,
-        planned: placed.has(ref),
-      })
-    }
-
-    for (const item of usable) {
-      if (item.isEpic || item.epic) continue
-      const slug = roadmapRefSlug(item.relativePath)
-      if (trimmedQuery !== '' && !matchesQuery(trimmedQuery, item.title, item.displayId, slug)) continue
-      const ref = authoredRef(project.projectKey, item.relativePath)
-      entries.push({
-        kind: 'item',
-        ref,
-        projectKey: project.projectKey,
-        relativePath: normalizeRelativePath(item.relativePath),
-        title: item.title,
-        displayId: item.displayId,
-        children: [],
-        planned: placed.has(ref),
-      })
-    }
-
-    if (entries.length > 0) {
-      groups.push({ projectKey: project.projectKey, projectName: project.projectName, entries })
-    }
-  }
-  return groups
-}
-
-// ---------------------------------------------------------------------------
 // Entry construction + epic snapshotting (scan-coupled)
 // ---------------------------------------------------------------------------
+// (The old bespoke library feed — buildRoadmapLibrary and its row types — was
+// retired when the planning rail rebuilt on the shared Backlog components; the
+// rail's model now lives beside it as buildLibraryGroupModels in
+// RoadmapEditorPanel.tsx.)
 
 // The child references an epic contributes, in a deterministic snapshot order.
 // V1 plans are static: the children are captured EXPLICITLY at add time so the
@@ -344,7 +218,13 @@ export function snapshotEpicChildren(
   epicRef: string,
 ): string[] {
   const slug = roadmapRefSlug(epicRef)
-  return childrenOfEpic([...items], slug).map((child) => normalizeRelativePath(child.relativePath))
+  return childrenOfEpic([...items], slug)
+    // Only OPEN members: a completed/archived member is delivered work — the
+    // step plans what remains, so finished items never ride into a new plan.
+    // The same filter shapes the drift live-set, so "Update" on an old snapshot
+    // offers to drop members that finished since it was captured.
+    .filter((child) => child.status !== 'completed' && child.status !== 'archived')
+    .map((child) => normalizeRelativePath(child.relativePath))
 }
 
 // Build a lane entry for a picked home-project ref (the keyboard picker and the

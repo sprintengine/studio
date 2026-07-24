@@ -18,19 +18,11 @@ import {
   slugifySprintEngineName,
 } from '../../utils/sprintengineStateFile'
 import {
-  getMultiloopDirectoryPath,
-  getMultiloopStateFilePath,
-  slugifyMultiloopName,
-} from '../../utils/multiloopStateFile'
-import {
   defaultAgent,
   normalizeAgentState,
   pickWorkspaceAgentName,
 } from './agentsSlice'
-import {
-  ensureMultiloopLayoutModel,
-  sprintEngineTabsLayoutModel,
-} from './layoutSlice'
+import { sprintEngineTabsLayoutModel } from './layoutSlice'
 import {
   normalizeCliPermissionPreset,
   normalizeSprintEngineRunSettings,
@@ -41,11 +33,6 @@ import type {
   AgentState,
   AgentId,
   AppSettings,
-  MultiloopAutoPendingSpawn,
-  MultiloopAutoState,
-  MultiloopRole,
-  MultiloopState,
-  MultiloopWorkspaceContext,
   SprintEngineAutoState,
   SprintEngineAutomationEvent,
   SprintEngineAutomationMode,
@@ -72,14 +59,6 @@ export const defaultSprintEngineAutoState = (): SprintEngineAutoState => ({
   maxConcurrentAgents: 3,
   deliveredAgentNotificationEventKeys: [],
   completionTeardownAt: undefined,
-})
-
-export const defaultMultiloopAutoState = (): MultiloopAutoState => ({
-  enabled: false,
-  cliPermissionPreset: 'default',
-  maxConcurrentAgents: 1,
-  coordinatorAutoSpawnKey: null,
-  pendingSpawns: [],
 })
 
 const defaultSprintEngineRoleCliDefaults = (): Required<SprintEngineRoleCliDefaults> => ({
@@ -138,23 +117,6 @@ import {
 
 export { resolveSprintEngineAgentRuntime, resolveSprintEngineRoleRuntime }
 
-function isMultiloopAutoRole(input: unknown): input is MultiloopRole | SprintEngineRoleId {
-  return typeof input === 'string' && input.trim().length > 0
-}
-
-function normalizeMultiloopAutoPendingSpawn(
-  input: Partial<MultiloopAutoPendingSpawn> | null | undefined
-): MultiloopAutoPendingSpawn | null {
-  if (!input || !isMultiloopAutoRole(input.role) || typeof input.agentId !== 'string') return null
-
-  return {
-    role: input.role,
-    agentId: input.agentId,
-    taskId: typeof input.taskId === 'string' ? input.taskId : null,
-    ...(typeof input.startedAt === 'number' ? { startedAt: input.startedAt } : {}),
-  }
-}
-
 export function normalizeSprintEngineAutoState(
   input: (
     Partial<SprintEngineAutoState> & {
@@ -205,32 +167,6 @@ export function normalizeSprintEngineAutoState(
   }
 }
 
-export function normalizeMultiloopAutoState(
-  input: Partial<MultiloopAutoState> | null | undefined
-): MultiloopAutoState {
-  const pendingSpawns = Array.isArray(input?.pendingSpawns)
-    ? input.pendingSpawns
-      .map((pending) => normalizeMultiloopAutoPendingSpawn(pending))
-      .filter((pending): pending is MultiloopAutoPendingSpawn => Boolean(pending))
-    : []
-
-  const maxConcurrentAgents =
-    typeof input?.maxConcurrentAgents === 'number' && Number.isFinite(input.maxConcurrentAgents)
-      ? Math.max(1, Math.min(4, Math.floor(input.maxConcurrentAgents)))
-      : 1
-
-  return {
-    enabled: Boolean(input?.enabled),
-    cliPermissionPreset: normalizeCliPermissionPreset(input?.cliPermissionPreset),
-    maxConcurrentAgents,
-    coordinatorAutoSpawnKey:
-      typeof input?.coordinatorAutoSpawnKey === 'string'
-        ? input.coordinatorAutoSpawnKey
-        : null,
-    pendingSpawns,
-  }
-}
-
 function createSprintEngineWorkspaceContext(
   folderPath: string | null | undefined,
   teamName: string | null | undefined,
@@ -259,56 +195,6 @@ export function normalizeSprintEngineWorkspaceContext(
   }
 
   return createSprintEngineWorkspaceContext(folderPath, sprintEngineState?.name)
-}
-
-function createMultiloopWorkspaceContext(
-  folderPath: string | null | undefined,
-  loopName: string | null | undefined,
-  loopSlug?: string | null
-): MultiloopWorkspaceContext | null {
-  if (!folderPath || !loopName?.trim()) return null
-
-  const slug = loopSlug?.trim() || slugifyMultiloopName(loopName)
-  return {
-    loopName: loopName.trim(),
-    loopSlug: slug,
-    loopDirectoryPath: getMultiloopDirectoryPath(folderPath, slug),
-    statePath: getMultiloopStateFilePath(folderPath, slug),
-  }
-}
-
-function isCompleteMultiloopWorkspaceContext(
-  input: Partial<MultiloopWorkspaceContext> | null | undefined
-): input is MultiloopWorkspaceContext {
-  return Boolean(
-    input?.loopName?.trim()
-    && input.loopSlug?.trim()
-    && input.loopDirectoryPath?.trim()
-    && input.statePath?.trim()
-  )
-}
-
-export function normalizeMultiloopWorkspaceContext(
-  input: Partial<MultiloopWorkspaceContext> | null | undefined,
-  folderPath: string | null | undefined,
-  multiloopState: MultiloopState | null
-): MultiloopWorkspaceContext | null {
-  const loopName = input?.loopName ?? multiloopState?.loop.displayName ?? multiloopState?.loop.name
-
-  if (folderPath && loopName) {
-    return createMultiloopWorkspaceContext(folderPath, loopName, input?.loopSlug)
-  }
-
-  if (isCompleteMultiloopWorkspaceContext(input)) {
-    return {
-      loopName: input.loopName.trim(),
-      loopSlug: input.loopSlug.trim(),
-      loopDirectoryPath: input.loopDirectoryPath,
-      statePath: input.statePath,
-    }
-  }
-
-  return null
 }
 
 function isDefaultSprintEngineAgentName(name: string | undefined, fallbackLabel: string): boolean {
@@ -357,7 +243,6 @@ function agentStatesEqual(left: AgentState, right: AgentState): boolean {
     && left.cliStartupPrompt === right.cliStartupPrompt
     && left.kind === right.kind
     && left.specialistId === right.specialistId
-    && left.multiloopRole === right.multiloopRole
 }
 
 function reuseAgentIfUnchanged(current: AgentState | undefined, next: AgentState): AgentState {
@@ -454,9 +339,7 @@ export interface RunStateSliceState {}
 
 export interface RunStateSliceActions {
   setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
-  setMultiloopContext: (id: WorkspaceId, multiloopContext: MultiloopWorkspaceContext | null) => void
   setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
-  setMultiloopState: (workspaceId: WorkspaceId, multiloopState: MultiloopState | null) => void
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
@@ -486,16 +369,6 @@ export interface RunStateSliceActions {
   ) => void
   setSprintEngineCompletionTeardownAt: (workspaceId: WorkspaceId, at: number | undefined) => void
   markSprintEngineAgentNotificationDelivered: (workspaceId: WorkspaceId, eventKey: string) => void
-  setMultiloopAutoEnabled: (workspaceId: WorkspaceId, enabled: boolean) => void
-  setMultiloopCliPermissionPreset: (
-    workspaceId: WorkspaceId,
-    cliPermissionPreset: SprintEngineCliPermissionPreset
-  ) => void
-  setMultiloopAutoPendingSpawns: (
-    workspaceId: WorkspaceId,
-    pendingSpawns: MultiloopAutoPendingSpawn[]
-  ) => void
-  setMultiloopCoordinatorAutoSpawnKey: (workspaceId: WorkspaceId, key: string | null) => void
   addSprintEngineMember: (
     workspaceId: WorkspaceId,
     role: SprintEngineRoleId
@@ -610,12 +483,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         if (ws) ws.sprintEngineContext = sprintEngineContext
       }),
 
-    setMultiloopContext: (id, multiloopContext) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === id)
-        if (ws) ws.multiloopContext = multiloopContext
-      }),
-
     setSprintEngineState: (workspaceId, sprintEngineState) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -656,27 +523,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         if (!isDeepEqual(ws.sprintEngineContext, nextContext)) ws.sprintEngineContext = nextContext
         if (ws.agents !== nextAgents) ws.agents = nextAgents
         if (!isDeepEqual(ws.sprintEngineAutoState, nextAutoState)) ws.sprintEngineAutoState = nextAutoState
-      }),
-
-    setMultiloopState: (workspaceId, multiloopState) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        ws.multiloopState = multiloopState
-        ws.mode = multiloopState
-          ? 'multiloop'
-          : ws.sprintEngineState
-            ? 'sprintengine'
-            : 'standard'
-        ws.multiloopContext = normalizeMultiloopWorkspaceContext(
-          ws.multiloopContext,
-          ws.folderPath,
-          multiloopState
-        )
-        if (multiloopState) ws.layoutModel = ensureMultiloopLayoutModel(ws.layoutModel)
-        ws.multiloopAutoState = multiloopState
-          ? normalizeMultiloopAutoState(ws.multiloopAutoState)
-          : defaultMultiloopAutoState()
       }),
 
     // The local transition stays synchronous (optimistic UI); the authoritative
@@ -798,53 +644,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
             ...current.deliveredAgentNotificationEventKeys,
             trimmedEventKey,
           ],
-        }
-      }),
-
-    setMultiloopAutoEnabled: (workspaceId, enabled) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-        ws.multiloopAutoState = {
-          ...current,
-          enabled,
-          pendingSpawns: enabled ? current.pendingSpawns : [],
-        }
-      }),
-
-    setMultiloopCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-        ws.multiloopAutoState = {
-          ...current,
-          cliPermissionPreset,
-        }
-      }),
-
-    setMultiloopAutoPendingSpawns: (workspaceId, pendingSpawns) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-        ws.multiloopAutoState = {
-          ...current,
-          pendingSpawns: pendingSpawns
-            .map((pending) => normalizeMultiloopAutoPendingSpawn(pending))
-            .filter((pending): pending is MultiloopAutoPendingSpawn => Boolean(pending)),
-        }
-      }),
-
-    setMultiloopCoordinatorAutoSpawnKey: (workspaceId, key) =>
-      set((state) => {
-        const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws) return
-        const current = normalizeMultiloopAutoState(ws.multiloopAutoState)
-        ws.multiloopAutoState = {
-          ...current,
-          coordinatorAutoSpawnKey: key,
         }
       }),
 

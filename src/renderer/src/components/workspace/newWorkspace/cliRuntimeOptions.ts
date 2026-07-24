@@ -280,7 +280,7 @@ export function resolveCliModel(
   return overrideModel || undefined
 }
 
-// Effective model for a per-surface picker (specialist row, Multiloop role): the
+// Effective model for a per-surface picker (specialist row): the
 // surface's own (cli, model) override when it matches the bound CLI, else no
 // model — the CLI's own default, no flag.
 export function resolveSurfaceModel(

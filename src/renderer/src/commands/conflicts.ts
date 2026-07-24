@@ -19,7 +19,7 @@ export type KeybindingConflictCandidate = {
 }
 
 const MUTUALLY_EXCLUSIVE_SCOPE_GROUPS: readonly (readonly CommandScope[])[] = [
-  ['panel:sprintengine', 'panel:multiloop', 'panel:watchtower', 'panel:switchboard'],
+  ['panel:sprintengine', 'panel:watchtower', 'panel:switchboard'],
   ['editor', 'terminal'],
 ]
 

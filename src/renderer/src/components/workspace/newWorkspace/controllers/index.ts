@@ -9,9 +9,6 @@ export type {
   GuidedBriefScaffoldResult,
   GuidedBriefStartBuildInput,
   GuidedBriefStartBuildPorts,
-  MultiloopControllerInput,
-  MultiloopControllerPorts,
-  MultiloopInitializeStatePort,
   SprintEngineExistingTeamInput,
   SprintEngineNewTeamInput,
   SprintEngineNewTeamPorts,
@@ -36,10 +33,6 @@ export {
   runReviewCreation,
   ReviewControllerError,
 } from './reviewController'
-export {
-  runMultiloopCreation,
-  MultiloopControllerError,
-} from './multiloopController'
 export {
   buildSprintEngineEffectiveSpawnAtStartRoles,
   buildSprintEngineExistingTeamCreation,

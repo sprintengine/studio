@@ -335,3 +335,61 @@ test('stale pending approval is cleared when the frontier moves on', () => {
   // b is idea → blocked; the stale a.md approval is dropped.
   assert.equal(result.laneRuntimes.get('Backend')?.pendingApprovalRef, undefined)
 })
+
+test('plan edit orphans the lane runtime: removed step drops the active handle and starts the new plan', () => {
+  // The lane previously ran backlog/old.md; the author edited the plan so the
+  // track now holds a.md/b.md. The old handle (and its statePath) must not chain
+  // the track to that sprint — the lane re-derives from the CURRENT plan.
+  const runtimes = new Map<string, RoadmapLaneRuntime>([
+    ['Backend', {
+      lane: 'Backend',
+      activeItemRef: qref('backlog/old.md'),
+      activeStatePath: '/w/.multi-code/sprintengine/old-team/run.yaml',
+      activeTeamSlug: 'old-team',
+      activeRepoId: 'primary',
+    }],
+  ])
+  const result = reconcileRoadmap(baseInput({ laneRuntimes: runtimes }))
+  assert.equal(result.actions[0]?.kind, 'start')
+  assert.equal(result.actions[0]?.kind === 'start' && result.actions[0].itemRef, 'backlog/a.md')
+  const runtime = result.laneRuntimes.get('Backend')
+  assert.equal(runtime?.activeStatePath, undefined, 'the removed step’s run handle is gone')
+  assert.equal(runtime?.activeItemRef, qref('backlog/a.md'))
+})
+
+test('plan edit orphans a parked lane: the ghost park clears with its removed step', () => {
+  // The lane parked on a step (canceled sprint) that the author then removed.
+  // The park must clear — a track must never claim "paused" for work that is no
+  // longer in the plan.
+  const runtimes = new Map<string, RoadmapLaneRuntime>([
+    ['Backend', {
+      lane: 'Backend',
+      parked: { reason: 'run_canceled' as const, itemRef: qref('backlog/old.md'), at: NOW },
+    }],
+  ])
+  const result = reconcileRoadmap(baseInput({ laneRuntimes: runtimes }))
+  const runtime = result.laneRuntimes.get('Backend')
+  assert.equal(runtime?.parked, undefined)
+  assert.equal(result.actions[0]?.kind, 'start', 'the lane resumes working the current plan')
+})
+
+test('a pre-migration child-keyed active handle on a planned epic is NOT an orphan', () => {
+  // The lane's handle names a MEMBER of the planned epic step (old granularity).
+  // That run still delivers the step — keep watching it, never start a second.
+  const epicRoadmap = parseRoadmap(
+    '---\ntype: roadmap\nadvance: auto\n---\n\n## Backend\n- backlog/epics/auth.md\n  - backlog/c1.md\n',
+  )
+  const runtimes = new Map<string, RoadmapLaneRuntime>([
+    ['Backend', { lane: 'Backend', activeItemRef: qref('backlog/c1.md') }],
+  ])
+  const result = reconcileRoadmap(
+    baseInput({
+      roadmap: epicRoadmap,
+      items: [item('backlog/epics/auth.md', 'in_progress'), item('backlog/c1.md', 'in_progress')],
+      laneRuntimes: runtimes,
+      observations: new Map([[qref('backlog/c1.md'), observation({ itemRef: qref('backlog/c1.md') })]]),
+    }),
+  )
+  assert.equal(result.actions.length, 0)
+  assert.equal(result.laneRuntimes.get('Backend')?.activeItemRef, qref('backlog/c1.md'))
+})

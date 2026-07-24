@@ -7,7 +7,6 @@ import { useWorkspaceStore } from '../workspaceStore'
 import {
   consolidateSwitchboardWorkspaceLayout,
   createLayoutSlice,
-  ensureMultiloopLayoutModel,
   hideGuidedBriefTabStrip,
   hideNavRailTabStrip,
   hideSprintEngineBoardTabStrip,
@@ -15,7 +14,6 @@ import {
   markSwitchboardAnchorTabsSticky,
   migrateSprintEngineLayout,
   modelContainsComponent,
-  multiloopTabsLayoutModel,
   sprintEngineTabsLayoutModel,
   stripSettingsTabsFromLayout,
   stripSprintEnginesNavFromLayout,
@@ -60,11 +58,6 @@ assert.equal(modelContainsComponent(sprintLayout, 'agent'), false)
 
 const sprintLayoutWithAgents = sprintEngineTabsLayoutModel(sprintEngineState, {})
 assert.equal(modelContainsComponent(sprintLayoutWithAgents, 'agent'), true)
-
-const multiloopLayout = multiloopTabsLayoutModel()
-assert.equal(modelContainsComponent(multiloopLayout, 'multiloop-board'), true)
-assert.deepEqual(ensureMultiloopLayoutModel(multiloopLayout), multiloopLayout)
-assert.equal(modelContainsComponent(ensureMultiloopLayoutModel(standardTemplate.layout), 'multiloop-board'), true)
 
 // The retired 3-tab Inbox / Roster / Tasks shape must migrate forward to the
 // single board tab — internal segmented chrome now handles the view switching.
@@ -449,14 +442,14 @@ const carrier = {
   ],
 }
 const layoutSlice = createLayoutSlice((mutator) => mutator(carrier))
-layoutSlice.updateLayout('carrier-workspace', multiloopLayout)
-assert.deepEqual(carrier.workspaces[0].layoutModel, multiloopLayout)
+layoutSlice.updateLayout('carrier-workspace', sprintLayout)
+assert.deepEqual(carrier.workspaces[0].layoutModel, sprintLayout)
 
 const workspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, { name: 'Layout Workspace' })
-useWorkspaceStore.getState().updateLayout(workspaceId, multiloopLayout)
+useWorkspaceStore.getState().updateLayout(workspaceId, sprintLayout)
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.layoutModel,
-  multiloopLayout,
+  sprintLayout,
 )
 
 console.log('layoutSlice.test.ts: ok')

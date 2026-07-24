@@ -14,7 +14,6 @@ const allEnabled: ModuleEnablementOverrides = {}
 assert.ok(rowAccent(ws('sprintengine'), allEnabled).border.includes('--tool-sprintengine'), 'enabled sprintengine row keeps its accent border')
 assert.ok(rowAccent(ws('sprintengine'), allEnabled).glyph.includes('--tool-sprintengine'), 'enabled sprintengine row keeps its glyph accent')
 assert.ok(rowAccent(ws('switchboard'), allEnabled).glyph.includes('--tool-switchboard'), 'enabled switchboard row keeps its glyph accent')
-assert.ok(rowAccent(ws('multiloop'), allEnabled).glyph.includes('--tool-multiloop'), 'enabled multiloop row keeps its glyph accent')
 
 // AC4: a disabled module degrades the row to the generic standard accent
 // (muted glyph, neutral border) instead of the tool accent.
@@ -25,9 +24,6 @@ assert.ok(seOff.border.includes('--border-strong'), 'disabled sprint-engine row 
 
 const sbOff = rowAccent(ws('switchboard'), { switchboard: false })
 assert.ok(sbOff.glyph.includes('--text-muted'), 'disabled switchboard row uses the muted glyph')
-
-const mlOff = rowAccent(ws('multiloop'), { multiloop: false })
-assert.ok(mlOff.glyph.includes('--text-muted'), 'disabled multiloop row uses the muted glyph')
 
 // guided-brief is registered under the sprint-engine module, so disabling
 // sprint-engine also degrades a guided-brief row.

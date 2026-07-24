@@ -45,11 +45,6 @@ const seededWorkspace = {
     runtimeState: 'idle',
     notificationsDelivered: {},
   },
-  multiloopAutoState: {
-    enabled: false,
-    pendingSpawns: [],
-    coordinatorAutoSpawnKey: null,
-  },
   createdAt: 1_700_000_000_000,
 }
 

@@ -304,6 +304,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       })
     },
   })
+  // Invalidate a run's cached summary and tell every open Sprints door to
+  // refetch. Fired for every runtime op with a statePath, and directly for
+  // state writes that happen with no registered runtime (non-resident cancel).
+  const notifySprintRunsChanged = (statePath: string): void => {
+    invalidateSprintRunSummary(statePath)
+    const changed: SprintRunsChangedEvent = { statePath }
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
+      window.webContents.send(SPRINT_RUNS_CHANGED_CHANNEL, changed)
+    }
+  }
   const sprintRuntime = createSprintRuntime({
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -363,15 +374,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       if (op.statePath) trackerWriteBack.notifyRunActivity(op.statePath)
       // …and its cross-project run-index summary may be stale: drop the memo and
       // notify any open Sprints door so it refetches without polling (MC-1761).
-      if (op.statePath) {
-        invalidateSprintRunSummary(op.statePath)
-        const changed: SprintRunsChangedEvent = { statePath: op.statePath }
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-          window.webContents.send(SPRINT_RUNS_CHANGED_CHANNEL, changed)
-        }
-      }
+      if (op.statePath) notifySprintRunsChanged(op.statePath)
     },
+    notifyRunsChanged: notifySprintRunsChanged,
     logDiagnostic: (diagnostic) => writeDiagnosticLog(diagnostic),
   })
   sprintRuntimeRef = sprintRuntime
@@ -474,7 +479,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       resumeSprintRun: (statePath) => sprintRuntime.applyResume(statePath),
       cancelSprintRun: async (payload) => {
         const result = await sprintEngineArtifacts.cancelRun(payload)
-        if (result.ok) sprintRuntime.cancelRun(payload.statePath)
+        if (result.ok) {
+          sprintRuntime.cancelRun(payload.statePath)
+          // A roadmap lane may be running this sprint: reconcile now so the
+          // board parks promptly instead of on the next 60s engine tick.
+          void resolveRoadmapAppFrontDoor()?.reconcile().catch(() => undefined)
+        }
         return result
       },
       // Sprint steering (MC-1654): artifact review + task mutation, all through

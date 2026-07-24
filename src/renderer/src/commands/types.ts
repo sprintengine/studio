@@ -9,7 +9,6 @@ export type CommandCategory =
   | 'voice'
   | 'editor'
   | 'sprintengine'
-  | 'multiloop'
   | 'watchtower'
   | 'switchboard'
   | 'git'
@@ -24,7 +23,6 @@ export type CommandScope =
   | 'terminal'
   | 'panel'
   | 'panel:sprintengine'
-  | 'panel:multiloop'
   | 'panel:watchtower'
   | 'panel:switchboard'
 
@@ -36,8 +34,6 @@ export type CommandAvailability =
   | 'sprintengineWorkspace'
   | 'sprintengineHasArchitect'
   | 'sprintengineFocusAgentVisible'
-  | 'multiloopWorkspace'
-  | 'multiloopStateLoaded'
   | 'switchboardWorkspace'
   // The memory-graph capability module is enabled, so the Knowledge Graph
   // panel component is registered and a toggle can actually mount it. The

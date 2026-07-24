@@ -42,7 +42,7 @@ npm run dev                        # launch the app in development
 
 - `src/` — Electron main, preload, and React renderer
 - `souls/`, `resources/skills`, `resources/skill-packs` — agent role prompts and skills (bundled)
-- `sprintengine_core/`, `switchboard_core/`, `multiloop_core/` — Python agent-orchestration cores (bundled)
+- `sprintengine_core/`, `switchboard_core/` — Python agent-orchestration cores (bundled)
 - `resources/` — bundled hooks, MCP catalog, plugins, and skill packs
 - `scripts/` — dev, build, and lint tooling
 - `docs/` — product and developer documentation

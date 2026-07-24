@@ -14,7 +14,6 @@ import type {
   LearningSettings,
   McpServerConfig,
   McpSettings,
-  MultiloopRole,
   NewChatAgentChoice,
   ReviewGuideDefaults,
   SprintEngineRoleId,
@@ -465,7 +464,7 @@ export function normalizeSprintEngineRoleModelOverrides(
   return result
 }
 
-// Per-surface (specialist / Multiloop role) model overrides. Keeps only
+// Per-surface (specialist) model overrides. Keeps only
 // well-formed { cli, model } pairs; a partial blob drops back to "no override"
 // so resolution falls through to the CLI's own default (no model flag).
 export function normalizeCliModelSelections<K extends string>(
@@ -873,12 +872,9 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedSpecialist: 'architect',
   lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
-  lastSelectedMultiloopRole: 'coordinator',
   lastAgentSpawnPermissionPreset: 'default',
   specialistCliDefaults: {},
-  multiloopRoleCliDefaults: {},
   specialistModelDefaults: {},
-  multiloopRoleModelDefaults: {},
   specialistOrder: [],
   // Pre-hydration base only. The effective flag is resolved in
   // normalizeAppSettings, which defaults it from the fresh-vs-returning signal
@@ -941,12 +937,9 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
-    lastSelectedMultiloopRole: settings?.lastSelectedMultiloopRole ?? defaults.lastSelectedMultiloopRole,
     lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
-    multiloopRoleCliDefaults: normalizeCliDefaults(settings?.multiloopRoleCliDefaults),
     specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
-    multiloopRoleModelDefaults: normalizeCliModelSelections(settings?.multiloopRoleModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
     // A returning profile (has workspaces, or a persisted modulesChosen — the
     // same signal `modulesChosen` below uses) that never recorded the migration
@@ -1087,12 +1080,9 @@ export interface SettingsSliceActions {
   setLastSelectedSpecialist: (specialistId: SpecialistActionId) => void
   setLastSpawnWasGeneral: (value: boolean) => void
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
-  setLastSelectedMultiloopRole: (role: MultiloopRole) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
-  setMultiloopRoleCliDefault: (role: MultiloopRole, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
-  setMultiloopRoleModelDefault: (role: MultiloopRole, selection: AgentCliModelSelection | null) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   /** Mark the one-time MC-1587 bundled-pack migration as evaluated for this profile. */
@@ -1407,11 +1397,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.lastNewChatAgent = normalizeNewChatAgentChoice(choice)
       }),
 
-    setLastSelectedMultiloopRole: (role) =>
-      set((state) => {
-        state.appSettings.lastSelectedMultiloopRole = role
-      }),
-
     setLastAgentSpawnPermissionPreset: (preset) =>
       set((state) => {
         const nextPreset = normalizeCliPermissionPreset(preset)
@@ -1441,16 +1426,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         }
       }),
 
-    setMultiloopRoleCliDefault: (role, cli) =>
-      set((state) => {
-        state.appSettings.multiloopRoleCliDefaults ??= {}
-        if (cli === null) {
-          delete state.appSettings.multiloopRoleCliDefaults[role]
-        } else {
-          state.appSettings.multiloopRoleCliDefaults[role] = cli
-        }
-      }),
-
     setSpecialistModelDefault: (specialistId, selection) =>
       set((state) => {
         state.appSettings.specialistModelDefaults ??= {}
@@ -1459,17 +1434,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           delete state.appSettings.specialistModelDefaults[specialistId]
         } else {
           state.appSettings.specialistModelDefaults[specialistId] = { cli: selection.cli, model }
-        }
-      }),
-
-    setMultiloopRoleModelDefault: (role, selection) =>
-      set((state) => {
-        state.appSettings.multiloopRoleModelDefaults ??= {}
-        const model = selection?.model.trim()
-        if (!selection || !model) {
-          delete state.appSettings.multiloopRoleModelDefaults[role]
-        } else {
-          state.appSettings.multiloopRoleModelDefaults[role] = { cli: selection.cli, model }
         }
       }),
 

@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { basename, dirname, join, resolve } from 'path'
-import { readdir, readFile, stat } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import {
   SPRINT_ENGINE_AUTOMATION_INTENT_FILE,
   parseSprintEngineAutomationIntentRecord,
@@ -54,8 +54,6 @@ import type {
   MobileControlSwitchboardLogSummary as MobileSwitchboardLogSummary,
   MobileControlWatchtowerRunSummary as MobileWatchtowerRunSummary,
   MobileControlWatchtowerGeneratedInboxSummary as MobileWatchtowerGeneratedInboxSummary,
-  MobileControlMultiloopMilestoneSummary as MobileMultiloopMilestoneSummary,
-  MobileControlMultiloopBlockerSummary as MobileMultiloopBlockerSummary,
   MobileSnapshotCollection,
 } from '../../../shared/mobile-control/protocol'
 import { readMobileAutomationSnapshots } from './automations'
@@ -125,7 +123,7 @@ export type MobileSprintEngineSnapshotRequest = {
   include?: MobileSnapshotCollection[]
 }
 
-// The unscoped default: every collection except the switchboard/watchtower/multiloop
+// The unscoped default: every collection except the switchboard/watchtower
 // projections (`desktopWorkspaces`), which nothing on the phone drives today, so they
 // ship only when a caller asks for them explicitly (item 1600).
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set([
@@ -139,8 +137,8 @@ type MobileSprintEngineSnapshotListener = (snapshot: MobileControlSnapshot) => v
 
 // Replace embedded workspace roots in a kind-scoped workspaceId (e.g.
 // `switchboard:/Users/...`) with the relay-safe token while preserving the kind
-// prefix. Ids that carry no local path (multiloop:<loopId>, a bare
-// sprintEngineId) are already safe and left untouched.
+// prefix. Ids that carry no local path (a bare sprintEngineId) are already
+// safe and left untouched.
 function relaySafeWorkspaceId(workspaceId: string, token: string): string {
   if (!containsLocalPath(workspaceId)) return workspaceId
   const separator = workspaceId.indexOf(':')
@@ -243,7 +241,6 @@ type DesktopWorkspaceStateReaders = {
   readSwitchboardTasks(input: { workspaceRoot: string }): Promise<SwitchboardReadResult>
   getSwitchboardRunnerState(input: string): Promise<SwitchboardRunnerResult>
   listWatchtowerRuns(workspaceRoot: string): Promise<WatchtowerRunListResult>
-  readMultiloopStates(workspaceRoot: string): Promise<MobileWorkspaceSnapshot[]>
   readRoleCatalog: RoleCatalogReader
 }
 
@@ -251,7 +248,6 @@ const defaultStateReaders: DesktopWorkspaceStateReaders = {
   readSwitchboardTasks: readAllSwitchboardTasks,
   getSwitchboardRunnerState,
   listWatchtowerRuns,
-  readMultiloopStates: readMultiloopWorkspaceSnapshots,
   readRoleCatalog: readWorkspaceRoleCatalog,
 }
 
@@ -402,12 +398,11 @@ export class MobileSprintEngineSnapshotService {
 
   private async readDesktopWorkspaceSnapshots(workspaceRoots: string[], generatedAt: string): Promise<MobileWorkspaceSnapshot[]> {
     const settled = await Promise.allSettled(workspaceRoots.map(async (workspaceRoot) => {
-      const [switchboard, watchtower, multiloop] = await Promise.all([
+      const [switchboard, watchtower] = await Promise.all([
         readSwitchboardWorkspaceSnapshot(workspaceRoot, generatedAt, this.stateReaders),
         readWatchtowerWorkspaceSnapshot(workspaceRoot, generatedAt, this.stateReaders),
-        this.stateReaders.readMultiloopStates(workspaceRoot),
       ])
-      return [switchboard, watchtower, ...multiloop].filter((workspace): workspace is MobileWorkspaceSnapshot => Boolean(workspace))
+      return [switchboard, watchtower].filter((workspace): workspace is MobileWorkspaceSnapshot => Boolean(workspace))
     }))
 
     return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
@@ -1048,75 +1043,6 @@ async function readWatchtowerWorkspaceSnapshot(
   }
 }
 
-async function readMultiloopWorkspaceSnapshots(workspaceRoot: string): Promise<MobileWorkspaceSnapshot[]> {
-  const multiloopRoot = join(workspaceRoot, 'multiloop')
-  let entries
-  try {
-    entries = await readdir(multiloopRoot, { withFileTypes: true })
-  } catch {
-    return []
-  }
-
-  const settled = await Promise.allSettled(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => readMultiloopWorkspaceSnapshot(workspaceRoot, join(multiloopRoot, entry.name, 'state.json')))
-  )
-  return settled.flatMap((result) => result.status === 'fulfilled' && result.value ? [result.value] : [])
-}
-
-async function readMultiloopWorkspaceSnapshot(workspaceRoot: string, statePath: string): Promise<MobileWorkspaceSnapshot | null> {
-  const [content, stateStats] = await Promise.all([
-    readFile(statePath, 'utf8'),
-    stat(statePath),
-  ])
-  const state = JSON.parse(content) as unknown
-  if (!state || typeof state !== 'object' || Array.isArray(state)) return null
-  const record = state as Record<string, unknown>
-  const loop = recordObject(record.loop)
-  if (!loop) return null
-
-  const loopId = stringOrFallback(loop.name, basename(dirname(statePath)))
-  const displayName = stringOrFallback(loop.displayName, loopId)
-  const roadmap = Array.isArray(record.roadmap) ? record.roadmap.filter(isRecord) : []
-  const blockers = Array.isArray(record.blockers) ? record.blockers.filter(isRecord) : []
-  const activeBlockers = blockers.filter((blocker) => blocker.status !== 'resolved').length
-  const linkedSprintEngineId = roadmap
-    .map((milestone) => recordObject(milestone.sprintEngine))
-    .map((link) => stringOrNull(link?.teamSlug))
-    .find((teamSlug): teamSlug is string => Boolean(teamSlug))
-
-  return {
-    workspaceId: `multiloop:${loopId}`,
-    kind: 'multiloop',
-    name: displayName,
-    workspacePath: workspaceRoot,
-    statePath,
-    updatedAt: isoStringOrNull(loop.updatedAt) ?? stateStats.mtime.toISOString(),
-    capabilities: ['summary.read', 'detail.read'],
-    detailVersion: mobileControlWorkspaceSnapshotVersion,
-    summary: {
-      status: multiloopWorkspaceStatus(loop.status, activeBlockers),
-      headline: `${roadmap.length} milestones, ${activeBlockers} blockers`,
-      counts: {
-        milestones: roadmap.length,
-        blockers: activeBlockers,
-      },
-    },
-    detail: {
-      kind: 'multiloop',
-      data: {
-        loopId,
-        milestoneCount: roadmap.length,
-        blockerCount: activeBlockers,
-        ...(linkedSprintEngineId ? { linkedSprintEngineId } : {}),
-        milestones: roadmap.slice(0, maxWorkspaceCollectionItems).map((milestone, index) => toMultiloopMilestoneSummary(milestone, index)),
-        blockers: blockers.slice(0, maxWorkspaceCollectionItems).map((blocker, index) => toMultiloopBlockerSummary(blocker, index)),
-      },
-    },
-  }
-}
-
 function sortSwitchboardRecords(records: SwitchboardTaskRecord[]): SwitchboardTaskRecord[] {
   return [...records].sort((a, b) => Date.parse(b.task.updatedAt) - Date.parse(a.task.updatedAt))
 }
@@ -1215,26 +1141,6 @@ function toWatchtowerRunSummary(run: WatchtowerRun): MobileWatchtowerRunSummary 
   }
 }
 
-function toMultiloopMilestoneSummary(milestone: Record<string, unknown>, index: number): MobileMultiloopMilestoneSummary {
-  const sprintEngine = recordObject(milestone.sprintEngine)
-  return {
-    milestoneId: stringOrNull(milestone.id) ?? stringOrNull(milestone.slug) ?? stringOrNull(milestone.name) ?? `milestone-${index + 1}`,
-    title: stringOrNull(milestone.title) ?? stringOrNull(milestone.displayName) ?? stringOrNull(milestone.name) ?? `Milestone ${index + 1}`,
-    ...(stringOrNull(milestone.status) ? { status: stringOrNull(milestone.status) as string } : {}),
-    ...(isoStringOrNull(milestone.updatedAt) ? { updatedAt: isoStringOrNull(milestone.updatedAt) as string } : {}),
-    ...(stringOrNull(sprintEngine?.teamSlug) ? { linkedSprintEngineId: stringOrNull(sprintEngine?.teamSlug) as string } : {}),
-  }
-}
-
-function toMultiloopBlockerSummary(blocker: Record<string, unknown>, index: number): MobileMultiloopBlockerSummary {
-  return {
-    blockerId: stringOrNull(blocker.id) ?? stringOrNull(blocker.slug) ?? stringOrNull(blocker.title) ?? `blocker-${index + 1}`,
-    title: stringOrNull(blocker.title) ?? stringOrNull(blocker.summary) ?? stringOrNull(blocker.name) ?? `Blocker ${index + 1}`,
-    ...(stringOrNull(blocker.status) ? { status: stringOrNull(blocker.status) as string } : {}),
-    ...(isoStringOrNull(blocker.updatedAt) ? { updatedAt: isoStringOrNull(blocker.updatedAt) as string } : {}),
-  }
-}
-
 function countSwitchboardLanes(records: SwitchboardTaskRecord[]): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const record of records) {
@@ -1255,13 +1161,6 @@ function watchtowerWorkspaceStatus(runs: WatchtowerRun[]): MobileWorkspaceStatus
   if (runs.some((run) => run.status === 'running' || run.status === 'pending')) return 'running'
   if (runs.length > 0) return 'complete'
   return 'idle'
-}
-
-function multiloopWorkspaceStatus(status: unknown, activeBlockers: number): MobileWorkspaceStatus {
-  if (status === 'accepted') return 'complete'
-  if (status === 'blocked' || activeBlockers > 0) return 'blocked'
-  if (status === 'active') return 'running'
-  return 'unknown'
 }
 
 function normalizeNeedsInput(value: unknown): NormalizedTask['needsInput'] | undefined {
@@ -1506,10 +1405,6 @@ function latestIso(values: Array<string | null | undefined>): string {
 
 function recordObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(recordObject(value))
 }
 
 function arrayLength(value: unknown): number {

@@ -1,9 +1,7 @@
-import type { DesignSystemSeedSource, MultiloopRole, SpecialistActionId } from '../types/workspace'
+import type { DesignSystemSeedSource, SpecialistActionId } from '../types/workspace'
 import { DESIGN_SYSTEM_ATTACHED_PROMPT_LINE } from '../../../shared/design-system/attach'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../../../shared/design-system/bundle-scaffold'
 import { pathJoin } from '../utils/paths'
-
-export type { MultiloopRole }
 
 export type SpecialistIcon =
   | 'architecture'
@@ -41,25 +39,6 @@ export type SpecialistAction = {
 // The double-underscore guarantees it never collides with a real specialist id,
 // and it is never added to the specialist roster or `specialistOrder`.
 export const GENERAL_AGENT_ENGINE_KEY = '__general__' as SpecialistActionId
-
-export type MultiloopRoleDescriptor = {
-  role: MultiloopRole
-  label: string
-  shortLabel: string
-  icon: SpecialistIcon
-}
-
-export const MULTILOOP_ROLES: MultiloopRoleDescriptor[] = [
-  { role: 'coordinator', label: 'Coordinator', shortLabel: 'Coordinator', icon: 'architecture' },
-  { role: 'architect', label: 'Architect', shortLabel: 'Architect', icon: 'architecture' },
-  { role: 'product', label: 'Product', shortLabel: 'Product', icon: 'product' },
-  { role: 'developer', label: 'Developer', shortLabel: 'Developer', icon: 'code' },
-  { role: 'frontend', label: 'Frontend', shortLabel: 'Frontend', icon: 'design' },
-  { role: 'tester', label: 'Tester', shortLabel: 'Tester', icon: 'test' },
-  { role: 'security', label: 'Security', shortLabel: 'Security', icon: 'shield' },
-  { role: 'performance', label: 'Performance', shortLabel: 'Performance', icon: 'performance' },
-  { role: 'cross_platform', label: 'Cross-platform', shortLabel: 'Compatibility', icon: 'cross_platform' },
-]
 
 // Curated display order for the specialist roster, keyed by registry role id.
 // Specialists no longer ship as a hardcoded catalog — the roster is sourced from
@@ -134,10 +113,6 @@ export function orderSpecialistActions(
     if (!seen.has(action.id)) ordered.push(action)
   }
   return ordered
-}
-
-export function getMultiloopRole(role: MultiloopRole | string | null | undefined): MultiloopRoleDescriptor {
-  return MULTILOOP_ROLES.find((descriptor) => descriptor.role === role) ?? MULTILOOP_ROLES[0]
 }
 
 export function buildMissingSpecialistSoul(action: SpecialistAction, message?: string): string {
@@ -469,25 +444,4 @@ export function buildGuidedBriefSpecialistStartupPrompt(input: GuidedBriefSpecia
     'Do not create or mutate sprint state. This Guided brief flow hands off to a sprint later.',
     'If the `souls` command is unavailable, stop and report that the Souls CLI is unavailable instead of guessing the role prompt.',
   ].join('\n')
-}
-
-export function buildMissingMultiloopPrompt(descriptor: MultiloopRoleDescriptor, message?: string): string {
-  return [
-    'Multiloop role prompt unavailable.',
-    '',
-    message ?? `Could not load Multiloop prompt for ${descriptor.role}.`,
-    'Restore multiloop_core/prompts.py or update the Multiloop role mapping, then restart this agent.',
-  ].join('\n')
-}
-
-export async function loadMultiloopPrompt(role: MultiloopRole): Promise<string> {
-  const descriptor = getMultiloopRole(role)
-
-  try {
-    const result = await window.api.readMultiloopPrompt(descriptor.role)
-    return result.ok ? result.prompt : buildMissingMultiloopPrompt(descriptor, result.message)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return buildMissingMultiloopPrompt(descriptor, message)
-  }
 }

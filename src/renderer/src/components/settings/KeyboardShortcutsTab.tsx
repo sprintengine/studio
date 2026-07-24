@@ -64,7 +64,6 @@ export const CATEGORY_LABELS: Record<CommandCategory, string> = {
   voice: 'Voice',
   editor: 'Editor',
   sprintengine: 'Sprint',
-  multiloop: 'Multiloop',
   watchtower: 'Watchtower',
   switchboard: 'Switchboard',
   git: 'Git',
