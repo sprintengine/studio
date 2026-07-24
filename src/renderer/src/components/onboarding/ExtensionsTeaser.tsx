@@ -76,7 +76,7 @@ export function ExtensionsTeaser() {
     return (
       <TeaserSection>
         <p className="text-[12px] text-[color:var(--text-muted)]">
-          Couldn’t load extensions right now. You can browse them later in Settings.
+          Couldn’t load extensions right now. You can browse them later from Extensions in the sidebar.
         </p>
       </TeaserSection>
     )
@@ -86,7 +86,7 @@ export function ExtensionsTeaser() {
     return (
       <TeaserSection>
         <p className="text-[12px] text-[color:var(--text-muted)]">
-          You’re offline — browse extensions later in Settings → Extensions.
+          You’re offline — browse extensions later from Extensions in the sidebar.
         </p>
       </TeaserSection>
     )

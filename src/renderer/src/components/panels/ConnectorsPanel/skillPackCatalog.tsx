@@ -24,7 +24,10 @@ export type SkillPackCatalogState = {
   message: string | null
   pendingId: string | null
   installed: SkillPackSettings['installed']
-  toggle: (pack: SkillPackCatalogEntry) => Promise<void>
+  /** Install-or-remove. Without `intent` the store's installed flag decides;
+   *  a caller acting on its OWN listing (the inventory's Remove) passes an
+   *  explicit intent so a stale store flag can never invert the action. */
+  toggle: (pack: SkillPackCatalogEntry, intent?: 'install' | 'remove') => Promise<void>
   /** Remove by slug (the inventory's row shape); resolves through the catalog
    *  entry when present, else the store's installed record. */
   removeBySlug: (slug: string) => void
@@ -100,16 +103,17 @@ export function useSkillPackCatalog(
   }, [workspaceRoot, setSkillPacksInstalled])
 
   const toggle = useCallback(
-    async (pack: SkillPackCatalogEntry) => {
+    async (pack: SkillPackCatalogEntry, intent?: 'install' | 'remove') => {
       if (!workspaceRoot) {
         setMessage('Open a workspace folder before installing skill packs.')
         return
       }
       const installed = skillPackSettings.installed[pack.id]
+      const removing = intent ? intent === 'remove' : Boolean(installed)
       setPendingId(pack.id)
       setMessage(null)
       try {
-        if (installed) {
+        if (removing) {
           const result = await window.api.skillPackRemove({
             workspaceRoot,
             slug: pack.slug,
@@ -162,20 +166,25 @@ export function useSkillPackCatalog(
   // (or the store's installed record) and route through the toggle path.
   const removeBySlug = useCallback(
     (slug: string) => {
+      // Explicit remove intent: the inventory row lists the pack from its own
+      // IPC read, so a lagging store flag must not flip this into an install.
       const catalogEntry = catalog.find((entry) => entry.slug === slug)
       if (catalogEntry) {
-        void toggle(catalogEntry)
+        void toggle(catalogEntry, 'remove')
         return
       }
       const pack = Object.values(skillPackSettings.installed).find((entry) => entry.slug === slug)
       if (pack) {
-        void toggle({
-          id: pack.id,
-          slug: pack.slug,
-          name: pack.name,
-          installedDirName: pack.installedDirName,
-          harnesses: pack.harnesses,
-        })
+        void toggle(
+          {
+            id: pack.id,
+            slug: pack.slug,
+            name: pack.name,
+            installedDirName: pack.installedDirName,
+            harnesses: pack.harnesses,
+          },
+          'remove',
+        )
       }
     },
     [catalog, skillPackSettings.installed, toggle],

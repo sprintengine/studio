@@ -64,7 +64,7 @@ export async function resolveConnectorLaunch(
       return {
         ok: false,
         title: `${name} is not installed`,
-        message: `${name} isn’t installed. Add it from the Connectors browse list to launch a chat.`,
+        message: `${name} isn’t installed. Add it from the Extensions marketplace to launch a chat.`,
       }
     }
     if (!catalog.ok) {
@@ -73,7 +73,7 @@ export async function resolveConnectorLaunch(
     return {
       ok: false,
       title: 'Connector unavailable',
-      message: `The ${connectorId} MCP is not in the connector catalog or MCP settings. Add it from the Connectors surface to launch it.`,
+      message: `The ${connectorId} MCP is not in the connector catalog or MCP settings. Add it from the Extensions door to launch it.`,
     }
   }
 

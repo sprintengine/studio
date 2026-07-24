@@ -73,7 +73,15 @@ export function InstalledExtensionsInventory({
       return
     }
     try {
-      setModules({ status: 'ok', value: await window.api.listThirdPartyModules() })
+      const result = await window.api.listThirdPartyModules()
+      // Guard the shape, not just the rejection: a malformed IPC result must
+      // degrade to the error notice like every other source, never crash the
+      // derive step (the state-matrix rule — MC-1847 E1).
+      setModules(
+        result && Array.isArray(result.modules) && Array.isArray(result.rejected)
+          ? { status: 'ok', value: result }
+          : { status: 'error', message: 'Could not list installed modules.' },
+      )
     } catch (error) {
       setModules({ status: 'error', message: errorMessage(error, 'Could not list installed modules.') })
     }

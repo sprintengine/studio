@@ -45,7 +45,10 @@ export function useConnectorSources(activeWorkspaceRoot: string | null): Connect
       setCatalogLoad({ status: 'error', message: 'Connector catalog needs an app restart.' })
       return
     }
-    setCatalogLoad({ status: 'loading' })
+    // A refresh never re-enters `loading` (the door-substrate rule): once data
+    // is on screen it stays up until the new read lands, so a post-install
+    // re-read can't unmount the detail panel mid-confirmation.
+    setCatalogLoad((current) => (current.status === 'ready' ? current : { status: 'loading' }))
     try {
       const result = await window.api.mcpListCatalog()
       setCatalogLoad(
@@ -67,7 +70,9 @@ export function useConnectorSources(activeWorkspaceRoot: string | null): Connect
       setRegistryLoad({ status: 'ready', data: [] })
       return
     }
-    setRegistryLoad({ status: 'loading' })
+    // Same refresh rule as the catalog: the post-install force-refresh keeps
+    // the current grid (and the open install-confirmation panel) mounted.
+    setRegistryLoad((current) => (current.status === 'ready' ? current : { status: 'loading' }))
     try {
       const result = await window.api.readMarketplaceRegistry(forceRefresh ? { forceRefresh: true } : undefined)
       if (result.ok) {

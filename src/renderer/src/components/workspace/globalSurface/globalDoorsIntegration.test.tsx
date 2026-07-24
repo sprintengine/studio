@@ -648,6 +648,194 @@ async function main(): Promise<void> {
   })
   console.log('ok - a door failure is contained: named fallback, Close and Reload both work')
 
+  // ═══ 7. The Extensions door (MC-1847) ═════════════════════════════════════
+  // The catalog rail over the shared connector canvases: rail groups and
+  // honest counts, the facet ↔ rail-row projection, the deep-link latch, and
+  // the one-source-down degradation (a failed marketplace must never read as
+  // an empty one).
+  {
+    const { default: ExtensionsGlobalSurface } = await import('./extensions/ExtensionsGlobalSurface')
+    const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } = await import(
+      './extensions/extensionsSurfaceTarget'
+    )
+
+    // Latch semantics are load-bearing for every deep-link entry point:
+    // the latest dispatch wins, and the latch drains exactly once.
+    dispatchExtensionsSurfaceTarget('browse')
+    dispatchExtensionsSurfaceTarget('installed')
+    assert.equal(consumePendingExtensionsSurfaceTarget(), 'installed', 'latest dispatch wins')
+    assert.equal(consumePendingExtensionsSurfaceTarget(), null, 'the latch drains once')
+
+    api.mcpListCatalog = async () => ({
+      ok: true,
+      servers: [
+        {
+          id: 'railway',
+          name: 'Railway',
+          category: 'Deployments',
+          description: 'Deploys, services, logs',
+          transport: 'http',
+          clients: [],
+          required: false,
+          riskLevel: 'low',
+          skill: 'use-railway',
+        },
+      ],
+    })
+    api.readMarketplaceRegistry = async () => ({
+      ok: true,
+      registryUrl: null,
+      marketplace: {
+        plugins: [
+          {
+            id: 'stripe-mcp',
+            name: 'Stripe',
+            publisher: { name: 'Stripe', verified: true },
+            summary: 'Payments, billing, customers',
+            category: 'Payments',
+            icon: 'stripe.svg',
+            latest: 1,
+            provides: ['mcp', 'skills'],
+          },
+          {
+            id: 'roadmap-module',
+            name: 'Roadmap',
+            publisher: { name: 'Multicode', verified: true },
+            summary: 'Plan multi-sprint arcs.',
+            category: 'Planning',
+            icon: 'roadmap.svg',
+            latest: 1,
+            provides: ['module'],
+          },
+          {
+            id: 'cursor-cli',
+            name: 'Cursor',
+            publisher: { name: 'Cursor', verified: true },
+            summary: 'Drive the Cursor agent.',
+            category: 'Development',
+            icon: 'cursor.svg',
+            latest: 1,
+            provides: ['cli'],
+          },
+        ],
+      },
+    })
+    api.skillPackListCatalog = async () => ({
+      ok: true,
+      packs: [
+        {
+          id: 'release-runbook',
+          slug: 'release-runbook',
+          name: 'Release runbook',
+          category: 'Operations',
+          description: 'Cut, verify, and publish a release.',
+          harnesses: [],
+        },
+      ],
+    })
+    // The Installed canvas's inventory sources. Modules resolves the real
+    // list shape; the proxy's not-stubbed {ok:false} answers exercise the
+    // remaining sources' error notices.
+    api.listThirdPartyModules = async () => ({ modules: [], rejected: [] })
+    api.builtinSkillsList = async () => []
+
+    const extRoot = createRoot(container)
+    await act(async () => {
+      extRoot.render(React.createElement(ExtensionsGlobalSurface))
+    })
+    await settle()
+
+    // The catalog rail: both groups, all seven rows, the dashed affordance.
+    const railText = container.textContent ?? ''
+    for (const label of [
+      'Marketplace',
+      'On this machine',
+      'Featured',
+      'MCP servers',
+      'Skill packs',
+      'Modules',
+      'Agent CLIs',
+      'Installed',
+      'Automation server',
+      'Add a custom MCP',
+    ]) {
+      assert.ok(railText.includes(label), `the rail carries "${label}"`)
+    }
+    // Honest counts, pinned to the element that claims them: 1 launchable
+    // connector on the bar chip AND the Featured row; catalog(1) + mcp/skills
+    // plugin(1) in the connector marketplace; each kind row carries its own
+    // real count (a zeroed count on one row can't hide behind another's).
+    const railRow = (label: string): string => {
+      const row = Array.from(container.querySelectorAll('button')).find((button) =>
+        (button.textContent ?? '').includes(label),
+      )
+      assert.ok(row, `the ${label} rail row renders`)
+      return row.textContent ?? ''
+    }
+    const barText = container.querySelector('section > div')?.textContent ?? ''
+    assert.ok(barText.includes('1 ready to launch'), 'the bar chip counts launchables')
+    assert.ok(barText.includes('2 in marketplace'), 'the bar counts the connector marketplace')
+    assert.ok(railRow('Featured').includes('1 ready to launch'), 'the Featured row counts launchables')
+    assert.ok(railRow('MCP servers').includes('2 available'), 'the MCP servers row counts the grid')
+    assert.ok(railRow('Skill packs').includes('1 available'), 'the Skill packs row counts its catalog')
+    assert.ok(railRow('Modules').includes('1 available'), 'the Modules row counts module plugins')
+    assert.ok(railRow('Agent CLIs').includes('1 available'), 'the Agent CLIs row counts cli plugins')
+    // The door lands on Featured; the Ready-to-launch rail leads the canvas.
+    const currentRow = () =>
+      Array.from(container.querySelectorAll('button[aria-current="true"]')).map((b) => b.textContent ?? '').join(' ')
+    assert.ok(currentRow().includes('Featured'), 'a plain open lands on Featured')
+    assert.ok(railText.includes('Ready to launch'), 'the launchable rail renders')
+    assert.ok(railText.includes('Railway'), 'the launchable connector renders')
+
+    // Facet ↔ rail projection: picking the All facet moves the rail highlight
+    // to MCP servers — the two can never contradict each other.
+    const allTab = Array.from(container.querySelectorAll('[role="tab"]')).find(
+      (tab) => tab.textContent?.trim().startsWith('All'),
+    )
+    assert.ok(allTab, 'the facet tabs render inside the door')
+    await act(async () => {
+      ;(allTab as HTMLElement).click()
+    })
+    assert.ok(currentRow().includes('MCP servers'), 'the All facet projects onto the MCP servers row')
+
+    // A live deep-link lands on Installed (the agent "Manage skills" route).
+    await act(async () => {
+      dispatchExtensionsSurfaceTarget('installed')
+    })
+    await settle()
+    assert.ok(currentRow().includes('Installed'), 'a live installed deep-link selects the Installed row')
+    assert.ok(
+      (container.textContent ?? '').includes('Get more skill packs'),
+      'the Installed canvas is the manage view',
+    )
+
+    await act(async () => {
+      extRoot.unmount()
+    })
+
+    // One source down: the marketplace registry fails, the catalog stays up.
+    // The browse canvas discloses the failure and the kind rows say
+    // unavailable — never a silent zero.
+    api.readMarketplaceRegistry = async () => ({ ok: false, message: 'registry down.' })
+    const degradedRoot = createRoot(container)
+    await act(async () => {
+      degradedRoot.render(React.createElement(ExtensionsGlobalSurface))
+    })
+    await settle()
+    const degradedText = container.textContent ?? ''
+    assert.ok(
+      degradedText.includes('Marketplace connectors are unavailable'),
+      'the one-source-down notice names the failed source',
+    )
+    assert.ok(degradedText.includes('Marketplace unavailable'), 'kind rows read unavailable, not 0')
+    assert.ok(degradedText.includes('Railway'), 'the healthy catalog still renders its connectors')
+    await act(async () => {
+      degradedRoot.unmount()
+    })
+
+    console.log('ok - the Extensions door: catalog rail, facet projection, deep-links, degradation')
+  }
+
   // Drop the shared scans (and their watchers) so this process can exit.
   resetScans()
   console.log('all global-door integration checks passed')
