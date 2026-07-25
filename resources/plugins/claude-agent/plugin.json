@@ -7,6 +7,10 @@
   "providerType": "agent-harness",
   "models": [
     {
+      "id": "claude-opus-5",
+      "displayName": "Opus 5"
+    },
+    {
       "id": "sonnet",
       "displayName": "Sonnet"
     },

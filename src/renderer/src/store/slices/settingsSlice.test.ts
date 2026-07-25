@@ -343,7 +343,7 @@ assert.equal(carrier.activeGlobalSurface, 'automations', 'opening another door r
 slice.closeGlobalSurface()
 assert.equal(carrier.activeGlobalSurface, null)
 
-// The Roadmap door + Backlog "Open Roadmap" route to the full-page surface, NOT a
+// The Roadmap door routes to the full-page surface, NOT a
 // centered overlay: openRoadmapSurface sets activeGlobalSurface. The legacy
 // roadmapSurface.open store flag + its overlay are retired (T2).
 carrier.activeGlobalSurface = null

@@ -1050,7 +1050,7 @@ export interface SettingsSliceActions {
   // palette, Settings → Modules, the agent "Manage skills" footers — lands on
   // the door with its deep-link latched. (Renamed in the D1 sweep.)
   openExtensionsSurface: (opts?: { view?: 'browse' | 'installed' }) => void
-  // The Roadmap door + the Backlog "Open Roadmap" affordance route here; a named
+  // The Roadmap door routes here; a named
   // convenience over openGlobalSurface('roadmap') so every caller opens the same
   // door-routed full-page surface (global-surfaces epic 1704).
   openRoadmapSurface: () => void
@@ -1265,7 +1265,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       })
     },
 
-    // The Roadmap door + the Backlog "Open Roadmap" affordance route to the
+    // The Roadmap door routes to the
     // door-routed full-page surface (global-surfaces epic 1704). A named
     // convenience over openGlobalSurface('roadmap') so every caller opens the same
     // surface; the legacy centered overlay + its store flag are retired (T2).

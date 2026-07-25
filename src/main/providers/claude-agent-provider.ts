@@ -44,9 +44,11 @@ import type {
 } from './mock-conversation-provider'
 
 export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
-// The CLI accepts these model aliases on --model regardless of account tier;
-// they track the CLI's own vocabulary rather than a remote catalog.
-export const CLAUDE_AGENT_MODELS = ['sonnet', 'opus', 'haiku'] as const
+// The CLI accepts these on --model regardless of account tier; they track the
+// CLI's own vocabulary rather than a remote catalog. Tier aliases float to
+// whatever that tier currently resolves to; a full model id pins one release.
+// Keep in sync with resources/plugins/claude-agent/plugin.json `models`.
+export const CLAUDE_AGENT_MODELS = ['claude-opus-5', 'sonnet', 'opus', 'haiku'] as const
 
 // Env marker so process-tree diagnostics can attribute the headless child to
 // its conversation session (the SDK exposes no child PID).

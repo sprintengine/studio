@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -108,20 +108,6 @@ const MAX_RENDERED_GIT_CHANGES_PER_GROUP = 500
 const GIT_PANEL_AUTO_REFRESH_MS = 10_000
 const GIT_GRAPH_PAGE_SIZE = 200
 const STANDARD_BASE_BRANCHES = ['main', 'master', 'develop', 'trunk']
-
-function RefreshGitIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
-      <path
-        d="M13.25 7.25A5.25 5.25 0 0 0 4.05 4.1L2.75 5.5m0 0H6m-3.25 0V2.25M2.75 8.75a5.25 5.25 0 0 0 9.2 3.15l1.3-1.4m0 0H10m3.25 0v3.25"
-        stroke="currentColor"
-        strokeWidth="1.35"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
 
 // Incoming (down = pull) / outgoing (up = push) arrow, matching the IDE sync
 // idiom. Pairs with the count + accessible label on its button.
@@ -1640,7 +1626,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                 onClick={() => void handleFetch()}
                 disabled={Boolean(busy)}
               >
-                <RefreshGitIcon />
+                <RefreshIcon />
               </IconButton>
             </Tooltip>
           </>

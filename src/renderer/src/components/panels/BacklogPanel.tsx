@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   GhostButton,
+  IconButton,
   InboxSearchInput,
   InlineNotice,
   LifecycleGlyph,
@@ -10,6 +11,7 @@ import {
   PanelHeader,
   Popover,
   PrimaryButton,
+  RefreshIcon,
   Section,
   Skeleton,
   Tooltip,
@@ -895,11 +897,10 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [folderPath, refreshAndSelect, scan],
   )
 
-  // The roadmap is now instance-global (one plan per Multicode, MC-1689), created and
-  // steered from the sidebar Roadmap door — not per project. The Backlog overflow
-  // "New roadmap" is retained only as a secondary door into that same flow, so a
-  // roadmap is never created orphaned in a non-home project.
-  const openRoadmapSurface = useWorkspaceStore((s) => s.openRoadmapSurface)
+  // The roadmap is instance-global (one plan per Multicode, MC-1689), created and
+  // steered from the sidebar Roadmap door. The Backlog carries NO second door into
+  // it: a duplicate entry point earns nothing here, and the header space is worth
+  // more as the refresh affordance.
 
   const openInEditor = useCallback(
     (item: BacklogItem) =>
@@ -1313,28 +1314,35 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     startSprintFromTrackerIssue,
   } = useBacklogTrackerSeeding({ items, folderPath, runScan })
 
-  const backlogOverflow = (
-    <OverflowMenu
-      ariaLabel="Backlog actions"
-      items={[
-        // The Roadmap door only appears while the roadmap module is enabled, so
-        // this secondary entry point stays consistent with the sidebar (MC-1691).
-        ...(selectModuleEnabled(moduleOverrides, 'roadmap')
-          ? [{ id: 'new-roadmap', label: 'Open Roadmap', onSelect: () => openRoadmapSurface() }]
-          : []),
-        // One "Add from <tracker>" entry per connected tracker (T7). Plain-human
-        // ("Add from Jira · ACME"), never "materialize"/"provider". Absent when no
-        // tracker is connected, so the menu is byte-identical to today.
-        ...(folderPath
-          ? trackerConnections.map((connection) => ({
-              id: `add-from-tracker-${connection.id}`,
-              label: `Add from ${connection.label}`,
-              onSelect: () => setTrackerPicker({ connectionId: connection.id, open: true }),
-            }))
-          : []),
-        { id: 'refresh', label: 'Refresh backlog', onSelect: () => void runScan(), disabled: loading || !folderPath },
-      ]}
-    />
+  // One "Add from <tracker>" entry per connected tracker (T7). Plain-human
+  // ("Add from Jira · ACME"), never "materialize"/"provider". With no tracker
+  // connected there is nothing left to overflow — refresh is its own glyph now
+  // — so the menu button is omitted entirely rather than opening empty.
+  const backlogOverflowItems = folderPath
+    ? trackerConnections.map((connection) => ({
+        id: `add-from-tracker-${connection.id}`,
+        label: `Add from ${connection.label}`,
+        onSelect: () => setTrackerPicker({ connectionId: connection.id, open: true }),
+      }))
+    : []
+
+  const backlogOverflow = backlogOverflowItems.length > 0 ? (
+    <OverflowMenu ariaLabel="Backlog actions" items={backlogOverflowItems} />
+  ) : undefined
+
+  // Re-read the backlog from disk. The same glyph the Git panel uses for the
+  // equivalent job, promoted out of the overflow menu because re-scanning after
+  // an agent edits items is the action reached for most often here.
+  const refreshBacklogButton = (
+    <Tooltip content="Refresh backlog" placement="bottom">
+      <IconButton
+        aria-label="Refresh backlog"
+        onClick={() => void runScan()}
+        disabled={loading || !folderPath}
+      >
+        <RefreshIcon />
+      </IconButton>
+    </Tooltip>
   )
 
   const newPlanButton = (
@@ -1649,7 +1657,12 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         title="Backlog"
         count={filtered.length}
         subtitle={headerScopeLabel}
-        primaryAction={newPlanButton}
+        primaryAction={
+          <>
+            {refreshBacklogButton}
+            {newPlanButton}
+          </>
+        }
         overflow={backlogOverflow}
       />
 
