@@ -898,9 +898,9 @@ export const defaultAppSettings = (): AppSettings => ({
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
   // Design Wizard specialists run on terminals by default. The conversation
-  // transport is an experimental opt-in; hydration only turns it on when the
-  // stored value is exactly `true` (see normalizeAppSettings), so a fresh
-  // profile lands here on the terminal path.
+  // transport is an experimental opt-in; hydration only turns it on for a
+  // stored `true` recorded after the one-time reset (see normalizeAppSettings),
+  // so a fresh profile lands here on the terminal path.
   guidedBriefConversationSessions: false,
   // A fresh profile has no pre-opt-in `true` to reset, so it starts stamped:
   // the first opt-in it records is explicit and survives every hydration.
@@ -1713,9 +1713,12 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     setGuidedBriefConversationSessions: (enabled) =>
       set((state) => {
-        // Record the user's explicit choice verbatim; hydration honors a stored
-        // `true` as the opt-in signal.
+        // Record the user's explicit choice verbatim. The reset stamp travels
+        // with it so the choice is self-carrying: hydration honors a stored
+        // `true` only alongside the stamp, and this is the one place a `true`
+        // is written on purpose rather than inherited from the old default.
         state.appSettings.guidedBriefConversationSessions = enabled === true
+        state.appSettings.guidedBriefConversationSessionsOptInReset = true
       }),
 
     setUsageTelemetrySettings: (update) =>
