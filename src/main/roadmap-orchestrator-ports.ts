@@ -146,6 +146,10 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
         goal: '',
         sourceRelativePath: itemRelativePath,
         startRunner: true,
+        // A lane sprint runs unwatched — an artifact waiting on a human stalls
+        // the lane the same way a permission prompt does. The PR gate (lane
+        // merge policy) remains the human checkpoint.
+        autoApproveArtifacts: true,
         useWorktrees: true,
         ...(team ? { team } : {}),
       })
