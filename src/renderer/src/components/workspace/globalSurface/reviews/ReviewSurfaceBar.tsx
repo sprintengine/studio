@@ -2,11 +2,13 @@ import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import { REVIEW_STATE_PRESENTATION } from '../../../../../../shared/review/review-state'
 import { GhostButton, PrimaryButton } from '../../../ui/Buttons'
 import { SegmentedControl } from '../../../ui/SegmentedControl'
+import { Spinner } from '../../../ui/Spinner'
 import { statsChip, sourceIdentity } from '../../../panels/review/reviewSelectors'
 import { hasPostedComments } from '../../../panels/review/commentModel'
 import type { GlobalSurfaceBar } from '../GlobalSurfaceShell'
 import { BarStatusChip } from '../surfaceSubstrate'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
+import { StopGuideRunButton } from './ReviewGuideStop'
 
 // The folded Reviews-door surface bar (MC-1708 T6, mockup §4). The bar stays
 // informational plus the ONE primary action — the change title, an In progress /
@@ -83,8 +85,15 @@ function ReviewBarActions({ session }: { session: ReviewSession }) {
 // walkthrough, never title-bar chrome. Re-run and Ask the guide act on a guide
 // walkthrough; with no guide (degraded) there is nothing to re-run and no guide
 // to ask, so they drop and the diff-view toggle stands alone.
+//
+// While a re-run is in flight (MC-1804) the Re-run button is replaced by the live
+// line plus Stop, rather than the disabled "Re-running…" button it used to become:
+// with the walkthrough on screen this row is the only place the run is visible, so
+// a disabled button was both the sole progress signal and the reason there was no
+// way out of a runaway run.
 export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.Element {
   const guideActions = !session.isDegraded
+  const running = session.run.running
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2">
       <SegmentedControl
@@ -94,8 +103,16 @@ export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.
         onChange={session.onSetDiffView}
         className="shrink-0"
       />
-      {guideActions ? (
-        <GhostButton onClick={session.refresh} disabled={session.run.running} className="shrink-0">
+      {!guideActions ? null : running ? (
+        <>
+          <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+            <Spinner />
+            Re-running…
+          </span>
+          <StopGuideRunButton session={session} />
+        </>
+      ) : (
+        <GhostButton onClick={session.refresh} className="shrink-0">
           <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
             <path
               d="M13 8a5 5 0 1 1-1.46-3.54M13 3v2.5h-2.5"
@@ -105,9 +122,9 @@ export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.
               strokeLinejoin="round"
             />
           </svg>
-          {session.run.running ? 'Re-running…' : 'Re-run'}
+          Re-run
         </GhostButton>
-      ) : null}
+      )}
       {guideActions ? (
         <GhostButton onClick={session.openAsk} className="shrink-0">
           <svg viewBox="0 0 16 16" className="icon-sm text-[color:var(--accent-primary)]" fill="currentColor" aria-hidden="true">

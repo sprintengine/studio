@@ -102,7 +102,12 @@ export interface ReviewBrief {
     intent: string
     blastRadius: string
     readingGuide: string
-    complexity: OverviewComplexity
+    // The guide's reading-effort judgment. Optional because a brief can exist
+    // without a guide having judged anything: the renderer synthesizes a degraded
+    // model from a change set alone (MC-1815), and that model states no complexity
+    // rather than inventing one. A guide's own brief still carries it — the
+    // walkthrough simply omits the signal when nobody produced it.
+    complexity?: OverviewComplexity
   }
   steps: ReviewStep[]
   changeMap?: ChangeMap
@@ -124,7 +129,11 @@ function validateOverview(value: unknown, path: string, errors: string[]): void 
   if (!isNonEmptyString(value.intent)) errors.push(`${path}.intent must be a non-empty string.`)
   if (!isNonEmptyString(value.blastRadius)) errors.push(`${path}.blastRadius must be a non-empty string.`)
   if (!isNonEmptyString(value.readingGuide)) errors.push(`${path}.readingGuide must be a non-empty string.`)
-  checkEnum(value.complexity, OVERVIEW_COMPLEXITIES, `${path}.complexity`, errors)
+  // Absent is legal (a brief with no guide judgment); a value that is present must
+  // still be one of the three, so a smuggled "severe" is rejected as before.
+  if (value.complexity !== undefined) {
+    checkEnum(value.complexity, OVERVIEW_COMPLEXITIES, `${path}.complexity`, errors)
+  }
 }
 
 function validateAnnotation(value: unknown, path: string, errors: string[]): void {

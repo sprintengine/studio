@@ -58,6 +58,12 @@ run('a small change synthesizes one valid "All files" step that clears both vali
 run('the synthesized brief carries no guide chrome — zero annotations, no change map', () => {
   const brief = synthesizeDegradedBrief(fixtureChangeSet)
   assert.equal(brief.changeMap, undefined, 'no change map — that is the guide’s')
+  // MC-1815: complexity is the guide's reading-effort judgment. No guide judged
+  // this change, so the field is absent — not hardcoded 'low', and not derived
+  // from the changeset size, which would be the same invented judgment with
+  // arithmetic. A brief without it still validates.
+  assert.equal(brief.overview.complexity, undefined, 'no complexity — nobody judged this change')
+  assert.ok(validateReviewBrief(brief).ok, 'and an absent complexity is a valid brief')
   assert.deepEqual(brief.knowledgeRefs, [], 'no grounded knowledge without a guide')
   for (const step of brief.steps) {
     assert.deepEqual(step.annotations, [], 'no annotations — the guide has not explained anything')

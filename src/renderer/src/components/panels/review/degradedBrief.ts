@@ -94,7 +94,12 @@ export function synthesizeDegradedBrief(changeset: ReviewChangeSet): ReviewBrief
       blastRadius: `${files} ${files === 1 ? 'file' : 'files'} changed, +${additions} −${deletions}.`,
       readingGuide:
         'Read each file below and comment as you go. Prepare a walkthrough to add guided ordering and the guide’s notes.',
-      complexity: 'low',
+      // No complexity (MC-1815). It is the guide's reading-effort judgment, and no
+      // guide has judged this change. It used to be hardcoded 'low', which labelled
+      // a 300-file degraded review "Complexity low" wherever the walkthrough's own
+      // top bar renders. Deriving one from changeset size would be the same defect
+      // with arithmetic: the degraded model's whole contract is that it invents no
+      // judgment, and a size-derived complexity is a judgment.
     },
     steps,
     knowledgeRefs: [],
