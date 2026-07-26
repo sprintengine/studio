@@ -11,6 +11,7 @@ import { openFileSurface } from '../../utils/openFileSurface'
 import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { slugifySprintEngineName } from '../../utils/sprintengineStateFile'
 import { setFileDropData } from '../../utils/terminalDrop'
+import { consumePendingFileReveal, subscribeFileReveal } from '../../utils/fileReveal'
 import { IconButton } from '../ui/Buttons'
 import { PanelHeader } from '../ui/PanelHeader'
 import { InboxSearchInput } from '../ui/InboxSearchInput'
@@ -2254,6 +2255,9 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
   const [query, setQuery] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
   const [revealToken, setRevealToken] = useState(0)
+  // An explicit reveal target from outside the panel (the terminal link chooser).
+  // Takes precedence over the active file for as long as it is set.
+  const [externalRevealPath, setExternalRevealPath] = useState<string | null>(null)
   const [createRequest, setCreateRequest] = useState<CreateEntryRequest | null>(null)
   const {
     status: gitStatus,
@@ -2290,9 +2294,49 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
 
   const revealActiveFile = () => {
     if (!canRevealActiveFile) return
+    setExternalRevealPath(null)
     setQuery('')
     setRevealToken((current) => current + 1)
   }
+
+  // "Reveal in Files", dispatched by the terminal link chooser (MC-1899). The
+  // panel is usually cold when that runs — the same click reveals it — so the
+  // latch is drained on mount as well as handled live.
+  useEffect(() => {
+    // Wait for the root: the workspace folder resolves a tick after mount, and
+    // draining the latch before then would discard the target for good (the
+    // containment check below cannot pass without a root). Leaving it latched
+    // means this effect picks it up when folderReadyPath lands.
+    if (!folderReadyPath) return
+    const reveal = (path: string) => {
+      if (!isPathOrChild(path, folderReadyPath)) return
+      setExternalRevealPath(path)
+      setQuery('')
+      setRevealToken((current) => current + 1)
+    }
+    const pending = consumePendingFileReveal(workspaceId)
+    if (pending) reveal(pending)
+    return subscribeFileReveal((detail) => {
+      if (detail.workspaceId !== workspaceId) return
+      consumePendingFileReveal(workspaceId)
+      reveal(detail.path)
+    })
+  }, [folderReadyPath, workspaceId])
+
+  // Land on the file that is already open when the panel mounts, so opening
+  // Files after clicking a terminal link does not mean hunting the tree for a
+  // path read off the screen. Once per mount, and only when nothing more
+  // specific (an external reveal) has already claimed the tree — the tree does
+  // NOT keep following the active file afterwards; that is what the toolbar's
+  // Reveal button and the menu item are for.
+  const didSyncActiveFileRef = useRef(false)
+  useEffect(() => {
+    if (didSyncActiveFileRef.current || !canRevealActiveFile) return
+    didSyncActiveFileRef.current = true
+    // revealToken only ever increments, so 0 means nothing has revealed on this
+    // mount yet — a reveal already in flight keeps its target.
+    setRevealToken((current) => (current === 0 ? 1 : current))
+  }, [canRevealActiveFile])
 
   const rootName = folderPath?.split(/[/\\]/).filter(Boolean).pop() ?? folderPath ?? ''
 
@@ -2361,7 +2405,7 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             query={query}
             searchExcludes={searchExcludes}
             refreshToken={refreshToken}
-            revealPath={canRevealActiveFile ? activeFilePath : null}
+            revealPath={externalRevealPath ?? (canRevealActiveFile ? activeFilePath : null)}
             revealToken={revealToken}
             createRequest={createRequest}
             gitStatus={gitStatus}

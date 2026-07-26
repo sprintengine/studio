@@ -18,19 +18,26 @@ export type TerminalFileLinkSegment = {
   text: string
 }
 
-export type TerminalFileLinkOpenInput = {
+export type TerminalFileLinkActivateInput = {
   resolvedPath: string
   name: string
+  isDirectory: boolean
   line?: number
   column?: number
 }
+
+/** What the clicked path turned out to be on disk. A path that cannot be read
+ *  is reported as missing, which routes to `onOpenError` rather than a menu. */
+export type TerminalFileLinkPathInfo = { exists: boolean; isDirectory: boolean }
 
 export type TerminalFileLinkProviderOptions = {
   terminal: Terminal
   workspaceRoot?: string | null
   executionRoot?: string | null
-  pathExists: (path: string) => Promise<boolean>
-  openFile: (input: TerminalFileLinkOpenInput) => Promise<void> | void
+  inspectPath: (path: string) => Promise<TerminalFileLinkPathInfo>
+  /** Hands the verified click up to the host (MC-1899): the provider no longer
+   *  decides what a click DOES, it only resolves what was clicked. */
+  onActivate: (input: TerminalFileLinkActivateInput, anchor: { x: number; y: number }) => Promise<void> | void
   /** Reports a failed open, anchored to the click that triggered it so the UI
    *  can surface the error next to the pointer. */
   onOpenError?: (message: string, anchor: { x: number; y: number }) => void
@@ -278,8 +285,8 @@ export function createTerminalFileLinkProvider({
   terminal,
   workspaceRoot,
   executionRoot,
-  pathExists,
-  openFile,
+  inspectPath,
+  onActivate,
   onOpenError,
 }: TerminalFileLinkProviderOptions): ILinkProvider {
   return {
@@ -311,17 +318,18 @@ export function createTerminalFileLinkProvider({
             const anchor = { x: event.clientX, y: event.clientY }
             void (async () => {
               try {
-                const exists = await pathExists(reference.resolvedPath)
-                if (!exists) {
+                const info = await inspectPath(reference.resolvedPath)
+                if (!info.exists) {
                   onOpenError?.(`File does not exist: ${reference.resolvedPath}`, anchor)
                   return
                 }
-                await openFile({
+                await onActivate({
                   resolvedPath: reference.resolvedPath,
                   name: basename(reference.resolvedPath),
+                  isDirectory: info.isDirectory,
                   line: reference.line,
                   column: reference.column,
-                })
+                }, anchor)
               } catch (error) {
                 onOpenError?.(
                   error instanceof Error ? error.message : 'Could not open terminal file link.',

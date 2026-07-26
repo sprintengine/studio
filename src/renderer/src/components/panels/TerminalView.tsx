@@ -34,7 +34,6 @@ import {
 } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
-import { isImageFile } from '../../utils/files'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
@@ -57,9 +56,10 @@ import {
 } from '../../utils/terminalColdLoad'
 import type { McpSettings } from '../../types/workspace'
 import { CursorErrorPopover } from '../ui/CursorErrorPopover'
+import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
+import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../../shared/terminal-history'
-import { openFileSurface } from '../../utils/openFileSurface'
 
 interface Props {
   workspaceId: string
@@ -183,6 +183,15 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const [clickError, setClickError] = useState<{ message: string; x: number; y: number } | null>(
     null,
   )
+  // A clicked link awaiting a destination (MC-1899). Both link kinds — file
+  // paths and http(s) URLs — route here instead of firing one hard-wired action.
+  const [linkMenu, setLinkMenu] = useState<{
+    target: TerminalLinkTarget
+    x: number
+    y: number
+    line?: number
+    column?: number
+  } | null>(null)
   const agent = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
@@ -507,36 +516,37 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       folderReadyPath,
       null
     )
+    const linkWorkspaceRoot = folderReadyPath ?? currentContext().savedFolderPath ?? null
     const fileLinkDisposable = term.registerLinkProvider(createTerminalFileLinkProvider({
       terminal: term,
-      workspaceRoot: folderReadyPath ?? currentContext().savedFolderPath,
+      workspaceRoot: linkWorkspaceRoot,
       executionRoot: linkExecutionRoot.cwd,
-      pathExists: (path) => window.api.pathExists(path),
-      openFile: async ({ resolvedPath, name, line, column }) => {
-        const content = isImageFile(resolvedPath) ? '' : await window.api.readfile(resolvedPath)
-        openFileSurface({ workspaceId, path: resolvedPath, name, content })
-        const dispatchFocus = () => {
-          window.dispatchEvent(new CustomEvent('multicode:focus-editor', {
-            detail: {
-              workspaceId,
-              filePath: resolvedPath,
-              line,
-              column,
-            },
-          }))
+      // statPath rejects for a path that is gone or unreadable; that routes to
+      // onOpenError below, so a dead link still shows the error popover rather
+      // than a menu of actions that would all fail.
+      inspectPath: async (path) => {
+        try {
+          const stat = await window.api.statPath(path)
+          return { exists: true, isDirectory: stat.isDirectory }
+        } catch {
+          return { exists: false, isDirectory: false }
         }
-        window.setTimeout(dispatchFocus, 0)
-        window.setTimeout(dispatchFocus, 80)
+      },
+      // The click no longer decides anything — it opens the chooser (MC-1899).
+      onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
+        setLinkMenu({
+          target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkWorkspaceRoot },
+          x: anchor.x,
+          y: anchor.y,
+          line,
+          column,
+        })
       },
       onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
     }))
 
     const webLinksAddon = new WebLinksAddon((event, uri) => {
-      const anchor = { x: event.clientX, y: event.clientY }
-      void (async () => {
-        const result = await window.api.openExternal(uri)
-        if (!result.ok) setClickError({ message: result.message, x: anchor.x, y: anchor.y })
-      })()
+      setLinkMenu({ target: { kind: 'url', url: uri }, x: event.clientX, y: event.clientY })
     })
     term.loadAddon(webLinksAddon)
 
@@ -1420,6 +1430,20 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           message={clickError.message}
           anchor={{ x: clickError.x, y: clickError.y }}
           onDismiss={() => setClickError(null)}
+        />
+      ) : null}
+      {linkMenu ? (
+        <TerminalLinkMenu
+          workspaceId={workspaceId}
+          target={linkMenu.target}
+          x={linkMenu.x}
+          y={linkMenu.y}
+          line={linkMenu.line}
+          column={linkMenu.column}
+          onClose={() => setLinkMenu(null)}
+          // A failed destination reports through the same pointer-anchored error
+          // surface the link click already used, at the original click point.
+          onError={(message) => setClickError({ message, x: linkMenu.x, y: linkMenu.y })}
         />
       ) : null}
       {folderBlocked && folderMissing ? (
