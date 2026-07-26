@@ -74,8 +74,9 @@ export type SetSprintEngineAutomationModeInput = {
 export type SetSprintEngineCliPermissionPresetInput = {
   statePath: string
   preset: SprintEngineCliPermissionPreset
+  // Names the process boundary the write came through, exactly as for a mode
+  // write; it lands in the record's `lastWrite` provenance.
   actor: SprintEngineAutomationIntentActor
-  deviceId?: string | null
   // Echoed back on the broadcast so the pushing window can drop its own echo,
   // exactly as for a mode write.
   clientToken?: string
@@ -312,11 +313,17 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
         const record = nextSprintEngineAutomationIntentRecord({
           current,
           // A preset write never changes the mode. With no record yet the
-          // sidecar is seeded at `manual` — the same default every other
-          // pre-hydration reader assumes.
+          // sidecar is seeded at `manual`, the same default every other
+          // pre-hydration reader assumes — and, because that seeding makes
+          // `hydrateAutomationMode` a no-op from then on, it also means a run
+          // that still holds only a legacy renderer-persisted mode adopts
+          // `manual` if a preset write beats its hydration sweep. Accepted:
+          // hydration runs on workspace mount, long before a human can reach
+          // this control, and the door path this exists for has no legacy
+          // renderer value to lose.
           mode: current?.desiredMode ?? 'manual',
           actor: input.actor,
-          deviceId: input.deviceId ?? null,
+          deviceId: null,
           now: now(),
           cliPermissionPreset: input.preset,
         })
