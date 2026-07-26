@@ -46,7 +46,7 @@ import { listPluginRegistryEntries } from './plugin-registry-instance'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { SPRINT_RUNS_CHANGED_CHANNEL, type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
-import { invalidateSprintRunSummary } from './sprintengine-run-index'
+import { invalidateSprintRunSummary, watchSprintRunProjections } from './sprintengine-run-index'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
@@ -305,8 +305,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   // Invalidate a run's cached summary and tell every open Sprints door to
-  // refetch. Fired for every runtime op with a statePath, and directly for
-  // state writes that happen with no registered runtime (non-resident cancel).
+  // refetch. Fired for every runtime op with a statePath, directly for state
+  // writes that happen with no registered runtime (non-resident cancel), and —
+  // via the run index's per-run directory watch below — for projection writes
+  // by the engine that no runtime op accompanies (MC-1801).
   const notifySprintRunsChanged = (statePath: string): void => {
     invalidateSprintRunSummary(statePath)
     const changed: SprintRunsChangedEvent = { statePath }
@@ -315,6 +317,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       window.webContents.send(SPRINT_RUNS_CHANGED_CHANNEL, changed)
     }
   }
+  watchSprintRunProjections(notifySprintRunsChanged)
   const sprintRuntime = createSprintRuntime({
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),

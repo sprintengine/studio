@@ -1,5 +1,6 @@
+import { watch, type FSWatcher } from 'fs'
 import { readFile, readdir, stat } from 'fs/promises'
-import { dirname, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { pathExists } from './filesystem-workspace'
 import { normalizeSprintEngineProjection } from '../shared/sprintengine/state'
 import { describeUnsupportedSprintEngineStore } from '../shared/sprintengine/store-schema'
@@ -205,5 +206,109 @@ export async function listSprintRuns(workspaceRoots: string[]): Promise<SprintRu
   for (const statePath of summaryCache.keys()) {
     if (!live.has(statePath)) summaryCache.delete(statePath)
   }
+  syncProjectionWatches(live)
   return summaries
+}
+
+// --- Projection-write watch --------------------------------------------------
+
+// Projections are written by the Python engine, so main has no write path to
+// emit from: a run advancing purely on disk (manual mode, agents publishing over
+// MCP) moves no scheduler op, and the Sprints rail would hold a stale row until
+// one happened to fire. Each discovered run gets a watch on its own run
+// directory instead (MC-1801).
+//
+// Non-recursive is load-bearing, not incidental: `projection.json` is a direct
+// child of the run directory, and `fs.watch({ recursive: true })` is only
+// enabled for win32/darwin in this codebase (`src/main/ipc/filesystem-watch-search-ipc.ts`),
+// so a per-run watch is the shape that works on every platform. Bursts coalesce
+// on the same window as that file's renderer watchers (see the note on
+// `scheduleProjectionNotify` for the one deliberate difference).
+//
+// The signal is deliberately lossy-in-one-direction: macOS replays writes that
+// landed just before a watcher armed, so opening the door can cost one extra
+// refetch. A refetch is idempotent and memoized, while a missed write is a rail
+// that lies — so an extra notification is always the safer error.
+
+const PROJECTION_FILE_NAME = 'projection.json'
+const PROJECTION_WRITE_COALESCE_MS = 100
+
+type ProjectionWatch = { watcher: FSWatcher; flushTimer: NodeJS.Timeout | null }
+
+const projectionWatches = new Map<string, ProjectionWatch>()
+let projectionWriteSink: ((statePath: string) => void) | null = null
+
+/**
+ * Route projection writes to `sink` — main's `notifySprintRunsChanged`, which
+ * drops the run's memo and pushes the runs-changed event. Watches themselves are
+ * opened and closed by `listSprintRuns`'s enumeration, so a run whose directory
+ * disappears closes its watch on the next list. Passing `null` stops watching
+ * and closes every open watcher.
+ */
+export function watchSprintRunProjections(sink: ((statePath: string) => void) | null): void {
+  projectionWriteSink = sink
+  if (sink) return
+  for (const statePath of [...projectionWatches.keys()]) closeProjectionWatch(statePath)
+}
+
+/** The run directories currently watched for projection writes. */
+export function watchedSprintRunProjectionPaths(): string[] {
+  return [...projectionWatches.keys()]
+}
+
+function syncProjectionWatches(discovered: ReadonlySet<string>): void {
+  if (!projectionWriteSink) return
+  for (const statePath of [...projectionWatches.keys()]) {
+    if (!discovered.has(statePath)) closeProjectionWatch(statePath)
+  }
+  for (const statePath of discovered) {
+    if (!projectionWatches.has(statePath)) openProjectionWatch(statePath)
+  }
+}
+
+function openProjectionWatch(statePath: string): void {
+  let watcher: FSWatcher
+  try {
+    watcher = watch(dirname(statePath), { recursive: false }, (_eventType, filename) => {
+      // A platform that reports no filename cannot say which child changed;
+      // notifying is the honest read, since a missed projection write is a rail
+      // that lies while a spurious one costs one refetch.
+      const changed = typeof filename === 'string' ? basename(filename) : null
+      if (changed && changed !== PROJECTION_FILE_NAME) return
+      scheduleProjectionNotify(statePath)
+    })
+  } catch {
+    // The run directory vanished between the scan and here, or the platform
+    // refused the watch: this run has no live signal until the next enumeration
+    // retries. Never fatal to listing runs.
+    return
+  }
+  // A deleted or unreadable directory surfaces as an error event; drop the watch
+  // rather than keep a dead handle. Enumeration reopens it if the run returns.
+  watcher.on('error', () => closeProjectionWatch(statePath))
+  projectionWatches.set(statePath, { watcher, flushTimer: null })
+}
+
+// One notification per coalescing window, timed from the burst's first event.
+// Deliberately not the renderer watchers' restart-the-timer-per-event debounce
+// (`filesystem-watch-search-ipc.ts`): an engine writing faster than the window
+// would keep restarting it and the door would never hear about a run that is
+// very much moving. A fixed window bounds the events without starving.
+function scheduleProjectionNotify(statePath: string): void {
+  const entry = projectionWatches.get(statePath)
+  if (!entry || entry.flushTimer) return
+
+  entry.flushTimer = setTimeout(() => {
+    entry.flushTimer = null
+    projectionWriteSink?.(statePath)
+  }, PROJECTION_WRITE_COALESCE_MS)
+}
+
+function closeProjectionWatch(statePath: string): void {
+  const entry = projectionWatches.get(statePath)
+  if (!entry) return
+
+  if (entry.flushTimer) clearTimeout(entry.flushTimer)
+  entry.watcher.close()
+  projectionWatches.delete(statePath)
 }

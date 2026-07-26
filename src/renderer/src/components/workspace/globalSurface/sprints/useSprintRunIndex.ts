@@ -12,8 +12,10 @@ import { listAutomationProjectFolders } from '../../../../utils/automationsEntry
 // Runs are discovered by scanning each known project root's
 // `.multi-code/sprintengine/` tree, so a run whose sprint workspace was closed
 // long ago still lists — the index reads disk, not the workspace rail. Main
-// pushes a change event per run projection write, so this refetches on the event
-// rather than polling.
+// pushes a change event per run projection write — from its own runtime ops, and
+// from the run index's per-run directory watch for the writes the Python engine
+// makes on its own (MC-1801) — so this refetches on the event rather than
+// polling.
 
 export type SprintRunIndexLoadState = 'loading' | 'ready' | 'error'
 
