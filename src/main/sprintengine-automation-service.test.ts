@@ -276,6 +276,124 @@ async function main(): Promise<void> {
     assert.equal(harness.hydrations.length, 1, 'an unchanged hydration never re-notifies the scheduler')
   })
 
+  // set-permission-preset (MC-1799): persists beside the mode, bumps the shared
+  // revision, broadcasts, and round-trips through read.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    const written = await harness.service.setCliPermissionPreset({
+      statePath: harness.statePath,
+      preset: 'bypass_all',
+      actor: 'ui',
+      clientToken: 'window-7',
+    })
+    assert.ok(written.ok && written.changed)
+    assert.equal(written.record.revision, 1)
+    assert.equal(written.record.cliPermissionPreset, 'bypass_all')
+    assert.equal(written.record.desiredMode, 'manual', 'a preset write never invents a mode')
+
+    const onDisk = JSON.parse(await readFile(harness.intentPath, 'utf8'))
+    assert.equal(onDisk.cliPermissionPreset, 'bypass_all')
+    assert.equal(onDisk.schemaVersion, 1, 'an additive optional field is not a schema bump')
+
+    assert.equal(harness.broadcasts.length, 1)
+    assert.equal(harness.broadcasts[0].record.cliPermissionPreset, 'bypass_all')
+    assert.equal(harness.broadcasts[0].sourceClientToken, 'window-7')
+
+    const read = await harness.service.readAutomationMode({ statePath: harness.statePath })
+    assert.ok(read.ok && read.record)
+    assert.equal(read.record.cliPermissionPreset, 'bypass_all')
+
+    // Same preset again: idempotent, like a same-mode write.
+    const repeat = await harness.service.setCliPermissionPreset({
+      statePath: harness.statePath,
+      preset: 'bypass_all',
+      actor: 'ui',
+    })
+    assert.ok(repeat.ok)
+    assert.equal(repeat.changed, false)
+    assert.equal(repeat.record.revision, 1)
+    assert.equal(harness.broadcasts.length, 1)
+
+    // A later mode write carries the preset forward untouched.
+    const mode = await harness.service.setAutomationMode({
+      statePath: harness.statePath,
+      mode: 'run_agents',
+      actor: 'ui',
+    })
+    assert.ok(mode.ok && mode.changed)
+    assert.equal(mode.record.revision, 2)
+    assert.equal(mode.record.cliPermissionPreset, 'bypass_all')
+
+    const changed = await harness.service.setCliPermissionPreset({
+      statePath: harness.statePath,
+      preset: 'auto_workspace',
+      actor: 'ui',
+    })
+    assert.ok(changed.ok && changed.changed)
+    assert.equal(changed.record.revision, 3)
+    assert.equal(changed.record.desiredMode, 'run_agents', 'a preset write never moves the mode')
+    // Two preset changes + one mode change; the idempotent repeat broadcast nothing.
+    assert.equal(harness.broadcasts.length, 3)
+
+    // Neither the manual audit nor the runner bridge belongs to a preset write.
+    await flushMicrotasks()
+    assert.equal(harness.runnerWrites.length, 1, 'only the mode write bridges cliWatchPolling')
+    assert.equal(harness.diagnostics.length, 0)
+
+    const badPreset = await harness.service.setCliPermissionPreset({
+      statePath: harness.statePath,
+      preset: 'yolo' as never,
+      actor: 'ui',
+    })
+    assert.equal(badPreset.ok, false)
+  })
+
+  // A record written before MC-1799 carries no preset: it still loads, the mode
+  // still round-trips, and the first preset write adds the field.
+  await withTempRoot(async (root) => {
+    const harness = await createHarness(root)
+    await writeFile(harness.intentPath, `${JSON.stringify({
+      schemaVersion: 1,
+      revision: 4,
+      desiredMode: 'run_agents',
+      changedAt: 1700000000000,
+      lastWrite: { actor: 'ui', deviceId: null, at: '2026-07-20T00:00:00.000Z' },
+    }, null, 2)}\n`, 'utf8')
+
+    const read = await harness.service.readAutomationMode({ statePath: harness.statePath })
+    assert.ok(read.ok && read.record)
+    assert.equal(read.record.desiredMode, 'run_agents')
+    assert.equal(read.record.cliPermissionPreset, undefined)
+
+    // Hydration against an existing record hands the workspace main's record —
+    // the path a workspace attaching after a door-mount preset write takes.
+    const hydrated = await harness.service.hydrateAutomationMode({
+      statePath: harness.statePath,
+      mode: 'manual',
+    })
+    assert.ok(hydrated.ok)
+    assert.equal(hydrated.changed, false)
+    assert.equal(hydrated.record.cliPermissionPreset, undefined)
+
+    const written = await harness.service.setCliPermissionPreset({
+      statePath: harness.statePath,
+      preset: 'default',
+      actor: 'ui',
+    })
+    assert.ok(written.ok && written.changed)
+    assert.equal(written.record.revision, 5)
+    assert.equal(written.record.desiredMode, 'run_agents')
+    assert.equal(written.record.cliPermissionPreset, 'default')
+
+    const rehydrated = await harness.service.hydrateAutomationMode({
+      statePath: harness.statePath,
+      mode: 'manual',
+    })
+    assert.ok(rehydrated.ok)
+    assert.equal(rehydrated.record.cliPermissionPreset, 'default',
+      'a workspace attaching later reads the persisted preset back')
+  })
+
   // read: null before any write; the record after
   await withTempRoot(async (root) => {
     const harness = await createHarness(root)

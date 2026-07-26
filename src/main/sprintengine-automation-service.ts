@@ -24,7 +24,10 @@ import type {
   SprintEngineAutomationReadResult,
   SprintEngineAutomationWriteResult,
 } from '../shared/electron-api'
-import type { SprintEngineAutomationMode } from '../shared/sprintengine/automation-types'
+import type {
+  SprintEngineAutomationMode,
+  SprintEngineCliPermissionPreset,
+} from '../shared/sprintengine/automation-types'
 import {
   SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
   sprintEngineAutomationModeLabel,
@@ -35,6 +38,7 @@ import {
 } from '../shared/sprintengine/automation-lifecycle'
 import {
   SPRINT_ENGINE_AUTOMATION_INTENT_FILE,
+  isSprintEngineCliPermissionPreset,
   nextSprintEngineAutomationIntentRecord,
   parseSprintEngineAutomationIntentRecord,
   serializeSprintEngineAutomationIntentRecord,
@@ -65,6 +69,16 @@ export type SetSprintEngineAutomationModeInput = {
   workspaceName?: string
   taskId?: string
   agentId?: string
+}
+
+export type SetSprintEngineCliPermissionPresetInput = {
+  statePath: string
+  preset: SprintEngineCliPermissionPreset
+  actor: SprintEngineAutomationIntentActor
+  deviceId?: string | null
+  // Echoed back on the broadcast so the pushing window can drop its own echo,
+  // exactly as for a mode write.
+  clientToken?: string
 }
 
 export type SprintEngineAutomationServiceDeps = {
@@ -272,6 +286,60 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
     },
 
     /**
+     * The CLI permission preset agents spawn with (MC-1799), keyed by statePath
+     * like the mode — the Sprints door must be able to set it with no resident
+     * workspace, which the workspace-keyed store action could not do.
+     *
+     * Shares the mode's queue, revision counter and broadcast: both live in one
+     * record, so a preset write is a new revision of the same intent.
+     */
+    async setCliPermissionPreset(
+      input: SetSprintEngineCliPermissionPresetInput,
+    ): Promise<SprintEngineAutomationWriteResult> {
+      if (!isSprintEngineCliPermissionPreset(input.preset)) {
+        return { ok: false, message: `Unknown CLI permission preset: ${String(input.preset)}` }
+      }
+      const paths = automationIntentPathForState(input.statePath)
+      if (!paths) return { ok: false, message: 'Sprint run state path is not a writable run.yaml location.' }
+
+      return enqueue(paths.queueKey, async () => {
+        const current = await readRecord(paths.intentPath)
+        if (current?.cliPermissionPreset === input.preset) {
+          // Idempotent no-op, same rule as a same-mode write: no revision bump
+          // and no broadcast, so an echo never looks like a new transition.
+          return { ok: true as const, record: current, changed: false }
+        }
+        const record = nextSprintEngineAutomationIntentRecord({
+          current,
+          // A preset write never changes the mode. With no record yet the
+          // sidecar is seeded at `manual` — the same default every other
+          // pre-hydration reader assumes.
+          mode: current?.desiredMode ?? 'manual',
+          actor: input.actor,
+          deviceId: input.deviceId ?? null,
+          now: now(),
+          cliPermissionPreset: input.preset,
+        })
+        try {
+          await writeRecordAtomically(paths.intentPath, record)
+        } catch (error) {
+          return {
+            ok: false as const,
+            message: `CLI permission preset could not be persisted: ${error instanceof Error ? error.message : String(error)}`,
+          }
+        }
+        // No manual-transition audit and no cliWatchPolling bridge: neither
+        // describes a preset change.
+        deps.broadcast({
+          statePath: input.statePath,
+          record,
+          ...(input.clientToken ? { sourceClientToken: input.clientToken } : {}),
+        })
+        return { ok: true as const, record, changed: true }
+      })
+    },
+
+    /**
      * Scheduler bookkeeping persistence (Phase 3): merge the runtime residue
      * into the record WITHOUT bumping the revision, auditing, bridging, or
      * broadcasting — it is durable bookkeeping beside the intent, not a
@@ -302,6 +370,10 @@ export function createSprintEngineAutomationService(deps: SprintEngineAutomation
      * no cliWatchPolling bridge (run.yaml already reflects the old UI's own
      * writes), no broadcast (the seeding renderer already holds this value and
      * a fresh window reads before hydrating).
+     *
+     * When a sidecar already exists the returned record is main's, carrying
+     * whatever `cliPermissionPreset` was persisted — that is how a workspace
+     * attaching after a door-mount preset write picks it back up.
      */
     async hydrateAutomationMode(input: {
       statePath: string
