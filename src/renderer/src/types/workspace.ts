@@ -602,11 +602,21 @@ export type AppSettings = {
    */
   terminalKeepRecentAlive: number
   /**
-   * Design Wizard specialists on Claude run as conversation sessions
-   * (structured question cards, streamed chat) instead of raw terminals.
-   * Turning this off restores the terminal transport for every role.
+   * Opt-in: when on, Design Wizard specialists on Claude run as conversation
+   * sessions (structured question cards, streamed chat) instead of raw
+   * terminals. Off by default — every other role and CLI takes the terminal
+   * transport regardless.
    */
   guidedBriefConversationSessions: boolean
+  /**
+   * Whether the one-time store-v67 reset of {@link guidedBriefConversationSessions}
+   * has been applied to this profile. The pre-opt-in default was `true`, so a
+   * stored `true` cannot be told apart from an old default; the reset clears it
+   * once and stamps this flag, after which a stored `true` is an explicit
+   * choice and survives. Never surfaced in settings UI. See MC-1802 and
+   * normalizeAppSettings.
+   */
+  guidedBriefConversationSessionsOptInReset: boolean
   /**
    * The review the user last opened in the Reviews door, so reopening the door
    * restores it instead of snapping to the attention-first first row. Both the

@@ -942,13 +942,36 @@ assert.equal(
   "transportForCli('claude-code') === 'terminal' at default settings",
 )
 
-// Opt-in only: hydration turns it on solely for an explicit stored `true`. A
-// user who enabled it keeps the conversation transport; any other stored value
-// (legacy truthy, undefined) resolves to the terminal path.
+// One-time reset (MC-1802, store v67): the pre-opt-in default was `true`, so
+// persist wrote it to every existing profile. An un-stamped stored `true` is
+// therefore indistinguishable from that old default and is cleared — the whole
+// installed base returns to the terminal path until someone opts in.
+const preFlipProfile = normalizeAppSettings({ guidedBriefConversationSessions: true }, [])
 assert.equal(
-  normalizeAppSettings({ guidedBriefConversationSessions: true }, []).guidedBriefConversationSessions,
+  preFlipProfile.guidedBriefConversationSessions,
+  false,
+  'a persisted true written before the opt-in flip is reset',
+)
+assert.equal(
+  preFlipProfile.guidedBriefConversationSessionsOptInReset,
   true,
-  'an explicitly enabled profile keeps conversation sessions on',
+  'normalizing stamps the profile so the reset runs exactly once',
+)
+assert.equal(
+  normalizeAppSettings(preFlipProfile, []).guidedBriefConversationSessions,
+  false,
+  're-normalizing the reset profile leaves it off (the reset is not re-applied to a value nobody set)',
+)
+
+// Post-reset the stamp rides in the same settings object, so an opt-in recorded
+// after it is explicit by construction and survives every later hydration.
+assert.equal(
+  normalizeAppSettings(
+    { guidedBriefConversationSessions: true, guidedBriefConversationSessionsOptInReset: true },
+    [],
+  ).guidedBriefConversationSessions,
+  true,
+  'a profile that opts in after the reset keeps conversation sessions on',
 )
 assert.equal(
   guidedBriefTransportForCli('claude-code', { conversationSessionsEnabled: true, hasWorkspaceId: true }),
@@ -957,11 +980,19 @@ assert.equal(
 )
 for (const stored of [undefined, false, 1 as unknown as boolean, 'true' as unknown as boolean]) {
   assert.equal(
-    normalizeAppSettings({ guidedBriefConversationSessions: stored }, []).guidedBriefConversationSessions,
+    normalizeAppSettings(
+      { guidedBriefConversationSessions: stored, guidedBriefConversationSessionsOptInReset: true },
+      [],
+    ).guidedBriefConversationSessions,
     false,
     `a non-true stored value (${String(stored)}) resolves to off`,
   )
 }
+assert.equal(
+  normalizeAppSettings({}, []).guidedBriefConversationSessionsOptInReset,
+  true,
+  'a fresh profile is stamped without ever having been on',
+)
 
 // Non-Claude CLIs and workspace-less runs never take the conversation path,
 // even when the opt-in is on.
@@ -984,6 +1015,11 @@ assert.equal(
   useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
   true,
   'setGuidedBriefConversationSessions(true) opts in',
+)
+assert.equal(
+  normalizeAppSettings(useWorkspaceStore.getState().appSettings, []).guidedBriefConversationSessions,
+  true,
+  'the opt-in survives the next hydration (the stamp travels with the setting)',
 )
 transportStore.setGuidedBriefConversationSessions(false)
 assert.equal(
