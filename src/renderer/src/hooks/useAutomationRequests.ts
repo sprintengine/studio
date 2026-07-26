@@ -267,8 +267,10 @@ async function createPlanSourcedSprint(
       initialSpawnRoles: startRunner ? [sprintEnginePlannerRole(roster.roleCounts)] : null,
       sprintEngineAutoState: {
         ...sprintEngineAutomationInitialStateForMode(automationMode),
-        // External creation never escalates CLI permissions (same as goal-sourced).
-        cliPermissionPreset: 'default',
+        // Plan-sourced launches are horizon/automation-orchestrated: nobody is
+        // watching to answer per-tool prompts, so agents spawn in bypass
+        // (owner ruling 2026-07-26; MC-1900 makes this a configurable policy).
+        cliPermissionPreset: 'bypass_all',
         maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
       },
       workspaceWindowId: 'primary',
