@@ -281,9 +281,7 @@ async function main(): Promise<void> {
     } else {
       await panel.click(panel.primary()) // team -> roster
       assert.ok(panel.text().includes('Who plans and builds this sprint.'), 'the sprint pages to its Team step')
-      await panel.click(panel.primary()) // roster -> reviews
-      assert.ok(panel.text().includes('What gets checked before the sprint finishes.'), 'the sprint pages to its Reviews step')
-      await panel.click(panel.primary()) // reviews -> tools
+      await panel.click(panel.primary()) // roster -> tools
       assert.ok(panel.text().includes('Tools & skills'), 'the sprint pages to its Tools step')
       await panel.click(panel.primary()) // tools -> start
       assert.ok(panel.text().includes('Review & start'), 'the sprint ends on the Review & start step')
@@ -307,7 +305,6 @@ async function main(): Promise<void> {
       'workspace',
       'sprintengine-team',
       'sprintengine-roster',
-      'sprintengine-reviews',
       'sprintengine-tools',
       'sprintengine-start',
     ] as const
