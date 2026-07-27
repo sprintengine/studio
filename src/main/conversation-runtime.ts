@@ -198,7 +198,14 @@ export class ConversationRuntime {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
     if (session.status === 'stopped') return { ok: false, message: 'Conversation session is stopped.' }
-    if (session.pendingRequestId) return { ok: false, message: 'Conversation turn is awaiting approval.' }
+    if (isSessionBusy(session)) {
+      return {
+        ok: false,
+        message: session.pendingRequestId
+          ? 'Conversation turn is awaiting approval.'
+          : 'Conversation turn is already in progress.',
+      }
+    }
     const message = input.message.trim()
     const attachments = input.attachments ?? []
     // A turn needs some payload: either text or at least one image attachment.
@@ -318,6 +325,9 @@ export class ConversationRuntime {
   // adapter applies it to its live provider session (taking effect on the next
   // tool call) and only then does the session record the new preset, so a
   // provider that refuses the change never leaves a preset it is not honoring.
+  // An adapter that accepted the preset but cannot apply it to the turn already
+  // running returns a `notice` — the change is recorded, and the sentence says
+  // plainly when it starts applying.
   async setPermission(input: ConversationSetPermissionInput): Promise<ConversationSessionActionResult> {
     const session = this.sessions.get(input.sessionId)
     if (!session) return { ok: false, message: 'Conversation session is invalid.' }
@@ -331,7 +341,7 @@ export class ConversationRuntime {
     if (!applied.ok) return { ok: false, message: applied.message }
     session.permissionPreset = input.permissionPreset
     session.updatedAt = this.now()
-    return { ok: true, session: this.toSummary(session) }
+    return { ok: true, session: this.toSummary(session), ...(applied.notice ? { notice: applied.notice } : {}) }
   }
 
   async interrupt(input: ConversationInterruptInput): Promise<ConversationSessionActionResult> {
@@ -416,7 +426,7 @@ export class ConversationRuntime {
     for (const session of this.sessions.values()) {
       if (!session.stateful) continue
       if (session.status !== 'ready' && session.status !== 'failed') continue
-      if (session.activeTurnId || session.pendingRequestId) continue
+      if (isSessionBusy(session)) continue
       if (now - session.updatedAt < this.idleThresholdMs) continue
       const adapter = this.getAdapterForProviderId(session.providerId)
       if (adapter?.disposeChildProcess?.(session.sessionId)) disposed.push(session.sessionId)
@@ -627,6 +637,11 @@ export class ConversationRuntime {
     // pendingRequestId path. A concurrently-completing sendTurn will see its own
     // turnId no longer active and skip its post-loop reset, so this stands.
     if (event.type === 'turn_started' && turnId && turnId !== session.activeTurnId) {
+      // A live turn owns the session. The continuation raced a send that the
+      // busy guard could not see yet (the channel is serialized off the send
+      // path), and the adapter has since taken the turn over — so this mirror
+      // would only blank the live turn by suppressing every event it has left.
+      if (isSessionBusy(session)) return
       session.activeTurnId = turnId
       session.activeTurnAbort = null
       session.turnLockRequestId = null
@@ -792,6 +807,14 @@ export class ConversationRuntime {
       ...(permissionPreset ? { permissionPreset } : {}),
     }
   }
+}
+
+// The one busy predicate: a session is busy while any turn is open, whether it
+// came from `sendTurn` or from the adapter's continuation channel. A
+// continuation turn clears `pendingRequestId`, so that field alone would report
+// an occupied session as free and let a second turn take it over.
+function isSessionBusy(session: RuntimeSession): boolean {
+  return session.activeTurnId !== null || session.pendingRequestId !== null
 }
 
 function safeSegment(value: string): string {

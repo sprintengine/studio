@@ -30,6 +30,8 @@ async function main(): Promise<void> {
   await testStopSessionSuppressesLateAsyncProviderEvents()
   await testStatefulProviderMidTurnApprovalAndNoHistoryReplay()
   await testToolAfterTurnResultResolvesThroughContinuationChannel()
+  await testSendIsRejectedWhileAContinuationTurnIsOpen()
+  await testContinuationTurnDoesNotSuppressAnInFlightUserTurn()
   await testSubagentToolEventsKeepTheirParentLink()
   await testStatefulProviderResumeCursorReadFromTranscript()
   await testReadTranscriptClosesUnfinishedTurns()
@@ -635,6 +637,161 @@ async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Prom
     assert.equal(events.some((event) => event.type === 'turn_failed'), false)
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
     assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// 1798, half one: a continuation turn holds the session. `pendingRequestId` is
+// null throughout one (processContinuationEvent clears it), so the old guard let
+// a queued send in — which then took the provider's turn over and blanked the
+// continuation. The shared busy predicate rejects the send until it closes.
+async function testSendIsRejectedWhileAContinuationTurnIsOpen(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-send-race-'))
+  try {
+    const capture: {
+      base: MockAdapterSessionInput | null
+      sink: ConversationSessionEventSink | null
+      resolved: Array<{ requestId: string; approved: boolean }>
+    } = { base: null, sink: null, resolved: [] }
+    const runtime = new ConversationRuntime({
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+      adapters: [createContinuationProvider(capture)],
+    })
+    const events: ConversationEvent[] = []
+    runtime.onEvent((event) => events.push(event))
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'continuation-provider',
+      modelId: 'continuation-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+    const sessionId = started.session.sessionId
+    assert.equal((await runtime.sendTurn({ sessionId, message: 'investigate' })).ok, true)
+
+    // A background subagent reports: the adapter opens a continuation turn.
+    const base = capture.base
+    const sink = capture.sink
+    assert.ok(base && sink, 'the adapter received a session-scoped continuation sink')
+    if (!base || !sink) return
+    sink(runtimeEvent(base, 'turn_started', { turnId: 'cont_turn_1' }))
+    sink(runtimeEvent(base, 'content_delta', { turnId: 'cont_turn_1', text: 'subagent reported' }))
+    await waitForStatus(runtime, 'workspace', 'active')
+
+    // The composer flushes a type-ahead message into that window.
+    assert.deepEqual(await runtime.sendTurn({ sessionId, message: 'and this too' }), {
+      ok: false,
+      message: 'Conversation turn is already in progress.',
+    })
+    assert.equal(
+      events.filter((event) => event.type === 'user_message').length,
+      1,
+      'the rejected send never opened a turn or persisted a user bubble'
+    )
+
+    // Once the continuation closes, the same send is accepted.
+    sink(runtimeEvent(base, 'turn_completed', { turnId: 'cont_turn_1' }))
+    await waitForStatus(runtime, 'workspace', 'ready')
+    const flushed = await runtime.sendTurn({ sessionId, message: 'and this too' })
+    assert.equal(flushed.ok, true)
+    assert.equal(events.filter((event) => event.type === 'user_message').length, 2)
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true })
+  }
+}
+
+// 1798, the reverse interleaving: a continuation turn opening while a user turn
+// streams used to overwrite `activeTurnId`, after which every remaining event of
+// the live turn was dropped by shouldSuppressEvent — blank in the UI and absent
+// from the JSONL. The live turn keeps the session; the raced mirror is dropped.
+async function testContinuationTurnDoesNotSuppressAnInFlightUserTurn(): Promise<void> {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-suppression-'))
+  try {
+    const capture: {
+      base: MockAdapterSessionInput | null
+      sink: ConversationSessionEventSink | null
+      events: ConversationEvent[]
+    } = { base: null, sink: null, events: [] }
+    const adapter: ConversationProviderAdapter = {
+      id: 'interleave-provider',
+      sessions: 'stateful',
+      listModels: () => ['interleave-model'],
+      startSession(input) {
+        capture.base = input
+        capture.sink = input.onSessionEvent ?? null
+        return [runtimeEvent(input, 'session_started'), runtimeEvent(input, 'session_ready')]
+      },
+      async *sendTurn(input: MockAdapterTurnInput) {
+        yield runtimeEvent(input, 'turn_started', { turnId: input.turnId })
+        yield runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: 'first half' })
+        // Mid-turn, a continuation the adapter opened before this send was
+        // accepted reaches the runtime. The trailing session_updated carries no
+        // turnId, so it is never suppressed: once it lands, the continuation
+        // ahead of it in the serialized channel has been processed.
+        const base = capture.base
+        const sink = capture.sink
+        if (base && sink) {
+          sink(runtimeEvent(base, 'turn_started', { turnId: 'cont_turn_1' }))
+          sink(runtimeEvent(base, 'session_updated', { providerSessionId: 'cursor-2' }))
+          await waitForEventType(capture.events, 'session_updated')
+        }
+        yield runtimeEvent(input, 'content_delta', { turnId: input.turnId, text: 'second half' })
+        yield runtimeEvent(input, 'turn_completed', { turnId: input.turnId })
+      },
+      resolveApproval: () => [],
+      interrupt: (input) => [runtimeEvent(input, 'turn_failed', { reason: 'interrupted' })],
+      stopSession: (input) => [runtimeEvent(input, 'session_closed')],
+    }
+
+    const runtime = new ConversationRuntime({
+      adapters: [adapter],
+      getProviderById: () => undefined,
+      secretStore: unusedSecretStore(),
+    })
+    runtime.onEvent((event) => capture.events.push(event))
+    const started = await runtime.startSession({
+      workspaceRoot,
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: 'interleave-provider',
+      modelId: 'interleave-model',
+    })
+    assert.equal(started.ok, true)
+    if (!started.ok) return
+
+    const sent = await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'investigate' })
+    assert.equal(sent.ok, true)
+    if (!sent.ok) return
+    assert.equal(sent.session.status, 'ready', 'the live turn completed under its own id')
+
+    assert.deepEqual(
+      capture.events.map((event) => event.type),
+      [
+        'session_started',
+        'session_ready',
+        'user_message',
+        'turn_started',
+        'content_delta',
+        'session_updated',
+        'content_delta',
+        'turn_completed',
+      ],
+      'the raced continuation turn_started is dropped; every live-turn event survives'
+    )
+    const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
+    assert.deepEqual(
+      persisted.filter((event) => event.type === 'content_delta').map((event) => event.payload?.text),
+      ['first half', 'second half'],
+      'both halves of the live turn reach the transcript'
+    )
+    assert.equal(
+      persisted.some((event) => event.payload?.turnId === 'cont_turn_1'),
+      false
+    )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }

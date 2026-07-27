@@ -1186,11 +1186,13 @@ export function stopDisabledForPending(pending: PendingAction): boolean {
 }
 
 // Whether the session can accept a live send right now. The runtime rejects a
-// new turn while `pendingRequestId` is set — which spans the whole active turn,
-// not just the awaiting-approval window (conversation-runtime.ts:200). So a
-// submit made while busy is queued and auto-sent on unlock (D6/1776) rather than
-// fired as a live IPC that would error. Type-ahead into the textarea is always
-// allowed; only the send/queue routing keys off this.
+// new turn while its session is busy — `isSessionBusy` in
+// src/main/conversation-runtime.ts, which is an open turn of any kind: the whole
+// active turn, its awaiting-approval window, and a continuation turn the
+// provider opened outside any send (1798). So a submit made while busy is queued
+// and auto-sent on unlock (D6/1776) rather than fired as a live IPC that would
+// error. Type-ahead into the textarea is always allowed; only the send/queue
+// routing keys off this.
 export function isConversationBusy(
   activeTurn: boolean,
   awaitingApproval: boolean,

@@ -215,7 +215,10 @@ export type ConversationStartSessionResult =
   | { ok: false; message: string; event?: ConversationEvent }
 
 export type ConversationSessionActionResult =
-  | { ok: true; session: ConversationSessionSummary }
+  // `notice` is a plain sentence for the user about a change that was accepted
+  // but does not apply yet (switching to Bypass while a turn is still
+  // streaming). The action succeeded; this is not an error.
+  | { ok: true; session: ConversationSessionSummary; notice?: string }
   | { ok: false; message: string; event?: ConversationEvent }
 
 export type ConversationListSessionsResult =
