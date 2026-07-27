@@ -330,6 +330,24 @@ assert.deepEqual(
   'the discovered layer is replaced wholesale: models the CLI stopped listing are gone, while the manifest seed and the user id survive',
 )
 
+const thirdProbe = claudeModelRows({
+  'claude-code': {
+    models: [{ id: 'sonnet' }],
+    fetchedAt: '2026-07-28T00:00:00Z',
+    source: 'agent-sdk',
+  },
+})
+assert.deepEqual(
+  thirdProbe,
+  [
+    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'manifest' },
+    { id: 'claude-opus-5', label: 'Opus 5', origin: 'manifest' },
+    { id: 'sonnet', origin: 'discovered' },
+    { id: 'claude-haiku-4-5', origin: 'user' },
+  ],
+  'a model in both layers that drops out of discovery stays as the manifest row — its seeded label back, and no longer claimed as discovered',
+)
+
 const noDiscoveryRows = claudeModelRows(undefined)
 assert.deepEqual(
   noDiscoveryRows,
