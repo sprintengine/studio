@@ -29,23 +29,23 @@ def test_parser_uses_focused_command_group_adapters() -> None:
     assert artifact_args.handler.__module__ == "sprintengine_core.tool.commands.artifact"
 
 
-def test_legacy_module_no_longer_owns_command_handler_bodies() -> None:
+def test_cli_parser_module_no_longer_owns_command_handler_bodies() -> None:
     assert tool.cmd_join.__module__ == "sprintengine_core.tool.commands.run"
     assert tool.cmd_task_next.__module__ == "sprintengine_core.tool.commands.task"
     assert tool.cmd_plan_add_task.__module__ == "sprintengine_core.tool.commands.plan"
     assert tool.cmd_artifact_add.__module__ == "sprintengine_core.tool.commands.artifact"
 
 
-def test_command_modules_import_focused_helpers_without_legacy_dependency() -> None:
+def test_command_modules_import_focused_helpers_without_parser_dependency() -> None:
     command_dir = Path("sprintengine_core/tool/commands")
     for path in command_dir.glob("*.py"):
         if path.name == "__init__.py":
             continue
         source = path.read_text(encoding="utf-8")
-        assert "sprintengine_core.tool.legacy" not in source
+        assert "sprintengine_core.tool.cli_parser" not in source
 
 
-def test_required_helper_domains_are_rehomed_outside_legacy() -> None:
+def test_required_helper_domains_are_rehomed_outside_the_parser() -> None:
     assert phase_prompts.build_rework_prompt.__module__ == "sprintengine_core.tool.phase_prompts"
     assert phase_prompts.build_phase_directive.__module__ == "sprintengine_core.tool.phase_prompts"
     assert plans.plan_path_for_state.__module__ == "sprintengine_core.tool.plans"

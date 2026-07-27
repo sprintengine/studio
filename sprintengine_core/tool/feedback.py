@@ -16,7 +16,7 @@ from sprintengine_core.tool.tasks import ensure_evidence, normalize_scope_expans
 def _record_warning(warnings: Optional[List[str]], exc: SystemExit) -> None:
     """Best-effort telemetry: capture a validation failure as a warning and drop
     the offending optional field. When `warnings` is None the caller wants strict
-    behavior, so re-raise. Operational fields (verdict, summary) are validated
+    behavior, so re-raise. Operational fields (phase outcome, summary) are validated
     outside this module and still hard-fail."""
     if warnings is None:
         raise exc

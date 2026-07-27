@@ -772,7 +772,7 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
 
         feedback_warnings: List[str] = []
         # Findings are best-effort telemetry: a bad enum must never block the
-        # operational transition (the same rule gate verdicts carried).
+        # phase transition itself.
         feedback_payload = build_feedback_payload(
             args,
             state,

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Sprint Engine coordination tool for specialist agents.
+"""Sprint Engine CLI: the argparse tree, its top-level help, and `main`.
+
+Every subcommand is registered here and dispatched to a handler in
+`sprintengine_core.tool.commands`; this module owns no command behavior.
+`sprintengine_core.tool.cli` is the stable import path for `build_parser` and
+`main`.
 
 WARNING: Do not edit Sprint Engine run-store files directly.
 All updates must go through this tool.
@@ -8,20 +13,9 @@ All updates must go through this tool.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
-import re
-import shutil
-import subprocess
-import sys
-import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-from sprintengine_core.diff_evidence import capture_task_diff_evidence
-from sprintengine_core import store as folder_store
+from typing import List, Optional
 
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import *  # noqa: F403,F401
@@ -34,143 +28,6 @@ from sprintengine_core.tool.feedback import *  # noqa: F403,F401
 from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
 from sprintengine_core.tool.plans import *  # noqa: F403,F401
 from sprintengine_core.tool.phase_prompts import *  # noqa: F403,F401
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Command handlers
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +49,7 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
   sprintengine triage needs-input --id architect
   sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
 
-Roster commands (run-config only; MC-1591 removed membership add/retire/replenish/list — leases replace the roster, and MC-1889 removed `roster configure` with the architect-picks-the-team formation):
+Roster commands (run-config only: configuredRoles + per-role runtimes):
   sprintengine roster runtime --role developer --cli claude-code --model claude-haiku-4-5 --actor ui
   sprintengine roster enable --role tester --cli claude-code --actor ui
 

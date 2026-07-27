@@ -247,7 +247,7 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
 
     Self-reported scores come from the worker's own ``agent_self_report`` and
     ``phase_advance_self_review`` records
-    (keyed by ``agent_id``). Measured signals come from reviewer/gate records and
+    (keyed by ``agent_id``). Measured signals come from reviewer records and
     are attributed to the implementer being reviewed (``review_target_agent_id``),
     never to the reviewer who logged them. ``findingsRaised`` counts findings an
     agent authored while reviewing. The renderer joins these rows against the full
@@ -299,8 +299,8 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
         # A phase advance is the OWNER reporting on its own work (MC-1542): it is a
         # self-report, but unlike a plain `agent_self_report` it carries the findings
         # the owner found AND fixed. Those findings (and any defect counts) are the
-        # review signal that gate verdicts used to supply — counted under the
-        # agent's selfReview provenance, attributed to the owner's own task.
+        # run's review signal — counted under the agent's selfReview provenance,
+        # attributed to the owner's own task.
         if source in {"agent_self_report", "phase_advance_self_review"}:
             if not agent_id:
                 continue

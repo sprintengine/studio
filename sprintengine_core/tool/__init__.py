@@ -1,13 +1,13 @@
 """Import-compatible Sprint Engine tool package.
 
 The public module path remains ``sprintengine_core.tool`` for scripts, tests,
-and MCP callers. Implementation is split into focused package modules while
-legacy command behavior is preserved and re-exported here.
+and MCP callers. Implementation is split into focused package modules whose
+names are re-exported here.
 """
 
 from __future__ import annotations
 
-from .legacy import *  # noqa: F403
+from .cli_parser import *  # noqa: F403
 from .cli import build_parser, main
 from .commands.artifact import (
     cmd_artifact_add,

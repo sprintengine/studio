@@ -1,12 +1,11 @@
 """Task, phase, and workspace prompt builders.
 
-Phase directives are the MC-1542 replacement for gate review prompts. A task's
-owner implements, publishes, and then walks its `phases` in the SAME session; the
-directive for each phase is composed here and returned inline in the owner's own
-`task.publish` / `task.advance` tool response. There are exactly two delivery
-channels — that inline response for a live owner, and the respawn startup brief
-for an owner that died mid-phase. No phase transition is ever announced by pasting
-into a terminal.
+A task's owner reviews its own work (MC-1542): it implements, publishes, and then
+walks its `phases` in the SAME session. The directive for each phase is composed
+here and returned inline in the owner's own `task.publish` / `task.advance` tool
+response. There are exactly two delivery channels — that inline response for a
+live owner, and the respawn startup brief for an owner that died mid-phase. No
+phase transition is ever announced by pasting into a terminal.
 """
 from __future__ import annotations
 
