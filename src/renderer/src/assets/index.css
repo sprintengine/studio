@@ -2771,3 +2771,18 @@ samp,
     animation: none;
   }
 }
+
+/* SPIKE (liquid-glass window material) — active only when the main process
+ * injects data-window-material="glass" (MULTICODE_GLASS=1, macOS, dev flag).
+ * The OS-composited frost shows through the --bg-app canvas: every canvas
+ * layer goes transparent and the theme tint is painted exactly once, on body.
+ * Translucent layers must NOT stack (body + shell root + sidebar all paint
+ * --bg-app; compounded alpha would erase the frost). Tint below is hand-tuned
+ * for sage (#20241c at 52%); production would derive it per theme via
+ * color-mix over a dedicated canvas token instead of nulling --bg-app. */
+:root[data-window-material="glass"] {
+  --bg-app: transparent;
+}
+:root[data-window-material="glass"] body {
+  background-color: rgba(32, 36, 28, 0.52);
+}

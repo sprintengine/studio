@@ -40,6 +40,12 @@ export function createMainWindow({
   // 'primary') never restore, so they leave the flag alone.
   const restoreDetached = windowId === 'primary' && detachedRestorePending
   if (windowId === 'primary') detachedRestorePending = false
+  // SPIKE (liquid-glass): dev-flag-only window vibrancy. The OS blurs the
+  // desktop behind the window; the renderer decides which regions stay
+  // translucent via the data-window-material attribute injected below.
+  const glassSpike = process.platform === 'darwin' && process.env.MULTICODE_GLASS === '1'
+  const glassMaterial =
+    process.env.MULTICODE_GLASS_MATERIAL === 'sidebar' ? ('sidebar' as const) : ('under-window' as const)
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
     width: safeBounds?.width ?? 1400,
@@ -61,7 +67,9 @@ export function createMainWindow({
           trafficLightPosition: { x: 12, y: 11 },
         }),
     autoHideMenuBar: process.platform !== 'darwin',
-    backgroundColor: '#09090b',
+    ...(glassSpike
+      ? { vibrancy: glassMaterial, backgroundColor: '#00000000' }
+      : { backgroundColor: '#09090b' }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -82,6 +90,23 @@ export function createMainWindow({
     win.show()
     win.focus()
   })
+  if (glassSpike) {
+    win.webContents.on('did-finish-load', () => {
+      void win.webContents.executeJavaScript(
+        `document.documentElement.setAttribute('data-window-material', 'glass')`
+      )
+    })
+    // SPIKE: verify setVibrancy toggles live (no window recreate). Off at
+    // +20s, back on at +25s; observed via timed OS screenshots.
+    if (process.env.MULTICODE_GLASS_TOGGLE_TEST === '1') {
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.setVibrancy(null)
+      }, 20_000)
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.setVibrancy(glassMaterial)
+      }, 25_000)
+    }
+  }
   win.on('maximize', () => {
     sendWindowState(win)
     sendWindowPlacement(win)
