@@ -169,3 +169,53 @@ export async function probeSubtreesForLiveProcesses(
   for (const [pid, reason] of reasons) result.set(pid, reason !== null)
   return result
 }
+
+// A CLI process that outlives its terminal teardown. The pty kill reaches the
+// shell, but a CLI child that survives the resulting SIGHUP reparents to
+// launchd and nothing tracks it afterwards — the 2026-07-26 incident leaked 15
+// idle Opus agents this way. The one durable handle on such a process is its
+// own argv: agent CLIs are launched with an explicit `--session-id <uuid>`,
+// which survives reparenting and cannot collide.
+export function matchCliSessionPids(psOutput: string, cliSessionId: string): number[] {
+  if (!cliSessionId) return []
+  const needle = `--session-id ${cliSessionId}`
+  const pids: number[] = []
+  for (const line of psOutput.split('\n')) {
+    if (!line.includes(needle)) continue
+    const pid = Number.parseInt(line.trim().split(/\s+/, 1)[0] ?? '', 10)
+    if (Number.isFinite(pid) && pid > 0) pids.push(pid)
+  }
+  return pids
+}
+
+/**
+ * Post-teardown escalation: after the pty kill has had `delayMs` to propagate,
+ * SIGKILL any process still carrying this terminal's `--session-id`. Callers
+ * fire-and-forget it right after the kill; a clean exit means the ps sweep
+ * finds nothing and this is a no-op. Returns the pids it killed (for tests
+ * and audit).
+ */
+export async function killCliSessionSurvivors(
+  cliSessionId: string,
+  deps: SubtreeProbeDeps & { delayMs?: number; kill?: (pid: number, signal: NodeJS.Signals) => void } = {}
+): Promise<number[]> {
+  if (!cliSessionId) return []
+  const platform = deps.platform ?? process.platform
+  if (platform !== 'darwin' && platform !== 'linux') return []
+  const delayMs = deps.delayMs ?? 2_000
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
+  const runPs = deps.runPs ?? (() => execFileTextOrNull('ps', ['-axo', 'pid=,ppid=,pcpu=,args=']))
+  const psOut = await runPs()
+  if (psOut === null) return [] // undetermined — never kill on a failed read
+  const killImpl = deps.kill ?? ((pid: number, signal: NodeJS.Signals) => process.kill(pid, signal))
+  const killed: number[] = []
+  for (const pid of matchCliSessionPids(psOut, cliSessionId)) {
+    try {
+      killImpl(pid, 'SIGKILL')
+      killed.push(pid)
+    } catch {
+      // Already gone between the ps read and the kill — the goal state.
+    }
+  }
+  return killed
+}

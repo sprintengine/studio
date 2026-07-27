@@ -63,7 +63,7 @@ import {
   recordSprintSessionForTokenLedger,
   sampleSprintSessionTokenUsage,
 } from './sprintengine-token-sampling'
-import { probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
+import { killCliSessionSurvivors, probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer } from './terminal-output-buffer'
@@ -713,6 +713,11 @@ export function suspendTerminal(sessionId: string): void {
     // If the process already died, the onExit path has run; the guards above
     // keep this from double-finalizing.
   }
+  // MC-1906: suspend's contract is "process dead, session resumable" — a CLI
+  // child that survives the pty's SIGHUP breaks the first half invisibly.
+  // Verify by argv and SIGKILL survivors (resume uses the CLI's own
+  // `--resume` token, which needs no live process).
+  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId)
   void buildReplaySnapshot(snapshotSource, snapshotCols, snapshotRows).then((snapshot) => {
     // Only attach if this exact session is still the suspended one (not disposed,
     // resumed, or replaced) — otherwise a stale snapshot could shadow live output.
@@ -878,6 +883,12 @@ function disposeTerminal(sessionId: string): void {
   } catch {
     // ignore kill errors if process died first
   }
+  // MC-1906: the pty kill reaches the shell, but a CLI child that survives the
+  // resulting SIGHUP reparents to launchd and nothing tracks it afterwards —
+  // dispose has deleted the session record, so a survivor is a permanent leak
+  // (15 idle Opus agents in the 2026-07-26 incident). Verify by argv and
+  // SIGKILL survivors; a clean exit makes this a no-op.
+  if (session.cliSessionId) void killCliSessionSurvivors(session.cliSessionId)
 }
 
 async function waitForTerminalExit(session: TerminalSession, timeoutMs: number): Promise<boolean> {

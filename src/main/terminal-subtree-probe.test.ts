@@ -145,6 +145,40 @@ async function main(): Promise<void> {
     assert.equal(map.size, 0)
   })
 
+  await run('matchCliSessionPids finds the reparented CLI by --session-id argv', async () => {
+    const { matchCliSessionPids } = await import('./terminal-subtree-probe')
+    const ps = [
+      '  100     1  0.0 /bin/zsh -il',
+      '  200     1  1.2 claude --permission-mode bypassPermissions --session-id aaaa-bbbb rest of prompt',
+      '  300   100  0.0 claude --permission-mode bypassPermissions --session-id cccc-dddd other',
+      '  400     1  0.0 grep --session-id',
+    ].join('\n')
+    assert.deepEqual(matchCliSessionPids(ps, 'aaaa-bbbb'), [200])
+    assert.deepEqual(matchCliSessionPids(ps, 'cccc-dddd'), [300])
+    assert.deepEqual(matchCliSessionPids(ps, 'eeee-ffff'), [])
+    assert.deepEqual(matchCliSessionPids(ps, ''), [])
+  })
+
+  await run('killCliSessionSurvivors SIGKILLs matches, never kills on a failed ps read', async () => {
+    const { killCliSessionSurvivors } = await import('./terminal-subtree-probe')
+    const killedPids: number[] = []
+    const killed = await killCliSessionSurvivors('aaaa-bbbb', {
+      platform: 'darwin',
+      delayMs: 0,
+      runPs: async () => '  200     1  1.2 claude --session-id aaaa-bbbb',
+      kill: (pid) => { killedPids.push(pid) },
+    })
+    assert.deepEqual(killed, [200])
+    assert.deepEqual(killedPids, [200])
+    const onFailedRead = await killCliSessionSurvivors('aaaa-bbbb', {
+      platform: 'darwin',
+      delayMs: 0,
+      runPs: async () => null,
+      kill: () => { throw new Error('must not be called') },
+    })
+    assert.deepEqual(onFailedRead, [])
+  })
+
   console.log('terminal-subtree-probe tests passed')
 }
 
