@@ -117,12 +117,20 @@ def _added_test_scripts(task: Dict[str, Any]) -> List[str]:
 def _referencing_scripts(scripts: Dict[str, str], test_path: str) -> Set[str]:
     normalized = test_path.replace("\\", "/")
     basename = normalized.rsplit("/", 1)[-1]
+    # The basename fallback exists for a script that cds into a subdirectory
+    # before naming the file, so it must only match a BARE mention. Matching the
+    # basename anywhere let an unrelated script's longer path vouch for a new
+    # file: this repo already has six duplicated test basenames (engine.test.ts,
+    # automations.test.ts, backlog.test.ts, railState.test.ts,
+    # roadmap-orchestrator.test.ts, workspace-sync.test.ts), so a new
+    # `src/anywhere/engine.test.ts` that nothing runs read as wired because
+    # `src/main/automations/engine.test.ts` is named by a wired script. A gate
+    # that silently passes is the failure this item exists to close.
+    bare = re.compile(rf"(?<![\w./-]){re.escape(basename)}")
     hits = set()
     for name, body in scripts.items():
         haystack = body.replace("\\", "/")
-        # The full path first; the basename as a fallback so a script that cds
-        # into a subdirectory before naming the file still counts as wiring it.
-        if normalized in haystack or basename in haystack:
+        if normalized in haystack or bare.search(haystack):
             hits.add(name)
     return hits
 

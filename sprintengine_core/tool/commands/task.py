@@ -669,17 +669,11 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
-        # Guard BEFORE the backstop commit: an orphan is owned by no task, so this
-        # task's commit never stages it and the orphan set is identical either way.
-        # Checking first means a blocked publish commits nothing and aborts cleanly
-        # (a raised SystemExit discards the state write in with_locked_state, so a
-        # commit made here would otherwise persist in git but go unrecorded in the
-        # run store).
-        # Same reasoning as the orphan guard below, and it must run in the same
-        # window: BEFORE the backstop commit, so a refused publish commits
-        # nothing (a raised SystemExit discards the state write, but a commit
-        # made here would already be in git and go unrecorded in the run store).
-        # A test nothing runs is not coverage — 3 of 3 sprints shipped one.
+        # Guard BEFORE the backstop commit, same window and same reasoning as the
+        # orphan guard below: a refused publish must commit nothing, because a
+        # raised SystemExit discards the state write in with_locked_state while a
+        # commit made here would already be in git and go unrecorded in the run
+        # store. A test nothing runs is not coverage — 3 of 3 sprints shipped one.
         from sprintengine_core.tool.test_wiring import unwired_test_publish_error
         wiring_error = unwired_test_publish_error(task, _task_checkout_roots(state, args.state, task))
         if wiring_error:
