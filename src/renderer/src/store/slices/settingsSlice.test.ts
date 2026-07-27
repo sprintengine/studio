@@ -10,6 +10,7 @@ import {
   defaultKeybindingSettings,
   normalizeAppearanceSettings,
   normalizeAppSettings,
+  normalizeCliModelCatalogs,
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
@@ -286,6 +287,86 @@ assert.deepEqual(modelNormalized.cliRuntimes.codex.models, ['gpt-5-codex', 'o4-m
 assert.equal(modelNormalized.cliRuntimes['claude-code'].models, undefined)
 assert.equal('cliModelDefaults' in modelNormalized, false)
 assert.deepEqual(modelNormalized.specialistModelDefaults, { architect: { cli: 'claude-code', model: 'opus' } })
+// cliModelCatalog: what each CLI reported about itself, app-owned and kept
+// strictly apart from the user's own ids in cliRuntimes[cli].models.
+assert.equal(normalizeCliModelCatalogs(undefined), undefined)
+assert.equal(normalizeCliModelCatalogs('not an object'), undefined)
+assert.equal(
+  normalizeCliModelCatalogs({ codex: { models: [{ id: 'gpt-5.6' }], source: 'argv-probe' } }),
+  undefined,
+  'an entry with no fetch timestamp is dropped rather than repaired',
+)
+assert.equal(
+  normalizeCliModelCatalogs({
+    codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'guessed' },
+  }),
+  undefined,
+  'an entry whose source is not a known probe kind is dropped',
+)
+assert.equal(
+  normalizeCliModelCatalogs({
+    codex: { models: 'gpt-5.6', fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+  }),
+  undefined,
+  'an entry whose models is not an array is dropped',
+)
+assert.deepEqual(
+  normalizeCliModelCatalogs({
+    codex: {
+      models: [
+        { id: ' gpt-5.6 ', displayName: ' GPT-5.6 ', contextWindow: 272000, effortLevels: ['low', '', 'high'], supportsFastMode: true },
+        { id: 'gpt-5.6' },
+        { id: '   ' },
+        'not a model',
+        { id: 'gpt-5.4', contextWindow: -1, effortLevels: [], displayName: '   ', supportsFastMode: 'yes' },
+      ],
+      fetchedAt: ' 2026-07-26T00:00:00Z ',
+      source: 'argv-probe',
+      cliVersion: ' 0.60.0 ',
+    },
+    '  ': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+  }),
+  {
+    codex: {
+      models: [
+        { id: 'gpt-5.6', displayName: 'GPT-5.6', contextWindow: 272000, effortLevels: ['low', 'high'], supportsFastMode: true },
+        { id: 'gpt-5.4' },
+      ],
+      fetchedAt: '2026-07-26T00:00:00Z',
+      source: 'argv-probe',
+      cliVersion: '0.60.0',
+    },
+  },
+  'rows are trimmed and deduped by id; wrong-typed fields drop to absent, not to a coerced value',
+)
+assert.deepEqual(
+  normalizeCliModelCatalogs({
+    'claude-code': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' },
+  }),
+  { 'claude-code': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' } },
+  'a CLI that answered with no models keeps its entry — "listed nothing" is not "never probed"',
+)
+const catalogNormalized = normalizeAppSettings(
+  {
+    cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+    cliModelCatalog: {
+      codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+      grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' },
+    },
+  } as never,
+  [],
+)
+assert.deepEqual(
+  catalogNormalized.cliModelCatalog,
+  { codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' } },
+  'normalizeAppSettings carries a well-formed catalog and drops a malformed one',
+)
+assert.deepEqual(
+  catalogNormalized.cliRuntimes.codex.models,
+  ['o4-mini'],
+  'the discovered catalog never leaks into the user list for the same CLI',
+)
+
 assert.deepEqual(normalizeSearchExcludes(['!build', 'build', 'src\\gen']), ['build', 'src/gen'])
 assert.deepEqual(
   normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']),
@@ -461,6 +542,45 @@ store.setSearchExcludes([' dist ', '!coverage', 'dist'])
 assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist', 'coverage'])
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
+
+store.setCliRuntime('codex', { command: 'codex', useWsl: false, models: ['o4-mini'] })
+store.setCliModelCatalog('codex', {
+  models: [{ id: 'gpt-5.6' }, { id: 'gpt-5.4' }],
+  fetchedAt: '2026-07-26T00:00:00Z',
+  source: 'argv-probe',
+})
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog?.codex?.models,
+  [{ id: 'gpt-5.6' }, { id: 'gpt-5.4' }],
+  'setCliModelCatalog records what the CLI reported',
+)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliRuntimes.codex.models,
+  ['o4-mini'],
+  'writing the discovered catalog leaves the user list for that CLI untouched',
+)
+store.setCliModelCatalog('codex', {
+  models: [{ id: 'gpt-5.6' }],
+  fetchedAt: '2026-07-27T00:00:00Z',
+  source: 'argv-probe',
+})
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog?.codex?.models,
+  [{ id: 'gpt-5.6' }],
+  'a second probe replaces that CLI entry wholesale — a model it stopped listing is gone',
+)
+store.setCliModelCatalog('codex', { models: [{ id: 'gpt-5.6' }], fetchedAt: '', source: 'argv-probe' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog?.codex?.models,
+  [{ id: 'gpt-5.6' }],
+  'an unusable payload leaves the last good catalog in place instead of wiping it',
+)
+store.setCliModelCatalog('codex', null)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog,
+  undefined,
+  'clearing the only entry leaves no empty catalog behind',
+)
 
 store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'opus' })
 assert.deepEqual(

@@ -51,6 +51,7 @@ import type {
   GuidedBriefRuntimeState,
 } from '../types/workspace'
 import type { AppTheme, WindowMaterial } from '../types/appTheme'
+import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
@@ -219,6 +220,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   setAuthState: (authState: MulticodeAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
   removeMcpServer: (serverId: string) => void

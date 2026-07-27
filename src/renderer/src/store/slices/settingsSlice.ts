@@ -41,6 +41,10 @@ import type {
   VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
+import type {
+  DiscoveredCliModel,
+  DiscoveredCliModelCatalog,
+} from '../../../../shared/cli-model-catalog'
 import {
   advanceOnboardingStep,
   resolveInitialOnboardingStep,
@@ -569,6 +573,75 @@ export function normalizeUserModelList(input: unknown): string[] | undefined {
   return models.length > 0 ? models : undefined
 }
 
+// One model row as a CLI reported it. Everything but `id` is optional and
+// dropped when it is not the type the shape declares, so a probe parser that
+// grows a field cannot inject a wrong-typed value into every picker.
+function normalizeDiscoveredModel(input: unknown): DiscoveredCliModel | null {
+  if (!input || typeof input !== 'object') return null
+  const candidate = input as Partial<DiscoveredCliModel>
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
+  if (!id) return null
+  const model: DiscoveredCliModel = { id }
+  const text = (value: unknown): string | undefined => {
+    const trimmed = typeof value === 'string' ? value.trim() : ''
+    return trimmed || undefined
+  }
+  const displayName = text(candidate.displayName)
+  if (displayName) model.displayName = displayName
+  const description = text(candidate.description)
+  if (description) model.description = description
+  const resolvedModel = text(candidate.resolvedModel)
+  if (resolvedModel) model.resolvedModel = resolvedModel
+  if (typeof candidate.contextWindow === 'number' && Number.isFinite(candidate.contextWindow) && candidate.contextWindow > 0) {
+    model.contextWindow = candidate.contextWindow
+  }
+  if (Array.isArray(candidate.effortLevels)) {
+    const levels = candidate.effortLevels
+      .map((level) => text(level))
+      .filter((level): level is string => Boolean(level))
+    if (levels.length > 0) model.effortLevels = levels
+  }
+  const defaultEffort = text(candidate.defaultEffort)
+  if (defaultEffort) model.defaultEffort = defaultEffort
+  if (typeof candidate.supportsFastMode === 'boolean') model.supportsFastMode = candidate.supportsFastMode
+  return model
+}
+
+// What each CLI last reported about its own models, keyed by plugin id. Wholly
+// app-owned: an entry that does not carry the recorded shape (models array,
+// known source, a fetch timestamp) is dropped rather than repaired, because a
+// half-parsed catalog would put rows the CLI never listed into every picker.
+// An entry whose models array is empty is kept — "probed, listed nothing" is a
+// state the Settings CLI detail has to be able to tell from "never probed".
+export function normalizeCliModelCatalogs(
+  input: unknown,
+): Partial<Record<AgentCli, DiscoveredCliModelCatalog>> | undefined {
+  if (!input || typeof input !== 'object') return undefined
+  const result: Partial<Record<AgentCli, DiscoveredCliModelCatalog>> = {}
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const cli = key.trim()
+    if (!cli || !value || typeof value !== 'object') continue
+    const candidate = value as Partial<DiscoveredCliModelCatalog>
+    if (!Array.isArray(candidate.models)) continue
+    if (candidate.source !== 'argv-probe' && candidate.source !== 'agent-sdk') continue
+    const fetchedAt = typeof candidate.fetchedAt === 'string' ? candidate.fetchedAt.trim() : ''
+    if (!fetchedAt) continue
+    const seen = new Set<string>()
+    const models: DiscoveredCliModel[] = []
+    for (const entry of candidate.models) {
+      const model = normalizeDiscoveredModel(entry)
+      if (!model || seen.has(model.id)) continue
+      seen.add(model.id)
+      models.push(model)
+    }
+    const catalog: DiscoveredCliModelCatalog = { models, fetchedAt, source: candidate.source }
+    const cliVersion = typeof candidate.cliVersion === 'string' ? candidate.cliVersion.trim() : ''
+    if (cliVersion) catalog.cliVersion = cliVersion
+    result[cli] = catalog
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
 // Persisted last-used conversation provider/model. Keeps only a well-formed
 // non-empty pair; anything else (legacy absence, partial blob) resets to null so
 // spawn falls back to the first available option.
@@ -1006,6 +1079,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
   return {
     ...defaults,
     cliRuntimes: normalizeCliRuntimes(settings?.cliRuntimes, defaults),
+    cliModelCatalog: normalizeCliModelCatalogs(settings?.cliModelCatalog),
     keybindings: normalizeKeybindingSettings(settings?.keybindings),
     mcp: normalizeMcpSettings(settings?.mcp),
     skillPacks: normalizeSkillPackSettings(settings?.skillPacks),
@@ -1152,6 +1226,10 @@ export interface SettingsSliceActions {
   openGlobalSurface: (surfaceId: string) => void
   closeGlobalSurface: () => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
+  // Record (or clear) what one CLI reported about its own models. Replaces that
+  // CLI's entry wholesale — a model the CLI no longer lists is gone from the
+  // discovered layer — and never touches `cliRuntimes[cli].models`.
+  setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
   upsertMcpServer: (server: McpServerConfig) => void
   removeMcpServer: (serverId: string) => void
@@ -1385,6 +1463,23 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           ...state.appSettings.cliRuntimes[cli],
           ...update,
         }
+      }),
+
+    setCliModelCatalog: (cli, catalog) =>
+      set((state) => {
+        // Only an explicit null clears. A payload that fails normalization is
+        // not written at all: a probe that came back unusable must leave the
+        // pickers rendering exactly what they rendered before, not wipe the
+        // CLI's last good answer.
+        const normalized = catalog ? normalizeCliModelCatalogs({ [cli]: catalog })?.[cli] : undefined
+        if (catalog && !normalized) return
+        const next = { ...state.appSettings.cliModelCatalog }
+        if (normalized) {
+          next[cli] = normalized
+        } else {
+          delete next[cli]
+        }
+        state.appSettings.cliModelCatalog = Object.keys(next).length > 0 ? next : undefined
       }),
 
     setMcpSyncEnabled: (enabled) =>

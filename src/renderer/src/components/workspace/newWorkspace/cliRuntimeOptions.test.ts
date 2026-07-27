@@ -241,15 +241,137 @@ const modelCatalog = buildAgentCliCatalog(modelPlugins, {
 assert.deepEqual(
   modelCatalog.find((option) => option.value === 'claude-code')?.modelSelection,
   {
-    options: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }, { id: 'haiku' }],
+    options: [
+      { id: 'opus', label: 'Opus', origin: 'user' },
+      { id: 'sonnet', label: 'Sonnet', origin: 'manifest' },
+      { id: 'haiku', origin: 'user' },
+    ],
     allowCustomId: true,
   },
-  'user-added model ids merge after manifest seeds, trimmed and deduped',
+  'user-added model ids merge after manifest seeds, trimmed and deduped; a seeded id the user also typed reports the stronger claim',
 )
 assert.equal(
   modelCatalog.find((option) => option.value === 'aider')?.modelSelection,
   undefined,
   'user models without a declared modelSelection never surface model UI',
+)
+
+// --- three-layer model merge (manifest ∪ discovered ∪ user) ----------------
+// The merge is a UNION. Discovery reports the CLI's curated picker list, not
+// the set of ids `--model` accepts, so it under-reports: measured 2026-07-26,
+// Claude's SDK listed five models with no Opus 5 while `claude -p --model
+// claude-opus-5` ran fine on the same account. Every assertion below exists
+// because a "replace the list with what discovery said" merge passes a naive
+// test and silently deletes working models.
+const discoveryPlugins: PluginCatalogEntry[] = [
+  cliEntry({
+    id: 'claude-code',
+    displayName: 'Claude Code',
+    source: 'bundled',
+    version: 1,
+    binary: 'claude',
+    modelSelection: {
+      options: [
+        // The floating alias and the pin discovery misses. `opus[1m]` is what
+        // the SDK reports resolving to `claude-opus-4-8[1m]`; it actually runs
+        // Opus 5, which is why the two must never collapse into one row.
+        { id: 'opus[1m]', label: 'Opus (1M context)' },
+        { id: 'claude-opus-5', label: 'Opus 5' },
+      ],
+      allowCustomId: true,
+    },
+  }),
+]
+const userAddedClaudeModels = { 'claude-code': { command: '', useWsl: false, models: ['claude-haiku-4-5'] } }
+const claudeModelRows = (
+  discovered: Parameters<typeof buildAgentCliCatalog>[2],
+): { id: string; label?: string; origin: string }[] =>
+  buildAgentCliCatalog(discoveryPlugins, userAddedClaudeModels, discovered)
+    .find((option) => option.value === 'claude-code')
+    ?.modelSelection?.options ?? []
+
+const firstProbe = claudeModelRows({
+  'claude-code': {
+    models: [
+      { id: 'opus[1m]', displayName: 'Opus (1M)', resolvedModel: 'claude-opus-4-8[1m]' },
+      { id: 'claude-opus-4-8[1m]' },
+      { id: 'sonnet' },
+    ],
+    fetchedAt: '2026-07-26T00:00:00Z',
+    source: 'agent-sdk',
+  },
+})
+assert.deepEqual(
+  firstProbe,
+  [
+    { id: 'opus[1m]', label: 'Opus (1M)', origin: 'discovered' },
+    { id: 'claude-opus-5', label: 'Opus 5', origin: 'manifest' },
+    { id: 'claude-opus-4-8[1m]', origin: 'discovered' },
+    { id: 'sonnet', origin: 'discovered' },
+    { id: 'claude-haiku-4-5', origin: 'user' },
+  ],
+  'Opus 5 regression: a manifest model discovery omits survives, discovery enriches the alias label, and an alias + the pin its resolvedModel names stay two rows',
+)
+
+const secondProbe = claudeModelRows({
+  'claude-code': {
+    models: [{ id: 'opus[1m]' }],
+    fetchedAt: '2026-07-27T00:00:00Z',
+    source: 'agent-sdk',
+  },
+})
+assert.deepEqual(
+  secondProbe,
+  [
+    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'discovered' },
+    { id: 'claude-opus-5', label: 'Opus 5', origin: 'manifest' },
+    { id: 'claude-haiku-4-5', origin: 'user' },
+  ],
+  'the discovered layer is replaced wholesale: models the CLI stopped listing are gone, while the manifest seed and the user id survive',
+)
+
+const noDiscoveryRows = claudeModelRows(undefined)
+assert.deepEqual(
+  noDiscoveryRows,
+  [
+    { id: 'opus[1m]', label: 'Opus (1M context)', origin: 'manifest' },
+    { id: 'claude-opus-5', label: 'Opus 5', origin: 'manifest' },
+    { id: 'claude-haiku-4-5', origin: 'user' },
+  ],
+  'with no discovered catalog the picker shows exactly the manifest seed plus the user list',
+)
+assert.deepEqual(
+  claudeModelRows({}),
+  noDiscoveryRows,
+  'an empty catalog renders the same rows as no catalog at all',
+)
+assert.deepEqual(
+  claudeModelRows({
+    'claude-code': { models: undefined, fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' },
+  } as never),
+  noDiscoveryRows,
+  'a malformed catalog that slipped past the normalizer changes nothing and never throws',
+)
+assert.deepEqual(
+  claudeModelRows({
+    'claude-code': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' },
+  }),
+  noDiscoveryRows,
+  'a CLI that answered with no models leaves the curated layers rendering exactly as before',
+)
+assert.equal(
+  firstProbe.every((row) => row.origin === 'manifest' || row.origin === 'discovered' || row.origin === 'user'),
+  true,
+  'every merged row reports which layer claimed it',
+)
+assert.deepEqual(
+  buildAgentCliCatalog(
+    [cliEntry({ id: 'aider', displayName: 'Aider', source: 'user', version: 1, binary: 'aider' })],
+    undefined,
+    { aider: { models: [{ id: 'some/model' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' } },
+  ).find((option) => option.value === 'aider')?.modelSelection,
+  undefined,
+  'a CLI with no declared modelSelection surfaces no model UI even when discovery reported models',
 )
 
 // resolveCliModel: per-surface override wins only for its own CLI; otherwise

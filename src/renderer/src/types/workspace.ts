@@ -437,6 +437,7 @@ export type VoiceDictationSettings = {
 import type { AppearanceSettings } from './appTheme'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
+import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 
 export type PluginCatalogStatus = 'loading' | 'ready' | 'error'
 
@@ -473,6 +474,16 @@ export type NewChatAgentChoice =
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  /**
+   * What each agent CLI last reported about its own models, keyed by plugin id.
+   * A sibling of `cliRuntimes[id].models`, never the same store: that list is
+   * the user's own escape hatch and must survive a refresh, while this one is
+   * replaced wholesale every time the CLI is re-probed. No code path writes
+   * both. Pickers merge manifest ∪ this ∪ the user's list (mergeModelCatalog);
+   * absent means "never probed", and an entry with no models means "probed and
+   * the CLI listed nothing".
+   */
+  cliModelCatalog?: Partial<Record<AgentCli, DiscoveredCliModelCatalog>>
   keybindings: KeybindingSettings
   mcp: McpSettings
   skillPacks: SkillPackSettings

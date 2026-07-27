@@ -33,6 +33,7 @@ export function RosterManagerModal({
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
 
@@ -40,8 +41,15 @@ export function RosterManagerModal({
     () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, {
       map: cliAvailability,
       status: cliAvailabilityStatus,
-    }),
-    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, cliAvailability, cliAvailabilityStatus],
+    }, cliModelCatalog),
+    [
+      pluginCatalogStatus,
+      pluginCatalogEntries,
+      appCliRuntimes,
+      cliAvailability,
+      cliAvailabilityStatus,
+      cliModelCatalog,
+    ],
   )
 
   const roster = useRosterEditor({

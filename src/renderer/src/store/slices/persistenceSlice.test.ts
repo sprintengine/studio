@@ -538,7 +538,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 68, 'the model-catalog drop is the newest step, at store v68')
+assert.equal(WORKSPACE_STORE_VERSION, 69, 'cliModelCatalog is the newest step, at store v69')
 
 const v67WithModelCatalog = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
@@ -576,6 +576,47 @@ assert.equal(
   ),
   false,
   'normalizeAppSettings drops the retired catalog regardless of store version',
+)
+
+// v69: `cliModelCatalog` arrives — what each CLI reported about its own models,
+// stored apart from the user's own ids so a re-probe cannot clobber them. The
+// rung normalizes an upgraded profile; the shape rules are enforced on every
+// hydration, not only here.
+const v68WithDiscoveredModels = {
+  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-standard',
+  appSettings: {
+    cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+    cliModelCatalog: {
+      codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+      grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' },
+    },
+  },
+}
+const migratedDiscoveredModels = migratePersistedWorkspaceState(v68WithDiscoveredModels, 68) as {
+  appSettings: AppSettings
+}
+assert.deepEqual(
+  migratedDiscoveredModels.appSettings.cliModelCatalog,
+  { codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' } },
+  'v69 keeps a well-formed discovered catalog and drops an entry that is missing its fetch timestamp',
+)
+assert.deepEqual(
+  migratedDiscoveredModels.appSettings.cliRuntimes.codex.models,
+  ['o4-mini'],
+  'v69 leaves the user model list alone — the two lists are siblings, never one store',
+)
+// Same split as v68 above: the rung is the clean-upgrade half, and
+// normalizeAppSettings (which persist merge() runs on every hydration) is the
+// enforcement half, so a malformed catalog cannot ride into the pickers inside
+// a current-version envelope the ladder never revisits.
+assert.equal(
+  normalizeAppSettings(
+    { cliModelCatalog: { grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' } } } as never,
+    [],
+  ).cliModelCatalog,
+  undefined,
+  'normalizeAppSettings drops a malformed discovered catalog regardless of store version',
 )
 
 console.log('persistenceSlice.test.ts: ok')
