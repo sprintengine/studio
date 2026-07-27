@@ -990,6 +990,15 @@ async function main(): Promise<void> {
       .find((candidate) => candidate.textContent?.includes(label))
   await openBoardOverflow()
   assert.equal(overflowItem('Read plan')?.disabled, true, 'Read plan needs a workspace to open a tab in')
+  // …and it SAYS why. A menu item's label is its only copy channel — there is no
+  // hover surface and no room for a caption — so a greyed row with no reason
+  // reads as a bug. The disposal menu's "Delete sprint (its folder can't be
+  // found)" set this shape; the workspace-bound board items follow it.
+  assert.match(
+    overflowItem('Read plan')?.textContent ?? '',
+    /workspace is closed/,
+    'a disabled control says what would make it available',
+  )
   await act(async () => {
     dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   })
@@ -1107,6 +1116,13 @@ async function main(): Promise<void> {
   )
   await openBoardOverflow()
   assert.equal(overflowItem('Read plan')?.disabled, false, 'and it is live where there is a workspace')
+  // The reason is carried by the disabled state, not bolted onto the label for
+  // good: a live control is named by what it does and nothing else.
+  assert.equal(
+    overflowItem('Read plan')?.textContent?.trim(),
+    'Read plan',
+    'a live control carries no unavailability clause',
+  )
   await act(async () => {
     dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   })

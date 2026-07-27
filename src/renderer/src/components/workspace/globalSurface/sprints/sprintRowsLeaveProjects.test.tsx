@@ -312,6 +312,78 @@ async function main(): Promise<void> {
   stopListening()
   console.log('ok - the door carries "close workspace", confirmed and routed through the shell')
 
+  // ── The delete is visible while it runs (T15) ─────────────────────────────
+  // Deleting waits for the run's terminals to die before the folder is trashed
+  // (item 1812), so it is a real wait — and selecting a menu item closes the
+  // menu, which is the only place the "Deleting…" label lives. Without a signal
+  // on the bar the operator types a sprint name, confirms an irreversible
+  // action, and watches nothing happen.
+  let releaseDelete = (): void => {}
+  const trashed: string[] = []
+  api.deletePath = (target: string) =>
+    new Promise<void>((resolve) => {
+      trashed.push(target)
+      releaseDelete = () => resolve()
+    })
+  // Re-query the trigger: the bar re-rendered while the close was confirmed, so
+  // the node captured above may no longer be the one on screen.
+  const overflowNow = surfaceHost.querySelector(
+    `button[aria-label="More actions for ${runName}"]`,
+  ) as HTMLButtonElement | null
+  assert.ok(overflowNow, 'the bar still carries the run’s overflow')
+  await act(async () => {
+    overflowNow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await settle(2)
+  await act(async () => {
+    menuItem('Delete sprint').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await settle(2)
+  const nameField = dom.window.document.querySelector('form input') as HTMLInputElement | null
+  assert.ok(nameField, 'deleting a run is type-to-confirm, never one click')
+  const setInputValue = Object.getOwnPropertyDescriptor(
+    dom.window.HTMLInputElement.prototype,
+    'value',
+  )?.set
+  await act(async () => {
+    setInputValue?.call(nameField, runName)
+    nameField!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+  })
+  await settle(2)
+  const confirmDelete = [...dom.window.document.querySelectorAll('button')].find(
+    (button) => (button.textContent ?? '').trim() === 'Delete sprint',
+  ) as HTMLButtonElement | undefined
+  assert.ok(confirmDelete && !confirmDelete.disabled, 'the typed name unlocks the delete')
+  await act(async () => {
+    confirmDelete!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+  })
+  await settle(2)
+  assert.deepEqual(
+    trashed,
+    [`${projectRoot}/.multi-code/sprintengine/${runSlug}`],
+    'the run’s own folder is what moves to the trash, never the state file alone',
+  )
+  assert.equal(
+    dom.window.document.querySelector('[role="menu"]'),
+    null,
+    'the menu holding the "Deleting…" item closed the moment it was selected',
+  )
+  assert.match(
+    surfaceHost.textContent ?? '',
+    /Deleting…/,
+    'so the bar itself carries the delete in flight',
+  )
+  await act(async () => {
+    releaseDelete()
+  })
+  await settle(4)
+  assert.doesNotMatch(
+    surfaceHost.textContent ?? '',
+    /Deleting…/,
+    'and the signal goes when the delete lands',
+  )
+  console.log('ok - a delete in flight is visible on the bar, not in the menu it closed')
+
   // ── The sidebar still has exactly one selected thing ──────────────────────
   const navHost = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(navHost)
