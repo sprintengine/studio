@@ -24,8 +24,11 @@ for contracts you did not honour, gaps you left, and tests you owed.
 **Work an epic.** Same for every child, in the order their `dependsOn` implies,
 each one aware of the others: they share files, and two correct changes can still
 collide. Skip children that are `completed`, `archived`, or `idea`. Never write a
-status onto the epic file — it derives from its children. At the end, spawn
-subagents to review the run, concurrently, one lens each: implementation gaps
+status onto the epic file — it derives from its children. Review each child as
+you finish it, before starting the next: a subagent over that child's diff for
+implementation gaps against its acceptance and bugs introduced. Fix what stands.
+At the end, review the whole run again — the per-child passes cannot see across
+children. Spawn subagents, concurrently, one lens each: implementation gaps
 against every child's acceptance; bugs introduced; seams, where the contracts
 between children must hold as written; and ripple, what each change affects
 elsewhere in the epic. Seam and ripple reviewers get the whole diff, never a
