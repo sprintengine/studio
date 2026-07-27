@@ -679,9 +679,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help='Repeatable JSON object for a justified touched file outside ownedPaths, e.g. {"path":"src/foo.test.ts","reason":"needed colocated regression test","risk":"low"}.',
     )
-    # Review assessment channel: a reviewer records per-audited-task telemetry
-    # here (the --review-target-* trio + counts/findings) when its review task
-    # never enters a phase walk and publish carries no feedback fields.
+    # Review assessment channel: a review task that never enters a phase walk
+    # records per-audited-task telemetry here (the --review-target-* trio +
+    # counts/findings), since publish carries no feedback fields.
     add_feedback_arguments(p)
     p.set_defaults(handler=task_commands.log)
 

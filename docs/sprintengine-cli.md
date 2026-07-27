@@ -485,8 +485,8 @@ task in one step (`publish_task`, `sprintengine_core/tool/tasks.py`):
    answer cannot be determined at all (no git repository), the answer is `True`
    — routing to review is the failure-safe direction.
 2. **Routing.** No diff → every phase is skipped and the task lands on `done`
-   (the analysis-only exit). A diff → the task advances to
-   `phases[0]`, or to `done` when the task has no phases.
+   (the analysis-only exit). A diff → the task advances to `phases[0]`, or to
+   `done` when the task has no phases.
 
 The owner **keeps** the task across that transition. When the task enters a
 phase, the composed phase directive is returned inline in the publish response

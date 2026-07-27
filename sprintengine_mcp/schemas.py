@@ -130,8 +130,8 @@ FEEDBACK_PROPERTIES = feedback_properties()
 
 # The slim assessment surface task.log advertises (a no-phase review task's
 # telemetry channel): the review target + categorical findings + defect counts.
-# The full feedback arg set is still ACCEPTED (additionalProperties) — this keeps the
-# per-session tools/list cost down, not the capability.
+# The full feedback arg set is still ACCEPTED (additionalProperties) — this
+# keeps the per-session tools/list cost down, not the capability.
 REVIEW_ASSESSMENT_PROPERTIES = {
     camel: FEEDBACK_PROPERTIES[camel]
     for camel in (

@@ -232,7 +232,25 @@ def test_v1_capabilities_key_is_rejected_by_name(tmp_path: Path) -> None:
     rejections = [warning for warning in discovery.warnings if warning.code == "v1_role_manifest"]
     assert len(rejections) == 1
     assert "'capabilities' was removed" in rejections[0].message
-    assert '"directives"' in rejections[0].message
+    # The message must name the v2 home for a review-only role's content.
+    assert '"review"' in rejections[0].message
+
+
+def test_a_manifest_still_carrying_a_sweep_block_loads_with_the_key_ignored(tmp_path: Path) -> None:
+    """MC-1825 deleted the sweep concept, but user-authored manifests on disk keep
+    the block the role-authoring UI wrote. An unknown key is ignored, never a
+    rejection — a role the user already installed must not vanish from the picker."""
+    workspace = tmp_path / "workspace"
+    root = workspace / ".sprintengine"
+    write_role(root, "auditor", raw={"sweep": {"focus": "compliance", "when": "always"}})
+    write_skill(root, "auditor")
+
+    discovery = _discover(tmp_path, workspace)
+    role = discovery.get_role("auditor")
+
+    assert role.id == "auditor"
+    assert not hasattr(role, "sweep")
+    assert not any(warning.role_id == "auditor" for warning in discovery.warnings)
 
 
 def test_unknown_directive_phase_rejects_manifest(tmp_path: Path) -> None:
