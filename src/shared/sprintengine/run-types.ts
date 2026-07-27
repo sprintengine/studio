@@ -993,6 +993,30 @@ export type SprintEngineSavedRoster = {
 // its call sites are unchanged.
 export type SprintEngineRosterMode = 'roles' | 'pool'
 
+// The built-in "No roles" (non-)roster: no souls, no specialists, no architect
+// — one plain agent per task up to the run's max-concurrency setting, with one
+// of them doing the planning. It is the zero-configuration DEFAULT (MC-1876).
+//
+// SYNTHETIC, never a row in `savedRosters`: a seeded row could be deleted,
+// renamed, or edited into something else, and then "the default" would mean
+// different things on different machines. Choosing it means "no roster".
+//
+// Lives in shared rather than beside the wizard helpers because the settings
+// store must recognise the id too (to let the selection stick without
+// persisting a phantom roster) and the store must not import renderer
+// components. `newWorkspace/savedRosters.ts` re-exports it.
+export const NO_ROLES_ROSTER_ID = 'builtin:no-roles'
+export const NO_ROLES_ROSTER_NAME = 'No roles'
+
+// True for the built-in, by id OR by name — a horizon may name it either way
+// (`roster: No roles` in frontmatter). Case- and space-insensitive on the name
+// so hand-authored frontmatter resolves.
+export function isNoRolesRosterRef(ref: string | null | undefined): boolean {
+  if (!ref) return false
+  const trimmed = ref.trim()
+  return trimmed === NO_ROLES_ROSTER_ID || trimmed.toLowerCase() === NO_ROLES_ROSTER_NAME.toLowerCase()
+}
+
 export type SprintEngineRoster = {
   id: string
   name: string

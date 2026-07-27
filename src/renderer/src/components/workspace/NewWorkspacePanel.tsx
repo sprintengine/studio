@@ -126,7 +126,7 @@ import {
   type SprintDeclaredRepo,
   type SprintProjectOption,
 } from './newWorkspace/sprintProjectSelection'
-import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, PLAIN_AGENT_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, resolveSprintEngineRosterMode, sprintEngineRosterMatches } from './newWorkspace/savedRosters'
+import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, NO_ROLES_ROSTER_ID, PLAIN_AGENT_ROLE_COUNTS, isNoRolesRosterRef, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, resolveSprintEngineRosterMode, sprintEngineRosterMatches } from './newWorkspace/savedRosters'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -2135,6 +2135,17 @@ export default function NewWorkspacePanel({
       setSprintEngineLastSelectedRoster(null)
       return
     }
+    // MC-1876: the built-in is synthetic — it is not in `sprintEngineRosters`,
+    // so it needs its own branch. Selecting it means "no roster": switch to
+    // pool formation and leave the specialist rows alone, so switching back to
+    // "Pick roles yourself" restores what was there.
+    if (isNoRolesRosterRef(id)) {
+      setSeExistingTeam(null)
+      setSeUseSpecialistRoles(false)
+      setSeSelectedRosterId(NO_ROLES_ROSTER_ID)
+      setSprintEngineLastSelectedRoster(NO_ROLES_ROSTER_ID)
+      return
+    }
     const team = sprintEngineRosters.find((entry) => entry.id === id)
     if (!team) return
     setSeExistingTeam(null)
@@ -2194,8 +2205,13 @@ export default function NewWorkspacePanel({
   // The saved team the roster was loaded from, and whether the current rows still
   // match it. Drives the picker's truthful "edited" state (the rows no longer
   // equal the named team) and gates the Update affordance.
+  // The built-in is never in `sprintEngineRosters`, so it resolves to null here
+  // — which is correct: it has nothing to be "edited" relative to, no Update,
+  // no rename, no delete. That absence is what makes it uneditable.
   const selectedSprintEngineTeam = useMemo(
-    () => (seSelectedRosterId ? sprintEngineRosters.find((team) => team.id === seSelectedRosterId) ?? null : null),
+    () => (seSelectedRosterId && !isNoRolesRosterRef(seSelectedRosterId)
+      ? sprintEngineRosters.find((team) => team.id === seSelectedRosterId) ?? null
+      : null),
     [seSelectedRosterId, sprintEngineRosters],
   )
   const selectedSprintEngineRosterDirty = useMemo(

@@ -19,6 +19,9 @@ import {
 import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+  NO_ROLES_ROSTER_ID,
+  findSavedSprintEngineRoster,
+  isNoRolesRosterRef,
   resolveInitialSprintEngineRoster,
   sprintEngineLaunchRoleCounts,
 } from '../components/workspace/newWorkspace/savedRosters'
@@ -173,26 +176,51 @@ function resolveRequestedRoster(
     }
   }
 
-  // An unknown named roster is an explicit failure — silently falling back would
-  // staff the run with a roster the caller never picked.
   const requestedRosterName = request.rosterName?.trim()
-  const namedRoster = requestedRosterName
-    ? savedRosters.find((roster) => roster.name.trim().toLowerCase() === requestedRosterName.toLowerCase()) ?? null
-    : null
+
+  // The built-in resolves by name or id, and is never "not found".
+  if (isNoRolesRosterRef(requestedRosterName)) {
+    return {
+      ok: true,
+      roster: resolveInitialSprintEngineRoster({
+        savedRosters,
+        lastSelectedRosterId: null,
+        savedRoster: null,
+        defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+        defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+        explicitRosterRef: NO_ROLES_ROSTER_ID,
+      }),
+    }
+  }
+
+  // An unknown NAMED roster is an explicit failure — silently falling back
+  // would staff the run with a roster the caller never picked. This branch is
+  // deliberately unchanged by MC-1876: only an ABSENT roster gets the new
+  // default; a named-but-missing one must still fail loudly.
+  const namedRoster = findSavedSprintEngineRoster(savedRosters, requestedRosterName)
   if (requestedRosterName && !namedRoster) {
     return {
       ok: false,
       response: { ok: false, code: 'sprint_unknown_roster', message: `Saved roster "${requestedRosterName}" was not found.` },
     }
   }
+
+  // MC-1876 — THE DEFAULT FLIP. An externally-created run (a Horizon step with
+  // no `roster:`, an automation with no roster configured) used to resolve
+  // through `lastSelectedRosterId`: whatever roster the user last touched in
+  // the sprint WIZARD. A horizon running over days could therefore staff step 3
+  // differently from step 1 because someone opened the wizard in between, and
+  // nothing in the UI admitted it. Absent now means No roles — deterministic,
+  // and independent of unrelated UI state.
   return {
     ok: true,
     roster: resolveInitialSprintEngineRoster({
       savedRosters,
-      lastSelectedRosterId: namedRoster?.id ?? roleSettings?.lastSelectedRosterId ?? null,
-      savedRoster: roleSettings?.savedRoster ?? null,
+      lastSelectedRosterId: null,
+      savedRoster: null,
       defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
       defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+      explicitRosterRef: namedRoster?.id ?? NO_ROLES_ROSTER_ID,
     }),
   }
 }

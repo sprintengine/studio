@@ -10,7 +10,17 @@ import type {
   SprintEngineRosterMode,
   SprintEngineSavedRoster,
 } from '../../../types/workspace'
+import {
+  NO_ROLES_ROSTER_ID,
+  NO_ROLES_ROSTER_NAME,
+  isNoRolesRosterRef,
+} from '../../../../../shared/sprintengine/run-types'
 import { SPRINT_ENGINE_GENERAL_ROLE_ID } from '../../../utils/sprintengineRoleOptions'
+
+// Re-exported so the wizard, the Horizon picker (MC-1880) and the launch path
+// all import the built-in from one place. Defined in shared — see the comment
+// on the constant for why.
+export { NO_ROLES_ROSTER_ID, NO_ROLES_ROSTER_NAME, isNoRolesRosterRef }
 
 // Mirrors the wizard's CLI fallback (SprintEngineRosterTable / setRoleCount),
 // so divergence comparison resolves an absent default the same way the rows do.
@@ -54,6 +64,19 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
 // of each spelling `{ general: 1 }` (MC-1875).
 export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = { general: 1 }
 
+// The built-in "No roles" (non-)roster as a `SprintEngineRoster`, so every
+// consumer that renders or resolves a roster can treat it uniformly. It is
+// NEVER written into `savedRosters` — see NO_ROLES_ROSTER_ID for why.
+export const NO_ROLES_ROSTER: SprintEngineRoster = {
+  id: NO_ROLES_ROSTER_ID,
+  name: NO_ROLES_ROSTER_NAME,
+  mode: 'pool',
+  roleCounts: PLAIN_AGENT_ROLE_COUNTS,
+  roleCliDefaults: {},
+  createdAt: 0,
+  updatedAt: 0,
+}
+
 // Every known role mapped to the stock CLI — the wizard's Required<> seed map.
 export const DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS: Required<SprintEngineRoleCliDefaults> = Object.fromEntries(
   Object.keys(DEFAULT_SPRINT_ENGINE_ROLE_COUNTS).map((role) => [role, DEFAULT_CLI])
@@ -85,21 +108,48 @@ function effectiveSavedRoleModel(
 
 // Resolve the roster the new-workspace wizard opens with, so the roster step is
 // a single Continue on a runnable team. Precedence:
-//   1. The most recently selected saved team (lastSelectedRosterId → savedRosters).
-//   2. The legacy single saved roster.
-//   3. The built-in default roster (a runnable implement-and-review team) when no
-//      saved roster exists — a fresh install still opens pre-selected.
+//   1. An explicit roster reference (id or name), INCLUDING the built-in
+//      "No roles" — this is how a horizon's `roster:` frontmatter resolves.
+//   2. The most recently selected saved roster (lastSelectedRosterId), which
+//      may itself be the built-in.
+//   3. The legacy single saved roster.
+//   4. NO ROLES — the zero-configuration default (MC-1876). This replaced a
+//      fallthrough to `DEFAULT_SPRINT_ENGINE_ROLE_COUNTS`, i.e. to a SPECIALIST
+//      roster, which was the opposite of a default.
+//
+// `roleCounts` still carries `defaultRoleCounts` in that last case: the wizard
+// keeps the specialist table behind the collapsed disclosure so switching to
+// "Pick roles yourself" opens on something runnable. Formation, not staffing,
+// is what the default flip changes — `mode` is what decides the launch.
+//
 // CLI defaults always layer over the full default map, so every known role keeps
-// a valid CLI even when a saved team stored only a subset.
+// a valid CLI even when a saved roster stored only a subset.
 export function resolveInitialSprintEngineRoster(input: {
   savedRosters: SprintEngineRoster[]
   lastSelectedRosterId: string | null | undefined
   savedRoster: SprintEngineSavedRoster | null
   defaultRoleCounts: SprintEngineRoleCounts
   defaultRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
+  /** Explicit roster id or name (a horizon's `roster:`, an automation config). */
+  explicitRosterRef?: string | null
 }): ResolvedInitialSprintEngineRoster {
+  // The built-in short-circuits everything: naming it means "no roster", so no
+  // saved roster and no last-used selection may override it.
+  if (isNoRolesRosterRef(input.explicitRosterRef) || isNoRolesRosterRef(input.lastSelectedRosterId)) {
+    return {
+      selectedRosterId: NO_ROLES_ROSTER_ID,
+      mode: 'pool',
+      roleCounts: { ...input.defaultRoleCounts },
+      roleCliDefaults: { ...input.defaultRoleCliDefaults },
+      roleModelOverrides: {},
+    }
+  }
   const selectedRoster =
-    input.savedRosters.find((roster) => roster.id === input.lastSelectedRosterId) ?? null
+    (input.explicitRosterRef
+      ? findSavedSprintEngineRoster(input.savedRosters, input.explicitRosterRef)
+      : null)
+    ?? input.savedRosters.find((roster) => roster.id === input.lastSelectedRosterId)
+    ?? null
   const sourceRoster: SprintEngineSavedRoster | null = selectedRoster
     ? {
         roleCounts: selectedRoster.roleCounts,
@@ -118,12 +168,30 @@ export function resolveInitialSprintEngineRoster(input: {
     ...(sourceRoster?.roleModelOverrides ?? {}),
   }
   return {
-    selectedRosterId: selectedRoster?.id ?? null,
+    // With nothing saved at all, the (non-)selection IS the built-in, so the
+    // picker shows "No roles" rather than a nameless "Custom" entry.
+    selectedRosterId: selectedRoster?.id ?? (sourceRoster ? null : NO_ROLES_ROSTER_ID),
     mode: resolveSprintEngineRosterMode(selectedRoster, Boolean(sourceRoster), roleCounts),
     roleCounts,
     roleCliDefaults,
     roleModelOverrides,
   }
+}
+
+// Find a saved roster by id OR by (case-insensitive) name. Horizon frontmatter
+// and automation configs name a roster by NAME; the wizard selects by id.
+// Returns null for the built-in — callers must check `isNoRolesRosterRef`
+// first, because the built-in is not in this list by design.
+export function findSavedSprintEngineRoster(
+  rosters: ReadonlyArray<SprintEngineRoster>,
+  ref: string | null | undefined,
+): SprintEngineRoster | null {
+  const trimmed = ref?.trim()
+  if (!trimmed) return null
+  const byId = rosters.find((roster) => roster.id === trimmed)
+  if (byId) return byId
+  const lowered = trimmed.toLowerCase()
+  return rosters.find((roster) => roster.name.trim().toLowerCase() === lowered) ?? null
 }
 
 // A roster's formation: what it was SAVED as when it says so, otherwise the
@@ -261,5 +329,9 @@ export function sprintEngineRosterNameTaken(
 ): boolean {
   const trimmed = name.trim().toLowerCase()
   if (!trimmed) return false
+  // The built-in's name is RESERVED (MC-1876): a user roster called "No roles"
+  // would shadow the default in every picker and in horizon frontmatter, where
+  // the name is how a roster is referenced.
+  if (isNoRolesRosterRef(trimmed)) return true
   return teams.some((team) => team.id !== excludeId && team.name.trim().toLowerCase() === trimmed)
 }

@@ -27,7 +27,12 @@ import {
 } from '../../../utils/sprintengineRoleOptions'
 import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
-import { sprintEngineRosterNameTaken } from './savedRosters'
+import {
+  NO_ROLES_ROSTER_ID,
+  NO_ROLES_ROSTER_NAME,
+  isNoRolesRosterRef,
+  sprintEngineRosterNameTaken,
+} from './savedRosters'
 
 // How the roster is formed. Defined in shared (MC-1875) because a saved roster
 // now persists it and `src/shared` cannot import renderer modules; re-exported
@@ -329,10 +334,18 @@ function SavedRostersMenu({
   // 'idle' | 'adding' (save as new) | 'renaming' (selected roster).
   const [editing, setEditing] = React.useState<'idle' | 'adding' | 'renaming'>('idle')
   const [name, setName] = React.useState('')
-  const selectedRoster = selectedRosterId ? rosters.find((roster) => roster.id === selectedRosterId) ?? null : null
-  const triggerLabel = selectedRoster
-    ? `Roster: ${selectedRoster.name}${selectedRosterDirty ? ' · edited' : ''}`
-    : 'Roster: Custom'
+  // The built-in "No roles" is synthetic and never in `rosters` (MC-1876), so
+  // it is tracked by id rather than resolved to a record. That is also why it
+  // has no Update / Rename / Delete: there is no record to act on.
+  const noRolesSelected = isNoRolesRosterRef(selectedRosterId)
+  const selectedRoster = selectedRosterId && !noRolesSelected
+    ? rosters.find((roster) => roster.id === selectedRosterId) ?? null
+    : null
+  const triggerLabel = noRolesSelected
+    ? `Roster: ${NO_ROLES_ROSTER_NAME}`
+    : selectedRoster
+      ? `Roster: ${selectedRoster.name}${selectedRosterDirty ? ' · edited' : ''}`
+      : 'Roster: Custom'
 
   const close = () => {
     setEditing('idle')
@@ -426,6 +439,24 @@ function SavedRostersMenu({
         </div>
       ) : (
         <>
+          {/* MC-1876: the built-in is pinned first and separated from saved
+              rosters, because choosing it means "no roster" — not "a roster
+              named No roles". It carries no staffing summary for the same
+              reason, and offers no rename/delete. */}
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={noRolesSelected}
+            className={itemClass}
+            onClick={() => { onSelectRoster(NO_ROLES_ROSTER_ID); setOpen(false) }}
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {NO_ROLES_ROSTER_NAME}
+              {noRolesSelected ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
+            </span>
+            <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">default</span>
+          </button>
+          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
           {rosters.length > 0 ? (
             <>
               <div className="px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">

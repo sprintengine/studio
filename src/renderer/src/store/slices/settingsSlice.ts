@@ -1,4 +1,8 @@
 import { nanoid } from 'nanoid'
+import {
+  NO_ROLES_ROSTER_ID,
+  isNoRolesRosterRef,
+} from '../../../../shared/sprintengine/run-types'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab } from '../../components/settings/extensionsRoute'
 import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
@@ -753,11 +757,16 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
         ? candidate.lastSelectedTeamId
         : null
   const lastSelectedRosterId =
-    selectedCandidate !== null && rosters.some((roster) => roster.id === selectedCandidate)
-      ? selectedCandidate
-      // Pre-select the just-migrated roster so legacy users open on their roster
-      // rather than a "Custom" entry.
-      : migratedRosterId
+    // MC-1876: the built-in is a valid selection but is deliberately NOT in the
+    // list, so it has to be admitted explicitly or normalization would clear it
+    // on every load.
+    isNoRolesRosterRef(selectedCandidate)
+      ? NO_ROLES_ROSTER_ID
+      : selectedCandidate !== null && rosters.some((roster) => roster.id === selectedCandidate)
+        ? selectedCandidate
+        // Pre-select the just-migrated roster so legacy users open on their
+        // roster rather than a "Custom" entry.
+        : migratedRosterId
   return {
     enabled: normalizeRoleEnabledRecord(candidate.enabled),
     savedRoster,
@@ -775,6 +784,11 @@ function normalizeSprintEngineRosters(value: unknown): SprintEngineRoster[] {
     const candidate = rawEntry as Partial<SprintEngineRoster>
     const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
     if (!name) continue
+    // MC-1876: drop any persisted roster wearing the built-in's reserved id or
+    // name. Nothing in the app writes one, but a hand-edited settings file (or
+    // a blob from a build where the name was not yet reserved) otherwise gets a
+    // user roster that shadows the default everywhere it is referenced by name.
+    if (isNoRolesRosterRef(name) || isNoRolesRosterRef(candidate.id as string | undefined)) continue
     let id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
     if (!id || seenIds.has(id)) id = nanoid()
     seenIds.add(id)
@@ -1577,6 +1591,11 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     saveSprintEngineRoster: (input) => {
       const name = input.name.trim()
       if (!name) return ''
+      // MC-1876: the built-in "No roles" is synthetic and reserved. Refusing
+      // both its id and its name here — not just in the UI's validation — is
+      // what makes "it cannot be renamed, edited, or deleted" true rather than
+      // merely unreachable through the happy path.
+      if (isNoRolesRosterRef(name) || isNoRolesRosterRef(input.id)) return ''
       const roster = normalizeSprintEngineSavedRoster({
         roleCounts: input.roleCounts,
         roleCliDefaults: input.roleCliDefaults,
@@ -1662,6 +1681,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
         const teamId = id?.trim() || null
+        // MC-1876: picking the built-in must STICK. It is not in savedRosters
+        // (by design), so without this branch the lookup below would fail, the
+        // pointer would clear, and the next resolve would fall through to the
+        // legacy savedRoster mirror — silently re-staffing "No roles" with the
+        // last specialist roster the user touched.
+        if (isNoRolesRosterRef(teamId)) {
+          state.appSettings.sprintEngineRoleSettings = {
+            ...current,
+            lastSelectedRosterId: NO_ROLES_ROSTER_ID,
+            // The legacy mirror is deliberately left alone: it is the run-mount
+            // CLI-default fallback, not a staffing source for the built-in.
+          }
+          return
+        }
         const team = teamId ? (current.savedRosters ?? []).find((entry) => entry.id === teamId) ?? null : null
         state.appSettings.sprintEngineRoleSettings = {
           ...current,

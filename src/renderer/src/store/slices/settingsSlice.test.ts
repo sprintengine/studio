@@ -907,6 +907,84 @@ assert.ok(
   'an unknown formation (e.g. the removed "architect") is dropped, never coerced to a real one',
 )
 
+// --- MC-1876: the built-in "No roles" is synthetic and reserved ------------
+// Enforced in the STORE, not just in the UI's validation — "cannot be renamed,
+// edited, or deleted" has to be true of the data layer, or it is merely
+// unreachable through the happy path.
+{
+  const before = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRosters?.length ?? 0
+  assert.equal(
+    teamStore.saveSprintEngineRoster({
+      name: 'No roles',
+      roleCounts: { architect: 1 },
+      roleCliDefaults: {},
+    }),
+    '',
+    'saving a user roster named "No roles" is refused',
+  )
+  assert.equal(
+    teamStore.saveSprintEngineRoster({
+      id: 'builtin:no-roles',
+      name: 'Hijack',
+      roleCounts: { architect: 1 },
+      roleCliDefaults: {},
+    }),
+    '',
+    'and so is claiming the reserved id',
+  )
+  assert.equal(
+    useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRosters?.length ?? 0,
+    before,
+    'neither refusal wrote a roster',
+  )
+}
+
+// Picking the built-in STICKS. Without this the pointer would clear (the
+// built-in is not in savedRosters by design) and the next resolve would fall
+// through to the legacy savedRoster mirror — silently re-staffing "No roles"
+// with the last specialist roster the user touched.
+{
+  teamStore.setSprintEngineLastSelectedRoster('builtin:no-roles')
+  assert.equal(
+    useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.lastSelectedRosterId,
+    'builtin:no-roles',
+    'selecting the built-in persists',
+  )
+  // And survives a normalize pass, which validates ids against savedRosters.
+  const reloaded = normalizeAppSettings(
+    { sprintEngineRoleSettings: useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings },
+    [],
+  ).sprintEngineRoleSettings
+  assert.equal(
+    reloaded.lastSelectedRosterId,
+    'builtin:no-roles',
+    'and is not cleared by normalization for being absent from savedRosters',
+  )
+}
+
+// A hand-edited settings file cannot smuggle in a roster that shadows the
+// built-in by id or by name.
+{
+  const shadowed = normalizeAppSettings(
+    {
+      sprintEngineRoleSettings: {
+        enabled: {},
+        savedRosters: [
+          { id: 'builtin:no-roles', name: 'Impostor', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+          { id: 'x', name: 'No roles', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+          { id: 'y', name: 'Legit', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+        ],
+      },
+    },
+    [],
+  ).sprintEngineRoleSettings
+  assert.deepEqual(
+    shadowed.savedRosters?.map((roster) => roster.name),
+    ['Legit'],
+    'a persisted roster wearing the reserved id or name is dropped on load',
+  )
+}
+
 // --- Specialist menu ordering --------------------------------------------
 // Normalization keeps only known specialist ids, drops duplicates, and ignores
 // junk so a stale or hand-edited settings file is always safe to load.
