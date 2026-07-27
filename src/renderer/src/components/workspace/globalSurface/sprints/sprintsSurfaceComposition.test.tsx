@@ -93,11 +93,18 @@ function projection(input: {
   repos: RepoSpec[]
   /** taskId → [repo id, dependsOn] — the cross-repo edges merge order derives from. */
   tasks: Array<{ id: string; repo: string; dependsOn: string[]; status?: string }>
+  /** The run's legal role set, which the Agents tab reads and enabling a role grows. */
+  configuredRoles?: string[]
+  /** Seated workers, keyed by agent id — one roster row each on the Agents tab. */
+  roster?: Record<string, { role: string; status: string; currentTaskId: string | null }>
 }): Record<string, unknown> {
   return {
     run: {
       name: input.name,
       goal: 'A goal',
+      ...(input.configuredRoles
+        ? { rosterConfigured: true, configuredRoles: input.configuredRoles }
+        : {}),
       vcs: {
         mode: 'run_worktree',
         worktreePath: '.multi-code/worktree',
@@ -116,6 +123,7 @@ function projection(input: {
         declaredRepoCount: input.repos.length,
       },
     },
+    ...(input.roster ? { roster: input.roster } : {}),
     tasks: input.tasks.map((task) => ({
       id: task.id,
       title: `Task ${task.id}`,
@@ -157,6 +165,15 @@ function writeIntent(statePath: string, patch: { mode?: string; preset?: string 
 
 const notifications: Array<Record<string, unknown>> = []
 
+// The roster seam (item 1800): enabling a role is an engine mutation on the run,
+// keyed by statePath. The stub records every call and grows that run's projected
+// `configuredRoles`, so a re-read shows what the write actually did.
+type EnableRoleCall = { statePath: string; role: string }
+const enableRoleCalls: EnableRoleCall[] = []
+// Which project root the board asked for the role registry — the door has no
+// workspace folder and must derive it from the run's own state path.
+const registryRootReads: string[] = []
+
 const api: Record<string, unknown> = {
   platform: 'darwin',
   listSprintRuns: async (roots: string[]) => {
@@ -187,6 +204,38 @@ const api: Record<string, unknown> = {
   setSprintEngineCliPermissionPreset: async (input: { statePath: string; preset: string }) => {
     intentWrites.push({ statePath: input.statePath, preset: input.preset })
     return writeIntent(input.statePath, { preset: input.preset })
+  },
+  // A resident workspace's folder resolves, which is what lets that mount read
+  // its role registry. The door has no workspace record, so it never asks.
+  checkWorkspaceFolder: async (path: string) => ({
+    ok: true,
+    status: 'ready',
+    path,
+    checkedPath: path,
+    message: `Workspace folder is ready: ${path}`,
+  }),
+  enableSprintEngineRole: async (input: { statePath: string; role: string }) => {
+    enableRoleCalls.push({ statePath: input.statePath, role: input.role })
+    const stored = projections.get(input.statePath)
+    const run = stored?.run as Record<string, unknown> | undefined
+    if (!stored || !run) return { ok: false, message: 'This run could not be read.' }
+    const configured = Array.isArray(run.configuredRoles) ? [...run.configuredRoles as string[]] : []
+    if (!configured.includes(input.role)) configured.push(input.role)
+    projections.set(input.statePath, { ...stored, run: { ...run, configuredRoles: configured } })
+    return { ok: true }
+  },
+  readSprintEngineRegistryRoles: async ({ workspaceRoot }: { workspaceRoot: string }) => {
+    registryRootReads.push(workspaceRoot)
+    return {
+      ok: true,
+      data: {
+        roles: [
+          { id: 'developer', label: 'Developer' },
+          { id: 'tester', label: 'Tester' },
+          { id: 'security', label: 'Security' },
+        ],
+      },
+    }
   },
   logDiagnostic: async (input: Record<string, unknown>) => {
     const entry = { ...input, id: `diag-${notifications.length + 1}`, timestamp: '2026-07-26T12:00:00.000Z' }
@@ -315,6 +364,10 @@ async function main(): Promise<void> {
       name: 'wake-filter-sprint',
       repos: [{ id: 'primary', root: '.', pr: null, state: null }],
       tasks: [{ id: 'T1', repo: 'primary', dependsOn: [], status: 'in_progress' }],
+      // Staffed and role-configured: the run the Agents-tab contract below is
+      // asserted against, on both mounts.
+      configuredRoles: ['developer'],
+      roster: { 'developer-1': { role: 'developer', status: 'idle', currentTaskId: null } },
     }),
   )
   // One repository, no merge order to speak of.
@@ -828,6 +881,93 @@ async function main(): Promise<void> {
   await selectRailRun('wake-filter-sprint')
   console.log('ok - the door mount routes both run-configuration controls by statePath')
 
+  // ── Roster actions on the door mount (item 1800) ─────────────────────────
+  // Enabling a role is an engine mutation on the RUN, so it completes by
+  // statePath and the run's configured roles grow. Everything that needs the
+  // run's workspace — spawning an agent, opening its terminal, adding another
+  // agent — is disabled and says why, never a live button that does nothing.
+  const openAgentsTab = async (): Promise<void> => {
+    const tab = dom.window.document.getElementById('sprintengine-view-tab-roster')
+    assert.ok(tab, 'the board carries the Agents tab')
+    await act(async () => {
+      ;(tab as HTMLElement).click()
+    })
+    await settle()
+  }
+  const buttonLabelled = (prefix: string): HTMLButtonElement | undefined =>
+    ([...container.querySelectorAll('button')] as HTMLButtonElement[]).find((candidate) =>
+      candidate.getAttribute('aria-label')?.startsWith(prefix),
+    )
+  const buttonSaying = (text: string): HTMLButtonElement | undefined =>
+    ([...container.querySelectorAll('button')] as HTMLButtonElement[]).find((candidate) =>
+      candidate.textContent?.includes(text),
+    )
+  const agentsCensus = (): string =>
+    container.querySelector('h3 + span')?.textContent ?? ''
+
+  await openAgentsTab()
+  assert.ok(
+    registryRootReads.includes(projectRoot),
+    'the door reads the role registry from the project its run lives in',
+  )
+  const doorSpawn = buttonLabelled('Spawn ')
+  assert.ok(doorSpawn, 'the roster row still carries its Spawn action')
+  assert.equal(doorSpawn.disabled, true, 'disabled, because the terminal would live in a closed workspace')
+  assert.match(
+    doorSpawn.getAttribute('aria-label') ?? '',
+    /unavailable: this sprint’s workspace is closed/u,
+    'and the disabled action explains itself where it sits',
+  )
+  const doorAddAgent = buttonSaying('Add an agent')
+  assert.ok(doorAddAgent, 'the Agents header still offers Add an agent')
+  assert.equal(doorAddAgent.disabled, true, 'both halves of it need the workspace, so it is disabled')
+  assert.match(
+    doorAddAgent.getAttribute('aria-label') ?? '',
+    /unavailable: this sprint’s workspace is closed/u,
+    'with the same reason',
+  )
+  assert.equal(
+    container.querySelector('button[aria-label$=" actions"]'),
+    null,
+    'the row menu holds nothing operable without a workspace, so it is not offered',
+  )
+
+  // Add a role is engine-level: live on the door, and it reaches the engine by
+  // statePath.
+  const doorAddRole = buttonSaying('Add a role')
+  assert.ok(doorAddRole, 'Add a role stays available — it writes to the run, not the workspace')
+  assert.equal(doorAddRole.disabled, false, 'and it is live')
+  assert.equal(agentsCensus().includes('1 configured role'), true, 'the run configures one role today')
+  await act(async () => {
+    doorAddRole.click()
+  })
+  const testerOption = [...dom.window.document.querySelectorAll('[role="menuitem"]')].find(
+    (candidate) => candidate.textContent?.trim() === 'Tester',
+  )
+  assert.ok(testerOption, 'the menu lists the roles this run does not configure yet')
+  await act(async () => {
+    ;(testerOption as HTMLElement).click()
+  })
+  await settle(8)
+  assert.deepEqual(
+    enableRoleCalls,
+    [{ statePath: doorStatePath, role: 'tester' }],
+    'the role is enabled on the run by statePath, with no workspace standing in for one',
+  )
+  assert.ok(
+    agentsCensus().includes('2 configured roles'),
+    'the run’s configured roles reflect the write',
+  )
+  assert.ok(
+    container.querySelector('section[aria-label="Tester"]'),
+    'and the new role has its band on the board',
+  )
+  assert.ok(
+    container.textContent?.includes('No agents yet'),
+    'no agent was minted for it — the door enables the role and starts nothing',
+  )
+  console.log('ok - the door enables a role by statePath and offers no action it cannot finish')
+
   // ── The same controls on a resident mount are unchanged ──────────────────
   // The optimistic workspace-store write still happens; the authoritative
   // statePath write rides along, so both mounts agree on the run's intent.
@@ -899,6 +1039,45 @@ async function main(): Promise<void> {
     'and mirrors into the run’s statePath-keyed record',
   )
   console.log('ok - the resident mount keeps its optimistic store write and reaches the same record')
+
+  // ── And its roster actions are all still live (item 1800) ────────────────
+  // Same run, same board, with its workspace resident: nothing is disabled and
+  // the row keeps its hover menu.
+  await openAgentsTab()
+  const residentSpawn = buttonLabelled('Spawn ')
+  assert.ok(residentSpawn, 'the roster row carries its Spawn action')
+  assert.equal(residentSpawn.disabled, false, 'live, because the terminal has a workspace to run in')
+  assert.equal(
+    residentSpawn.getAttribute('aria-label')?.includes('unavailable'),
+    false,
+    'and it claims no unavailability',
+  )
+  assert.equal(buttonSaying('Add an agent')?.disabled, false, 'Add an agent is live')
+  assert.ok(
+    container.querySelector('button[aria-label$=" actions"]'),
+    'and the row keeps its actions menu',
+  )
+  const residentAddRole = buttonSaying('Add a role')
+  assert.ok(residentAddRole, 'Add a role is offered here too')
+  await act(async () => {
+    residentAddRole.click()
+  })
+  // Tester was enabled from the door above, so the run no longer offers it —
+  // Security is the role this run still does not configure.
+  const residentOption = [...dom.window.document.querySelectorAll('[role="menuitem"]')].find(
+    (candidate) => candidate.textContent?.trim() === 'Security',
+  )
+  assert.ok(residentOption, 'the menu lists the roles this run does not configure yet')
+  await act(async () => {
+    ;(residentOption as HTMLElement).click()
+  })
+  await settle(8)
+  assert.deepEqual(
+    enableRoleCalls[enableRoleCalls.length - 1],
+    { statePath: doorStatePath, role: 'security' },
+    'and it reaches the engine by the same statePath route',
+  )
+  console.log('ok - the resident mount keeps every roster action live')
 
   // ── A handed-over link path spelled with foreign separators (item 1803) ──
   // The Backlog link builds forward slashes; the index builds native-separator

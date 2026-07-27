@@ -588,13 +588,38 @@ export default function SprintEngineBoardPanel(props: Props) {
  )
 }
 
+// Why the terminal-bound roster actions are unavailable on a door mount, in the
+// words the Sprints bar already uses for the same condition. The board's banner
+// says it once in prose; each disabled control repeats it where it sits.
+const CLOSED_WORKSPACE_REASON =
+  'this sprint’s workspace is closed, so its agent terminals aren’t running'
+
+// The narrower case: a sprint from before run-level roles keeps its whole team
+// in the workspace record, so with that workspace closed even adding a role has
+// nowhere to write.
+const CLOSED_TEAM_REASON =
+  'this sprint keeps its team in its workspace, and that workspace is closed'
+
+// `<projectRoot>/.multi-code/sprintengine/<team>/run.yaml` is the canonical run
+// layout, so a run's own state path names the project it belongs to. The door
+// mount has no workspace folder to read the role registry from; without this it
+// would fall back to the bundled role set and could offer almost nothing to
+// enable. Null for a path that is not a run store entry.
+function projectRootFromStatePath(statePath: string): string | null {
+  const match = statePath
+    .replace(/\\/g, '/')
+    .match(/^(.+)\/\.multi-code\/sprintengine\/[^/]+\/run\.ya?ml$/iu)
+  return match?.[1] || null
+}
+
 // The run board and its satellites, consuming a `SprintRunHandle` rather than a
 // `workspaceId`, so one component serves both the workspace mount and the
 // Sprints door mount. Read paths (tasks, roster, inbox, task graph, inspector)
-// come from the handle. Workspace-only actions (open terminals, launch/kill
-// sessions, add members, folder relink, automation controls) read the live
-// workspace resolved from `handle.workspaceId` and degrade to disabled when the
-// run has no resident workspace.
+// come from the handle. Engine-level controls (automation mode, CLI permission
+// preset, enabling a role, role runtimes) route by statePath and work on either
+// mount. Workspace-bound actions (open terminals, launch/kill sessions, folder
+// relink, per-agent runtime edits) read the live workspace resolved from
+// `handle.workspaceId` and are visibly unavailable without one.
 export function SprintRunBoard({
  handle,
  fixedView,
@@ -619,6 +644,15 @@ export function SprintRunBoard({
   const workspaceId = handle.workspaceId ?? ''
   const hasResidentWorkspace = workspaceId !== ''
   const sprintEngineState = handle.sprintEngineState
+  // Enabling a role is an engine mutation on the run (`roster enable`, routed by
+  // statePath), so it works from the door (MC-1800). A run that publishes no
+  // configured role set has no such route — its team exists only in the
+  // workspace record — so on a door mount that run offers no roster mutation at
+  // all. Same predicate the enable path itself uses below.
+  const canMutateRunRoster =
+    hasResidentWorkspace
+    || (sprintEngineState.rosterConfigured === true
+      && (sprintEngineState.configuredRoles?.length ?? 0) > 0)
   const workspace = useWorkspaceStore((s) =>
     handle.workspaceId ? s.workspaces.find((w) => w.id === handle.workspaceId) ?? null : null,
   )
@@ -822,19 +856,24 @@ export function SprintRunBoard({
     ? workspace?.sprintEngineAutoState?.cliPermissionPreset
     : doorAutomationIntent?.cliPermissionPreset) ?? 'default'
 
- // Sprint Engine role registry for the workspace. Loaded once per folder so
+ // Sprint Engine role registry for the run's project. Loaded once per root so
  // the Add Member options and uncovered-role detection surface custom enabled
  // registry roles alongside the bundled board roles. The list silently falls
  // back to the bundled set when the IPC bridge or the registry payload is
  // unavailable.
+ // The workspace mount reads it from its folder; the door mount has no folder,
+ // so it reads it from the project the run's state path names — otherwise
+ // "Add a role" could only ever offer the roles the bundle resolves alone.
+ const roleRegistryRoot = folderPath
+   ?? (hasResidentWorkspace ? null : projectRootFromStatePath(handle.statePath))
  const [roleRegistry, setRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
  useEffect(() => {
    let cancelled = false
-   if (!folderPath || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+   if (!roleRegistryRoot || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
      setRoleRegistry(null)
      return undefined
    }
-   void window.api.readSprintEngineRegistryRoles({ workspaceRoot: folderPath, includeShadowed: true })
+   void window.api.readSprintEngineRegistryRoles({ workspaceRoot: roleRegistryRoot, includeShadowed: true })
      .then((result) => {
        if (cancelled) return
        if (result.ok) {
@@ -850,7 +889,7 @@ export function SprintRunBoard({
    return () => {
      cancelled = true
    }
- }, [folderPath])
+ }, [roleRegistryRoot])
 
  useEffect(() => {
  setPendingAutomationMode(null)
@@ -1503,6 +1542,7 @@ export function SprintRunBoard({
  onPopOutArtifact={popOutPreviewedArtifact}
  onSpawnAgent={spawnAgent}
  onOpenAgentTerminal={openAgentTerminal}
+ terminalActionsUnavailable={hasResidentWorkspace ? undefined : CLOSED_WORKSPACE_REASON}
  isAgentTerminalLive={isAgentTerminalLive}
  isExpanded={inspectorExpanded}
  onToggleExpand={toggleInspectorExpanded}
@@ -1647,7 +1687,12 @@ export function SprintRunBoard({
   || automationRuntimeState === 'blocked'
   || automationRuntimeState === 'failed'
   ? () => {
+  // Optimistic runtime-state move, on the workspace record that holds it.
+  // The engine-level half below is what actually resumes the run, and it
+  // takes the statePath route on either mount.
+  if (hasResidentWorkspace) {
   applySprintEngineAutomationEvent(workspaceId, { type: 'runner_started' })
+  }
   // Same-mode recovery must also reach the main scheduler — a runtime-state
   // resume is not a mode change, so neither the intent service nor the
   // stop-reason push carries it. Without this the scheduler stays
@@ -1725,6 +1770,12 @@ export function SprintRunBoard({
  }, [repoExpansions, agents, workspaceId, workspace?.name])
 
  const enqueuePendingRosterMemberSpawn = (pending: PendingRosterMemberSpawn) => {
+ // A queued spawn is drained by starting a terminal in the run's workspace and
+ // stamping the agent onto that workspace's record. With no workspace it could
+ // never start, and the drain would write through the `''` sentinel — so the
+ // queue stays empty on a door mount (MC-1800). Callers gate before they get
+ // here; this is the invariant's last line.
+ if (!hasResidentWorkspace) return
  setPendingRosterMemberSpawns((current) => {
  if (current.some((candidate) => candidate.agentId === pending.agentId)) return current
  return [...current, pending]
@@ -1740,6 +1791,16 @@ export function SprintRunBoard({
  setAddMemberModel(undefined)
  }
 
+ // The dialog's role choices. The workspace mount offers every addable role —
+ // adding another agent of a role the run already has is a real action there.
+ // The door can only write the run's configuration, so it offers exactly the
+ // roles that configuration does not name yet; anything else would be a button
+ // with nothing to write.
+ const configuredRoleIds = new Set<SprintEngineRoleId>(sprintEngineState.configuredRoles ?? [])
+ const addMemberDialogOptions = hasResidentWorkspace
+ ? addMemberOptions
+ : addMemberOptions.filter((option) => !configuredRoleIds.has(option.role))
+
  const openAddMemberDialog = () => {
  const uncoveredRole = findFirstUncoveredSprintEngineRole({
  registry: roleRegistry,
@@ -1747,9 +1808,13 @@ export function SprintRunBoard({
  roster,
  tasks: sprintEngineTasks,
  })
- const initialRole = (uncoveredRole ?? 'developer') as SprintEngineRole
+ const initialRole = (hasResidentWorkspace
+ ? uncoveredRole ?? 'developer'
+ : addMemberDialogOptions[0]?.role ?? uncoveredRole ?? 'developer') as SprintEngineRole
  setAddMemberName('')
- setAddMemberSpawnNow(true)
+ // No workspace, no terminal to start it in: the door adds the role to the run
+ // and stops there, so the spawn intent is off and the control is not offered.
+ setAddMemberSpawnNow(hasResidentWorkspace)
  setAddMemberBusy(false)
  setAddMemberError(null)
  selectAddMemberRole(initialRole)
@@ -1804,6 +1869,16 @@ export function SprintRunBoard({
  // additive, --actor ui) — agents never grow the set themselves.
  const configuredRoles = sprintEngineState.configuredRoles ?? []
  const roleNeedsEnable = configuredRoles.length > 0 && !configuredRoles.includes(role)
+ // Door mount: enabling the role in the engine is the WHOLE action. There is
+ // no workspace to mint a display agent in and no terminal to start, so a
+ // role the run already configures has nothing left to write — say so rather
+ // than close the dialog on a no-op (MC-1800).
+ if (!hasResidentWorkspace && !roleNeedsEnable) {
+ setAddMemberError(
+ `${getSprintEngineRoleLabel(role, roleRegistry)} is already part of this run. Its agents start from the sprint’s workspace.`,
+ )
+ return
+ }
  if (roleNeedsEnable) {
  const enabled = await window.api.enableSprintEngineRole({
  statePath: sprintEngineContext.statePath,
@@ -1812,9 +1887,27 @@ export function SprintRunBoard({
  model: addMemberModel ?? null,
  })
  if (!enabled.ok) {
- setAddMemberError(enabled.message || `The ${role} role could not be enabled for this run.`)
+ const message = enabled.message || `The ${role} role could not be enabled for this run.`
+ setAddMemberError(message)
+ // The Agents header's "Add a role" has no error surface of its own, so a
+ // refusal also reaches the diagnostics feed instead of dying in a dialog
+ // that may not even be open.
+ void publishDiagnostic({
+ level: 'error',
+ source: 'sprintengine',
+ title: 'Role was not added',
+ message,
+ ...(hasResidentWorkspace ? { workspaceId, workspaceName: workspace?.name } : {}),
+ })
  return
  }
+ }
+ if (!hasResidentWorkspace) {
+ // Re-read the run so its configuredRoles — and the role's new band on the
+ // Agents tab — reflect the write that just landed.
+ void handle.refresh?.()
+ setAddMemberOpen(false)
+ return
  }
  // MC-1591 leases: there is no roster to register into — the engine binds
  // the worker to its task at claim. Spawn on the minted id directly; the
@@ -1855,6 +1948,15 @@ export function SprintRunBoard({
  return
  }
 
+ // A run from before roster configuration keeps its members in the workspace
+ // record alone — there is no engine route to add one. The door does not offer
+ // this (see `canMutateRunRoster`); if it ever did, it says why instead of
+ // writing through the `''` sentinel.
+ if (!hasResidentWorkspace) {
+ setAddMemberError('This sprint’s workspace is closed, so an agent cannot be added to it here.')
+ return
+ }
+
  const addedAgent = addSprintEngineMember(workspaceId, role)
  if (!addedAgent) return
 
@@ -1879,6 +1981,11 @@ export function SprintRunBoard({
  // the chosen configured role now. Minting is local (no engine registration);
  // the engine binds the worker to a task at claim (MC-1591 leases).
  const addSprintEngineAgentForRole = (role: SprintEngineRole) => {
+ // Both halves live in the workspace record — the concurrent-agent count and
+ // the terminal the agent starts in — so with none resident there is nothing
+ // to raise and nothing to start. The Agents header disables the control;
+ // this keeps the `''` sentinel out of the store write behind it.
+ if (!hasResidentWorkspace) return
  // 3 is the store's canonical default (normalizeSprintEngineAutoState); the
  // ?? only fires before auto-state is first written for this workspace.
  const currentMax = workspace?.sprintEngineAutoState?.maxConcurrentAgents ?? 3
@@ -1946,10 +2053,15 @@ export function SprintRunBoard({
  // `roleRuntimes` reconcile (MC-1450) honors it instead of reverting it on
  // the next projection tick — `model: null` pins the CLI default even for a
  // role whose config names a model.
+ // Per-agent overrides live on the workspace's agent record, so the door offers
+ // no per-agent picker (the role-level picker below is the run's own runtime and
+ // stays live on both mounts). The guards keep the `''` sentinel out.
  const selectAgentCli = (agentId: string, cli: AgentCli) => {
+   if (!hasResidentWorkspace) return
    updateAgent(workspaceId, agentId, { cli, cliModel: undefined, cliRuntimeOverride: { cli, model: null } })
  }
  const selectAgentModel = (agentId: string, cli: AgentCli, model: string | null) => {
+   if (!hasResidentWorkspace) return
    updateAgent(workspaceId, agentId, { cli, cliModel: model ?? undefined, cliRuntimeOverride: { cli, model } })
  }
 
@@ -1998,9 +2110,14 @@ export function SprintRunBoard({
      })
      return
    }
-   for (const item of roster) {
-     if (item.role !== role) continue
-     updateAgent(workspaceId, item.id, { cli, cliModel: model ?? undefined, cliRuntimeOverride: undefined })
+   // Local mirror of the write, so rows update ahead of the projection tick.
+   // Only a resident workspace HAS agent records to stamp; the door re-reads
+   // the run instead, which is where the new runtime actually lives.
+   if (hasResidentWorkspace) {
+     for (const item of roster) {
+       if (item.role !== role) continue
+       updateAgent(workspaceId, item.id, { cli, cliModel: model ?? undefined, cliRuntimeOverride: undefined })
+     }
    }
    if (workspace) {
      void refreshSprintEngineWorkspaceProjection({
@@ -2009,6 +2126,8 @@ export function SprintRunBoard({
        cause: 'manual',
        force: true,
      })
+   } else {
+     void handle.refresh?.()
    }
  }
  const selectRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {
@@ -2184,6 +2303,10 @@ export function SprintRunBoard({
  id: 'more-roles',
  label: 'More roles',
  onSelect: openAddMemberDialog,
+ // Enabling a role is engine-level and works from the door; a run that keeps
+ // its team in a closed workspace has nowhere to write one, and a run that
+ // already configures every role has nothing left to add.
+ disabled: !canMutateRunRoster || addMemberDialogOptions.length === 0,
  })
  if (showPlanningActions) {
  items.push({
@@ -2279,7 +2402,7 @@ export function SprintRunBoard({
  }
  break
  case 'sprintengine.add.role':
- openAddMemberDialog()
+ if (canMutateRunRoster) openAddMemberDialog()
  break
  case 'sprintengine.request.plan-reviews':
  requestPlanReviews()
@@ -2603,11 +2726,13 @@ export function SprintRunBoard({
  ) : null
 
  // Door mount with no resident workspace (a historical run whose workspace was
- // removed): the run is fully readable and live steering still works, but the
- // actions that need a live workspace — opening agent terminals, launching or
- // killing sessions, adding members, relinking the folder — cannot run and are
- // disabled. A plain-word notice says so rather than leaving them silently
- // inert. Never rendered for the workspace mount, so that mount is unchanged.
+ // removed): the run is fully readable and its engine-level configuration —
+ // automation mode, CLI permission preset, roles and their runtimes — still
+ // writes through the statePath route. What needs the workspace itself —
+ // opening agent terminals, launching or killing sessions, per-agent runtime
+ // edits, relinking the folder — cannot run, and each of those controls is
+ // disabled and says the same reason this banner does. Never rendered for the
+ // workspace mount, so that mount is unchanged.
  const workspaceRemovedBanner = !handle.workspaceId ? (
  <div
  role="status"
@@ -2711,6 +2836,8 @@ export function SprintRunBoard({
  // through the sanctioned run-config path: a genuinely new role prompts the
  // architect to revise the plan (roster.configure is architect-only), and a
  // display agent is minted locally so the role's band appears immediately.
+ // Engine-level, so it works from the door too — there it ends at the run's
+ // configuration and starts nothing.
  void confirmAddMember(role)
  }}
  onAddAgent={addSprintEngineAgentForRole}
@@ -2734,6 +2861,8 @@ export function SprintRunBoard({
  onKillAgent={(agentId) => {
  void killAgentTerminal(agentId)
  }}
+ terminalActionsUnavailable={hasResidentWorkspace ? undefined : CLOSED_WORKSPACE_REASON}
+ roleConfigUnavailable={canMutateRunRoster ? undefined : CLOSED_TEAM_REASON}
  />
  </div>
  ) : null}
@@ -3064,7 +3193,9 @@ export function SprintRunBoard({
  SprintEngine agents
  </div>
  <h3 id="add-member-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
- {sprintEngineState.rosterConfigured ? 'Add an agent' : 'Spawn a team agent'}
+ {!hasResidentWorkspace
+ ? 'Add a role'
+ : sprintEngineState.rosterConfigured ? 'Add an agent' : 'Spawn a team agent'}
  </h3>
  </div>
  <CloseIconButton
@@ -3075,7 +3206,7 @@ export function SprintRunBoard({
  </div>
 
  <ModalBody className="space-y-1">
- {addMemberOptions.map((option) => {
+ {addMemberDialogOptions.map((option) => {
  const role = option.role
  const selected = role === addMemberRole
 
@@ -3117,6 +3248,10 @@ export function SprintRunBoard({
  })}
 
  <div className="space-y-4 pt-4">
+ {/* A name belongs to an agent record in the run's workspace. The door
+     writes only the run's configuration, so it asks for neither the
+     name nor an immediate start. */}
+ {hasResidentWorkspace ? (
  <label className="block">
  <span className="mb-2 block text-[10px] font-bold text-[color:var(--text-disabled)]">
  Name (optional)
@@ -3129,6 +3264,7 @@ export function SprintRunBoard({
  className="h-10 w-full rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)]"
  />
  </label>
+ ) : null}
 
  <div className="flex items-center justify-between gap-3">
  <span className="text-[10px] font-bold text-[color:var(--text-disabled)]">
@@ -3154,6 +3290,7 @@ export function SprintRunBoard({
  />
  </div>
 
+ {hasResidentWorkspace ? (
  <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[color:var(--text-default)]">
  <input
  type="checkbox"
@@ -3163,8 +3300,13 @@ export function SprintRunBoard({
  />
  Spawn the agent terminal now
  </label>
+ ) : null}
 
- {sprintEngineState.rosterConfigured ? (
+ {!hasResidentWorkspace ? (
+ <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+ The role joins this run’s configuration. No agent starts here — {CLOSED_WORKSPACE_REASON}.
+ </p>
+ ) : sprintEngineState.rosterConfigured ? (
  <p className="border-l border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
  The new agent joins the run first.
  {hasPlannedTasks

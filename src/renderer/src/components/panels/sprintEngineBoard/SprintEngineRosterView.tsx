@@ -153,6 +153,8 @@ export function SprintEngineRosterView({
   onSpawnAgent,
   onRestartAgent,
   onKillAgent,
+  terminalActionsUnavailable,
+  roleConfigUnavailable,
 }: {
   sprintEngineState: SprintEngineState
   roster: SprintEngineAgentRosterItem[]
@@ -183,12 +185,31 @@ export function SprintEngineRosterView({
   onSpawnAgent: (agentId: string) => void
   onRestartAgent: (agentId: string) => void
   onKillAgent: (agentId: string) => void
+  // Set when this run has no resident workspace (the Sprints door on a run whose
+  // workspace was removed, MC-1800): its terminals live in that workspace, so
+  // opening, starting, restarting, killing and per-agent runtime edits cannot
+  // happen from here. The value is the plain-word reason each affected control
+  // speaks; the run-level controls (add a role, role model) are unaffected
+  // because they write to the run, not to the workspace.
+  terminalActionsUnavailable?: string
+  // Set when even the run-level roster cannot be changed from here — a run from
+  // before run-level roles keeps its team in the workspace record, so with that
+  // workspace closed there is nothing to write. Also the plain-word reason.
+  roleConfigUnavailable?: string
 }) {
   const [menu, setMenu] = useState<RosterMenuTarget | null>(null)
   const [addRoleOpen, setAddRoleOpen] = useState(false)
   const [addAgentOpen, setAddAgentOpen] = useState(false)
 
   const menuAgent = menu ? roster.find((agent) => agent.id === menu.agentId) ?? null : null
+
+  // An unavailable control still names itself, then says why — the same shape
+  // the Sprints bar's disabled "Open agents" uses, so the two surfaces explain
+  // the closed workspace the same way.
+  const labelWithReason = (action: string, reason: string | undefined): string | undefined =>
+    reason ? `${action} — unavailable: ${reason}` : undefined
+  const unavailableLabel = (action: string): string | undefined =>
+    labelWithReason(action, terminalActionsUnavailable)
 
   // Friendly label for a model id, resolved through the CLI catalog; falls
   // back to the raw id so an uncataloged model still reads truthfully.
@@ -311,7 +332,11 @@ export function SprintEngineRosterView({
           {configuredRoleCount === 1 ? 'role' : 'roles'}
         </span>
         <span className="flex-1" />
-        {addableRoleOptions.length > 0 ? (
+        {addableRoleOptions.length > 0 && roleConfigUnavailable ? (
+          <OutlineButton size="xs" disabled aria-label={labelWithReason('Add a role', roleConfigUnavailable)}>
+            <span aria-hidden="true">＋</span> Add a role
+          </OutlineButton>
+        ) : addableRoleOptions.length > 0 ? (
           <Popover
             open={addRoleOpen}
             onOpenChange={setAddRoleOpen}
@@ -340,7 +365,15 @@ export function SprintEngineRosterView({
             </div>
           </Popover>
         ) : null}
-        {configuredRoleOptions.length > 0 ? (
+        {configuredRoleOptions.length > 0 && terminalActionsUnavailable ? (
+          // Both halves of "Add an agent" — raising the run's concurrent-agent
+          // count and starting the agent — live in the workspace, so with none
+          // resident the control says so instead of opening a menu that cannot
+          // finish what it starts.
+          <OutlineButton size="xs" disabled aria-label={unavailableLabel('Add an agent')}>
+            <span aria-hidden="true">＋</span> Add an agent
+          </OutlineButton>
+        ) : configuredRoleOptions.length > 0 ? (
           <Popover
             open={addAgentOpen}
             onOpenChange={setAddAgentOpen}
@@ -520,6 +553,10 @@ export function SprintEngineRosterView({
       <li key={agent.id}>
         <div
           onContextMenu={(event) => {
+            // The right-click fast path edits this agent's runtime on the
+            // workspace record; with no workspace there is nothing to write, so
+            // the row opens no menu at all rather than a dead one.
+            if (terminalActionsUnavailable) return
             event.preventDefault()
             setMenu({ kind: 'picker', agentId: agent.id, x: event.clientX, y: event.clientY })
           }}
@@ -564,7 +601,7 @@ export function SprintEngineRosterView({
                 on {divergedFrom}
               </span>
             ) : null}
-            {offerRestart ? (
+            {offerRestart && !terminalActionsUnavailable ? (
               <OutlineButton
                 size="xs"
                 onClick={() => onRestartAgent(agent.id)}
@@ -577,8 +614,15 @@ export function SprintEngineRosterView({
               <GhostButton
                 size="xs"
                 onClick={() => onOpenAgent(agent.id)}
-                aria-label={`Open ${displayName} terminal`}
-                className="opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+                disabled={Boolean(terminalActionsUnavailable)}
+                aria-label={unavailableLabel(`Open ${displayName} terminal`) ?? `Open ${displayName} terminal`}
+                // Unavailable, the action stays visible: a control that only
+                // appears on hover cannot explain why it is not there.
+                className={
+                  terminalActionsUnavailable
+                    ? ''
+                    : 'opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100'
+                }
               >
                 Open
               </GhostButton>
@@ -588,35 +632,40 @@ export function SprintEngineRosterView({
               <OutlineButton
                 size="xs"
                 onClick={() => onSpawnAgent(agent.id)}
-                disabled={spawnPending}
+                disabled={spawnPending || Boolean(terminalActionsUnavailable)}
                 aria-label={
                   spawnPending
                     ? `${displayName} is starting`
                     : resumable
-                      ? `Resume ${displayName}`
-                      : `Spawn ${displayName}`
+                      ? unavailableLabel(`Resume ${displayName}`) ?? `Resume ${displayName}`
+                      : unavailableLabel(`Spawn ${displayName}`) ?? `Spawn ${displayName}`
                 }
               >
                 {spawnPending ? 'Starting…' : resumable ? 'Resume' : 'Spawn'}
               </OutlineButton>
             )}
-            <button
-              type="button"
-              aria-label={`${displayName} actions`}
-              aria-haspopup="menu"
-              onClick={(event) => {
-                event.stopPropagation()
-                const rect = event.currentTarget.getBoundingClientRect()
-                setMenu({ kind: 'actions', agentId: agent.id, x: rect.right, y: rect.bottom })
-              }}
-              className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-focus-within:opacity-100 group-hover:opacity-100"
-            >
-              <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
-                <circle cx="8" cy="3.4" r="1.3" />
-                <circle cx="8" cy="8" r="1.3" />
-                <circle cx="8" cy="12.6" r="1.3" />
-              </svg>
-            </button>
+            {/* Every entry in the ⋮ menu — open, spawn, restart, kill, and this
+                agent's own runtime — needs the workspace. With none, the menu
+                would hold nothing operable, so the row does not offer it. */}
+            {terminalActionsUnavailable ? null : (
+              <button
+                type="button"
+                aria-label={`${displayName} actions`}
+                aria-haspopup="menu"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setMenu({ kind: 'actions', agentId: agent.id, x: rect.right, y: rect.bottom })
+                }}
+                className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-focus-within:opacity-100 group-hover:opacity-100"
+              >
+                <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
+                  <circle cx="8" cy="3.4" r="1.3" />
+                  <circle cx="8" cy="8" r="1.3" />
+                  <circle cx="8" cy="12.6" r="1.3" />
+                </svg>
+              </button>
+            )}
           </span>
         </div>
       </li>
