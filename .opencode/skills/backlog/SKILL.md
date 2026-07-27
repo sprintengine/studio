@@ -121,134 +121,51 @@ An **epic** groups related items. It is itself a file at `backlog/epics/<slug>.m
 
 ## Working An Epic
 
-An epic is pickable as a whole: you implement every open child, in dependency
-order, then verify the result against the epic's own purpose. This is a serial
-single-agent run — it does not spawn implementation agents.
+An epic is pickable as a whole: implement its open children, then judge the
+result against what the epic says it is for.
 
-1. **Read the epic file first.** Its heading and its "why this exists" prose are
-   the outcome you are working toward. Do not restate them anywhere; you will be
-   asked to judge the finished work against them at the end.
-2. **Enumerate children**: `grep -l "^epic: <slug>$" backlog/*.md`. Read every
-   one in full. Each child is its own brief — never paraphrase a child into a
-   plan file, and never write a task card that restates it.
-3. **Skip children that are not workable**: `completed`, `archived`, and
-   `idea` (a deferred item is not part of this run — only `completed` and
-   `archived` are terminal, so pulling one in leaves the epic permanently short
-   of done). Say in your report which you skipped and why.
-4. **Order by `dependsOn`.** Each child's `dependsOn` names its prerequisites by
-   filename stem. Work the un-gated children first, then those they unblock.
-   Where the frontmatter declares no order, you own the sequencing — and you own
-   safe concurrency regardless: two changes landing in the same file need an
-   order even when neither declares one.
-5. **Split if the epic is large.** More than about five workable children, or a
-   contract-wide rename sharing the run with feature work, is two runs. Do the
-   prerequisite half, report, and let the rest be picked up separately. A
-   half-applied rename is the worst outcome available.
-6. **Isolate the work** when a project's checkout is shared with other sessions:
-   `git worktree add -b <branch> <path> main`, and work there. Branching inside a
-   shared checkout moves other sessions' `HEAD`.
-7. **Children drift — fix them in place.** These items were written before the
-   code moved. Where a child's claim no longer matches the codebase, correct the
-   child file itself, then implement the corrected version, and say so in your
-   report. Expect to find at least one; this is the highest-value thing you do.
-8. Set each child `in_progress` as you start it and `completed` as you finish it.
-   **Never set a status on the epic file** — an epic derives completion from its
-   children.
+1. Read the epic file. Its purpose is what you are working toward.
+2. Enumerate children (`grep -l "^epic: <slug>$" backlog/*.md`) and read each in
+   full. Each child is its own brief.
+3. Skip children that are `completed`, `archived`, or `idea` — an `idea` child is
+   deferred, not part of the run. Say which you skipped.
+4. Order by each child's `dependsOn`. Where none is declared, you own the
+   sequencing, and you own it anyway for changes landing in the same files.
+5. Where a child's claims no longer match the code, correct the child file and
+   implement the corrected version. Expect this; say what you changed.
+6. Set each child `in_progress` as you start and `completed` as you finish.
+   Do not write a status onto the epic file — it derives from its children.
 
-### The ledger
-
-Keep a running record at `.agent-work/<slug>-ledger.md`, written as you go, not
-at the end. It is the only state that survives you: if your context is exhausted
-or the run is interrupted, a successor reads it and knows exactly where things
-stand. Commits alone do not record that a review pass ran, or that a criterion
-failed.
-
-```markdown
-# <epic title> — ledger
-Branch: <branch>   Worktree: <path>
-
-## Items
-- [x] MC-1234 <slug> — done, corrected in place: <what was stale>
-- [ ] MC-1235 <slug> — in progress
-- [ ] MC-1236 <slug> — blocked on 1235
-
-## Verification
-- [x] test suite — <n> passed (baseline <n>)
-- [ ] typecheck
-
-## Reviews
-- [x] spec — 2 findings, both fixed
-- [ ] seam
-```
-
-Update it at every item transition and after every review pass. When you finish,
-it is your report.
+Keep a running note of which children are done and which checks have run, so an
+interrupted run can be picked up without re-deriving it.
 
 ## Verifying The Work
 
-This applies to every mode — a single item as much as an epic. Scale it down for
-small work; do not skip it.
+Applies to a single item as much as an epic; scale it to the size of the change.
 
-**Establish the facts yourself, first.** Read the project's own conventions and
-gates before planning — its agent instructions, its knowledge base, and whatever
-verification it declares. Then measure the current baseline yourself: run the
-test suite and record what passes now, and note any limit the project enforces
-that your work could cross. Compare against your own measurement at the end.
+Measure the baseline yourself before starting — run the project's tests and
+record what passes now. Numbers written in an item or a hand-off note are
+point-in-time and go stale. Run the project's own gates at the end and compare
+against your own measurement, not a quoted one.
 
-Numbers written down anywhere — an item, a hand-off note, a previous ledger —
-are point-in-time and go stale as soon as anything merges. A stale baseline
-sends you hunting a regression you did not cause, or lets a real one through.
+Then review, and prefer a reviewer that did not write the code — a subagent with
+fresh context, or a separate pass that re-reads the diff cold. The context that
+wrote the code tends to re-run the reasoning that produced the bug.
 
-**Verification**: run the project's own gates — its typecheck, its test command,
-its verification script. If a test fails, reproduce it on the base branch before
-assuming you caused it.
+- **Against the items** — check each acceptance criterion literally, running the
+  commands the items name.
+- **Against the codebase** — dead references, orphans, anything that should have
+  changed with it and did not.
+- **Against the seams**, when the run covered more than one item — for each pair
+  touching the same file or contract, show they work together with output, not
+  assertion. Use one reviewer over the whole diff: a seam is cross-item, and
+  reviewers with separate contexts cannot see each other's findings.
+- **Against the purpose** — individually-correct items can add up to something
+  that misses what the epic was for.
 
-**Review passes.** Prefer **one subagent per pass, each with fresh context**,
-given the diff and the items but not your reasoning. A subagent does not inherit
-your conversation, which is the entire point: the context that wrote the code
-re-runs the reasoning that produced the bug. Run them concurrently where the
-harness allows. Reviewers **report findings; they never edit** — you apply the
-fixes, so concurrent agents never collide on the same files.
-
-- **Spec** — check each item's acceptance criteria literally. Run the commands
-  the items name; do not eyeball them.
-- **Structural** — dead references, orphans, imports left behind. Anything that
-  should have died with a change and did not, and anything that died that
-  should not have.
-- **QA** — the project's full verification, plus a restart/smoke check if it has
-  a long-running process.
-- **UI/UX** — only when UI actually changed. Conform to the project's design
-  system rather than inventing styles. Build to a referenced mockup; author one
-  only where the item says to. If no UI changed, say so instead of inventing a
-  pass.
-
-**Seam review — when the run covers more than one item.** This is where the real
-defects have been. For each pair of items touching the same file or contract,
-produce a command, test, or reproduction whose output proves they work
-*together*. "I read both sides and they look consistent" is not evidence. Encode
-them as tests labelled `SEAM:` so they keep holding after you leave.
-
-Run the seam review as **one** reviewer seeing the whole diff — never fan it out
-per item. Subagents cannot see each other's context or share findings, and a
-seam is by definition cross-item; splitting it destroys the pass.
-
-**Adversarial pass.** One reviewer, fresh context, the whole diff: *assume there
-is a flaw and find it.* The shapes that keep recurring:
-
-- Something that appears to enforce, verify, or update, but whose condition can
-  never fire, or can be satisfied accidentally.
-- A contract honoured by one of its callers and silently dropped by another.
-- A test that passes while proving nothing.
-
-**Judge the whole against the epic's purpose.** Individually-correct items can
-add up to something that does not achieve what the epic set out to do. Say
-plainly whether it does.
-
-**Report honestly.** What landed, what did not and why, which items you
-corrected in place, the verbatim result of each verification command, each seam
-and how you proved it, and anything you judged out of scope. If you finished
-only part of it, say exactly where you stopped and leave those items
-`in_progress`. A truthful partial result is worth more than a tidy summary.
+Report what landed, what did not and why, what you corrected in the items
+themselves, and where you stopped if you stopped early. Leave unfinished items
+`in_progress` rather than letting them read as done.
 
 ## Recording The Working Agent
 
