@@ -20,7 +20,13 @@ import type {
   ConversationImageAttachment,
   ConversationQuestion,
   ConversationSessionStatus,
+  ConversationSessionSummary,
 } from '../../../../shared/conversation-runtime'
+import {
+  ATTACHABLE_IMAGE_TYPES as SHARED_ATTACHABLE_IMAGE_TYPES,
+  MAX_ATTACHMENTS_PER_TURN as SHARED_MAX_ATTACHMENTS_PER_TURN,
+  MAX_ATTACHMENT_BYTES as SHARED_MAX_ATTACHMENT_BYTES,
+} from '../../../../shared/conversation-attachments'
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import type { SprintEngineCliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -902,16 +908,13 @@ export function deriveConversationTimelineRows(
 
 // ── Image attachments (D3/1774) ─────────────────────────────────────────────
 
-// The image media types the send-turn IPC boundary accepts (see
-// `parseImageAttachments` in main/ipc/conversation-ipc.ts) — the base64 image
-// set the Claude Agent SDK understands. Offering anything else here would only
-// buy the user a rejection one layer down.
-export const ATTACHABLE_IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
-// Per-image decoded-byte ceiling the IPC boundary enforces. The composer
-// downscales toward it first and only refuses what still will not fit.
-export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
-// Per-turn attachment cap the IPC boundary enforces.
-export const MAX_ATTACHMENTS_PER_TURN = 16
+// The three boundary limits are the shared declaration in
+// src/shared/conversation-attachments.ts, which the send-turn IPC boundary
+// enforces from the same constants (1810). Re-exported under the names this
+// module's other consumers already import.
+export const ATTACHABLE_IMAGE_TYPES: readonly string[] = SHARED_ATTACHABLE_IMAGE_TYPES
+export const MAX_ATTACHMENT_BYTES = SHARED_MAX_ATTACHMENT_BYTES
+export const MAX_ATTACHMENTS_PER_TURN = SHARED_MAX_ATTACHMENTS_PER_TURN
 // Longest edge kept when an image is resampled. Vision models stop gaining
 // detail past ~1568px on the long edge, so this is the token-cost choice as
 // much as the size guard.
@@ -1239,6 +1242,21 @@ export function isConversationModelLocked(
   return userTurnCount > 0 || sessionId !== null || hasTranscriptHistory
 }
 
+// The tool-permission preset the pill reports, in precedence order (1809):
+// the live session's own reported preset first — it is what the running child
+// applies on its next tool call, and it can disagree with the agent record (an
+// optimistic write lost to a reload race, a session started with an explicit
+// preset); then the persisted per-agent field every CLI spawn stamps from the
+// picker, which is also what the next session starts on; then 'default' (ask
+// per tool) for an agent record predating the field — the safe end of the
+// scale, never the loose one.
+export function resolvePermissionPreset(
+  session: Pick<ConversationSessionSummary, 'permissionPreset'> | null,
+  agentPreset: SprintEngineCliPermissionPreset | undefined,
+): SprintEngineCliPermissionPreset {
+  return session?.permissionPreset ?? agentPreset ?? 'default'
+}
+
 // Chrome the timeline rows need from the component: who is speaking, how to
 // name models, and where Retry routes.
 type TimelineChrome = {
@@ -1259,11 +1277,6 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const conversation = agent?.conversation
   const label = agent?.name ?? agentId
   const workspaceRoot = workspace?.folderPath ?? null
-  // Tool-permission preset for this agent: the same persisted per-agent field
-  // every CLI spawn stamps from the picker, so a conversation agent spawned as
-  // Auto/Bypass keeps that choice. An agent record predating the field reads as
-  // 'default' (ask per tool) — the safe end of the scale, never the loose one.
-  const permissionPreset: SprintEngineCliPermissionPreset = agent?.cliPermissionPreset ?? 'default'
 
   const [readiness, setReadiness] = useState<ChatReadiness>({ kind: 'loading' })
   const [providers, setProviders] = useState<ConversationProviderListEntry[]>([])
@@ -1280,7 +1293,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const liveModels = catalogByProvider[conversation?.providerId ?? ''] ?? EMPTY_MODELS
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  // The live session as the runtime last reported it — adopted on start and
+  // re-adopted from every result that can change its preset. Its own
+  // permissionPreset is what the pill reads, so the pill moves when the provider
+  // accepts a change, never on an optimistic guess.
+  const [session, setSession] = useState<ConversationSessionSummary | null>(null)
+  const sessionId = session?.sessionId ?? null
+  const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
   const [events, setEvents] = useState<ConversationEvent[]>([])
   const [userTurns, setUserTurns] = useState<UserTurn[]>([])
   // Skill-at-spawn seeds the first draft (prefill only — the user submits).
@@ -1563,23 +1582,28 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       setActionError(result.message)
       return null
     }
-    setSessionId(result.session.sessionId)
+    setSession(result.session)
     return result.session.sessionId
   }, [agentId, cliRuntimes, conversation, permissionPreset, sessionId, workspaceId, workspaceRoot])
 
-  // Change the tool-permission preset. The agent record is the durable source
-  // of truth (it seeds the next session start and survives a remount), so it is
-  // written first; a live session additionally gets the change pushed to its
-  // running query, where it applies from the next tool call. A provider that
-  // refuses (no live-change support, or Claude Code declining) rolls the record
-  // back and surfaces its own message — the pill never shows a preset the
-  // session is not actually on.
+  // Change the tool-permission preset. The agent record is the durable seed (it
+  // starts the next session and survives a remount), so it is written first; a
+  // live session additionally gets the change pushed to its running query and
+  // reports back the preset it now holds, which is what the pill reads. A
+  // provider that refuses (no live-change support, or Claude Code declining)
+  // rolls the record back and surfaces its own message — the pill never shows a
+  // preset the session is not actually on. An accepted change the provider
+  // cannot apply to the turn already streaming comes back with a `notice`: the
+  // preset IS recorded, so the pill moves and the sentence says when it starts
+  // applying (1808).
   const [permissionChanging, setPermissionChanging] = useState(false)
+  const [permissionNotice, setPermissionNotice] = useState<string | null>(null)
   const changePermissionPreset = useCallback(
     async (next: SprintEngineCliPermissionPreset) => {
       if (next === permissionPreset || permissionChanging) return
       setActionError(null)
-      const previous = permissionPreset
+      setPermissionNotice(null)
+      const previous = agent?.cliPermissionPreset
       updateAgent(workspaceId, agentId, { cliPermissionPreset: next })
       if (!sessionId) return
       if (typeof window.api.conversationSessionSetPermission !== 'function') {
@@ -1590,7 +1614,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       setPermissionChanging(true)
       try {
         const result = await window.api.conversationSessionSetPermission({ sessionId, permissionPreset: next })
-        if (!result.ok) {
+        if (result.ok) {
+          setSession(result.session)
+          setPermissionNotice(result.notice ?? null)
+        } else {
           updateAgent(workspaceId, agentId, { cliPermissionPreset: previous })
           setActionError(result.message)
         }
@@ -1601,7 +1628,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         setPermissionChanging(false)
       }
     },
-    [agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
+    [agent?.cliPermissionPreset, agentId, permissionChanging, permissionPreset, sessionId, updateAgent, workspaceId],
   )
 
   // Send one turn. A turn needs text or at least one image — the runtime accepts
@@ -1611,6 +1638,8 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       const text = message.trim()
       if ((!text && turnAttachments.length === 0) || pending) return
       setActionError(null)
+      // A "from the next turn" notice is spent once that turn leaves.
+      setPermissionNotice(null)
       setPending('starting')
       const activeSession = await ensureSession()
       if (!activeSession) {
@@ -2073,6 +2102,17 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               Retry
             </GhostButton>
           </div>
+        ) : null}
+
+        {/*
+         * A permission change the provider recorded but cannot apply to the turn
+         * already streaming (1808). Information, not a failure: the pill already
+         * shows the new preset, and this says when it starts applying.
+         */}
+        {permissionNotice ? (
+          <p role="status" className="mb-2 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            {permissionNotice}
+          </p>
         ) : null}
 
         {/*
