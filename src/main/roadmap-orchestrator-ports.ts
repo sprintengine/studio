@@ -88,6 +88,16 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       }
     },
 
+    deleteRoadmapFile: async (workspaceRoot, relativePath) => {
+      // A file that is already gone is a success, not an error: the caller's
+      // intent (this horizon should not exist) is satisfied either way, and two
+      // windows racing the same delete must not surface a failure to the second.
+      await unlink(join(workspaceRoot, relativePath)).catch((error: NodeJS.ErrnoException) => {
+        if (error?.code === 'ENOENT') return
+        throw error
+      })
+    },
+
     writeRoadmapFile: async (workspaceRoot, relativePath, content) => {
       const target = join(workspaceRoot, relativePath)
       await mkdir(dirname(target), { recursive: true })

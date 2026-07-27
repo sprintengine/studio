@@ -13,6 +13,7 @@ import type {
   SprintEngineMcpReadResult,
   SprintEngineProjectionReadResult,
   RoadmapActivateInput,
+  RoadmapDeleteInput,
   RoadmapCreateInput,
   RoadmapCreateResult,
   RoadmapHomeResult,
@@ -218,6 +219,8 @@ export const sprintEngineApi = {
     ipcRenderer.invoke('roadmap:home:set', { path }),
   activateRoadmap: (input: RoadmapActivateInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:activate', input),
+  deleteRoadmap: (input: RoadmapDeleteInput): Promise<RoadmapLaneCommandResult> =>
+    ipcRenderer.invoke('roadmap:delete', input),
   skipRoadmapStep: (input: RoadmapSkipStepInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:step:skip', input),
   createRoadmap: (input: RoadmapCreateInput): Promise<RoadmapCreateResult> =>
@@ -267,6 +270,7 @@ export const sprintEngineApi = {
   | 'getRoadmapHomeProject'
   | 'setRoadmapHomeProject'
   | 'activateRoadmap'
+  | 'deleteRoadmap'
   | 'skipRoadmapStep'
   | 'createRoadmap'
   | 'onSprintRuntimeOp'

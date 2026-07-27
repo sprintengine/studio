@@ -22,6 +22,9 @@ export const ROADMAP_HOME_SET_CHANNEL = 'roadmap:home:set'
 export const ROADMAP_ACTIVATE_CHANNEL = 'roadmap:activate'
 export const ROADMAP_SKIP_STEP_CHANNEL = 'roadmap:step:skip'
 export const ROADMAP_CREATE_CHANNEL = 'roadmap:create'
+// Delete a horizon file (MC-1917). The plan only — never the backlog items it lines
+// up, and never the runs it already started.
+export const ROADMAP_DELETE_CHANNEL = 'roadmap:delete'
 
 // The roadmap is instance-global (one plan per Multicode), so commands no longer
 // carry a `workspaceRoot` — the driver derives the home project (D1). A command
@@ -36,6 +39,7 @@ export type RoadmapStatesReadResult = { ok: true; roadmaps: RoadmapView[] } | { 
 export type RoadmapHomeResult = { path: string | null }
 export type RoadmapHomeSetPayload = { path: string | null }
 export type RoadmapActivatePayload = { roadmapRef: string }
+export type RoadmapDeletePayload = { roadmapRef: string }
 export type RoadmapSkipStepPayload = { ref: string; reason: string }
 export type RoadmapCreatePayload = { projectRoot: string; name: string }
 export type RoadmapCreateResult = { ok: true; roadmapRef: string } | { ok: false; message: string }
@@ -107,6 +111,12 @@ export function registerRoadmapOrchestratorIpc(
     ROADMAP_ACTIVATE_CHANNEL,
     async (_event, payload: RoadmapActivatePayload): Promise<RoadmapCommandResult> =>
       orchestrator.activateRoadmap({ roadmapRef: payload.roadmapRef }),
+  )
+
+  ipcMain.handle(
+    ROADMAP_DELETE_CHANNEL,
+    async (_event, payload: RoadmapDeletePayload): Promise<RoadmapCommandResult> =>
+      orchestrator.deleteRoadmap({ roadmapRef: payload.roadmapRef }),
   )
 
   ipcMain.handle(

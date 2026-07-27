@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createRoadmapOrchestratorPorts } from './roadmap-orchestrator-ports'
 import type { SprintEngineAutomationFrontDoors } from './automations/actions/sprint-engine'
@@ -245,4 +248,26 @@ test('a merge refusal whose run store will not read still carries the engine rea
   assert.equal(result.ok, false)
   assert.equal(result.message, 'gh: merge conflict')
   assert.equal(result.repo, undefined)
+})
+
+
+// --- MC-1917: deleting a horizon file ---------------------------------------
+// The delete port is the one roadmap file op with no undo, so its two edges are
+// exercised against a real filesystem rather than a fake: the file actually goes,
+// and an ALREADY-ABSENT file resolves instead of throwing (two windows racing the
+// same delete must not surface an error to the second).
+
+test('deleteRoadmapFile removes the file, and a missing file is a success', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mc-horizon-delete-'))
+  await mkdir(join(root, 'backlog/roadmaps'), { recursive: true })
+  await writeFile(join(root, 'backlog/roadmaps/plan.md'), '---\nstatus: ready\n---\n', 'utf8')
+  await writeFile(join(root, 'backlog/roadmaps/other.md'), '---\nstatus: idea\n---\n', 'utf8')
+
+  const built = ports({})
+  await built.deleteRoadmapFile(root, 'backlog/roadmaps/plan.md')
+  assert.deepEqual(await readdir(join(root, 'backlog/roadmaps')), ['other.md'])
+
+  // Idempotent: the same delete again resolves rather than throwing ENOENT.
+  await built.deleteRoadmapFile(root, 'backlog/roadmaps/plan.md')
+  assert.deepEqual(await readdir(join(root, 'backlog/roadmaps')), ['other.md'])
 })

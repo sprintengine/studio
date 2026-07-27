@@ -238,6 +238,9 @@ export type RoadmapOrchestratorPorts = {
   // edit). Atomic (tmp + rename) so a crash mid-write never leaves the plan half
   // written; the caller validates the content before handing it over.
   writeRoadmapFile(workspaceRoot: string, relativePath: string, content: string): Promise<void>
+  // Remove a roadmap file from disk (the Delete horizon action). Resolves when the
+  // file is already absent, so a repeated delete is not an error.
+  deleteRoadmapFile(workspaceRoot: string, relativePath: string): Promise<void>
   // Append an audit record for an agent-invoked action, beside the lane-runtime
   // sidecar. Best-effort — an audit-write failure never fails the steering action
   // itself (the action already happened; losing the log is the lesser harm).
@@ -1183,6 +1186,63 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     return { ok: true, roadmapRef: normalizeRoadmapPath(relativePath), projectRoot }
   }
 
+  // Delete a roadmap file (MC-1917). The plan is the only thing removed: the backlog
+  // items it lined up are untouched, and sprints it already started or delivered keep
+  // their runs, branches and pull requests. Refuses while a sprint is actually running
+  // on it — deleting the plan under a live run would strand that run with nothing left
+  // to reconcile it against, and there is no undo for the file. The lane-runtime
+  // sidecar is cleared alongside the file so a later horizon reusing the same ref can
+  // never inherit this one's parks and pending approvals.
+  async function deleteRoadmap(input: { roadmapRef: string }): Promise<{ ok: boolean; message?: string }> {
+    const homeRoot = ports.getHomeProjectRoot()
+    if (!homeRoot) return { ok: false, message: 'No home project is configured for this Multicode.' }
+    const targetRef = normalizeRoadmapPath(input.roadmapRef)
+    let roadmaps: RoadmapBacklogItem[]
+    try {
+      roadmaps = (await ports.listBacklogItems(homeRoot)).filter((item) => item.isRoadmap)
+    } catch (error) {
+      return { ok: false, message: errorMessage(error) }
+    }
+    const target = roadmaps.find((item) => normalizeRoadmapPath(item.relativePath) === targetRef)
+    // Already gone is the caller's intent, not a failure.
+    if (!target) return { ok: true }
+
+    // Fail CLOSED: if the sidecar cannot be read we do not know whether a sprint is
+    // live, and this is the one roadmap op with no undo. Refuse and say so rather
+    // than treat "couldn't check" as "nothing is running".
+    let runtimes: Map<string, RoadmapLaneRuntime>
+    try {
+      runtimes = await ports.readLaneRuntime(targetRef)
+    } catch (error) {
+      return {
+        ok: false,
+        message: `Couldn’t check whether a sprint is running on this horizon, so it was not deleted: ${errorMessage(error)}`,
+      }
+    }
+    const running = Array.from(runtimes.values()).filter((runtime) => Boolean(runtime.activeStatePath))
+    if (running.length > 0) {
+      const lanes = running.map((runtime) => runtime.lane).join(', ')
+      return {
+        ok: false,
+        message:
+          running.length === 1
+            ? `A sprint is running on the “${lanes}” track. Pause the horizon and let it finish, or cancel that sprint, then delete this horizon.`
+            : `Sprints are running on the ${lanes} tracks. Pause the horizon and let them finish, or cancel those sprints, then delete this horizon.`,
+      }
+    }
+
+    try {
+      await ports.deleteRoadmapFile(homeRoot, target.relativePath)
+    } catch (error) {
+      return { ok: false, message: errorMessage(error) }
+    }
+    // Best-effort: the file is already gone, so a stale sidecar must never turn a
+    // successful delete into a reported failure.
+    await ports.writeLaneRuntime(targetRef, new Map()).catch(() => undefined)
+    await reconcile()
+    return { ok: true }
+  }
+
   // Write a roadmap file's frontmatter status, body byte-stable. Throws when the file
   // cannot be read, so activateRoadmap aborts before it demotes anything.
   async function writeRoadmapStatusFile(homeRoot: string, relativePath: string, status: 'ready' | 'idea'): Promise<void> {
@@ -1515,6 +1575,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     skipStep,
     activateRoadmap,
     createRoadmap,
+    deleteRoadmap,
     createHorizon,
     configureHorizon,
     steerLane,

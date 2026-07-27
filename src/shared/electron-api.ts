@@ -1682,6 +1682,8 @@ export type RoadmapHomeResult = { path: string | null }
 // main-process op. Activate/skip reuse the lane-command result; create returns the
 // new draft's roadmap ref.
 export type RoadmapActivateInput = { roadmapRef: string }
+// Delete a horizon file (MC-1917). Refused while a sprint is running on it.
+export type RoadmapDeleteInput = { roadmapRef: string }
 export type RoadmapSkipStepInput = { ref: string; reason: string }
 export type RoadmapCreateInput = { projectRoot: string; name: string }
 export type RoadmapCreateResult = { ok: true; roadmapRef: string } | { ok: false; message: string }
@@ -2936,6 +2938,7 @@ export type ElectronApi = {
   setRoadmapHomeProject: (path: string | null) => Promise<RoadmapLaneCommandResult>
   /** Make a draft the single active roadmap: promote-then-demote in one atomic op (MC-1718). */
   activateRoadmap: (input: RoadmapActivateInput) => Promise<RoadmapLaneCommandResult>
+  deleteRoadmap: (input: RoadmapDeleteInput) => Promise<RoadmapLaneCommandResult>
   /** Skip a step off the active roadmap's plan in one atomic op (MC-1718). */
   skipRoadmapStep: (input: RoadmapSkipStepInput) => Promise<RoadmapLaneCommandResult>
   /** Create a new draft roadmap, adopting its project as the home when none is set (MC-1718). */

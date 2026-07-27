@@ -181,6 +181,14 @@ export interface SurfaceRailRow {
   /** Hover tooltip for the whole row; defaults to "title — stateLine" so a
    *  truncated row is always readable in place. */
   tooltip?: string
+  /** Row-scoped actions (an overflow trigger). Rendered as a SIBLING of the row
+   *  button, never nested inside it — one click target per row stays the rule, and
+   *  a button inside a button is invalid. Revealed on hover and whenever the row
+   *  is selected or something inside it has focus, so the keyboard can reach it. */
+  actions?: React.ReactNode
+  /** Right-click anywhere on the row. The same menu the `actions` trigger opens,
+   *  so the affordance is discoverable both ways. */
+  onContextMenu?: (position: { x: number; y: number }) => void
 }
 
 /** The rail's optional search field — the same idiom as the Backlog toolbar. */
@@ -283,7 +291,7 @@ export function SurfaceRail({
   const renderRow = (row: SurfaceRailRow): JSX.Element => {
     const selected = row.id === selectedId
     return (
-      <li key={row.id}>
+      <li key={row.id} className="group/rail-row relative flex min-w-0">
         <button
           ref={(node) => {
             rowRefs.current.set(row.id, node)
@@ -291,6 +299,14 @@ export function SurfaceRail({
           type="button"
           aria-current={selected ? 'true' : undefined}
           onClick={() => onSelect(row.id)}
+          onContextMenu={
+            row.onContextMenu
+              ? (event) => {
+                  event.preventDefault()
+                  row.onContextMenu?.({ x: event.clientX, y: event.clientY })
+                }
+              : undefined
+          }
           // The tooltip carries the untruncated row — title AND state — so a
           // clipped title or a terse state line is always readable on hover.
           title={row.tooltip ?? `${row.title} — ${row.stateLine}`}
@@ -305,7 +321,19 @@ export function SurfaceRail({
             </span>
             <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
           </span>
+          {/* Reserve the trailing gutter so revealing the overflow never reflows
+              the title mid-hover. */}
+          {row.actions ? <span aria-hidden="true" className="w-5 shrink-0" /> : null}
         </button>
+        {row.actions ? (
+          <span
+            className={`absolute right-1 top-1/2 flex -translate-y-1/2 items-center transition-opacity ${
+              selected ? 'opacity-100' : 'opacity-0 focus-within:opacity-100 group-hover/rail-row:opacity-100'
+            }`}
+          >
+            {row.actions}
+          </span>
+        ) : null}
       </li>
     )
   }

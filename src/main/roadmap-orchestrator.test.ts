@@ -123,6 +123,9 @@ function harness(
     writeRoadmapFile: async (_root, relativePath, content) => {
       roadmapFiles.set(relativePath, content)
     },
+    deleteRoadmapFile: async (_root, relativePath) => {
+      roadmapFiles.delete(relativePath)
+    },
     appendAudit: async (_roadmapRef, entry) => {
       audits.push(entry)
     },
@@ -561,8 +564,15 @@ function mutationHarness(options: {
   home?: string | null
   roots?: string[]
   failWriteOn?: (relativePath: string) => boolean
+  failDeleteOn?: (relativePath: string) => boolean
+  // The persisted lane-runtime sidecar, keyed by roadmapRef then lane. Lets a
+  // mutation test stand a horizon up with a live run on it without reconciling.
+  laneRuntimes?: Record<string, Record<string, RoadmapLaneRuntime>>
+  // Make the sidecar read fail, to drive the fail-closed branch of deleteRoadmap.
+  failRuntimeRead?: boolean
 }): {
   ports: RoadmapOrchestratorPorts
+  runtimeWrites: Array<{ roadmapRef: string; lanes: string[] }>
   statusOf: (relativePath: string) => string
   exists: (relativePath: string) => boolean
   contentOf: (relativePath: string) => string | undefined
@@ -572,6 +582,7 @@ function mutationHarness(options: {
   const contents = new Map<string, string>()
   for (const [rel, file] of Object.entries(options.files ?? {})) contents.set(rel, roadmapFileWith(file.status, file.id))
   const idByRef = new Map(Object.entries(options.files ?? {}).map(([rel, file]) => [rel, file.id]))
+  const runtimeWrites: Array<{ roadmapRef: string; lanes: string[] }> = []
 
   const ports: RoadmapOrchestratorPorts = {
     getHomeProjectRoot: () => home,
@@ -590,6 +601,10 @@ function mutationHarness(options: {
       if (options.failWriteOn?.(relativePath)) throw new Error(`disk full writing ${relativePath}`)
       contents.set(relativePath, content)
     },
+    deleteRoadmapFile: async (_root, relativePath) => {
+      if (options.failDeleteOn?.(relativePath)) throw new Error(`permission denied deleting ${relativePath}`)
+      contents.delete(relativePath)
+    },
     appendAudit: async () => undefined,
     resolveExecutionLink: async () => null,
     observeRun: async () => null,
@@ -598,8 +613,13 @@ function mutationHarness(options: {
     setBacklogStatus: async () => undefined,
     startSprint: async () => ({ ok: true }),
     abandonRun: async () => undefined,
-    readLaneRuntime: async () => new Map(),
-    writeLaneRuntime: async () => undefined,
+    readLaneRuntime: async (roadmapRef) => {
+      if (options.failRuntimeRead) throw new Error('sidecar unreadable')
+      return new Map(Object.entries(options.laneRuntimes?.[roadmapRef] ?? {}))
+    },
+    writeLaneRuntime: async (roadmapRef, lanes) => {
+      runtimeWrites.push({ roadmapRef, lanes: [...lanes.keys()] })
+    },
     notify: () => undefined,
     logDiagnostic: () => undefined,
     now: () => new Date('2026-07-18T12:00:00Z'),
@@ -607,6 +627,7 @@ function mutationHarness(options: {
 
   return {
     ports,
+    runtimeWrites,
     statusOf: (relativePath) => parseStatus(contents.get(relativePath) ?? ''),
     exists: (relativePath) => contents.has(relativePath),
     contentOf: (relativePath) => contents.get(relativePath),
@@ -682,6 +703,114 @@ test('createRoadmap writes a draft, refuses an overwrite, and validates the proj
   const rejected = await createRoadmapOrchestrator(noHome.ports).createRoadmap({ projectRoot: '/w/unopened', name: 'X' })
   assert.equal(rejected.ok, false)
   assert.ok(!noHome.exists('backlog/roadmaps/2026-07-18-x.md'))
+})
+
+// --- MC-1917: deleting a horizon --------------------------------------------
+
+test('deleteRoadmap removes the plan file and clears its lane-runtime sidecar', async () => {
+  const h = mutationHarness({
+    files: {
+      'backlog/roadmaps/current.md': { status: 'ready', id: 1 },
+      'backlog/roadmaps/draft.md': { status: 'idea', id: 2 },
+    },
+  })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const result = await orchestrator.deleteRoadmap({ roadmapRef: 'backlog/roadmaps/draft.md' })
+  assert.equal(result.ok, true)
+  assert.ok(!h.exists('backlog/roadmaps/draft.md'))
+  // Only the named plan goes; every other horizon is untouched.
+  assert.ok(h.exists('backlog/roadmaps/current.md'))
+  assert.equal(h.statusOf('backlog/roadmaps/current.md'), 'ready')
+  // The sidecar is cleared alongside the file, so a later horizon that reuses this
+  // ref can never inherit this one's parks and pending approvals.
+  assert.deepEqual(
+    h.runtimeWrites.filter((write) => write.roadmapRef === 'backlog/roadmaps/draft.md'),
+    [{ roadmapRef: 'backlog/roadmaps/draft.md', lanes: [] }],
+  )
+})
+
+// Deleting the plan under a live run would strand that run with nothing left to
+// reconcile it against, and there is no undo for the file — so the op refuses and
+// names the track rather than doing it.
+test('deleteRoadmap refuses while a sprint is running on it, and names the track', async () => {
+  const h = mutationHarness({
+    files: { 'backlog/roadmaps/current.md': { status: 'ready', id: 1 } },
+    laneRuntimes: {
+      'backlog/roadmaps/current.md': {
+        Delivery: { lane: 'Delivery', activeStatePath: '/w/app/.multi-code/run.yaml' },
+      },
+    },
+  })
+
+  const result = await createRoadmapOrchestrator(h.ports).deleteRoadmap({
+    roadmapRef: 'backlog/roadmaps/current.md',
+  })
+  assert.equal(result.ok, false)
+  assert.ok(result.message?.includes('Delivery'), `expected the track named, got: ${result.message}`)
+  assert.ok(h.exists('backlog/roadmaps/current.md'))
+})
+
+// A PARKED lane holds no live run, so it is not a reason to refuse — the horizon
+// the human wants gone is exactly the one that is stuck.
+test('deleteRoadmap allows a horizon whose lanes are parked but not running', async () => {
+  const h = mutationHarness({
+    files: { 'backlog/roadmaps/current.md': { status: 'ready', id: 1 } },
+    laneRuntimes: {
+      'backlog/roadmaps/current.md': {
+        Delivery: {
+          lane: 'Delivery',
+          parked: { reason: 'start_failed', itemRef: 'backlog/a.md', at: '2026-07-18T00:00:00Z' },
+        },
+      },
+    },
+  })
+
+  assert.equal(
+    (await createRoadmapOrchestrator(h.ports).deleteRoadmap({ roadmapRef: 'backlog/roadmaps/current.md' })).ok,
+    true,
+  )
+  assert.ok(!h.exists('backlog/roadmaps/current.md'))
+})
+
+// The one roadmap op with no undo, so "couldn't check" must never read as
+// "nothing is running": an unreadable sidecar refuses the delete.
+test('deleteRoadmap fails CLOSED when it cannot tell whether a sprint is running', async () => {
+  const h = mutationHarness({
+    files: { 'backlog/roadmaps/current.md': { status: 'ready', id: 1 } },
+    failRuntimeRead: true,
+  })
+  const result = await createRoadmapOrchestrator(h.ports).deleteRoadmap({
+    roadmapRef: 'backlog/roadmaps/current.md',
+  })
+  assert.equal(result.ok, false)
+  assert.ok(result.message?.includes('sidecar unreadable'))
+  assert.ok(h.exists('backlog/roadmaps/current.md'))
+})
+
+test('deleteRoadmap is idempotent, and a failed unlink is reported rather than swallowed', async () => {
+  // Already gone is the caller's intent, not a failure: two windows racing the same
+  // delete must not surface an error to the second.
+  const gone = mutationHarness({ files: { 'backlog/roadmaps/a.md': { status: 'ready', id: 1 } } })
+  assert.equal(
+    (await createRoadmapOrchestrator(gone.ports).deleteRoadmap({ roadmapRef: 'backlog/roadmaps/gone.md' })).ok,
+    true,
+  )
+  assert.ok(gone.exists('backlog/roadmaps/a.md'))
+
+  const denied = mutationHarness({
+    files: { 'backlog/roadmaps/a.md': { status: 'ready', id: 1 } },
+    failDeleteOn: (relativePath) => relativePath === 'backlog/roadmaps/a.md',
+  })
+  const failed = await createRoadmapOrchestrator(denied.ports).deleteRoadmap({
+    roadmapRef: 'backlog/roadmaps/a.md',
+  })
+  assert.equal(failed.ok, false)
+  assert.ok(failed.message?.includes('permission denied'))
+  assert.ok(denied.exists('backlog/roadmaps/a.md'))
+
+  const noHome = mutationHarness({ home: null })
+  assert.equal((await createRoadmapOrchestrator(noHome.ports).deleteRoadmap({ roadmapRef: 'x.md' })).ok, false)
 })
 
 // --- MC-1909: the lane merge path ------------------------------------------

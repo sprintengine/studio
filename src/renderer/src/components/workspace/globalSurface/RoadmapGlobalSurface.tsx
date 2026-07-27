@@ -5,24 +5,27 @@
 //
 // Anatomy: a roadmaps RAIL (every roadmap file in this Multicode, exactly one
 // Active, the rest drafts, plus "New roadmap"), a surface BAR (name · Active/Draft
-// · "N tracks · M steps · K running" · merge policy · Edit plan · Pause), the
-// waiting-on-you ATTENTION strip, and a full-width CANVAS of the selected
-// roadmap's tracks. The one-active-roadmap rule (epic 1687 D1) gets its visible
-// home here — extra roadmap files surface as drafts, and activating one is an
-// explicit action, never a silent newest-id pick.
+// · "N tracks · M steps · K running" · merge policy · Edit plan · Pause) and a
+// full-width CANVAS of the selected roadmap's tracks. There is no separate
+// "waiting on you" strip (MC-1917): an approval, a merge or a park is shown on the
+// track it belongs to, beside the control that resolves it — an attention list
+// away from the work restates what the board already says and dates instantly.
+// The one-active-roadmap rule (epic 1687 D1) gets its visible home here — extra
+// roadmap files surface as drafts, and activating one is an explicit action,
+// never a silent newest-id pick.
 //
 // The board/planner/orchestrator/substrate underneath carry over unchanged: every
 // steering control is a file/store write the orchestrator reconciles against, and
 // the roadmap file (its home in the D1 home project) is the source of truth. The
 // board leaves by activating a workspace, which clears the active surface.
 
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import type { RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
 import { buildRoadmapRail, roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { GhostButton, InlineNotice, PrimaryButton, Section, Spinner, useConfirmDialog } from '../../ui'
+import { GhostButton, InlineNotice, PrimaryButton, Spinner, useConfirmDialog } from '../../ui'
 import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
@@ -37,7 +40,6 @@ import {
 } from '../../panels/roadmapBoard/roadmapBoardData'
 import { RoadmapLaneColumn, type RoadmapLaneCallbacks } from '../../panels/roadmapBoard/RoadmapLaneColumn'
 import { RoadmapPlannerView } from '../../panels/roadmapBoard/RoadmapPlannerView'
-import { RoadmapWaitingOnYou, collectRoadmapInbox } from '../../panels/roadmapBoard/RoadmapWaitingOnYou'
 import { RoadmapRail, type RoadmapRailRow } from '../../panels/roadmapBoard/RoadmapRail'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from './GlobalSurfaceShell'
 
@@ -58,6 +60,8 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const [busyBoard, setBusyBoard] = useState(false)
   const [creating, setCreating] = useState(false)
   const [activating, setActivating] = useState(false)
+  // The horizon whose delete is in flight, so its rail row cannot be double-fired.
+  const [deleting, setDeleting] = useState<string | null>(null)
   // A steering command (approve/merge/pause/skip/create/activate) that fails is a
   // non-blocking error card at the top of the canvas, never a confirm-as-alert
   // dialog that hijacks the surface (T20 / mockup: failures never block).
@@ -71,7 +75,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
   // The rail's search query — transient per-window view state.
   const [railSearch, setRailSearch] = useState('')
-  const laneRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
 
   const runLaneCommand = useCallback(
     async (lane: string, action: () => Promise<{ ok: boolean; message?: string }>) => {
@@ -260,11 +263,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     [setActiveWorkspace],
   )
 
-  const handleSelectInbox = useCallback((roadmapRef: string, lane: string) => {
-    const node = laneRefs.current.get(`${roadmapRef}:${lane}`)
-    node?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
-  }, [])
-
   // Create a new roadmap: pick the home project (D1), write the file (a DRAFT —
   // status idea, so nothing runs until it is made active), set the home project if
   // unset, select it, and drop into planning.
@@ -307,6 +305,69 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       setCreating(false)
     }
   }, [dialog, homePath, reload])
+
+  // Delete a horizon file (MC-1917). The confirm names exactly what goes and what
+  // stays — the plan only; the backlog items it lines up and the sprints it already
+  // delivered are untouched. The orchestrator refuses while a sprint is running on
+  // it and says which track, so that refusal surfaces as the normal action error
+  // rather than a silent no-op.
+  const handleDeleteRoadmap = useCallback(
+    async (roadmapRef: string) => {
+      const file = roadmapFiles.find((candidate) => candidate.roadmapRef === roadmapRef)
+      if (!file) return
+      // Normalized here rather than read from the derived view model below: this
+      // callback is declared above it, so depending on that binding would evaluate
+      // it before its declaration.
+      const isActive = activeRef !== null && normalizeRelativePath(roadmapRef) === normalizeRelativePath(activeRef)
+      const ok = await dialog.confirm({
+        title: `Delete “${file.title}”?`,
+        body: [
+          'This deletes the horizon file.',
+          file.totalSteps > 0
+            ? 'The backlog items it lines up are not touched, and any sprint it already delivered keeps its branch and pull request.'
+            : 'No backlog items are touched.',
+          isActive ? 'This is your active horizon, so Multicode will stop working it.' : null,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        confirmLabel: 'Delete horizon',
+        tone: 'danger',
+      })
+      if (!ok) return
+      setDeleting(roadmapRef)
+      try {
+        const result = await window.api.deleteRoadmap({ roadmapRef })
+        if (!result.ok) {
+          setActionError(result.message ?? 'This horizon could not be deleted.')
+          return
+        }
+        // Drop a selection that pointed at the deleted file so the canvas falls
+        // back to the active horizon (or the first rail row) instead of rendering
+        // a "couldn't read this horizon" error for something we deleted on purpose.
+        setSelectedRef((current) => (current === roadmapRef ? null : current))
+        if (planningRef === roadmapRef) setPlanningRef(null)
+      } finally {
+        setDeleting(null)
+        reload()
+      }
+    },
+    [activeRef, dialog, planningRef, reload, roadmapFiles],
+  )
+
+  // Reveal a horizon file in the Backlog panel of the home project it lives in.
+  // `openPlanning` routes into a workspace open on that project and does nothing
+  // without one, so the affordance is only offered when it can actually land —
+  // a menu item is never shown as a control that quietly does nothing.
+  const canRevealHomeFile = useWorkspaceStore(
+    (state) => homePath !== null && state.workspaces.some((candidate) => samePath(candidate.folderPath, homePath)),
+  )
+  const handleRevealRoadmapFile = useCallback(
+    (roadmapRef: string) => {
+      if (!homePath) return
+      openPlanning(homePath, normalizeRelativePath(roadmapRef))
+    },
+    [homePath, openPlanning],
+  )
 
   // Make a draft the single active roadmap (epic 1687 D1): one main-process op
   // promotes it to `ready` and demotes every OTHER active-status roadmap to `idea`,
@@ -362,7 +423,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const isActiveSelected = effectiveSelectedRef !== null && effectiveSelectedRef === normActiveRef
   const activeRoadmap =
     roadmaps.find((roadmap) => normalizeRelativePath(roadmap.roadmapRef) === normActiveRef) ?? null
-  const inbox = activeRoadmap ? collectRoadmapInbox([activeRoadmap]) : []
 
   // The cross-project planner shows in the CANVAS while editing — the shell (and
   // its lifted top bar) stays mounted, so the door keeps its title, status, and
@@ -412,20 +472,23 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       }}
       onSearch={setRailSearch}
       onNewRoadmap={() => void handleCreateRoadmap()}
+      actions={{
+        onMakeActive: (ref) => {
+          const file = roadmapFiles.find((candidate) => candidate.roadmapRef === ref)
+          if (file) void handleMakeActive(file)
+        },
+        ...(canRevealHomeFile ? { onRevealFile: handleRevealRoadmapFile } : {}),
+        onDelete: (ref) => {
+          if (deleting) return
+          void handleDeleteRoadmap(ref)
+        },
+      }}
     />
   )
-  const attention =
-    !planning && isActiveSelected && inbox.length > 0 ? (
-      <Section title="Waiting on you" count={inbox.length} level={3} inset={false}>
-        <RoadmapWaitingOnYou entries={inbox} onSelect={handleSelectInbox} />
-      </Section>
-    ) : undefined
-
   return (
     <GlobalSurfaceShell
       ariaLabel="Horizon"
       bar={bar}
-      attention={attention}
       rail={hasRoadmaps || error ? rail : undefined}
       onBack={planning ? exitPlanning : back.onBack}
       canGoBack={planning ? true : back.canGoBack}
@@ -481,7 +544,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                 roadmap={activeRoadmap}
                 homePath={homePath}
                 busyLane={busyLane}
-                laneRefs={laneRefs}
                 reload={reload}
                 onApprove={handleApprove}
                 onPause={handlePause}
@@ -608,7 +670,6 @@ function RoadmapTracks({
   roadmap,
   homePath,
   busyLane,
-  laneRefs,
   reload,
   onApprove,
   onPause,
@@ -621,7 +682,6 @@ function RoadmapTracks({
   roadmap: LoadedRoadmap
   homePath: string | null
   busyLane: string | null
-  laneRefs: React.MutableRefObject<Map<string, HTMLDivElement | null>>
   reload: () => void
   onApprove: (roadmapRef: string, lane: string) => void
   onPause: (roadmapRef: string, lane: string) => void
@@ -658,13 +718,7 @@ function RoadmapTracks({
     <div className="h-full overflow-auto p-4">
       <div className={trackRowClass(roadmap.lanes.length)}>
         {roadmap.lanes.map((lane) => (
-          <div
-            key={lane.lane}
-            ref={(node) => {
-              laneRefs.current.set(`${roadmap.roadmapRef}:${lane.lane}`, node)
-            }}
-            className={single ? SINGLE_TRACK_COLUMN_CLASS : 'flex'}
-          >
+          <div key={lane.lane} className={single ? SINGLE_TRACK_COLUMN_CLASS : 'flex'}>
             <RoadmapLaneColumn
               lane={lane}
               folderPath={homePath}
