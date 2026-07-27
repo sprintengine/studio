@@ -1837,11 +1837,6 @@ export type SprintEngineStateInitializeInput = {
   // guarantee. `undefined` leaves the key absent and the engine default
   // (`['review']`) applies; `[]` is a meaningful, recorded value.
   defaultPhases?: string[]
-  // Sweep role ids the operator mandates for this run (the wizard's "Final
-  // sweeps" panel). Written to run.yaml `requiredSweeps` via
-  // `--required-sweeps-json`. The architect must plan one task per required role,
-  // and the run cannot complete until it has. Omitted when none are mandated.
-  requiredSweeps?: string[]
   // MC-1543 premium mode: per-phase runtime bindings, e.g.
   // `{ review: { cli: 'claude-code', model: 'fable' } }` — a stronger model reviews
   // each task's diff as a fresh, diff-seeded session while cheap models build.

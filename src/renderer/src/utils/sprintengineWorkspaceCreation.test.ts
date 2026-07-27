@@ -17,7 +17,7 @@ import {
 
 // --- buildSprintEngineRoleRuntimes ------------------------------------------
 // The MC-1712 fix: a recorded role must never ship without a CLI. A model-only
-// pick (a sweep role absent from the CLI-defaults baseline) previously persisted
+// pick (a registry role absent from the CLI-defaults baseline) previously persisted
 // as `{model, cli:null}`, which hard-failed spawnAutoRunCandidate and stalled the
 // roster runner. Assert the runtime map defaults the CLI whenever it records a
 // role, unions both input maps, and drops a role that carries neither signal.

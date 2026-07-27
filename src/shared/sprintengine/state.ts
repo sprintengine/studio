@@ -1087,8 +1087,6 @@ function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRo
       })
     : []
   const enabled = typeof record.enabled === 'boolean' ? record.enabled : undefined
-  // A role is a sweep when its manifest carries a (non-null) `sweep` block.
-  const isSweep = record.sweep != null && typeof record.sweep === 'object'
   return {
     id,
     label,
@@ -1099,7 +1097,6 @@ function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRo
     ...(shadowedSources.length > 0 ? { shadowedSources } : {}),
     ...(warnings.length > 0 ? { warnings } : {}),
     ...(enabled !== undefined ? { enabled } : {}),
-    ...(isSweep ? { isSweep } : {}),
   }
 }
 
@@ -1612,8 +1609,8 @@ function normalizeSprintEngineArtifacts(value: unknown): SprintEngineArtifact[] 
 
 // The zero roster: nobody staffed but the architect, which every run needs to
 // plan at all. There is deliberately NO "starter team" here. A staffed role is
-// a user decision (the wizard's "Work types & models" rows and "Final sweeps"
-// toggles); anything this module seeds on its own is a role the user never
+// a user decision (the wizard's roster rows); anything this module seeds on its
+// own is a role the user never
 // chose, and the architect will plan work for it. See the regression note on
 // `normalizeSprintEngineRoleCounts`.
 export function createEmptySprintEngineRoleCounts(): SprintEngineRoleCounts {
@@ -1659,12 +1656,11 @@ export function countSprintEngineAgents(roleCounts: SprintEngineRoleCounts): num
 // The caller's map is the whole truth: a role it does not mention is OFF, not
 // "unspecified, fall back to a default". This used to seed the result from a
 // built-in starter team (architect + product + developer) and only overwrite the
-// keys the input mentioned — so a role the wizard deliberately REMOVED (it
-// deletes sweep roles like `product` from the counts, since sweeps are opt-in via
-// "Final sweeps") was indistinguishable from a role nobody had an opinion about,
-// and silently came back staffed at the starter-team value. It then rode into
-// `configuredRoles` and the architect planned a sweep task for a role the user
-// never configured. Absent means off.
+// keys the input mentioned — so a role the wizard deliberately REMOVED from the
+// counts was indistinguishable from a role nobody had an opinion about, and
+// silently came back staffed at the starter-team value. It then rode into
+// `configuredRoles` and the architect planned work for a role the user never
+// configured. Absent means off.
 export function normalizeSprintEngineRoleCounts(
   roleCounts?: Partial<SprintEngineRoleCounts> | null
 ): SprintEngineRoleCounts {
@@ -1759,22 +1755,16 @@ export function buildSprintEngineAgentRoster(
 // only the planner. Architect is NOT unconditional: it enters only when the
 // selection staffs it, or as the planner floor below. A general-default run's
 // configuredRoles is `['general']`; claiming an architect the run never staffed
-// would be a lie about its legal role set. `additionalRoles` admits roles the
-// wizard enables outside the role table: the sweep roles the operator turned ON
-// in the "Final sweeps" panel. The roster is the user's configuration — an
-// unselected sweep must not become plannable, or the architect will schedule
-// audits nobody asked for (the design-wizard-premium regression).
+// would be a lie about its legal role set. The roster IS the user's
+// configuration — a role they did not staff must not become plannable, or the
+// architect will schedule work nobody asked for (the design-wizard-premium
+// regression).
 export function sprintEngineEnabledRoles(
   roleCounts: SprintEngineRoleCounts,
-  additionalRoles?: readonly SprintEngineRoleId[],
 ): SprintEngineRoleId[] {
   const roles = new Set<SprintEngineRoleId>()
   for (const [role, count] of Object.entries(roleCounts)) {
     if ((count ?? 0) > 0 && normalizeSprintEngineRoleId(role)) roles.add(role as SprintEngineRoleId)
-  }
-  for (const role of additionalRoles ?? []) {
-    const normalized = normalizeSprintEngineRoleId(role)
-    if (normalized) roles.add(normalized)
   }
   // Enforce >= 1 planner: a run with neither architect nor general has nobody
   // who can plan. The wizard's roster floor already guarantees a planner at the

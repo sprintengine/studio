@@ -263,7 +263,7 @@ async function testTriageActingDoesNotSuppressPoolSpawning(): Promise<void> {
 async function testMissingCliRoleDoesNotFreezeSiblings(): Promise<void> {
   // Two ready reviewer tasks, siblings with no dependency between them.
   // `nuclear_reviewer` is absent from `roleRuntimes` (the 2026-07-19 gap: a
-  // sweep role that never got a CLI), so its runtime resolves no CLI;
+  // registry role that never got a CLI), so its runtime resolves no CLI;
   // `spec_reviewer` has one. The CLI-less role must be SKIPPED without aborting
   // the tick, so the sibling spec_reviewer still spawns the same tick, and its
   // "missing CLI selection" diagnostic surfaces ONCE across repeated ticks (the

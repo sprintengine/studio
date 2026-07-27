@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   agentIssueCount,
   agentIssueSignal,
+  agentWorkType,
   buildAgentRows,
   buildAgentTaskDetail,
   buildAgentTypeSummary,
@@ -860,6 +861,44 @@ function testBuildAgentActivityTimelineEmptyCases(): void {
   )
 }
 
+// The run summary's Reviews table is fed by `metrics.peerReview` — the engine's
+// aggregate of review assessments carrying the `--review-target-*` trio (MC-1886
+// renamed the block from `sweep`). It is also the fallback that decides which
+// table an agent lands in when its role is not in the work-type map, so a custom
+// reviewer role still reports its audits instead of reading as an implementer.
+function testPeerReviewDrivesTheReviewBucketForUnmappedRoles(): void {
+  const auditor: SprintEngineAgentRow = {
+    agentId: 'code_auditor-1',
+    role: 'code_auditor',
+    status: 'done',
+    tasksDone: 0,
+    metrics: {
+      role: 'code_auditor',
+      selfReported: { sampleCount: 0, scores: {} },
+      measured: { reviewSampleCount: 3, scores: {}, counts: {} },
+      findingsRaised: 2,
+      peerReview: { tasksAudited: 3, assessmentsRecorded: 4, passed: 1, fixedForward: 2, escalated: 1 },
+    },
+  }
+  const builder: SprintEngineAgentRow = {
+    agentId: 'code_auditor-2',
+    role: 'code_auditor',
+    status: 'done',
+    tasksDone: 2,
+    metrics: {
+      role: 'code_auditor',
+      selfReported: { sampleCount: 1, scores: {} },
+      measured: { reviewSampleCount: 0, scores: {}, counts: {} },
+      findingsRaised: 0,
+    },
+  }
+
+  assert.equal(agentWorkType(auditor), 'review', 'peer-review activity puts an unmapped role in the review table')
+  assert.equal(agentWorkType(builder), 'implementation', 'the same role with no peer-review activity stays an implementer')
+  assert.equal(auditor.metrics?.peerReview?.tasksAudited, 3, 'the table renders real audit counts, not N/A')
+}
+
+
 function main(): void {
   testAgentTypeSummaryGroupsByRoleAndCli()
   testCompareCliDeliveryScores()
@@ -879,6 +918,7 @@ function main(): void {
   testBuildRunReportDerivesStatusesNeedsInputAndFindings()
   testProcessHealthExcludesAgentPerformanceDimensions()
   testDurationFormatting()
+  testPeerReviewDrivesTheReviewBucketForUnmappedRoles()
   console.log('sprintengineRunSummary.test.ts: ok')
 }
 

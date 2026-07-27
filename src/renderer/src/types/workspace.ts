@@ -43,7 +43,7 @@ export type {
   SprintEngineAgentMeasuredMetrics,
   SprintEngineAgentMetrics,
   SprintEngineAgentSelfReviewMetrics,
-  SprintEngineAgentSweepMetrics,
+  SprintEngineAgentPeerReviewMetrics,
   SprintEngineAgentTaskCounts,
   SprintEngineAllowedRuntime,
   SprintEngineArchitectDifficulty,

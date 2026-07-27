@@ -19,7 +19,6 @@ function testValidMinimal(): void {
   if (result.ok) {
     assert.equal(result.manifest.id, 'security')
     assert.equal(result.manifest.summary, undefined)
-    assert.equal(result.manifest.sweep, undefined)
     assert.deepEqual(result.manifest.directives, {
       implement: [{ skill: 'security' }, { skill: 'project_relative_paths' }],
     })
@@ -33,28 +32,27 @@ function testValidFull(): void {
     summary: 'Audits the change.',
     aliases: ['audit', 'sec-audit'],
     directives: { implement: [{ skill: 'auditor' }], review: [{ skill: 'auditor_review' }] },
-    sweep: { focus: 'implementation and security', when: 'the run touches auth or user input' },
   })
   assert.equal(result.ok, true)
   if (result.ok) {
     assert.deepEqual(result.manifest.aliases, ['audit', 'sec-audit'])
     assert.deepEqual(result.manifest.directives.review, [{ skill: 'auditor_review' }])
-    assert.deepEqual(result.manifest.sweep, {
-      focus: 'implementation and security',
-      when: 'the run touches auth or user input',
-    })
   }
 }
 
-function testNullSweepIsAWorkerRole(): void {
+// MC-1886 removed the sweep concept. Unlike the v1 keys below, `sweep` is NOT
+// rejected by name — an installed pack predating the removal must keep loading
+// (the engine's role_registry.py ignores it the same way), and the parsed
+// manifest simply carries no trace of it.
+function testLegacySweepKeyIsIgnored(): void {
   const result = validateRoleManifest({
     id: 'builder',
     label: 'Builder',
     directives: { implement: [{ skill: 'builder' }] },
-    sweep: null,
+    sweep: { focus: 'security review', when: 'always' },
   })
   assert.equal(result.ok, true)
-  if (result.ok) assert.equal(result.manifest.sweep, undefined)
+  if (result.ok) assert.equal('sweep' in result.manifest, false)
 }
 
 function testRejectsNonObject(): void {
@@ -113,26 +111,6 @@ function testRejectsBadAlias(): void {
   if (!result.ok) assert.ok(result.issues.some((issue) => issue.path.startsWith('aliases[')))
 }
 
-function testRejectsBadSweep(): void {
-  const missingWhen = validateRoleManifest({
-    id: 'role',
-    label: 'Role',
-    directives: { implement: [{ skill: 'x' }] },
-    sweep: { focus: 'things' },
-  })
-  assert.equal(missingWhen.ok, false)
-  if (!missingWhen.ok) assert.ok(missingWhen.issues.some((issue) => issue.path === 'sweep.when'))
-
-  const extraField = validateRoleManifest({
-    id: 'role',
-    label: 'Role',
-    directives: { implement: [{ skill: 'x' }] },
-    sweep: { focus: 'a', when: 'b', phase: 'review' },
-  })
-  assert.equal(extraField.ok, false)
-  if (!extraField.ok) assert.ok(extraField.issues.some((issue) => issue.path === 'sweep.phase'))
-}
-
 // Decision 8: no v1 shim. A stale pack fails loudly with its v2 replacement named.
 function testRejectsRemovedV1Keys(): void {
   const soul = validateRoleManifest({ id: 'role', label: 'Role', soul: [{ skill: 'x' }] })
@@ -153,7 +131,7 @@ function testRejectsRemovedV1Keys(): void {
   if (!capabilities.ok) {
     const issue = capabilities.issues.find((candidate) => candidate.path === 'capabilities')
     assert.ok(issue, 'capabilities must be rejected by name')
-    assert.ok(issue.message.includes('sweep'), 'the rejection must name the v2 replacement')
+    assert.ok(issue.message.includes('directives'), 'the rejection must name the v2 replacement')
   }
 }
 
@@ -175,7 +153,6 @@ function testSerializeRoundTrip(): void {
     summary: 'Audits the change.',
     aliases: ['audit'],
     directives: { implement: [{ skill: 'auditor' }] },
-    sweep: { focus: 'security review', when: 'always' },
   })
   assert.equal(built.ok, true)
   if (!built.ok) return
@@ -192,7 +169,6 @@ function testBuildAuthoredDirectivesAndOmission(): void {
   assert.deepEqual(minimal.directives, { implement: [{ skill: 'auditor' }] })
   assert.equal('summary' in minimal, false)
   assert.equal('aliases' in minimal, false)
-  assert.equal('sweep' in minimal, false)
   // Blank/whitespace optionals are omitted rather than emitted empty.
   const blanks = buildAuthoredRoleManifest({ id: 'auditor', label: 'Auditor', summary: '  ', aliases: ['', '  '] })
   assert.equal('summary' in blanks, false)
@@ -207,7 +183,6 @@ function testBuildAuthoredFull(): void {
     label: 'Auditor',
     summary: 'Audits the change.',
     aliases: ['audit'],
-    sweep: { focus: 'security review', when: 'always' },
   })
   assert.deepEqual(full, {
     id: 'auditor',
@@ -215,21 +190,7 @@ function testBuildAuthoredFull(): void {
     directives: { implement: [{ skill: 'auditor' }] },
     summary: 'Audits the change.',
     aliases: ['audit'],
-    sweep: { focus: 'security review', when: 'always' },
   })
-}
-
-// An author who enables the sweep toggle but leaves a field blank must see a
-// validation error, not silently lose the sweep.
-function testBuildAuthoredBlankSweepSurfacesAsValidationError(): void {
-  const blank = buildAuthoredRoleManifest({ id: 'auditor', label: 'Auditor', sweep: { focus: '  ', when: '' } })
-  assert.deepEqual(blank.sweep, { focus: '', when: '' })
-  const result = validateRoleManifest(blank)
-  assert.equal(result.ok, false)
-  if (!result.ok) {
-    assert.ok(result.issues.some((issue) => issue.path === 'sweep.focus'))
-    assert.ok(result.issues.some((issue) => issue.path === 'sweep.when'))
-  }
 }
 
 function testRoleIdCollision(): void {
@@ -253,7 +214,7 @@ function testStarterSoulTemplate(): void {
 
 testValidMinimal()
 testValidFull()
-testNullSweepIsAWorkerRole()
+testLegacySweepKeyIsIgnored()
 testRejectsNonObject()
 testRejectsBadId()
 testRejectsEmptyLabel()
@@ -261,14 +222,12 @@ testRejectsEmptyOrMissingImplement()
 testRejectsBadDirectiveEntry()
 testRejectsUnknownDirectiveKey()
 testRejectsBadAlias()
-testRejectsBadSweep()
 testRejectsRemovedV1Keys()
 testParseInvalidJson()
 testParseValid()
 testSerializeRoundTrip()
 testBuildAuthoredDirectivesAndOmission()
 testBuildAuthoredFull()
-testBuildAuthoredBlankSweepSurfacesAsValidationError()
 testRoleIdCollision()
 testStarterSoulTemplate()
 console.log('role-manifest tests passed')

@@ -55,7 +55,6 @@ import { taskGraphEdgeStyle, taskGraphEndEdgeStyle } from '../components/panels/
 import {
   BUNDLED_SPRINT_ENGINE_ADDABLE_ROLES,
   BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES,
-  BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS,
   BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES,
   buildSprintEngineAddMemberOptions,
   buildSprintEngineRosterCountByRole,
@@ -265,11 +264,13 @@ assert.deepEqual(
   ['developer', 'general'],
   'general + worker selection carries no architect'
 )
-// Sweep toggles ride in via additionalRoles; an unselected sweep never appears.
+// The roster IS the whole enabled set: a role the user did not staff never
+// appears, however plausible it would be for the run (MC-1886 removed the last
+// side channel that could inject one).
 assert.deepEqual(
-  sprintEngineEnabledRoles({ general: 1 }, ['security']).sort(),
-  ['general', 'security'],
-  'a toggled-on sweep appends; an unselected sweep is absent'
+  sprintEngineEnabledRoles({ general: 1, security: 0 }).sort(),
+  ['general'],
+  'an unstaffed reviewer role is absent from configuredRoles'
 )
 assert.deepEqual(
   sprintEngineEnabledRoles({ developer: 1 }),
@@ -1472,15 +1473,13 @@ type FakeTask = { role: string; status: SprintEngineTask['status'] }
 // An installed specialist pack: the registry resolves every historical
 // bundled role, in the canonical order. Post un-ship, specialist roles surface
 // in pickers only through the registry, so tests that once leaned on a bundled
-// fallback now model an installed pack explicitly. Sweep roles carry a `sweep`
-// block so registry `isSweep` classification stays exercised.
+// fallback now model an installed pack explicitly.
 const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
   roles: sprintEngineRoleOrder.map((id) => ({
     id,
     label: getSprintEngineRoleLabel(id, null),
     aliases: [],
     source: { layer: 'user' },
-    ...(BUNDLED_SPRINT_ENGINE_SWEEP_ROLE_IDS.includes(id) ? { sweep: {} } : {}),
   })),
 })
 

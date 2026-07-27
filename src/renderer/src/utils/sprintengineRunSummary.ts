@@ -941,7 +941,7 @@ export function agentWorkType(row: SprintEngineAgentRow): SprintEngineWorkType {
   // A reviewer role that also did review work stays review; an agent with only
   // reviewer activity (no implementation role) is review too. Otherwise fall
   // back to the role map, defaulting unknown/custom roles to implementation.
-  return roleWorkType[row.role] ?? (row.metrics?.sweep ? 'review' : 'implementation')
+  return roleWorkType[row.role] ?? (row.metrics?.peerReview ? 'review' : 'implementation')
 }
 
 export function bucketAgentRowsByWorkType(rows: SprintEngineAgentRow[]): Record<
