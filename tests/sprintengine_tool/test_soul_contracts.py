@@ -62,7 +62,6 @@ SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     "spec_reviewer": ("principal-level specification-conformance reviewer",),
     "production_readiness_reviewer": ("principal production readiness reviewer",),
     "ui_ux_reviewer": ("senior frontend UI/UX reviewer",),
-    "coordinator": ("principal-level coordination agent",),
     "blog_writer": ("senior blog writer",),
 }
 

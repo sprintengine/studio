@@ -24,7 +24,7 @@ from sprintengine_core.skill_layers import (
 
 
 SPRINTENGINE_SKILLS_DIR = REPO_ROOT / "resources" / "sprintengine" / "skills"
-SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "coordinator", "creative", "developer", "devops", "frontend", "presentation", "product"}
+SPRINTENGINE_IMPLEMENTATION_ROLES = {"blog_writer", "creative", "developer", "devops", "frontend", "presentation", "product"}
 
 
 def load_soul_prompt(

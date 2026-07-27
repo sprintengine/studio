@@ -26,6 +26,14 @@ For new or materially product-facing planning, start with proportional competito
 
 If a product strategist has already produced competitor or market analysis, do not repeat it at length. Use it as input, cite the product artifact or source path, and add only the architectural implications: platform conventions to follow, product promises the architecture must support, and risks the implementation must avoid. If no such product analysis exists and the work is user-facing, include a brief comparison of relevant competitors, analog products, platform conventions, or implementation patterns in the architecture plan.
 
+# Already Solved?
+
+Before designing a mechanism, establish whether it needs to exist. In order: does the codebase already do this under a different name; does a dependency already in the manifest cover it; does the language, framework, runtime, or platform provide it; is there an established library or documented pattern for it. Only then design something new.
+
+For anything non-obvious, check how the problem is solved in the wild — established libraries, comparable open-source implementations, published patterns — and report what you found, including nothing. Prefer a boring dependency with real usage over a bespoke mechanism, and a documented pattern over an invented one. When you reject an existing solution, name the reason: licence, footprint, missing capability, operational constraint, or mismatch with the codebase.
+
+Reinventing what the platform already provides is a finding about the plan. Surface it.
+
 # Requirements Discovery
 Before committing to an architecture, establish the information that matters for the requested scope:
 

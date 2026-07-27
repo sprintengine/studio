@@ -42,7 +42,6 @@ def test_souls_list_includes_canonical_roles() -> None:
     assert payload["ok"] is True
     assert {
         "architect",
-        "coordinator",
         "product",
         "developer",
         "devops",
@@ -176,16 +175,16 @@ def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> No
             assert needle not in prose, f"{role} base Soul leaked runtime language: {needle}"
 
 
-def test_souls_get_returns_coordinator() -> None:
-    completed = run_souls("get", "coordinator", "--format", "json")
+def test_souls_get_returns_nuclear_reviewer() -> None:
+    completed = run_souls("get", "nuclear_reviewer", "--format", "json")
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
 
     assert payload["ok"] is True
-    assert payload["role"] == "coordinator"
-    assert payload["path"].endswith("resources/specialist-pack/roles/coordinator.json")
-    assert "principal-level coordination agent" in payload["content"]
+    assert payload["role"] == "nuclear_reviewer"
+    assert payload["path"].endswith("resources/specialist-pack/roles/nuclear_reviewer.json")
+    assert "principal-level structural maintainability reviewer" in payload["content"]
     assert "{{final_goal}}" not in payload["content"]
 
 

@@ -24,11 +24,15 @@ for contracts you did not honour, gaps you left, and tests you owed.
 **Work an epic.** Same for every child, in the order their `dependsOn` implies,
 each one aware of the others: they share files, and two correct changes can still
 collide. Skip children that are `completed`, `archived`, or `idea`. Never write a
-status onto the epic file — it derives from its children. At the end, review the
-whole run with fresh eyes rather than your own: prefer subagents, which start
-without your context, one for the diff and one for the seams between children.
-Seams are cross-item, so that reviewer needs the whole diff, not a slice. Judge
-the result against what the epic said it was for.
+status onto the epic file — it derives from its children. At the end, spawn
+subagents to review the run, concurrently, one lens each: implementation gaps
+against every child's acceptance; bugs introduced; seams, where the contracts
+between children must hold as written; and ripple, what each change affects
+elsewhere in the epic. Seam and ripple reviewers get the whole diff, never a
+slice. Brief each to assume the work is broken and prove otherwise. Dismiss no
+finding without evidence that refutes it; fix or record every one that stands.
+Without a subagent mechanism, review from a fresh session. Judge the result
+against what the epic said it was for.
 
 **Create.** Write the file yourself — no tool needed. Choose an unused slug,
 start with frontmatter carrying only fields you can honestly fill, then a
