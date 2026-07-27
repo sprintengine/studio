@@ -181,6 +181,27 @@ async function main(): Promise<void> {
     }
   }
 
+  // Where a door puts its project filter (MC-1816). Read off the rendered DOM as
+  // relationships — which control it is, what it is called, and what it comes
+  // BEFORE — so the two doors can be compared without either one's markup
+  // standing in for the other's.
+  const FOLLOWING = 4 // Node.DOCUMENT_POSITION_FOLLOWING
+  function projectFilterPlacement(searchAriaLabel: string, rowListSelector: string): unknown {
+    const lens = container.querySelector('button[aria-label="Filter by project"]')
+    assert.ok(lens, 'the door exposes a project filter named "Filter by project"')
+    const search = container.querySelector(`input[aria-label="${searchAriaLabel}"]`)
+    assert.ok(search, 'and a search field')
+    const rows = container.querySelector(rowListSelector)
+    assert.ok(rows, 'and a row list')
+    return {
+      control: lens.getAttribute('role'),
+      // Collapsed behind a glyph, the lens would be a menu trigger, not a Select.
+      collapsedBehindAGlyph: lens.getAttribute('aria-haspopup') === 'menu',
+      leadsSearch: Boolean(lens.compareDocumentPosition(search) & FOLLOWING),
+      leadsRows: Boolean(lens.compareDocumentPosition(rows) & FOLLOWING),
+    }
+  }
+
   const container = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
@@ -304,6 +325,13 @@ async function main(): Promise<void> {
   const railRows = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
   assert.equal(railRows.length, 2, 'both runs list once the index reads')
   console.log('ok - retrying an unreadable index recovers the surface in place')
+
+  // Held for the cross-door comparison in section 4: the two doors must place
+  // their project filter identically, and only one of them is mounted at a time.
+  const sprintsFilterPlacement = projectFilterPlacement(
+    'Search sprints across every project',
+    'ul[role="list"][aria-label^="Sprints:"]',
+  )
 
   // ═══ 3. Resident vs workspace-deleted, on the same door ═══════════════════
   // The live run's workspace is open, so its workspace-only actions are live and
@@ -472,6 +500,25 @@ async function main(): Promise<void> {
     filterTrigger().click()
   })
   await settle()
+
+  // ── One project-filter placement across both doors (MC-1816) ──────────────
+  // The two doors used to disagree: Backlog led its toolbar with the project
+  // Select while Sprints tucked the same lens behind the rail's filter glyph.
+  // Compared as relationships, not markup, so this holds whichever door moves.
+  assert.deepEqual(
+    projectFilterPlacement(
+      'Search every project’s backlog',
+      'ul[role="listbox"][aria-label="Backlog items across projects"]',
+    ),
+    sprintsFilterPlacement,
+    'both doors expose the project filter as the same control, in the same place',
+  )
+  assert.deepEqual(
+    sprintsFilterPlacement,
+    { control: 'combobox', collapsedBehindAGlyph: false, leadsSearch: true, leadsRows: true },
+    'and that place is leading the door’s controls, never behind a filter glyph',
+  )
+  console.log('ok - the Backlog and Sprints doors place their project filter identically')
 
   const rowText = (): string[] =>
     [...container.querySelectorAll('ul[role="listbox"][aria-label="Backlog items across projects"] > li')].map(

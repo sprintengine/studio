@@ -77,9 +77,9 @@ import { ALL_PROJECTS, buildBacklogDoorList } from './backlogSurfaceModel'
 import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlogDoorActions'
 
 // The Backlog door (T9, mockup §4) — one full page listing the backlog of EVERY
-// open project, with project filter chips that narrow it. Selecting a single
-// project is exactly today's per-project panel (same visible set, same order —
-// proved by the golden test on `backlogSurfaceModel`); "All projects" is the
+// open project, with a toolbar-leading project filter that narrows it. Selecting
+// a single project is exactly today's per-project panel (same visible set, same
+// order — proved by the golden test on `backlogSurfaceModel`); "All projects" is the
 // merged cross-project list where every row carries its project tag.
 //
 // Storage does not move: items stay as markdown in each project's own backlog/
@@ -747,9 +747,11 @@ function renderBody({
 }
 
 // ── toolbar ─────────────────────────────────────────────────────────────────
-// Mockup §4: project chips lead (All projects, then one per project), the lens
-// controls hold the right. Counts ride the chips so switching projects is an
-// informed choice, not a guess.
+// The project filter LEADS the toolbar; search and the lens controls hold the
+// right. Counts ride the options so switching projects is an informed choice,
+// not a guess. That leading position is now a cross-door contract (MC-1816):
+// the Sprints door's rail puts the same control, under the same name, in the
+// same place, so a person moving between the two doors never hunts for it.
 function BacklogDoorToolbar({
   projects,
   filter,
@@ -1191,7 +1193,7 @@ function uniqueItemFileName(baseName: string, existingRelativeLower: ReadonlySet
 // "3 projects · 214 active items" (mockup §4 bar sub-line). The scope names what
 // is ACTUALLY listed: with one project filtered it names that project, so the bar
 // can never claim "3 projects" beside a count that covers only one of them (the
-// filter chips show the same number for that project).
+// filter's own option shows the same number for that project).
 function describeScope(
   projects: ReadonlyArray<BacklogProjectFeed>,
   filter: string,

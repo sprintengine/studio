@@ -139,19 +139,32 @@ run('an empty group is omitted, not rendered as an empty header', () => {
   assert.ok(html.includes('Sprints: Active'), 'the one live run still groups')
 })
 
-// The search + filter row (the Backlog toolbar idiom): search is the at-rest
-// control, the project lens collapses behind the filter glyph.
-run('the rail carries a search field with the project lens behind the filter glyph', () => {
+// The rail's control block, in the Backlog door's toolbar order (MC-1816): the
+// project lens LEADS it as one compact Select, then search, then the sort axis
+// behind the filter glyph. The lens is never collapsed behind that glyph — a
+// person moving between the two doors finds it in the same place.
+run('the project lens leads the rail as a Select, ahead of search and the filter glyph', () => {
   const html = render()
-  assert.ok(html.includes('Search sprints…'), 'the search field leads the list')
-  assert.ok(html.includes('aria-label="Filter and sort sprints"'), 'the project lens + sort are one filter control')
-  assert.ok(!html.includes('role="combobox"'), 'no standing dropdown above the rows')
+  assert.ok(html.includes('role="combobox"'), 'the project lens is a Select, not a glyph-hidden axis')
+  const lens = html.indexOf('aria-label="Filter by project"')
+  assert.ok(lens > 0, 'named exactly as the Backlog door names its own')
+  assert.ok(html.includes('All projects · 3'), 'its trigger reads the current scope and the run total')
+  const newSprint = html.indexOf('New sprint')
+  const search = html.indexOf('Search sprints…')
+  const firstGroup = html.indexOf('Sprints: Needs you')
+  assert.ok(newSprint < lens && lens < search, 'New sprint, then the project lens, then search')
+  assert.ok(
+    html.indexOf('aria-label="Filter and sort sprints"') < firstGroup,
+    'sort stays behind the filter glyph, still above the first row',
+  )
+  assert.ok(search < firstGroup, 'the whole control block sits above the rows')
 })
 
-run('a single-project Multicode shows no filter — a lone option narrows nothing', () => {
+run('a single-project Multicode shows no lens — a lone option narrows nothing', () => {
   const html = render({ runs: [runs[0]!, runs[2]!] })
-  assert.ok(!html.includes('aria-label="Filter sprints"'), 'no filter when every run shares one project')
+  assert.ok(!html.includes('aria-label="Filter by project"'), 'no lens when every run shares one project')
   assert.ok(html.includes('Search sprints…'), 'search stays')
+  assert.ok(html.includes('aria-label="Filter and sort sprints"'), 'and so does sort')
 })
 
 run('a filter that matches no run says so instead of reading as "no sprints"', () => {

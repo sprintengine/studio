@@ -420,32 +420,60 @@ async function main(): Promise<void> {
   )
   console.log('ok - single-repo run renders one Primary card with no merge order')
 
-  // ── The project lens sits behind the filter glyph beside search ──────────
+  // ── The project lens LEADS the rail, as one Select (MC-1816) ─────────────
+  // Same control, same accessible name, and same place as the Backlog door's
+  // toolbar-leading filter — not an axis collapsed behind the filter glyph.
   const filterTrigger = (): HTMLElement => {
-    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter and sort sprints"]')
-    assert.ok(trigger, 'the project lens is one filter control beside search')
+    const trigger = container.querySelector('button[role="combobox"][aria-label="Filter by project"]')
+    assert.ok(trigger, 'the project lens is one compact Select leading the rail')
     return trigger as HTMLElement
   }
   const pickFilter = async (label: string): Promise<void> => {
     await act(async () => {
       filterTrigger().click()
     })
-    const option = [...dom.window.document.querySelectorAll('[role="menuitemradio"]')].find(
+    // The Select's listbox portals to document.body; the rail's own rows are a
+    // list, not a listbox, so options are queryable document-wide.
+    const option = [...dom.window.document.querySelectorAll('[role="listbox"] [role="option"]')].find(
       (candidate) => candidate.textContent?.startsWith(label),
     )
     assert.ok(option, `the filter lists ${label}`)
     await act(async () => {
       ;(option as HTMLElement).click()
     })
-    // Picking keeps the menu open (multi-axis in one visit) — close it so the
-    // rail below is queryable again.
-    await act(async () => {
-      filterTrigger().click()
-    })
     await act(async () => {
       await Promise.resolve()
     })
   }
+  // Every project with a run is offered, counted, and no other — a project with
+  // nothing to show is never listed.
+  await act(async () => {
+    filterTrigger().click()
+  })
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll('[role="listbox"] [role="option"]')].map(
+      (option) => option.textContent,
+    ),
+    ['All projects · 5', 'multicode · 4', 'multicode-mobile · 1'],
+    'All projects with the total, then one counted option per project with runs',
+  )
+  await act(async () => {
+    filterTrigger().click()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  // The lens sits above the rows and ahead of search, exactly as it does on the
+  // Backlog door — never below the list, never behind the filter glyph.
+  const railHtml = container.querySelector('aside[aria-label="Sprints list"]')?.innerHTML ?? ''
+  const lensAt = railHtml.indexOf('aria-label="Filter by project"')
+  assert.ok(lensAt > 0, 'the lens renders inside the rail')
+  assert.ok(
+    railHtml.indexOf('New sprint') < lensAt && lensAt < railHtml.indexOf('Search sprints…'),
+    'New sprint, then the project lens, then search',
+  )
+  assert.ok(lensAt < railHtml.indexOf('Sprints: '), 'and the whole block leads the rows')
+
   await pickFilter('multicode ·')
   const railRowsNow = (): string =>
     [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
