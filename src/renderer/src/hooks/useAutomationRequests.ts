@@ -236,6 +236,12 @@ async function createSprint(
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
+  // Formation decides staffing on THIS path too. Both sprint.create paths
+  // resolve a roster through `resolveRequestedRoster`, so both must honor the
+  // `mode` it returns — otherwise a "No roles" run created goal-sourced would
+  // silently staff the specialist defaults and seat an architect, which is the
+  // exact thing "no roles" excludes.
+  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
 
   let args: OnCreateArgs
   try {
@@ -244,14 +250,19 @@ async function createSprint(
         folderPath: request.folderPath,
         teamName: request.name?.trim() ?? '',
         goal: request.goal,
-        roleCounts: roster.roleCounts,
-        visibleRoleCounts: roster.roleCounts,
+        roleCounts: launchRoleCounts,
+        visibleRoleCounts: launchRoleCounts,
         maxParallelAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
         roleCliDefaults: roster.roleCliDefaults,
         roleModelOverrides: roster.roleModelOverrides,
         // Only a non-manual run carries a start-at-launch intent; a manual run
-        // deliberately sits idle until a person opens it.
-        initialSpawnRoles: request.startRunner === true ? ['architect'] : null,
+        // deliberately sits idle until a person opens it. The planner follows
+        // the staffed counts rather than being hardcoded to `architect`: for a
+        // roles roster that still resolves to the architect (byte-identical to
+        // before), and for a no-roles roster it is a plain `general`.
+        initialSpawnRoles: request.startRunner === true
+          ? [sprintEnginePlannerRole(launchRoleCounts)]
+          : null,
         startRunner: request.startRunner === true,
         autoApproveArtifacts: request.autoApproveArtifacts === true,
         useWorktrees: request.useWorktrees === true,

@@ -563,4 +563,36 @@ const DEFAULT_CLIS = {
   )
 }
 
+// SEAM (MC-1876 x MC-1875, found in review): BOTH sprint.create paths resolve a
+// roster through resolveRequestedRoster and BOTH must honor the `mode` it
+// returns. The goal-sourced path originally passed `roster.roleCounts` straight
+// through and hardcoded `initialSpawnRoles: ['architect']`, so a No-roles run
+// created that way silently staffed the specialist defaults and seated an
+// architect — formation resolved, then ignored, on one of two callers.
+//
+// This pins the shared decision both paths now make. The regression it guards
+// is "one caller honors the contract and the other does not", which is invisible
+// to any test that only exercises the Horizon path.
+{
+  const defaultResolved = resolveInitialSprintEngineRoster({
+    savedRosters: [],
+    lastSelectedRosterId: null,
+    savedRoster: null,
+    defaultRoleCounts: DEFAULT_COUNTS,
+    defaultRoleCliDefaults: DEFAULT_CLIS,
+  })
+  // What the resolver hands a caller still carries the specialist defaults...
+  assert.ok((defaultResolved.roleCounts.architect ?? 0) > 0, 'the resolved roster still carries the specialist rows')
+  // ...so a caller that forgets to apply the formation staffs an architect.
+  // Applying it is what makes "No roles" true.
+  const launched = sprintEngineLaunchRoleCounts(defaultResolved.mode, defaultResolved.roleCounts)
+  assert.deepEqual(launched, PLAIN_AGENT_ROLE_COUNTS, 'both paths must launch the plain-agent seed')
+  assert.equal(launched.architect ?? 0, 0, 'and therefore seat no architect')
+  assert.equal(
+    sprintEnginePlannerRole(launched),
+    'general',
+    'so the first agent spawned is a plain general, not the hardcoded architect',
+  )
+}
+
 console.log('saved team helper tests passed')

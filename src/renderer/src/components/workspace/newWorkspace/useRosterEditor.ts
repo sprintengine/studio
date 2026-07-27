@@ -29,10 +29,7 @@ import {
   buildSprintEngineRoleRegistry,
   getUserDisabledSprintEngineRoleIds,
 } from '../../../utils/sprintengine'
-import {
-  listSprintEngineWizardRoles,
-  sprintEngineRosterRoleFloor,
-} from '../../../utils/sprintengineRoleOptions'
+import { sprintEngineRosterRoleFloor } from '../../../utils/sprintengineRoleOptions'
 import {
   resolveAvailableAgentCli,
   type AgentCliCatalogOption,
@@ -424,16 +421,6 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     setRoleModelOverrides,
     setSelectedRosterId,
   }
-}
-
-// The roles the wizard renders as roster rows for a given registry. Exported
-// alongside the hook so a second consumer (the Horizon roster manager) draws
-// the same rows without reaching back into the wizard.
-export function rosterEditorRoleIds(
-  registry: SprintEngineRoleRegistry | null,
-  disabledRoleIds: ReadonlySet<SprintEngineRoleId> | null,
-): SprintEngineRoleId[] {
-  return listSprintEngineWizardRoles(registry, disabledRoleIds)
 }
 
 // DUPLICATE MOUNTS: two live instances (the wizard open behind the Horizon
