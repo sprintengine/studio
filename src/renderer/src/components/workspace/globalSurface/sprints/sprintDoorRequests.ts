@@ -63,9 +63,10 @@ export function consumeSprintCreationDoorClaim(): boolean {
 export const CLOSE_SPRINT_WORKSPACE_EVENT = 'multicode:close-sprint-workspace'
 
 type CloseSprintWorkspaceDetail = {
+  // Unknown because it arrives on an event: validated before it is handed on.
   workspaceId?: unknown
   /** Handed to the shell so it can report when its teardown has finished. */
-  whenClosed?: unknown
+  whenClosed?: (teardown: Promise<void>) => void
 }
 
 /**
@@ -98,9 +99,7 @@ export function subscribeCloseSprintWorkspaceRequests(
     const workspaceId = detail?.workspaceId
     if (typeof workspaceId !== 'string' || !workspaceId) return
     const teardown = onRequest(workspaceId)
-    if (teardown && typeof detail.whenClosed === 'function') {
-      ;(detail.whenClosed as (pending: Promise<void>) => void)(teardown)
-    }
+    if (teardown && typeof detail.whenClosed === 'function') detail.whenClosed(teardown)
   }
   window.addEventListener(CLOSE_SPRINT_WORKSPACE_EVENT, handler)
   return () => window.removeEventListener(CLOSE_SPRINT_WORKSPACE_EVENT, handler)

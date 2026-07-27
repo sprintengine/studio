@@ -126,6 +126,11 @@ assert.ok(
   create.indexOf('consumeSprintCreationDoorClaim()') < create.indexOf('dismissNewWorkspacePanel()'),
   'handleCreate consumes the claim before dismissing the wizard',
 )
+assert.match(
+  create,
+  /if \(cameFromSprintsDoor && mode === 'sprintengine'/,
+  'and the return to the door is gated on that claim — a sprint created from anywhere else stays where it was started',
+)
 
 void (async () => {
   // Delete-a-run waits on the teardown it asks for (item 1812): the promise the

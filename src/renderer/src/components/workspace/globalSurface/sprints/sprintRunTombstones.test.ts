@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
+import { deleteSprintRun } from './sprintRunDeletion'
 import { dropDeletedSprintRunDebris, noteSprintRunDeleted } from './sprintRunTombstones'
 
-// Deleting a run trashes its directory; a writer that outlived the run can put a
-// partial one back at the same path, and the index — which reads disk — lists it
-// again as an `unknown`-state row for a run that no longer exists (item 1812).
+// Deleting a run, and what can be left behind by it (item 1812). Two modules,
+// one story: `sprintRunDeletion` owns the order the delete happens in, and
+// `sprintRunTombstones` owns what the index does about a directory that comes
+// back — a writer that outlived the run can put a partial one at the same path,
+// and the index, which reads disk, lists it again as an `unknown`-state row for
+// a run that no longer exists.
 
 const DELETED = '/work/multicode/.multi-code/sprintengine/july-hardening/run.yaml'
 const KEPT = '/work/multicode/.multi-code/sprintengine/august-audit/run.yaml'
@@ -78,29 +80,74 @@ assert.deepEqual(
   'an empty state path is never tombstoned',
 )
 
-// The door's delete is the only writer of tombstones, and it records one only
-// after the trash move succeeded — a failed delete leaves the run listing.
-const canvas = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/globalSurface/sprints/SprintsCanvas.tsx'),
-  'utf8',
-)
-const deleteBody = canvas.slice(
-  canvas.indexOf('const deleteRun = useCallback('),
-  canvas.indexOf('} catch (error) {', canvas.indexOf('const deleteRun = useCallback(')),
-)
-assert.ok(
-  deleteBody.indexOf('await requestCloseSprintWorkspace(') <
-    deleteBody.indexOf('await window.api.deletePath('),
-  'the workspace teardown is awaited before the run directory is trashed',
-)
-assert.ok(
-  deleteBody.indexOf('await window.api.deletePath(') < deleteBody.indexOf('noteSprintRunDeleted('),
-  'the tombstone is recorded only after the delete succeeded',
-)
-assert.match(
-  deleteBody,
-  /if \(model\.residentWorkspaceId\) await requestCloseSprintWorkspace/,
-  'a run with no resident workspace waits for no teardown',
-)
+// The delete sequence itself: teardown, trash, tombstone, in that order.
+void (async () => {
+  const calls: string[] = []
+  let finishTeardown = (): void => {}
+  const ports = {
+    closeWorkspace: (workspaceId: string) => {
+      calls.push(`close:${workspaceId}`)
+      return new Promise<void>((resolve) => {
+        finishTeardown = resolve
+      })
+    },
+    deletePath: (directory: string) => {
+      calls.push(`delete:${directory}`)
+      return Promise.resolve()
+    },
+    noteDeleted: (statePath: string) => {
+      calls.push(`tombstone:${statePath}`)
+    },
+  }
 
-console.log('sprintRunTombstones tests passed')
+  const target = { statePath: DELETED, runDirectory: '/work/multicode/.multi-code/sprintengine/july-hardening', residentWorkspaceId: 'ws-run' }
+  const deleting = deleteSprintRun(target, ports)
+  await Promise.resolve()
+  assert.deepEqual(calls, ['close:ws-run'], 'the directory is NOT trashed while the terminals are still being killed')
+
+  finishTeardown()
+  await deleting
+  assert.deepEqual(
+    calls,
+    ['close:ws-run', `delete:${target.runDirectory}`, `tombstone:${DELETED}`],
+    'teardown, then the trash move, then the tombstone',
+  )
+
+  // A run with no resident workspace has nothing to tear down: it must not stall
+  // waiting for a teardown that will never happen.
+  const soloCalls: string[] = []
+  await deleteSprintRun(
+    { statePath: KEPT, runDirectory: '/work/multicode/.multi-code/sprintengine/august-audit', residentWorkspaceId: null },
+    {
+      closeWorkspace: () => {
+        soloCalls.push('close')
+        return new Promise<void>(() => {})
+      },
+      deletePath: () => {
+        soloCalls.push('delete')
+        return Promise.resolve()
+      },
+      noteDeleted: () => soloCalls.push('tombstone'),
+    },
+  )
+  assert.deepEqual(soloCalls, ['delete', 'tombstone'], 'no workspace, no wait')
+
+  // A failed trash move leaves no tombstone: the run is still on disk, still the
+  // operator's to see, and the caller reports the failure.
+  const failedCalls: string[] = []
+  await assert.rejects(
+    deleteSprintRun(
+      { statePath: KEPT, runDirectory: '/work/locked', residentWorkspaceId: null },
+      {
+        closeWorkspace: () => Promise.resolve(),
+        deletePath: () => Promise.reject(new Error('EPERM')),
+        noteDeleted: () => failedCalls.push('tombstone'),
+      },
+    ),
+    /EPERM/,
+    'a delete that failed is reported, not swallowed',
+  )
+  assert.deepEqual(failedCalls, [], 'and records no tombstone')
+
+  console.log('sprintRunTombstones tests passed')
+})()

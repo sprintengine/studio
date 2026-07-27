@@ -74,7 +74,7 @@ import {
 } from '../../../panels/sprintEngineBoard/repoMergeSurface'
 import { sprintRunShortDate } from './railState'
 import { requestCloseSprintWorkspace } from './sprintDoorRequests'
-import { noteSprintRunDeleted } from './sprintRunTombstones'
+import { deleteSprintRun } from './sprintRunDeletion'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
 
 const SprintRunBoard = React.lazy(async () => ({
@@ -612,17 +612,13 @@ function SprintRunDisposalMenu({
     if (typed === null) return
     setBusy(true)
     try {
-      // Teardown first, and waited for (item 1812): the run's agents write into
-      // this directory, so trashing it while they are still alive lets a surviving
-      // writer recreate it and the door re-lists a run the operator just deleted.
-      // A run with no resident workspace has nothing to tear down and waits for
-      // nothing.
-      if (model.residentWorkspaceId) await requestCloseSprintWorkspace(model.residentWorkspaceId)
-      await window.api.deletePath(runDirectory)
-      // The kills are acknowledged, but a process that outlives its pty can still
-      // land a write after the trash move. The tombstone is what keeps that debris
-      // out of the door until it parses as a real run again.
-      noteSprintRunDeleted(model.statePath)
+      // Teardown, trash, tombstone — one ordered sequence (item 1812), which is
+      // why it lives in its own module rather than inline here.
+      await deleteSprintRun({
+        statePath: model.statePath,
+        runDirectory,
+        residentWorkspaceId: model.residentWorkspaceId ?? null,
+      })
       onRunDeleted()
     } catch (error) {
       publishDiagnosticSync({
