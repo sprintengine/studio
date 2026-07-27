@@ -584,7 +584,12 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         if (state.turn) {
           return {
             ok: true,
-            notice: 'Bypass starts with your next message — this reply finishes under the current permissions.',
+            // Not "the current permissions": the chip has already moved to
+            // Bypass by the time this is read, so "current" would name the mode
+            // that is NOT in force for the reply on screen. The permissions the
+            // reply started under is the one phrase that stays true either way.
+            notice:
+              'Bypass starts with your next message — this reply finishes under the permissions it started with.',
           }
         }
         disposeChild(state)

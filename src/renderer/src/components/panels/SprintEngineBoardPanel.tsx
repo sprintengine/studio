@@ -2298,20 +2298,27 @@ export function SprintRunBoard({
  if (architectAgentId) {
  items.push({
  id: 'verify-progress',
- label: 'Verify progress',
- onSelect: openRecoveryDialog,
  // The audit runs IN an architect terminal, which needs the run's
  // workspace. Without one there is nothing to start.
+ label: hasResidentWorkspace ? 'Verify progress' : 'Verify progress (its workspace is closed)',
+ onSelect: openRecoveryDialog,
  disabled: !hasResidentWorkspace,
  })
  }
  items.push({
  id: 'more-roles',
- label: 'More roles',
- onSelect: openAddMemberDialog,
  // Enabling a role is engine-level and works from the door; a run that keeps
  // its team in a closed workspace has nowhere to write one, and a run that
- // already configures every role has nothing left to add.
+ // already configures every role has nothing left to add. A greyed row with
+ // no reason reads as a bug, so the two cases say which one this is — the
+ // same shape the disposal menu's "Delete sprint (its folder can't be
+ // found)" uses, because a menu item's label is its only copy channel.
+ label: !canMutateRunRoster
+ ? 'More roles (its workspace is closed)'
+ : addMemberDialogOptions.length === 0
+ ? 'More roles (every role is already on this run)'
+ : 'More roles',
+ onSelect: openAddMemberDialog,
  disabled: !canMutateRunRoster || addMemberDialogOptions.length === 0,
  })
  if (showPlanningActions) {
@@ -2333,9 +2340,9 @@ export function SprintRunBoard({
  items.push({ kind: 'separator', id: 'sep-2' })
  items.push({
  id: 'read-plan',
- label: 'Read plan',
  // The plan opens as a tab in the run's workspace; with none there is no
  // layout to open it in.
+ label: hasResidentWorkspace ? 'Read plan' : 'Read plan (its workspace is closed)',
  onSelect: () => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan'),
  disabled: !hasResidentWorkspace,
  })

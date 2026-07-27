@@ -121,7 +121,10 @@ export function pushSprintEngineAutomationModeIntent(
       level: 'warning',
       source: 'sprintengine',
       title: 'Automation mode not persisted',
-      message: 'The automation mode changed locally but the authoritative store could not be written.',
+      // Not "changed locally but…": on a door mount this call IS the write
+      // (MC-1799), nothing moved locally, and the control has already snapped
+      // back. One sentence that stays true on both mounts.
+      message: 'The automation mode could not be written to this run’s store.',
       details,
       ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),

@@ -342,6 +342,13 @@ export function SurfaceRail({
               items={scope.items}
               value={scope.value}
               onChange={scope.onChange}
+              // Full-rail width, not shrink-wrapped to the selected label: it
+              // stacks between the full-width "New …" button and the full-width
+              // search row, so a content-width trigger would sit short of both
+              // and change width every time the lens changes. `Popover`'s root
+              // is `inline-flex`, so the width has to come from here for the
+              // trigger's own `w-full` to mean the rail.
+              className="w-full"
               // The rail is 224 px wide; the trigger truncates inside its track
               // rather than overflowing the aside.
               triggerMinWidthClassName="min-w-0"

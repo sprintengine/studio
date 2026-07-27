@@ -1160,7 +1160,7 @@ async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): P
 
   assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), {
     ok: true,
-    notice: 'Bypass starts with your next message — this reply finishes under the current permissions.',
+    notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
   })
   assert.equal(inFlight.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the streaming reply is not torn down')
 
