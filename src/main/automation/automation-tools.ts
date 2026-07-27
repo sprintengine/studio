@@ -1365,7 +1365,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'sprint.create',
     description:
       'Create a Sprint Engine run in a new workspace, through the same creation path the app wizard uses '
-      + '(roster defaults to the last saved team, else the built-in team; CLI permissions stay at "default"). '
+      + '(CLI permissions stay at "default"). Roster precedence: an explicit `roster` map, else a named saved '
+      + '`team`, else the last saved team, else the built-in team. Pass `sourceRef` to plan the run FROM a '
+      + 'backlog item or epic — the architect then plans against the item and its children, and the Backlog '
+      + 'execution link is written; `goal` may be empty because it derives from the item heading. '
       + 'With startRunner the architect is launched and success is confirmed by its live terminal session; '
       + 'without it the run is created in manual mode and sits idle until a person opens it. Requires an open '
       + 'primary app window.',
@@ -1373,13 +1376,28 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       type: 'object',
       properties: {
         folderPath: { type: 'string', description: 'Absolute project folder for the run workspace.' },
-        goal: { type: 'string', description: 'The sprint goal the architect plans against.' },
+        goal: { type: 'string', description: 'The sprint goal the architect plans against. May be empty when sourceRef is given.' },
         name: { type: 'string', description: 'Team/run display name.' },
+        sourceRef: {
+          type: 'string',
+          description:
+            'Project-relative backlog item or epic to plan the run from, e.g. "backlog/epics/foo.md". '
+            + 'Uses the shared plan-sourced creation path (epic children included), not the goal-only path.',
+        },
+        team: { type: 'string', description: 'Saved team (roster) name. Unknown names fail loudly rather than falling back.' },
+        roster: {
+          type: 'object',
+          description:
+            'Explicit roster as role id -> agent count, e.g. {"architect":1,"developer":2,"spec_reviewer":1}. '
+            + 'Wins over `team`. Role ids are registry-driven, so roles outside the wizard default map '
+            + '(spec_reviewer, nuclear_reviewer) are accepted and get a CLI default seeded.',
+          additionalProperties: { type: 'integer', minimum: 0 },
+        },
         startRunner: { type: 'boolean', description: 'Start the auto-runner (launches the architect). Default false.' },
         autoApproveArtifacts: { type: 'boolean', description: 'Auto-approve run artifacts (only with startRunner).' },
         useWorktrees: { type: 'boolean', description: 'Isolate task work in per-task git worktrees.' },
       },
-      required: ['folderPath', 'goal'],
+      required: ['folderPath'],
       additionalProperties: false,
     },
     handler: async (args) => {
@@ -1388,13 +1406,34 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (!isAbsolute(folderPath)) {
         return failure('invalid_arguments', '"folderPath" must be an absolute path.')
       }
-      const goal = requireString(args, 'goal')
-      if (typeof goal !== 'string') return goal
-      const invalid = firstInvalidOptionalString(args, ['name'])
+      const invalid = firstInvalidOptionalString(args, ['name', 'sourceRef', 'team', 'goal'])
       if (invalid) return invalid
+      const sourceRef = optionalString(args.sourceRef)
+      const goal = optionalString(args.goal) ?? ''
+      // `goal` is only derivable from the item heading on the plan-sourced path;
+      // a goal-only run has nothing else to plan against.
+      if (!sourceRef && !goal.trim()) {
+        return failure('invalid_arguments', '"goal" is required when "sourceRef" is not provided.')
+      }
       for (const key of ['startRunner', 'autoApproveArtifacts', 'useWorktrees']) {
         if (args[key] !== undefined && typeof args[key] !== 'boolean') {
           return failure('invalid_arguments', `"${key}" must be a boolean when provided.`)
+        }
+      }
+      let roster: Record<string, number> | undefined
+      if (args.roster !== undefined) {
+        if (typeof args.roster !== 'object' || args.roster === null || Array.isArray(args.roster)) {
+          return failure('invalid_arguments', '"roster" must be an object of role id to count.')
+        }
+        roster = {}
+        for (const [role, count] of Object.entries(args.roster as Record<string, unknown>)) {
+          if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+            return failure('invalid_arguments', `"roster.${role}" must be a non-negative integer.`)
+          }
+          roster[role] = count
+        }
+        if (Object.keys(roster).length === 0) {
+          return failure('invalid_arguments', '"roster" must name at least one role.')
         }
       }
       const startRunner = args.startRunner === true
@@ -1404,6 +1443,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         folderPath,
         goal,
         name: optionalString(args.name),
+        ...(sourceRef ? { sourceRelativePath: sourceRef } : {}),
+        ...(optionalString(args.team) ? { team: optionalString(args.team) } : {}),
+        ...(roster ? { roster } : {}),
         startRunner,
         autoApproveArtifacts: args.autoApproveArtifacts === true,
         useWorktrees: args.useWorktrees === true,

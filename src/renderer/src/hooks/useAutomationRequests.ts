@@ -103,6 +103,84 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
 // consumes initial spawns and launches the architect. Waiting for the layout
 // model here is the renderer-side half of that start guarantee; main confirms
 // the architect's live terminal session before reporting success.
+// Roster resolution for an externally-created run. Precedence: an explicit
+// `roster` (role id -> count) wins outright; else a named saved `team`; else the
+// wizard's own fallback (last selected, saved roster, built-in default).
+//
+// The explicit path must seed `roleCliDefaults` for EVERY role it staffs.
+// `DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS` is derived from the built-in count
+// map's keys, which omit registry roles like `spec_reviewer` and
+// `nuclear_reviewer` — a role with no CLI resolves to no runtime and is silently
+// skipped at spawn (the 2026-07-19 gap pinned in auto-run-cycle.test.ts).
+type RosterResolution =
+  | { ok: true; roster: ReturnType<typeof resolveInitialSprintEngineRoster> }
+  | { ok: false; response: AutomationRendererResponse }
+
+function resolveRequestedRoster(
+  request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
+): RosterResolution {
+  const store = useWorkspaceStore.getState()
+  const roleSettings = store.appSettings.sprintEngineRoleSettings
+  const savedTeams = roleSettings?.savedTeams ?? []
+
+  const explicit = request.roster
+  if (explicit && Object.keys(explicit).length > 0) {
+    const roleCounts: Record<string, number> = { ...DEFAULT_SPRINT_ENGINE_ROLE_COUNTS }
+    for (const [role, count] of Object.entries(explicit)) {
+      const trimmed = role.trim()
+      if (!trimmed) {
+        return { ok: false, response: { ok: false, code: 'sprint_invalid_roster', message: 'Roster role ids must be non-empty.' } }
+      }
+      if (!Number.isInteger(count) || count < 0) {
+        return {
+          ok: false,
+          response: { ok: false, code: 'sprint_invalid_roster', message: `Roster count for "${trimmed}" must be a non-negative integer.` },
+        }
+      }
+      roleCounts[trimmed] = count
+    }
+    if (!Object.values(roleCounts).some((count) => count > 0)) {
+      return { ok: false, response: { ok: false, code: 'sprint_invalid_roster', message: 'Roster must staff at least one role.' } }
+    }
+    const roleCliDefaults = { ...DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS } as Record<string, string>
+    for (const role of Object.keys(roleCounts)) {
+      if (!roleCliDefaults[role]) roleCliDefaults[role] = 'claude-code'
+    }
+    return {
+      ok: true,
+      roster: {
+        selectedTeamId: null,
+        roleCounts,
+        roleModelOverrides: {},
+        roleCliDefaults,
+      } as ReturnType<typeof resolveInitialSprintEngineRoster>,
+    }
+  }
+
+  // An unknown named team is an explicit failure — silently falling back would
+  // staff the run with a roster the caller never picked.
+  const requestedTeamName = request.team?.trim()
+  const namedTeam = requestedTeamName
+    ? savedTeams.find((team) => team.name.trim().toLowerCase() === requestedTeamName.toLowerCase()) ?? null
+    : null
+  if (requestedTeamName && !namedTeam) {
+    return {
+      ok: false,
+      response: { ok: false, code: 'sprint_unknown_team', message: `Saved team "${requestedTeamName}" was not found.` },
+    }
+  }
+  return {
+    ok: true,
+    roster: resolveInitialSprintEngineRoster({
+      savedTeams,
+      lastSelectedTeamId: namedTeam?.id ?? roleSettings?.lastSelectedTeamId ?? null,
+      savedRoster: roleSettings?.savedRoster ?? null,
+      defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+      defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+    }),
+  }
+}
+
 async function createSprint(
   request: Extract<AutomationRendererRequest, { kind: 'sprint.create' }>
 ): Promise<AutomationRendererResponse> {
@@ -111,15 +189,9 @@ async function createSprint(
   if (request.sourceRelativePath?.trim()) {
     return createPlanSourcedSprint(request, request.sourceRelativePath.trim())
   }
-  const store = useWorkspaceStore.getState()
-  const roleSettings = store.appSettings.sprintEngineRoleSettings
-  const roster = resolveInitialSprintEngineRoster({
-    savedTeams: roleSettings?.savedTeams ?? [],
-    lastSelectedTeamId: roleSettings?.lastSelectedTeamId ?? null,
-    savedRoster: roleSettings?.savedRoster ?? null,
-    defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
-    defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
-  })
+  const resolved = resolveRequestedRoster(request)
+  if (!resolved.ok) return resolved.response
+  const roster = resolved.roster
 
   let args: OnCreateArgs
   try {
@@ -200,26 +272,9 @@ async function createPlanSourcedSprint(
     return { ok: false, code: 'sprint_invalid_source', message: 'Sprint source must be a project-relative path.' }
   }
 
-  const store = useWorkspaceStore.getState()
-  const roleSettings = store.appSettings.sprintEngineRoleSettings
-  const savedTeams = roleSettings?.savedTeams ?? []
-  // The automation config may name a saved team (roster). An unknown name is an
-  // explicit failure — silently falling back would staff the run with a roster
-  // the user never picked for this chain.
-  const requestedTeamName = request.team?.trim()
-  const namedTeam = requestedTeamName
-    ? savedTeams.find((team) => team.name.trim().toLowerCase() === requestedTeamName.toLowerCase()) ?? null
-    : null
-  if (requestedTeamName && !namedTeam) {
-    return { ok: false, code: 'sprint_unknown_team', message: `Saved team "${requestedTeamName}" was not found.` }
-  }
-  const roster = resolveInitialSprintEngineRoster({
-    savedTeams,
-    lastSelectedTeamId: namedTeam?.id ?? roleSettings?.lastSelectedTeamId ?? null,
-    savedRoster: roleSettings?.savedRoster ?? null,
-    defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
-    defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
-  })
+  const resolved = resolveRequestedRoster(request)
+  if (!resolved.ok) return resolved.response
+  const roster = resolved.roster
 
   const absoluteSourcePath = joinPath(request.folderPath, normalizedSourcePath)
   if (!(await window.api.pathExists(absoluteSourcePath))) {

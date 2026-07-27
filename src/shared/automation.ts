@@ -106,6 +106,16 @@ export type AutomationRendererRequest =
       /** Saved team (roster) name to staff the run with; absent resolves like the wizard (last selected, else default). */
       team?: string
       /**
+       * Explicit roster: role id -> agent count. Wins over `team` and over the
+       * saved-roster fallback, so a caller with no saved team can still staff a
+       * run precisely. Role ids are registry-driven (`SprintEngineRoleId` is an
+       * open string), so roles outside the wizard's built-in default map —
+       * `spec_reviewer`, `nuclear_reviewer` — are accepted and get a CLI default
+       * seeded for them. Without that seed they resolve to no CLI and are
+       * silently skipped at spawn.
+       */
+      roster?: Record<string, number>
+      /**
        * Self-trigger loop guard (sprint chaining): refuse creation when the new
        * run's team dir slug would equal this watched team dir.
        */
