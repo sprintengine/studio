@@ -58,7 +58,6 @@ from .commands.task import (
     cmd_task_resolve_input,
     cmd_task_status,
 )
-from .roles import DEFAULT_ROLE_REGISTRY, VALID_ROLES, RoleRegistry
 
 __all__ = [
     name

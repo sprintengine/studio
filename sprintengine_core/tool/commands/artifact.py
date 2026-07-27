@@ -256,14 +256,7 @@ def cmd_artifact_request_changes(args: argparse.Namespace) -> Dict[str, Any]:
         # Planner feedback follows the run's planning role (a general plans its own
         # run), not the literal architect — otherwise it fell through to the generic
         # review_feedback bucket.
-        if actor_role == resolve_planning_role(state):
-            comment_type = "architect_feedback"
-        elif actor_role == "tester":
-            comment_type = "test_feedback"
-        elif actor_role == "product":
-            comment_type = "product_feedback"
-        else:
-            comment_type = "review_feedback"
+        comment_type = "architect_feedback" if actor_role == resolve_planning_role(state) else "review_feedback"
         artifact_id = str(artifact.get("id") or "")
         artifact_title = str(artifact.get("title") or "")
         comment_body = f"Changes requested for artifact {artifact_id} ({artifact_title}): {feedback}"

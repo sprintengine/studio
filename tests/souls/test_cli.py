@@ -12,7 +12,7 @@ from sprintengine_core.skill_layers import (
     MULTICODE_LAYER_SKILLS,
     SPRINTENGINE_SOUL_EXTRA_SKILLS,
 )
-from sprintengine_core.tool.roles import VALID_ROLES
+from sprintengine_core.tool.roles import configured_role_ids
 
 # The specialist roles ship as an installable pack; the shared tests/conftest.py
 # points the session registry-roots env at it, so `souls` resolves the pack the
@@ -70,9 +70,10 @@ def test_souls_list_includes_canonical_roles() -> None:
     assert "souls/prompts" not in by_role["tester"]["path"]
 
 
-def test_valid_roles_excludes_validation_only_defaults() -> None:
-    assert "registry_probe" not in VALID_ROLES
-    assert "marketer" not in VALID_ROLES
+def test_configured_roles_exclude_validation_only_defaults() -> None:
+    configured = configured_role_ids()
+    assert "registry_probe" not in configured
+    assert "marketer" not in configured
 
 
 def test_souls_get_returns_prompt_for_alias() -> None:
@@ -160,7 +161,7 @@ def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> No
         "claimsChecked",
     ]
 
-    for role in sorted(VALID_ROLES):
+    for role in sorted(configured_role_ids()):
         rendered = render_soul(role)
         for needle in forbidden:
             assert needle not in rendered, f"{role} base Soul leaked runtime language: {needle}"
@@ -216,7 +217,7 @@ def test_souls_path_uses_registry_manifest_for_alias() -> None:
     assert "souls/prompts" not in path.as_posix()
 
 
-def test_workspace_marketer_soul_renders_through_registry_without_dispatch_role(tmp_path, monkeypatch) -> None:
+def test_workspace_marketer_soul_renders_through_registry(tmp_path, monkeypatch) -> None:
     root = tmp_path / ".sprintengine"
     (root / "roles").mkdir(parents=True)
     (root / "skills" / "marketer").mkdir(parents=True)
@@ -243,7 +244,6 @@ def test_workspace_marketer_soul_renders_through_registry_without_dispatch_role(
     assert soul.role == "marketer"
     assert content.startswith("<soul-legend>")
     assert '<skill name="marketer">\n# Marketer\n\nRender Marketer for marketer.\n</skill>' in content
-    assert "marketer" not in VALID_ROLES
 
 
 def test_validate_passes_with_the_pack_absent_and_present(tmp_path: Path, monkeypatch) -> None:

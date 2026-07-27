@@ -705,8 +705,6 @@ Task comments are the human-readable handoff stream. Typed comments include:
 - `implementation_summary`
 - `implementation_response`
 - `review_feedback`
-- `test_feedback`
-- `product_feedback`
 - `architect_feedback`
 - `needs_input`
 - `user_note`
@@ -784,9 +782,8 @@ task counts; agents with no records simply have no `aggregateByAgent` row.
 `needsInput` routes blocked work:
 
 - `kind`: the actor who must act — `architect` or `user`
-  (`VALID_NEEDS_INPUT_KINDS`). Legacy `owner` and `external_validation` values
-  remap on read to `architect`/`blocked_other` and `user`/`verification`
-  (`LEGACY_NEEDS_INPUT_KIND_MAP`).
+  (`VALID_NEEDS_INPUT_KINDS`). Callers may also pass `planner`, which normalizes
+  to `architect` (`LEGACY_NEEDS_INPUT_KIND_MAP`).
 - `reason`: one of `task_scope`, `artifact_review`, `tooling`, `verification`,
   `product_decision`, `blocked_other`. Defaults per kind
   (`NEEDS_INPUT_KIND_DEFAULT_REASONS`).

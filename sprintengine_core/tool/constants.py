@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+# The comment vocabulary is defined once in the store layer and imported here;
+# `sprintengine_core.store` imports nothing from this package, so this direction
+# is the one that does not close the store <-> tool cycle.
+from sprintengine_core.store import (  # noqa: F401  (re-exported CLI vocabulary)
+    FEEDBACK_COMMENT_TYPES,
+    REWORK_COMMENT_TYPES,
+    VALID_TASK_COMMENT_TYPES,
+)
+
 # Single-owner lifecycle (MC-1542). `review` means "the owner is reviewing the work
 # it just made, in the same session". `changes_requested`, `testing`, and `product`
 # were deleted outright — there is no read-side tolerance for them (decision 8).
@@ -10,7 +19,6 @@ VALID_TASK_STATUSES = {"todo", "in_progress", "review", "needs_input", "done", "
 # owner stays bound to its task from claim through `done`, so a task in review is
 # not free for another agent to claim, and its owner's session is not spare capacity.
 ACTIVE_TASK_STATUSES = {"in_progress", "review", "needs_input"}
-RUN_EXECUTING_TASK_STATUSES = set(ACTIVE_TASK_STATUSES)
 # Terminal statuses (2026-07-22 owner ruling, restored by MC-1744 and enforced
 # in cmd_task_status): a done or canceled task is never reopened by an agent —
 # blocking findings become NEW tasks (fix-forward). The single sanctioned
@@ -26,17 +34,6 @@ TERMINAL_TASK_STATUSES = {"done", "canceled"}
 VALID_TASK_PHASES = ("review",)
 DEFAULT_RUN_PHASES = ("review",)
 VALID_PHASE_OUTCOMES = {"pass", "pass_with_fixes", "escalate"}
-VALID_TASK_COMMENT_TYPES = {
-    "implementation_summary",
-    "implementation_response",
-    "review_feedback",
-    "test_feedback",
-    "product_feedback",
-    "architect_feedback",
-    "needs_input",
-    "user_note",
-    "system_note",
-}
 VALID_TASK_SOURCE_TYPES = {"local", "github", "jira", "linear"}
 VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "conflict"}
 # Two lanes, not three (MC-1585): `architect` is the PLANNER-ROUTED lane — it means
@@ -49,11 +46,11 @@ VALID_TASK_SOURCE_SYNC_STATUSES = {"clean", "local_changed", "remote_changed", "
 # owns. `planner` is accepted as an input alias and normalized to it, so agents in
 # a general-only run can escalate in the vocabulary their prompt gives them.
 VALID_NEEDS_INPUT_KINDS = {"architect", "user"}
-LEGACY_NEEDS_INPUT_KIND_MAP = {
-    "owner": ("architect", "blocked_other"),
-    "external_validation": ("user", "verification"),
-    "planner": ("architect", "task_scope"),
-}
+# `planner` is the one alias, and it is live rather than legacy: an agent on a
+# general-only run is given the planner vocabulary and reasonably escalates in it.
+# The read-side entries for stores that predate the current kinds are gone —
+# schema v4 rejects those stores outright (`assert_store_is_current`).
+LEGACY_NEEDS_INPUT_KIND_MAP = {"planner": "architect"}
 VALID_NEEDS_INPUT_REASONS = {
     "task_scope",
     "artifact_review",
@@ -67,19 +64,13 @@ NEEDS_INPUT_KIND_DEFAULT_REASONS = {
     "user": "product_decision",
 }
 # What a CALLER may pass (CLI `--needs-input-kind`, MCP `needsInputKind`), as opposed
-# to what is STORED (`VALID_NEEDS_INPUT_KINDS`). `planner` is the only advertised
-# alias — an agent on a general-only run reasonably reaches for it, and
-# `normalize_needs_input_kind` folds it to the canonical `architect`. The other
-# entries in the legacy map are read-side compatibility for old stores and stay
-# unadvertised.
-NEEDS_INPUT_KIND_INPUT_CHOICES = sorted(VALID_NEEDS_INPUT_KINDS | {"planner"})
+# to what is STORED (`VALID_NEEDS_INPUT_KINDS`). `planner` is the only alias, and
+# `normalize_needs_input_kind` folds it to the canonical `architect`.
+NEEDS_INPUT_KIND_INPUT_CHOICES = sorted(VALID_NEEDS_INPUT_KINDS | set(LEGACY_NEEDS_INPUT_KIND_MAP))
 # The needs_input kinds that route to the run's PLANNER (not literally to an
 # architect — see the lane note above). Resolve the actor with
 # `plans.resolve_planning_role`, never by comparing a role to "architect".
 PLANNER_ROUTED_NEEDS_INPUT_KINDS = {"architect"}
-# Legacy alias: the old name said "architect" when it meant "planner", which is the
-# assumption that dead-ended general-only runs. Kept so out-of-tree importers work.
-ARCHITECT_ROUTED_NEEDS_INPUT_KINDS = PLANNER_ROUTED_NEEDS_INPUT_KINDS
 VALID_ARTIFACT_KINDS = {
     "architect_plan",
     "product_strategy",

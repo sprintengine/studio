@@ -134,7 +134,7 @@ The app uses narrow IPC to request artifact review mutations through the Python 
     - `status` (optional): `open`, `accepted`, `fixed`, `rejected`, or `deferred`; omitted values are treated as `open`
 - `notes`
 - `needsInput` (optional; set when a task is in `needs_input` and needs routed attention)
-  - `kind`: `architect`, `user`, `owner`, or `external_validation`
+  - `kind`: `architect` or `user` (`planner` is accepted on input and normalizes to `architect`)
   - `reason`: short category or issue text; common categories are `task_scope`, `artifact_review`, `tooling`, `verification`, `product_decision`, and `blocked_other`
   - `question`
   - `suggestedResolution` (optional)
@@ -222,4 +222,4 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - Review artifacts may include `recommendedTasks`; the architect decides whether to convert those recommendations into task cards.
 - `artifact ready` moves the linked producing task and owning agent to `needs_input`.
 - `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
-- `artifact request-changes` records feedback as a typed comment on the producing task (`review_feedback` by default; `architect_feedback` / `test_feedback` / `product_feedback` when the requester's role is architect / tester / product) with `data.artifactId` set, then reopens the producing task without changing unrelated tasks. The feedback surfaces in the activity feed and enters the open-feedback / open-rework comment queues.
+- `artifact request-changes` records feedback as a typed comment on the producing task (`review_feedback` by default; `architect_feedback` when the requester is the run's planning role) with `data.artifactId` set, then reopens the producing task without changing unrelated tasks. The feedback surfaces in the activity feed and enters the open-feedback / open-rework comment queues.

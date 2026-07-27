@@ -1831,11 +1831,9 @@ export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
 
 export type SprintEngineRunnerSetInput = {
   statePath: string
-  // Whether `sprintengine join --watch` keeps polling for ready work. CLI
-  // runtime only — Multicode supervisor ignores this. Existing IPC callers
-  // that send `mode: 'auto' | 'off'` are translated by the main-process
-  // handler in `src/main/sprintengine-artifacts.ts` to preserve backward
-  // compatibility for one release cycle.
+  // Automation-mode hint recorded on the run. The CLI watch loop it once
+  // configured is gone (MC-1827); Multicode reads it back to derive the run's
+  // automation mode.
   cliWatchPolling: SprintEngineCliWatchPolling
 }
 

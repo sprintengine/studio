@@ -14,27 +14,20 @@ custom-layer environment) cannot leak into the next test, and the suite no longe
 depends on an unmanaged process-wide mutation that also silently escaped into
 every subprocess forever.
 
-One pre-collection seed remains and cannot move into a fixture:
-``sprintengine_core.tool.roles`` computes ``VALID_ROLES``
-eagerly at import time, and that import happens during collection — before any
-fixture runs. ``tests/souls/test_cli.py`` and
-``tests/sprintengine_tool/test_tool_decomposition.py`` read that frozen snapshot,
-which is empty without the pack env. ``pytest_configure`` runs before collection,
-so seeding the env there (a managed hook, not a raw import side effect) makes the
-snapshot resolve the pack while the fixture still owns the per-test lifecycle for
-every runtime discovery call.
+The engine no longer snapshots role ids at import time (MC-1829 deleted
+``VALID_ROLES``), so every consumer resolves roles at call time and the fixture
+below is the only seeding this suite needs.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 
-# Literals to avoid importing sprintengine_core before the env is seeded (the
-# package import eagerly computes VALID_ROLES). Mirror
+# Literals rather than imports from sprintengine_core, so the env names this
+# module seeds stay independent of import order. Mirror
 # sprintengine_core.role_registry.SESSION_REGISTRY_ROOTS_ENV and
 # .USER_REGISTRY_ROOT_ENV.
 _SESSION_REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
@@ -53,21 +46,6 @@ def _session_registry_roots_value() -> str | None:
     if not _SPECIALIST_PACK_ROOT.exists():
         return None
     return json.dumps([{"id": "specialist-pack", "root": str(_SPECIALIST_PACK_ROOT)}])
-
-
-def pytest_configure(config: pytest.Config) -> None:
-    """Pre-collection seed for the eager ``VALID_ROLES`` import-time snapshot.
-
-    Runs before any test module is imported, so the pack env is present when
-    ``sprintengine_core.tool.roles`` freezes ``VALID_ROLES``
-    during collection. ``setdefault`` preserves any value an outer environment
-    already supplied. The per-test fixture below re-establishes the same env under
-    ``monkeypatch`` so runtime discovery stays scoped and restorable.
-    """
-    roots = _session_registry_roots_value()
-    if roots is not None:
-        os.environ.setdefault(_SESSION_REGISTRY_ROOTS_ENV, roots)
-    os.environ.setdefault(_USER_REGISTRY_ROOT_ENV, str(_NO_USER_REGISTRY_ROOT))
 
 
 @pytest.fixture(autouse=True)
