@@ -221,6 +221,20 @@ async function run(projectRoot: string): Promise<void> {
     }
   }
 
+  // Waiting for a condition, never for a duration: a fixed settle long enough on
+  // this machine is a flake on a loaded one, and a flaky suite is a quality
+  // problem of its own. Assertions of ABSENCE cannot use this and settle
+  // instead — there is no condition to wait for.
+  async function waitFor(label: string, predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (!predicate() && Date.now() < deadline) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      })
+    }
+    assert.ok(predicate(), `timed out waiting for ${label}`)
+  }
+
   // One project open, and it is NOT the run's workspace: the run lists from
   // disk, so the board mounts on the door with `workspaceId === ''`.
   useWorkspaceStore.setState({
@@ -303,6 +317,7 @@ async function run(projectRoot: string): Promise<void> {
   assert.equal(checkedAutomationMode(), 'Manual', 'a run with no intent reads Manual')
 
   await pickAutomationMode('Run agents')
+  await waitFor('the door mode write to reach the run’s state file', () => persistedRecord() !== null)
   const afterMode = persistedRecord()
   assert.ok(afterMode, 'the door mode write reached the run’s own state file')
   assert.equal(afterMode?.desiredMode, 'run_agents', 'and it is the mode that was picked')
@@ -313,6 +328,7 @@ async function run(projectRoot: string): Promise<void> {
     'attributed to the renderer boundary the write actually came through',
   )
   assert.equal(checkedAutomationMode(), 'Run agents', 'and the control holds what it wrote')
+  await waitFor('the mode-changed notification', () => modeNotifications().length === 1)
   assert.equal(modeNotifications().length, 1, 'the confirmed write announces itself exactly once')
   assert.equal(
     modeNotifications()[0]?.workspaceId,
@@ -329,6 +345,10 @@ async function run(projectRoot: string): Promise<void> {
 
   // ── 2. The CLI permission preset shares that home (item 1799, D1) ─────────
   await pickCliPreset('Auto in workspace')
+  await waitFor(
+    'the preset write to land beside the mode',
+    () => persistedRecord()?.cliPermissionPreset === 'auto_workspace',
+  )
   const afterPreset = persistedRecord()
   assert.equal(afterPreset?.cliPermissionPreset, 'auto_workspace', 'the preset persisted beside the mode')
   assert.equal(afterPreset?.desiredMode, 'run_agents', 'a preset write never moves the mode')
@@ -406,7 +426,8 @@ async function run(projectRoot: string): Promise<void> {
   await act(async () => {
     ;(testerOption as HTMLElement).click()
   })
-  await settle(10)
+  await waitFor('the role-enable call to reach the engine', () => enableRoleCalls.length > 0)
+  await settle(6)
   assert.equal(enableRoleCalls.length, 1, 'the engine was asked exactly once')
   assert.equal(enableRoleCalls[0]?.statePath, statePath, 'by the run’s state path')
   assert.equal(enableRoleCalls[0]?.role, 'tester')
@@ -427,6 +448,11 @@ async function run(projectRoot: string): Promise<void> {
   rmSync(teamDirectory, { recursive: true, force: true })
   await openRunConfig()
   await pickAutomationMode('Run agents + approve artifacts')
+  await waitFor('the refused write to be attempted', () => modeWrites.length > modeWritesBefore)
+  // Absence is asserted after a settle, not a wait: there is no condition that
+  // ever becomes true, so this gives the notification/broadcast every chance to
+  // appear before concluding they did not.
+  await settle(10)
   assert.equal(
     modeWrites.length,
     modeWritesBefore + 1,

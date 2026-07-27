@@ -195,7 +195,9 @@ async function testContinuationTurnIsBusyOnBothSidesOfTheBoundary(): Promise<voi
     if (!base || !sink) return
     sink(runtimeEvent(base, 'turn_started', { turnId: 'cont_turn_1' }))
     sink(runtimeEvent(base, 'content_delta', { turnId: 'cont_turn_1', text: 'subagent reported' }))
-    await settleEventLoop()
+    await waitForEvents('the continuation turn to open', broadcast, (events) =>
+      events.some((event) => event.type === 'content_delta' && event.payload?.turnId === 'cont_turn_1'),
+    )
 
     // The composer, reading the same events, agrees the session is busy — so a
     // commit QUEUES rather than firing an IPC that would error. This is the
@@ -221,7 +223,9 @@ async function testContinuationTurnIsBusyOnBothSidesOfTheBoundary(): Promise<voi
     // reach the renderer under their own turn id.
     sink(runtimeEvent(base, 'content_delta', { turnId: 'cont_turn_1', text: 'and finished' }))
     sink(runtimeEvent(base, 'turn_completed', { turnId: 'cont_turn_1' }))
-    await settleEventLoop()
+    await waitForEvents('the continuation turn to close', broadcast, (events) =>
+      events.some((event) => event.type === 'turn_completed' && event.payload?.turnId === 'cont_turn_1'),
+    )
 
     const continuationDeltas = broadcast
       .filter((event) => event.type === 'content_delta' && event.payload?.turnId === 'cont_turn_1')
@@ -417,8 +421,20 @@ async function testComposerAndBoundaryAcceptTheSameAttachments(): Promise<void> 
   console.log('ok - the composer and the send-turn boundary accept exactly the same attachments')
 }
 
-function settleEventLoop(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 5))
+// Waiting for a condition, never for a duration. The continuation channel
+// persists each event to the transcript JSONL before broadcasting, so this
+// crosses real disk I/O; a fixed delay long enough here is a flake elsewhere.
+async function waitForEvents(
+  label: string,
+  broadcast: ConversationEvent[],
+  predicate: (events: ConversationEvent[]) => boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate(broadcast) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  assert.ok(predicate(broadcast), `timed out waiting for ${label}`)
 }
 
 main().catch((error) => {

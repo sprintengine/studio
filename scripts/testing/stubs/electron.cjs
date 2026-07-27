@@ -20,6 +20,10 @@ const invokeHandlers = new Map()
 const rendererListeners = new Map()
 
 const ipcMain = {
+  // Real Electron throws on a second `handle` for the same channel. Here the
+  // later registration wins, deliberately: a suite legitimately registers one
+  // handler set per scenario in a single process. It is the one place this stub
+  // is more permissive than Electron, and the app registers each channel once.
   handle(channel, handler) {
     invokeHandlers.set(channel, handler)
   },
