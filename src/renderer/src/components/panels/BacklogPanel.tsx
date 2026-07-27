@@ -2398,24 +2398,32 @@ export function BacklogDetail({
                 selectedRunGlyph?.state
                 ?? (selectedBlocked ? 'blocked' : backlogStatusToLifecycle(selected.status))
               }
+              // The glyph NAMES the state now that the word beside it is gone
+              // (MC-1923). A tooltip only reaches a pointer — dropping the word
+              // without this left the status readable by shape alone.
+              label={
+                selectedRunGlyph?.label
+                ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status])
+              }
               // Spin only for a genuinely live run — a bare in_progress status
               // has no agent working it, so the arc stays static.
               live={selectedRunGlyph?.live ?? false}
             />
           </Tooltip>
-          {selected.displayId ? (
-            <>
-              <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
-                {selected.displayId}
-              </span>
-              <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
-            </>
-          ) : null}
+          {/* An id is the item's identity, so it leads. Not every item HAS one —
+              the scan mints ids best-effort and leaves an item untouched when
+              allocation fails — and the path used to cover that case before it
+              left the crumb, so the file name stands in rather than a header
+              that says only "4m ago". */}
+          <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
+            {selected.displayId ?? basename(selected.relativePath)}
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
           {/* The status WORD is gone (MC-1923): the glyph beside it already says
-              the state, and its tooltip names it — so the crumb reads
-              `MC-1824 · 4m ago` and nothing it says twice. The path went with it;
-              it is long, truncated, and not identity — the id is. It stays
-              readable from the menu ("Copy path") and from Reveal in Files. */}
+              the state, and now carries it as an accessible name — so the crumb
+              reads `MC-1824 · 4m ago` and nothing it says twice. The path went
+              with it; it is long, truncated, and not identity. It stays readable
+              from the menu ("Copy path") and from Reveal in Files. */}
           <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex shrink-0">
             <span className="whitespace-nowrap tabular-nums">
               {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
@@ -2476,14 +2484,17 @@ export function BacklogDetail({
               // here they free the row down to the primary action + this menu.
               { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
               { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
-              // Where the path went when it left the crumb (MC-1923). The
-              // shortcut slot carries the path itself, so it is READABLE here,
-              // not just copyable.
+              // Where the path went when it left the crumb (MC-1923). Through
+              // the app's own clipboard bridge: an Electron renderer has no
+              // permission-free `navigator.clipboard`, so that path was a
+              // silent no-op. The ABSOLUTE path, matching the two rows above it
+              // — a relative path is ambiguous across projects on a door.
               {
                 id: 'copy-path',
                 label: 'Copy path',
-                shortcut: selected.relativePath,
-                onSelect: () => void navigator.clipboard?.writeText(selected.relativePath),
+                onSelect: () => {
+                  void window.api?.clipboardWriteText?.(selected.path)
+                },
               },
               // Same Send-to-agent flyout as the row's right-click menu (shared
               // choice list, liveness refresh on open, shared send path), so an

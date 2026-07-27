@@ -401,6 +401,54 @@ run('a step the board resolved is never marked unresolved, even mid-edit', () =>
   assert.equal(plan.bands.flatMap((b) => b.rows)[0].unresolved, false)
 })
 
+run('a step in a project this Multicode cannot read is unreadable, not stale', () => {
+  const lanes = parseRoadmap(
+    ['---', 'type: roadmap', 'projects:', '  mobile: /repo/mobile', '---', '## Delivery', '- mobile:backlog/x.md', ''].join('\n'),
+  ).lanes
+  // The library scanned only the home project, so there is no display entry —
+  // but the file is probably fine and telling the author to delete it is wrong.
+  const plan = buildHorizonPlan(input({ lanes, resolvableProjects: new Set([null]) }))
+  const row = plan.bands.flatMap((band) => band.rows)[0]
+  assert.equal(row.projectUnavailable, true)
+  assert.equal(row.unresolved, false, 'a project we cannot read says nothing about the file')
+})
+
+run('a stale ref in a project we CAN read is still marked stale', () => {
+  const plan = buildHorizonPlan(
+    input({ lanes: lanesOf('## Delivery\n- backlog/ghost.md\n'), resolvableProjects: new Set([null]) }),
+  )
+  const row = plan.bands.flatMap((band) => band.rows)[0]
+  assert.equal(row.unresolved, true)
+  assert.equal(row.projectUnavailable, false)
+})
+
+run('a track stalled on a prerequisite says so, with no button it cannot honour', () => {
+  const lanes = lanesOf('## Delivery\n- backlog/one.md\n')
+  const plan = buildHorizonPlan(
+    input({
+      lanes,
+      boardLanes: [
+        boardLane('Delivery', [unit({ ref: 'backlog/one.md', state: 'up_next' })], {
+          reason: 'blocked',
+          attention: 'none',
+        }),
+      ],
+    }),
+  )
+  const notice = plan.bands.flatMap((band) => band.rows)[0].notice
+  assert.equal(notice?.kind, 'blocked')
+  assert.match(notice?.message ?? '', /waiting on work it depends on/)
+  assert.equal(notice?.actionLabel, undefined, 'the fix is in the backlog, not a button here')
+})
+
+run('an ordinary eligible track raises no notice at all', () => {
+  const lanes = lanesOf('## Delivery\n- backlog/one.md\n')
+  const plan = buildHorizonPlan(
+    input({ lanes, boardLanes: [boardLane('Delivery', [unit({ ref: 'backlog/one.md', state: 'up_next' })])] }),
+  )
+  assert.equal(plan.bands.flatMap((band) => band.rows)[0].notice, undefined)
+})
+
 if (failures > 0) {
   console.error(`${failures} test(s) failed`)
   process.exit(1)

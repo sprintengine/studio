@@ -68,6 +68,7 @@ function render({
   boardLanes = [],
   selectedRef = null,
   cursorRef = null,
+  selectedHasRunStrip = false,
   showProjectTag = false,
   steering = STEERING,
 }: {
@@ -75,6 +76,7 @@ function render({
   boardLanes?: RoadmapBoardLane[]
   selectedRef?: string | null
   cursorRef?: string | null
+  selectedHasRunStrip?: boolean
   showProjectTag?: boolean
   steering?: HorizonSteering
 }): string {
@@ -93,6 +95,7 @@ function render({
       lanes={lanes}
       selectedRef={selectedRef}
       cursorRef={cursorRef}
+      selectedHasRunStrip={selectedHasRunStrip}
       onSelect={() => undefined}
       showProjectTag={showProjectTag}
       rosters={[]}
@@ -220,9 +223,14 @@ run('the selected step does not restate the merge action its detail already carr
   ]
   assert.match(render({ lanes, boardLanes }), /Approve &amp; merge/, 'an unselected step still shows it')
   assert.doesNotMatch(
-    render({ lanes, boardLanes, selectedRef: 'backlog/one.md' }),
+    render({ lanes, boardLanes, selectedRef: 'backlog/one.md', selectedHasRunStrip: true }),
     /Approve &amp; merge/,
     'the selected step’s detail pane is the louder home for it',
+  )
+  assert.match(
+    render({ lanes, boardLanes, selectedRef: 'backlog/one.md', selectedHasRunStrip: false }),
+    /Approve &amp; merge/,
+    'but only when that pane actually mounted a run strip — otherwise this is the only way to merge',
   )
 })
 

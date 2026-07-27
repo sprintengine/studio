@@ -68,6 +68,8 @@ function step(overrides: Partial<HorizonStepRow> = {}): HorizonStepRow {
     projectKey: null,
     projectName: 'multicode',
     roster: { label: 'No roles', overridden: false, missing: false },
+    unresolved: false,
+    projectUnavailable: false,
     ...overrides,
   }
 }

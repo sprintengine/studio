@@ -103,24 +103,49 @@ export function useRoadmapPlanDraft({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on content; `dirty` is read as a guard, not a trigger
   }, [relativePath, sourceContent])
 
+  // The file the current draft belongs to. Updated only by the switch effect
+  // below, so during the render where the horizon changes it still names the
+  // OUTGOING file — which is exactly what the pending write needs.
+  const lastPathRef = useRef(relativePath)
+  // The horizon a write is in flight for, so a switch does not write the same
+  // draft a second time and a resolution can tell whether it is still current.
+  const inFlightRef = useRef<string | null>(null)
+
   // What a pending write needs, captured so a save can target the file the edits
   // were made to even after the surface has moved on to another horizon.
+  //
+  // The guard is load-bearing. `path` is a PROP and `draft` is STATE, so on the
+  // render where the rail switches to horizon B, `path` is already B's while
+  // `draft` is still A's — recording that pair would flush A's plan into B's
+  // file, replacing B's tracks with A's and losing both. Only record while the
+  // two still describe the same horizon.
   const pendingRef = useRef({ path, baseline, draft, dirty })
-  pendingRef.current = { path, baseline, draft, dirty }
+  if (relativePath === lastPathRef.current) {
+    pendingRef.current = { path, baseline, draft, dirty }
+  }
 
   // A different horizon file entirely. The hook stays MOUNTED across a rail
   // switch, so the unmount flush cannot cover this: flush the outgoing file's
   // unsaved edits against ITS OWN path first, then adopt the new one. Without
   // this, dragging a step and switching horizons inside the autosave debounce
   // silently discarded the drag.
-  const lastPathRef = useRef(relativePath)
   useEffect(() => {
-    if (lastPathRef.current === relativePath) return
+    const outgoingRelative = lastPathRef.current
+    if (outgoingRelative === relativePath) return
     lastPathRef.current = relativePath
     const outgoing = pendingRef.current
     const outgoingContent = baselineContentRef.current
-    if (outgoing.dirty && outgoing.path) {
-      void writePlan(outgoing.path, outgoing.baseline, outgoing.draft, outgoingContent)
+    // Skip when a save for that same file is already in flight: `dirty` stays
+    // true until the write resolves, so without this the switch writes the
+    // identical draft a second time.
+    if (outgoing.dirty && outgoing.path && inFlightRef.current !== outgoingRelative) {
+      // Best-effort, and it must stay that way: the surface has already moved
+      // to another horizon, so there is nowhere honest to show an error about
+      // the one just left. It is logged rather than swallowed — and rather than
+      // left as an unhandled rejection, which is how this read before review.
+      void writePlan(outgoing.path, outgoing.baseline, outgoing.draft, outgoingContent).catch((error) => {
+        console.error('[horizon] the plan edits for %s could not be flushed on switch', outgoing.path, error)
+      })
     }
     const nextBaseline = draftFromRoadmap(parseRoadmap(sourceContent))
     baselineContentRef.current = sourceContent
@@ -145,21 +170,36 @@ export function useRoadmapPlanDraft({
   const lastFailedDraftRef = useRef<RoadmapDraft | null>(null)
 
   const save = useCallback(async () => {
+    // The horizon this write belongs to, so its RESOLUTION can tell whether the
+    // surface has moved on since it started.
+    const writingFor = relativePath
+    inFlightRef.current = writingFor
     setSaving(true)
     setSaveError(null)
     try {
       const content = await writePlan(path, baseline, draft, baselineContentRef.current)
+      // A write that lands after the rail moved to another horizon must not
+      // touch this hook's state: installing horizon A's draft as B's baseline
+      // left B reading "Unsaved edits…" forever and made its next save compose
+      // against a foreign baseline. The file itself is written either way, and
+      // the host still re-scans.
+      if (lastPathRef.current !== writingFor) {
+        onSaved(content)
+        return
+      }
       baselineContentRef.current = content
       lastFailedDraftRef.current = null
       setBaseline(draft)
       onSaved(content)
     } catch (error) {
+      if (lastPathRef.current !== writingFor) return
       lastFailedDraftRef.current = draft
       setSaveError(error instanceof Error ? error.message : String(error))
     } finally {
+      if (inFlightRef.current === writingFor) inFlightRef.current = null
       setSaving(false)
     }
-  }, [baseline, draft, onSaved, path])
+  }, [baseline, draft, onSaved, path, relativePath])
 
   const saveRef = useRef(save)
   saveRef.current = save

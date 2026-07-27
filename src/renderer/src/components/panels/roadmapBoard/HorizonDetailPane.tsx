@@ -20,6 +20,7 @@
 import { useMemo } from 'react'
 
 import { GhostButton, LifecycleGlyph, PrimaryButton, Spinner, TruncatedText } from '../../ui'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { BacklogItemDetailPane } from '../../backlog/BacklogItemDetailPane'
 import { RoadmapPullRequests } from './RoadmapPullRequests'
 import { useLaneRun } from './roadmapBoardData'
@@ -176,6 +177,8 @@ export function runStripFacts(input: {
   agentsWorking: number
   tasksLeft: number
   loading: boolean
+  /** The projection could not be read — zero tasks means UNKNOWN, not done. */
+  failed?: boolean
   attention: HorizonStepRun['attention']
   pullRequestUrl?: string | null
   pullRequestState?: string | null
@@ -186,7 +189,10 @@ export function runStripFacts(input: {
   }
   if (input.tasksLeft > 0) {
     facts.push(`${input.tasksLeft} ${input.tasksLeft === 1 ? 'task' : 'tasks'} left`)
-  } else if (!input.loading) {
+  } else if (!input.loading && !input.failed) {
+    // Zero tasks left is only 'delivered' when we actually READ the run. A failed
+    // projection read also reports zero, and announcing 'delivered' above the
+    // words "couldn't read this sprint's progress" is the worst kind of wrong.
     facts.push('delivered')
   }
   if (input.pullRequestUrl) {
@@ -237,6 +243,7 @@ function HorizonRunStrip({
     agentsWorking,
     tasksLeft,
     loading,
+    failed: Boolean(error),
     attention: run.attention,
     pullRequestUrl: pullRequest?.pullRequestUrl ?? vcs?.pullRequestUrl ?? null,
     pullRequestState: pullRequest?.pullRequestState ?? vcs?.pullRequestState ?? null,
@@ -267,6 +274,20 @@ function HorizonRunStrip({
           ) : null}
         </span>
         <span className="flex shrink-0 items-center gap-1">
+          {/* The pull request, as a LINK. The strip names it either way, but a
+              single-repo run gets no `RoadmapPullRequests` below (there is no
+              merge order to express), so without this the common case reads
+              a waiting pull request as dead text with no way to reach it. */}
+          {pullRequest?.pullRequestUrl ?? vcs?.pullRequestUrl ? (
+            <a
+              href={(pullRequest?.pullRequestUrl ?? vcs?.pullRequestUrl) as string}
+              target="_blank"
+              rel="noreferrer"
+              className={`interactive inline-flex h-6 shrink-0 items-center rounded-[5px] px-2 text-[11px] font-medium text-[color:var(--accent-primary)] hover:underline ${FOCUS_RING_CLASS}`}
+            >
+              View PR
+            </a>
+          ) : null}
           {canOpenRun ? (
             <GhostButton size="xs" onClick={() => onOpenRun(run.statePath)}>
               Open sprint

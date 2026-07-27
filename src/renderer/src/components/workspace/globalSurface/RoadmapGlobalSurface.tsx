@@ -495,10 +495,14 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   // The tag is earned only by a horizon that actually spans projects — repeating
   // one project's name on every row of a single-project plan is the noise the
   // density pass removed.
-  const spansProjects = useMemo(
-    () => plan.draft.lanes.some((lane) => lane.entries.some((entry) => entry.projectKey !== null)),
-    [plan.draft.lanes],
-  )
+  const spansProjects = useMemo(() => {
+    // Distinct projects, not "any step outside the home project": a horizon
+    // whose work all lives in ONE non-home project spans nothing, and tagging
+    // every row with the same name is the noise the density pass removed.
+    const keys = new Set<ProjectKey>()
+    for (const lane of plan.draft.lanes) for (const entry of lane.entries) keys.add(entry.projectKey)
+    return keys.size > 1
+  }, [plan.draft.lanes])
 
   const horizonPlan = useMemo(
     () =>
@@ -515,6 +519,10 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           ...savedRosters.map((roster) => roster.name.trim().toLowerCase()),
         ]),
         defaultRosterLabel: NO_ROLES_ROSTER_NAME,
+        // The projects the library actually scanned. A step outside them is
+        // unreadable, not stale — the row must not tell the author to delete a
+        // healthy step while the detail pane says the project is simply closed.
+        resolvableProjects: new Set(library.projects.map((project) => project.projectKey)),
         driftByRef,
       }),
     [
@@ -526,6 +534,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       refDisplay,
       projectNameByKey,
       savedRosters,
+      library.projects,
       driftByRef,
     ],
   )
@@ -559,6 +568,28 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       openInProject(project.path, relativePath)
     },
     [projectByKey, openInProject],
+  )
+
+  // Renaming the horizon itself. The retired editor had an inline title field
+  // (MC-1926 removed the screen but did not record dropping it); without this a
+  // horizon is stuck with the name it was created with unless the markdown is
+  // hand-edited. It writes the draft's own title, so it rides the same autosave.
+  const handleRenameHorizon = useCallback(
+    async (currentTitle: string) => {
+      const next = await dialog.prompt({
+        title: 'Rename horizon',
+        inputLabel: 'Horizon name',
+        initialValue: currentTitle,
+        confirmLabel: 'Rename',
+        required: true,
+        validate: (value) => (value.trim().length === 0 ? 'A name is required.' : null),
+      })
+      if (next === null) return
+      const trimmed = next.trim()
+      if (!trimmed || trimmed === currentTitle) return
+      plan.update((draft) => ({ ...draft, title: trimmed }))
+    },
+    [dialog, plan],
   )
 
   const handleRenameTrack = useCallback(
@@ -796,6 +827,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         onRetrySave: () => void plan.save(),
         policy: plan.draft.policy,
         onPolicy: plan.setPolicy,
+        onRenameHorizon: () => void handleRenameHorizon(plan.draft.title ?? selectedFile.title),
         rosters: savedRosters,
         onManageRosters: () => setRosterManagerOpen(true),
       })
@@ -901,7 +933,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
               kind="error"
               title="Couldn’t read this horizon."
               hint="This is usually temporary."
-              detail={error ?? undefined}
+              detail={[effectiveSelectedRef, error].filter(Boolean).join(' — ') || undefined}
               onRetry={reload}
             />
           ) : !planItem ? (
@@ -946,6 +978,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                 steering={steering}
                 onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
                 onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
+                selectedHasRunStrip={selectedRun !== null}
               />
               {/* Two modes, ONE slot — never a fourth column. */}
               {backlogOpen ? (
@@ -954,7 +987,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                   plannedRefs={plannedRefs}
                   canAdd={plan.draft.lanes.length > 0}
                   onClose={() => setBacklogOpen(false)}
-                  onAdd={(ref) => addRef(0, ref)}
+                  onAdd={(ref) => addRef(selectedStep?.laneIndex ?? 0, ref)}
                   onDragStart={setLibraryDrag}
                   onDragEnd={() => setLibraryDrag(null)}
                 />
@@ -1045,6 +1078,7 @@ function buildBar(
     /** The horizon's execution policy — live controls, not a separate screen. */
     policy: RoadmapPolicy
     onPolicy: (patch: Partial<RoadmapPolicy>) => void
+    onRenameHorizon: () => void
     rosters: ReadonlyArray<SprintEngineRoster>
     onManageRosters: () => void
   },
@@ -1086,6 +1120,7 @@ function buildBar(
         <HorizonPolicyMenu
           policy={handlers.policy}
           onChange={handlers.onPolicy}
+          onRenameHorizon={handlers.onRenameHorizon}
           rosters={handlers.rosters}
           onManageRosters={handlers.onManageRosters}
         />
@@ -1122,11 +1157,13 @@ function HorizonPolicyMenu({
   onChange,
   rosters,
   onManageRosters,
+  onRenameHorizon,
 }: {
   policy: RoadmapPolicy
   onChange: (patch: Partial<RoadmapPolicy>) => void
   rosters: ReadonlyArray<SprintEngineRoster>
   onManageRosters: () => void
+  onRenameHorizon: () => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
@@ -1157,6 +1194,15 @@ function HorizonPolicyMenu({
       )}
     >
       <div className="flex flex-col gap-3">
+        <GhostButton
+          className="self-start"
+          onClick={() => {
+            setOpen(false)
+            onRenameHorizon()
+          }}
+        >
+          Rename horizon…
+        </GhostButton>
         <PolicyControl label="After a step finishes">
           <SegmentedControl
             ariaLabel="After a step finishes"

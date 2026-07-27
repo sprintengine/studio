@@ -23,7 +23,7 @@
 // one action that clears it. This is where the deleted "Waiting on you" strip's
 // job now lives (MC-1922).
 
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ContextMenu,
@@ -134,6 +134,11 @@ export type HorizonPlanColumnProps = {
   onRemoveTrack: (laneIndex: number) => void
   /** The keyboard cursor's step ref (MC-1925), distinct from the selection. */
   cursorRef?: string | null
+  /** The selected step's detail is showing a run strip, which carries the same
+   *  merge action louder. ONLY then is the row's merge notice suppressed —
+   *  the notice is attached by fallback when the track names no active item, and
+   *  suppressing it blindly removed the only way to merge. */
+  selectedHasRunStrip?: boolean
 }
 
 type DragOrigin = { lane: number; index: number } | null
@@ -159,6 +164,7 @@ export function HorizonPlanColumn({
   onRenameTrack,
   onRemoveTrack,
   cursorRef = null,
+  selectedHasRunStrip = false,
 }: HorizonPlanColumnProps): JSX.Element {
   const [drag, setDrag] = useState<DragOrigin>(null)
   const [over, setOver] = useState<DropTarget>(null)
@@ -171,6 +177,13 @@ export function HorizonPlanColumn({
   // so a pointer-driven surface shows no ring it did not ask for.
   const [ownCursor, setOwnCursor] = useState<string | null>(null)
   const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
+  // A step whose row must regain focus after the re-render a reorder causes.
+  const [refocus, setRefocus] = useState<string | null>(null)
+  useEffect(() => {
+    if (!refocus) return
+    rowRefs.current.get(refocus)?.focus()
+    setRefocus(null)
+  }, [refocus])
 
   const dropActive = drag !== null || libraryDragRef !== null
 
@@ -207,9 +220,20 @@ export function HorizonPlanColumn({
   const moveByKey = useCallback(
     (row: HorizonStepRow, direction: -1 | 1) => {
       const { laneIndex, entryIndex } = row
+      // Nothing goes in front of the step a sprint is executing. Drag already
+      // refuses this (the `Now` band accepts no drops); without the same floor
+      // here, one keystroke wrote an order the pointer cannot produce.
+      const laneRows = plan.bands.filter((band) => band.laneIndex === laneIndex).flatMap((band) => band.rows)
+      const floor = laneRows.reduce(
+        (highest, candidate) => (candidate.state === 'running' ? Math.max(highest, candidate.entryIndex + 1) : highest),
+        // Delivered steps are not in any band, so the first OPEN entry index is
+        // the floor: pushing a step above one would re-open finished work and
+        // strip its pull request out of the Delivered footer.
+        laneRows.length > 0 ? Math.min(...laneRows.map((candidate) => candidate.entryIndex)) : 0,
+      )
       let dest: { lane: number; index: number } | null = null
       if (direction === -1) {
-        if (entryIndex > 0) dest = { lane: laneIndex, index: entryIndex - 1 }
+        if (entryIndex > floor) dest = { lane: laneIndex, index: entryIndex - 1 }
         else if (laneIndex > 0) dest = { lane: laneIndex - 1, index: lanes[laneIndex - 1].entries.length }
       } else if (entryIndex < (lanes[laneIndex]?.entries.length ?? 0) - 1) {
         dest = { lane: laneIndex, index: entryIndex + 2 }
@@ -226,8 +250,12 @@ export function HorizonPlanColumn({
           break
         }
       }
+      // Crossing a band or a track remounts the row button; without this the
+      // focus lands on <body>, outside the section that owns the key handler, and
+      // the keyboard layer works exactly once per click.
+      setRefocus(row.ref)
     },
-    [lanes, onLanes],
+    [lanes, onLanes, plan.bands],
   )
 
   const handleKeyDown = useCallback(
@@ -335,6 +363,7 @@ export function HorizonPlanColumn({
               trackCount={trackCount}
               selectedRef={selectedRef}
               cursorRef={cursor}
+              selectedHasRunStrip={selectedHasRunStrip}
               rowRefs={rowRefs}
               showProjectTag={showProjectTag}
               rosters={rosters}
@@ -394,6 +423,7 @@ function PlanBand({
   trackCount,
   selectedRef,
   cursorRef,
+  selectedHasRunStrip,
   rowRefs,
   showProjectTag,
   rosters,
@@ -421,6 +451,7 @@ function PlanBand({
   trackCount: number
   selectedRef: string | null
   cursorRef: string | null
+  selectedHasRunStrip: boolean
   rowRefs: React.MutableRefObject<Map<string, HTMLButtonElement | null>>
   showProjectTag: boolean
   rosters: ReadonlyArray<SprintEngineRoster>
@@ -524,7 +555,7 @@ function PlanBand({
           </li>
         ) : null}
         {band.rows.map((row) => (
-          <li key={row.key} className="list-none">
+          <li key={row.ref} className="list-none">
             {showDrop && over?.index === row.entryIndex ? <DropIndicator /> : null}
             <StepRow
               row={row}
@@ -546,9 +577,12 @@ function PlanBand({
               <DriftAffordance drift={row.drift} onResync={() => onResyncEpic(row.laneIndex, row.entryIndex)} />
             ) : null}
             {/* The selected step's merge action is already the loud primary in
-                the detail pane 400px right; restating it here is the noise this
-                surface is removing. Every other attention still shows. */}
-            {row.notice && !(row.ref === selectedRef && row.notice.kind === 'merge') ? (
+                the detail pane 400px right, but ONLY when that pane actually
+                mounted a run strip for it — the notice can be attached by
+                fallback to a step the detail will not claim, and suppressing it
+                then removed the only way to merge. */}
+            {row.notice
+            && !(row.ref === selectedRef && row.notice.kind === 'merge' && selectedHasRunStrip) ? (
               <StepNotice row={row} steering={steering} />
             ) : null}
           </li>
@@ -633,18 +667,24 @@ function StepRow({
         {/* Only a genuinely live run animates; a queued step's glyph is static.
             A ref that resolves to nothing reads blocked, whatever its position. */}
         <LifecycleGlyph
-          state={row.unresolved ? 'blocked' : roadmapUnitLifecycle[row.state]}
-          live={!row.unresolved && row.state === 'running'}
+          state={row.unresolved || row.projectUnavailable ? 'blocked' : roadmapUnitLifecycle[row.state]}
+          live={!row.unresolved && !row.projectUnavailable && row.state === 'running'}
           className="shrink-0"
         />
-        {row.unresolved ? (
-          // Surfaced, never silently dropped: the raw ref is what the author
-          // needs to fix the horizon file or remove the step.
+        {row.unresolved || row.projectUnavailable ? (
+          // Surfaced, never silently dropped — but the two cases are different
+          // problems and must not read the same. A step whose PROJECT is closed
+          // is probably fine; telling the author to remove it would be wrong,
+          // and the detail pane says the opposite 400px to the right.
           <span
             className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-disabled)]"
-            title={`No backlog item matches “${row.ref}”. Remove the stale step, or create the item.`}
+            title={
+              row.projectUnavailable
+                ? `${row.projectName} is not open in this Multicode, so this step cannot be read.`
+                : `No backlog item matches “${row.ref}”. Remove the stale step, or create the item.`
+            }
           >
-            Unknown · {row.ref}
+            {row.projectUnavailable ? `Not open · ${row.projectName}` : `Unknown · ${row.ref}`}
           </span>
         ) : (
           <span
@@ -713,7 +753,7 @@ function StepNotice({ row, steering }: { row: HorizonStepRow; steering: HorizonS
   const act = (): void => {
     if (notice.kind === 'paused') steering.onResume(row.laneTitle)
     else if (notice.kind === 'approval') steering.onApprove(row.laneTitle)
-    else steering.onMerge(row.laneTitle)
+    else if (notice.kind === 'merge') steering.onMerge(row.laneTitle)
   }
   return (
     <div className="mb-1.5 ml-[25px] mr-2 mt-0.5 flex items-start gap-2 rounded-r-[5px] border-l-2 border-[color:var(--tone-warn)] bg-[color:var(--tone-warn-soft)] px-2.5 py-1.5">
@@ -728,9 +768,14 @@ function StepNotice({ row, steering }: { row: HorizonStepRow; steering: HorizonS
           </p>
         ) : null}
       </div>
-      <PrimaryButton size="xs" disabled={busy} onClick={act} className="shrink-0">
-        {notice.actionLabel}
-      </PrimaryButton>
+      {/* Only when there IS one action. A track stalled on a prerequisite is
+          fixed in the backlog, not here, so it states the reason and offers no
+          button rather than a control that cannot help. */}
+      {notice.actionLabel ? (
+        <PrimaryButton size="xs" disabled={busy} onClick={act} className="shrink-0">
+          {notice.actionLabel}
+        </PrimaryButton>
+      ) : null}
     </div>
   )
 }
@@ -796,7 +841,7 @@ function DeliveredFooter({
       {open ? (
         <ul className="max-h-[40vh] overflow-y-auto pb-1">
           {delivered.rows.map((row) => (
-            <li key={row.key} className="list-none">
+            <li key={row.ref} className="list-none">
               <div className="group/step relative flex">
                 <button
                   type="button"

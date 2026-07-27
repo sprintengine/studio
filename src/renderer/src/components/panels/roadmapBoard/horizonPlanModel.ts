@@ -50,7 +50,7 @@ export type HorizonStepRoster = {
 // The attention a track is holding, attached to the step it happened to. This is
 // where the deleted "Waiting on you" strip's job now lives (MC-1922): a reason
 // beside the control that resolves it, never a list away from the work.
-export type HorizonStepNoticeKind = 'paused' | 'approval' | 'merge'
+export type HorizonStepNoticeKind = 'paused' | 'approval' | 'merge' | 'blocked'
 
 export type HorizonStepNotice = {
   kind: HorizonStepNoticeKind
@@ -58,8 +58,11 @@ export type HorizonStepNotice = {
   message: string
   /** The underlying reason (the project, the branch, the failure), when known. */
   detail?: string
-  /** The one action that clears it. */
-  actionLabel: string
+  /** The one action that clears it, when there is one. A track stalled on a
+   *  prerequisite has none — the fix is in the backlog, not on this surface —
+   *  so the notice states the reason and offers no button rather than a
+   *  control that cannot help. */
+  actionLabel?: string
 }
 
 export type HorizonStepRow = {
@@ -88,6 +91,11 @@ export type HorizonStepRow = {
    *  silently dropped (Fallback Discipline) — a stale step the author can act on
    *  beats a row that looks ordinary and parks the track when it is reached. */
   unresolved: boolean
+  /** …but its PROJECT is not open, so the file may be perfectly fine and we
+   *  simply cannot see it. A different problem with a different fix, and the
+   *  detail pane already says so — the row must not contradict it by calling a
+   *  healthy step stale. */
+  projectUnavailable: boolean
 }
 
 export type HorizonBandKind =
@@ -136,6 +144,9 @@ export type HorizonPlanInput = {
    *  The caller includes the built-in default's own name, so deliberately
    *  choosing "No roles" is never marked missing. */
   knownRosterNames: ReadonlySet<string>
+  /** The projects this Multicode can actually read (home is always in it). A
+   *  step outside this set is unreadable, not stale. */
+  resolvableProjects?: ReadonlySet<ProjectKey>
   /** The name shown when nothing is chosen (the built-in default). */
   defaultRosterLabel: string
   /** Epic drift by authored ref, when the host resolved it. */
@@ -174,6 +185,9 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
     const rows = lane.entries.map((entry, entryIndex) => {
       const unit = unitByRef.get(entry.ref)
       const display = input.refDisplay.get(entry.ref)
+      const projectReadable =
+        unit?.state !== 'unknown_project'
+        && (input.resolvableProjects === undefined || input.resolvableProjects.has(entry.projectKey))
       const rosterName = resolveEntryRoster(entry, { roster: input.policyRoster })
       const missing =
         rosterName !== undefined && !input.knownRosterNames.has(rosterName.trim().toLowerCase())
@@ -208,8 +222,10 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
         ...(unit?.prUrl ? { prUrl: unit.prUrl } : {}),
         // The board resolves an item's status only when it found the file; the
         // display map is the draft-side equivalent. Neither means the ref points
-        // at nothing we can see.
-        unresolved: unit?.itemStatus === undefined && display === undefined,
+        // at nothing we can see — but only counts as STALE when the project is
+        // one we can read in the first place.
+        unresolved: unit?.itemStatus === undefined && display === undefined && projectReadable,
+        projectUnavailable: !projectReadable,
       }
       const drift = input.driftByRef?.get(entry.ref)
       if (drift) row.drift = drift
@@ -284,9 +300,25 @@ function resolveChildRef(child: string, inherited: ProjectKey): string {
 // lifted, and falls back to the first open row so a reason is never lost — a
 // pause a person cannot see is the same defect as a pause they cannot act on.
 function attachAttention(rows: HorizonStepRow[], board: RoadmapBoardLane | undefined): void {
-  if (!board || board.attention === 'none') return
+  if (!board) return
   const openRows = rows.filter((row) => row.state !== 'done')
   if (openRows.length === 0) return
+
+  // A track can be stalled without WAITING on anyone: its frontier's backlog
+  // prerequisite is unfinished, so the orchestrator will not start it and there
+  // is nothing here to approve, merge or resume. `attention` is `none` for this,
+  // which is why it reads as an ordinary ready step — a plan that simply is not
+  // moving, with no reason anywhere. The retired editor said "Blocked" beside
+  // the track name; the reason belongs on the step instead.
+  if (board.attention === 'none') {
+    if (board.reason === 'blocked') {
+      openRows[0].notice = {
+        kind: 'blocked',
+        message: 'This step is waiting on work it depends on. Finish that first, or drop the prerequisite.',
+      }
+    }
+    return
+  }
 
   if (board.attention === 'paused' && board.parked) {
     const target = rows.find((row) => row.state === 'paused') ?? openRows[0]

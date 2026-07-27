@@ -242,8 +242,15 @@ export function addLane(lanes: RoadmapLane[], title = DEFAULT_TRACK_TITLE): Road
   return [...lanes, { title: uniqueLaneTitle(lanes, title), entries: [] }]
 }
 
+// A track TITLE is an identity, not a label: the board joins runtime to plan by
+// it, eligibility is keyed by it, and the orchestrator stores one runtime per
+// title. Two tracks sharing a name collapse all three onto one.  and
+//  always went through ; renaming did not, so it was
+// the one way to mint a duplicate.
 export function renameLane(lanes: RoadmapLane[], laneIndex: number, title: string): RoadmapLane[] {
-  return lanes.map((lane, index) => (index === laneIndex ? { ...lane, title } : lane))
+  const others = lanes.filter((_, index) => index !== laneIndex)
+  const unique = uniqueLaneTitle(others, title)
+  return lanes.map((lane, index) => (index === laneIndex ? { ...lane, title: unique } : lane))
 }
 
 export function removeLane(lanes: RoadmapLane[], laneIndex: number): RoadmapLane[] {
