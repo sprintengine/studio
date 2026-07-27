@@ -105,7 +105,7 @@ export type AutomationBackends = {
    * The instance roadmap's read + plan + steer surface (MC-1693), resolved lazily
    * like the Automations front door (the orchestrator boots with the Automations
    * module, after these tools are constructed). Null while that module is disabled
-   * or not yet loaded — the roadmap.* tools report that explicitly.
+   * or not yet loaded — the horizon.* tools report that explicitly.
    */
   getRoadmapFrontDoor(): RoadmapAppFrontDoor | null
   /** Absolute run.yaml paths under <root>/.multi-code/sprintengine, newest first. */
@@ -1847,8 +1847,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  // --- Roadmap tools (MC-1693): agents read, plan, and steer the ONE instance
-  //     roadmap through the same sanctioned paths the global surface offers a human.
+  // --- Horizon tools (MC-1693; renamed roadmap.* -> horizon.* by MC-1901):
+  //     agents read, create, configure, plan, and steer the ONE instance
+  //     horizon through the same sanctioned paths the global surface offers a
+  //     human. The PUBLISHED names are `horizon.*` because Horizon is the
+  //     product name and MCP tool names are agent-facing surface; the internal
+  //     module id, file paths, store keys and orchestrator symbols stay
+  //     `roadmap`. Pre-release, so the rename is outright — no aliases, no
+  //     compat shims.
   //     The roadmap is instance-global (its home project is an app setting), so these
   //     tools take no workspaceId except add_step, where it names the source project
   //     for a cross-project step. ---
@@ -1857,7 +1863,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     const frontDoor = backends.getRoadmapFrontDoor()
     if (!frontDoor) {
       return failure(
-        'roadmap_module_unavailable',
+        'horizon_module_unavailable',
         'The Roadmap orchestrator is disabled or not loaded in this app session; enable the Roadmap module in Settings → Modules.'
       )
     }
@@ -1872,7 +1878,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   const roadmapStatus: McpToolRegistration = {
-    name: 'roadmap.status',
+    name: 'horizon.status',
     description:
       "Read this Multicode's single instance roadmap — the board model the global surface renders. Each lane lists its "
       + 'steps with the project they belong to, a per-step state (done | running | up_next | queued | paused | unknown | '
@@ -1888,7 +1894,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   const roadmapAddStep: McpToolRegistration = {
-    name: 'roadmap.add_step',
+    name: 'horizon.add_step',
     description:
       'Add a step to the instance roadmap: a backlog item, or an epic as one step (snapshotting its children, matching '
       + 'the UI). By default the item is from the home project that owns the roadmap; pass workspaceId to plan work from '
@@ -1925,20 +1931,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         ...(optionalString(args.lane) ? { lane: optionalString(args.lane) } : {}),
         actor: 'automation',
       })
-      return roadmapResult('roadmap_add_step_failed', outcome, { added: { ref: outcome.ref ?? ref } })
+      return roadmapResult('horizon_add_step_failed', outcome, { added: { ref: outcome.ref ?? ref } })
     },
   }
 
   const roadmapRemoveStep: McpToolRegistration = {
-    name: 'roadmap.remove_step',
+    name: 'horizon.remove_step',
     description:
-      'Remove a top-level step from the instance roadmap by its stored (authored) ref — the `ref` roadmap.status shows '
+      'Remove a top-level step from the instance roadmap by its stored (authored) ref — the `ref` horizon.status shows '
       + 'for the unit (project-qualified for a non-home step, e.g. "mobile:backlog/foo.md"). To drop a single snapshotted '
-      + 'epic child instead, use roadmap.skip with the child ref.',
+      + 'epic child instead, use horizon.skip with the child ref.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'The step\'s authored ref from roadmap.status (e.g. "backlog/foo.md" or "mobile:backlog/foo.md").' },
+        ref: { type: 'string', description: 'The step\'s authored ref from horizon.status (e.g. "backlog/foo.md" or "mobile:backlog/foo.md").' },
       },
       required: ['ref'],
       additionalProperties: false,
@@ -1949,20 +1955,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const ref = requireString(args, 'ref')
       if (typeof ref !== 'string') return ref
       const outcome = await frontDoor.removeStep({ ref, actor: 'automation' })
-      return roadmapResult('roadmap_remove_step_failed', outcome, { removed: { ref } })
+      return roadmapResult('horizon_remove_step_failed', outcome, { removed: { ref } })
     },
   }
 
   const roadmapReorder: McpToolRegistration = {
-    name: 'roadmap.reorder',
+    name: 'horizon.reorder',
     description:
-      "Move a step to a new position in the plan. `ref` is the step's authored ref (from roadmap.status); `toIndex` is "
+      "Move a step to a new position in the plan. `ref` is the step's authored ref (from horizon.status); `toIndex` is "
       + 'its zero-based target position within the destination track. `toLane` moves it to a different track (defaults to '
       + 'its current track). The frontier is re-derived on the next refresh.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'The step\'s authored ref from roadmap.status.' },
+        ref: { type: 'string', description: 'The step\'s authored ref from horizon.status.' },
         toIndex: { type: 'integer', minimum: 0, description: 'Zero-based target position within the destination track.' },
         toLane: { type: 'string', description: 'Destination track heading; defaults to the step\'s current track.' },
       },
@@ -1985,20 +1991,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         ...(optionalString(args.toLane) ? { toLane: optionalString(args.toLane) } : {}),
         actor: 'automation',
       })
-      return roadmapResult('roadmap_reorder_failed', outcome, { reordered: { ref } })
+      return roadmapResult('horizon_reorder_failed', outcome, { reordered: { ref } })
     },
   }
 
   const roadmapSkip: McpToolRegistration = {
-    name: 'roadmap.skip',
+    name: 'horizon.skip',
     description:
       'Skip a step: remove it from the plan so the lane\'s frontier advances past it, recording a reason as an inert audit '
       + 'comment in the roadmap file. Never archives the backlog item (that would read as dangling and pause the lane). '
-      + 'Accepts a top-level step ref or a single snapshotted epic child ref (both from roadmap.status). A reason is required.',
+      + 'Accepts a top-level step ref or a single snapshotted epic child ref (both from horizon.status). A reason is required.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'The step (or epic child) authored ref from roadmap.status.' },
+        ref: { type: 'string', description: 'The step (or epic child) authored ref from horizon.status.' },
         reason: { type: 'string', description: 'Why the step is being skipped (recorded in the roadmap file).' },
       },
       required: ['ref', 'reason'],
@@ -2012,7 +2018,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const reason = requireString(args, 'reason')
       if (typeof reason !== 'string') return reason
       const outcome = await frontDoor.skipStep({ ref, reason, actor: 'automation' })
-      return roadmapResult('roadmap_skip_failed', outcome, { skipped: { ref } })
+      return roadmapResult('horizon_skip_failed', outcome, { skipped: { ref } })
     },
   }
 
@@ -2039,7 +2045,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       inputSchema: {
         type: 'object',
         properties: {
-          lane: { type: 'string', description: 'The lane (track heading) to steer, from roadmap.status.' },
+          lane: { type: 'string', description: 'The lane (track heading) to steer, from horizon.status.' },
           ...(config.extraProperties ?? {}),
         },
         required: ['lane'],
@@ -2058,39 +2064,39 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   const roadmapApprove = roadmapSteerTool({
-    name: 'roadmap.approve',
+    name: 'horizon.approve',
     action: 'approve',
-    failureCode: 'roadmap_approve_failed',
+    failureCode: 'horizon_approve_failed',
     description:
       "Approve the next start for a lane waiting on you (attention \"approval\"). Consumes the lane's pending approval so "
       + 'the orchestrator dispatches the next sprint on its next tick. Fails when the lane has no pending approval.',
   })
   const roadmapMerge = roadmapSteerTool({
-    name: 'roadmap.merge',
+    name: 'horizon.merge',
     action: 'merge',
-    failureCode: 'roadmap_merge_failed',
+    failureCode: 'horizon_merge_failed',
     description:
       "Merge a lane's delivered run (attention \"merge\") through the engine's own single-repo merge primitive — the same "
       + 'action the board offers. The engine re-checks merge order and is idempotent; a refusal (conflict/order/gh) surfaces '
       + 'as the failure message. Fails when the lane has no run to merge.',
   })
   const roadmapPause = roadmapSteerTool({
-    name: 'roadmap.pause',
+    name: 'horizon.pause',
     action: 'pause',
-    failureCode: 'roadmap_pause_failed',
+    failureCode: 'horizon_pause_failed',
     description:
       'Hold a lane at your request: the orchestrator stops advancing/merging/starting-next for it without touching the '
       + 'running sprint. Resume is the only exit. A no-op when the lane is already paused/parked.',
   })
   const roadmapResume = roadmapSteerTool({
-    name: 'roadmap.resume',
+    name: 'horizon.resume',
     action: 'resume',
-    failureCode: 'roadmap_resume_failed',
+    failureCode: 'horizon_resume_failed',
     description:
       'Resume a paused or parked lane. A manual pause continues exactly where it was. A merge park RETRIES the merge rather '
       + 'than abandoning the run. Any other park whose run already DELIVERED refuses, returning confirm '
       + '"replan_delivered_run": re-planning would throw that finished work away, so pass replanDeliveredRun: true to '
-      + 'acknowledge it and start over. Verify the effect with roadmap.status.',
+      + 'acknowledge it and start over. Verify the effect with horizon.status.',
     extraProperties: {
       replanDeliveredRun: {
         type: 'boolean',
@@ -2102,7 +2108,155 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     optionsFrom: (args) => ({ replanDeliveredRun: args.replanDeliveredRun === true }),
   })
 
+  // The policy scalars horizon.create and horizon.configure both accept. Declared
+  // once so the two tools cannot drift on what is settable or how it is described.
+  const HORIZON_POLICY_PROPERTIES = {
+    roster: {
+      type: 'string',
+      description:
+        'Saved ROSTER name every sprint this horizon starts is staffed with (agent configuration — NOT a run name). '
+        + 'Omit for the built-in "No roles" default. A step can override it with its own roster; an unknown name fails '
+        + 'that step\'s start loudly rather than staffing a fallback.',
+    },
+    advance: {
+      type: 'string',
+      enum: ['approve', 'auto'],
+      description: 'Whether the next step waits for your approval ("approve") or starts on its own ("auto").',
+    },
+    merge: {
+      type: 'string',
+      enum: ['manual', 'auto'],
+      description: 'Whether a delivered pull request is merged by a human ("manual") or automatically ("auto").',
+    },
+    concurrency: {
+      type: 'integer',
+      minimum: 1,
+      description: 'How many tracks may execute per project at once. Parsed and preserved; the orchestrator still serializes to one active run per project.',
+    },
+    permissions: {
+      type: 'string',
+      enum: ['default', 'auto_workspace', 'bypass_all'],
+      description:
+        'The CLI permission preset this horizon\'s sprints SPAWN their agents with. Omit for bypass — a horizon runs '
+        + 'unwatched, and a gated agent sits blocked on its first tool call. Applies to sprints not yet started: a live '
+        + "agent's preset can never be changed mid-session.",
+    },
+  } as const
+
+  // Read the policy fields an agent supplied, without inventing any it did not.
+  // Key PRESENCE matters (`roster: null` clears); an absent key is untouched.
+  function horizonPolicyFromArgs(args: Record<string, unknown>): Record<string, unknown> {
+    const policy: Record<string, unknown> = {}
+    for (const key of ['advance', 'merge', 'concurrency', 'permissions'] as const) {
+      if (args[key] !== undefined) policy[key] = args[key]
+    }
+    if ('roster' in args) policy.roster = args.roster === null ? undefined : args.roster
+    return policy
+  }
+
+  const horizonCreate: McpToolRegistration = {
+    name: 'horizon.create',
+    description:
+      'Create a horizon: a named plan whose ordered steps each run as one sprint. Steps are backlog item or epic paths, '
+      + 'validated against the backlog before anything is written, and the file is authored through the same engine the '
+      + 'Horizon editor saves with — so it round-trips byte-identically and you cannot get the frontmatter subtly wrong. '
+      + 'The new horizon becomes the active one.\n\n'
+      + 'SAFETY: it always lands advance "approve", so creating it never spawns agents — the first sprint starts only '
+      + 'after horizon.approve (or the Horizon door). Pass start: true ONLY when the human asked you to begin work now; '
+      + 'that honors your `advance` (defaulting to "auto") and the first sprint dispatches on the next tick.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Horizon name; also seeds its filename.' },
+        steps: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ordered backlog paths in the home project, e.g. ["backlog/foo.md", "backlog/epics/bar.md"]. An epic is ONE step that delivers all its children.',
+        },
+        workspaceId: { type: 'string', description: 'Open workspace to create the horizon in when this Multicode has no home project yet; ignored once a home is configured.' },
+        start: {
+          type: 'boolean',
+          description: 'Begin work immediately instead of waiting for approval. Only pass this when the human explicitly asked to start now.',
+        },
+        ...HORIZON_POLICY_PROPERTIES,
+      },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const name = requireString(args, 'name')
+      if (typeof name !== 'string') return name
+      const invalid = firstInvalidOptionalString(args, ['workspaceId'])
+      if (invalid) return invalid
+      let projectRoot: string | undefined
+      const workspaceId = optionalString(args.workspaceId)
+      if (workspaceId) {
+        const resolved = resolveWorkspaceRoot(workspaceId)
+        if (!('root' in resolved)) return resolved
+        projectRoot = resolved.root
+      }
+      const steps = args.steps
+      if (steps !== undefined && (!Array.isArray(steps) || steps.some((step) => typeof step !== 'string' || !step.trim()))) {
+        return failure('horizon_invalid_steps', 'steps must be an array of non-empty backlog paths.')
+      }
+      const outcome = await frontDoor.createHorizon({
+        name,
+        ...(projectRoot ? { projectRoot } : {}),
+        ...(Array.isArray(steps) ? { steps: steps as string[] } : {}),
+        policy: horizonPolicyFromArgs(args) as Parameters<typeof frontDoor.createHorizon>[0]['policy'],
+        ...(args.start === true ? { start: true } : {}),
+        actor: 'automation',
+      })
+      if (!outcome.ok) return failure('horizon_create_failed', outcome.message)
+      return success({
+        created: {
+          roadmapRef: outcome.roadmapRef,
+          steps: outcome.steps,
+          policy: outcome.policy,
+          // Say plainly whether anything will start, so the agent never has to
+          // infer consent from the absence of an error.
+          startsOnItsOwn: outcome.advance === 'auto',
+        },
+      })
+    },
+  }
+
+  const horizonConfigure: McpToolRegistration = {
+    name: 'horizon.configure',
+    description:
+      "Set the active horizon's policy: which roster staffs its sprints, whether it advances and merges on its own, its "
+      + 'concurrency, and the permission preset its agents spawn with. A frontmatter-only edit — the plan (tracks and '
+      + 'steps) is left byte-identical. Pass only the fields you are changing; pass roster: null to clear it back to the '
+      + 'built-in default. Permission changes apply to sprints not yet started.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...HORIZON_POLICY_PROPERTIES,
+        roster: { ...HORIZON_POLICY_PROPERTIES.roster, type: ['string', 'null'] },
+      },
+      additionalProperties: false,
+    },
+    handler: async (args) => {
+      const frontDoor = roadmapFrontDoorOrFailure()
+      if ('content' in frontDoor) return frontDoor
+      const policy = horizonPolicyFromArgs(args)
+      if (Object.keys(policy).length === 0) {
+        return failure('horizon_configure_empty', 'Name at least one policy field to change (roster, advance, merge, concurrency, permissions).')
+      }
+      const outcome = await frontDoor.configureHorizon({
+        policy: policy as Parameters<typeof frontDoor.configureHorizon>[0]['policy'],
+        actor: 'automation',
+      })
+      if (!outcome.ok) return failure('horizon_configure_failed', outcome.message ?? 'The horizon policy could not be written.')
+      return success({ configured: { policy: outcome.policy } })
+    },
+  }
+
   return [
+    horizonCreate,
+    horizonConfigure,
     roadmapStatus,
     roadmapAddStep,
     roadmapRemoveStep,

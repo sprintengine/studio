@@ -35,7 +35,7 @@ import {
   serializeBacklogFrontmatterFields,
   type BacklogFrontmatterUpdates,
 } from './frontmatter'
-import type { BacklogItemStatusPayload } from '../electron-api'
+import type { BacklogItemStatusPayload, SprintEngineCliPermissionPreset } from '../electron-api'
 
 // The frontmatter `type:` value that marks a file as a roadmap. Deliberately NOT
 // added to the closed `BacklogTypePayload`/`BacklogType` unions: the renderer read
@@ -79,12 +79,40 @@ export type RoadmapPolicy = {
   // with. Unset = the user's last-used roster (the sprint.create default). An
   // unknown name fails the start explicitly, never a silent fallback roster.
   roster?: string
+  // The CLI permission preset every sprint this roadmap starts spawns its agents
+  // with. Unset = bypass (see resolveRoadmapPermissionPreset). A horizon runs
+  // unwatched by definition, so a gated preset stalls it on the first tool call.
+  permissions?: SprintEngineCliPermissionPreset
 }
 
 export const DEFAULT_ROADMAP_POLICY: RoadmapPolicy = {
   advance: 'approve',
   merge: 'manual',
   concurrency: 1,
+}
+
+const PERMISSION_PRESETS: ReadonlySet<string> = new Set<SprintEngineCliPermissionPreset>([
+  'default',
+  'auto_workspace',
+  'bypass_all',
+])
+
+export function isRoadmapPermissionPreset(value: string | undefined): value is SprintEngineCliPermissionPreset {
+  return value !== undefined && PERMISSION_PRESETS.has(value)
+}
+
+// The preset a horizon-started sprint spawns its agents with (MC-1900). An UNSET
+// policy means bypass, not 'default': the whole point of a long-horizon run is
+// that nobody is watching, and a gated agent sits blocked on its first tool call
+// with no one to answer (owner ruling 2026-07-26, from a live failure).
+//
+// The one place this default is applied — the orchestrator and the MCP tools both
+// call it, so what `horizon_status` reports and what a launch actually spawns
+// cannot drift. An explicit non-bypass preset in the file is honored verbatim.
+export function resolveRoadmapPermissionPreset(
+  policy: Pick<RoadmapPolicy, 'permissions'>,
+): SprintEngineCliPermissionPreset {
+  return policy.permissions ?? 'bypass_all'
 }
 
 // One list entry in a lane. `item` and `epic` are decided by the reference path
@@ -111,7 +139,20 @@ export type RoadmapEntry = {
   // verbatim). Empty for item/unknown entries. Each child inherits the entry's
   // project unless it carries its own `alias:` prefix.
   children: string[]
+  // The saved ROSTER name this step overrides the roadmap-wide policy with,
+  // authored as a trailing ` @roster=<name>` annotation on the entry line.
+  // Undefined = inherit (see resolveEntryRoster). Only top-level entries carry
+  // one; a child inherits its entry's roster exactly as it inherits projectKey.
+  roster?: string
 }
+
+// The trailing per-step staffing annotation. Roster names contain spaces
+// ('General agents', 'Mobile UI'), so the name runs to end-of-line rather than
+// being whitespace-delimited:
+//   entry-line := "- " ref ( ws+ "@roster=" roster-name )? EOL
+// The ref itself is still `split(/\s+/)[0]`, so ref handling is untouched and a
+// build without this feature reads the same plan and merely ignores staffing.
+const ROSTER_ANNOTATION_PREFIX = '@roster='
 
 export type RoadmapLane = {
   // The lane heading text (the `## ` line), verbatim.
@@ -135,6 +176,12 @@ export type RoadmapParseIssue = {
     | 'unknown_alias'
     // The `projects:` map declares the same alias more than once.
     | 'duplicate_alias'
+    // A `@roster=` annotation sits on an epic CHILD line. A child inherits its
+    // entry's roster; the sprint is created per step, never per child.
+    | 'roster_on_child'
+    // A `@roster=` annotation with nothing after the `=`. Surfaced rather than
+    // read as "inherit", so a truncated edit is visible instead of silent.
+    | 'empty_roster'
   message: string
 }
 
@@ -252,6 +299,38 @@ function entryKindForRelativePath(relativePath: string): Exclude<RoadmapEntryKin
   return relativePath.startsWith(EPICS_DIR_PREFIX) ? 'epic' : 'item'
 }
 
+// Split a list item's content (everything after `- `) into its ref token and any
+// trailing `@roster=` annotation. `present` distinguishes an absent annotation
+// from an empty one, so `@roster=` with no name raises `empty_roster` instead of
+// silently reading as inherit. Any OTHER trailing text is ignored exactly as it
+// was before this annotation existed — the parser has always kept only the first
+// token, and tightening that here would turn hand-authored notes into issues.
+function splitRosterAnnotation(content: string): { present: boolean; roster: string } {
+  const firstToken = content.split(/\s+/)[0]
+  const remainder = content.slice(firstToken.length).trim()
+  if (!remainder.startsWith(ROSTER_ANNOTATION_PREFIX)) return { present: false, roster: '' }
+  return { present: true, roster: remainder.slice(ROSTER_ANNOTATION_PREFIX.length).trim() }
+}
+
+// The one place the two staffing tiers are combined: a step's own roster wins
+// over the roadmap-wide policy roster, and `undefined` means the built-in
+// default is used downstream. Both the Horizon rows (MC-1882) and the
+// orchestrator (MC-1883) call this — neither re-derives the fallback, so what a
+// row displays and what a launch staffs cannot drift.
+//
+// Structurally typed rather than taking the full `RoadmapEntry`/`RoadmapPolicy`
+// so a UI holding only a draft's roster fields still resolves through this
+// function instead of open-coding a `??` chain.
+export function resolveEntryRoster(
+  entry: Pick<RoadmapEntry, 'roster'>,
+  policy: Pick<RoadmapPolicy, 'roster'>,
+): string | undefined {
+  const entryRoster = entry.roster?.trim()
+  if (entryRoster) return entryRoster
+  const policyRoster = policy.roster?.trim()
+  return policyRoster ? policyRoster : undefined
+}
+
 // ---------------------------------------------------------------------------
 // Parse
 // ---------------------------------------------------------------------------
@@ -303,6 +382,7 @@ export function parseRoadmap(content: string): Roadmap {
     if (!listItem) continue
     const indent = listItem[1].replace(/\t/g, '  ').length
     const rawToken = normalizeRef(listItem[2].split(/\s+/)[0])
+    const annotation = splitRosterAnnotation(listItem[2])
 
     if (indent >= 2) {
       // An indented list item is a snapshotted child of the entry above it.
@@ -313,6 +393,11 @@ export function parseRoadmap(content: string): Roadmap {
       if (currentEntry.kind !== 'epic') {
         issues.push({ line: lineNumber, kind: 'child_under_non_epic', message: `Child "${rawToken}" listed under a non-epic entry "${currentEntry.ref}".` })
         continue
+      }
+      // A child never carries its own staffing — flagged, but still captured, so
+      // a mis-annotated file keeps its plan and only loses the stray override.
+      if (annotation.present) {
+        issues.push({ line: lineNumber, kind: 'roster_on_child', message: `Child "${rawToken}" carries a @roster= annotation; children inherit their step's roster.` })
       }
       currentEntry.children.push(rawToken)
       // A child inheriting an unknown alias (its own or the parent's) is flagged
@@ -337,12 +422,16 @@ export function parseRoadmap(content: string): Roadmap {
     if (resolved.unknownAlias) {
       issues.push({ line: lineNumber, kind: 'unknown_alias', message: `Entry "${rawToken}" uses an undefined project alias.` })
     }
+    if (annotation.present && annotation.roster === '') {
+      issues.push({ line: lineNumber, kind: 'empty_roster', message: `Entry "${rawToken}" has an empty @roster= annotation.` })
+    }
     currentEntry = {
       kind: entryKindForRelativePath(resolved.relativePath),
       ref: resolved.ref,
       projectKey: resolved.projectKey,
       relativePath: resolved.relativePath,
       children: [],
+      ...(annotation.roster ? { roster: annotation.roster } : {}),
     }
     currentLane.entries.push(currentEntry)
   }
@@ -410,7 +499,16 @@ function parseRoadmapPolicy(fields: Record<string, string>): RoadmapPolicy {
   const merge = fields.merge === 'auto' ? 'auto' : 'manual'
   const concurrency = parsePositiveInt(fields.concurrency) ?? DEFAULT_ROADMAP_POLICY.concurrency
   const roster = fields.roster?.trim()
-  return { advance, merge, concurrency, ...(roster ? { roster } : {}) }
+  // An unrecognised `permissions:` value is dropped rather than trusted, so a
+  // typo reads as "unset" (= bypass) instead of resolving to some third thing.
+  const permissions = fields.permissions?.trim()
+  return {
+    advance,
+    merge,
+    concurrency,
+    ...(roster ? { roster } : {}),
+    ...(isRoadmapPermissionPreset(permissions) ? { permissions } : {}),
+  }
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {
@@ -459,6 +557,12 @@ export function setRoadmapPolicy(content: string, updates: Partial<RoadmapPolicy
   // Key presence (not definedness) decides: `{ roster: undefined }` clears the
   // frontmatter scalar, an absent key leaves it untouched.
   if ('roster' in updates) frontmatterUpdates.roster = updates.roster?.trim() ? updates.roster.trim() : null
+  if ('permissions' in updates) {
+    if (updates.permissions !== undefined && !isRoadmapPermissionPreset(updates.permissions)) {
+      throw new Error(`Roadmap permissions must be default, auto_workspace or bypass_all, got ${updates.permissions}.`)
+    }
+    frontmatterUpdates.permissions = updates.permissions ?? null
+  }
   return serializeBacklogFrontmatterFields(content, frontmatterUpdates)
 }
 
@@ -534,7 +638,11 @@ export function renderRoadmapBody(roadmap: Pick<Roadmap, 'title' | 'lanes'>): st
     if (laneIndex > 0) out.push('')
     out.push(`## ${lane.title}`)
     for (const entry of lane.entries) {
-      out.push(`- ${entry.ref}`)
+      // Two spaces before `@` keep the ref visually separate on the line. An
+      // entry without a roster emits exactly what it did before this annotation
+      // existed — no trailing whitespace, so an un-staffed file is byte-stable.
+      const roster = entry.roster?.trim()
+      out.push(roster ? `- ${entry.ref}  ${ROSTER_ANNOTATION_PREFIX}${roster}` : `- ${entry.ref}`)
       for (const child of entry.children) out.push(`  - ${child}`)
     }
   })
@@ -803,6 +911,10 @@ export type RoadmapUnitRef = {
   ref: string
   projectKey: ProjectKey
   relativePath: string
+  // The step's own `@roster=` override, verbatim and UNRESOLVED (MC-1881) —
+  // carried so the orchestrator can resolve staffing at the decision point
+  // without re-looking-up the entry by path. Resolution is `resolveEntryRoster`.
+  roster?: string
 }
 
 export type RoadmapLaneEligibility = {
@@ -832,6 +944,11 @@ export type LaneUnit = {
   // The snapshotted child refs (raw, verbatim) for an epic unit; [] otherwise.
   // Children are display/derivation data — they are NOT dispatched individually.
   children: string[]
+  // The step's own `@roster=` override, verbatim and UNRESOLVED (MC-1881). The
+  // fallback to the roadmap policy is applied by `resolveEntryRoster` at the one
+  // place staffing is decided — carrying the raw value here keeps this flattening
+  // a pure projection of the entry rather than a second resolution site.
+  roster?: string
 }
 
 // The runnable units of a lane: ONE unit per entry. A step is the dispatch
@@ -850,6 +967,7 @@ export function flattenLaneUnits(lane: RoadmapLane): LaneUnit[] {
     relativePath: entry.relativePath,
     kind: entry.kind,
     children: entry.kind === 'epic' ? [...entry.children] : [],
+    ...(entry.roster ? { roster: entry.roster } : {}),
   }))
 }
 
@@ -986,6 +1104,7 @@ export function nextEligible(
     ref: unit.ref,
     projectKey: unit.projectKey,
     relativePath: unit.relativePath,
+    ...(unit.roster ? { roster: unit.roster } : {}),
   })
 
   return roadmap.lanes.map((lane) => {

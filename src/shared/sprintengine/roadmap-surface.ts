@@ -38,6 +38,10 @@ export type RoadmapLaneStateView = {
   activeItemRef?: string
   activeTeamSlug?: string
   activeStatePath?: string
+  // The saved-roster name the active run was STARTED with (MC-1883), frozen at
+  // start. A horizon edited mid-flight must not make the board claim a running
+  // step is staffed by a roster it never launched with.
+  activeRoster?: string
   parked?: { reason: RoadmapParkReason; itemRef: string; at: string; detail?: string }
   pendingApprovalRef?: string
 }

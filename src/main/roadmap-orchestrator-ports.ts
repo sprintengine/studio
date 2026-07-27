@@ -143,7 +143,7 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
       await updateBacklogStatus({ workspaceRoot, relativePath, status })
     },
 
-    startSprint: async ({ workspaceRoot, itemRelativePath, roster }) => {
+    startSprint: async ({ workspaceRoot, itemRelativePath, roster, permissionPreset }) => {
       // The shared plan-sourced creation flow — the same `sprint.create` delegate a
       // human backlog start and sprint chaining use. It creates the workspace, inits
       // the run store (worktree mode), starts the runner, and records the execution
@@ -164,6 +164,11 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
         // merge policy) remains the human checkpoint.
         autoApproveArtifacts: true,
         useWorktrees: true,
+        // A lane sprint is unwatched, so its agents spawn under the horizon's
+        // permission policy (MC-1900) — bypass unless the file says otherwise.
+        // Always sent: an omitted preset would let the delegate pick, and this
+        // is the run's only chance to be bypass (spawn-time-only, MC-1808).
+        permissionPreset,
         ...(roster ? { rosterName: roster } : {}),
       })
       return response.ok ? { ok: true } : { ok: false, message: response.message }

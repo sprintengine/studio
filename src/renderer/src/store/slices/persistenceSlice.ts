@@ -38,7 +38,7 @@ import {
 import {
   defaultAppSettings,
   normalizeAppSettings,
-  normalizeCliPermissionPreset,
+  normalizeAgentSpawnPermissionPreset,
   normalizeRecentWorkspaceFolders,
   normalizeSearchExcludes,
   normalizeSprintEngineRunSettings,
@@ -698,7 +698,7 @@ export function migratePersistedWorkspaceState(
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       lastSelectedSpecialist:
         current.appSettings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
-      lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(
+      lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(
         current.appSettings?.lastAgentSpawnPermissionPreset,
       ),
       searchExcludes: normalizeSearchExcludes(current.appSettings?.searchExcludes),

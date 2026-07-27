@@ -9,6 +9,7 @@ import {
   parseRoadmap,
   qualifiedRef,
   renderRoadmapBody,
+  resolveEntryRoster,
   roadmapEpicDrift,
   roadmapRefSlug,
   setRoadmapPolicy,
@@ -654,6 +655,114 @@ run('roadmapEpicDrift: reports gained and removed children vs the snapshot', () 
   const drift = roadmapEpicDrift(entry, ['backlog/c1.md', 'backlog/c3.md'])
   assert.deepEqual(drift.gained, ['backlog/c3.md'])
   assert.deepEqual(drift.removed, ['backlog/c2.md'])
+})
+
+// ---------------------------------------------------------------------------
+// Per-step roster (MC-1881) — the round-trip is the whole risk surface
+// ---------------------------------------------------------------------------
+
+const ROSTERED_BODY = `# Staffed roadmap
+
+## Up next
+- backlog/auth-api.md
+- mobile:backlog/epics/login.md  @roster=Mobile UI
+  - mobile:backlog/login-form.md
+- backlog/epics/payments.md  @roster=General agents
+`
+
+function parseBody(body: string): ReturnType<typeof parseRoadmap> {
+  return parseRoadmap(`---\ntype: roadmap\nprojects:\n  mobile: /tmp/mobile\n---\n${body}`)
+}
+
+run('roster: an annotated entry parses its roster and keeps its ref', () => {
+  const roadmap = parseBody(ROSTERED_BODY)
+  const entries = roadmap.lanes[0].entries
+  assert.deepEqual(
+    entries.map((entry) => [entry.ref, entry.roster]),
+    [
+      ['backlog/auth-api.md', undefined],
+      ['mobile:backlog/epics/login.md', 'Mobile UI'],
+      ['backlog/epics/payments.md', 'General agents'],
+    ],
+  )
+  // The annotation never leaks into the ref, the project, or the child snapshot.
+  assert.equal(entries[1].projectKey, 'mobile')
+  assert.equal(entries[1].relativePath, 'backlog/epics/login.md')
+  assert.deepEqual(entries[1].children, ['mobile:backlog/login-form.md'])
+  assert.deepEqual(roadmap.issues, [])
+})
+
+run('roster: an annotated body round-trips byte-identically, spaces and all', () => {
+  const roadmap = parseBody(ROSTERED_BODY)
+  assert.equal(renderRoadmapBody(roadmap), ROSTERED_BODY)
+  const reparsed = parseBody(renderRoadmapBody(roadmap))
+  assert.deepEqual(reparsed.lanes, roadmap.lanes)
+})
+
+run('roster: an un-annotated body renders exactly as it did before (no trailing space)', () => {
+  const roadmap = parseRoadmap(`---\ntype: roadmap\n---\n${CANONICAL_BODY}`)
+  const rendered = renderRoadmapBody(roadmap)
+  assert.equal(rendered, CANONICAL_BODY)
+  // Belt-and-braces on the byte claim: no entry line may end in whitespace.
+  for (const line of rendered.split('\n')) assert.equal(line, line.replace(/\s+$/, ''))
+})
+
+run('roster: a @roster= on a child raises roster_on_child and still captures the child', () => {
+  const roadmap = parseRoadmap(
+    '---\ntype: roadmap\n---\n## L\n- backlog/epics/auth.md\n  - backlog/c1.md  @roster=Mobile UI\n',
+  )
+  const entry = roadmap.lanes[0].entries[0]
+  assert.deepEqual(entry.children, ['backlog/c1.md'])
+  assert.equal(entry.roster, undefined)
+  assert.deepEqual(
+    roadmap.issues.map((issue) => [issue.kind, issue.line]),
+    [['roster_on_child', 3]],
+  )
+})
+
+run('roster: an empty @roster= raises empty_roster and does not read as inherit', () => {
+  const roadmap = parseRoadmap('---\ntype: roadmap\nroster: Fallback\n---\n## L\n- backlog/foo.md  @roster=\n')
+  const entry = roadmap.lanes[0].entries[0]
+  assert.equal(entry.roster, undefined)
+  assert.deepEqual(
+    roadmap.issues.map((issue) => issue.kind),
+    ['empty_roster'],
+  )
+  // It is an authoring error, not a staffing choice: resolution still inherits.
+  assert.equal(resolveEntryRoster(entry, roadmap.policy), 'Fallback')
+})
+
+run('roster: forward-compat — the old first-token-only rule still yields every ref', () => {
+  // Exactly what a build WITHOUT this item does: keep the first token, drop the
+  // rest. Asserted against the annotated file so the "an older build reads the
+  // plan correctly" claim is proven, not assumed.
+  const legacyRefs = ROSTERED_BODY.split('\n')
+    .map((line) => /^\s*-\s+(.*\S)\s*$/.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => match[1].split(/\s+/)[0])
+  assert.deepEqual(legacyRefs, [
+    'backlog/auth-api.md',
+    'mobile:backlog/epics/login.md',
+    'mobile:backlog/login-form.md',
+    'backlog/epics/payments.md',
+  ])
+  // And no annotated line is mistaken for an unparseable entry.
+  assert.equal(
+    parseBody(ROSTERED_BODY).issues.filter((issue) => issue.kind === 'unparseable_entry').length,
+    0,
+  )
+})
+
+run('resolveEntryRoster: entry wins over policy; policy wins over nothing', () => {
+  const step = { roster: 'Mobile UI' }
+  const bare = {}
+  assert.equal(resolveEntryRoster(step, { roster: 'General agents' }), 'Mobile UI')
+  assert.equal(resolveEntryRoster(bare, { roster: 'General agents' }), 'General agents')
+  assert.equal(resolveEntryRoster(bare, {}), undefined)
+  assert.equal(resolveEntryRoster(step, {}), 'Mobile UI')
+  // Whitespace-only on either tier is absence, never an empty roster name.
+  assert.equal(resolveEntryRoster({ roster: '   ' }, { roster: 'General agents' }), 'General agents')
+  assert.equal(resolveEntryRoster({ roster: '   ' }, { roster: '  ' }), undefined)
 })
 
 let failures = 0

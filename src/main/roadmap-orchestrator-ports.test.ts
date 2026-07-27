@@ -116,6 +116,7 @@ test('SEAM: a horizon roster rides as rosterName and never touches run identity'
     itemRelativePath: 'backlog/epics/thing.md',
     isEpic: true,
     roster: 'opus',
+    permissionPreset: 'bypass_all',
   })
 
   assert.equal(requests.length, 1)
@@ -125,6 +126,10 @@ test('SEAM: a horizon roster rides as rosterName and never touches run identity'
   assert.equal(request.name, undefined, 'a roster name must NEVER seed the run directory slug')
   assert.equal(request.refuseTeamSlug, undefined, 'a roster name must NEVER become a refused run slug')
   assert.equal(request.sourceRelativePath, 'backlog/epics/thing.md')
+  // SEAM (MC-1900 x MC-1883): staffing and permissions ride the SAME start, and
+  // the preset is always sent — an omitted key would let the delegate pick, and
+  // this is the run's only chance to be bypass (spawn-time-only, MC-1808).
+  assert.equal(request.permissionPreset, 'bypass_all')
 
   // And with no roster on the horizon, no staffing key is sent at all — the
   // renderer's own default resolution decides, rather than an empty string
@@ -135,10 +140,12 @@ test('SEAM: a horizon roster rides as rosterName and never touches run identity'
       workspaceRoot: '/w/home',
       itemRelativePath: 'backlog/item.md',
       isEpic: false,
+      permissionPreset: 'auto_workspace',
     })
     return requests[0]
   })()
   assert.ok(!('rosterName' in noRoster), 'an unset horizon roster sends no rosterName key at all')
+  assert.equal(noRoster.permissionPreset, 'auto_workspace', 'an explicit non-bypass horizon policy is honored verbatim')
 })
 
 // SEAM (MC-1874): a run created BEFORE the rename must still resolve. Run

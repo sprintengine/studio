@@ -19,6 +19,7 @@ import {
   flattenLaneUnits,
   nextEligible,
   qualifiedRef,
+  resolveEntryRoster,
   resolveEpicChildRef,
   type ProjectKey,
   type Roadmap,
@@ -106,6 +107,13 @@ export type RoadmapLaneRuntime = {
   activeStatePath?: string
   activeTeamSlug?: string
   activeRepoId?: string
+  // The saved-roster name the ACTIVE run was actually started with (MC-1883),
+  // frozen at start. Distinct from `RoadmapPolicy.roster` and from the step's
+  // `@roster=`, both of which the author can edit mid-flight: this is history,
+  // not configuration. Undefined = started with the built-in default.
+  //
+  // RUN identity is `activeTeamSlug`; this is AGENT CONFIGURATION. Do not merge.
+  activeRoster?: string
   // Set while parked. Cleared only by a human resume (a driver command).
   parked?: { reason: RoadmapParkReason; itemRef: string; at: string; detail?: string }
   // The eligible ref a "start next?" approval is outstanding for (advance:
@@ -124,7 +132,14 @@ export type RoadmapOrchestratorAction =
   // `relativePath` tell the driver which project root to start the run in and
   // which backlog file to source. The driver records the execution link + fans out
   // epic children.
-  | { kind: 'start'; lane: string; itemRef: string; projectKey: ProjectKey; relativePath: string }
+  //
+  // `roster` is the step's RESOLVED saved-roster name (MC-1883): the step's own
+  // `@roster=` if it has one, else the roadmap's policy roster, else undefined
+  // (the built-in No-roles default). Resolved HERE, where the unit and the policy
+  // are both in hand, through the single `resolveEntryRoster` — the driver
+  // forwards it and never re-derives the fallback, so what the board shows and
+  // what the run is staffed with cannot drift.
+  | { kind: 'start'; lane: string; itemRef: string; projectKey: ProjectKey; relativePath: string; roster?: string }
   // Raise a "start next?" approval for `itemRef` (advance: approve). Idempotent:
   // emitted once, then the lane waits until the ref is approved.
   | { kind: 'queue_approval'; lane: string; itemRef: string }
@@ -388,9 +403,27 @@ function decideFromEligibility(args: LaneReconcileArgs): LaneDecision {
         // Optimistically claim the frontier so a concurrent lane in the same
         // reconcile sees the repo as busy; the driver fills in the run refs after
         // creation and clears the pending approval.
+        //
+        // The roster is FROZEN onto the runtime here, at start. A later edit to
+        // the file's policy roster must not retroactively change what a running
+        // step reports it was staffed with (MC-1883) — the board would otherwise
+        // lie about a run nobody can restaff.
+        const roster = resolveEntryRoster(unit, policy)
         return {
-          action: { kind: 'start', lane, itemRef: unit.ref, projectKey: unit.projectKey, relativePath: unit.relativePath },
-          runtime: { ...clearPending(runtime), activeItemRef: unit.key, activeRepoId: repoId },
+          action: {
+            kind: 'start',
+            lane,
+            itemRef: unit.ref,
+            projectKey: unit.projectKey,
+            relativePath: unit.relativePath,
+            ...(roster ? { roster } : {}),
+          },
+          runtime: {
+            ...clearPending(runtime),
+            activeItemRef: unit.key,
+            activeRepoId: repoId,
+            ...(roster ? { activeRoster: roster } : {}),
+          },
         }
       }
       // advance: approve — raise the "start next?" gate once, then wait.
@@ -455,7 +488,10 @@ function delivered(lane: string, observation: RoadmapRunObservation): RoadmapOrc
 }
 
 function clearedActive(runtime: RoadmapLaneRuntime): RoadmapLaneRuntime {
-  const { activeItemRef, activeStatePath, activeTeamSlug, activeRepoId, ...rest } = runtime
+  // `activeRoster` is part of the ACTIVE handle and must clear with it — a lane
+  // that has released its run would otherwise keep reporting the staffing of a
+  // step that is no longer running.
+  const { activeItemRef, activeStatePath, activeTeamSlug, activeRepoId, activeRoster, ...rest } = runtime
   return { ...rest }
 }
 

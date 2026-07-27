@@ -448,6 +448,28 @@ export function normalizeCliPermissionPreset(
   return input === 'auto_workspace' || input === 'bypass_all' ? input : 'default'
 }
 
+// The app-level default preset for NEW agent spawns (owner ruling 2026-07-26:
+// "we should be setting bypass permission mode as the default generally
+// everywhere"). A user who wants gated permissions picks one deliberately —
+// the setting is right there in Settings ▸ Agents.
+//
+// NOT the same as `normalizeCliPermissionPreset`'s 'default' floor: there,
+// 'default' is a real preset (no permission flags) AND the "no local override"
+// sentinel for a run. Here, ABSENT means "this user has never chosen", which is
+// the only case that may adopt the new default. Kept separate so flipping the
+// app default can never rewrite someone's deliberate 'default' choice.
+export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'bypass_all'
+
+// ONLY an absent value adopts the new default. A present-but-unrecognised value
+// is corruption, and corruption must never ESCALATE permissions — it falls to
+// the conservative 'default' floor exactly as it did before this item.
+export function normalizeAgentSpawnPermissionPreset(
+  input: SprintEngineCliPermissionPreset | null | undefined
+): SprintEngineCliPermissionPreset {
+  if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
+  return normalizeCliPermissionPreset(input)
+}
+
 export function normalizeCliDefaults<K extends string>(
   input: Partial<Record<K, AgentCli>> | null | undefined
 ): Partial<Record<K, AgentCli>> {
@@ -927,7 +949,7 @@ export const defaultAppSettings = (): AppSettings => ({
   lastSelectedSpecialist: 'architect',
   lastSpawnWasGeneral: false,
   lastNewChatAgent: { kind: 'general' },
-  lastAgentSpawnPermissionPreset: 'default',
+  lastAgentSpawnPermissionPreset: DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   specialistCliDefaults: {},
   specialistModelDefaults: {},
   specialistOrder: [],
@@ -994,7 +1016,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedSpecialist: settings?.lastSelectedSpecialist ?? defaults.lastSelectedSpecialist,
     lastSpawnWasGeneral: settings?.lastSpawnWasGeneral ?? defaults.lastSpawnWasGeneral,
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
-    lastAgentSpawnPermissionPreset: normalizeCliPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
+    lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
     specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
     specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
@@ -1465,6 +1487,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     setLastAgentSpawnPermissionPreset: (preset) =>
       set((state) => {
+        // An explicit user pick, so the plain normalizer: choosing 'default'
+        // must stay 'default' and not snap back to the app-wide bypass default.
         const nextPreset = normalizeCliPermissionPreset(preset)
         state.appSettings.lastAgentSpawnPermissionPreset = nextPreset
         const runSettings = normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)

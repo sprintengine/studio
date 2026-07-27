@@ -33,18 +33,24 @@ import {
   type RoadmapRunObservation,
 } from '../shared/sprintengine/roadmap-orchestrator'
 import {
+  DEFAULT_ROADMAP_POLICY,
   flattenLaneUnits,
+  isRoadmapPermissionPreset,
   nextEligible,
   parseRoadmap,
   qualifiedRef,
   resolveEpicChildRef,
+  resolveRoadmapPermissionPreset,
   roadmapRefSlug,
   splitQualifiedRef,
   type ProjectKey,
   type Roadmap,
+  type RoadmapAdvancePolicy,
   type RoadmapItemState,
+  type RoadmapPolicy,
   type RoadmapRunState,
 } from '../shared/backlog/roadmap'
+import type { SprintEngineCliPermissionPreset } from '../shared/electron-api'
 import {
   addEntry,
   addLane,
@@ -121,14 +127,19 @@ export type RoadmapActor = 'user' | 'automation'
 export type RoadmapAuditEntry = {
   at: string
   actor: RoadmapActor
-  action: 'approve' | 'merge' | 'pause' | 'resume' | 'add_step' | 'remove_step' | 'reorder' | 'skip'
+  // 'create'/'configure' are the MC-1901 agent authoring actions; every agent
+  // mutation of the horizon is auditable, including the ones that author it.
+  action:
+    | 'approve' | 'merge' | 'pause' | 'resume'
+    | 'add_step' | 'remove_step' | 'reorder' | 'skip'
+    | 'create' | 'configure'
   roadmapRef: string
   lane?: string
   ref?: string
   detail?: string
 }
 
-// One roadmap's board projection for the agent read (`roadmap.status`): the same
+// One roadmap's board projection for the agent read (`horizon.status`): the same
 // per-unit model the global surface renders, built from the shared board builder.
 export type RoadmapBoardView = {
   roadmapRef: string
@@ -165,7 +176,7 @@ export type RoadmapItemOutcome = 'delivered' | 'skipped'
 // is the explicit acknowledgement the `replan_delivered_run` confirmation asks for.
 export type RoadmapResumeOptions = { replanDeliveredRun?: boolean }
 
-// The narrow surface the automation server's `roadmap.*` tools reach (MC-1693),
+// The narrow surface the automation server's `horizon.*` tools reach (MC-1693),
 // provided as a service and resolved lazily like the Automations front door. It is
 // a subset of the orchestrator's public API: the agent read, the four plan edits,
 // and a lane-only steer wrapper that derives the instance roadmap itself so a tool
@@ -182,6 +193,25 @@ export type RoadmapAppFrontDoor = {
     actor: RoadmapActor,
     options?: RoadmapResumeOptions,
   ): Promise<RoadmapCommandOutcome>
+  // MC-1901 — author a horizon over MCP. `createHorizon` writes the file through
+  // the SAME authoring engine the editor uses (never a second serializer) and
+  // always lands `advance: approve` unless `start: true`; `configureHorizon` is
+  // a frontmatter-only policy write that leaves the body byte-identical.
+  createHorizon(input: {
+    name: string
+    projectRoot?: string
+    steps?: ReadonlyArray<string>
+    policy?: Partial<RoadmapPolicy>
+    start?: boolean
+    actor?: RoadmapActor
+  }): Promise<
+    | { ok: true; roadmapRef: string; advance: RoadmapAdvancePolicy; steps: string[]; policy: RoadmapPolicy }
+    | { ok: false; message: string }
+  >
+  configureHorizon(input: {
+    policy: Partial<RoadmapPolicy>
+    actor?: RoadmapActor
+  }): Promise<RoadmapCommandOutcome & { policy?: RoadmapPolicy }>
   // On-demand reconcile, for events that change a lane's world outside the
   // 60s engine tick (e.g. a sprint canceled from the Sprints door).
   reconcile(): Promise<void>
@@ -237,13 +267,21 @@ export type RoadmapOrchestratorPorts = {
   setBacklogStatus(workspaceRoot: string, itemRelativePath: string, status: 'completed'): Promise<void>
   // Start a sprint from a backlog item OR epic (one sprint delivers a whole epic
   // step) through the shared plan-sourced flow (worktree mode, startRunner) in
-  // the item's own project root. Records the execution link. `roster` names the
-  // roadmap's saved roster; unset = the user's last-used roster.
+  // the item's own project root. Records the execution link. `roster` is the
+  // step's RESOLVED saved-roster name (MC-1883: the step's own `@roster=`, else
+  // the roadmap policy's) — already resolved upstream through
+  // `resolveEntryRoster`, so this port never re-derives the fallback. Unset =
+  // the built-in No-roles default (MC-1876), not the last-used roster.
+  // `permissionPreset` is the CLI permission preset the run's agents SPAWN with,
+  // resolved from the roadmap's `permissions:` policy (MC-1900). Spawn-time only:
+  // a live agent can never be flipped to bypass afterwards (MC-1808), so the lane
+  // gets exactly one chance to pass it.
   startSprint(input: {
     workspaceRoot: string
     itemRelativePath: string
     isEpic: boolean
     roster?: string
+    permissionPreset: SprintEngineCliPermissionPreset
   }): Promise<{ ok: boolean; message?: string }>
   // Abandon a dead run when the human resumes a parked lane: remove the item's
   // execution link (so the reconcile does not re-adopt the dead run) and reset
@@ -528,9 +566,27 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
         const item = entry.items.find(
           (candidate) => candidate.projectKey === action.projectKey && candidate.relativePath === action.relativePath,
         )
-        const started = await executeStart(root, action.relativePath, item?.isEpic ?? false, entry.roadmap.policy.roster)
+        // The roster arrives RESOLVED on the action (MC-1883) — the step's own
+        // `@roster=` or the roadmap's, decided once by `resolveEntryRoster` in
+        // the reducer. The driver must not re-derive the two-tier fallback here.
+        const started = await executeStart(
+          root,
+          action.relativePath,
+          item?.isEpic ?? false,
+          action.roster,
+          resolveRoadmapPermissionPreset(entry.roadmap.policy),
+        )
         if (!started.ok) {
+          // An unknown roster name fails the start here (the delegate refuses it
+          // rather than staffing a fallback). Park + notify + a diagnostic, so a
+          // failed start is visible in the UI and not only in a console warning —
+          // and the lane does NOT advance past the step it could not staff.
           laneRuntimes.set(action.lane, parkedRuntime(runtime, 'start_failed', qualifiedRef(action.projectKey, action.relativePath), started.message, ports.now()))
+          ports.logDiagnostic({
+            level: 'error',
+            title: 'Horizon step could not start',
+            message: `${action.itemRef}${action.roster ? ` (roster "${action.roster}")` : ''}: ${started.message ?? 'the sprint could not be created.'}`,
+          })
           notifyPark('start_failed', started.message)
           return
         }
@@ -541,6 +597,9 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
           activeStatePath: started.runRef.statePath,
           activeTeamSlug: started.runRef.teamSlug,
           activeRepoId: runtime.activeRepoId ?? root,
+          // Frozen at start: editing the horizon's roster later must not rewrite
+          // what a mid-flight step reports it was staffed with.
+          ...(action.roster ? { activeRoster: action.roster } : {}),
         })
         return
       }
@@ -681,13 +740,17 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     itemRelativePath: string,
     isEpic: boolean,
     roster: string | undefined,
+    permissionPreset: SprintEngineCliPermissionPreset,
   ): Promise<{ ok: true; runRef: RoadmapRunRef } | { ok: false; message?: string }> {
     const existing = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (existing) {
+      // Adopting a LIVE run cannot change its agents' permission preset — bypass
+      // is spawn-time-only (MC-1808). A run started gated stays gated until it is
+      // cancelled and relaunched; there is deliberately no mid-session flip here.
       const snapshot = await ports.observeRun(existing)
       if (snapshot && isAdoptable(snapshot)) return { ok: true, runRef: existing }
     }
-    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic, ...(roster ? { roster } : {}) })
+    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic, permissionPreset, ...(roster ? { roster } : {}) })
     if (!created.ok) return { ok: false, message: created.message }
     const runRef = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (!runRef) {
@@ -727,7 +790,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       // Resume re-plans a NEW sprint from the same item: drop the parked flag AND
       // the dead active handle so eligibility starts fresh — it never unsticks the
       // failed run.
-      const { parked, activeItemRef, activeStatePath, activeTeamSlug, activeRepoId, ...rest } = runtime
+      const { parked, activeItemRef, activeStatePath, activeTeamSlug, activeRepoId, activeRoster, ...rest } = runtime
       entry.laneRuntimes.set(lane, rest)
     }
   }
@@ -888,6 +951,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
             ...(runtime?.activeItemRef ? { activeItemRef: runtime.activeItemRef } : {}),
             ...(runtime?.activeTeamSlug ? { activeTeamSlug: runtime.activeTeamSlug } : {}),
             ...(runtime?.activeStatePath ? { activeStatePath: runtime.activeStatePath } : {}),
+            ...(runtime?.activeRoster ? { activeRoster: runtime.activeRoster } : {}),
             ...(runtime?.parked ? { parked: runtime.parked } : {}),
             ...(runtime?.pendingApprovalRef ? { pendingApprovalRef: runtime.pendingApprovalRef } : {}),
           }
@@ -1188,6 +1252,164 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     return { ok: true }
   }
 
+  // --- Horizon authoring for the agent surface (MC-1901) ---------------------
+
+  // Set policy scalars on the active horizon. FRONTMATTER-ONLY by construction:
+  // it goes through the same `composeRoadmapSaveContent` the editor saves with,
+  // and a policy-only diff takes the frontmatter branch that preserves the body
+  // byte-for-byte. Nothing here touches lanes, so the plan cannot be perturbed
+  // by a staffing change.
+  //
+  // Permission changes apply to sprints NOT YET STARTED — bypass is spawn-time
+  // only (MC-1808), so a live agent's preset is never flipped mid-session.
+  async function configureHorizon(input: {
+    policy: Partial<RoadmapPolicy>
+    actor?: RoadmapActor
+  }): Promise<RoadmapCommandOutcome & { policy?: RoadmapPolicy }> {
+    const loaded = await loadForEdit()
+    if ('error' in loaded) return { ok: false, message: loaded.error }
+    const { entry, content } = loaded
+
+    const validated = validateHorizonPolicy(input.policy)
+    if ('error' in validated) return { ok: false, message: validated.error }
+
+    const baseline = draftFromRoadmap(entry.roadmap)
+    const draft = draftFromRoadmap(entry.roadmap)
+    draft.policy = { ...draft.policy, ...validated.policy }
+
+    const written = await writePlan(entry, content, baseline, draft, {
+      at: ports.now().toISOString(),
+      actor: input.actor ?? 'automation',
+      action: 'configure',
+      roadmapRef: entry.roadmapRef,
+    })
+    if (!written.ok) return written
+    return { ok: true, policy: draft.policy }
+  }
+
+  // Create a horizon with its ordered steps and policy in ONE validated write,
+  // then make it the active horizon so it is steerable.
+  //
+  // SAFETY (MC-1901, from a live incident): a file write is not consent to spawn
+  // agents. `advance` is FORCED to 'approve' unless the caller passes an explicit
+  // `start: true` — otherwise a `ready` + `auto` horizon is adopted by the live
+  // orchestrator and starts a sprint on its next tick, with nobody having agreed
+  // to it. The forcing happens here, at the one place that writes the file, not
+  // in the tool layer, so no future caller can route around it.
+  async function createHorizon(input: {
+    name: string
+    projectRoot?: string
+    steps?: ReadonlyArray<string>
+    policy?: Partial<RoadmapPolicy>
+    start?: boolean
+    actor?: RoadmapActor
+  }): Promise<
+    | { ok: true; roadmapRef: string; advance: RoadmapAdvancePolicy; steps: string[]; policy: RoadmapPolicy }
+    | { ok: false; message: string }
+  > {
+    const validated = validateHorizonPolicy(input.policy ?? {})
+    if ('error' in validated) return { ok: false, message: validated.error }
+
+    // Validate EVERY step before creating anything. Without this, a typo in the
+    // third of four steps leaves a half-built horizon on disk that is ALREADY
+    // ACTIVE — and the previously-active horizon already demoted. Refusing up
+    // front keeps a bad call a no-op instead of a mess someone has to unpick.
+    const homeRoot = ports.getHomeProjectRoot()
+    if (homeRoot && (input.steps?.length ?? 0) > 0) {
+      let known: RoadmapBacklogItem[]
+      try {
+        known = await ports.listBacklogItems(homeRoot)
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+      const paths = new Set(known.map((item) => normalizeRoadmapPath(item.relativePath)))
+      for (const step of input.steps ?? []) {
+        const relativePath = normalizeRoadmapPath(step)
+        if (!/^backlog\/.+\.(md|html?)$/i.test(relativePath)) {
+          return { ok: false, message: `"${step}" is not a backlog item path (expected e.g. backlog/foo.md). Nothing was created.` }
+        }
+        if (!paths.has(relativePath)) {
+          return { ok: false, message: `No backlog item at ${relativePath}. Nothing was created.` }
+        }
+      }
+    }
+
+    const created = await createRoadmap({ projectRoot: input.projectRoot ?? '', name: input.name })
+    if (!created.ok) return created
+
+    // Activate BEFORE the plan edit so `loadForEdit` finds it: the plan/policy
+    // writers all operate on the ACTIVE horizon. Nothing can start yet — the
+    // file created above carries the V1 default `advance: approve`.
+    const activated = await activateRoadmap({ roadmapRef: created.roadmapRef })
+    if (!activated.ok) return { ok: false, message: activated.message ?? 'The horizon was created but could not be activated.' }
+
+    // A file write is not consent to spawn. Only `start: true` may unlock 'auto'.
+    const advance: RoadmapAdvancePolicy = input.start === true ? validated.policy.advance ?? 'auto' : 'approve'
+
+    const added: string[] = []
+    for (const step of input.steps ?? []) {
+      const outcome = await addStep({ ref: step, actor: input.actor ?? 'automation' })
+      if (!outcome.ok) {
+        return {
+          ok: false,
+          message: `The horizon was created at ${created.roadmapRef}, but step "${step}" was rejected: ${outcome.message ?? 'unknown error'}. Fix the ref and add it with horizon.add_step.`,
+        }
+      }
+      added.push(outcome.ref ?? step)
+    }
+
+    const configured = await configureHorizon({
+      policy: { ...validated.policy, advance },
+      actor: input.actor ?? 'automation',
+    })
+    if (!configured.ok) return { ok: false, message: configured.message ?? 'The horizon was created but its policy could not be written.' }
+
+    return {
+      ok: true,
+      roadmapRef: created.roadmapRef,
+      advance,
+      steps: added,
+      policy: configured.policy ?? { ...DEFAULT_ROADMAP_POLICY, advance },
+    }
+  }
+
+  // Validate policy values against their enums so an agent cannot write a
+  // frontmatter scalar the parser would silently drop. An unrecognised value is
+  // an explicit error, never a quiet fallback to the default.
+  function validateHorizonPolicy(
+    policy: Partial<RoadmapPolicy>,
+  ): { policy: Partial<RoadmapPolicy> } | { error: string } {
+    const next: Partial<RoadmapPolicy> = {}
+    if (policy.advance !== undefined) {
+      if (policy.advance !== 'approve' && policy.advance !== 'auto') {
+        return { error: `advance must be "approve" or "auto", got "${String(policy.advance)}".` }
+      }
+      next.advance = policy.advance
+    }
+    if (policy.merge !== undefined) {
+      if (policy.merge !== 'manual' && policy.merge !== 'auto') {
+        return { error: `merge must be "manual" or "auto", got "${String(policy.merge)}".` }
+      }
+      next.merge = policy.merge
+    }
+    if (policy.concurrency !== undefined) {
+      if (!Number.isInteger(policy.concurrency) || policy.concurrency < 1) {
+        return { error: `concurrency must be a positive integer, got ${String(policy.concurrency)}.` }
+      }
+      next.concurrency = policy.concurrency
+    }
+    if (policy.permissions !== undefined) {
+      if (!isRoadmapPermissionPreset(policy.permissions)) {
+        return { error: `permissions must be "default", "auto_workspace" or "bypass_all", got "${String(policy.permissions)}".` }
+      }
+      next.permissions = policy.permissions
+    }
+    // Key PRESENCE clears the scalar (setRoadmapPolicy's contract), so an
+    // explicitly-cleared roster must ride the diff as a present undefined.
+    if ('roster' in policy) next.roster = policy.roster?.trim() ? policy.roster.trim() : undefined
+    return { policy: next }
+  }
+
   // Lane-only steer for the agent surface: derive the instance roadmap ref so the
   // tool names only a lane, then forward to the same steer method the board IPC uses.
   async function steerLane(
@@ -1271,6 +1493,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
         ...(runtime.activeItemRef ? { activeItemRef: runtime.activeItemRef } : {}),
         ...(runtime.activeTeamSlug ? { activeTeamSlug: runtime.activeTeamSlug } : {}),
         ...(runtime.activeStatePath ? { activeStatePath: runtime.activeStatePath } : {}),
+        ...(runtime.activeRoster ? { activeRoster: runtime.activeRoster } : {}),
         ...(runtime.parked ? { parked: runtime.parked } : {}),
         ...(runtime.pendingApprovalRef ? { pendingApprovalRef: runtime.pendingApprovalRef } : {}),
       })
@@ -1292,6 +1515,8 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     skipStep,
     activateRoadmap,
     createRoadmap,
+    createHorizon,
+    configureHorizon,
     steerLane,
   }
 }

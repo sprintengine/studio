@@ -166,7 +166,7 @@ async function main() {
   for (const tool of ['workspace.create', 'backlog.create', 'agent.launch']) {
     if (!auditedTools.includes(tool)) throw new Error(`Mutation audit is missing ${tool}.`)
   }
-  if (auditedTools.some((tool) => ['workspace.status', 'agent.status', 'roadmap.status'].includes(tool))) {
+  if (auditedTools.some((tool) => ['workspace.status', 'agent.status', 'horizon.status'].includes(tool))) {
     throw new Error('A read-only operation was incorrectly written to the mutation audit.')
   }
   if (readFileSync(auditPath, 'utf8').includes('Created through the SprintEngine Studio MCP acceptance drive.')) {

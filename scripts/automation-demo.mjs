@@ -172,13 +172,13 @@ async function main() {
 
   // Read the instance-global roadmap (MC-1693). Read-only and safe: it returns
   // { roadmap: null } when no roadmap is configured, so the demo can always call it.
-  // From here an agent can plan (roadmap.add_step/remove_step/reorder/skip) and steer
-  // (roadmap.approve/merge/pause/resume) the same plan the global surface shows a human.
-  const roadmap = toolResult(await rpc('tools/call', { name: 'roadmap.status', arguments: {} }), 'roadmap.status')
+  // From here an agent can plan (horizon.add_step/remove_step/reorder/skip) and steer
+  // (horizon.approve/merge/pause/resume) the same plan the global surface shows a human.
+  const roadmap = toolResult(await rpc('tools/call', { name: 'horizon.status', arguments: {} }), 'horizon.status')
   console.log(
     roadmap.roadmap
-      ? `# roadmap.status: "${roadmap.roadmap.title ?? roadmap.roadmap.roadmapRef}" with ${roadmap.roadmap.lanes.length} lane(s)`
-      : '# roadmap.status: no roadmap configured for this Multicode'
+      ? `# horizon.status: "${roadmap.roadmap.title ?? roadmap.roadmap.roadmapRef}" with ${roadmap.roadmap.lanes.length} lane(s)`
+      : '# horizon.status: no roadmap configured for this Multicode'
   )
 
   // Explicit-error check: an unknown workspace id must produce an MCP tool

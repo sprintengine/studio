@@ -61,13 +61,14 @@ import {
   renameLane,
   resyncEpicEntry,
   roadmapItemStatesMulti,
+  setEntryRoster,
   splitAuthoredRef,
   splitLane,
   type RoadmapDraft,
   type RoadmapProjectItems,
   type RoadmapRefDisplay,
 } from './roadmapAuthoring'
-import type { ProjectKey } from '../../../../shared/backlog/roadmap'
+import { resolveEntryRoster, type ProjectKey } from '../../../../shared/backlog/roadmap'
 import type { SprintEngineRoster } from '../../types/workspace'
 import { NO_ROLES_ROSTER_NAME, isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
 import { RosterManagerModal } from './RosterManagerModal'
@@ -418,6 +419,11 @@ export function RoadmapEditorPanel({
             projectNameByKey={projectNameByKey}
             showProjectTag={showLibrary}
             libDragRef={libDrag?.ref ?? null}
+            staffing={{
+              rosters: savedRosters,
+              policyRoster: draft.policy.roster,
+              onManageRosters: () => setRosterManagerOpen(true),
+            }}
             onAddRef={addRef}
             onLanes={setLanes}
             onRemoveTrack={(index) => void confirmRemoveTrack(index)}
@@ -514,7 +520,9 @@ function PolicyBar({
           ]}
         />
       </PolicyControl>
-      <PolicyControl label="Roster">
+      {/* MC-1882: the label says SCOPE. This is the default for steps that do
+          not override it, not a hard setting for the whole horizon. */}
+      <PolicyControl label="Default roster">
         <RosterMenu
           rosters={rosters}
           selectedName={policy.roster ?? null}
@@ -526,20 +534,53 @@ function PolicyBar({
   )
 }
 
+const POLICY_ROSTER_TRIGGER_CLASS =
+  'interactive inline-flex h-[30px] items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+
+const ROW_ROSTER_TRIGGER_BASE =
+  'interactive inline-flex max-w-[12rem] shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-focus)]'
+
+// How a step row's roster reads at a glance (MC-1882). The common case is every
+// step inheriting, so INHERITED is quiet — muted text, no field. An OVERRIDE is
+// full-strength on a soft accent field so overrides are scannable straight down
+// the track WITHOUT hovering. A roster that no longer exists gets the same
+// danger treatment as the policy-level control.
+const ROW_ROSTER_TRIGGER_CLASS: Record<'inherited' | 'override' | 'missing', string> = {
+  inherited: `${ROW_ROSTER_TRIGGER_BASE} border-transparent text-[color:var(--text-subtle)] hover:border-[color:var(--border-subtle)] hover:bg-[color:var(--bg-hover)]`,
+  override: `${ROW_ROSTER_TRIGGER_BASE} border-[color:var(--accent-soft-strong)] bg-[color:var(--accent-soft)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]`,
+  missing: `${ROW_ROSTER_TRIGGER_BASE} border-transparent bg-[color:var(--status-danger-soft)] text-[color:var(--status-danger)] hover:bg-[color:var(--bg-hover)]`,
+}
+
 // The horizon's roster picker. It PURELY picks: "Manage rosters…" is the only
 // action row (owner ruling 2026-07-26 — one door, no per-roster edit rows and
 // no separate create row). Built on the same Popover the wizard's saved-roster
 // menu uses rather than a lookalike.
+//
+// MC-1882 reuses this same component on the step rows with one extra leading
+// option and a quieter trigger — deliberately NOT a second picker, so the row
+// and the policy bar cannot drift on what a roster row looks like or does.
 function RosterMenu({
   rosters,
   selectedName,
   onSelect,
   onManageRosters,
+  inherit,
+  variant = 'control',
+  ariaLabel = 'Roster for every sprint this horizon starts',
 }: {
   rosters: ReadonlyArray<SprintEngineRoster>
   selectedName: string | null
   onSelect: (name: string | undefined) => void
   onManageRosters: () => void
+  // MC-1882: on a STEP row the menu gains one extra leading option — "Use the
+  // horizon's roster", which clears the override. `resolvedLabel` names what the
+  // step would fall back to, so the choice is not made blind. Absent on the
+  // policy bar, where there is nothing above to inherit from.
+  inherit?: { selected: boolean; resolvedLabel: string; onChoose: () => void }
+  // The step row renders a quiet chip, the policy bar a bordered control. Only
+  // the TRIGGER differs — the menu body is shared, never a second picker.
+  variant?: 'control' | 'row'
+  ariaLabel?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const noRolesSelected = !selectedName || isNoRolesRosterRef(selectedName)
@@ -552,6 +593,15 @@ function RosterMenu({
     && !rosters.some((roster) => roster.name.trim().toLowerCase() === selectedName.trim().toLowerCase()),
   )
   const triggerLabel = noRolesSelected ? NO_ROLES_ROSTER_NAME : selectedName ?? NO_ROLES_ROSTER_NAME
+  // On a step row, "inherited" is the absence of an override — which is exactly
+  // `inherit.selected`. The tone must never be derived from the label, or a step
+  // that deliberately picks the same roster the horizon uses would read as
+  // inherited and become invisible as an override.
+  const triggerTone: 'inherited' | 'override' | 'missing' = missing
+    ? 'missing'
+    : inherit?.selected
+      ? 'inherited'
+      : 'override'
   const itemClass =
     'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
 
@@ -564,7 +614,7 @@ function RosterMenu({
     <Popover
       open={open}
       onOpenChange={setOpen}
-      ariaLabel="Roster for every sprint this horizon starts"
+      ariaLabel={ariaLabel}
       popupRole="menu"
       placement="bottom-start"
       surfaceClassName="w-[260px] p-1"
@@ -574,16 +624,53 @@ function RosterMenu({
           type="button"
           {...triggerProps}
           onClick={togglePopover}
-          className="interactive inline-flex h-[30px] items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          // The trigger's own text is only a roster NAME, which does not say what
+          // the control does. `ariaLabel` names the popup; the button needs its
+          // own accessible name or a screen-reader user hears just "Mobile UI".
+          aria-label={`${ariaLabel}: ${triggerLabel}${missing ? ' (not found)' : ''}`}
+          className={variant === 'row' ? ROW_ROSTER_TRIGGER_CLASS[triggerTone] : POLICY_ROSTER_TRIGGER_CLASS}
         >
-          <span className={missing ? 'text-[color:var(--status-danger)]' : undefined}>
+          <span
+            className={
+              variant === 'row'
+                ? 'min-w-0 truncate'
+                : missing
+                  ? 'text-[color:var(--status-danger)]'
+                  : undefined
+            }
+          >
             {triggerLabel}
             {missing ? ' (not found)' : ''}
           </span>
-          <span aria-hidden="true" className="text-[color:var(--text-subtle)]">▾</span>
+          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-subtle)]">▾</span>
         </button>
       )}
     >
+      {/* MC-1882: clearing the override leads on a step row, and names what the
+          step falls back to so the choice is not made blind. */}
+      {inherit ? (
+        <>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={inherit.selected}
+            className={itemClass}
+            onClick={() => {
+              inherit.onChoose()
+              setOpen(false)
+            }}
+          >
+            <span className="min-w-0 flex-1 truncate">
+              Use the horizon&apos;s roster
+              {inherit.selected ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
+            </span>
+            <span className="shrink-0 max-w-[7.5rem] truncate text-[11px] text-[color:var(--text-subtle)]">
+              {inherit.resolvedLabel}
+            </span>
+          </button>
+          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+        </>
+      ) : null}
       {/* A missing roster leads, so the problem is the first thing read. */}
       {missing && selectedName ? (
         <>
@@ -662,6 +749,16 @@ function PolicyControl({ label, children }: { label: string; children: React.Rea
 
 // ---- Tracks + steps --------------------------------------------------------
 
+// Everything a step row needs to show and change its staffing (MC-1882),
+// bundled so the roster does not add four separate props at every level of the
+// track tree. `policyRoster` is the horizon's default — the value a step falls
+// back to — NOT the step's own; resolution is always `resolveEntryRoster`.
+type StepStaffing = {
+  rosters: ReadonlyArray<SprintEngineRoster>
+  policyRoster: string | undefined
+  onManageRosters: () => void
+}
+
 type DragState = { lane: number; index: number } | null
 type DropTarget = { lane: number; index: number } | null
 
@@ -695,6 +792,7 @@ function TrackList({
   projectNameByKey,
   showProjectTag,
   libDragRef,
+  staffing,
   onAddRef,
   onLanes,
   onRemoveTrack,
@@ -712,6 +810,7 @@ function TrackList({
   // The authored ref of a library row being dragged, or null. Non-null lets a track
   // accept the drop as an add rather than a reorder.
   libDragRef: string | null
+  staffing: StepStaffing
   onAddRef: (laneIndex: number, ref: string, index?: number) => void
   onLanes: (next: RoadmapLane[]) => void
   onRemoveTrack: (index: number) => void
@@ -807,6 +906,7 @@ function TrackList({
           drag={drag}
           over={over}
           dropActive={Boolean(drag) || Boolean(libDragRef)}
+          staffing={staffing}
           onDragStart={(index) => setDrag({ lane: laneIndex, index })}
           onDragOverIndex={(index) => setOver({ lane: laneIndex, index })}
           onDrop={drop}
@@ -838,6 +938,7 @@ function TrackSection({
   drag,
   over,
   dropActive,
+  staffing,
   onDragStart,
   onDragOverIndex,
   onDrop,
@@ -864,6 +965,7 @@ function TrackSection({
   over: DropTarget
   // A drag (step or library row) is in flight, so this track should accept drops.
   dropActive: boolean
+  staffing: StepStaffing
   onDragStart: (index: number) => void
   onDragOverIndex: (index: number) => void
   onDrop: () => void
@@ -940,6 +1042,8 @@ function TrackSection({
                   entryItems={entryItems}
                   projectName={showProjectTag && entry.projectKey ? projectNameByKey.get(entry.projectKey) : undefined}
                   dragging={drag?.lane === laneIndex && drag.index === entryIndex}
+                  staffing={staffing}
+                  onSetRoster={(roster) => onLanes(setEntryRoster(lanes, laneIndex, entryIndex, roster))}
                   onDragStart={() => onDragStart(entryIndex)}
                   onDragEnd={onDragEnd}
                   onMoveUp={() => onMoveByKey(laneIndex, entryIndex, -1)}
@@ -1006,6 +1110,8 @@ function StepRow({
   entryItems,
   projectName,
   dragging,
+  staffing,
+  onSetRoster,
   onDragStart,
   onDragEnd,
   onMoveUp,
@@ -1027,6 +1133,9 @@ function StepRow({
   // home-project steps and in single-project mode (no tag).
   projectName?: string
   dragging: boolean
+  staffing: StepStaffing
+  // Set (or clear, with undefined) THIS step's roster override.
+  onSetRoster: (roster: string | undefined) => void
   onDragStart: () => void
   onDragEnd: () => void
   onMoveUp: () => void
@@ -1124,6 +1233,25 @@ function StepRow({
             </span>
           </Tooltip>
         ) : null}
+
+        {/* MC-1882: the roster is both the display and the control — always in
+            the tab order, never hidden behind hover, so an override is readable
+            and changeable without a pointer. Display resolution goes through
+            `resolveEntryRoster`, the same function the orchestrator staffs with,
+            so the row and the launch agree by construction. */}
+        <RosterMenu
+          variant="row"
+          ariaLabel={`Roster for ${display?.title ?? entry.ref}`}
+          rosters={staffing.rosters}
+          selectedName={resolveEntryRoster(entry, { roster: staffing.policyRoster }) ?? null}
+          inherit={{
+            selected: !entry.roster,
+            resolvedLabel: staffing.policyRoster?.trim() || NO_ROLES_ROSTER_NAME,
+            onChoose: () => onSetRoster(undefined),
+          }}
+          onSelect={(name) => onSetRoster(name ?? NO_ROLES_ROSTER_NAME)}
+          onManageRosters={staffing.onManageRosters}
+        />
 
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
           {onSplitAbove ? (
