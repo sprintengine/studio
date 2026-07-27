@@ -848,24 +848,6 @@ export type SprintEngineState = {
    */
   configuredRoles?: SprintEngineRoleId[]
   /**
-   * How this run's roster was composed (run.yaml `rosterSource`, projection-owned;
-   * the renderer reads it, never writes it onto state — the wizard forwards it as
-   * an init flag). `'architect'` means the architect picks the team via
-   * `sprintengine.roster.configure` within `allowedRuntimes`; `'user'` (and
-   * absent/legacy) means the user composed the roster in the wizard. Drives the
-   * architect startup-prompt branch and the board provenance chip.
-   */
-  rosterSource?: SprintEngineRosterSource
-  /**
-   * The sprint's allowed runtime palette (run.yaml `allowedRuntimes`,
-   * projection-owned). The `{cli, model}` set the user ticked for an
-   * architect-roster run; the engine hard-rejects any role assignment outside
-   * it. Absent for user-mode/legacy runs. A `null` model means the CLI's own
-   * default. Scores/notes for these entries live in the global model catalog,
-   * not here — the prompt joins the two.
-   */
-  allowedRuntimes?: SprintEngineAllowedRuntime[]
-  /**
    * The post-implementation phases every task on this run inherits (run.yaml
    * `defaultPhases`, projection-owned; the wizard forwards it as an init flag).
    * It is the DEFAULT and the CEILING — a task may trim its `phases`, never add
@@ -884,12 +866,8 @@ export type SprintEngineState = {
   phaseRuntimes?: Record<SprintEngineTaskPhase, SprintEngineAllowedRuntime>
 }
 
-export type SprintEngineRosterSource = 'user' | 'architect'
-
-// One ticked entry in an architect-roster run's per-sprint model palette. Mirrors
-// the `{cli, model}` shape the engine stores in run.yaml `allowedRuntimes`
-// (`model: null` = the CLI's own default). Descriptive scores/notes are NOT here;
-// they live in the global model catalog and are matched by cli+model when needed.
+// A pinned `{cli, model}` execution runtime (`model: null` = the CLI's own
+// default). Used by the per-phase runtime bindings and the sessions they spawn.
 export type SprintEngineAllowedRuntime = { cli: AgentCli; model: string | null }
 
 export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }

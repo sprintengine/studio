@@ -1022,9 +1022,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
           ...currentAutoState(existing),
           cliPermissionPreset: registration.cliPermissionPreset,
           maxConcurrentAgents: registration.maxConcurrentAgents,
-          ...(registration.architectGuidance !== undefined
-            ? { architectGuidance: registration.architectGuidance }
-            : {}),
         }
         mergeAgentConfigs(existing, registration.agentConfigs)
         reconcilePower(existing)
@@ -1063,9 +1060,6 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
             deliveredAgentNotificationEventKeys: registration.deliveredAgentNotificationEventKeys,
             ...(registration.completionTeardownAt !== undefined
               ? { completionTeardownAt: registration.completionTeardownAt }
-              : {}),
-            ...(registration.architectGuidance !== undefined
-              ? { architectGuidance: registration.architectGuidance }
               : {}),
           },
           sprintEngineContext: {

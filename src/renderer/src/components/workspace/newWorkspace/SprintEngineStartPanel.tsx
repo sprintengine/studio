@@ -51,7 +51,6 @@ export function SprintEngineStartPanel({
   roleCliDefaults,
   roleModelOverrides,
   poolAgentCount,
-  architectSeatLabel,
   selectedToolNames,
   selectedSkillPackCount,
   onEditStep,
@@ -81,7 +80,6 @@ export function SprintEngineStartPanel({
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
   poolAgentCount: number
-  architectSeatLabel: string | null
   selectedToolNames: string[]
   selectedSkillPackCount: number
   onEditStep: (step: StepId) => void
@@ -120,12 +118,10 @@ export function SprintEngineStartPanel({
             cliOptions,
           ) ?? undefined,
         }
-      : teamMode === 'architect'
-        ? { text: 'Architect picks the team', crumb: architectSeatLabel ?? undefined }
-        : {
-            text: `${onRoles.length} role${onRoles.length === 1 ? '' : 's'}, picked yourself`,
-            crumb: sharedRuntime ?? 'mixed runtimes',
-          }
+      : {
+          text: `${onRoles.length} role${onRoles.length === 1 ? '' : 's'}, picked yourself`,
+          crumb: sharedRuntime ?? 'mixed runtimes',
+        }
 
   const toolsSummary =
     selectedToolNames.length === 0 && selectedSkillPackCount === 0

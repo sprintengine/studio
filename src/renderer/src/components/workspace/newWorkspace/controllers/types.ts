@@ -7,12 +7,10 @@ import type {
   LayoutTemplate,
   SprintEngineAutoState,
   SprintEngineCliPermissionPreset,
-  SprintEngineAllowedRuntime,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
-  SprintEngineRosterSource,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineState,
@@ -120,15 +118,6 @@ export type SprintEngineNewTeamInput = {
   repos?: Array<{ id: string; root: string }>
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
-  // "Architect picks the team" fields. When rosterSource is 'architect' the
-  // controller seats only the architect (roleCounts/enabledRoles collapse to
-  // ['architect']), pins its runtime from `architectSeat`, forwards the ticked
-  // `allowedRuntimes` palette to init, and records the prompt-only guidance on
-  // auto state. Absent/'user' keeps the wizard-composed roster untouched.
-  rosterSource?: SprintEngineRosterSource
-  architectSeat?: SprintEngineAllowedRuntime
-  allowedRuntimes?: SprintEngineAllowedRuntime[]
-  architectGuidance?: string
   // MC-1543 "Workflow steps" panel. Each is pre-computed by the wizard and
   // forwarded verbatim into the run init; each is present ONLY when it diverges
   // from the engine default, so a plain run sends none of them.

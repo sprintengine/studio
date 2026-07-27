@@ -20,7 +20,7 @@ Claim-first, like every agent: work what your claim tool returns (`sprintengine.
 
 1. Read the plan via `sprintengine.plan.read` with `{}`, inspect the codebase, then write `.multi-code/sprintengine/<team-slug>/plan.md`.
 2. Register the plan via `sprintengine.artifact.add` with `{ taskId, kind: "architect_plan", title, path, createdBy: "architect", ready: false }`. Do not mark it ready yet.
-3. If `run.rosterSource` is `architect`, compose the team with `sprintengine.roster.configure` first (see "Roster Composition"). Build the task graph via repeated `sprintengine.plan.add_task` calls. Then mark the plan ready via `sprintengine.artifact.ready` — never before the graph is complete, because approval can arrive immediately and retire this terminal.
+3. Build the task graph via repeated `sprintengine.plan.add_task` calls. Then mark the plan ready via `sprintengine.artifact.ready` — never before the graph is complete, because approval can arrive immediately and retire this terminal.
 4. Log evidence via `sprintengine.task.log` and publish via `sprintengine.task.publish` for architect-owned non-artifact tasks.
 
 ## Decision Checkpoint
@@ -46,23 +46,11 @@ Artifact-producing tasks are approval surfaces: the owner creates a concrete fil
 - For UI work, add a frontend artifact task for HTML mockups or design notes before production UI implementation. Add additional product or frontend approval tasks only when the approved intake leaves a concrete product/design question unresolved.
 - Link every downstream implementation task with `dependsOn` to the relevant approved task ids. A worker should never need to infer sequencing from artifact files alone.
 
-## Roster Composition
+## Planning Within The Roster
 
-**Roles On This Run** in your startup brief lists the run's roles, each with its manifest description — what it does and when to staff it.
+**Roles On This Run** in your startup brief lists the run's roles, each with its manifest description — what it does and when to staff it. The user composed that roster, so it is fixed: plan tasks and reviews only for those roles, and if the work needs a role the run does not have, raise `needs_input(user)` naming the surface rather than inventing one.
 
-`sprintengine.agent.join` and `sprintengine.run.get` return `run.rosterSource` in the run metadata. It names who composes the team:
-
-- **`user` or absent (legacy):** the user composed the roster in the wizard; those roles are fixed. Plan tasks and reviews only for them; if the work needs a role the run does not have, raise `needs_input(user)` naming the surface rather than adding it. Never `roster.configure` on a user-composed run — it is rejected at the Python choke point.
-- **`architect` ("Architect picks the team"):** you compose the team as the first planning step, before creating any task cards. Follow the flow below.
-
-### Architect-Composed Roster (`rosterSource: architect`)
-
-1. **Survey first.** Read the goal, the codebase, and the approved intake, then match the work against the role descriptions from `sprintengine.roles.list` and pick the **smallest team that covers it** — every seated role must have real work.
-2. **Configure before planning.** Enable the team in one call: `sprintengine.roster.configure` with `{ roles: [{ role, cli, model }, ...] }`, then create tasks. `sprintengine.plan.add_task` rejects a role that is not configured, so configure first.
-3. **Stay inside the sprint palette.** The sprint's allowed runtime palette is server-enforced from `run.yaml` (not readable over MCP); `model: null` pins a CLI's default. Submit your best `{ cli, model }` picks — one outside the palette is rejected with `runtime_not_allowed_for_run`, which enumerates the allowed set; correct and re-run. Never invent a runtime.
-4. **Record the team in `plan.md`.** Add a `## Team` section: one bullet per role with its `cli`/`model` and a one-line why it is on the team.
-5. **Plan reviews as tasks.** A specialist review is an ordinary task in that role's lane, planned where it is worth doing and `dependsOn` the work it audits — not a gate bolted onto someone else's task.
-6. **Revise until approval, then locked.** You may re-call `sprintengine.roster.configure` to revise the team until the plan-approval task is `done`. After approval the roster is locked; a later team change routes through `needs_input(user)`.
+Plan reviews as tasks. A specialist review is an ordinary task in that role's lane, planned where it is worth doing and `dependsOn` the work it audits — not a gate bolted onto someone else's task.
 
 ## Task Graph Rules
 
@@ -70,7 +58,7 @@ Each `sprintengine.plan.add_task` call must include:
 
 - `title`: a concise title
 - `description`: a concrete self-contained task brief
-- `role`: one of the roles in **Roles On This Run** — its canonical snake_case id, never an invented label. On an `architect`-source run, configure the role via `sprintengine.roster.configure` first (see "Roster Composition").
+- `role`: one of the roles in **Roles On This Run** — its canonical snake_case id, never an invented label.
 - `acceptance`: array of repeatable verifiable conditions
 - `dependsOn`: array of repeatable task ids that must be done first
 - `path`: array of files or directories this task will touch

@@ -39,7 +39,6 @@ import type {
   SprintEngineRoleRuntimes,
   SprintEngineRoleSettings,
   SprintEngineRosterSession,
-  SprintEngineRosterSource,
   SprintEngineRunnerPolicy,
   SprintEngineRuntimeAgent,
   SprintEngineSkillMap,
@@ -2246,13 +2245,6 @@ export function normalizeSprintEngineConfiguredRoles(value: unknown): SprintEngi
   return result.length > 0 ? result : null
 }
 
-// Tolerant read of run.yaml/projection `rosterSource`. Only the two known modes
-// survive; anything else (including absent/legacy) returns null so callers omit
-// the field and 'user' semantics apply everywhere.
-export function normalizeSprintEngineRosterSource(value: unknown): SprintEngineRosterSource | null {
-  return value === 'architect' || value === 'user' ? value : null
-}
-
 // Tolerant read of run.yaml/projection `defaultPhases` — the run's phase list
 // (MC-1542). Unlike every other optional run key, an EMPTY array is meaningful
 // ("agents on this run don't review their own work") and must survive, so this
@@ -2263,24 +2255,6 @@ export function normalizeSprintEngineDefaultPhases(value: unknown): SprintEngine
   return value.filter((phase): phase is SprintEngineTaskPhase =>
     sprintEngineTaskPhases.includes(phase as SprintEngineTaskPhase)
   )
-}
-
-// Tolerant read of run.yaml/projection `allowedRuntimes` — the architect-roster
-// run's ticked model palette. Drops entries with no usable cli; a missing/blank
-// model becomes null (the CLI's own default). Returns null when absent/empty so
-// user-mode runs stay clean.
-export function normalizeSprintEngineAllowedRuntimes(value: unknown): SprintEngineAllowedRuntime[] | null {
-  if (!Array.isArray(value)) return null
-  const result: SprintEngineAllowedRuntime[] = []
-  for (const raw of value) {
-    if (!raw || typeof raw !== 'object') continue
-    const record = raw as Record<string, unknown>
-    const cli = typeof record.cli === 'string' && record.cli.trim() ? record.cli.trim() : ''
-    if (!cli) continue
-    const model = typeof record.model === 'string' && record.model.trim() ? record.model.trim() : null
-    result.push({ cli, model })
-  }
-  return result.length > 0 ? result : null
 }
 
 // MC-1543: a task's `awaitingPhaseSession` marker (a released phase awaiting a
@@ -2428,14 +2402,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     ...((): Partial<Pick<SprintEngineState, 'configuredRoles'>> => {
       const configuredRoles = normalizeSprintEngineConfiguredRoles(input.configuredRoles)
       return configuredRoles ? { configuredRoles } : {}
-    })(),
-    ...((): Partial<Pick<SprintEngineState, 'rosterSource'>> => {
-      const rosterSource = normalizeSprintEngineRosterSource(input.rosterSource)
-      return rosterSource ? { rosterSource } : {}
-    })(),
-    ...((): Partial<Pick<SprintEngineState, 'allowedRuntimes'>> => {
-      const allowedRuntimes = normalizeSprintEngineAllowedRuntimes(input.allowedRuntimes)
-      return allowedRuntimes ? { allowedRuntimes } : {}
     })(),
     ...((): Partial<Pick<SprintEngineState, 'defaultPhases'>> => {
       // An empty array is truthy, so an explicit no-review run survives here.
@@ -2752,14 +2718,6 @@ export function normalizeSprintEngineProjection(
     ...((): Partial<Pick<SprintEngineState, 'configuredRoles'>> => {
       const configuredRoles = normalizeSprintEngineConfiguredRoles(runRecord.configuredRoles)
       return configuredRoles ? { configuredRoles } : {}
-    })(),
-    ...((): Partial<Pick<SprintEngineState, 'rosterSource'>> => {
-      const rosterSource = normalizeSprintEngineRosterSource(runRecord.rosterSource)
-      return rosterSource ? { rosterSource } : {}
-    })(),
-    ...((): Partial<Pick<SprintEngineState, 'allowedRuntimes'>> => {
-      const allowedRuntimes = normalizeSprintEngineAllowedRuntimes(runRecord.allowedRuntimes)
-      return allowedRuntimes ? { allowedRuntimes } : {}
     })(),
     ...((): Partial<Pick<SprintEngineState, 'defaultPhases'>> => {
       const defaultPhases = normalizeSprintEngineDefaultPhases(runRecord.defaultPhases)

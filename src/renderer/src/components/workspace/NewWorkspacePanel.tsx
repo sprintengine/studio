@@ -16,14 +16,11 @@ import type {
   McpCatalogServer,
   ReviewGuideConfig,
   SkillPackCatalogEntry,
-  SprintEngineAllowedRuntime,
   SprintEngineAutoState,
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
   SprintEngineMockConfig,
-  SprintEngineModelCatalogEntry,
   SprintEngineRoleId,
-  SprintEngineRosterSource,
   SprintEngineRoleRegistry,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
@@ -129,14 +126,12 @@ import {
   type SprintDeclaredRepo,
   type SprintProjectOption,
 } from './newWorkspace/sprintProjectSelection'
-import { ArchitectTeamCard } from './newWorkspace/ArchitectTeamCard'
 import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedTeams'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
   type AgentCliCatalogOption,
 } from './newWorkspace/cliRuntimeOptions'
-import { getAvailableModelCatalogEntries, modelCatalogEntryKey } from '../../utils/modelCatalog'
 import {
   DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
@@ -628,38 +623,17 @@ export default function NewWorkspacePanel({
     setSeStartRunner(mode !== 'manual')
     setSeAutoApproveArtifacts(mode === 'run_agents_and_approve_artifacts')
   }
-  // "Architect picks the team" wizard state. rosterSource selects the mode; the
-  // rest are architect-mode inputs. seArchitectSeat and seSprintModelSelection
-  // stay null until the user edits them, so the effective values track the
-  // catalog-derived defaults (highest-Intelligence seat, offered-by-default ticks)
-  // with no reseed race when the catalog/CLI availability loads. Guidance is
-  // prompt-only (never persisted by the engine).
-  const [seRosterSource, setSeRosterSource] = useState<SprintEngineRosterSource>('user')
   // Specialist roles on/off (MC-1585). Off = plain agents (a pool of general
-  // agents sized by the concurrency cap). On = the specialist roster and
-  // architect-picks-the-team mode. Driven by the Team page's segmented control
-  // (MC-1646) through seTeamMode below.
+  // agents sized by the concurrency cap). On = the specialist roster. Driven by
+  // the Team page's segmented control (MC-1646) through seTeamMode below.
   const [seUseSpecialistRoles, setSeUseSpecialistRoles] = useState(initialUseSpecialistRoles)
-  // The Team page's segmented control (MC-1646) is a projection of the two
-  // stored axes: specialist roles on/off (MC-1585) and who staffs the roster
-  // (user vs architect). 'pool' leaves the last rosterSource intact so
-  // switching back to a specialist segment restores the previous choice.
-  const seTeamMode: SprintEngineTeamMode = !seUseSpecialistRoles
-    ? 'pool'
-    : seRosterSource === 'architect'
-      ? 'architect'
-      : 'roles'
+  // The Team page's segmented control (MC-1646) is a projection of that one
+  // stored axis. MC-1889 removed the third formation (architect staffs from a
+  // model palette), so specialist-roles on/off is the whole choice.
+  const seTeamMode: SprintEngineTeamMode = seUseSpecialistRoles ? 'roles' : 'pool'
   const setSeTeamMode = (mode: SprintEngineTeamMode) => {
-    if (mode === 'pool') {
-      setSeUseSpecialistRoles(false)
-      return
-    }
-    setSeUseSpecialistRoles(true)
-    setSeRosterSource(mode === 'architect' ? 'architect' : 'user')
+    setSeUseSpecialistRoles(mode === 'roles')
   }
-  const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
-  const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
-  const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
 
   // Review workspace creation state (MC-1677). The source segment leads with
   // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
@@ -774,75 +748,6 @@ export default function NewWorkspacePanel({
     setSeRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
     setGuidedRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
   }, [cliAvailabilityStatus, sprintEngineCliOptions, seRoleCliDefaults, guidedRoleCliDefaults])
-  // Global model catalog (facts about models, entered once in Settings). The
-  // architect-roster mode reads it for the per-sprint model selection and the
-  // architect-seat default; user mode ignores it entirely.
-  const sprintEngineModelCatalog = useWorkspaceStore((s) => s.appSettings.sprintEngineModelCatalog)
-  // Available catalog entries: gated to installed CLIs, but only once detection is
-  // trustworthy (ready + a non-empty installed set) — otherwise fall back to the
-  // raw catalog so a still-loading probe never hides every model (mirrors the CLI
-  // picker's availability fallback).
-  const availableCatalogEntries = useMemo<SprintEngineModelCatalogEntry[]>(() => {
-    if (cliAvailabilityStatus !== 'ready') return sprintEngineModelCatalog
-    const installed = Object.values(cliAvailability).filter((entry) => entry.installed).map((entry) => entry.cli)
-    if (installed.length === 0) return sprintEngineModelCatalog
-    return getAvailableModelCatalogEntries({ sprintEngineModelCatalog }, installed)
-  }, [sprintEngineModelCatalog, cliAvailability, cliAvailabilityStatus])
-  const architectModeAvailable = availableCatalogEntries.length > 0
-  const architectModeDisabledHint = sprintEngineModelCatalog.length === 0
-    ? 'Add at least one model to your catalog in Settings'
-    : 'No catalog model’s CLI is installed'
-  // Architect seat defaults to the highest-Intelligence available entry, else the
-  // plain wizard CLI default. Independent of the ticked selection by design (pin
-  // a model here and leave it unticked = "runs the architect and nowhere else").
-  const defaultArchitectSeat = useMemo<SprintEngineAllowedRuntime>(() => {
-    const best = availableCatalogEntries.reduce<SprintEngineModelCatalogEntry | null>(
-      (top, entry) => (!top || entry.intelligence > top.intelligence ? entry : top),
-      null,
-    )
-    if (best) return { cli: best.cli, model: best.model }
-    return { cli: resolveAvailableAgentCli('claude-code', sprintEngineCliOptions, 'claude-code'), model: null }
-  }, [availableCatalogEntries, sprintEngineCliOptions])
-  const seatDefaultedFromCatalog = availableCatalogEntries.length > 0 && seArchitectSeat === null
-  const effectiveArchitectSeat = seArchitectSeat ?? defaultArchitectSeat
-  // "CLI · model" crumb for the Review & start summary's architect line.
-  const architectSeatLabel = useMemo(() => {
-    const option = sprintEngineCliOptions.find((candidate) => candidate.value === effectiveArchitectSeat.cli)
-    const cliLabel = option?.label ?? effectiveArchitectSeat.cli
-    if (!effectiveArchitectSeat.model) return cliLabel
-    const modelLabel =
-      option?.modelSelection?.options.find((entry) => entry.id === effectiveArchitectSeat.model)?.label
-      ?? effectiveArchitectSeat.model
-    return `${cliLabel} · ${modelLabel}`
-  }, [sprintEngineCliOptions, effectiveArchitectSeat])
-  // Default ticks = offered-by-default available entries; the user's toggles
-  // (seSprintModelSelection) override once they touch anything.
-  const defaultSelectionKeys = useMemo<ReadonlySet<string>>(
-    () => new Set(
-      availableCatalogEntries
-        .filter((entry) => entry.offeredByDefault)
-        .map((entry) => modelCatalogEntryKey(entry.cli, entry.model)),
-    ),
-    [availableCatalogEntries],
-  )
-  const effectiveSelectionKeys = seSprintModelSelection ?? defaultSelectionKeys
-  const selectedAllowedRuntimes = useMemo<SprintEngineAllowedRuntime[]>(
-    () => availableCatalogEntries
-      .filter((entry) => effectiveSelectionKeys.has(modelCatalogEntryKey(entry.cli, entry.model)))
-      .map((entry) => ({ cli: entry.cli, model: entry.model })),
-    [availableCatalogEntries, effectiveSelectionKeys],
-  )
-  // Architect mode is ready to create only with the option available AND at least
-  // one ticked model — creation is never guessed from an empty selection.
-  const architectModeReady = architectModeAvailable && selectedAllowedRuntimes.length > 0
-  const toggleSprintModel = (entry: SprintEngineAllowedRuntime) => {
-    const key = modelCatalogEntryKey(entry.cli, entry.model)
-    const base = seSprintModelSelection ?? defaultSelectionKeys
-    const next = new Set(base)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    setSeSprintModelSelection(next)
-  }
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
     [sprintEngineRoleSettings],
@@ -1576,11 +1481,7 @@ export default function NewWorkspacePanel({
       // A plain agent pool always stages its one general planner seat, so the
       // Team page can never block create in pool mode.
       || !seUseSpecialistRoles
-      || (seRosterSource === 'architect'
-        // Architect mode: the roster is the model palette — ready with the option
-        // available and at least one model ticked (the architect is always seated).
-        ? architectModeReady
-        : (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts))))
+      || (totalAgents > 0 && sprintEngineRosterHasPlanningRole(visibleSprintEngineRoleCounts)))
   // The resolved seed source for the design-system preset. Null means blank
   // start — either chosen deliberately, or because a seed mode is selected but
   // its source is not resolved yet (folder not picked / demo unavailable), in
@@ -1640,12 +1541,8 @@ export default function NewWorkspacePanel({
     seExistingTeam,
     seTeamDetailsReady,
     totalAgents,
-    seRosterSource,
     sePlainAgents: !seUseSpecialistRoles,
     toolsSelectedCount,
-    architectModeAvailable,
-    architectModeReady,
-    architectModeDisabledHint,
     guidedIdea,
     guidedHasUi,
     guidedSeedMode,
@@ -2611,28 +2508,17 @@ export default function NewWorkspacePanel({
       setIsCreating(true)
       try {
         if (await persistAdvancedSetup(folderPath)) return
-        // Architect mode seats only the architect; the controller pins its
-        // runtime from the seat picker and forwards the ticked palette. The user
-        // roster (roleCounts/model overrides) is bypassed — the architect grows
-        // the team via roster.configure after the user approves the plan.
-        // Architect-picks mode is a specialist affordance, so it only applies
-        // when specialist roles are in use; a plain-agents run always stages the
-        // `general` planner seat from the effective counts.
-        const architectMode = seUseSpecialistRoles && seRosterSource === 'architect'
-        const createRoleCounts: SprintEngineRoleCounts = architectMode
-          ? { architect: 1 }
-          : sprintEngineEffectiveCreateRoleCounts
         const args = await runSprintEngineNewTeamCreation(
           {
             folderPath,
             teamName: sprintEngineConfig.name,
             goal: sprintEngineConfig.goal,
-            roleCounts: createRoleCounts,
-            visibleRoleCounts: createRoleCounts,
+            roleCounts: sprintEngineEffectiveCreateRoleCounts,
+            visibleRoleCounts: sprintEngineEffectiveCreateRoleCounts,
             maxParallelAgents: seMaxParallelAgents,
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
-            initialSpawnRoles: architectMode ? ['architect'] : seInitialSpawnRoles,
+            initialSpawnRoles: seInitialSpawnRoles,
             startRunner: seAutomationMode !== 'manual',
             autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
             useWorktrees: seUseWorktrees,
@@ -2641,14 +2527,6 @@ export default function NewWorkspacePanel({
             // mode, which the engine requires for a multi-project run.
             ...(seRepoDeclarations.length > 0 ? { repos: seRepoDeclarations } : {}),
             cliPermissionPreset,
-            rosterSource: architectMode ? 'architect' : 'user',
-            ...(architectMode
-              ? {
-                architectSeat: effectiveArchitectSeat,
-                allowedRuntimes: selectedAllowedRuntimes,
-                architectGuidance: seArchitectGuidance.trim() || undefined,
-              }
-              : {}),
           },
           {
             pathExists: window.api.pathExists,
@@ -3282,8 +3160,6 @@ export default function NewWorkspacePanel({
                   // An existing team's formation is fixed, so the segmented
                   // control is withheld.
                   onChangeTeamMode={seExistingTeam != null ? undefined : setSeTeamMode}
-                  architectModeAvailable={architectModeAvailable}
-                  architectModeDisabledHint={architectModeDisabledHint}
                   roleCounts={visibleSprintEngineRoleCounts}
                   roleCliDefaults={seRoleCliDefaults}
                   roleModelOverrides={seRoleModelOverrides}
@@ -3306,19 +3182,6 @@ export default function NewWorkspacePanel({
                   onDeleteTeam={handleDeleteSprintEngineTeam}
                   poolAgentCount={seMaxParallelAgents}
                   onChangePoolAgentCount={setSeMaxParallelAgents}
-                  architectCard={
-                    <ArchitectTeamCard
-                      seat={effectiveArchitectSeat}
-                      seatDefaultedFromCatalog={seatDefaultedFromCatalog}
-                      cliOptions={sprintEngineCliOptions}
-                      onChangeSeat={setSeArchitectSeat}
-                      availableEntries={availableCatalogEntries}
-                      selectedKeys={effectiveSelectionKeys}
-                      onToggleEntry={toggleSprintModel}
-                      guidance={seArchitectGuidance}
-                      onChangeGuidance={setSeArchitectGuidance}
-                    />
-                  }
                 />
               </>
             )}
@@ -3372,7 +3235,6 @@ export default function NewWorkspacePanel({
                 roleCliDefaults={seRoleCliDefaults}
                 roleModelOverrides={seRoleModelOverrides}
                 poolAgentCount={seMaxParallelAgents}
-                architectSeatLabel={architectSeatLabel}
                 selectedToolNames={selectedMcpServers.map(mcpServerDisplayName)}
                 selectedSkillPackCount={selectedSkillPackIds.size}
                 onEditStep={(target) => jumpToStep(steps.indexOf(target))}
@@ -5200,12 +5062,8 @@ function getStepBlockingMessage(args: {
   seExistingTeam: ExistingTeam | null
   seTeamDetailsReady: boolean
   totalAgents: number
-  seRosterSource: SprintEngineRosterSource
   sePlainAgents: boolean
   toolsSelectedCount: number
-  architectModeAvailable: boolean
-  architectModeReady: boolean
-  architectModeDisabledHint: string
   guidedIdea: string
   guidedHasUi: GuidedBriefHasUi | null
   guidedSeedMode: DesignSystemSeedMode
@@ -5225,12 +5083,8 @@ function getStepBlockingMessage(args: {
     seExistingTeam,
     seTeamDetailsReady,
     totalAgents,
-    seRosterSource,
     sePlainAgents,
     toolsSelectedCount,
-    architectModeAvailable,
-    architectModeReady,
-    architectModeDisabledHint,
     guidedIdea,
     guidedHasUi,
     guidedSeedMode,
@@ -5270,11 +5124,6 @@ function getStepBlockingMessage(args: {
       if (seExistingTeam) return 'Ready to load team.'
       // A plain agent pool always stages its general planner seat.
       if (sePlainAgents) return 'Ready to create.'
-      if (seRosterSource === 'architect') {
-        if (!architectModeAvailable) return architectModeDisabledHint
-        if (!architectModeReady) return 'Tick at least one model for this sprint.'
-        return 'Ready to create.'
-      }
       if (totalAgents === 0) return 'Turn on at least one role.'
       return 'Ready to create.'
     // The tools page's hint reports the live selection instead of a readiness

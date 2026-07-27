@@ -141,7 +141,6 @@ async function createSprint(
         useWorktrees: request.useWorktrees === true,
         // External creation never escalates CLI permissions.
         cliPermissionPreset: 'default',
-        rosterSource: 'user',
       },
       {
         pathExists: window.api.pathExists,

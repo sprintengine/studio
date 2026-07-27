@@ -1,8 +1,8 @@
 // The sprint wizard's Team step (MC-1646, mockup §1). One reading column:
 // a segmented control chooses how the team is formed (pick roles yourself /
-// architect picks / plain agent pool), the roster is a single dense hairline
-// list summarized by an overlapping glyph stack, and saved teams collapse into
-// a quiet "Team: <name>" menu instead of a permanent rail. Replaces the old
+// plain agent pool), the roster is a single dense hairline list summarized by
+// an overlapping glyph stack, and saved teams collapse into a quiet
+// "Team: <name>" menu instead of a permanent rail. Replaces the old
 // "Your AI team" screen's banner, checkbox card, option cards, and boxed rail.
 
 import React from 'react'
@@ -28,20 +28,14 @@ import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, Segmen
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import { sprintEngineTeamNameTaken } from './savedTeams'
 
-// How the team is formed. 'roles' = the user staffs the roster below;
-// 'architect' = the architect staffs from a model palette; 'pool' = no
-// specialist roles, a pool of plain agents shares one task graph.
-export type SprintEngineTeamMode = 'roles' | 'architect' | 'pool'
+// How the team is formed. 'roles' = the user staffs the roster below; 'pool' =
+// no specialist roles, a pool of plain agents shares one task graph. (MC-1889
+// removed a third formation where the architect staffed from a model palette.)
+export type SprintEngineTeamMode = 'roles' | 'pool'
 
 const TEAM_MODE_HELP: Record<SprintEngineTeamMode, string> = {
   roles: 'You choose the roles and models below. The architect plans within them.',
-  architect:
-    'The architect surveys the objective and staffs from your model selection — recorded in the plan for your approval.',
   pool: 'No specialist roles. A pool of plain agents shares one task graph.',
-}
-
-function lowercaseFirst(text: string): string {
-  return text ? text.charAt(0).toLowerCase() + text.slice(1) : text
 }
 
 // Effective launch model for a role: explicit override (string), otherwise the
@@ -58,9 +52,6 @@ function effectiveRoleModel(
 export function SprintEngineTeamPanel({
   teamMode,
   onChangeTeamMode,
-  architectModeAvailable,
-  architectModeDisabledHint,
-  architectCard,
   roleCounts,
   roleCliDefaults,
   roleModelOverrides,
@@ -87,9 +78,6 @@ export function SprintEngineTeamPanel({
   teamMode: SprintEngineTeamMode
   // Absent for an existing team: its formation is fixed, so no segmented control.
   onChangeTeamMode?: (mode: SprintEngineTeamMode) => void
-  architectModeAvailable: boolean
-  architectModeDisabledHint: string
-  architectCard: React.ReactNode
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
@@ -130,7 +118,6 @@ export function SprintEngineTeamPanel({
             className="self-start"
             items={[
               { value: 'roles', label: 'Pick roles yourself' },
-              { value: 'architect', label: 'Architect picks', disabled: !architectModeAvailable },
               { value: 'pool', label: 'Plain agent pool' },
             ]}
             value={teamMode}
@@ -138,21 +125,11 @@ export function SprintEngineTeamPanel({
           />
           <p className="mt-2 min-h-[18px] text-[12px] leading-4 text-[color:var(--text-subtle)]">
             {TEAM_MODE_HELP[teamMode]}
-            {!architectModeAvailable ? (
-              <>
-                {' '}
-                <span className="text-[color:var(--text-disabled)]">
-                  “Architect picks” is unavailable — {lowercaseFirst(architectModeDisabledHint)}.
-                </span>
-              </>
-            ) : null}
           </p>
         </>
       ) : null}
 
-      {teamMode === 'architect' ? (
-        <div className="mt-4">{architectCard}</div>
-      ) : teamMode === 'pool' ? (
+      {teamMode === 'pool' ? (
         <div className="mt-4">
           <PlainAgentsPanel
             agentCount={poolAgentCount}

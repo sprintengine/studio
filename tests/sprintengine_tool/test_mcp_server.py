@@ -162,7 +162,8 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.recover",
         # MC-1591 deleted the roster-growth and dispatch-cursor tools (add/retire/
         # replenish/list, subscribe, dispatch.next/ack): leases replaced the roster.
-        "sprintengine.roster.configure",
+        # MC-1889 deleted `roster.configure` with the architect-picks formation, so
+        # no roster tool remains on the MCP surface at all.
         "sprintengine.agent.join",
         "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
@@ -230,7 +231,6 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.handover": {"name": "Run"},
         "sprintengine.init": {},
         "sprintengine.recover": {},
-        "sprintengine.roster.configure": {"roles": [{"role": "developer", "cli": "claude-code", "model": "claude-opus-4-8"}]},
         "sprintengine.agent.next_directive": {"role": "developer", "agentId": "developer-1"},
         "sprintengine.join": {"role": "developer", "id": "developer-1"},
         "sprintengine.summary": {},

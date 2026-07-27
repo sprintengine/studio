@@ -31,19 +31,15 @@ from sprintengine_core.tool.tasks import (
 )
 
 FABLE = {"cli": "claude-code", "model": "fable"}
-HAIKU = {"cli": "claude-code", "model": "haiku"}
 
 
 # --- binding validation ------------------------------------------------------
 
 
-def test_phase_runtimes_validate_against_the_sprint_palette() -> None:
-    state = {"allowedRuntimes": [FABLE]}
+def test_phase_runtimes_persist_the_binding() -> None:
+    state: dict = {}
     apply_phase_runtimes(state, json.dumps({"review": FABLE}))
     assert state["phaseRuntimes"] == {"review": {"cli": "claude-code", "model": "fable"}}
-
-    with pytest.raises(SystemExit, match="runtime_not_allowed_for_run"):
-        apply_phase_runtimes({"allowedRuntimes": [FABLE]}, json.dumps({"review": HAIKU}))
 
 
 def test_phase_runtimes_reject_an_unknown_phase_and_a_missing_cli() -> None:

@@ -1,11 +1,9 @@
 """Engine coverage for the operator `roster enable` mutation (MC-1593).
 
 `roster enable --role [--cli --model] --actor ui` is the app-owned, user-driven
-mid-run "Add a role" from the board. Unlike the architect's `roster.configure`
-(whose payload REPLACES configuredRoles), it is additive-only: the union never
-drops a role. Like `roster runtime`, it applies to user-composed rosters, is
-legal after plan approval, and is not palette-constrained. A run with no
-configuredRoles is legacy/unconstrained — every role is already legal, so no
+mid-run "Add a role" from the board. It is additive-only: the union never drops a
+role. Like `roster runtime`, it applies to any run and is legal after plan
+approval. A run with no configuredRoles is legacy/unconstrained — every role is already legal, so no
 list is written.
 """
 from __future__ import annotations

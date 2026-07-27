@@ -188,11 +188,16 @@ def test_general_and_architect_share_one_planning_surface(tmp_path) -> None:
         "sprintengine.plan.add_task",
         "sprintengine.task.advance",
         "sprintengine.artifact.request_changes",
-        "sprintengine.roster.configure",
     ):
         assert granted in general, granted
-    # The deleted roster-growth tools are gone from every surface, not merely hidden.
-    for retired in ("sprintengine.roster.add", "sprintengine.roster.replenish", "sprintengine.roster.list"):
+    # The deleted roster tools are gone from every surface, not merely hidden:
+    # MC-1591 took growth/list, MC-1889 took `configure` with the formation.
+    for retired in (
+        "sprintengine.roster.add",
+        "sprintengine.roster.replenish",
+        "sprintengine.roster.list",
+        "sprintengine.roster.configure",
+    ):
         assert retired not in general, retired
         assert retired not in architect, retired
         assert retired not in TOOL_SCHEMAS, retired

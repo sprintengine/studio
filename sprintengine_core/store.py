@@ -69,12 +69,6 @@ CLAIM_QUEUE_LOCK_FILE = "runner/claim.queue.lock"
 GIT_COMMIT_LOCK_PREFIX = "git.commit."
 GIT_COMMIT_LOCK_SUFFIX = ".lock"
 RUN_SOURCE_KEYS = ("source", "sourceBundle")
-# Top-level run keys written once at init for "Architect picks the team" runs:
-# `rosterSource` ('user' | 'architect') and `allowedRuntimes` (the sprint's
-# ticked {cli, model} palette). Both are optional and absent on legacy/user-mode
-# runs, so they round-trip through run.yaml and the projection only when present,
-# exactly like RUN_SOURCE_KEYS.
-RUN_ROSTER_SOURCE_KEYS = ("rosterSource", "allowedRuntimes")
 
 # Run-store schema version. v2 (MC-1542, single-owner tasks): the task status enum
 # lost `changes_requested`/`testing`/`product`, `qualityGates` became `phases`, and
@@ -660,7 +654,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
         if key in state:
             run[key] = state[key]
     if configured_roles is not None:
@@ -910,7 +904,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     # one stays absent (its roster boundary then no-ops).
     if isinstance(run.get("configuredRoles"), list):
         state["configuredRoles"] = run["configuredRoles"]
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
         if key in run:
             state[key] = run[key]
     return state
@@ -1325,11 +1319,6 @@ def build_projection(
             # them as "Started from", so the projection must carry them. Omitted
             # cleanly when absent so legacy runs stay unaffected.
             **{key: run[key] for key in RUN_SOURCE_KEYS if key in run},
-            # "Architect picks the team" run keys: rosterSource drives the board
-            # provenance chip + architect prompt branch, allowedRuntimes is the
-            # sprint palette. Written once at init; re-emitted only when present
-            # so user-mode/legacy runs stay unaffected.
-            **{key: run[key] for key in RUN_ROSTER_SOURCE_KEYS if key in run},
             # The run's phase list (default AND ceiling for every task). The
             # wizard's "Agents review their own work" toggle writes it; the board
             # and architect prompt read it. Absent = the engine default.

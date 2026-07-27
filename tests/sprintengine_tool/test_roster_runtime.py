@@ -1,12 +1,9 @@
 """Engine coverage for the operator `roster runtime` mutation (MC-1516).
 
 `roster runtime --role --cli [--model] --actor ui` is the app-owned, user-driven
-mid-run edit of one role's execution runtime. Unlike the architect's
-`roster.configure`, it applies to user-composed rosters, is legal after plan
-approval, and is deliberately NOT constrained by the run's `allowedRuntimes`
-palette (the palette constrains the architect, never the operator). The merge
-lands in `roleRuntimes` in run.yaml and re-emits on the projection, so future
-spawns and claims resolve the new runtime.
+mid-run edit of one role's execution runtime. It applies to any run and is legal
+after plan approval. The merge lands in `roleRuntimes` in run.yaml and re-emits
+on the projection, so future spawns and claims resolve the new runtime.
 """
 from __future__ import annotations
 
@@ -89,34 +86,6 @@ def test_runtime_edit_without_model_pins_cli_default(tmp_path) -> None:
     assert result["runtime"] == {"cli": "claude-code"}
     run = folder_store.load_run_yaml(state_path.parent)
     assert run["roleRuntimes"]["developer"] == {"cli": "claude-code"}
-
-
-def test_runtime_edit_ignores_allowed_runtimes_and_plan_lock(tmp_path) -> None:
-    # An architect-roster run with a palette: the operator verb bypasses both the
-    # palette and the rosterSource guard that constrain roster.configure.
-    root, state_path = _workspace(tmp_path)
-    cli = SwarmCli(state_path, cwd=root)
-    cli.run(
-        "init",
-        "--name", "runtime-edit",
-        "--goal", "Operator overrides the palette",
-        "--roster-source", "architect",
-        "--agent", "architect:architect",
-        "--configured-roles-json", json.dumps(["architect"]),
-        "--role-runtimes-json", json.dumps({"architect": {"cli": "claude-code", "model": "claude-fable-5"}}),
-        "--allowed-runtimes-json", json.dumps([{"cli": "claude-code", "model": "claude-fable-5"}]),
-    )
-
-    result = cli.run(
-        "roster", "runtime",
-        "--role", "architect",
-        "--cli", "claude-code",
-        "--model", "claude-opus-4-8",  # deliberately outside the palette
-        "--actor", "ui",
-    )
-    assert result["ok"] is True
-    run = folder_store.load_run_yaml(state_path.parent)
-    assert run["roleRuntimes"]["architect"]["model"] == "claude-opus-4-8"
 
 
 def test_runtime_edit_rejects_unknown_role(tmp_path) -> None:

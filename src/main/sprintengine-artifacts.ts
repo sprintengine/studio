@@ -136,8 +136,6 @@ type SerializableSprintEngineStatePayload = {
   baseStartPoint: string | null
   roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
   enabledRoles: string[]
-  rosterSource: 'user' | 'architect' | null
-  allowedRuntimes: Array<{ cli: string; model: string | null }>
   // `null` = absent (engine default applies); `[]` = an explicit no-review run.
   defaultPhases: string[] | null
   phaseRuntimes: Record<string, { cli: string; model: string | null }> | null
@@ -425,8 +423,6 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     baseStartPoint: resolveOptionalString(payload?.baseStartPoint, 'sprint base start point') ?? null,
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
-    rosterSource: resolveRosterSource(payload?.rosterSource),
-    allowedRuntimes: resolveAllowedRuntimes(payload?.allowedRuntimes),
     defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
     phaseRuntimes: resolvePhaseRuntimes(payload?.phaseRuntimes),
     source: resolveInitSource(payload?.source),
@@ -549,33 +545,6 @@ function resolveRoleRuntimes(
   return out
 }
 
-// Only the two known roster-source modes survive; anything else (including
-// user-mode) leaves the flag off so Python keeps its default 'user' semantics.
-function resolveRosterSource(
-  input: SprintEngineStateInitializeInput['rosterSource'],
-): 'user' | 'architect' | null {
-  return input === 'architect' || input === 'user' ? input : null
-}
-
-// The sprint's ticked model palette. Drops entries with no usable cli and
-// collapses each model to a trimmed string or null (the CLI's own default),
-// mirroring the engine's `apply_allowed_runtimes` parse so what we forward is
-// exactly what the run stores.
-function resolveAllowedRuntimes(
-  input: SprintEngineStateInitializeInput['allowedRuntimes'],
-): Array<{ cli: string; model: string | null }> {
-  if (!Array.isArray(input)) return []
-  const out: Array<{ cli: string; model: string | null }> = []
-  for (const entry of input) {
-    if (!entry || typeof entry !== 'object') continue
-    const cli = typeof entry.cli === 'string' ? entry.cli.trim() : ''
-    if (!cli) continue
-    const model = typeof entry.model === 'string' && entry.model.trim() ? entry.model.trim() : null
-    out.push({ cli, model })
-  }
-  return out
-}
-
 function getSprintEngineMcpRuntimeRoot(): string {
   return findSprintEngineRuntimeRoot() ?? process.cwd()
 }
@@ -630,18 +599,11 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   if (payload.enabledRoles.length > 0) {
     args.push('--configured-roles-json', JSON.stringify(payload.enabledRoles))
   }
-  if (payload.rosterSource) {
-    args.push('--roster-source', payload.rosterSource)
-  }
-  if (payload.allowedRuntimes.length > 0) {
-    args.push('--allowed-runtimes-json', JSON.stringify(payload.allowedRuntimes))
-  }
   // `[]` must reach the engine (an explicit no-review run), so this branches on
   // presence, not truthiness, unlike every other array flag above.
   if (payload.defaultPhases !== null) {
     args.push('--default-phases-json', JSON.stringify(payload.defaultPhases))
   }
-  // Must follow --allowed-runtimes-json: the engine validates bindings against the palette.
   if (payload.phaseRuntimes) {
     args.push('--phase-runtimes-json', JSON.stringify(payload.phaseRuntimes))
   }
