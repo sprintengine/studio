@@ -504,9 +504,12 @@ export function normalizeSprintEngineRoleModelOverrides(
   return result
 }
 
-// Per-surface (specialist) model overrides. Keeps only
-// well-formed { cli, model } pairs; a partial blob drops back to "no override"
-// so resolution falls through to the CLI's own default (no model flag).
+// Per-surface (specialist) model + reasoning-effort overrides. Keeps only
+// entries naming a CLI and carrying at least one choice for it; a partial blob
+// drops back to "no override" so resolution falls through to the CLI's own
+// default (no model and no effort flag). A level with no model is kept on
+// purpose — "the CLI's default model at high effort" is a real selection — so
+// `model` may normalize to an empty string while `reasoning` survives.
 export function normalizeCliModelSelections<K extends string>(
   input: Partial<Record<K, AgentCliModelSelection>> | null | undefined
 ): Partial<Record<K, AgentCliModelSelection>> {
@@ -517,7 +520,9 @@ export function normalizeCliModelSelections<K extends string>(
     const selection = value as Partial<AgentCliModelSelection>
     const cli = typeof selection.cli === 'string' ? selection.cli.trim() : ''
     const model = typeof selection.model === 'string' ? selection.model.trim() : ''
-    if (cli && model) result[key as K] = { cli, model }
+    const reasoning = typeof selection.reasoning === 'string' ? selection.reasoning.trim() : ''
+    if (!cli || (!model && !reasoning)) continue
+    result[key as K] = { cli, model, ...(reasoning ? { reasoning } : {}) }
   }
   return result
 }
@@ -1251,7 +1256,25 @@ export interface SettingsSliceActions {
   setLastNewChatAgent: (choice: NewChatAgentChoice) => void
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
+  /**
+   * Write (or clear with `null`) a surface's model choice. A stored
+   * reasoning-effort level survives a model change within the same CLI and is
+   * dropped when the CLI changes, per the per-CLI effort ruling; pass
+   * `model: ''` for "the CLI's own default model" so the level survives that
+   * choice too. `null` clears the whole selection, level included.
+   */
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  /**
+   * Write (or clear with `null`) a surface's reasoning-effort level for `cli`,
+   * keeping the model already chosen for that CLI. A level set while a
+   * different CLI is stored replaces the selection, since levels do not
+   * transfer between CLIs.
+   */
+  setSpecialistReasoningDefault: (
+    specialistId: SpecialistActionId,
+    cli: AgentCli,
+    reasoning: string | null,
+  ) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   /** Mark the one-time MC-1587 bundled-pack migration as evaluated for this profile. */
@@ -1614,11 +1637,48 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     setSpecialistModelDefault: (specialistId, selection) =>
       set((state) => {
         state.appSettings.specialistModelDefaults ??= {}
-        const model = selection?.model.trim()
-        if (!selection || !model) {
+        if (!selection) {
           delete state.appSettings.specialistModelDefaults[specialistId]
-        } else {
-          state.appSettings.specialistModelDefaults[specialistId] = { cli: selection.cli, model }
+          return
+        }
+        const model = selection.model.trim()
+        const stored = state.appSettings.specialistModelDefaults[specialistId]
+        // Effort is per-CLI: a level chosen for this CLI outlives a model
+        // change (including a switch to the CLI's default model), and a level
+        // chosen for a different CLI is dropped rather than carried onto a CLI
+        // that may not accept it. An explicit `reasoning` on the incoming
+        // selection wins over the stored one.
+        const reasoning = (
+          selection.reasoning ?? (stored?.cli === selection.cli ? stored.reasoning : undefined)
+        )?.trim()
+        if (!model && !reasoning) {
+          delete state.appSettings.specialistModelDefaults[specialistId]
+          return
+        }
+        state.appSettings.specialistModelDefaults[specialistId] = {
+          cli: selection.cli,
+          model,
+          ...(reasoning ? { reasoning } : {}),
+        }
+      }),
+
+    setSpecialistReasoningDefault: (specialistId, cli, reasoning) =>
+      set((state) => {
+        state.appSettings.specialistModelDefaults ??= {}
+        const level = reasoning?.trim()
+        const stored = state.appSettings.specialistModelDefaults[specialistId]
+        // The model only survives when it belongs to the CLI the level was
+        // picked for; a level for another CLI starts that CLI's selection on
+        // its own default model.
+        const model = stored?.cli === cli ? stored.model : ''
+        if (!level && !model) {
+          delete state.appSettings.specialistModelDefaults[specialistId]
+          return
+        }
+        state.appSettings.specialistModelDefaults[specialistId] = {
+          cli,
+          model,
+          ...(level ? { reasoning: level } : {}),
         }
       }),
 

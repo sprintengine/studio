@@ -1025,6 +1025,10 @@ export type TerminalSpawnMetadata = {
   // Model id passed to the agent CLI when its plugin declares modelSelection;
   // undefined means the CLI's own default model.
   cliModel?: string
+  // Reasoning-effort level passed to the agent CLI when its plugin declares
+  // reasoningSelection; undefined means the CLI's own default effort, which
+  // passes no flag. Travels with cliModel from the spawning surface.
+  cliReasoning?: string
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata

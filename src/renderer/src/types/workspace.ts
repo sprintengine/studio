@@ -458,9 +458,21 @@ export type KeybindingSettings = {
 
 // A model choice scoped to the CLI it was made for. Model ids are only
 // meaningful per-CLI; pairing them prevents cross-CLI leakage.
+//
+// `reasoning` is the selected reasoning-effort level, and it is a property of
+// the CLI rather than of the model (owner ruling 2026-07-26): switching model
+// within a CLI leaves it untouched, and switching CLI drops it, because the
+// levels a CLI accepts are manifest knowledge that does not transfer. Absent
+// means "the CLI's own default effort", which passes no flag.
+//
+// `model` may therefore be empty while `reasoning` is set: choosing the CLI's
+// default model is a model switch, not a reason to forget the level. Readers
+// resolve through resolveCliModel / resolveCliReasoning, which treat an empty
+// value as "no flag".
 export type AgentCliModelSelection = {
   cli: AgentCli
   model: string
+  reasoning?: string
 }
 
 // The agent the sidebar's "New chat in project" item spawns on a plain click,

@@ -57,7 +57,7 @@ import {
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 69
+export const WORKSPACE_STORE_VERSION = 70
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1066,6 +1066,20 @@ export function migratePersistedWorkspaceState(
     // on every hydration, so a hand-edited or dev-written catalog cannot ride
     // into the pickers inside a current-version envelope this ladder will never
     // revisit (same split as the v67/v68 rungs above).
+    const current = migrationState
+    current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
+  }
+  if (version < 70) {
+    // Reasoning effort arrives with this version: `AgentCliModelSelection`
+    // gains an optional per-CLI `reasoning` level, so a stored selection may
+    // now legitimately carry an empty model (the CLI's default model at a
+    // chosen effort). No profile on disk has one yet, so this rung is the
+    // clean-upgrade half only. The enforcement half is normalizeAppSettings —
+    // persist merge() runs it on every hydration, which is what keeps a
+    // hand-edited or dev-written level (e.g. a blank one, or a selection with
+    // neither model nor level) out of the pickers and out of launch argv
+    // inside a current-version envelope this ladder will never revisit (same
+    // split as the v67/v68/v69 rungs above).
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }

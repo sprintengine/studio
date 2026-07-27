@@ -1080,6 +1080,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliPermissionPreset: finalContext.cliPermissionPreset,
           debugMode: finalAgent.debugMode,
           cliModel: finalAgent.cliModel,
+          cliReasoning: finalAgent.cliReasoning,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
           // A connector chat (Railway, etc.) forwards its own Railway-only MCP
@@ -1149,6 +1150,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           cliPermissionPreset: finalContext.cliPermissionPreset,
           debugMode: finalAgent.debugMode,
           cliModel: finalAgent.cliModel,
+          cliReasoning: finalAgent.cliReasoning,
           memoryRootPath: memoryContext.rootPath,
           memoryRelativeRoot: memoryContext.relativeRoot,
           // A connector chat (Railway, etc.) forwards its own Railway-only MCP

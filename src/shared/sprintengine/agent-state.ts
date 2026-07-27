@@ -127,6 +127,12 @@ export type AgentState = {
   // Undefined means the CLI's own default; persisted so relaunch/resume and
   // Sprint Engine auto-run keep the model the agent was created with.
   cliModel?: string
+  // Reasoning-effort level passed at CLI launch when the plugin declares
+  // reasoningSelection. Undefined means the CLI's own default effort (no flag);
+  // persisted alongside cliModel so a relaunch keeps the effort the agent was
+  // created with. Scoped by `cli` at the surface that resolved it
+  // (resolveCliReasoning), so it is always a level this agent's CLI accepts.
+  cliReasoning?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   // Explicit per-agent runtime override (MC-1450). Wins over the run's
   // per-role `roleRuntimes` config on every reconcile and spawn — set by the

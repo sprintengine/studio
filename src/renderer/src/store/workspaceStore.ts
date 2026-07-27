@@ -237,6 +237,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
   setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  setSpecialistReasoningDefault: (
+    specialistId: SpecialistActionId,
+    cli: AgentCli,
+    reasoning: string | null,
+  ) => void
   setSpecialistOrder: (order: SpecialistActionId[]) => void
   setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
   markBundledSpecialistPackMigrated: () => void

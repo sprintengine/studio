@@ -274,6 +274,22 @@ assert.deepEqual(
   }),
   { architect: { cli: 'claude-code', model: 'opus' } },
 )
+// The reasoning-effort level rides the same selection. A level with no model is
+// a real choice ("the CLI's default model at high effort") and survives; a
+// selection with neither is not an override at all.
+assert.deepEqual(
+  normalizeCliModelSelections({
+    architect: { cli: 'claude-code', model: 'opus', reasoning: ' high ' },
+    developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
+    tester: { cli: 'codex', model: '', reasoning: '   ' },
+    reviewer: { cli: 'codex', model: 'gpt-5.5', reasoning: 42 } as never,
+  }),
+  {
+    architect: { cli: 'claude-code', model: 'opus', reasoning: 'high' },
+    developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
+    reviewer: { cli: 'codex', model: 'gpt-5.5' },
+  },
+)
 const modelNormalized = normalizeAppSettings(
   {
     cliRuntimes: {
@@ -589,6 +605,63 @@ assert.deepEqual(
 )
 store.setSpecialistModelDefault('architect', null)
 assert.deepEqual(useWorkspaceStore.getState().appSettings.specialistModelDefaults, {})
+
+// Reasoning effort is per-CLI (owner ruling 2026-07-26): it outlives a model
+// change within the CLI — including a switch to the CLI's own default model —
+// and is dropped when the CLI changes, because level sets do not transfer.
+const specialistModelDefaults = (): Record<string, unknown> =>
+  useWorkspaceStore.getState().appSettings.specialistModelDefaults as Record<string, unknown>
+store.setSpecialistReasoningDefault('architect', 'codex', 'high')
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: '', reasoning: 'high' } },
+  'a level can be set before any model is chosen',
+)
+store.setSpecialistModelDefault('architect', { cli: 'codex', model: 'gpt-5.6-sol' })
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' } },
+  'choosing a model within the same CLI keeps the level',
+)
+store.setSpecialistModelDefault('architect', { cli: 'codex', model: '' })
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: '', reasoning: 'high' } },
+  'choosing the CLI default model keeps the level',
+)
+store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'claude-opus-5' })
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'claude-code', model: 'claude-opus-5' } },
+  'switching CLI drops a level chosen for the previous CLI',
+)
+store.setSpecialistReasoningDefault('architect', 'codex', 'ultra')
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: '', reasoning: 'ultra' } },
+  'a level for another CLI starts that CLI on its own default model',
+)
+store.setSpecialistReasoningDefault('architect', 'codex', null)
+assert.deepEqual(
+  specialistModelDefaults(),
+  {},
+  'clearing the only remaining choice leaves no empty selection behind',
+)
+store.setSpecialistModelDefault('architect', { cli: 'codex', model: 'gpt-5.5' })
+store.setSpecialistReasoningDefault('architect', 'codex', 'xhigh')
+store.setSpecialistReasoningDefault('architect', 'codex', '   ')
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: 'gpt-5.5' } },
+  'clearing the level keeps the model',
+)
+store.setSpecialistReasoningDefault('architect', 'codex', 'high')
+store.setSpecialistModelDefault('architect', null)
+assert.deepEqual(
+  specialistModelDefaults(),
+  {},
+  'an explicit null clears the whole selection, level included',
+)
 store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],

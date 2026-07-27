@@ -538,7 +538,7 @@ assert.equal(
 // v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
 // still carries the persisted `sprintEngineModelCatalog` array of hand-set
 // scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 69, 'cliModelCatalog is the newest step, at store v69')
+assert.equal(WORKSPACE_STORE_VERSION, 70, 'reasoning effort is the newest step, at store v70')
 
 const v67WithModelCatalog = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
@@ -617,6 +617,57 @@ assert.equal(
   ).cliModelCatalog,
   undefined,
   'normalizeAppSettings drops a malformed discovered catalog regardless of store version',
+)
+
+// v70: the per-CLI reasoning-effort level arrives on AgentCliModelSelection. The
+// rung normalizes an upgraded profile; a stored selection may now carry an empty
+// model (the CLI's own default model at a chosen effort) and must keep its level,
+// while a selection with neither a model nor a level is no override at all.
+const v69WithEffort = {
+  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-standard',
+  appSettings: {
+    // Written by the previous build (store v69), so it carries MC-1865's
+    // discovered catalog as well: this rung must not disturb it.
+    cliModelCatalog: {
+      codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+    },
+    specialistModelDefaults: {
+      architect: { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' },
+      developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
+      tester: { cli: 'codex', model: '', reasoning: '' },
+    },
+  },
+}
+const migratedEffort = migratePersistedWorkspaceState(v69WithEffort, 69) as { appSettings: AppSettings }
+assert.deepEqual(
+  migratedEffort.appSettings.specialistModelDefaults,
+  {
+    architect: { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' },
+    developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
+  },
+  'v70 keeps a level with or without a model and drops a selection carrying neither',
+)
+assert.deepEqual(
+  migratedEffort.appSettings.cliModelCatalog,
+  { codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' } },
+  'v70 leaves the v69 discovered catalog intact — the two rungs are independent',
+)
+// Enforcement half, same split as v68/v69: persist merge() runs
+// normalizeAppSettings on every hydration, so a blank or malformed level cannot
+// ride into a launch inside a current-version envelope the ladder never revisits.
+assert.deepEqual(
+  normalizeAppSettings(
+    {
+      specialistModelDefaults: {
+        architect: { cli: 'codex', model: 'gpt-5.5', reasoning: '   ' },
+        developer: { cli: '', model: '', reasoning: 'high' },
+      },
+    } as never,
+    [],
+  ).specialistModelDefaults,
+  { architect: { cli: 'codex', model: 'gpt-5.5' } },
+  'normalizeAppSettings drops a blank level and a selection naming no CLI, regardless of store version',
 )
 
 console.log('persistenceSlice.test.ts: ok')

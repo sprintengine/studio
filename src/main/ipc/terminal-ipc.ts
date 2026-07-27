@@ -38,6 +38,9 @@ export type TerminalSpawnPayload = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   debugMode?: boolean
   cliModel?: string
+  // Reasoning-effort level for CLIs declaring reasoningSelection; travels with
+  // cliModel. Unset means the CLI's own default effort, with no flag passed.
+  cliReasoning?: string
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata

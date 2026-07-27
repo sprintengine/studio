@@ -51,6 +51,9 @@ async function main(): Promise<void> {
     testZaiRenderOmitsModelFlag()
     testKimiClaudeRenderInjectsLaunchEnv()
     testCodexRenderWithReasoning()
+    testClaudeCodeRenderWithReasoning()
+    testUndeclaredCliRendersNoReasoning()
+    testCodexLegacyWindowsReasoning()
     testCliCredentialLaunchBlock()
     testQuoteTokenLeavesSafeStringsBare()
     testQuoteTokenWrapsSpecialChars()
@@ -177,12 +180,118 @@ function testCodexRenderWithReasoning(): void {
   const unset = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r3' })
   assert.equal(unset.argv.includes('-c'), false, 'unset level renders no effort flag')
 
-  const undeclared = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r4', cliReasoning: 'ultra' })
-  assert.equal(undeclared.argv.includes('-c'), false, 'undeclared level renders no effort flag')
+  // `ultra` and `max` are now declared (they exist on gpt-5.6-sol/terra per
+  // `codex debug models`), so they render; a level no manifest declares does not.
+  const ultra = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r4', cliReasoning: 'ultra' })
+  assert.deepEqual(ultra.argv, ['codex', '-c', 'model_reasoning_effort="ultra"'])
+  const bogus = renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r4b', cliReasoning: 'bogus' })
+  assert.equal(bogus.argv.includes('-c'), false, 'undeclared level renders no effort flag')
 
-  // CLIs without reasoningSelection ignore the input entirely.
-  const claude = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_r5', cliReasoning: 'high' })
-  assert.equal(claude.argv.some((token) => token.includes('reasoning')), false)
+  // Codex's resume argv declares no reasoningArgs spread: the CLI persists the
+  // level per session, so re-passing it would clobber a mid-session change.
+  const resume = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId: 'sid_r4c',
+    resume: true,
+    cliReasoning: 'high',
+  })
+  assert.deepEqual(
+    resume.argv,
+    renderAgentLaunchArgv({ cli: 'codex', sessionId: 'sid_r4c', resume: true }).argv,
+    'codex resume argv does not re-pass the effort level',
+  )
+}
+
+// claude-code's reasoningSelection (`--effort <level>`, five levels, and
+// deliberately NO declared default because the CLI's own default effort is
+// undocumented). The argv assertions are what catch the silent no-op this item
+// exists to prevent: without the `{"spreadIf": "reasoningArgs"}` entry in its
+// launch argv the declaration renders nothing at all.
+function testClaudeCodeRenderWithReasoning(): void {
+  const high = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_cr1', cliReasoning: 'high' })
+  assert.deepEqual(
+    high.argv,
+    ['claude', '--effort', 'high', '--session-id', 'sid_cr1'],
+    'a picked level renders --effort, after modelArgs and before the session id',
+  )
+
+  // With a model too, both spreads render in manifest order.
+  const withModel = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_cr2',
+    cliModel: 'claude-opus-5',
+    cliReasoning: 'max',
+  })
+  assert.deepEqual(withModel.argv, [
+    'claude',
+    '--model',
+    'claude-opus-5',
+    '--effort',
+    'max',
+    '--session-id',
+    'sid_cr2',
+  ])
+
+  // No declared default means every declared level renders a flag, and only a
+  // blank/absent level renders none — the picker's contract.
+  for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) {
+    const out = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_cr3', cliReasoning: level })
+    assert.deepEqual(
+      out.argv,
+      ['claude', '--effort', level, '--session-id', 'sid_cr3'],
+      `claude-code renders the declared level ${level}`,
+    )
+  }
+
+  // An empty or absent level passes no flag, asserted on the rendered argv and
+  // byte-compared against the untouched launch.
+  const baseline = renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_cr4' }).argv
+  for (const level of [undefined, '', '   ']) {
+    assert.deepEqual(
+      renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_cr4', cliReasoning: level }).argv,
+      baseline,
+      'a blank level leaves the launch argv byte-identical',
+    )
+  }
+  assert.deepEqual(baseline, ['claude', '--session-id', 'sid_cr4'])
+
+  // An undeclared level renders nothing rather than a value the CLI would warn
+  // about and ignore.
+  assert.deepEqual(
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 'sid_cr4', cliReasoning: 'ultra' }).argv,
+    baseline,
+    'a level claude-code does not declare renders no flag',
+  )
+
+  // Resume argv carries no effort: claude-code's resume spec declares no
+  // reasoningArgs spread (checked here rather than trusted, since the manifests
+  // are inconsistent about which spreads their resume argv repeats).
+  assert.deepEqual(
+    renderAgentLaunchArgv({
+      cli: 'claude-code',
+      sessionId: 'sid_cr5',
+      resume: true,
+      cliReasoning: 'high',
+    }).argv,
+    ['claude', '--resume', 'sid_cr5'],
+    'claude-code resume argv does not re-pass the effort level',
+  )
+}
+
+// A CLI whose manifest declares no reasoningSelection never renders an effort
+// flag, whatever it is handed.
+function testUndeclaredCliRendersNoReasoning(): void {
+  for (const cli of ['opencode', 'zai'] as const) {
+    assert.equal(getPluginById(cli)?.manifest.reasoningSelection, undefined, `${cli} declares no reasoningSelection`)
+    const baseline = renderAgentLaunchArgv({ cli, sessionId: 'sid_nr' }).argv
+    for (const level of ['high', 'max', 'ultra']) {
+      assert.deepEqual(
+        renderAgentLaunchArgv({ cli, sessionId: 'sid_nr', cliReasoning: level }).argv,
+        baseline,
+        `${cli} ignores a reasoning level entirely`,
+      )
+    }
+  }
 }
 
 // Kimi K3 via Claude Code runs the `claude` binary redirected at Moonshot's
@@ -470,6 +579,18 @@ function testBuildAgentShellCommandClaudeCode(): void {
     resumeOut,
     `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --resume sid_42; fi`
   )
+
+  // The level survives quoting into the shell command every posix/WSL launch
+  // runs — the layer between the rendered argv and the spawned process.
+  assert.equal(
+    buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', cliReasoning: 'xhigh' }),
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Multicode Settings.'; else claude --effort xhigh --session-id sid_43; fi`
+  )
+  assert.equal(
+    buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', resume: true, cliReasoning: 'xhigh' }),
+    buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', resume: true }),
+    'the resume shell command carries no effort flag',
+  )
 }
 
 function testRenderArgvIncludesBinaryAsFirstElement(): void {
@@ -659,6 +780,56 @@ function decodeWindowsScriptArgs(script: string): string[] {
   assert.ok(argsLine, 'rendered script defines an $arguments array')
   return [...argsLine.matchAll(/FromBase64String\('([^']*)'\)/g)].map(([, b64]) =>
     Buffer.from(b64, 'base64').toString('utf8'),
+  )
+}
+
+// The codex Windows-native LEGACY path builds argv by hand, so it would silently
+// ignore effort unless it renders the level itself. It shares the render rule
+// with the manifest paths (renderReasoningArgs), so the level, the declared
+// default, and an undeclared level all behave identically to the shared path.
+function testCodexLegacyWindowsReasoning(): void {
+  const cwd = 'C:/work/repo'
+  const runtime = { command: '', useWsl: false }
+  const script = (reasoning?: string): string[] =>
+    decodeWindowsScriptArgs(
+      buildCodexLegacyNativeAgentLaunchPowerShellScript(
+        'sid_legacy_r', false, cwd, 'go', runtime, 'default', 'gpt-5.6-sol', false, reasoning,
+      ),
+    )
+
+  assert.deepEqual(
+    script('high'),
+    ['--model', 'gpt-5.6-sol', '-c', 'model_reasoning_effort="high"', '-C', cwd, 'go'],
+    'codex-legacy renders the effort flag after the model flag',
+  )
+  const baseline = script(undefined)
+  assert.deepEqual(baseline, ['--model', 'gpt-5.6-sol', '-C', cwd, 'go'])
+  for (const level of [undefined, '', 'medium', 'bogus']) {
+    assert.deepEqual(
+      script(level),
+      baseline,
+      `codex-legacy passes no effort flag for ${JSON.stringify(level)}`,
+    )
+  }
+
+  // Resume re-passes nothing: this path builds one arg list for both launch and
+  // resume, so the level has to be suppressed explicitly here (the manifest
+  // paths get it for free from codex's resume argv declaring no spread).
+  const resumeArgs = (reasoning?: string): string[] =>
+    decodeWindowsScriptArgs(
+      buildCodexLegacyNativeAgentLaunchPowerShellScript(
+        'sid_legacy_r', true, cwd, undefined, runtime, 'default', 'gpt-5.6-sol', false, reasoning,
+      ),
+    )
+  assert.deepEqual(
+    resumeArgs('high'),
+    resumeArgs(undefined),
+    'codex-legacy resume argv does not re-pass the effort level',
+  )
+  assert.equal(
+    resumeArgs('high').some((arg) => arg.includes('model_reasoning_effort')),
+    false,
+    'codex-legacy resume argv carries no effort config override',
   )
 }
 

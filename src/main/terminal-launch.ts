@@ -6,6 +6,7 @@ import type { AgentCli, CliRuntimeSettings, SprintEngineCliPermissionPreset, Ter
 import { applyDebugDirective } from '../shared/debug-directive'
 import { buildAgentShellCommand, pluginIdForCli, renderAgentLaunchArgv, renderCliLaunchEnv, resolveCliRuntimeSettings, resolveDebugSkillInvocation } from './agent-launch-render'
 import { resolveAgentStateSocketPath } from './agent-state-service'
+import { renderReasoningArgs } from './plugin-render'
 import { getPluginById, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { withMulticodeCliPath } from './cli-install'
 import { getColorScheme } from './color-scheme-store'
@@ -669,14 +670,15 @@ function buildWslShellScript(
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
   debugMode = false,
-  providerLaunchEnv?: Record<string, string>
+  providerLaunchEnv?: Record<string, string>,
+  cliReasoning?: string
 ): string {
   const shellInitialPrompt = normalizeInitialPromptPaths(initialPrompt, 'wsl', [cwd, sprintEngineStatePath, memoryRootPath])
   return [
     buildUserShellStartup(),
     `cd ${quotePosix(toWslPath(cwd))}`,
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode),
+    buildAgentLaunchCommand(cli, sessionId, resume, shellInitialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning),
     'exec bash -li',
   ].join('; ')
 }
@@ -695,7 +697,8 @@ export function getShellLaunchConfig(
   memoryRelativeRoot?: string,
   managedMcpEnv?: Record<string, string>,
   debugMode = false,
-  cliAuthToken?: string
+  cliAuthToken?: string,
+  cliReasoning?: string
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -713,6 +716,7 @@ export function getShellLaunchConfig(
     cliRuntime,
     cliPermissionPreset,
     cliModel,
+    cliReasoning,
     debugMode,
     colorScheme: getColorScheme(),
     secretToken: cliAuthToken,
@@ -740,7 +744,8 @@ export function getShellLaunchConfig(
         cliRuntime,
         cliPermissionPreset,
         cliModel,
-        debugMode
+        debugMode,
+        cliReasoning
       )
     )
 
@@ -775,7 +780,8 @@ export function getShellLaunchConfig(
         memoryRelativeRoot,
         managedMcpEnv,
         debugMode,
-        providerLaunchEnv
+        providerLaunchEnv,
+        cliReasoning
       )
     )
     return {
@@ -795,7 +801,7 @@ export function getShellLaunchConfig(
   const shellName = shellPath.split(/[\\/]/).at(-1)
   const launchCommand = [
     buildSprintEngineShellBootstrap(sprintEngineStatePath, memoryRootPath, memoryRelativeRoot, managedMcpEnv, providerLaunchEnv),
-    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode),
+    buildAgentLaunchCommand(cli, sessionId, resume, initialPrompt, cliRuntime, cliPermissionPreset, cliModel, debugMode, cliReasoning),
     buildInteractiveShellExec(shellPath, shellName),
   ].join('; ')
   const startupScriptPath = createTerminalStartupScript(sessionId, 'sh', launchCommand)
@@ -884,7 +890,8 @@ function buildNativeAgentLaunchPowerShellScript(
   cliRuntime: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   cliModel?: string,
-  debugMode = false
+  debugMode = false,
+  cliReasoning?: string
 ): string {
   // Codex keeps its legacy Windows path because of two plugin-specific
   // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
@@ -901,7 +908,8 @@ function buildNativeAgentLaunchPowerShellScript(
       cliRuntime,
       cliPermissionPreset,
       cliModel,
-      debugMode
+      debugMode,
+      cliReasoning
     )
   }
 
@@ -913,6 +921,7 @@ function buildNativeAgentLaunchPowerShellScript(
     cliRuntime,
     cliPermissionPreset,
     cliModel,
+    cliReasoning,
     debugMode,
     colorScheme: getColorScheme(),
   })
@@ -940,7 +949,8 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cliRuntime: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   cliModel?: string,
-  debugMode = false
+  debugMode = false,
+  cliReasoning?: string
 ): string {
   const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset)
   const command = cliRuntime.command || 'codex'
@@ -948,8 +958,8 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   // through renderAgentLaunchArgv, so the shared debug boundary does not cover
   // it — apply the directive here too, including the codex-native skill
   // invocation pulled from the manifest. Permission args above stay untouched.
-  const codexPlugin = debugMode ? getPluginById('codex') : null
-  const nativeInvocation = codexPlugin ? resolveDebugSkillInvocation(codexPlugin) : undefined
+  const codexPlugin = getPluginById('codex')
+  const nativeInvocation = debugMode && codexPlugin ? resolveDebugSkillInvocation(codexPlugin) : undefined
   const debugPrompt = debugMode
     ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation)
     : initialPrompt
@@ -957,9 +967,19 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   // The model flag is hardcoded like the rest of this acknowledged-legacy
   // codex-specific path; the manifest-rendered paths read modelSelection.args.
   const model = cliModel?.trim()
+  // Effort is NOT hardcoded here: its render rule (differs-from-default, level
+  // declared) is shared with the manifest paths through renderReasoningArgs, so
+  // this path cannot drift into passing a level codex would reject. A missing
+  // manifest yields no effort args, exactly like an unset level. Resume passes
+  // none at all, matching codex's manifest resume argv: the CLI persists the
+  // level per session, so re-passing it would clobber a mid-session change.
+  const reasoningArgs = !resume && codexPlugin
+    ? renderReasoningArgs(codexPlugin.manifest, cliReasoning)
+    : []
   const args = [
     ...permissionArgs,
     ...(model ? ['--model', model] : []),
+    ...reasoningArgs,
     // Targeted resume when the harness session id is known (mirrors the manifest
     // resume argv); falls back to bare `resume` (last session) otherwise.
     ...(resume ? ['resume', ...(sessionId ? [sessionId] : [])] : []),
@@ -995,7 +1015,8 @@ function buildAgentLaunchCommand(
   cliRuntime?: CliRuntimeSettings,
   cliPermissionPreset: SprintEngineCliPermissionPreset = 'default',
   cliModel?: string,
-  debugMode = false
+  debugMode = false,
+  cliReasoning?: string
 ): string {
   return buildAgentShellCommand({
     cli,
@@ -1005,6 +1026,7 @@ function buildAgentLaunchCommand(
     cliRuntime,
     cliPermissionPreset,
     cliModel,
+    cliReasoning,
     debugMode,
     colorScheme: getColorScheme(),
   })

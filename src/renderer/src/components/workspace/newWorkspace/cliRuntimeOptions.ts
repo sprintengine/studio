@@ -345,6 +345,20 @@ export function resolveCliModel(
   return overrideModel || undefined
 }
 
+// Effective reasoning-effort level for a launch surface. Same guard as
+// resolveCliModel, and for the same reason: levels are per-CLI manifest
+// knowledge, so a level picked for Codex must never reach a Claude launch (the
+// two CLIs do not even share a level set). Undefined means the CLI's own
+// default effort, with no flag passed — and the render boundary drops a level
+// the manifest does not declare, so this is not the only guard.
+export function resolveCliReasoning(
+  cli: AgentCli,
+  override: AgentCliModelSelection | null | undefined,
+): string | undefined {
+  const overrideReasoning = override && override.cli === cli ? override.reasoning?.trim() : ''
+  return overrideReasoning || undefined
+}
+
 // Effective model for a per-surface picker (specialist row): the
 // surface's own (cli, model) override when it matches the bound CLI, else no
 // model — the CLI's own default, no flag.

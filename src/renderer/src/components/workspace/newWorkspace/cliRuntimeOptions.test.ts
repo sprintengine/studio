@@ -11,6 +11,7 @@ import {
   pluginRegistryIdForCli,
   resolveAvailableAgentCli,
   resolveCliModel,
+  resolveCliReasoning,
   resolveTemplateAgentCli,
   selectAgentCliCatalog,
 } from './cliRuntimeOptions'
@@ -406,6 +407,43 @@ assert.equal(
 )
 assert.equal(resolveCliModel('codex', undefined), undefined, 'no selection means the CLI default')
 assert.equal(resolveCliModel('codex', null), undefined, 'null selections mean the CLI default')
+
+// resolveCliReasoning: the same cli-match guard, because a level is per-CLI
+// manifest knowledge — codex's `ultra` is not a level claude-code accepts.
+assert.equal(
+  resolveCliReasoning('codex', { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' }),
+  'high',
+  'a level picked for this CLI is honored',
+)
+assert.equal(
+  resolveCliReasoning('claude-code', { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'ultra' }),
+  undefined,
+  'a level picked for another CLI never reaches this launch',
+)
+assert.equal(
+  resolveCliReasoning('codex', { cli: 'codex', model: '', reasoning: 'high' }),
+  'high',
+  'a level survives choosing the CLI default model (empty model id)',
+)
+assert.equal(
+  resolveCliReasoning('codex', { cli: 'codex', model: 'gpt-5.6-sol' }),
+  undefined,
+  'a selection with no level means the CLI default effort, no flag',
+)
+assert.equal(
+  resolveCliReasoning('codex', { cli: 'codex', model: 'gpt-5.6-sol', reasoning: '  ' }),
+  undefined,
+  'a blank level means the CLI default effort, no flag',
+)
+assert.equal(resolveCliReasoning('codex', undefined), undefined, 'no selection means the CLI default effort')
+assert.equal(resolveCliReasoning('codex', null), undefined, 'null selections mean the CLI default effort')
+// Model and level resolve independently from one selection: switching model
+// within a CLI cannot disturb the level, and vice versa.
+assert.equal(
+  resolveCliModel('codex', { cli: 'codex', model: 'gpt-5.5', reasoning: 'high' }),
+  'gpt-5.5',
+  'a stored level does not disturb model resolution',
+)
 
 // --- availability filtering (deployment gating) --------------------------
 const availCatalog = buildAgentCliCatalog(plugins) // codex, claude-code, opencode
