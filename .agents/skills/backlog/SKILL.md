@@ -173,7 +173,7 @@ Branch: <branch>   Worktree: <path>
 - [ ] MC-1236 <slug> — blocked on 1235
 
 ## Verification
-- [x] engine suite — 834 passed (baseline 834)
+- [x] test suite — <n> passed (baseline <n>)
 - [ ] typecheck
 
 ## Reviews
@@ -189,13 +189,15 @@ it is your report.
 This applies to every mode — a single item as much as an epic. Scale it down for
 small work; do not skip it.
 
-**Establish the facts yourself, first.** Read the project's own traps and gates
-before planning: `CLAUDE.md`, the knowledge base if the project has one, and
-whatever test-budget or verification scripts it declares. Record the *current*
-baseline (test counts, any byte ceilings) at the start of the run and compare
-against it at the end. Never trust a number quoted in a brief, an item, or a
-previous ledger — they go stale, and a stale number sends you looking for a
-regression you did not cause.
+**Establish the facts yourself, first.** Read the project's own conventions and
+gates before planning — its agent instructions, its knowledge base, and whatever
+verification it declares. Then measure the current baseline yourself: run the
+test suite and record what passes now, and note any limit the project enforces
+that your work could cross. Compare against your own measurement at the end.
+
+Numbers written down anywhere — an item, a hand-off note, a previous ledger —
+are point-in-time and go stale as soon as anything merges. A stale baseline
+sends you hunting a regression you did not cause, or lets a real one through.
 
 **Verification**: run the project's own gates — its typecheck, its test command,
 its verification script. If a test fails, reproduce it on the base branch before
