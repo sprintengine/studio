@@ -784,18 +784,22 @@ export function SprintRunBoard({
     cliPermissionPreset: SprintEngineCliPermissionPreset
   } | null>(null)
   useEffect(() => {
+    // Always drop the previous run's intent first: this effect re-runs when the
+    // board switches runs, and holding the old one would show run A's mode on
+    // run B until the read lands.
+    setDoorAutomationIntent(null)
     const statePath = sprintEngineContext?.statePath
-    if (hasResidentWorkspace || !statePath) {
-      setDoorAutomationIntent(null)
-      return undefined
-    }
+    if (hasResidentWorkspace || !statePath) return undefined
     let cancelled = false
     void window.api.readSprintEngineAutomationMode({ statePath })
       .then((result) => {
         if (cancelled || !result.ok || !result.record) return
-        setDoorAutomationIntent({
-          mode: result.record.desiredMode,
-          cliPermissionPreset: result.record.cliPermissionPreset ?? 'default',
+        const record = result.record
+        // A write that landed while this read was in flight is newer than the
+        // record it returns, so it wins.
+        setDoorAutomationIntent((current) => current ?? {
+          mode: record.desiredMode,
+          cliPermissionPreset: record.cliPermissionPreset ?? 'default',
         })
       })
       .catch(() => undefined)

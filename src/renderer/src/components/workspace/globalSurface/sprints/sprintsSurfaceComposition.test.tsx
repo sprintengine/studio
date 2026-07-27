@@ -694,13 +694,25 @@ async function main(): Promise<void> {
     notifications.filter((entry) => entry.title === 'Auto-run mode changed')
 
   const doorStatePath = statePathOf(projectRoot, 'wake-filter-sprint')
-  const doorRow = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button')].find(
-    (candidate) => candidate.textContent?.includes('wake-filter-sprint'),
-  )
-  await act(async () => {
-    ;(doorRow as HTMLElement).click()
+  // The run already carries an intent. With no workspace record to read it
+  // from, the board must read it where it writes it — otherwise the controls
+  // show defaults and a click that "changes nothing" is silently swallowed.
+  intentRecords.set(doorStatePath, {
+    desiredMode: 'run_agents_and_approve_artifacts',
+    cliPermissionPreset: 'bypass_all',
+    revision: 4,
   })
-  await settle()
+  const selectRailRun = async (teamSlug: string): Promise<void> => {
+    const row = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button')].find(
+      (candidate) => candidate.textContent?.includes(teamSlug),
+    )
+    assert.ok(row, `the rail lists ${teamSlug}`)
+    await act(async () => {
+      ;(row as HTMLElement).click()
+    })
+    await settle()
+  }
+  await selectRailRun('wake-filter-sprint')
   assert.equal(
     useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === doorStatePath),
     false,
@@ -708,6 +720,17 @@ async function main(): Promise<void> {
   )
 
   await openRunConfig()
+  assert.equal(
+    checkedAutomationMode(),
+    'Run agents + approve artifacts',
+    'the door reads the run’s own automation intent',
+  )
+  assert.ok(
+    dom.window.document
+      .querySelector('button[aria-label="CLI permission preset"]')
+      ?.textContent?.includes('Bypass permissions'),
+    'and its own CLI permission preset',
+  )
   await pickAutomationMode('Run agents')
   // Compared as a copy: `assert.deepEqual` narrows its first argument to the
   // shape of the second, which would erase the optional fields asserted below.
@@ -743,6 +766,13 @@ async function main(): Promise<void> {
     false,
     'no engine write is ever routed through the empty workspace-id sentinel',
   )
+
+  // Switching runs must drop the previous run's intent: a run with no record of
+  // its own reads Manual, never the run before it.
+  await selectRailRun('post-merge-hardening')
+  await openRunConfig()
+  assert.equal(checkedAutomationMode(), 'Manual', 'a run with no intent of its own reads Manual')
+  await selectRailRun('wake-filter-sprint')
   console.log('ok - the door mount routes both run-configuration controls by statePath')
 
   // ── The same controls on a resident mount are unchanged ──────────────────
