@@ -86,13 +86,21 @@ export type HorizonDetailPaneProps = {
   onMerge: (lane: string) => void
   /** Focus the running sprint's own workspace, when it is open. */
   onOpenRun: (statePath: string) => void
+  /** What this pane says with nothing selected. A DRAFT horizon says what a
+   *  draft is here (MC-1925) rather than growing a second layout for it. */
+  emptySelection?: { title: string; body: string }
 }
 
 export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
   const { step, resolved, unresolved, run } = props
 
   if (!step) {
-    return <DetailMessage title="Nothing selected" body="Pick a step on the left to see the work it delivers." />
+    return (
+      <DetailMessage
+        title={props.emptySelection?.title ?? 'Nothing selected'}
+        body={props.emptySelection?.body ?? 'Pick a step on the left to see the work it delivers.'}
+      />
+    )
   }
   if (!resolved) {
     // A project this Multicode cannot reach, a scan still running, and a file

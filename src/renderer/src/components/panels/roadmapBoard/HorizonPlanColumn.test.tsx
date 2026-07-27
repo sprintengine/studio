@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { HorizonPlanColumn, trackSteeringItems, type HorizonSteering } from './HorizonPlanColumn'
+import {
+  HorizonPlanColumn,
+  nextCursorRef,
+  trackSteeringItems,
+  type HorizonSteering,
+} from './HorizonPlanColumn'
 import { buildHorizonPlan, type HorizonRefDisplay } from './horizonPlanModel'
 import { parseRoadmap, type RoadmapLane } from '../../../../../shared/backlog/roadmap'
 import type { RoadmapBoardLane, RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
@@ -62,12 +67,14 @@ function render({
   lanes,
   boardLanes = [],
   selectedRef = null,
+  cursorRef = null,
   showProjectTag = false,
   steering = STEERING,
 }: {
   lanes: RoadmapLane[]
   boardLanes?: RoadmapBoardLane[]
   selectedRef?: string | null
+  cursorRef?: string | null
   showProjectTag?: boolean
   steering?: HorizonSteering
 }): string {
@@ -85,6 +92,7 @@ function render({
       plan={plan}
       lanes={lanes}
       selectedRef={selectedRef}
+      cursorRef={cursorRef}
       onSelect={() => undefined}
       showProjectTag={showProjectTag}
       rosters={[]}
@@ -284,6 +292,40 @@ run('an empty plan says what a track is instead of showing a blank column', () =
   const markup = render({ lanes: [] })
   assert.match(markup, /No tracks yet/)
   assert.match(markup, /run in order, one sprint at a time/)
+})
+
+// ── the keyboard cursor (MC-1925) ────────────────────────────────────────────
+
+const ORDER = ['a', 'b', 'c']
+
+run('j and k walk the cursor, and clamp at the ends rather than wrapping', () => {
+  assert.equal(nextCursorRef(ORDER, 'a', null, 1), 'b')
+  assert.equal(nextCursorRef(ORDER, 'b', null, -1), 'a')
+  assert.equal(nextCursorRef(ORDER, 'c', null, 1), 'c', 'past the last step is not the first')
+  assert.equal(nextCursorRef(ORDER, 'a', null, -1), 'a')
+})
+
+run('from no cursor, the keyboard picks up at the selection', () => {
+  assert.equal(nextCursorRef(ORDER, null, 'c', 1), 'c', 'it continues where the pointer left off')
+  assert.equal(nextCursorRef(ORDER, null, 'c', -1), 'c')
+})
+
+run('with nothing selected the cursor starts at the top; an empty plan has none', () => {
+  assert.equal(nextCursorRef(ORDER, null, null, 1), 'a')
+  assert.equal(nextCursorRef([], null, null, 1), null)
+})
+
+run('a cursor on a step that has left the plan falls back to the selection', () => {
+  assert.equal(nextCursorRef(ORDER, 'gone', 'b', 1), 'b')
+})
+
+run('the cursor is a focus ring, drawn distinct from selection', () => {
+  const markup = render({ lanes: SIMPLE, cursorRef: 'backlog/one.md' })
+  assert.match(markup, /ring-2 ring-inset/)
+})
+
+run('rows are focusable targets the cursor can land on', () => {
+  assert.match(render({ lanes: SIMPLE }), /data-step-row="true"/)
 })
 
 if (failures > 0) {

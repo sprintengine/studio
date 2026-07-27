@@ -449,7 +449,11 @@ export function BarStatusChip({
 // sit INSIDE the rail's key handler, and neither stops propagation, so without
 // this an ArrowDown on the lens would open its listbox and move the rail's
 // selection, pulling focus off the control the operator is using.
-function swallowsRailNavigation(target: EventTarget | null): boolean {
+//
+// Exported because every keyboard-navigable list on a door owes the same rule:
+// the Horizon plan column's own j/k reads it too, so a search field or a popover
+// trigger cannot be typed into while a list quietly moves underneath.
+export function swallowsRailNavigation(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return true

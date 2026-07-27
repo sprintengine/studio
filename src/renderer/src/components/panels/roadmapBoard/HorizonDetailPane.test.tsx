@@ -194,6 +194,15 @@ run('nothing selected says what the pane is for', () => {
   assert.match(render(), /Pick a step on the left/)
 })
 
+run('a draft says what a draft is, instead of growing a layout of its own', () => {
+  const markup = render({
+    step: null,
+    emptySelection: { title: 'Draft horizon', body: 'Nothing runs until you make it active.' },
+  })
+  assert.match(markup, /Draft horizon/)
+  assert.match(markup, /Nothing runs until you make it active/)
+})
+
 run('a step in an unresolvable project names the project and the fix', () => {
   const markup = render({
     step: step({ state: 'unknown_project', projectName: 'multicode-mobile', ref: 'mobile:backlog/one.md' }),

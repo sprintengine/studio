@@ -988,6 +988,17 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                     onApprove={steering.onApprove}
                     onMerge={steering.onMerge}
                     onOpenRun={handleOpenRun}
+                    // A draft uses this same screen (MC-1926); what it needs is
+                    // one sentence saying nothing runs yet, not a layout of
+                    // its own.
+                    emptySelection={
+                      isActiveSelected
+                        ? undefined
+                        : {
+                            title: 'Draft horizon',
+                            body: 'Nothing runs until you make it active. Multicode will then work it one sprint at a time.',
+                          }
+                    }
                   />
                 </div>
               )}

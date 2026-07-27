@@ -35,6 +35,7 @@ import {
   TruncatedText,
 } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
+import { swallowsRailNavigation } from '../../workspace/globalSurface/surfaceSubstrate'
 import {
   addLane,
   mergeLaneDown,
@@ -77,6 +78,26 @@ export function trackSteeringItems(
   return steering.pausedLanes.has(laneTitle)
     ? [{ id: 'resume', label: 'Resume track', disabled: busy, onSelect: () => steering.onResume(laneTitle) }]
     : [{ id: 'pause', label: 'Pause track', disabled: busy, onSelect: () => steering.onPause(laneTitle) }]
+}
+
+/** Where `j`/`k` land next. Pure so the rule is provable: from no cursor the
+ *  keyboard picks up at the SELECTION when it is on screen, so it continues from
+ *  wherever the pointer left off rather than jumping to the top; from the ends it
+ *  clamps rather than wrapping, because a plan is an ordered list and wrapping
+ *  past the last step reads as a jump backwards. */
+export function nextCursorRef(
+  orderedRefs: ReadonlyArray<string>,
+  cursor: string | null,
+  selectedRef: string | null,
+  direction: -1 | 1,
+): string | null {
+  if (orderedRefs.length === 0) return null
+  const index = cursor === null ? -1 : orderedRefs.indexOf(cursor)
+  if (index < 0) {
+    const fromSelection = selectedRef === null ? -1 : orderedRefs.indexOf(selectedRef)
+    return orderedRefs[Math.max(fromSelection, 0)]
+  }
+  return orderedRefs[Math.min(Math.max(index + direction, 0), orderedRefs.length - 1)]
 }
 
 export type HorizonPlanColumnProps = {
@@ -145,6 +166,11 @@ export function HorizonPlanColumn({
   const [rowMenu, setRowMenu] = useState<{ row: HorizonStepRow; x: number; y: number } | null>(null)
   // Keyboard reorder has no visible drag to follow, so each move is announced.
   const [announcement, setAnnouncement] = useState('')
+  // The keyboard cursor (MC-1925): where `j`/`k` are, distinct from the
+  // selection driving the detail pane. Null until the keyboard is actually used,
+  // so a pointer-driven surface shows no ring it did not ask for.
+  const [ownCursor, setOwnCursor] = useState<string | null>(null)
+  const rowRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map())
 
   const dropActive = drag !== null || libraryDragRef !== null
 
@@ -164,6 +190,78 @@ export function HorizonPlanColumn({
   }, [drag, over, libraryDragRef, lanes, onLanes, onAddRef, endDrag])
 
   const trackCount = lanes.length
+
+  // ── the keyboard layer (MC-1925) ────────────────────────────────────────────
+  // `j`/`k` walk a cursor through the visible steps, `↵` opens the cursored one,
+  // `[`/`]` reorder it within (and across) tracks. The horizons rail runs the
+  // same idiom one pane over; the two never fight because each handler is scoped
+  // to its own subtree, and both ignore keys aimed at a field or a popover.
+  const rows = useMemo(() => plan.bands.flatMap((band) => band.rows), [plan.bands])
+  const cursor = (cursorRef ?? ownCursor) !== null && rows.some((row) => row.ref === (cursorRef ?? ownCursor))
+    ? (cursorRef ?? ownCursor)
+    : null
+
+  // Move one step, crossing into the adjacent track at a boundary, so ordering
+  // never requires a pointer. Each successful move is announced, because a
+  // keyboard reorder has no drag to watch.
+  const moveByKey = useCallback(
+    (row: HorizonStepRow, direction: -1 | 1) => {
+      const { laneIndex, entryIndex } = row
+      let dest: { lane: number; index: number } | null = null
+      if (direction === -1) {
+        if (entryIndex > 0) dest = { lane: laneIndex, index: entryIndex - 1 }
+        else if (laneIndex > 0) dest = { lane: laneIndex - 1, index: lanes[laneIndex - 1].entries.length }
+      } else if (entryIndex < (lanes[laneIndex]?.entries.length ?? 0) - 1) {
+        dest = { lane: laneIndex, index: entryIndex + 2 }
+      } else if (laneIndex < lanes.length - 1) {
+        dest = { lane: laneIndex + 1, index: 0 }
+      }
+      if (!dest) return
+      const next = moveEntry(lanes, { lane: laneIndex, index: entryIndex }, dest)
+      onLanes(next)
+      for (const lane of next) {
+        const position = lane.entries.findIndex((entry) => entry.ref === row.ref)
+        if (position >= 0) {
+          setAnnouncement(`Moved ${row.title} to position ${position + 1} of ${lane.entries.length} in ${lane.title}.`)
+          break
+        }
+      }
+    },
+    [lanes, onLanes],
+  )
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (swallowsRailNavigation(event.target) || rows.length === 0) return
+      const index = cursor ? rows.findIndex((row) => row.ref === cursor) : -1
+      const focusRow = (ref: string): void => {
+        setOwnCursor(ref)
+        rowRefs.current.get(ref)?.focus()
+      }
+      if (event.key === 'j' || event.key === 'ArrowDown' || event.key === 'k' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const down = event.key === 'j' || event.key === 'ArrowDown'
+        const next = nextCursorRef(rows.map((row) => row.ref), cursor, selectedRef, down ? 1 : -1)
+        if (next) focusRow(next)
+        return
+      }
+      if (event.key === '[' || event.key === ']') {
+        const row = index >= 0 ? rows[index] : null
+        if (!row) return
+        event.preventDefault()
+        moveByKey(row, event.key === '[' ? -1 : 1)
+        return
+      }
+      if (event.key === 'Enter' && index >= 0) {
+        // A focused row button already opens on Enter; this covers a cursor that
+        // has been moved while focus sits elsewhere inside the column.
+        if (event.target instanceof HTMLElement && event.target.dataset.stepRow === 'true') return
+        event.preventDefault()
+        onSelect(rows[index].ref)
+      }
+    },
+    [rows, cursor, selectedRef, moveByKey, onSelect],
+  )
 
   // A single-track plan keeps its track's own actions on the head, beside the
   // name they act on; with two or more tracks they move to each band.
@@ -195,6 +293,7 @@ export function HorizonPlanColumn({
   return (
     <section
       aria-label="Plan"
+      onKeyDown={handleKeyDown}
       className="flex w-[360px] shrink-0 flex-col border-r border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
     >
       <header className="flex h-[34px] shrink-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] pl-2.5 pr-1.5">
@@ -235,7 +334,8 @@ export function HorizonPlanColumn({
               lanes={lanes}
               trackCount={trackCount}
               selectedRef={selectedRef}
-              cursorRef={cursorRef}
+              cursorRef={cursor}
+              rowRefs={rowRefs}
               showProjectTag={showProjectTag}
               rosters={rosters}
               policyRoster={policyRoster}
@@ -254,7 +354,6 @@ export function HorizonPlanColumn({
               onDrop={drop}
               onDragEnd={endDrag}
               onRowMenu={(row, position) => setRowMenu({ row, ...position })}
-              onAnnounce={setAnnouncement}
             />
           ))
         )}
@@ -295,6 +394,7 @@ function PlanBand({
   trackCount,
   selectedRef,
   cursorRef,
+  rowRefs,
   showProjectTag,
   rosters,
   policyRoster,
@@ -313,7 +413,6 @@ function PlanBand({
   onDrop,
   onDragEnd,
   onRowMenu,
-  onAnnounce,
 }: {
   band: HorizonBand
   /** The first band on the surface draws no separating rule above itself. */
@@ -322,6 +421,7 @@ function PlanBand({
   trackCount: number
   selectedRef: string | null
   cursorRef: string | null
+  rowRefs: React.MutableRefObject<Map<string, HTMLButtonElement | null>>
   showProjectTag: boolean
   rosters: ReadonlyArray<SprintEngineRoster>
   policyRoster: string | undefined
@@ -340,7 +440,6 @@ function PlanBand({
   onDrop: () => void
   onDragEnd: () => void
   onRowMenu: (row: HorizonStepRow, position: { x: number; y: number }) => void
-  onAnnounce: (message: string) => void
 }): JSX.Element {
   const listRef = useRef<HTMLUListElement | null>(null)
   // `Now` is a readout, not a queue: nothing can be inserted before the step
@@ -361,31 +460,6 @@ function PlanBand({
       lane: band.laneIndex,
       index: insertIndexFor(list, event.clientY, lanes[band.laneIndex]?.entries.length ?? 0),
     })
-  }
-
-  // Move a step one place, crossing into the adjacent track at a boundary, so
-  // ordering never requires a pointer.
-  const moveByKey = (row: HorizonStepRow, direction: -1 | 1): void => {
-    const { laneIndex, entryIndex } = row
-    let dest: { lane: number; index: number } | null = null
-    if (direction === -1) {
-      if (entryIndex > 0) dest = { lane: laneIndex, index: entryIndex - 1 }
-      else if (laneIndex > 0) dest = { lane: laneIndex - 1, index: lanes[laneIndex - 1].entries.length }
-    } else if (entryIndex < lanes[laneIndex].entries.length - 1) {
-      dest = { lane: laneIndex, index: entryIndex + 2 }
-    } else if (laneIndex < lanes.length - 1) {
-      dest = { lane: laneIndex + 1, index: 0 }
-    }
-    if (!dest) return
-    const next = moveEntry(lanes, { lane: laneIndex, index: entryIndex }, dest)
-    onLanes(next)
-    for (const lane of next) {
-      const position = lane.entries.findIndex((entry) => entry.ref === row.ref)
-      if (position >= 0) {
-        onAnnounce(`Moved ${row.title} to position ${position + 1} of ${lane.entries.length} in ${lane.title}.`)
-        break
-      }
-    }
   }
 
   const showDrop = dropActive && acceptsDrops && over !== null && over.lane === band.laneIndex
@@ -465,8 +539,8 @@ function PlanBand({
               onSetRoster={(roster) => onLanes(setEntryRoster(lanes, row.laneIndex, row.entryIndex, roster))}
               onDragStart={() => onDragStart({ lane: row.laneIndex, index: row.entryIndex })}
               onDragEnd={onDragEnd}
-              onMove={(direction) => moveByKey(row, direction)}
               onMenu={(position) => onRowMenu(row, position)}
+              buttonRef={(node) => rowRefs.current.set(row.ref, node)}
             />
             {row.drift ? (
               <DriftAffordance drift={row.drift} onResync={() => onResyncEpic(row.laneIndex, row.entryIndex)} />
@@ -500,8 +574,8 @@ function StepRow({
   onSetRoster,
   onDragStart,
   onDragEnd,
-  onMove,
   onMenu,
+  buttonRef,
 }: {
   row: HorizonStepRow
   selected: boolean
@@ -515,8 +589,9 @@ function StepRow({
   onSetRoster: (roster: string | undefined) => void
   onDragStart: () => void
   onDragEnd: () => void
-  onMove: (direction: -1 | 1) => void
   onMenu: (position: { x: number; y: number }) => void
+  /** Registers the row button so the column can focus it as the cursor moves. */
+  buttonRef: (node: HTMLButtonElement | null) => void
 }): JSX.Element {
   return (
     <div
@@ -536,19 +611,11 @@ function StepRow({
       className={`group/step relative flex ${dragging ? 'opacity-50' : ''}`}
     >
       <button
+        ref={buttonRef}
         type="button"
+        data-step-row="true"
         aria-current={selected ? 'true' : undefined}
         onClick={onSelect}
-        onKeyDown={(event) => {
-          // `[` and `]` reorder the step under the cursor without a pointer.
-          if (event.key === '[') {
-            event.preventDefault()
-            onMove(-1)
-          } else if (event.key === ']') {
-            event.preventDefault()
-            onMove(1)
-          }
-        }}
         // Identifier and title in one accessible name, as the family contract asks.
         aria-label={`${row.title}${row.sizeLabel ? `, ${row.sizeLabel} items` : ''}`}
         className={`flex h-[26px] w-full min-w-0 items-center gap-1.5 border-l-2 pl-1.5 pr-2 text-left transition-colors ${FOCUS_RING_CLASS} ${
