@@ -1,4 +1,4 @@
-// Pure helpers for the Sprint Engine saved-team picker. Kept out of
+// Pure helpers for the Sprint Engine saved-roster picker. Kept out of
 // NewWorkspacePanel so the divergence/prune rules can be unit-tested directly.
 import type {
   AgentCli,
@@ -26,7 +26,7 @@ export { NO_ROLES_ROSTER_ID, NO_ROLES_ROSTER_NAME, isNoRolesRosterRef }
 // so divergence comparison resolves an absent default the same way the rows do.
 const DEFAULT_CLI: AgentCli = 'claude-code'
 
-// What the wizard's roster step OPENS on when the user has no saved team: a
+// What the wizard's roster step OPENS on when the user has no saved roster: a
 // runnable plan -> build pair, so Continue yields a team that can actually do
 // work. Saved teams override it; it only seeds when none exists.
 //

@@ -1389,7 +1389,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'object',
           description:
             'Explicit roster as role id -> staffed flag, e.g. {"architect":1,"developer":1,"spec_reviewer":1}. '
-            + 'Wins over `team`. A role is ON (any count > 0) or OFF; the engine normalizes every count to 0 or 1, '
+            + 'Wins over `rosterName`. A role is ON (any count > 0) or OFF; the engine normalizes every count to 0 or 1, '
             + 'so this picks WHICH roles run, not how many agents — run parallelism is maxConcurrentAgents. '
             + 'A role omitted here is OFF, never defaulted on. Role ids are registry-driven, so roles outside the '
             + 'wizard default map (spec_reviewer, nuclear_reviewer) are accepted and get a CLI default seeded.',
@@ -1408,7 +1408,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (!isAbsolute(folderPath)) {
         return failure('invalid_arguments', '"folderPath" must be an absolute path.')
       }
-      const invalid = firstInvalidOptionalString(args, ['name', 'sourceRef', 'team', 'goal'])
+      const invalid = firstInvalidOptionalString(args, ['name', 'sourceRef', 'rosterName', 'goal'])
       if (invalid) return invalid
       const sourceRef = optionalString(args.sourceRef)
       const goal = optionalString(args.goal) ?? ''

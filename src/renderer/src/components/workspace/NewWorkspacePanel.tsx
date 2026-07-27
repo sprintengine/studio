@@ -652,11 +652,11 @@ export default function NewWorkspacePanel({
     [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   // Once detection is trustworthy, remap any role default seeded to an
-  // uninstalled CLI (e.g. the Claude Code seed, or a saved team's Claude Code on
+  // uninstalled CLI (e.g. the Claude Code seed, or a saved roster's Claude Code on
   // a Codex-only machine) to an installed agent so creation never deploys — or
   // even offers as the selected value — a CLI the user does not have. No-op when
   // the values are already installed (setState bails on the same reference).
-  // Depends on the current defaults too so loading a saved team (which sets new
+  // Depends on the current defaults too so loading a saved roster (which sets new
   // defaults without changing availability) is re-clamped. The remap is
   // idempotent — it returns the same object reference when nothing needs
   // changing, so setState bails and this converges without looping.
@@ -729,7 +729,7 @@ export default function NewWorkspacePanel({
   )
   // Role counts handed to CREATION (not the panel view): only roles the wizard
   // actually offers as roster rows. seRoleCounts can carry stale extras from a
-  // saved team — role ids the current registry doesn't know (e.g. the v1-era
+  // saved roster — role ids the current registry doesn't know (e.g. the v1-era
   // spec_reviewer) — which would silently ride into configuredRoles as phantom,
   // unseatable roster rows the user never chose. Existing teams never
   // re-create, so their canonical counts pass through untouched.
