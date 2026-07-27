@@ -19,6 +19,10 @@ import { deriveSprintRunSummary, type SprintRunSummary } from '../shared/sprinte
 // `deriveSprintRunSummary`. A missing or unreadable projection yields a visible
 // `unknown`-state row with a reason, never a dropped row and never a crash.
 
+// The one name for the run's projection: the file the summaries are derived
+// from, the file the memo is keyed on, and the file the watch below fires for.
+const PROJECTION_FILE_NAME = 'projection.json'
+
 export type DiscoveredSprintEngineStatePath = {
   statePath: string
   updatedAtMs: number
@@ -45,7 +49,7 @@ async function discoverSprintEngineStatePaths(workspaceRoot: string): Promise<Di
         }
         return {
           statePath,
-          updatedAtMs: await readSprintEngineUpdatedAtMs(statePath, join(sprintEngineRoot, entry.name, 'projection.json')),
+          updatedAtMs: await readSprintEngineUpdatedAtMs(statePath, join(sprintEngineRoot, entry.name, PROJECTION_FILE_NAME)),
         }
       })
   )
@@ -134,7 +138,7 @@ function lastPathSegment(path: string): string {
  */
 export async function readSprintRunSummary(statePath: string): Promise<SprintRunSummary> {
   const identity = resolveRunIdentity(statePath)
-  const projectionPath = join(identity.teamDirectory, 'projection.json')
+  const projectionPath = join(identity.teamDirectory, PROJECTION_FILE_NAME)
 
   const stats = await stat(projectionPath).catch(() => null)
   const cacheKey = stats ? `${stats.mtimeMs}:${stats.size}` : 'absent'
@@ -230,7 +234,6 @@ export async function listSprintRuns(workspaceRoots: string[]): Promise<SprintRu
 // refetch. A refetch is idempotent and memoized, while a missed write is a rail
 // that lies — so an extra notification is always the safer error.
 
-const PROJECTION_FILE_NAME = 'projection.json'
 const PROJECTION_WRITE_COALESCE_MS = 100
 
 type ProjectionWatch = { watcher: FSWatcher; flushTimer: NodeJS.Timeout | null }
