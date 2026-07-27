@@ -563,22 +563,34 @@ function StepRow({
         >
           <GripGlyph />
         </span>
-        {/* Only a genuinely live run animates; a queued step's glyph is static. */}
+        {/* Only a genuinely live run animates; a queued step's glyph is static.
+            A ref that resolves to nothing reads blocked, whatever its position. */}
         <LifecycleGlyph
-          state={roadmapUnitLifecycle[row.state]}
-          live={row.state === 'running'}
+          state={row.unresolved ? 'blocked' : roadmapUnitLifecycle[row.state]}
+          live={!row.unresolved && row.state === 'running'}
           className="shrink-0"
         />
-        <span
-          className={`min-w-0 flex-1 truncate text-[12px] ${
-            selected
-              ? 'font-medium text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-default)]'
-          }`}
-          title={row.title}
-        >
-          {row.title}
-        </span>
+        {row.unresolved ? (
+          // Surfaced, never silently dropped: the raw ref is what the author
+          // needs to fix the horizon file or remove the step.
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-disabled)]"
+            title={`No backlog item matches “${row.ref}”. Remove the stale step, or create the item.`}
+          >
+            Unknown · {row.ref}
+          </span>
+        ) : (
+          <span
+            className={`min-w-0 flex-1 truncate text-[12px] ${
+              selected
+                ? 'font-medium text-[color:var(--text-strong)]'
+                : 'text-[color:var(--text-default)]'
+            }`}
+            title={row.title}
+          >
+            {row.title}
+          </span>
+        )}
         {showProjectTag ? (
           <span
             className="shrink-0 max-w-[7rem] truncate rounded-sm border border-[color:var(--border-subtle)] px-1 font-mono text-[10.5px] leading-4 text-[color:var(--text-subtle)]"

@@ -10,8 +10,8 @@
 // click/Enter adds it to the first track), and placed work DIMS rather than
 // disappearing, so the author always sees the whole backlog.
 //
-// `buildLibraryGroupModels` moved here from RoadmapEditorPanel (MC-1926 deletes
-// that file); it is pure, so the grouping stays unit-testable without a DOM.
+// `buildLibraryGroupModels` moved here from the since-retired RoadmapEditorPanel
+// (MC-1926); it is pure, so the grouping stays unit-testable without a DOM.
 
 import { useMemo, useState } from 'react'
 

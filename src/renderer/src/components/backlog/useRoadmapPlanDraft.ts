@@ -1,6 +1,6 @@
-// The horizon's draft + autosave loop (MC-1924), lifted verbatim out of
-// RoadmapEditorPanel so the plan column and the editor share ONE persistence
-// path. The transforms it drives are the pure engine in roadmapAuthoring.ts;
+// The horizon's draft + autosave loop (MC-1924), lifted verbatim out of the
+// since-retired RoadmapEditorPanel (MC-1926) so the plan column is the ONE
+// persistence path. The transforms it drives are the pure engine in roadmapAuthoring.ts;
 // this hook owns only the three things that cannot be pure: the baseline/draft
 // pair, the debounced write, and the external-change adoption rule.
 //

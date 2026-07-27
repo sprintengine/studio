@@ -204,7 +204,7 @@ export function entryPickerOptionsMulti(
 // (The old bespoke library feed — buildRoadmapLibrary and its row types — was
 // retired when the planning rail rebuilt on the shared Backlog components; the
 // rail's model now lives beside it as buildLibraryGroupModels in
-// RoadmapEditorPanel.tsx.)
+// panels/roadmapBoard/HorizonBacklogSource.tsx.)
 
 // The child references an epic contributes, in a deterministic snapshot order.
 // V1 plans are static: the children are captured EXPLICITLY at add time so the

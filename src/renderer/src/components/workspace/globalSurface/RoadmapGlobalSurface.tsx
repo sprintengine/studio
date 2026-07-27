@@ -21,13 +21,23 @@
 // steering control is a file/store write the orchestrator reconciles against,
 // and the horizon file (in its D1 home project) is the source of truth.
 
-import { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
 import { buildRoadmapRail } from '../../../../../shared/sprintengine/roadmap-surface'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import { GhostButton, InlineNotice, PrimaryButton, Spinner, useConfirmDialog } from '../../ui'
+import {
+  GhostButton,
+  InlineNotice,
+  Popover,
+  PrimaryButton,
+  SegmentedControl,
+  Spinner,
+  Tooltip,
+  useConfirmDialog,
+} from '../../ui'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import { normalizeRelativePath } from '../../../utils/backlog'
 import { basename, samePath } from '../../../utils/paths'
 import { revealNavRailComponent } from '../../../utils/modelRegistry'
@@ -40,7 +50,6 @@ import {
   type LoadedRoadmap,
   type RoadmapFileSummary,
 } from '../../panels/roadmapBoard/roadmapBoardData'
-import { RoadmapPlannerView } from '../../panels/roadmapBoard/RoadmapPlannerView'
 import { RoadmapRail, type RoadmapRailRow } from '../../panels/roadmapBoard/RoadmapRail'
 import { HorizonPlanColumn } from '../../panels/roadmapBoard/HorizonPlanColumn'
 import { buildHorizonPlan, type HorizonStepRow } from '../../panels/roadmapBoard/horizonPlanModel'
@@ -53,8 +62,10 @@ import {
   removeLane,
   renameLane,
   resyncEpicEntry,
+  roadmapItemStatesMulti,
   splitAuthoredRef,
 } from '../../backlog/roadmapAuthoring'
+import { RosterMenu } from '../../backlog/RosterMenu'
 import { RosterManagerModal } from '../../backlog/RosterManagerModal'
 import { NO_ROLES_ROSTER_NAME } from '../newWorkspace/savedRosters'
 import {
@@ -72,7 +83,8 @@ import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlog
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import { focusOrAddFileTab } from '../../../utils/modelRegistry'
 import type { BacklogLinkProvider } from '../../../modules/renderer-host'
-import type { ProjectKey } from '../../../../../shared/backlog/roadmap'
+import { validateRoadmap, type ProjectKey, type RoadmapPolicy } from '../../../../../shared/backlog/roadmap'
+import type { SprintEngineRoster } from '../../../types/workspace'
 import type { BacklogItem } from '../../../utils/backlog'
 import type { BacklogProjectRef } from '../../../hooks/useAllProjectsBacklog'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from './GlobalSurfaceShell'
@@ -101,9 +113,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   // dialog that hijacks the surface (T20 / mockup: failures never block).
   const [actionError, setActionError] = useState<string | null>(null)
   const back = useSurfaceBackNav()
-  // The roadmap file being planned in the in-surface cross-project planner, or
-  // null when the plan column is showing. (Retired by MC-1926.)
-  const [planningRef, setPlanningRef] = useState<string | null>(null)
   // Which rail horizon the surface shows. Null falls back to the active horizon.
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
   // The rail's search query — transient per-window view state.
@@ -259,8 +268,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     [setActiveWorkspace],
   )
 
-  const handleEditPlan = useCallback((roadmapRef: string) => setPlanningRef(roadmapRef), [])
-
   // Create a new horizon: pick the home project (D1), write the file (a DRAFT —
   // status idea, so nothing runs until it is made active), set the home project
   // if unset, and select it.
@@ -343,13 +350,12 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         // back to the active horizon (or the first rail row) instead of rendering
         // a "couldn't read this horizon" error for something we deleted on purpose.
         setSelectedRef((current) => (current === roadmapRef ? null : current))
-        if (planningRef === roadmapRef) setPlanningRef(null)
       } finally {
         setDeleting(null)
         reload()
       }
     },
-    [activeRef, dialog, planningRef, reload, roadmapFiles],
+    [activeRef, dialog, reload, roadmapFiles],
   )
 
   // Reveal a horizon file in the Backlog panel of the home project it lives in.
@@ -465,6 +471,26 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     }
     return map
   }, [plan.draft.lanes, itemsByProjectKey])
+
+  // A plan can be edited into an ordering loop — steps that must run before
+  // themselves. The deleted editor was the only place that said so, and dragging
+  // must not become a quiet way to write one: the warning moves onto this screen.
+  // Note the save itself is NOT gated: a dangling ref is deliberately writable
+  // and visible (Fallback Discipline) rather than silently refused.
+  const hasCycle = useMemo(() => {
+    if (plan.draft.lanes.length === 0) return false
+    return validateRoadmap(
+      {
+        policy: plan.draft.policy,
+        projects: plan.draft.projects,
+        title: plan.draft.title,
+        lanes: plan.draft.lanes,
+        body: '',
+        issues: [],
+      },
+      roadmapItemStatesMulti(library.projects),
+    ).hasCycle
+  }, [plan.draft, library.projects])
 
   // The tag is earned only by a horizon that actually spans projects — repeating
   // one project's name on every row of a single-project plan is the noise the
@@ -744,16 +770,6 @@ export default function RoadmapGlobalSurface(): JSX.Element {
 
   // --- Chrome ---------------------------------------------------------------
 
-  // The cross-project planner shows in the CANVAS while editing — the shell (and
-  // its lifted top bar) stays mounted, so the door keeps its title, status, and
-  // back affordance exactly like every other door's sub-views (Sprints pattern).
-  const planning = planningRef && homePath ? normalizeRelativePath(planningRef) : null
-  const planningFile = planning ? roadmapFiles.find((file) => file.roadmapRef === planning) ?? null : null
-  const exitPlanning = (): void => {
-    setPlanningRef(null)
-    reload()
-  }
-
   const railRows: RoadmapRailRow[] = railEntries.map((entry) => {
     if (entry.active && activeRoadmap) {
       const progress = roadmapProgress(activeRoadmap.lanes)
@@ -768,33 +784,32 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     return { roadmapRef: entry.roadmapRef, title: entry.title, active: false, running: false, stateLine: 'Draft' }
   })
 
-  const bar = planning
-    ? buildEditingBar(planningFile, planning === normActiveRef)
-    : selectedFile
-      ? buildBar(selectedFile, isActiveSelected, activeRoadmap, {
-          onEditPlan: handleEditPlan,
-          onPauseRoadmap: handlePauseRoadmap,
-          onResumeRoadmap: handleResumeRoadmap,
-          onMakeActive: () => void handleMakeActive(selectedFile),
-          activating,
-          busyBoard,
-          refreshing,
-          saveState: plan.saveState,
-          onRetrySave: () => void plan.save(),
-        })
-      : undefined
+  const bar = selectedFile
+    ? buildBar(selectedFile, isActiveSelected, activeRoadmap, {
+        onPauseRoadmap: handlePauseRoadmap,
+        onResumeRoadmap: handleResumeRoadmap,
+        onMakeActive: () => void handleMakeActive(selectedFile),
+        activating,
+        busyBoard,
+        refreshing,
+        saveState: plan.saveState,
+        onRetrySave: () => void plan.save(),
+        policy: plan.draft.policy,
+        onPolicy: plan.setPolicy,
+        rosters: savedRosters,
+        onManageRosters: () => setRosterManagerOpen(true),
+      })
+    : undefined
 
   const rail = (
     <RoadmapRail
       rows={railRows}
-      selectedRef={planning ?? effectiveSelectedRef}
+      selectedRef={effectiveSelectedRef}
       search={railSearch}
       onSelect={(ref) => {
-        // Selecting from the rail while editing leaves the planner (edits
-        // autosave, so nothing is lost) and shows that horizon's plan.
-        if (planning) setPlanningRef(null)
         setSelectedRef(ref)
         setSelectedStepRef(null)
+        setBacklogOpen(false)
       }}
       onSearch={setRailSearch}
       onNewRoadmap={() => void handleCreateRoadmap()}
@@ -817,14 +832,22 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       ariaLabel="Horizon"
       bar={bar}
       rail={hasRoadmaps || error ? rail : undefined}
-      onBack={planning ? exitPlanning : back.onBack}
-      canGoBack={planning ? true : back.canGoBack}
+      onBack={back.onBack}
+      canGoBack={back.canGoBack}
     >
       <div className="flex h-full min-h-0 flex-col">
         {actionError ? (
           <div className="shrink-0 px-6 pt-4">
             <InlineNotice tone="error" action={<GhostButton onClick={() => setActionError(null)}>Dismiss</GhostButton>}>
               {actionError}
+            </InlineNotice>
+          </div>
+        ) : null}
+        {hasCycle ? (
+          <div className="shrink-0 px-6 pt-4">
+            <InlineNotice tone="warn">
+              Some steps must run before themselves — an ordering loop. Reorder them or remove a
+              prerequisite so the horizon can run start to finish.
             </InlineNotice>
           </div>
         ) : null}
@@ -843,15 +866,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           </div>
         ) : null}
         <div className="min-h-0 flex-1">
-          {planning && planningRef && homePath ? (
-            <RoadmapPlannerView
-              homePath={homePath}
-              roadmapRef={planningRef}
-              onBack={exitPlanning}
-              onSaved={reload}
-              onRevealItem={openInProject}
-            />
-          ) : !hasRoadmaps ? (
+          {!hasRoadmaps ? (
             // A read failure with nothing loaded offers only the retry, never the
             // creation pitch (which would risk a duplicate file).
             error ? (
@@ -890,7 +905,21 @@ export default function RoadmapGlobalSurface(): JSX.Element {
               onRetry={reload}
             />
           ) : !planItem ? (
-            <SurfaceCanvasState kind="loading" label="Loading your horizon…" />
+            // The planner's not-found state, kept (MC-1926): a horizon can be
+            // deleted or moved outside Multicode while the door is open. Once the
+            // home scan HAS reported and the file is still not in it, saying
+            // "loading" forever would be a lie.
+            library.homeScanLoaded ? (
+              <SurfaceCanvasState
+                kind="error"
+                title="This horizon file no longer exists."
+                hint="It may have been moved or deleted outside Multicode."
+                detail={selectedFile.roadmapRef}
+                onRetry={reload}
+              />
+            ) : (
+              <SurfaceCanvasState kind="loading" label="Loading your horizon…" />
+            )
           ) : (
             <div className="flex h-full min-h-0">
               <HorizonPlanColumn
@@ -984,25 +1013,15 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   )
 }
 
-// The surface bar while EDITING a plan in the retired planner: the horizon's
-// identity plus an honest "changes save automatically" sub — no actions.
-function buildEditingBar(file: RoadmapFileSummary | null, isActive: boolean): GlobalSurfaceBar {
-  return {
-    title: file?.title ?? 'Plan horizon',
-    statusChip: <BarStatusChip tone={isActive ? 'accent' : 'neutral'} label={isActive ? 'Active' : 'Draft'} />,
-    contextSub: 'Editing the plan — changes save automatically',
-  }
-}
-
 // The surface bar for the selected horizon (mockup frame 1): name · Active/Draft
-// · the ONE progress readout · the Saved indicator · the state's one action.
-// A draft uses the SAME screen — only its primary action differs.
+// · the ONE progress readout · the Saved indicator · the horizon's own options ·
+// the state's one action. There is no `Edit plan` and no editing bar (MC-1926):
+// a draft uses the SAME screen — only its primary action differs.
 function buildBar(
   file: RoadmapFileSummary,
   isActive: boolean,
   activeRoadmap: LoadedRoadmap | null,
   handlers: {
-    onEditPlan: (roadmapRef: string) => void
     onPauseRoadmap: (roadmap: LoadedRoadmap) => void
     onResumeRoadmap: (roadmap: LoadedRoadmap) => void
     onMakeActive: () => void
@@ -1012,6 +1031,11 @@ function buildBar(
     refreshing: boolean
     saveState: 'saved' | 'saving' | 'pending' | 'failed'
     onRetrySave: () => void
+    /** The horizon's execution policy — live controls, not a separate screen. */
+    policy: RoadmapPolicy
+    onPolicy: (patch: Partial<RoadmapPolicy>) => void
+    rosters: ReadonlyArray<SprintEngineRoster>
+    onManageRosters: () => void
   },
 ): GlobalSurfaceBar {
   const active = isActive && activeRoadmap ? activeRoadmap : null
@@ -1048,7 +1072,12 @@ function buildBar(
     actions: (
       <>
         <SavedIndicator state={handlers.saveState} onRetry={handlers.onRetrySave} />
-        <GhostButton onClick={() => handlers.onEditPlan(file.roadmapRef)}>Edit plan</GhostButton>
+        <HorizonPolicyMenu
+          policy={handlers.policy}
+          onChange={handlers.onPolicy}
+          rosters={handlers.rosters}
+          onManageRosters={handlers.onManageRosters}
+        />
         {!isActive ? (
           <PrimaryButton onClick={handlers.onMakeActive} disabled={handlers.activating}>
             {handlers.activating ? 'Making active…' : 'Make active'}
@@ -1065,6 +1094,105 @@ function buildBar(
       </>
     ),
   }
+}
+
+// The horizon's execution policy, in plain human terms: what happens after a
+// step finishes, who merges delivered work, and which saved roster staffs each
+// sprint. MC-1926 kept these as LIVE segmented controls when the planner screen
+// that used to host them went away — they read well and were not redrawn, they
+// just moved onto the one screen, behind the bar's own options affordance so a
+// 360px-plus-detail layout does not grow a fourth band.
+//
+// (`policy.concurrency` is parsed and preserved but the orchestrator does not
+// honour it yet — it serialises to one active run per repo — so no control is
+// offered for it.)
+function HorizonPolicyMenu({
+  policy,
+  onChange,
+  rosters,
+  onManageRosters,
+}: {
+  policy: RoadmapPolicy
+  onChange: (patch: Partial<RoadmapPolicy>) => void
+  rosters: ReadonlyArray<SprintEngineRoster>
+  onManageRosters: () => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Horizon options"
+      popupRole="dialog"
+      placement="bottom-end"
+      surfaceClassName="w-[320px] p-3"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <Tooltip content="Horizon options" placement="bottom">
+          <button
+            ref={ref}
+            type="button"
+            {...triggerProps}
+            onClick={togglePopover}
+            aria-label="Horizon options"
+            className={`interactive inline-flex h-[22px] w-[22px] items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          >
+            <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
+              <circle cx="4" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+              <circle cx="12" cy="8" r="1.2" fill="currentColor" />
+            </svg>
+          </button>
+        </Tooltip>
+      )}
+    >
+      <div className="flex flex-col gap-3">
+        <PolicyControl label="After a step finishes">
+          <SegmentedControl
+            ariaLabel="After a step finishes"
+            value={policy.advance}
+            onChange={(value) => onChange({ advance: value as RoadmapPolicy['advance'] })}
+            items={[
+              { value: 'approve', label: 'Ask me first' },
+              { value: 'auto', label: 'Start the next' },
+            ]}
+          />
+        </PolicyControl>
+        <PolicyControl label="Merging delivered work">
+          <SegmentedControl
+            ariaLabel="Merging delivered work"
+            value={policy.merge}
+            onChange={(value) => onChange({ merge: value as RoadmapPolicy['merge'] })}
+            items={[
+              { value: 'manual', label: 'I merge' },
+              { value: 'auto', label: 'Automatic' },
+            ]}
+          />
+        </PolicyControl>
+        {/* MC-1882: the label says SCOPE. This is the default for steps that do
+            not override it, not a hard setting for the whole horizon. */}
+        <PolicyControl label="Default roster">
+          <RosterMenu
+            rosters={rosters}
+            selectedName={policy.roster ?? null}
+            onSelect={(name) => onChange({ roster: name })}
+            onManageRosters={() => {
+              setOpen(false)
+              onManageRosters()
+            }}
+          />
+        </PolicyControl>
+      </div>
+    </Popover>
+  )
+}
+
+function PolicyControl({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] text-[color:var(--text-muted)]">{label}</span>
+      {children}
+    </div>
+  )
 }
 
 // Autosave's readout — the thing that replaced the edit mode. A state, not a

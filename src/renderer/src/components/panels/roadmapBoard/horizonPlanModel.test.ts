@@ -382,6 +382,25 @@ run('a plan with no tracks at all has a head fallback and nothing else', () => {
   assert.deepEqual(plan.bands, [])
 })
 
+run('a ref that resolves to nothing is marked, never rendered as ordinary work', () => {
+  const lanes = lanesOf('## Delivery\n- backlog/ghost.md\n- backlog/one.md\n')
+  const rows = buildHorizonPlan(input({ lanes })).bands.flatMap((band) => band.rows)
+  assert.equal(rows.find((row) => row.ref === 'backlog/ghost.md')?.unresolved, true)
+  assert.equal(rows.find((row) => row.ref === 'backlog/one.md')?.unresolved, false)
+})
+
+run('a step the board resolved is never marked unresolved, even mid-edit', () => {
+  const lanes = lanesOf('## Delivery\n- backlog/one.md\n')
+  const plan = buildHorizonPlan(
+    input({
+      lanes,
+      refDisplay: new Map(),
+      boardLanes: [boardLane('Delivery', [unit({ ref: 'backlog/one.md', title: 'One', itemStatus: 'ready' })])],
+    }),
+  )
+  assert.equal(plan.bands.flatMap((b) => b.rows)[0].unresolved, false)
+})
+
 if (failures > 0) {
   console.error(`${failures} test(s) failed`)
   process.exit(1)

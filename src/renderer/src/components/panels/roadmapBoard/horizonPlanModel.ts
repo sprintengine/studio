@@ -84,6 +84,10 @@ export type HorizonStepRow = {
   notice?: HorizonStepNotice
   /** This epic's membership moved since it was placed — offer the re-sync. */
   drift?: { gained: number; removed: number }
+  /** The ref names no backlog item this Multicode can see. Surfaced, never
+   *  silently dropped (Fallback Discipline) — a stale step the author can act on
+   *  beats a row that looks ordinary and parks the track when it is reached. */
+  unresolved: boolean
 }
 
 export type HorizonBandKind =
@@ -202,6 +206,10 @@ export function buildHorizonPlan(input: HorizonPlanInput): HorizonPlan {
           missing,
         },
         ...(unit?.prUrl ? { prUrl: unit.prUrl } : {}),
+        // The board resolves an item's status only when it found the file; the
+        // display map is the draft-side equivalent. Neither means the ref points
+        // at nothing we can see.
+        unresolved: unit?.itemStatus === undefined && display === undefined,
       }
       const drift = input.driftByRef?.get(entry.ref)
       if (drift) row.drift = drift
