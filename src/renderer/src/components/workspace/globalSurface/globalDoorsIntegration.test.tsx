@@ -32,7 +32,10 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 })
 
 const anyGlobal = globalThis as unknown as Record<string, unknown>
-anyGlobal.window = dom.window
+// The jsdom window also carries the preload bridge (`window.api`); assignments go
+// through this typed alias so they stay checked instead of landing on `unknown`.
+const domWindow = dom.window as unknown as Record<string, unknown>
+anyGlobal.window = domWindow
 anyGlobal.document = dom.window.document
 anyGlobal.navigator = dom.window.navigator
 anyGlobal.HTMLElement = dom.window.HTMLElement
@@ -148,7 +151,7 @@ const api: Record<string, unknown> = {
   },
 }
 
-anyGlobal.window.api = new Proxy(api, {
+domWindow.api = new Proxy(api, {
   get: (target, prop: string) =>
     prop in target
       ? target[prop]
@@ -202,7 +205,9 @@ async function main(): Promise<void> {
     }
   }
 
-  const container = dom.window.document.createElement('div')
+  // jsdom ships no types, so annotate the mount point: without it every query
+  // off `container` degrades to `unknown` and nothing in this file is checked.
+  const container: HTMLDivElement = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(container)
 
   // ═══ 1. The six doors coexist on the real kernel ══════════════════════════
@@ -657,17 +662,16 @@ async function main(): Promise<void> {
   const boundaryRoot = createRoot(container)
   await act(async () => {
     boundaryRoot.render(
-      React.createElement(
-        GlobalSurfaceErrorBoundary,
-        {
-          surfaceId: 'reviews',
-          surfaceLabel: 'Reviews',
-          onClose: () => {
-            closed += 1
-          },
+      // `children` is a declared prop of the boundary, so it goes in the props
+      // object: createElement's variadic children never satisfy a required one.
+      React.createElement(GlobalSurfaceErrorBoundary, {
+        surfaceId: 'reviews',
+        surfaceLabel: 'Reviews',
+        onClose: () => {
+          closed += 1
         },
-        React.createElement(BombSurface),
-      ),
+        children: React.createElement(BombSurface),
+      }),
     )
   })
   assert.ok(

@@ -24,11 +24,18 @@ function availabilityMap(map: Record<string, boolean>): AgentCliAvailabilityMap 
   return out
 }
 
+// Registry entries always carry the resume capabilities projected from the
+// manifest. Catalog building never reads them, so fixtures declare the
+// no-resume pair once here instead of at every entry.
+const cliEntry = (
+  entry: Omit<PluginCatalogEntry, 'resumeSession' | 'sessionIdFromCaller'>
+): PluginCatalogEntry => ({ resumeSession: false, sessionIdFromCaller: false, ...entry })
+
 const plugins: PluginCatalogEntry[] = [
-  { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' },
-  { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' },
-  { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
-  { id: 'codex', displayName: 'Codex Duplicate', source: 'user', version: 2, binary: 'codex-next' },
+  cliEntry({ id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode' }),
+  cliEntry({ id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' }),
+  cliEntry({ id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' }),
+  cliEntry({ id: 'codex', displayName: 'Codex Duplicate', source: 'user', version: 2, binary: 'codex-next' }),
 ]
 
 assert.deepEqual(
@@ -81,8 +88,8 @@ assert.deepEqual(buildAgentCliCatalog([]), [], 'loaded empty registry does not i
 
 assert.deepEqual(
   buildAgentCliCatalog([
-    { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
-    { id: 'generic-shell', displayName: 'Generic Shell', source: 'bundled', version: 1, binary: 'sh' },
+    cliEntry({ id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' }),
+    cliEntry({ id: 'generic-shell', displayName: 'Generic Shell', source: 'bundled', version: 1, binary: 'sh' }),
   ]).map(({ value, label, source }) => ({ value, label, source })),
   [{ value: 'claude-code', label: 'Claude Code', source: 'bundled' }],
   'generic-shell is hidden from the agent CLI picker catalog',
@@ -211,7 +218,7 @@ assert.equal(
 // Model catalog merging: manifest seeds first, then user-added ids deduped;
 // plugins without modelSelection never grow model UI from user runtimes.
 const modelPlugins: PluginCatalogEntry[] = [
-  {
+  cliEntry({
     id: 'claude-code',
     displayName: 'Claude Code',
     source: 'bundled',
@@ -221,11 +228,11 @@ const modelPlugins: PluginCatalogEntry[] = [
       options: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }],
       allowCustomId: true,
     },
-  },
+  }),
   // `aider` is an unbundled id with no manifest modelSelection and no bundled
   // fallback catalog — the clean "no model UI anywhere" case. (opencode is no
   // longer usable here: it is now a canonical bundled CLI with its own catalog.)
-  { id: 'aider', displayName: 'Aider', source: 'user', version: 1, binary: 'aider' },
+  cliEntry({ id: 'aider', displayName: 'Aider', source: 'user', version: 1, binary: 'aider' }),
 ]
 const modelCatalog = buildAgentCliCatalog(modelPlugins, {
   'claude-code': { command: '', useWsl: false, models: [' opus ', 'haiku', 'haiku'] },

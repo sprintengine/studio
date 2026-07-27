@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../workspaceStore'
+import type { SettingsOverlayState } from './settingsSlice'
 import {
   createSettingsSlice,
   defaultAppSettings,
@@ -299,7 +300,7 @@ const carrier = {
     } as Workspace,
   ],
   appSettings: defaultAppSettings(),
-  settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null },
+  settingsOverlay: { open: false, initialTab: null, checkForUpdatesRequestId: null } as SettingsOverlayState,
   automationsOverlay: { open: false, projectPath: null, runTarget: null },
   runSummaryOverlay: { open: false, workspaceId: null },
   activeGlobalSurface: null,

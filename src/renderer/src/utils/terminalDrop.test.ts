@@ -146,6 +146,8 @@ const pluginEntries: PluginRegistryListEntry[] = [
     source: 'bundled',
     version: 1,
     binary: 'claude',
+    resumeSession: true,
+    sessionIdFromCaller: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'claude',
@@ -160,6 +162,8 @@ const pluginEntries: PluginRegistryListEntry[] = [
     source: 'bundled',
     version: 1,
     binary: 'codex',
+    resumeSession: true,
+    sessionIdFromCaller: false,
     skillIntegration: {
       support: 'native',
       harnessId: 'codex',
@@ -174,6 +178,8 @@ const pluginEntries: PluginRegistryListEntry[] = [
     source: 'user',
     version: 1,
     binary: 'pi',
+    resumeSession: false,
+    sessionIdFromCaller: false,
     skillIntegration: {
       support: 'native',
       harnessId: 'pi',
@@ -188,6 +194,8 @@ const pluginEntries: PluginRegistryListEntry[] = [
     source: 'bundled',
     version: 1,
     binary: 'sh',
+    resumeSession: false,
+    sessionIdFromCaller: false,
     skillIntegration: {
       support: 'unsupported',
       harnessId: 'generic-shell',

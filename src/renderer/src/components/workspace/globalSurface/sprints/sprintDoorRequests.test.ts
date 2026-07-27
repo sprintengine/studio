@@ -50,7 +50,9 @@ assert.equal(consumeSprintDoorSelection(), '/work/b/run.yaml', 'the newest hando
 // terminals and removes the workspace. A malformed request is ignored rather than
 // handed on as an empty id — the shell must never be asked to close "nothing".
 const closed: string[] = []
-const unsubscribe = subscribeCloseSprintWorkspaceRequests((workspaceId) => closed.push(workspaceId))
+const unsubscribe = subscribeCloseSprintWorkspaceRequests((workspaceId) => {
+  closed.push(workspaceId)
+})
 
 requestCloseSprintWorkspace('ws-sprint-1')
 assert.deepEqual(closed, ['ws-sprint-1'], 'the shell hears the close request')

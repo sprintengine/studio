@@ -393,7 +393,7 @@ function testUnownedNeedsInputTaskIsNotARevivalTarget(): void {
         id: 'T-stranded',
         role: 'developer',
         status: 'needs_input',
-        boardColumn: 'blocked',
+        boardColumn: 'needs_input',
         ownerAgentId: null,
       }),
     ],

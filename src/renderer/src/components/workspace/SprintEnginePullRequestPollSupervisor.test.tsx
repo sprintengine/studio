@@ -73,7 +73,6 @@ assert.equal(
 // ---------------------------------------------------------------------------
 function workspace(overrides: Partial<Workspace> & { id: string }): Workspace {
   return {
-    id: overrides.id,
     mode: 'sprintengine',
     sprintEngineContext: { statePath: `/runs/${overrides.id}.yaml` },
     sprintEngineState: vcs([repo('primary')]),

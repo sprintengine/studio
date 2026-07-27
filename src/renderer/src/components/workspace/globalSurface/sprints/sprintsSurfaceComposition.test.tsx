@@ -19,7 +19,10 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 })
 
 const anyGlobal = globalThis as unknown as Record<string, unknown>
-anyGlobal.window = dom.window
+// The jsdom window also carries the preload bridge (`window.api`); assignments go
+// through this typed alias so they stay checked instead of landing on `unknown`.
+const domWindow = dom.window as unknown as Record<string, unknown>
+anyGlobal.window = domWindow
 anyGlobal.document = dom.window.document
 anyGlobal.navigator = dom.window.navigator
 anyGlobal.HTMLElement = dom.window.HTMLElement
@@ -56,11 +59,15 @@ type RunSummary = Record<string, unknown>
 const projectRoot = '/work/multicode'
 const mobileRoot = '/work/multicode-mobile'
 
-function summary(over: Record<string, unknown> & { teamSlug: string; root?: string }): RunSummary {
-  const root = over.root ?? projectRoot
+// `root` is a fixture shorthand for the project root, not a RunSummary field, so
+// it is destructured out rather than spread onto the summary.
+function summary({
+  root: rootOverride,
+  ...over
+}: Partial<RunSummary> & { teamSlug: string; root?: string }): RunSummary {
+  const root = rootOverride ?? projectRoot
   return {
     statePath: `${root}/.multi-code/sprintengine/${over.teamSlug}/run.yaml`,
-    teamSlug: over.teamSlug,
     teamName: over.teamSlug,
     projectRoot: root,
     projectName: root.slice(root.lastIndexOf('/') + 1),
@@ -248,7 +255,7 @@ const api: Record<string, unknown> = {
 // API. Unstubbed members answer inertly rather than throwing, so this test stays
 // about the door's composition — subscriptions hand back an unsubscribe, calls
 // resolve to a refusal (never a fake success).
-anyGlobal.window.api = new Proxy(api, {
+domWindow.api = new Proxy(api, {
   get: (target, prop: string) =>
     prop in target
       ? target[prop]

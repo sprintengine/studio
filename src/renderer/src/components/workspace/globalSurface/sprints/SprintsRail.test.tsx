@@ -18,7 +18,6 @@ function summary(overrides: Partial<SprintRunSummary> & { teamSlug: string }): S
   const projectRoot = overrides.projectRoot ?? '/work/multicode'
   return {
     statePath: `${projectRoot}/.multi-code/sprintengine/${overrides.teamSlug}/run.yaml`,
-    teamSlug: overrides.teamSlug,
     teamName: overrides.teamSlug,
     projectRoot,
     projectName: projectRoot.slice(projectRoot.lastIndexOf('/') + 1),

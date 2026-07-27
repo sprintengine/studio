@@ -19,7 +19,10 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 })
 
 const anyGlobal = globalThis as unknown as Record<string, unknown>
-anyGlobal.window = dom.window
+// The jsdom window also carries the preload bridge (`window.api`); assignments go
+// through this typed alias so they stay checked instead of landing on `unknown`.
+const domWindow = dom.window as unknown as Record<string, unknown>
+anyGlobal.window = domWindow
 anyGlobal.document = dom.window.document
 anyGlobal.navigator = dom.window.navigator
 anyGlobal.HTMLElement = dom.window.HTMLElement
@@ -88,7 +91,7 @@ const api: Record<string, unknown> = {
 // The board mounts inside the canvas and reaches a wide slice of the preload API.
 // Unstubbed members answer inertly rather than throwing: subscriptions hand back
 // an unsubscribe, calls resolve to a refusal — never a fake success.
-anyGlobal.window.api = new Proxy(api, {
+domWindow.api = new Proxy(api, {
   get: (target, prop: string) =>
     prop in target
       ? target[prop]
@@ -286,7 +289,9 @@ async function main(): Promise<void> {
   assert.equal(menuItem('Delete sprint').disabled, false, 'the run can be deleted')
 
   const closeRequests: string[] = []
-  const stopListening = subscribeCloseSprintWorkspaceRequests((id) => closeRequests.push(id))
+  const stopListening = subscribeCloseSprintWorkspaceRequests((id) => {
+    closeRequests.push(id)
+  })
   await act(async () => {
     menuItem('Close workspace').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   })
