@@ -1,6 +1,8 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'path'
+import type { WindowMaterial } from '../shared/electron-api'
 import { sendWindowPlacement, sendWindowState } from './ipc/window-ipc'
+import { getWindowMaterial } from './window-material-store'
 
 type CreateMainWindowOptions = {
   diagnosticsEnabled: boolean
@@ -18,6 +20,27 @@ let appQuitInProgress = false
 // windows can never be silently undone by an auto-respawn (which read as an
 // un-closable window that respawned on every close).
 let detachedRestorePending = true
+
+// Workspace (main-shell) windows only — aux/diagnostics windows never frost.
+// The material IPC re-applies vibrancy live to every member on change.
+const workspaceWindows = new Set<BrowserWindow>()
+
+const SOLID_BACKGROUND_COLOR = '#09090b'
+
+// macOS vibrancy for the glass window material. The OS composites the blur
+// from the desktop BEHIND the window (never from our own content), so this is
+// frame-budget-free even with streaming terminals — unlike in-app
+// backdrop-filter, which stays banned (see .overlay-scrim in index.css).
+// Which regions read as glass is the renderer's call via the
+// data-window-material attribute; everything painted opaque stays opaque.
+export function applyWindowMaterialToWorkspaceWindows(material: WindowMaterial): void {
+  if (process.platform !== 'darwin') return
+  for (const win of workspaceWindows) {
+    if (win.isDestroyed()) continue
+    win.setVibrancy(material === 'glass' ? 'under-window' : null)
+    win.setBackgroundColor(material === 'glass' ? '#00000000' : SOLID_BACKGROUND_COLOR)
+  }
+}
 
 export function markAppQuitInProgressForWindowClose(): void {
   appQuitInProgress = true
@@ -40,12 +63,11 @@ export function createMainWindow({
   // 'primary') never restore, so they leave the flag alone.
   const restoreDetached = windowId === 'primary' && detachedRestorePending
   if (windowId === 'primary') detachedRestorePending = false
-  // SPIKE (liquid-glass): dev-flag-only window vibrancy. The OS blurs the
-  // desktop behind the window; the renderer decides which regions stay
-  // translucent via the data-window-material attribute injected below.
-  const glassSpike = process.platform === 'darwin' && process.env.MULTICODE_GLASS === '1'
-  const glassMaterial =
-    process.env.MULTICODE_GLASS_MATERIAL === 'sidebar' ? ('sidebar' as const) : ('under-window' as const)
+  // Applied at creation (not post-boot) so a glass-persisted profile paints
+  // frosted chrome from the first frame; getWindowMaterial() is 'solid'
+  // everywhere but macOS. The renderer boot script stamps the matching
+  // data-window-material attribute just as synchronously.
+  const glass = getWindowMaterial() === 'glass'
   const safeBounds = normalizeWindowBounds(bounds)
   const win = new BrowserWindow({
     width: safeBounds?.width ?? 1400,
@@ -67,9 +89,9 @@ export function createMainWindow({
           trafficLightPosition: { x: 12, y: 11 },
         }),
     autoHideMenuBar: process.platform !== 'darwin',
-    ...(glassSpike
-      ? { vibrancy: glassMaterial, backgroundColor: '#00000000' }
-      : { backgroundColor: '#09090b' }),
+    ...(glass
+      ? { vibrancy: 'under-window' as const, backgroundColor: '#00000000' }
+      : { backgroundColor: SOLID_BACKGROUND_COLOR }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -85,28 +107,16 @@ export function createMainWindow({
     },
   })
 
+  workspaceWindows.add(win)
+  win.on('closed', () => {
+    workspaceWindows.delete(win)
+  })
+
   win.on('ready-to-show', () => {
     if (isMaximized) win.maximize()
     win.show()
     win.focus()
   })
-  if (glassSpike) {
-    win.webContents.on('did-finish-load', () => {
-      void win.webContents.executeJavaScript(
-        `document.documentElement.setAttribute('data-window-material', 'glass')`
-      )
-    })
-    // SPIKE: verify setVibrancy toggles live (no window recreate). Off at
-    // +20s, back on at +25s; observed via timed OS screenshots.
-    if (process.env.MULTICODE_GLASS_TOGGLE_TEST === '1') {
-      setTimeout(() => {
-        if (!win.isDestroyed()) win.setVibrancy(null)
-      }, 20_000)
-      setTimeout(() => {
-        if (!win.isDestroyed()) win.setVibrancy(glassMaterial)
-      }, 25_000)
-    }
-  }
   win.on('maximize', () => {
     sendWindowState(win)
     sendWindowPlacement(win)

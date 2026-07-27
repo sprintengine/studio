@@ -48,7 +48,13 @@ import {
   WORKSPACE_ASIDE_DEFAULT_WIDTH,
   clampWorkspaceAsideWidth,
 } from '../../components/workspace/workspaceAsideWidth'
-import { isAppTheme, type AppearanceSettings, type AppTheme } from '../../types/appTheme'
+import {
+  isAppTheme,
+  isWindowMaterial,
+  type AppearanceSettings,
+  type AppTheme,
+  type WindowMaterial,
+} from '../../types/appTheme'
 import { normalizeModuleOverrides } from '../../../../shared/modules/manifest'
 import { collapseDuplicateKeybindings } from '../../commands/keybindings'
 
@@ -111,14 +117,19 @@ export function normalizeLearningSettings(input: unknown): LearningSettings {
 }
 
 export function defaultAppearanceSettings(): AppearanceSettings {
-  return { theme: 'system' }
+  return { theme: 'system', windowMaterial: 'solid' }
 }
 
 export function normalizeAppearanceSettings(value: unknown): AppearanceSettings {
   const defaults = defaultAppearanceSettings()
   if (!value || typeof value !== 'object') return defaults
   const candidate = value as Partial<AppearanceSettings>
-  return { theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme }
+  return {
+    theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme,
+    windowMaterial: isWindowMaterial(candidate.windowMaterial)
+      ? candidate.windowMaterial
+      : defaults.windowMaterial,
+  }
 }
 
 export function defaultMcpSettings(): McpSettings {
@@ -1148,6 +1159,7 @@ export interface SettingsSliceActions {
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
   resetLearningProgress: () => void
   setAppearanceTheme: (theme: AppTheme) => void
+  setAppearanceWindowMaterial: (material: WindowMaterial) => void
 }
 
 export type SettingsSlice = SettingsSliceState & SettingsSliceActions
@@ -1768,6 +1780,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.appearance = normalizeAppearanceSettings({
           ...state.appSettings.appearance,
           theme,
+        })
+      }),
+
+    setAppearanceWindowMaterial: (material) =>
+      set((state) => {
+        state.appSettings.appearance = normalizeAppearanceSettings({
+          ...state.appSettings.appearance,
+          windowMaterial: material,
         })
       }),
   }

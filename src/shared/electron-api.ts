@@ -2174,6 +2174,11 @@ export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
 // can be launched matching the app's appearance (e.g. Claude Code's --settings
 // theme). Main keeps only the latest pushed value; the renderer owns the truth.
 export type ColorScheme = 'light' | 'dark'
+
+// Window chrome material: 'glass' renders the window canvas (sidebar, title
+// strip, aside column) over OS-native vibrancy; 'solid' is the opaque default.
+// macOS-only for now — main ignores 'glass' on other platforms.
+export type WindowMaterial = 'solid' | 'glass'
 export type AppMenuAcceleratorUpdate = {
   commandId: string
   accelerator: string | null
@@ -3089,6 +3094,7 @@ export type ElectronApi = {
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
   setColorScheme: (scheme: ColorScheme) => Promise<void>
+  setWindowMaterial: (material: WindowMaterial) => Promise<void>
   readBacklogObjectStore: (workspaceRoot: string) => Promise<BacklogReadResult>
   ensureBacklogObjectRecords: (workspaceRoot: string, items: BacklogItemRecordInput[]) => Promise<BacklogReadResult>
   ensureBacklogItemIds: (input: BacklogEnsureIdsInput) => Promise<BacklogEnsureIdsResult>

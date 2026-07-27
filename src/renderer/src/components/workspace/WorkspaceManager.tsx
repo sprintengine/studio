@@ -2854,7 +2854,7 @@ export default function WorkspaceManager() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-app)] text-[color:var(--text-strong)]">
+    <div className="flex h-screen flex-col overflow-hidden bg-[color:var(--bg-canvas)] text-[color:var(--text-strong)]">
       {sprintEngineEnabled && !MULTICODE_DISABLE_SPRINTENGINE_SYNC ? (
         // Projection sync consumes active-window/workspace identity from the shell,
         // so it remains the known propful exception to zero-prop supervisor contributions.

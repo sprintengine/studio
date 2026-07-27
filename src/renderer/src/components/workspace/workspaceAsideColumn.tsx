@@ -97,7 +97,7 @@ export function WorkspaceAsideColumn({ label, width, onWidthChange, children }: 
     <aside
       ref={asideRef}
       aria-label={label}
-      className="relative flex h-full shrink-0 flex-col bg-[color:var(--bg-app)]"
+      className="relative flex h-full shrink-0 flex-col bg-[color:var(--bg-canvas)]"
       // No entrance animation on purpose: animating the width reflows the whole
       // workspace card (terminals included) every frame and reads as lag. The
       // column mounts instantly, like the workspace sidebar. During a drag the

@@ -4,8 +4,10 @@ import type { Workspace } from '../../types/workspace'
 import { useWorkspaceStore } from '../workspaceStore'
 import {
   createSettingsSlice,
+  defaultAppearanceSettings,
   defaultAppSettings,
   defaultKeybindingSettings,
+  normalizeAppearanceSettings,
   normalizeAppSettings,
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
@@ -1088,6 +1090,24 @@ assert.deepEqual(
   normalizeAppSettings({} as never, []).reviewGuideDefaults,
   { depth: 'standard', cli: null, model: null },
   'a profile predating the choices hydrates to the defaults',
+)
+
+// Appearance: windowMaterial is a second axis beside theme (MC-1907).
+assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'solid' })
+assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
+assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
+  theme: 'sage',
+  windowMaterial: 'glass',
+})
+assert.deepEqual(
+  normalizeAppearanceSettings({ theme: 'sage' }),
+  { theme: 'sage', windowMaterial: 'solid' },
+  'a persisted appearance predating the material axis hydrates to solid',
+)
+assert.deepEqual(
+  normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),
+  defaultAppearanceSettings(),
+  'unknown theme and material values both fall back to defaults',
 )
 
 console.log('settingsSlice.test.ts: ok')

@@ -373,6 +373,18 @@ export function isAppTheme(value: unknown): value is AppTheme {
   return typeof value === 'string' && (APP_THEME_IDS as readonly string[]).includes(value)
 }
 
+// Window chrome material — a second appearance axis, orthogonal to the theme.
+// 'glass' frosts the window canvas (sidebar, title strip, aside column) with
+// OS-native vibrancy under the active theme's tint; macOS-only, opt-in. The
+// picker is hidden on other platforms and main ignores 'glass' there.
+export const WINDOW_MATERIALS = ['solid', 'glass'] as const
+export type WindowMaterial = (typeof WINDOW_MATERIALS)[number]
+
+export function isWindowMaterial(value: unknown): value is WindowMaterial {
+  return typeof value === 'string' && (WINDOW_MATERIALS as readonly string[]).includes(value)
+}
+
 export type AppearanceSettings = {
   theme: AppTheme
+  windowMaterial: WindowMaterial
 }

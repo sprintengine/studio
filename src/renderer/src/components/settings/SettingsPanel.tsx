@@ -1035,6 +1035,10 @@ export default function SettingsPanel({
   )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
+  const appearanceWindowMaterial = useWorkspaceStore(
+    (s) => s.appSettings.appearance.windowMaterial
+  )
+  const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const setUsageTelemetrySettings = useWorkspaceStore((s) => s.setUsageTelemetrySettings)
   const setSprintEngineRoleEnabled = useWorkspaceStore((s) => s.setSprintEngineRoleEnabled)
@@ -1759,6 +1763,32 @@ export default function SettingsPanel({
             </p>
           </div>
           <AppThemePicker value={appearanceTheme} onChange={setAppearanceTheme} />
+          {window.api.platform === 'darwin' ? (
+            <div className="space-y-2">
+              <SettingsSectionTitle>Window material</SettingsSectionTitle>
+              <div
+                role="group"
+                aria-label="Window material"
+                className="inline-flex gap-0.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-0.5"
+              >
+                {(['solid', 'glass'] as const).map((material) => (
+                  <button
+                    key={material}
+                    type="button"
+                    aria-pressed={appearanceWindowMaterial === material}
+                    onClick={() => setAppearanceWindowMaterial(material)}
+                    className={`interactive rounded px-3.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] ${
+                      appearanceWindowMaterial === material
+                        ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                        : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
+                    }`}
+                  >
+                    {material === 'solid' ? 'Solid' : 'Glass'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

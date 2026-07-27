@@ -241,7 +241,7 @@ export function AppTitleBar<MenuItem extends string>({
   const reserveTrafficLights = isMac && !isFullScreen
   return (
     <div
-      className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)]`}
+      className={`app-drag flex ${TITLE_BAR_HEIGHT} shrink-0 items-stretch border-b border-[color:var(--border-default)] bg-[color:var(--bg-title-strip)]`}
     >
       {/* Left + centre: window navigation then the workspace identity cluster.
           The block flex-grows so its unused tail is the strip's drag spacer;

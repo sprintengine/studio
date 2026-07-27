@@ -50,7 +50,7 @@ import type {
   SkillPackEntry,
   GuidedBriefRuntimeState,
 } from '../types/workspace'
-import type { AppTheme } from '../types/appTheme'
+import type { AppTheme, WindowMaterial } from '../types/appTheme'
 import type { CommandId } from '../commands/commandRegistry'
 import { createGuidedBriefSlice } from './slices/guidedBriefSlice'
 import { createAuthSlice } from './slices/authSlice'
@@ -277,6 +277,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   markLearningLessonCompleted: (lessonId: string, completed?: boolean) => void
   resetLearningProgress: () => void
   setAppearanceTheme: (theme: AppTheme) => void
+  setAppearanceWindowMaterial: (material: WindowMaterial) => void
   addWorkspace: (
     template: LayoutTemplate,
     options?: {

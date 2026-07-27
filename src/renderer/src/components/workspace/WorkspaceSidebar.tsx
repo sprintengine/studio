@@ -1417,7 +1417,7 @@ export default function WorkspaceSidebar({
               ),
             }
       }
-      className={`relative flex shrink-0 flex-col bg-[color:var(--bg-app)] ${
+      className={`relative flex shrink-0 flex-col bg-[color:var(--bg-canvas)] ${
         isResizingSidebar ? '' : 'transition-[width] duration-150 ease-out motion-reduce:transition-none'
       } ${sidebarCollapsed ? 'hidden' : ''}`}
     >

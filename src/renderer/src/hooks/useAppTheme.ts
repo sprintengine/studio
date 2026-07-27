@@ -5,6 +5,7 @@ import {
   type AppTheme,
   type ColorScheme,
   type ResolvedAppTheme,
+  type WindowMaterial,
 } from '../types/appTheme'
 
 export type { ResolvedAppTheme }
@@ -32,12 +33,35 @@ function applyTheme(resolved: ResolvedAppTheme): void {
   void window.api?.setColorScheme?.(colorSchemeForResolvedTheme(resolved))
 }
 
+function applyWindowMaterial(material: WindowMaterial): void {
+  if (typeof document === 'undefined') return
+  // Glass is macOS-only; collapse to solid elsewhere so a synced/copied
+  // profile can never leave a translucent canvas over a non-vibrant window.
+  const active = material === 'glass' && window.api?.platform === 'darwin'
+  if (active) {
+    document.documentElement.setAttribute('data-window-material', 'glass')
+    // The boot script's opaque pre-paint on <html> would sit in front of the
+    // window vibrancy; clear it so the frost shows (body carries the tint).
+    document.documentElement.style.backgroundColor = ''
+  } else {
+    document.documentElement.removeAttribute('data-window-material')
+  }
+  // Mirror to main: persists for pre-boot application on the next launch and
+  // re-applies vibrancy to live windows. Best-effort outside Electron.
+  void window.api?.setWindowMaterial?.(active ? 'glass' : 'solid')
+}
+
 // Drives the <html data-theme="…"> attribute from the persisted preference.
 // Mount once near the root of the React tree. The boot-time script in
 // index.html applies the same logic synchronously to avoid a flash of the
 // wrong theme before React mounts.
 export function useAppTheme(): void {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
+  const windowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
+
+  useEffect(() => {
+    applyWindowMaterial(windowMaterial)
+  }, [windowMaterial])
 
   useEffect(() => {
     applyTheme(resolveTheme(theme))

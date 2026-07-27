@@ -51,6 +51,16 @@
      wants a lighter centerpiece can still set its own --agent-surface in its
      block. */
   --agent-surface: var(--bg-app);
+  /* Window-canvas layers — the surfaces that touch the window edge (body, the
+     shell root, the workspace sidebar, the right aside column) and the title
+     strip. Declared once as pass-throughs and resolved against each theme's
+     own values through the cascade, exactly like --agent-surface above. The
+     glass window material (data-window-material="glass", macOS vibrancy)
+     overrides ONLY these to transparent so the OS frost shows through the
+     chrome while every other --bg-app consumer stays opaque. Panels inside
+     the workspace card must never paint these tokens. */
+  --bg-canvas: var(--bg-app);
+  --bg-title-strip: var(--bg-surface);
   /* Hover target for inverted high-contrast buttons (bg = --text-strong). On
      dark the button is near-white so hover intensifies toward pure white; the
      light theme flips this to near-black (see below) so the button's light
@@ -2772,17 +2782,19 @@ samp,
   }
 }
 
-/* SPIKE (liquid-glass window material) — active only when the main process
- * injects data-window-material="glass" (MULTICODE_GLASS=1, macOS, dev flag).
- * The OS-composited frost shows through the --bg-app canvas: every canvas
- * layer goes transparent and the theme tint is painted exactly once, on body.
- * Translucent layers must NOT stack (body + shell root + sidebar all paint
- * --bg-app; compounded alpha would erase the frost). Tint below is hand-tuned
- * for sage (#20241c at 52%); production would derive it per theme via
- * color-mix over a dedicated canvas token instead of nulling --bg-app. */
+/* Glass window material (macOS vibrancy; data-window-material="glass" is
+ * stamped by the index.html boot script and useAppTheme). The OS composites
+ * the frost from the desktop behind the window, so this costs nothing per
+ * frame — it is NOT an exception to the backdrop-filter ban above, which is
+ * about blurring our own repainting content. The canvas layers go transparent
+ * and the active theme's tint is painted exactly once, on body: translucent
+ * layers must not stack (body + shell root + sidebar would compound alpha and
+ * erase the frost). color-mix derives the tint from each theme's own --bg-app,
+ * so glass works over every theme with no per-theme block. */
 :root[data-window-material="glass"] {
-  --bg-app: transparent;
+  --bg-canvas: transparent;
+  --bg-title-strip: transparent;
 }
 :root[data-window-material="glass"] body {
-  background-color: rgba(32, 36, 28, 0.52);
+  background-color: color-mix(in srgb, var(--bg-app) 52%, transparent);
 }
