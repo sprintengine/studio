@@ -140,10 +140,6 @@ async function main(): Promise<void> {
   testPickNextAutoRunsNeverReusesSpentIdForNewClaim()
   testPickNextAutoRunsReusesPlanningIdAcrossSequentialTasks()
   testPickNextAutoRunsDefersReworkToLiveBoundOwner()
-  testPickNextAutoRunsBirthsPhaseSessionOnBoundRuntime()
-  testPickNextAutoRunsSkipsAwaitingPhaseSessionAlreadyPending()
-  testPickNextAutoRunsMintsDistinctIdsForTwoPhaseSessions()
-  testPickNextAutoRunsIgnoresAwaitingMarkerWhenOwnerStillBound()
   testNeedsInputHoldRetainsResumeState()
   testReconcileLaunchFlagsPreservesRetainedResumeShape()
   await testSpawnResumeBlockedForCrashedLiveFlags()
@@ -160,7 +156,6 @@ async function main(): Promise<void> {
   await testSuperviseRunnerCycleReengagesStalledLiveIdleAgentForReadyTask()
   await testRespawnsDeadTaskClaimantAfterRestart()
   await testRespawnSkipsLiveCappedNeedsInputAndCoolingClaimants()
-  await testRespawnCarriesStampedRuntimeOverride()
   testRevivesDepartedWorkerForOwnTask()
   testRevivesDepartedPlanningAgentForNewReadyTask()
   testLegacyLeftDeadAgentStatusCoercesToIdle()
@@ -178,120 +173,6 @@ async function main(): Promise<void> {
   await testHardCompletionGateEntersDormancyExactlyOnceViaHelper()
   await testHardCompletionGateIgnoresIncompleteRun()
   await testAutoRunPollerControllerArmsOnlyWhenNeededAndReArms()
-}
-
-async function testRespawnCarriesStampedRuntimeOverride(): Promise<void> {
-  // MC-1543 (F2): a phase-bound task stamps its owner's premium runtime at claim
-  // time. When that owner's terminal dies, the respawn pass must re-bind the SAME
-  // runtime rather than fall through to the cheaper role default. A task carrying
-  // no stamp (a plain run) must be unaffected.
-  const spawns: Array<{ sessionId: string; cli?: AgentCli; metadata?: { cliModel?: string } }> = []
-  installTestWindow({
-    terminalList: async () => [],
-    terminalStatus: async () => ({ processAlive: false }),
-    pathExists: async () => true,
-    memoryResolveRoot: async () => ({ ok: false, status: 'disabled', relativeRoot: null }),
-    terminalSpawn: async (
-      sessionId: string,
-      _cols: number,
-      _rows: number,
-      _cwd?: string,
-      _resume?: boolean,
-      _statePath?: string,
-      cli?: AgentCli,
-      _initialPrompt?: string,
-      _cliRuntimes?: unknown,
-      _shellOnly?: boolean,
-      metadata?: { cliModel?: string },
-    ) => {
-      spawns.push({ sessionId, cli, metadata })
-      return { ok: true, sessionId }
-    },
-    logDiagnostic: async (input) => input,
-  })
-
-  const supervisor = await loadSupervisor()
-  const workspace = workspaceFixture({
-    agents: { 'developer-1': sprintAgent('developer-1', 'Dev One', 'claude-code') },
-    sprintEngineAutoState: {
-      desiredMode: 'run_agents',
-      runtimeState: 'running',
-      cliPermissionPreset: 'default',
-      maxConcurrentAgents: 3,
-      deliveredAgentNotificationEventKeys: [],
-    },
-  })
-  // Role default is the cheap build model; the task under review is stamped with a
-  // premium review model (the bound phase runtime).
-  const premiumState = sprintEngineStateFixture({
-    roleRuntimes: { developer: { cli: 'claude-code', model: 'cheap-build-model' } } as SprintEngineState['roleRuntimes'],
-    tasks: [task({ id: 'T-review', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null, cli: 'claude-code', model: 'premium-review-model' })],
-    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-review' }) },
-  })
-  installWorkspaceStore({ ...workspace, sprintEngineState: premiumState })
-
-  const cliRuntimes = { codex: { command: 'codex', useWsl: false }, 'claude-code': { command: 'claude', useWsl: false } } as Record<AgentCli, { command: string; useWsl: boolean }>
-  const respawnPlan = (taskId: string): SprintEngineDispatchPlan => ({
-    ledgerDeletes: [],
-    skips: [],
-    pastes: [],
-    restarts: [],
-    respawns: [{
-      agentId: 'developer-1',
-      label: 'Dev One',
-      role: 'developer',
-      taskId,
-      key: `respawn:${taskId}`,
-      data: {},
-      diagnostic: { title: 'Reviving owner', message: '', details: '', taskId },
-    }],
-    diagnostics: [],
-    notificationDeliveries: [],
-    notificationResolutions: [],
-    retirements: [],
-  })
-  const spawnContext = (state: SprintEngineState) => ({
-    sprintEngineState: state,
-    cliRuntimes,
-    mcpSettings: emptyMcpSettings,
-    inFlightSpawns: mutableRef(new Set<string>()),
-  })
-
-  await supervisor.executeSprintEngineDispatchPlan(
-    workspace,
-    respawnPlan('T-review'),
-    { continuation: mutableRef(new Map()), dispatch: mutableRef(new Map()) },
-    spawnContext(premiumState),
-  )
-  assert.equal(spawns.length, 1, 'the dead owner is respawned for its stamped task')
-  assert.equal(spawns[0].cli, 'claude-code', 'respawn keeps the stamped CLI')
-  assert.equal(
-    spawns[0].metadata?.cliModel,
-    'premium-review-model',
-    'respawn carries the stamped premium runtime rather than downgrading to the cheap role default',
-  )
-
-  // A plain, unstamped task (no task.cli) must fall through to the role default —
-  // the override is conditional and never fires for ordinary runs.
-  spawns.length = 0
-  const plainState = sprintEngineStateFixture({
-    roleRuntimes: { developer: { cli: 'claude-code', model: 'cheap-build-model' } } as SprintEngineState['roleRuntimes'],
-    tasks: [task({ id: 'T-plain', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null })],
-    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-plain' }) },
-  })
-  installWorkspaceStore({ ...workspace, sprintEngineState: plainState })
-  await supervisor.executeSprintEngineDispatchPlan(
-    workspace,
-    respawnPlan('T-plain'),
-    { continuation: mutableRef(new Map()), dispatch: mutableRef(new Map()) },
-    spawnContext(plainState),
-  )
-  assert.equal(spawns.length, 1, 'the unstamped task is still respawned')
-  assert.equal(
-    spawns[0].metadata?.cliModel,
-    'cheap-build-model',
-    'an unstamped task keeps the role default runtime (override is a no-op for plain runs)',
-  )
 }
 
 function testAgentTerminalBackgroundPolicyDoesNotSelectOrCreateTabs(): void {
@@ -5723,107 +5604,6 @@ function testGetPendingAgentNotificationEventsFiltersDeliveredAndSent(): void {
     pending,
     ['EV-C'],
     'delivered, sent, mistyped, and untargeted events are filtered out'
-  )
-}
-
-function testPickNextAutoRunsBirthsPhaseSessionOnBoundRuntime(): void {
-  // MC-1543: a task released to `awaitingPhaseSession` (owner cleared, sitting at
-  // its review phase) must birth a FRESH task-scoped id on the phase's bound
-  // runtime — not the implementer's runtime — so the operator's stronger review
-  // model runs. The implementer (developer-1) stays on record.
-  const awaitingTask = task({
-    id: 'T-phase',
-    role: 'developer',
-    status: 'review',
-    boardColumn: 'review',
-    ownerAgentId: null,
-    lastImplementedByAgentId: 'developer-1',
-    awaitingPhaseSession: { phase: 'review', runtime: { cli: 'claude-code', model: 'claude-fable-5' } },
-  })
-  const state = sprintEngineStateFixture({
-    tasks: [awaitingTask],
-    sprintEngineAgents: {
-      'developer-1': runtimeAgent('developer', { lastOwnedTaskId: 'T-phase' }),
-    },
-  })
-  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
-  assert.equal(candidates.length, 1, 'one phase-session Birth candidate for the awaiting task')
-  const [birth] = candidates
-  assert.equal(birth.taskId, 'T-phase')
-  assert.equal(birth.role, 'developer')
-  assert.notEqual(birth.agentId, 'developer-1', 'a fresh id runs the phase, not the implementer')
-  assert.ok(birth.runtimeOverride, 'the Birth carries a runtime override')
-  assert.equal(birth.runtimeOverride?.cli, 'claude-code')
-  assert.equal(birth.runtimeOverride?.model, 'claude-fable-5')
-  assert.ok(
-    birth.startupPromptOverride && birth.startupPromptOverride.includes('sprintengine.task.claim'),
-    'the Birth prompt points the session at task.claim (pinned by task id) to claim its phase',
-  )
-  assert.ok(
-    birth.startupPromptOverride && birth.startupPromptOverride.includes('T-phase'),
-    'the Birth prompt names the specific task id so a cheap session cannot grab it',
-  )
-}
-
-function testPickNextAutoRunsSkipsAwaitingPhaseSessionAlreadyPending(): void {
-  // Idempotency: if a Birth session is already live for the task (a booting
-  // worker whose id the engine has not bound yet, carrying the task as its
-  // routing exemplar), the picker must not birth a second session for the
-  // same phase.
-  const awaitingTask = task({
-    id: 'T-phase',
-    role: 'developer',
-    status: 'review',
-    boardColumn: 'review',
-    ownerAgentId: null,
-    awaitingPhaseSession: { phase: 'review', runtime: { cli: 'claude-code', model: 'claude-fable-5' } },
-  })
-  const state = sprintEngineStateFixture({ tasks: [awaitingTask], sprintEngineAgents: {} })
-  const candidates = pickNextAutoRuns(
-    workspaceFixture(),
-    state,
-    pickInput({
-      unboundLiveWorkers: [{ agentId: 'developer-2', role: 'developer', taskId: 'T-phase' }],
-    }),
-  )
-  assert.equal(candidates.length, 0, 'no second Birth while one is already booting for the task')
-}
-
-function testPickNextAutoRunsMintsDistinctIdsForTwoPhaseSessions(): void {
-  // Two awaiting phase tasks of the same role in one pass must mint DISTINCT
-  // <role>-N ids — the allocator is seeded with each id it just minted.
-  const runtime = { cli: 'claude-code', model: 'claude-fable-5' }
-  const state = sprintEngineStateFixture({
-    tasks: [
-      task({ id: 'T-a', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null, awaitingPhaseSession: { phase: 'review', runtime } }),
-      task({ id: 'T-b', role: 'developer', status: 'review', boardColumn: 'review', ownerAgentId: null, awaitingPhaseSession: { phase: 'review', runtime } }),
-    ],
-    sprintEngineAgents: {},
-  })
-  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
-  assert.equal(candidates.length, 2, 'both awaiting tasks birth a session')
-  assert.notEqual(candidates[0].agentId, candidates[1].agentId, 'the two Births get distinct ids')
-}
-
-function testPickNextAutoRunsIgnoresAwaitingMarkerWhenOwnerStillBound(): void {
-  // A same-runtime binding never releases the task, so `awaitingPhaseSession` is
-  // absent and the owner stays bound: the picker treats it as an ordinary active
-  // task (wake the owner), not a Birth. Guards the cost invariant at the picker.
-  const ownedReview = task({
-    id: 'T-owned',
-    role: 'developer',
-    status: 'in_progress',
-    boardColumn: 'in_progress',
-    ownerAgentId: 'developer-1',
-  })
-  const state = sprintEngineStateFixture({
-    tasks: [ownedReview],
-    sprintEngineAgents: { 'developer-1': runtimeAgent('developer', { status: 'idle' }) },
-  })
-  const candidates = pickNextAutoRuns(workspaceFixture(), state, pickInput())
-  assert.ok(
-    candidates.every((c) => !c.runtimeOverride),
-    'no runtime override is emitted when no task is awaiting a phase session',
   )
 }
 

@@ -211,11 +211,9 @@ export async function runSprintEngineNewTeamCreation(
       // role set for plan.add_task/seating) covering the configured-but-not-
       // yet-seated roles under the lazy roster.
       enabledRoles: sprintEngineEnabledRoles(args.sprintEngineState.roleCounts),
-      // "Workflow steps" panel (MC-1543). The wizard already omits each value
-      // when it is at its default, so forward only the keys it actually set —
-      // a plain run stays byte-identical to today.
+      // The run's phase list. The wizard omits it when it is at its default, so
+      // forward it only when actually set — a plain run stays byte-identical.
       ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
-      ...(input.phaseRuntimes !== undefined ? { phaseRuntimes: input.phaseRuntimes } : {}),
     })
     if (!initResult.ok) {
       const wrapped = new SprintEngineNewTeamCreationError('init-failed')
@@ -283,10 +281,8 @@ export async function runSprintEnginePlanSourcedCreation(
       roleCliDefaults: input.roleCliDefaults,
       roleModelOverrides: input.roleModelOverrides ?? null,
       initialSpawnRoles: input.initialSpawnRoles ?? null,
-      // "Workflow steps" init keys — forwarded exactly like the new-team path
-      // so a plan-sourced launch honors the same panel choices.
+      // The run's phase list — forwarded exactly like the new-team path.
       ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
-      ...(input.phaseRuntimes !== undefined ? { phaseRuntimes: input.phaseRuntimes } : {}),
       workspaceWindowId: input.workspaceWindowId,
       useWorktrees: input.useWorktrees === true,
       sourceReference: input.sourceReference === true,

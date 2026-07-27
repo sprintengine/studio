@@ -92,22 +92,6 @@ DEFAULT_RUN_PHASES = ("review",)
 # default. Round-trips through run.yaml + projection like RUN_SOURCE_KEYS.
 RUN_PHASE_KEYS = ("defaultPhases",)
 
-# MC-1543 premium mode: per-phase runtime bindings, e.g.
-# `{"review": {"cli": "claude-code", "model": "fable"}}` — a stronger model reviews
-# each task's diff as a FRESH, diff-seeded session while cheap models do the
-# building. Absent key/phase => the phase runs in-session on the owner's runtime
-# (the MC-1542 default), and ZERO extra sessions are created.
-RUN_PHASE_RUNTIME_KEYS = ("phaseRuntimes",)
-
-
-def phase_runtime(state: dict[str, Any], phase: str) -> dict[str, Any]:
-    """The `{cli, model}` bound to `phase`, or `{}` when it runs in-session."""
-    runtimes = state.get("phaseRuntimes")
-    if not isinstance(runtimes, dict):
-        return {}
-    entry = runtimes.get(str(phase or "").strip())
-    return entry if isinstance(entry, dict) else {}
-
 
 # Task-scoped roster identity (no slot recycling): a worker roster id owns at
 # most one task for its whole lifetime. `per_task` is the only policy today; the
@@ -654,7 +638,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS:
         if key in state:
             run[key] = state[key]
     if configured_roles is not None:
@@ -904,7 +888,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     # one stays absent (its roster boundary then no-ops).
     if isinstance(run.get("configuredRoles"), list):
         state["configuredRoles"] = run["configuredRoles"]
-    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS:
         if key in run:
             state[key] = run[key]
     return state
@@ -1323,9 +1307,6 @@ def build_projection(
             # wizard's "Agents review their own work" toggle writes it; the board
             # and architect prompt read it. Absent = the engine default.
             **{key: run[key] for key in RUN_PHASE_KEYS if key in run},
-            # MC-1543: per-phase runtime bindings. The supervisor spawns the bound
-            # session, so the projection must carry them.
-            **{key: run[key] for key in RUN_PHASE_RUNTIME_KEYS if key in run},
         },
         "roster": roster,
         "workers": worker_views,

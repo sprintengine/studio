@@ -138,7 +138,6 @@ type SerializableSprintEngineStatePayload = {
   enabledRoles: string[]
   // `null` = absent (engine default applies); `[]` = an explicit no-review run.
   defaultPhases: string[] | null
-  phaseRuntimes: Record<string, { cli: string; model: string | null }> | null
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
 }
@@ -424,7 +423,6 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     roleRuntimes: resolveRoleRuntimes(payload?.roleRuntimes),
     enabledRoles: resolveEnabledRoles(payload?.enabledRoles),
     defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
-    phaseRuntimes: resolvePhaseRuntimes(payload?.phaseRuntimes),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
   }
@@ -454,25 +452,6 @@ function resolveInitRepos(input: SprintEngineStateInitializeInput['repos']): Arr
     if (id && root) repos.push({ id, root })
   }
   return repos
-}
-
-// Per-phase runtime bindings (MC-1543). An entry with no `cli` cannot spawn a
-// session, so it is dropped here rather than forwarded — the engine would reject it
-// anyway, and a half-honoured premium mode is worse than none. Returns `null` when
-// nothing survives, so the flag is omitted and zero extra sessions are created.
-function resolvePhaseRuntimes(
-  input: SprintEngineStateInitializeInput['phaseRuntimes'],
-): Record<string, { cli: string; model: string | null }> | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
-  const resolved: Record<string, { cli: string; model: string | null }> = {}
-  for (const [phase, binding] of Object.entries(input)) {
-    if (!phase.trim() || !binding || typeof binding !== 'object') continue
-    const cli = typeof binding.cli === 'string' ? binding.cli.trim() : ''
-    if (!cli) continue
-    const model = typeof binding.model === 'string' && binding.model.trim() ? binding.model.trim() : null
-    resolved[phase.trim()] = { cli, model }
-  }
-  return Object.keys(resolved).length > 0 ? resolved : null
 }
 
 // Keep only source entries with the non-empty string fields Python persists.
@@ -603,9 +582,6 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   // presence, not truthiness, unlike every other array flag above.
   if (payload.defaultPhases !== null) {
     args.push('--default-phases-json', JSON.stringify(payload.defaultPhases))
-  }
-  if (payload.phaseRuntimes) {
-    args.push('--phase-runtimes-json', JSON.stringify(payload.phaseRuntimes))
   }
   if (payload.source) {
     args.push('--source-json', JSON.stringify(payload.source))

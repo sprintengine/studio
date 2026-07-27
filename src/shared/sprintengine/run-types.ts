@@ -717,17 +717,9 @@ export type SprintEngineTask = {
   source?: SprintEngineTaskSource
   ownerAgentId: string | null
   /** Worker who last published an implementation pass. Retained after the task
-   *  leaves the worker's hands (a `review` phase, or a bound phase session) so
-   *  the owning worker stays visible while `ownerAgentId` is null. */
+   *  leaves the worker's hands (its `review` phase) so the owning worker stays
+   *  visible while `ownerAgentId` is null. */
   lastImplementedByAgentId?: string | null
-  /**
-   * MC-1543 premium review: set when a phase's bound runtime differs from the
-   * owner's, so the task is released (`ownerAgentId: null`) to await a fresh
-   * session on `runtime`. The supervisor Birth-path spawns that session; it
-   * claims the task through `task next` (`claim_phase_session`) without rewinding
-   * the status. Absent for every task in a run with no `phaseRuntimes`.
-   */
-  awaitingPhaseSession?: { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null
   /** CLI model that worked this task (e.g. `claude-fable-5`, `opus[1m]`),
    *  stamped at claim from the roster's per-role model selection. Retained
    *  through handoff for attribution and per-task usage metrics. Absent when
@@ -762,8 +754,7 @@ export type SprintEngineTask = {
   /**
    * The ordered post-implementation phases this task's owner walks after
    * `task.publish` produces a diff (MC-1542). Absent means "inherit the run's
-   * `defaultPhases`"; `[]` means publish routes straight to `done`. Use
-   * `resolveSprintEngineTaskPhases` rather than reading this directly.
+   * `defaultPhases`"; `[]` means publish routes straight to `done`.
    */
   phases?: SprintEngineTaskPhase[]
   /** Newest-first short list of recent comments (any type). */
@@ -856,19 +847,7 @@ export type SprintEngineState = {
    * the engine default, `['review']`.
    */
   defaultPhases?: SprintEngineTaskPhase[]
-  /**
-   * Per-phase runtime bindings (MC-1543, run.yaml `phaseRuntimes`,
-   * projection-owned). When a phase is bound to a runtime that differs from a
-   * task's own, that phase runs as a FRESH, diff-seeded session on the bound
-   * runtime — the operator explicitly paying for independent review. Absent means
-   * every phase runs in-session on the owner's runtime and no extra sessions exist.
-   */
-  phaseRuntimes?: Record<SprintEngineTaskPhase, SprintEngineAllowedRuntime>
 }
-
-// A pinned `{cli, model}` execution runtime (`model: null` = the CLI's own
-// default). Used by the per-phase runtime bindings and the sessions they spawn.
-export type SprintEngineAllowedRuntime = { cli: AgentCli; model: string | null }
 
 export type SprintEngineRoleRuntime = { model?: string | null; cli?: string | null }
 export type SprintEngineRoleRuntimes = Partial<Record<SprintEngineRoleId, SprintEngineRoleRuntime>>

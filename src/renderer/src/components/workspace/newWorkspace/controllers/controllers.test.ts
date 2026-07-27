@@ -442,7 +442,6 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
           roleRuntimes: input.roleRuntimes,
           enabledRoles: input.enabledRoles,
           defaultPhases: input.defaultPhases,
-          phaseRuntimes: input.phaseRuntimes,
         })
         return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
       },
@@ -450,10 +449,9 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
   )
   assert.equal(captured.length, 1)
   const init = captured[0]
-  // Workflow-panel keys are absent when the wizard passes no workflow input, so a
-  // plain run stays byte-identical to a pre-panel run (MC-1543).
+  // The phase key is absent when the wizard passes none, so a plain run stays
+  // byte-identical to a pre-panel run.
   assert.equal(init.defaultPhases, undefined, 'no defaultPhases when self-review stays on')
-  assert.equal(init.phaseRuntimes, undefined, 'no phaseRuntimes when the same agent reviews')
   assert.deepEqual(init.enabledRoles, ['architect', 'developer'], 'enabled roles derive from the roster')
   // roleRuntimes is built from the full role-cli-defaults map (unchanged
   // behavior): every role's cli/model, not just the enabled ones.
@@ -462,8 +460,8 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
   assert.deepEqual(roleRuntimes.developer, { model: 'gpt-5.5-codex', cli: 'codex' })
 }
 
-// The controller forwards the pre-computed workflow keys verbatim into the run
-// init, and forwards nothing when the wizard sets none.
+// The controller forwards the run's phase list verbatim into the run init, and
+// forwards nothing when the wizard sets none.
 async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
   const baseInput = {
     folderPath: '/p',
@@ -478,10 +476,7 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
     cliPermissionPreset: 'default' as const,
   }
   const captureInit = (bucket: Array<Record<string, unknown>>) => async (input: SprintEngineStateInitializeInput) => {
-    bucket.push({
-      defaultPhases: input.defaultPhases,
-      phaseRuntimes: input.phaseRuntimes,
-    })
+    bucket.push({ defaultPhases: input.defaultPhases })
     return { ok: true as const, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
   }
 
@@ -490,13 +485,11 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
     {
       ...baseInput,
       defaultPhases: [],
-      phaseRuntimes: { review: { cli: 'claude-code', model: 'claude-fable-5' } },
     },
     { pathExists: async () => false, initializeSprintEngineState: captureInit(populated) },
   )
   assert.equal(populated.length, 1)
   assert.deepEqual(populated[0].defaultPhases, [], 'defaultPhases forwarded')
-  assert.deepEqual(populated[0].phaseRuntimes, { review: { cli: 'claude-code', model: 'claude-fable-5' } }, 'phaseRuntimes forwarded')
 
   const omitted: Array<Record<string, unknown>> = []
   await runSprintEngineNewTeamCreation(
@@ -505,7 +498,6 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
   )
   assert.equal(omitted.length, 1)
   assert.equal(omitted[0].defaultPhases, undefined, 'no defaultPhases key when the wizard sets none')
-  assert.equal(omitted[0].phaseRuntimes, undefined, 'no phaseRuntimes key when the wizard sets none')
 }
 
 async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<void> {
@@ -893,15 +885,14 @@ async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt
 }
 
 // Regression (design-wizard-premium): the plan-sourced path used to DROP the
-// "Workflow steps" init keys entirely, and force-merged roles the operator
-// never staffed into configuredRoles. The contract now: the keys forward
-// exactly like the new-team path, and enabledRoles carries the architect plus
-// the staffed roles — nothing else.
+// run's phase key entirely, and force-merged roles the operator never staffed
+// into configuredRoles. The contract now: the key forwards exactly like the
+// new-team path, and enabledRoles carries the architect plus the staffed roles —
+// nothing else.
 async function testSprintEnginePlanSourcedWorkflowKeysFlowToInit(): Promise<void> {
   const initInputs: Array<{
     enabledRoles?: string[]
     defaultPhases?: string[]
-    phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   }> = []
   await runSprintEnginePlanSourcedCreation(
     {
@@ -920,7 +911,6 @@ async function testSprintEnginePlanSourcedWorkflowKeysFlowToInit(): Promise<void
       autoApproveArtifacts: false,
       cliPermissionPreset: 'default',
       defaultPhases: [],
-      phaseRuntimes: { review: { cli: 'claude-code', model: 'opus[1m]' } },
     },
     {
       pathExists: async (path) => path === '/p/backlog/workflow-plan.md',
@@ -928,7 +918,6 @@ async function testSprintEnginePlanSourcedWorkflowKeysFlowToInit(): Promise<void
         initInputs.push({
           enabledRoles: input.enabledRoles,
           defaultPhases: input.defaultPhases,
-          phaseRuntimes: input.phaseRuntimes,
         })
         return { ok: true, data: {} }
       },
@@ -942,11 +931,6 @@ async function testSprintEnginePlanSourcedWorkflowKeysFlowToInit(): Promise<void
     'configuredRoles = architect + the staffed roles only',
   )
   assert.deepEqual(initInputs[0].defaultPhases, [], 'defaultPhases forwarded on the plan-sourced path')
-  assert.deepEqual(
-    initInputs[0].phaseRuntimes,
-    { review: { cli: 'claude-code', model: 'opus[1m]' } },
-    'phaseRuntimes forwarded on the plan-sourced path',
-  )
 }
 
 async function testSprintEnginePlanSourcedSkipsNonBacklogLink(): Promise<void> {

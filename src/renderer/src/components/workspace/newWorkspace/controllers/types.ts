@@ -118,11 +118,10 @@ export type SprintEngineNewTeamInput = {
   repos?: Array<{ id: string; root: string }>
   cliPermissionPreset: SprintEngineCliPermissionPreset
   workspaceWindowId?: WorkspaceWindowId | null
-  // MC-1543 "Workflow steps" panel. Each is pre-computed by the wizard and
-  // forwarded verbatim into the run init; each is present ONLY when it diverges
-  // from the engine default, so a plain run sends none of them.
+  // The run's post-implementation phase list, forwarded verbatim into the run
+  // init and present ONLY when it diverges from the engine default, so a plain
+  // run sends nothing.
   defaultPhases?: string[]
-  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
 }
 
 export type SprintEngineNewTeamPorts = {
@@ -155,11 +154,10 @@ export type SprintEnginePlanSourcedInput = {
   // "Also works in" field is withheld for those paths. Such a run brings another
   // project in through `sprintengine.vcs.request_repo` when an agent finds it needs
   // one.
-  // "Workflow steps" run-init keys (MC-1543), same contract as
-  // SprintEngineNewTeamInput: forwarded verbatim, each present ONLY when it
-  // diverges from the engine default.
+  // The run's post-implementation phase list, same contract as
+  // SprintEngineNewTeamInput: forwarded verbatim, present ONLY when it diverges
+  // from the engine default.
   defaultPhases?: string[]
-  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   // Record file-backed sources as project-root-relative references (no copy).
   sourceReference?: boolean
   // For an epic launch: the project-root-relative paths of the epic's child items,
