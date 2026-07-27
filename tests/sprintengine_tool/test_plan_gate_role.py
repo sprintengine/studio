@@ -161,6 +161,56 @@ def test_general_self_approves_its_plan_gate(tmp_path) -> None:
     assert get_artifact(final_state, "A1")["approvedBy"] == "general-1"
 
 
+def test_the_plan_gate_holds_the_run_until_the_user_approves_the_plan(tmp_path) -> None:
+    """End to end: no worker starts until the user approves `plan.md`.
+
+    MC-1828 deleted the plan-review-FILE flow (`plan start-review` /
+    `review-status` / `address-reviews`), leaving this as the ONLY plan review:
+    the user reads the plan artifact and approves its gate task. Nothing else
+    asserted that the gate actually BLOCKS implementation, so the walk is pinned
+    here: gate roots the graph, the claim is refused while it is open, ready
+    parks it on the human, approval completes it, and only then does work claim.
+    """
+    fixture = create_team(tmp_path, "plan-gate-e2e", [])
+    seeded = seed_plan_gate(fixture, "architect", "developer")
+    gate = find_architect_plan_gate(seeded, fixture.state_path)
+    assert gate["task"]["id"] == "T0" and gate["artifact"]["id"] == "A1"
+
+    # Every dependency-free planned card roots on the gate.
+    added = fixture.cli.run(
+        "plan", "add-task",
+        "--title", "Implement it", "--role", "developer",
+        "--description", "Build the thing.", "--acceptance", "It works.",
+    )
+    implementation_id = added["task"]["id"]
+    assert added["task"]["dependsOn"] == ["T0"]
+
+    # Blocked: an unapproved plan means the developer has nothing to claim.
+    blocked = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert blocked["claimed"] is False
+
+    # The architect writes and readies the plan; the gate parks on the human.
+    (fixture.team_dir / "plan.md").write_text("# Architect Plan\n", encoding="utf-8")
+    start_plan_task(fixture, read_state(fixture.state_path), "architect-1")
+    fixture.cli.run("artifact", "ready", "--artifact-id", "A1", "--id", "architect-1")
+    readied_state = read_state(fixture.state_path)
+    assert get_artifact(readied_state, "A1")["status"] == "ready_for_review"
+    assert get_task(readied_state, "T0")["status"] == "needs_input"
+    assert get_task(readied_state, "T0")["needsInput"]["reason"] == "artifact_review"
+
+    # The user approves the plan. That single approval completes the gate.
+    approved = fixture.cli.run("artifact", "approve", "--artifact-id", "A1", "--id", "user")
+    assert approved["taskCompleted"] is True
+    approved_state = read_state(fixture.state_path)
+    assert get_artifact(approved_state, "A1")["status"] == "approved"
+    assert get_task(approved_state, "T0")["status"] == "done"
+
+    # Only now is the implementation card claimable.
+    claimed = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-1")
+    assert claimed["claimed"] is True
+    assert claimed["task"]["id"] == implementation_id
+
+
 # --- no artifact stays `draft` while its task is `done` -----------------------
 
 

@@ -1,7 +1,6 @@
 """Plan, source bundle, approval gate, and summary helpers."""
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,20 +9,8 @@ from sprintengine_core.tool.artifacts import *  # noqa: F403,F401
 from sprintengine_core.tool.common import path_is_relative_to, unique_strings
 from sprintengine_core.tool.constants import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import MULTICODE_DIR_NAME, SPRINTENGINE_DIR_NAME, now_iso
-from sprintengine_core.tool.prompts import compose_prompt, load_soul_prompt
-from sprintengine_core.tool.roles import plan_review_role_ids
 from sprintengine_core.tool.state import *  # noqa: F403,F401
 from sprintengine_core.tool.tasks import *  # noqa: F403,F401
-
-PLAN_REVIEW_FOCUS = {
-    "product": "scope fit, user value, prioritization, adoption risk, and missing requirements",
-    "developer": "implementation sequence, integration risk, data flow, backend/API impact, and owned paths",
-    "frontend": "interaction design, UI architecture, accessibility, responsive behavior, and user workflow",
-    "ui_ux_reviewer": "rendered frontend UX/UI quality, brand alignment, panel consistency, responsive behavior, visual artifacts, and current mockup fidelity",
-    "tester": "test strategy, acceptance criteria, regression coverage, edge cases, and release confidence",
-    "security": "trust boundaries, command safety, secrets, permissions, abuse cases, and hardening",
-    "performance": "latency, CPU, memory, bundle/runtime resource use, measurement quality, and likely bottlenecks",
-}
 
 SOURCE_KIND_LABELS = {
     "product_plan": "Product plan",
@@ -584,9 +571,6 @@ def plan_prompt_path(state_path: Path) -> str:
         return f"{MULTICODE_DIR_NAME}/{SPRINTENGINE_DIR_NAME}/{team_dir.name}/plan.md"
     return "plan.md"
 
-def plan_reviews_dir_for_state(state_path: Path) -> Path:
-    return state_path.parent / "plan-reviews"
-
 def default_swarm_name_for_state(state_path: Path) -> str:
     team_dir_name = state_path.parent.name
     return "Sprint Engine Team" if team_dir_name == "sprintengine" else team_dir_name
@@ -600,10 +584,6 @@ def handover_path_for_state(state_path: Path) -> Path:
 
 def sources_dir_for_state(state_path: Path) -> Path:
     return state_path.parent / "sources"
-
-def safe_review_filename(agent_id: str) -> str:
-    name = re.sub(r"[^A-Za-z0-9._-]+", "-", agent_id.strip()).strip(".-")
-    return f"{name or 'agent'}.md"
 
 def safe_source_filename(path: Path, used: set[str]) -> str:
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", path.name.strip()).strip(".-") or "source"
@@ -626,229 +606,6 @@ def parse_source_bundle_arg(value: str) -> Dict[str, str]:
     if kind not in VALID_SOURCE_BUNDLE_KINDS:
         raise SystemExit(f"--source kind must be one of: {', '.join(sorted(VALID_SOURCE_BUNDLE_KINDS))}.")
     return {"kind": kind, "path": raw_path}
-
-def plan_fingerprint(plan_path: Path) -> str:
-    if not plan_path.exists():
-        raise SystemExit(f"Plan file not found: {plan_path}")
-    return hashlib.sha256(plan_path.read_bytes()).hexdigest()
-
-def expected_plan_reviewers(state: Dict[str, Any]) -> List[Dict[str, str]]:
-    """The roles expected to review the plan: configuredRoles minus the planner.
-
-    Post-lease the run is a pool with no per-agent seats, so plan review is
-    per-ROLE: one expected reviewer per enabled role except the one that wrote
-    the plan. `id` mirrors `role` (the reviewer's identity under a pool). A
-    legacy run with no configuredRoles yields no expected reviewers.
-    """
-    review_roles = plan_review_role_ids(planning_role=resolve_planning_role(state))
-    configured = configured_role_set(state) or set()
-    roles = sorted(role for role in configured if role in review_roles)
-    return [{"id": role, "role": role} for role in roles]
-
-def parse_review_metadata(path: Path) -> Dict[str, Any]:
-    try:
-        content = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        content = path.read_text(encoding="utf-8", errors="replace")
-    fingerprint_match = re.search(r"(?im)^Plan fingerprint:\s*([A-Fa-f0-9]{64})\s*$", content)
-    verdict_match = re.search(r"(?im)^Verdict:\s*([^\n]+)\s*$", content)
-    role_match = re.search(r"(?im)^Role:\s*([A-Za-z0-9_-]+)\s*$", content)
-    agent_match = re.search(r"(?im)^Agent:\s*([A-Za-z0-9._-]+)\s*$", content)
-    return {
-        "path": str(path),
-        "filename": path.name,
-        "agentId": agent_match.group(1).strip() if agent_match else path.stem,
-        "role": role_match.group(1).strip() if role_match else None,
-        "planFingerprint": fingerprint_match.group(1).lower() if fingerprint_match else None,
-        "verdict": verdict_match.group(1).strip() if verdict_match else "unknown",
-        "content": content,
-    }
-
-def build_plan_review_status(state: Dict[str, Any], state_path: Path) -> Dict[str, Any]:
-    plan_path = plan_path_for_state(state_path)
-    reviews_dir = plan_reviews_dir_for_state(state_path)
-    current_fingerprint = plan_fingerprint(plan_path)
-    expected = expected_plan_reviewers(state)
-    expected_roles = {reviewer["role"] for reviewer in expected}
-    files = sorted(reviews_dir.glob("*.md")) if reviews_dir.exists() else []
-    reviews = []
-
-    for path in files:
-        metadata = parse_review_metadata(path)
-        metadata["path"] = project_relative_display_path(state_path, path)
-        metadata["stale"] = metadata.get("planFingerprint") != current_fingerprint
-        # Plan review is per-role under the pool model: a review counts when its
-        # role is an expected reviewer role, regardless of which worker id wrote it.
-        metadata["expected"] = metadata.get("role") in expected_roles
-        metadata.pop("content", None)
-        reviews.append(metadata)
-
-    reviewed_roles = {review.get("role") for review in reviews}
-    missing = [reviewer for reviewer in expected if reviewer["role"] not in reviewed_roles]
-    stale = [review for review in reviews if review.get("stale")]
-    unexpected = [review for review in reviews if not review.get("expected")]
-    completed = [
-        review for review in reviews
-        if not review.get("stale") and str(review.get("verdict", "")).lower() in {"approve", "needs_changes", "blocked"}
-    ]
-
-    return {
-        "planPath": project_relative_display_path(state_path, plan_path),
-        "reviewsDirectory": project_relative_display_path(state_path, reviews_dir),
-        "planFingerprint": current_fingerprint,
-        "expectedReviewers": expected,
-        "reviews": reviews,
-        "missingReviewers": missing,
-        "staleReviews": stale,
-        "unexpectedReviews": unexpected,
-        "counts": {
-            "expected": len(expected),
-            "completed": len(completed),
-            "missing": len(missing),
-            "stale": len(stale),
-            "unexpected": len(unexpected),
-        },
-    }
-
-def build_plan_review_template(agent_id: str, role: str, plan_path: Path, fingerprint: str) -> str:
-    role_label = role.replace("-", " ").title()
-    return "\n".join([
-        f"# Plan Review: {role_label}",
-        "",
-        f"Agent: {agent_id}",
-        f"Role: {role}",
-        f"Plan: {plan_path.name}",
-        f"Plan fingerprint: {fingerprint}",
-        "Verdict: pending",
-        "",
-        "## Summary",
-        "",
-        "## Blocking Issues",
-        "",
-        "## Recommended Changes",
-        "",
-        "## Task Graph Feedback",
-        "",
-        "## Missing Acceptance Criteria",
-        "",
-        "## Risks",
-        "",
-        "## Questions For Architect",
-        "",
-    ])
-
-def build_plan_review_prompt(
-    agent_id: str,
-    role: str,
-    state_path: Path,
-    plan_path: Path,
-    review_path: Path,
-    fingerprint: str,
-    existing_review: bool,
-    *,
-    backlog_sourced: bool = True,
-) -> str:
-    action = "Replace your existing review" if existing_review else "Write your review"
-    plan_display_path = project_relative_display_path(state_path, plan_path)
-    review_display_path = project_relative_display_path(state_path, review_path)
-    review_prompt = "\n".join([
-        f"You are the {role} specialist reviewing the architect's Sprint Engine plan.",
-        "",
-        "Do not claim tasks, do not implement, and do not edit Sprint Engine run-store files.",
-        "",
-        f"Plan file: {plan_display_path}",
-        f"Your review file: {review_display_path}",
-        f"Current plan fingerprint: {fingerprint}",
-        f"Review focus: {PLAN_REVIEW_FOCUS.get(role, 'specialist risks, gaps, and execution quality')}.",
-        "",
-        "Steps:",
-        "1. Read the full architect plan.",
-        "2. Inspect the repository only as needed to validate the plan from your specialty.",
-        "3. Evaluate whether the task graph, owned paths, dependencies, and acceptance criteria are sufficient.",
-        "4. Treat production integration as a plan requirement: flag any task that allows sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification to satisfy product acceptance.",
-        f"5. {action} at the exact project-relative review file path above.",
-        "6. Set `Verdict:` to one of: approve, needs_changes, blocked.",
-        "7. Keep feedback concrete and actionable for the architect.",
-        "",
-        "Required markdown sections:",
-        "- Summary",
-        "- Blocking Issues",
-        "- Recommended Changes",
-        "- Task Graph Feedback",
-        "- Missing Acceptance Criteria",
-        "- Risks",
-        "- Questions For Architect",
-        "",
-        "Do not update the task board. The architect will address feedback with `Sprint Engine plan address-reviews`.",
-    ])
-    return compose_prompt(
-        "# Sprint Engine Plan Review Rules",
-        review_prompt,
-        load_soul_prompt(role, backlog_sourced=backlog_sourced),
-        (
-            "Use the Soul prompt above for review perspective and quality bar. The plan review "
-            "rules below override it for sprintengine mechanics: do not claim tasks, do not implement, do not "
-            "edit state files, write only the assigned review file, and keep feedback concrete for the architect."
-        ),
-    )
-
-def build_address_reviews_prompt(
-    state: Dict[str, Any],
-    state_path: Path,
-    status: Dict[str, Any],
-    reviews: List[Dict[str, Any]],
-) -> str:
-    # Reviews are referenced by path, not inlined: the architect has file
-    # tools, and inlining every plan-review file would put unbounded review
-    # prose into the response.
-    plan_path = plan_path_for_state(state_path)
-    plan_display_path = project_relative_display_path(state_path, plan_path)
-    review_lines = [
-        f"- {review['path']} (reviewer: {review.get('agentId') or 'unknown'}, role: {review.get('role') or 'unknown'}, verdict: {review.get('verdict') or 'unknown'})"
-        for review in reviews
-    ]
-
-    warnings = []
-    if status["missingReviewers"]:
-        missing = ", ".join(f"{r['id']} ({r['role']})" for r in status["missingReviewers"])
-        warnings.append(f"- Missing expected reviews: {missing}")
-    if status["staleReviews"]:
-        stale = ", ".join(str(r["path"]) for r in status["staleReviews"])
-        warnings.append(f"- Stale reviews whose fingerprint does not match the current plan: {stale}")
-    if status["unexpectedReviews"]:
-        unexpected = ", ".join(str(r["path"]) for r in status["unexpectedReviews"])
-        warnings.append(f"- Unexpected review files: {unexpected}")
-    warning_block = "\n".join(warnings) if warnings else "- No missing, stale, or unexpected review files detected."
-
-    return "\n".join([
-        "You are the sprintengine architect addressing specialist plan reviews.",
-        "",
-        "Do not implement. Do not hand-edit Sprint Engine run-store files. Your job is to revise the plan and task graph.",
-        "",
-        f"Plan file: {plan_display_path}",
-        f"Plan fingerprint: {status['planFingerprint']}",
-        "",
-        "Review status:",
-        warning_block,
-        "",
-        "Steps:",
-        f"1. Read the current plan ({plan_display_path}) and every specialist review file listed below.",
-        "2. Decide which feedback to accept, adapt, or reject.",
-        "3. Repair any plan or task acceptance criteria that would let sample data, fake responses, mocked transports, stubbed commands, placeholder persistence, disconnected UI state, or documentation-only verification count as completion.",
-        "4. Update the exact plan file shown above when the human-readable plan needs changes; do not search for or edit another plan.md.",
-        "5. Update the task graph only with Sprint Engine plan commands:",
-        "   - Sprint Engine plan update-task",
-        "   - Sprint Engine plan add-task",
-        "   - Sprint Engine plan delete-task",
-        "   - Sprint Engine plan add-dependency",
-        "   - Sprint Engine plan remove-dependency",
-        "6. Do not start implementation work.",
-        "7. When done, tell the user which review items were accepted, adapted, or rejected.",
-        "",
-        "# Specialist Review Files",
-        "",
-        "\n".join(review_lines).rstrip() or "(No plan review files found.)",
-    ])
 
 def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     tasks = state.get("tasks", [])

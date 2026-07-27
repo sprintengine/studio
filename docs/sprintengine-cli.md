@@ -329,7 +329,7 @@ Current command groups:
 The folder store lives under `.multi-code/sprintengine/<team>/` and contains
 `run.yaml`, `events.jsonl`, `projection.json`, status folders under `tasks/`,
 status folders under `artifacts/`, `metrics/agent-feedback.jsonl`, and support
-folders such as `runner/`, `reviews/`, `validation/`, and `plan-reviews/`.
+folders such as `runner/`, `reviews/`, and `validation/`.
 
 The projection command is the stable read API:
 

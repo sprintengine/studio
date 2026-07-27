@@ -101,9 +101,7 @@ import {
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { MULTICODE_DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { findFirstUncoveredSprintEngineRole } from '../../utils/sprintengineRoleOptions'
-import {
- buildSprintEnginePlanRevisionForNewMemberPrompt,
-} from '../../utils/sprintenginePlanReviewPrompts'
+import { buildSprintEnginePlanRevisionForNewMemberPrompt } from '../../utils/sprintengineAgentPrompts'
 import {
  buildSprintEngineStartupPrompt,
  getSprintEngineStartupCommandMode,
@@ -1227,7 +1225,6 @@ export function SprintRunBoard({
  return [{ role, task, agent }]
  })
  const roleTaskLaunchSet = new Set<SprintEngineRoleId>(roleTaskLaunches.map(({ role }) => role))
- const specialistReviewAgents = roster.filter((agent) => agent.role !== 'architect')
  // Installed agent CLI catalog (bundled + user plugins), replacing the old
  // hardcoded Codex/Claude pair so user-installed CLIs are spawnable here too.
  const cliOptions = useMemo(() => {
@@ -1433,7 +1430,6 @@ export function SprintRunBoard({
  </div>
  </div>
  ) : null
- const showPlanningActions = !hasPlannedTasks
  const needsInputAgent = runtimeAgents.find((agent) => agent.status === 'needs_input')
  const runningAgent = runtimeAgents.find((agent) => agent.status === 'running')
  const focusAgent = needsInputAgent ?? runningAgent
@@ -2005,8 +2001,6 @@ export function SprintRunBoard({
  willResumeAgent,
  openRecoveryDialog,
  confirmRecoveryAudit,
- requestPlanReviews,
- addressPlanReviews,
  } = useSprintEngineBoardTerminalActions({
  workspaceId,
  workspace,
@@ -2015,7 +2009,6 @@ export function SprintRunBoard({
  pluginCatalogEntries,
  rosterById,
  architectAgentId,
- specialistReviewAgents,
  savedFolderPath,
  folderPath,
  folderStatusMessage,
@@ -2321,22 +2314,6 @@ export function SprintRunBoard({
  onSelect: openAddMemberDialog,
  disabled: !canMutateRunRoster || addMemberDialogOptions.length === 0,
  })
- if (showPlanningActions) {
- items.push({
- id: 'request-plan-reviews',
- label: 'Request plan reviews',
- onSelect: requestPlanReviews,
- disabled: !folderPath || specialistReviewAgents.length === 0,
- })
- if (architectAgentId) {
- items.push({
- id: 'address-feedback',
- label: 'Address feedback',
- onSelect: addressPlanReviews,
- disabled: !folderPath,
- })
- }
- }
  items.push({ kind: 'separator', id: 'sep-2' })
  items.push({
  id: 'read-plan',
@@ -2422,12 +2399,6 @@ export function SprintRunBoard({
  break
  case 'sprintengine.add.role':
  if (canMutateRunRoster) openAddMemberDialog()
- break
- case 'sprintengine.request.plan-reviews':
- requestPlanReviews()
- break
- case 'sprintengine.address.feedback':
- addressPlanReviews()
  break
  case 'sprintengine.read.plan':
  if (hasResidentWorkspace) {

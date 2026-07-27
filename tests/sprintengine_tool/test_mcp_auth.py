@@ -71,7 +71,6 @@ def test_mcp_call_requires_authenticated_mcp_authorized_actor(tmp_path) -> None:
         ("sprintengine.artifact.list", {}),
         ("sprintengine.plan.list", {}),
         ("sprintengine.plan.read", {}),
-        ("sprintengine.plan.review_status", {}),
         ("sprintengine.feedback.summarize", {}),
         ("sprintengine.feedback.recommend_actions", {}),
         ("sprintengine.health", {}),

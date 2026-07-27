@@ -235,15 +235,6 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     showWhen: [{ kind: 'workspace-mode', value: 'sprintengine' }],
   },
   {
-    id: 'sprintengine.plan-review-folder',
-    title: 'Keep plan reviews with the run',
-    summary: 'Sprint Engine reads plan review artifacts from the run store.',
-    body: 'Use the Request plan reviews and Address feedback actions instead of loose terminal notes. Reviews live under the run plan-review area so later agents and reviewers can find the accepted decision trail.',
-    category: 'sprintengine',
-    difficulty: 'intermediate',
-    showWhen: [{ kind: 'workspace-mode', value: 'sprintengine' }],
-  },
-  {
     id: 'switchboard.import-external-issues',
     title: 'Import GitHub or Jira issues through Watchtower',
     summary: 'External issues enter the same inbox triage flow as review findings.',

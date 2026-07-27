@@ -13,11 +13,7 @@ import { resumeCapabilitiesForCli } from '../../../store/slices/pluginsSlice'
 import { getSprintEngineRoleLabel, willResumeRecordedRosterSession, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
-import {
-  buildSprintEngineAddressPlanReviewsPrompt,
-  buildSprintEnginePlanReviewStartupPrompt,
-  buildSprintEngineRecoveryAuditPrompt,
-} from '../../../utils/sprintenginePlanReviewPrompts'
+import { buildSprintEngineRecoveryAuditPrompt } from '../../../utils/sprintengineAgentPrompts'
 
 type RecoveryDialogState = {
   cli: AgentCli
@@ -54,7 +50,6 @@ export type SprintEngineBoardTerminalActionsInput = {
   pluginCatalogEntries: readonly PluginCatalogEntry[]
   rosterById: Record<string, SprintEngineAgentRosterItem | undefined>
   architectAgentId: string | null
-  specialistReviewAgents: SprintEngineAgentRosterItem[]
   savedFolderPath: string | null
   folderPath: string | null
   folderStatusMessage: string | null
@@ -105,8 +100,6 @@ export type SprintEngineBoardTerminalActions = {
   willResumeAgent: (agentId: string) => boolean
   openRecoveryDialog: () => void
   confirmRecoveryAudit: () => Promise<void>
-  requestPlanReviews: () => void
-  addressPlanReviews: () => void
 }
 
 export function useSprintEngineBoardTerminalActions(
@@ -120,7 +113,6 @@ export function useSprintEngineBoardTerminalActions(
     pluginCatalogEntries,
     rosterById,
     architectAgentId,
-    specialistReviewAgents,
     savedFolderPath,
     folderPath,
     folderStatusMessage,
@@ -452,34 +444,6 @@ export function useSprintEngineBoardTerminalActions(
     setRecoveryDialog(null)
   }
 
-  const requestPlanReviews: SprintEngineBoardTerminalActions['requestPlanReviews'] = () => {
-    if (!folderPath || specialistReviewAgents.length === 0) return
-
-    specialistReviewAgents.forEach((agent) => {
-      const label = getAgentName(agent.id, agent.label)
-      void startAgentTerminalWhenReady(agent.id, label, agents[agent.id]?.cli, {
-        freshSession: true,
-        agentName: getCustomAgentName(agent.id, agent.label),
-        startupPrompt: buildSprintEnginePlanReviewStartupPrompt(agent.role, agent.id),
-      })
-    })
-
-    setSelectedAgentId(specialistReviewAgents.at(-1)?.id ?? null)
-  }
-
-  const addressPlanReviews: SprintEngineBoardTerminalActions['addressPlanReviews'] = () => {
-    if (!folderPath || !architectAgentId) return
-    const fallbackLabel = rosterById[architectAgentId]?.label ?? 'Architect'
-    const label = getAgentName(architectAgentId, fallbackLabel)
-
-    void startAgentTerminalWhenReady(architectAgentId, label, agents[architectAgentId]?.cli, {
-      freshSession: true,
-      agentName: getCustomAgentName(architectAgentId, fallbackLabel),
-      startupPrompt: buildSprintEngineAddressPlanReviewsPrompt(),
-    })
-    setSelectedAgentId(architectAgentId)
-  }
-
   return {
     startAgentTerminal,
     startAgentTerminalWhenReady,
@@ -491,7 +455,5 @@ export function useSprintEngineBoardTerminalActions(
     willResumeAgent,
     openRecoveryDialog,
     confirmRecoveryAudit,
-    requestPlanReviews,
-    addressPlanReviews,
   }
 }

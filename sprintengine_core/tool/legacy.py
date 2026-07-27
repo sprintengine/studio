@@ -225,9 +225,6 @@ Plan commands (architect only):
   sprintengine plan add-dependency --task-id T2 --depends-on T1
   sprintengine plan remove-dependency --task-id T2 --depends-on T1
   sprintengine plan delete-task --task-id T3 --unlink-dependents
-  sprintengine plan start-review --role frontend --id frontend
-  sprintengine plan review-status
-  sprintengine plan address-reviews --actor architect
   sprintengine plan list
 
 Artifact commands:
@@ -788,18 +785,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--depends-on", action="append", required=True)
     p.add_argument("--force", action="store_true", help="Allow editing an active or completed task.")
     p.set_defaults(handler=plan_commands.remove_dependency)
-
-    p = plan_sub.add_parser("start-review", help="Start a specialist review of the architect plan.")
-    p.add_argument("--role", required=True)
-    p.add_argument("--id", required=True, help="Stable agent id, e.g. frontend or developer-1.")
-    p.set_defaults(handler=plan_commands.start_review)
-
-    p = plan_sub.add_parser("review-status", help="Summarize specialist plan review files.")
-    p.set_defaults(handler=plan_commands.review_status)
-
-    p = plan_sub.add_parser("address-reviews", help="Start architect mode for addressing plan review feedback.")
-    p.add_argument("--actor", default="architect")
-    p.set_defaults(handler=plan_commands.address_reviews)
 
     p = plan_sub.add_parser("list", help="List planned tasks.")
     p.set_defaults(handler=plan_commands.list_tasks)

@@ -214,8 +214,6 @@ export default function CommandPalette({
     const sprintEngineCommands: UngroupedCommand[] = [
       { id: 'sprintengine.verify.progress', label: 'Sprint: Verify progress', run: runPanel('sprintengine.verify.progress') },
       { id: 'sprintengine.add.role', label: 'Sprint: More roles', run: runPanel('sprintengine.add.role') },
-      { id: 'sprintengine.request.plan-reviews', label: 'Sprint: Request plan reviews', run: runPanel('sprintengine.request.plan-reviews') },
-      { id: 'sprintengine.address.feedback', label: 'Sprint: Address feedback', run: runPanel('sprintengine.address.feedback') },
       { id: 'sprintengine.read.plan', label: 'Sprint: Read plan', run: runPanel('sprintengine.read.plan') },
       { id: 'sprintengine.focus.agent', label: 'Sprint: Focus active agent', run: runPanel('sprintengine.focus.agent') },
       { id: 'sprintengine.refresh.board', label: 'Sprint: Refresh board', run: runPanel('sprintengine.refresh.board') },

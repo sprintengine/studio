@@ -18,23 +18,6 @@ export function buildSprintEngineRecoveryAuditPrompt(): string {
   ].join('\n')
 }
 
-export function buildSprintEnginePlanReviewStartupPrompt(
-  role: SprintEngineRoleId,
-  agentId: string,
-): string {
-  return [
-    'Fetch the canonical plan review instructions from the Python tool.',
-    `Run \`Sprint Engine plan start-review --role ${role} --id ${agentId}\` now.`,
-  ].join('\n')
-}
-
-export function buildSprintEngineAddressPlanReviewsPrompt(): string {
-  return [
-    'Fetch the canonical plan review feedback instructions from the Python tool.',
-    'Run `Sprint Engine plan address-reviews --actor architect` now.',
-  ].join('\n')
-}
-
 export type SprintEngineRosterRevisionPromptInput = {
   role: SprintEngineRoleId
   agentId: string

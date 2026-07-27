@@ -34,7 +34,6 @@ Each team folder contains these store files and directories:
     approved/
     changes_requested/
     superseded/
-  plan-reviews/
   reviews/
   validation/
   runner/
@@ -346,8 +345,7 @@ Active operation names:
   `sprintengine.artifact.list`.
 - Plans: `sprintengine.plan.add_task`, `sprintengine.plan.update_task`,
   `sprintengine.plan.delete_task`, `sprintengine.plan.add_dependency`,
-  `sprintengine.plan.remove_dependency`, `sprintengine.plan.start_review`,
-  `sprintengine.plan.review_status`, `sprintengine.plan.address_reviews`.
+  `sprintengine.plan.remove_dependency`.
 - Run: `sprintengine.run.get`, `sprintengine.run.policy.get`,
   `sprintengine.run.subscribe`. The run projection is deliberately not an MCP
   tool: it exists for the UI, which reads `projection.json` from disk, and
@@ -585,7 +583,7 @@ paths into task records or evidence.
 
 ## Role Registry And Routing
 
-Task roles, roster roles, and plan-review roles are configured data. CLI role
+Task roles and roster roles are configured data. CLI role
 arguments are parsed as strings and then canonicalized through the role registry,
 including aliases and hyphen/underscore variants supported by the registry.
 Unknown roles are rejected at command boundaries once the registry can prove they

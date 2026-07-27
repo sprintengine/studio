@@ -168,38 +168,6 @@ def test_an_artifact_review_block_routes_to_the_general_planner(tmp_path) -> Non
     assert read_state(fixture.state_path)["configuredRoles"] == ["general"]
 
 
-def test_a_general_cannot_review_its_own_plan(tmp_path) -> None:
-    # The self-review guard follows the run's planning role: a general that planned
-    # the run may not sign off on that plan just by not being literally an architect.
-    fixture = general_run(tmp_path, "general-self-review")
-
-    failure = fixture.cli.run_failure("plan", "start-review", "--role", "general", "--id", "general")
-
-    assert failure.returncode != 0
-    assert "does not review its own Sprint Engine plan" in failure.stderr
-
-
-def test_a_non_planner_role_may_still_review_the_plan(tmp_path) -> None:
-    # The guard bars the AUTHOR, not everyone: on a run the general planned, a
-    # rostered specialist can still review that plan. Otherwise the guard would have
-    # closed plan review entirely instead of moving it off the architect's name.
-    fixture = create_team(tmp_path, "general-plan-reviewed", [])
-    state = read_state(fixture.state_path)
-    state["configuredRoles"] = ["general", "developer"]
-    state.setdefault("sprintengine", {})["rosterConfigured"] = True
-    state["agents"] = {
-        "general": {"role": "general", "status": "idle", "currentTaskId": None},
-        "developer-1": {"role": "developer", "status": "idle", "currentTaskId": None},
-    }
-    write_state(fixture.state_path, state)
-    (fixture.team_dir / "plan.md").write_text("# General Plan\n", encoding="utf-8")
-
-    reviewed = fixture.cli.run("plan", "start-review", "--role", "developer", "--id", "developer-1")
-
-    assert reviewed["ok"] is True
-    assert reviewed["role"] == "developer"
-
-
 def test_help_offers_triage_to_every_role_that_may_call_it(tmp_path) -> None:
     # Help filtered its triage line on `role == "architect"`, so the general — which
     # IS authorized for the tool and is the only agent able to clear its run's

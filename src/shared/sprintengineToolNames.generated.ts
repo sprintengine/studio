@@ -20,13 +20,10 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.join',
   'sprintengine.plan.add_dependency',
   'sprintengine.plan.add_task',
-  'sprintengine.plan.address_reviews',
   'sprintengine.plan.delete_task',
   'sprintengine.plan.list',
   'sprintengine.plan.read',
   'sprintengine.plan.remove_dependency',
-  'sprintengine.plan.review_status',
-  'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
   'sprintengine.recover',
   'sprintengine.roles.get',
@@ -849,24 +846,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
     }
   },
   {
-    "name": "sprintengine.plan.address_reviews",
-    "description": "plan address reviews",
-    "inputSchema": {
-      "type": "object",
-      "required": [],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "actor": {
-          "type": "string"
-        }
-      }
-    }
-  },
-  {
     "name": "sprintengine.plan.delete_task",
     "description": "plan delete task",
     "inputSchema": {
@@ -945,45 +924,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "dependsOn": {
           "type": "array"
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.plan.review_status",
-    "description": "plan review status",
-    "inputSchema": {
-      "type": "object",
-      "required": [],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.plan.start_review",
-    "description": "plan start review",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "role",
-        "id"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "role": {
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
         }
       }
     }
@@ -2456,10 +2396,8 @@ export const SPRINTENGINE_MUTATING_TOOL_NAMES = [
   'sprintengine.join',
   'sprintengine.plan.add_dependency',
   'sprintengine.plan.add_task',
-  'sprintengine.plan.address_reviews',
   'sprintengine.plan.delete_task',
   'sprintengine.plan.remove_dependency',
-  'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
   'sprintengine.recover',
   'sprintengine.task.advance',

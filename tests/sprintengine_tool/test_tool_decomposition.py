@@ -43,7 +43,6 @@ def test_command_modules_import_focused_helpers_without_legacy_dependency() -> N
 def test_required_helper_domains_are_rehomed_outside_legacy() -> None:
     assert phase_prompts.build_rework_prompt.__module__ == "sprintengine_core.tool.phase_prompts"
     assert phase_prompts.build_phase_directive.__module__ == "sprintengine_core.tool.phase_prompts"
-    assert plans.build_plan_review_prompt.__module__ == "sprintengine_core.tool.plans"
     assert plans.plan_path_for_state.__module__ == "sprintengine_core.tool.plans"
     assert plans.source_path_for_kind.__module__ == "sprintengine_core.tool.plans"
     assert artifacts.normalize_artifact_path.__module__ == "sprintengine_core.tool.artifacts"

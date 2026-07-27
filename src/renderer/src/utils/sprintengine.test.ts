@@ -66,11 +66,9 @@ import {
   sprintEngineRosterRoleFloor,
 } from './sprintengineRoleOptions'
 import {
-  buildSprintEngineAddressPlanReviewsPrompt,
-  buildSprintEnginePlanReviewStartupPrompt,
   buildSprintEnginePlanRevisionForNewMemberPrompt,
   buildSprintEngineRecoveryAuditPrompt,
-} from './sprintenginePlanReviewPrompts'
+} from './sprintengineAgentPrompts'
 import type { AgentCli, SprintEngineRoleId, SprintEngineRoleRegistry, SprintEngineRosterSession, SprintEngineState, SprintEngineTask } from '../types/workspace'
 
 function fakeProjection(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
@@ -1839,7 +1837,7 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
 }
 
 // ---------------------------------------------------------------------------
-// Sprint Engine plan review / spawn prompt builders (extracted utility)
+// Sprint Engine agent spawn prompt builders (extracted utility)
 // ---------------------------------------------------------------------------
 
 // Recovery prompt: points at the canonical CLI, no statePath/workspaceRoot.
@@ -1848,23 +1846,6 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
   assert.ok(prompt.includes('sprintengine recover'), 'recovery prompt names the CLI verb')
   assert.equal(prompt.includes('statePath'), false, 'recovery prompt must not include statePath')
   assert.equal(prompt.includes('workspaceRoot'), false, 'recovery prompt must not include workspaceRoot')
-}
-
-// Plan review prompt: role + agent id are interpolated, no routing fields.
-{
-  const prompt = buildSprintEnginePlanReviewStartupPrompt('frontend', 'frontend-1')
-  assert.ok(prompt.includes('--role frontend'), 'role flag present')
-  assert.ok(prompt.includes('--id frontend-1'), 'agent id flag present')
-  assert.equal(prompt.includes('statePath'), false)
-  assert.equal(prompt.includes('workspaceRoot'), false)
-}
-
-// Address-plan-reviews prompt: architect actor, no routing fields.
-{
-  const prompt = buildSprintEngineAddressPlanReviewsPrompt()
-  assert.ok(prompt.includes('--actor architect'), 'architect actor selected')
-  assert.equal(prompt.includes('statePath'), false)
-  assert.equal(prompt.includes('workspaceRoot'), false)
 }
 
 // Plan-revision prompt for a user-enabled role: bundled label and registry

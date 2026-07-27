@@ -92,22 +92,8 @@ def require_configured_role(role: str, *, context: str = "role", discovery: Regi
         raise SystemExit(f"{context} has unknown role {role!r}.{detail}") from exc
 
 
-def plan_review_role_ids(
-    discovery: RegistryDiscovery | None = None,
-    planning_role: str = "architect",
-) -> frozenset[str]:
-    """Roles that may review the plan: everyone except the role that WROTE it.
-
-    `planning_role` is the run's planner (`plans.resolve_planning_role`); it
-    defaults to `architect` for the registry-wide snapshot and for callers with no
-    run state. A general planning its own run is excluded the same way.
-    """
-    return configured_role_ids(discovery) - {planning_role}
-
-
 DEFAULT_ROLE_REGISTRY = RoleRegistry()
 # Import-compatible snapshot retained for older tests and callers. Active CLI,
 # MCP, roster, task, gate, join, and plan paths call require_configured_role()
 # so workspace registry roles are resolved at command time.
 VALID_ROLES = configured_role_ids()
-PLAN_REVIEW_ROLES = plan_review_role_ids()

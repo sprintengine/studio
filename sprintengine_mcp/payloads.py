@@ -168,10 +168,6 @@ def command_payload_to_namespace(
         base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], unlink_dependents=bool(payload.get("unlinkDependents", False)), force=bool(payload.get("force", False)))
     elif tool_name in {"sprintengine.plan.add_dependency", "sprintengine.plan.remove_dependency"}:
         base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], depends_on=list(payload.get("dependsOn") or []), force=bool(payload.get("force", False)))
-    elif tool_name == "sprintengine.plan.start_review":
-        base.update(role=payload["role"], id=payload["id"])
-    elif tool_name == "sprintengine.plan.address_reviews":
-        base["actor"] = payload.get("actor") or _actor_id(actor, "architect")
     elif tool_name == "sprintengine.plan.list":
         pass
     elif tool_name == "sprintengine.artifact.add":

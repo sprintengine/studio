@@ -1536,26 +1536,6 @@ def test_unknown_role_is_rejected_by_the_registry_not_argparse(tmp_path) -> None
     assert "invalid choice" not in rejected.stderr
 
 
-def test_plan_review_start_accepts_configured_non_architect_role(tmp_path) -> None:
-    fixture = create_workspace_team(tmp_path, "custom-plan-review-workspace", "custom-plan-review-role", [])
-    write_workspace_role(fixture.team_dir.parents[2], "release_editor", aliases=["release-editor"])
-    state = read_state(fixture.state_path)
-    state["sprintengine"]["rosterConfigured"] = True
-    # Membership is configuredRoles now (no agents map): the enabled reviewer roles
-    # ARE the expected reviewers, one per role, with `id` mirroring `role` under a
-    # pool.
-    state["configuredRoles"] = ["architect", "release_editor"]
-    write_state(fixture.state_path, state)
-    (fixture.team_dir / "plan.md").write_text("# Plan\n", encoding="utf-8")
-
-    payload = fixture.cli.run("plan", "start-review", "--role", "release-editor", "--id", "editor-1")
-
-    assert payload["role"] == "release_editor"
-    assert payload["knownReviewers"] == [{"id": "release_editor", "role": "release_editor"}]
-    assert "Review focus: specialist risks, gaps, and execution quality." in payload["prompt"]
-    assert (fixture.team_dir / "plan-reviews" / "editor-1.md").is_file()
-
-
 def test_task_next_returns_active_task_before_claiming_new_work(tmp_path) -> None:
     fixture = create_team(
         tmp_path,

@@ -51,7 +51,7 @@ ARTIFACT_STATUSES = (
 # DEFAULT_SPRINTENGINE_TASK_REPO in src/shared/sprintengine/run-types.ts; a contract
 # test pins all three.
 DEFAULT_TASK_REPO = "primary"
-SUPPORT_DIRS = ("metrics", "plan-reviews", "reviews", "validation", "runner")
+SUPPORT_DIRS = ("metrics", "reviews", "validation", "runner")
 RUN_FILE = "run.yaml"
 EVENTS_FILE = "events.jsonl"
 DISPATCH_FILE = "dispatch.jsonl"

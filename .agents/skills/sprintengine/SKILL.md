@@ -1,6 +1,6 @@
 ---
 name: sprintengine
-description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, projections, and plan reviews for projects that use named `.multi-code/sprintengine/<team>/` run stores and `plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
+description: Coordinate sprintengine task claiming, status updates, evidence publishing, artifact review gates, and projections for projects that use named `.multi-code/sprintengine/<team>/` run stores and `plan.md` files. Use when acting as a sprintengine architect or worker in this repo's sprintengine-mode workflow.
 ---
 
 Use the bundled coordination command instead of hand-editing Sprint Engine store files. This includes `run.yaml`, `projection.json`, task JSON files, artifact JSON files, `events.jsonl`, `metrics/agent-feedback.jsonl`, runner status files, and lock files under `.multi-code/sprintengine/<team>/`.
@@ -81,24 +81,15 @@ Architect workflow:
    - When starting from an imported implementation plan, first build a current-codebase index of affected modules, files, commands, data stores, APIs, IPC/service boundaries, UI surfaces, tests, and real sources of truth. Record that index in the active team's `plan.md`, review the imported plan against it, update stale or missing details, and only then create task cards.
    - When starting from **referenced sources** (a backlog epic and its child design docs, or any referenced backlog/plan item — the run's `source`/`sourceBundle` record `origin: "reference"`), the referenced files are the canonical design. Read the epic and every child (`grep -l "^epic: <slug>$" backlog/*.md`), verify each against the current codebase, and update stale design content **in the backlog files in place** (in worktree-mode runs, the copies in their own project's worktree, so updates ride that project's pull request). Write `plan.md` as a thin manifest that references each document (project-root-relative) with a per-document verification note; do not re-author valid design prose into it. Build the task graph so every child item maps to at least one task, and have the final review task set each child's frontmatter `status: completed` at completion.
 4. Ask the user clarifying questions until they confirm the intended outcome, constraints, and acceptance criteria.
-5. Use plan reviews when specialist input would improve the plan.
-6. Write `.multi-code/sprintengine/<team>/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
-7. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
-8. Add task cards one at a time with `Sprint Engine plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
-9. Include an architect-owned final review scheduling task after implementation, validation, and code review. This task decides which product, security, and performance final reviews are actually needed, records skip rationale for unneeded reviews, adds only the selected specialist review tasks, and then adds a later architect final review task.
-10. Do not create product final acceptance, security review, or performance review tasks during initial planning unless the approved requirements or user explicitly require that specialist review before implementation starts.
-11. During architect final review, never reopen completed tasks. If product, security, performance, code review, validation, or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
-12. During user review, revise the board with `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency`.
-13. Tell the user the plan is ready for review in the app. The user can inspect it, request specialist plan reviews, or manually spawn specialists from the UI.
-14. Do not manually edit `run.yaml`, task files, artifact files, events, metrics, projections, runner files, or locks.
-
-Use plan reviews when the architect has drafted a complete plan and wants the specialist roster to critique it before execution:
-
-- Specialist starts review mode with `Sprint Engine plan start-review --role <role> --id <agent-id>`
-- The tool returns a prompt and the exact review file path under `plan-reviews/<agent-id>.md`
-- Specialist writes structured markdown feedback in that file and does not claim tasks or implement
-- Architect starts feedback mode with `Sprint Engine plan address-reviews --actor architect`
-- The tool reads every review file and returns a prompt for revising `plan.md` and the task graph
+5. Write `.multi-code/sprintengine/<team>/plan.md` as a compact technical execution plan for AI agents: short bullets, low-level design, implementation approach, acceptance checks, risks/open questions, and only the context workers need beyond their task cards.
+6. Do not include week-based timelines, dates, sprint plans, milestone schedules, duration estimates, or roadmap prose. Represent execution order with task dependencies, not time.
+7. Add task cards one at a time with `Sprint Engine plan add-task`; start with tasks that have no dependencies, then add dependent work using `--depends-on`.
+8. Include an architect-owned final review scheduling task after implementation, validation, and code review. This task decides which product, security, and performance final reviews are actually needed, records skip rationale for unneeded reviews, adds only the selected specialist review tasks, and then adds a later architect final review task.
+9. Do not create product final acceptance, security review, or performance review tasks during initial planning unless the approved requirements or user explicitly require that specialist review before implementation starts.
+10. During architect final review, never reopen completed tasks. If product, security, performance, code review, validation, or architect findings require follow-up work, create new tasks and also create a later architect final review task that depends on those follow-ups.
+11. During user review, revise the board with `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency`.
+12. Tell the user the plan is ready for review in the app. The user can inspect it or manually spawn specialists from the UI.
+13. Do not manually edit `run.yaml`, task files, artifact files, events, metrics, projections, runner files, or locks.
 
 Common standalone/headless CLI commands:
 
@@ -127,9 +118,6 @@ Sprint Engine plan update-task --task-id T1 --title "Persist shared Sprint Engin
 Sprint Engine plan add-dependency --task-id T2 --depends-on T1
 Sprint Engine plan remove-dependency --task-id T2 --depends-on T1
 Sprint Engine plan delete-task --task-id T3 --unlink-dependents
-Sprint Engine plan start-review --role frontend --id frontend
-Sprint Engine plan review-status
-Sprint Engine plan address-reviews --actor architect
 Sprint Engine plan list
 sprintengine projection
 sprintengine summary
@@ -145,8 +133,6 @@ Rules:
 - Use `sprintengine summary` after all tasks are done to summarize touched files, commands, validation results, and manual verification notes.
 - Do not rewrite the overall plan unless you are explicitly acting as the architect.
 - Architect-created follow-up work from final review must be followed by another architect final review task. Completed tasks stay done; create new tasks for fixes or verification.
-- Plan reviewers write only their own markdown file in `plan-reviews/`; they do not update `run.yaml`, task files, artifact files, events, metrics, locks, claim tasks, or change the task graph.
-- Architects address plan reviews with `Sprint Engine plan address-reviews --actor architect`, then revise `plan.md` directly and task cards through `Sprint Engine plan` commands.
 - App and mobile read paths should consume normalized Sprint Engine projections. They must not parse folder-store internals or mutate Sprint Engine files directly.
 - Explicit UI artifact review actions may initiate authenticated Sprint Engine artifact commands through the app's main/MCP IPC boundary. Artifact approval, request-changes, and policy-approved auto-approval are Sprint Engine mutations, not terminal messages to the artifact producer.
 - The local MCP server is the preferred machine boundary for structured Sprint Engine operations. Run it with `sprintengine mcp serve --workspace <path>` or `python -m sprintengine_mcp --workspace <path>`; both start the same local stdio server. Add repeated `--extra-dir <registry-root>` flags for plugin role/skill roots and `--user-dir <path>` for a custom user registry base. Standalone/headless CLI agents can start and continue through `sprintengine join --role <role> --id <agent-id> --watch`, where `join --watch` owns polling/backoff. Multicode-launched agents use the managed MCP server and runtime dispatch instead; Multicode owns terminal wake/resume, spawning replacement terminals for ready work, rework, needs-input triage, and review/test/product gates when no live same-role capacity exists.

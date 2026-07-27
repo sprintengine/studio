@@ -19,12 +19,9 @@ from .commands.artifact import (
 from .commands.plan import (
     cmd_plan_add_dependency,
     cmd_plan_add_task,
-    cmd_plan_address_reviews,
     cmd_plan_delete_task,
     cmd_plan_list,
     cmd_plan_remove_dependency,
-    cmd_plan_review_status,
-    cmd_plan_start_review,
     cmd_plan_update_task,
 )
 from .commands.roster import (
@@ -65,7 +62,7 @@ from .commands.task import (
     cmd_task_resolve_input,
     cmd_task_status,
 )
-from .roles import DEFAULT_ROLE_REGISTRY, PLAN_REVIEW_ROLES, VALID_ROLES, RoleRegistry
+from .roles import DEFAULT_ROLE_REGISTRY, VALID_ROLES, RoleRegistry
 
 __all__ = [
     name

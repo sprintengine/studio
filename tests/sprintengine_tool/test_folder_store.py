@@ -20,6 +20,8 @@ from sprintengine_core.tool import append_task_activity
 
 
 RETIRED_TASK_FOLDERS = ("testing", "product", "changes_requested")
+# MC-1828 deleted the plan-review-file flow; init must stop creating its folder.
+RETIRED_SUPPORT_FOLDERS = ("plan-reviews",)
 
 
 def test_init_creates_folder_store_layout(tmp_path) -> None:
@@ -39,6 +41,9 @@ def test_init_creates_folder_store_layout(tmp_path) -> None:
         assert (team_dir / "artifacts" / status).is_dir()
     for folder in store.SUPPORT_DIRS:
         assert (team_dir / folder).is_dir()
+    for retired in RETIRED_SUPPORT_FOLDERS:
+        assert retired not in store.SUPPORT_DIRS
+        assert not (team_dir / retired).exists()
     assert (team_dir / "metrics" / "agent-feedback.jsonl").is_file()
     for lock_file in store.LOCK_STATE_FILES:
         lock_state = json.loads((team_dir / lock_file).read_text(encoding="utf-8"))

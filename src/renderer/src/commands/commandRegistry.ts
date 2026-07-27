@@ -325,22 +325,6 @@ export const COMMAND_REGISTRY = [
     handlerPath: { kind: 'panel-event', eventId: 'sprintengine.add.role' },
   }),
   command({
-    id: 'sprintengine.request.plan-reviews',
-    title: 'Sprint: Request Plan Reviews',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.request.plan-reviews' },
-  }),
-  command({
-    id: 'sprintengine.address.feedback',
-    title: 'Sprint: Address Feedback',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.address.feedback' },
-  }),
-  command({
     id: 'sprintengine.read.plan',
     title: 'Sprint: Read Plan',
     category: 'sprintengine',

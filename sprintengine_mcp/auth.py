@@ -31,8 +31,6 @@ AUDITED_TOOLS = {
     "sprintengine.plan.delete_task",
     "sprintengine.plan.add_dependency",
     "sprintengine.plan.remove_dependency",
-    "sprintengine.plan.start_review",
-    "sprintengine.plan.address_reviews",
     "sprintengine.artifact.add",
     "sprintengine.artifact.ready",
     "sprintengine.artifact.approve",

@@ -14,8 +14,6 @@ The shared Sprint Engine coordination files are:
   - optional incoming planning context created before the sprintengine architect starts
 - `.multi-code/sprintengine/<team-slug>/plan.md`
   - architect-authored final execution plan for that named team
-- `.multi-code/sprintengine/<team-slug>/plan-reviews/<agent-id>.md`
-  - specialist-authored markdown review of the current architect plan
 
 The Python tool is the only write path for Sprint Engine run-store files.
 
@@ -30,9 +28,6 @@ Use `sprintengine task claim --task-id <id> --id <agent-id>` when a specific rea
 Use `sprintengine task status` to update task status, `sprintengine task note` to append a runtime comment to the task (architect actors route to `architect_feedback`, all others to `user_note`; the body appears in `task.comments[]` and the activity feed), and `sprintengine task log` to update evidence. `task.notes[]` itself is reserved for plan-time design intent set through `plan add-task --task-note` and `plan update-task --task-note`.
 Use `Sprint Engine plan add-task` to build the task board one task at a time while planning.
 Use `Sprint Engine plan update-task`, `Sprint Engine plan delete-task`, `Sprint Engine plan add-dependency`, and `Sprint Engine plan remove-dependency` to revise the board during user review.
-Use `Sprint Engine plan start-review --role <role> --id <agent-id>` when a specialist should critique the architect plan before execution.
-Use `Sprint Engine plan review-status` to summarize expected, missing, stale, and unexpected plan review files.
-Use `Sprint Engine plan address-reviews --actor architect` when the architect is ready to revise the plan from specialist feedback.
 Use `sprintengine artifact add` to register a review artifact under the active team folder.
 Use `sprintengine artifact ready --artifact-id <id> --id <agent-id>` to move an artifact to `ready_for_review` and the linked task to `needs_input`.
 Use `sprintengine artifact approve --artifact-id <id> --id <actor>` to approve an artifact and complete the linked task once all non-superseded linked artifacts are approved.
@@ -228,13 +223,3 @@ When feedback is supplied, the tool also appends a normalized record to `.multi-
 - `artifact ready` moves the linked producing task and owning agent to `needs_input`.
 - `artifact approve` marks the linked task `done` only when every non-superseded artifact for that task is `approved`.
 - `artifact request-changes` records feedback as a typed comment on the producing task (`review_feedback` by default; `architect_feedback` / `test_feedback` / `product_feedback` when the requester's role is architect / tester / product) with `data.artifactId` set, then reopens the producing task without changing unrelated tasks. The feedback surfaces in the activity feed and enters the open-feedback / open-rework comment queues.
-
-## Plan Review Flow
-
-1. Architect finishes a draft `plan.md` in the active team folder and task graph.
-2. Specialist runs `Sprint Engine plan start-review --role <role> --id <agent-id>`.
-3. Specialist writes or replaces `plan-reviews/<agent-id>.md` using the returned prompt.
-4. Architect runs `Sprint Engine plan address-reviews --actor architect`.
-5. Architect updates the active team's `plan.md` directly and updates task cards only through `Sprint Engine plan` commands.
-
-Review files include the current plan fingerprint. If `plan.md` changes after a review, `Sprint Engine plan review-status` marks that review stale.

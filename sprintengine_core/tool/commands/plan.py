@@ -5,24 +5,12 @@ import argparse
 from typing import Any, Dict
 
 from sprintengine_core import store as folder_store
-from sprintengine_core.skill_layers import run_is_backlog_sourced
-from sprintengine_core.tool.artifacts import project_relative_display_path
 from sprintengine_core.tool.feedback import set_architect_difficulty_estimate
 from pathlib import Path
 
 from sprintengine_core.tool.plans import (
     apply_plan_gate_dependency,
-    build_address_reviews_prompt,
-    build_plan_review_prompt,
-    build_plan_review_status,
-    build_plan_review_template,
-    expected_plan_reviewers,
-    parse_review_metadata,
-    plan_fingerprint,
-    plan_path_for_state,
-    plan_reviews_dir_for_state,
     resolve_planning_role,
-    safe_review_filename,
 )
 from sprintengine_core.tool.roles import require_configured_role
 from sprintengine_core.tool.merge_graph import assert_no_repo_dependency_cycle
@@ -32,7 +20,6 @@ from sprintengine_core.tool.state import (
     ensure_role_in_roster,
     ensure_task_repo_declared,
     find_task,
-    load_mutation_state,
     task_lease,
     with_locked_state,
 )
@@ -362,95 +349,9 @@ def cmd_plan_list(args: argparse.Namespace) -> Dict[str, Any]:
 
     return with_locked_state(args.state, run)
 
-def cmd_plan_start_review(args: argparse.Namespace) -> Dict[str, Any]:
-    args.role = require_configured_role(args.role, context="Plan review")
-    state = load_mutation_state(args.state)
-    # No planner reviews its own plan. The guard follows the run's planning role, so
-    # a general that planned its own run cannot sign off on that plan just because it
-    # is not literally an architect.
-    planning_role = resolve_planning_role(state)
-    if args.role == planning_role:
-        raise SystemExit(
-            f"{planning_role.capitalize()} does not review its own Sprint Engine plan through plan start-review."
-        )
-    ensure_role_in_roster(state, args.role)
-    plan_path = plan_path_for_state(args.state)
-    reviews_dir = plan_reviews_dir_for_state(args.state)
-    fingerprint = plan_fingerprint(plan_path)
-    reviews_dir.mkdir(parents=True, exist_ok=True)
-
-    review_path = reviews_dir / safe_review_filename(args.id)
-    existing_review = review_path.exists()
-    if not existing_review:
-        review_path.write_text(
-            build_plan_review_template(args.id, args.role, plan_path, fingerprint),
-            encoding="utf-8",
-        )
-
-    prompt = build_plan_review_prompt(
-        args.id,
-        args.role,
-        args.state,
-        plan_path,
-        review_path,
-        fingerprint,
-        existing_review,
-        backlog_sourced=run_is_backlog_sourced(state),
-    )
-    known_reviewers = expected_plan_reviewers(state)
-    return {
-        "ok": True,
-        "role": args.role,
-        "agentId": args.id,
-        "action": "plan_review",
-        "planPath": project_relative_display_path(args.state, plan_path),
-        "reviewPath": project_relative_display_path(args.state, review_path),
-        "reviewExisted": existing_review,
-        "planFingerprint": fingerprint,
-        "knownReviewers": known_reviewers,
-        "prompt": prompt,
-    }
-
-def cmd_plan_review_status(args: argparse.Namespace) -> Dict[str, Any]:
-    state = load_mutation_state(args.state)
-    return {"ok": True, "action": "plan_review_status", **build_plan_review_status(state, args.state)}
-
-def cmd_plan_address_reviews(args: argparse.Namespace) -> Dict[str, Any]:
-    state = load_mutation_state(args.state)
-    reviews_dir = plan_reviews_dir_for_state(args.state)
-    status = build_plan_review_status(state, args.state)
-    reviews = []
-
-    if reviews_dir.exists():
-        for path in sorted(reviews_dir.glob("*.md")):
-            metadata = parse_review_metadata(path)
-            reviews.append({
-                "path": str(path),
-                "agentId": metadata.get("agentId"),
-                "role": metadata.get("role"),
-                "verdict": metadata.get("verdict"),
-            })
-
-    prompt = build_address_reviews_prompt(state, args.state, status, reviews)
-    return {
-        "ok": True,
-        "role": "architect",
-        "actor": args.actor,
-        "action": "address_plan_reviews",
-        "planPath": status["planPath"],
-        "reviewsDirectory": status["reviewsDirectory"],
-        "reviewCount": len(reviews),
-        "reviews": reviews,
-        "status": status,
-        "prompt": prompt,
-    }
-
 add_task = cmd_plan_add_task
 update_task = cmd_plan_update_task
 delete_task = cmd_plan_delete_task
 add_dependency = cmd_plan_add_dependency
 remove_dependency = cmd_plan_remove_dependency
 list_tasks = cmd_plan_list
-start_review = cmd_plan_start_review
-review_status = cmd_plan_review_status
-address_reviews = cmd_plan_address_reviews
