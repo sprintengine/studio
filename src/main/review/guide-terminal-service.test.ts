@@ -245,6 +245,41 @@ run('a review whose project is not open fails visibly and closes the run', async
   assert.equal(status?.detail, 'Open the project to run the guide.')
 })
 
+// Item 1807. A sprint-run workspace is rail-hidden (item 1767): the guide's tab
+// would land in a sprint run's layout with no Projects row leading back to it.
+run('a project open only as a sprint-run workspace is not somewhere the guide may spawn', async () => {
+  const harness = makeHarness({
+    workspaces: [{ id: 'ws-sprint', folderPath: PROJECT_ROOT, mode: 'sprintengine' }],
+  })
+  const result = await harness.service.startRun(startInput())
+
+  assert.deepEqual(result, { ok: false, error: 'Open the project to run the guide.' })
+  assert.equal(harness.spawns.length, 0, 'no guide tab is seeded into the sprint run')
+})
+
+run('the guide picks the standard workspace over the sprint run, and any other visible one over none', async () => {
+  const both = makeHarness({
+    workspaces: [
+      { id: 'ws-sprint', folderPath: PROJECT_ROOT, mode: 'sprintengine' },
+      { id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' },
+    ],
+  })
+  await both.service.startRun(startInput())
+  assert.equal(both.spawns[0].workspaceId, WORKSPACE_ID)
+
+  // Rail-visible but not standard (a review workspace on the same folder) is
+  // still a workspace the reviewer can navigate back to, so it remains the
+  // fallback the guide has always had.
+  const fallback = makeHarness({
+    workspaces: [
+      { id: 'ws-automations', folderPath: PROJECT_ROOT, mode: 'automations-host' },
+      { id: 'ws-review', folderPath: PROJECT_ROOT, mode: 'review' },
+    ],
+  })
+  await fallback.service.startRun(startInput())
+  assert.equal(fallback.spawns[0].workspaceId, 'ws-review')
+})
+
 run('a spawn failure fails the run and leaves no in-flight record behind', async () => {
   const harness = makeHarness()
   harness.spawnResult({ ok: false, sessionId: SESSION_ID, message: 'claude was not found.', exitCode: 1 })
@@ -285,6 +320,36 @@ run('a delivered brief closes the run, so the terminal exiting afterwards says n
   const status = harness.registry.status(REVIEW_ID)
   assert.equal(status?.phase, 'done', 'the delivered brief is still the outcome of record')
   assert.equal(harness.events.filter((event) => event.phase === 'failed').length, 0)
+})
+
+// Item 1806. The run took the terminal out of the idle reaper's reach; a brief
+// that lands is where it gives it back. Without this the reviewer who never
+// opens the guide's terminal keeps one unsuspendable agent process per reviewed
+// change for the rest of the app session.
+run('a brief landing releases the reap exemption, as stop() and a process exit do', async () => {
+  const delivered = makeHarness()
+  await delivered.service.startRun(startInput())
+  assert.deepEqual(delivered.reapExempt, [{ sessionId: SESSION_ID, exempt: true }])
+  // What the Studio gateway's brief sink does when review_submit_brief lands.
+  recordGuideRunEvent({ workspaceId: REVIEW_ID, phase: 'done' }, delivered.registry)
+  delivered.service.clearReapExempt(REVIEW_ID)
+  assert.deepEqual(delivered.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
+  assert.deepEqual(delivered.kills, [], 'the terminal is released, not killed — the reviewer may still read it')
+
+  // The run is over: stopping the terminal afterwards cannot overwrite the
+  // delivered outcome with a failure.
+  delivered.service.stop(REVIEW_ID)
+  assert.equal(delivered.registry.status(REVIEW_ID)?.phase, 'done')
+
+  const stopped = makeHarness()
+  await stopped.service.startRun(startInput())
+  stopped.service.stop(REVIEW_ID)
+  assert.deepEqual(stopped.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
+
+  const exited = makeHarness()
+  await exited.service.startRun(startInput())
+  exited.exit({ agentId: SESSION_ID, executionId: executionIdOf(exited), exitCode: 0 })
+  assert.deepEqual(exited.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
 })
 
 run('stopping the guide kills its terminal and names the reviewer as the reason', async () => {

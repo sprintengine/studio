@@ -158,17 +158,12 @@ export type { ReviewWorkspaceState }
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
-export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
 export const SWITCHBOARD_WORKSPACE_MODE = 'switchboard'
 export const GUIDED_BRIEF_WORKSPACE_MODE = 'guided-brief'
 // Guided walkthrough of a pull request, branch, or pasted patch (MC-1677). A
 // single-surface type: one non-closeable review tab, its change set persisted on
 // disk under `.multi-code/review/<workspaceId>/`.
 export const REVIEW_WORKSPACE_MODE = 'review'
-// Background host workspace for per-project Automations. It is hidden from the
-// normal workspace rail (see `utils/workspaceVisibility.ts`); its hidden-ness is
-// derived from this mode, never a persisted flag, so no store migration exists.
-export const AUTOMATIONS_HOST_WORKSPACE_MODE = 'automations-host'
 
 export type BundledWorkspaceMode =
   | typeof STANDARD_WORKSPACE_MODE
@@ -180,9 +175,15 @@ export type BundledWorkspaceMode =
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
-// Imported here (so this module's own references resolve) and re-exported so
-// every existing `WorkspaceMode` import site keeps resolving through here.
-import type { WorkspaceMode } from '../../../shared/workspace-mode'
+// The two rail-hidden modes live there too, beside the `isModeHiddenFromRail`
+// predicate main also consults. Imported here (so this module's own references
+// resolve) and re-exported so every existing import site keeps resolving here.
+import {
+  AUTOMATIONS_HOST_WORKSPACE_MODE,
+  SPRINT_ENGINE_WORKSPACE_MODE,
+  type WorkspaceMode,
+} from '../../../shared/workspace-mode'
+export { AUTOMATIONS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'

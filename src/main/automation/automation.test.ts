@@ -2243,7 +2243,7 @@ function reviewValidBrief(): ReviewBrief {
 
 // Seed a review directory with an ingested change set under a temp project root,
 // and build the review tools scoped to it. `emitted` captures brief-run events.
-function reviewHarness(): {
+function reviewHarness(options: { moduleEnabled?: boolean } = {}): {
   tools: McpToolRegistration[]
   projectRoot: string
   reviewDir: string
@@ -2255,6 +2255,7 @@ function reviewHarness(): {
   writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(reviewFixtureChangeSet(projectRoot), null, 2)}\n`)
   const emitted: BriefRunEvent[] = []
   const tools = createReviewGatewayTools({
+    isReviewModuleEnabled: () => options.moduleEnabled ?? true,
     listOpenProjectRoots: () => [projectRoot],
     homeDir: () => homedir(),
     emitBriefRunEvent: (event) => emitted.push(event),
@@ -2387,6 +2388,56 @@ async function testReviewToolsRejectUnknownTargetAndStripAbsolutePaths(): Promis
   }
 }
 
+// MC-1805: a disabled Review module makes review unreachable in BOTH processes.
+// The tools stay registered — an agent still sees the capability, and learns why
+// it is refusing — but every one of them refuses before touching a file.
+async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
+  const { tools, projectRoot, reviewDir, emitted } = reviewHarness({ moduleEnabled: false })
+  try {
+    assert.deepEqual(
+      tools.map((registration) => registration.name),
+      ['review_list_pending', 'review_get_changeset', 'review_get_brief', 'review_submit_brief'],
+      'registration is static: a disabled module still lists its tools'
+    )
+
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ['review_list_pending', {}],
+      ['review_get_changeset', { reviewId: REVIEW_ID, projectRoot }],
+      ['review_get_brief', { reviewId: REVIEW_ID, projectRoot }],
+      [
+        'review_submit_brief',
+        { reviewId: REVIEW_ID, projectRoot, brief: reviewValidBrief() as unknown as Record<string, unknown> },
+      ],
+    ]
+    for (const [name, args] of calls) {
+      const refused = await tool(tools, name).handler(args)
+      assert.equal(refused.isError, true, `${name} refuses`)
+      const error = (refused.structuredContent as { error: { code: string; message: string } }).error
+      assert.equal(error.code, 'review_module_disabled', `${name} names the reason`)
+      assert.equal(
+        error.message,
+        'The Review module is disabled. Enable it in Settings → Modules to use review tools.',
+        `${name} returns the module-disabled sentence verbatim`
+      )
+    }
+
+    // No read and no write happened on behalf of a disabled capability.
+    assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'no brief was written')
+    assert.deepEqual(emitted, [], 'nothing was announced to open windows')
+
+    // Enabling it restores every tool, with no re-registration.
+    const enabled = reviewHarness()
+    try {
+      const listed = await tool(enabled.tools, 'review_list_pending').handler({})
+      assert.equal(listed.isError, undefined, 'an enabled module answers normally')
+    } finally {
+      rmSync(enabled.projectRoot, { recursive: true, force: true })
+    }
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true })
+  }
+}
+
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -2427,6 +2478,7 @@ const tests = [
   testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing,
   testReviewSubmitBriefRejectsSeverityAnnotationKind,
   testReviewToolsRejectUnknownTargetAndStripAbsolutePaths,
+  testReviewToolsRefuseWhileTheModuleIsDisabled,
 ]
 
 async function main(): Promise<void> {

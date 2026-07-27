@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron'
 import { registerReviewIpc } from '../ipc/review-ipc'
 import {
   ReviewChangeSetServiceToken,
+  ReviewGuideTerminalServiceToken,
   SprintEngineLaunchSettingsToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
@@ -49,39 +50,45 @@ export const reviewModule: CapabilityModule = {
         if (!win.isDestroyed()) win.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
       }
     }
-    const guideTerminals = createReviewGuideTerminalService({
-      listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
-      terminal: {
-        list: () => terminalRuntime.ipcHandlers.listTerminals(),
-        // The guide's pty needs a window as its event sink, exactly like the
-        // sprint scheduler's in-process spawns. Reviews are opened from a
-        // window, so one is always there; without one the spawn reports the
-        // failure rather than starting a terminal nothing can show.
-        spawn: async (payload) => {
-          const sender = BrowserWindow.getAllWindows()
-            .find((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
-            ?.webContents
-          if (!sender) {
-            return {
-              ok: false,
-              sessionId: payload.sessionId,
-              message: 'Open a Multicode window to run the review guide.',
-              exitCode: 1,
+    // Provided under a token as well as held here: the Studio gateway's
+    // review_submit_brief sink is registered in app-services, and a landed brief
+    // ends the run, so it resolves this service to release the guide's terminal
+    // back to the idle reaper instead of reaching into the terminal runtime.
+    const guideTerminals = host.provideService(ReviewGuideTerminalServiceToken, () =>
+      createReviewGuideTerminalService({
+        listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
+        terminal: {
+          list: () => terminalRuntime.ipcHandlers.listTerminals(),
+          // The guide's pty needs a window as its event sink, exactly like the
+          // sprint scheduler's in-process spawns. Reviews are opened from a
+          // window, so one is always there; without one the spawn reports the
+          // failure rather than starting a terminal nothing can show.
+          spawn: async (payload) => {
+            const sender = BrowserWindow.getAllWindows()
+              .find((window) => !window.isDestroyed() && !window.webContents.isDestroyed())
+              ?.webContents
+            if (!sender) {
+              return {
+                ok: false,
+                sessionId: payload.sessionId,
+                message: 'Open a Multicode window to run the review guide.',
+                exitCode: 1,
+              }
             }
-          }
-          return terminalRuntime.ipcHandlers.spawnTerminal(sender, payload)
+            return terminalRuntime.ipcHandlers.spawnTerminal(sender, payload)
+          },
+          write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
+          kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
+          setReapExempt: (sessionId, exempt) =>
+            terminalRuntime.ipcHandlers.setTerminalReapExempt(sessionId, exempt),
+          onAgentSessionExit: (listener) => terminalRuntime.registerAgentSessionExitListener(listener),
         },
-        write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
-        kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
-        setReapExempt: (sessionId, exempt) =>
-          terminalRuntime.ipcHandlers.setTerminalReapExempt(sessionId, exempt),
-        onAgentSessionExit: (listener) => terminalRuntime.registerAgentSessionExitListener(listener),
-      },
-      resolveSkillInvocation: (cli) =>
-        resolveSkillInvocation(getPluginById(cli)?.manifest.skillIntegration, REVIEW_GUIDE_SKILL_ID),
-      launchSettings: () => launchSettings.get(),
-      emit,
-    })
+        resolveSkillInvocation: (cli) =>
+          resolveSkillInvocation(getPluginById(cli)?.manifest.skillIntegration, REVIEW_GUIDE_SKILL_ID),
+        launchSettings: () => launchSettings.get(),
+        emit,
+      })
+    )
     host.onShutdown(() => guideTerminals.dispose())
 
     registerReviewIpc(host.ipcMain, {
