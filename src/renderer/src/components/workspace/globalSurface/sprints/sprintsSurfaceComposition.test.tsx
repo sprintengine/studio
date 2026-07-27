@@ -966,6 +966,27 @@ async function main(): Promise<void> {
     container.textContent?.includes('No agents yet'),
     'no agent was minted for it — the door enables the role and starts nothing',
   )
+  // The board's own overflow carries the same split: reading the plan opens a
+  // tab in the run's workspace, so it is disabled here rather than inert.
+  const openBoardOverflow = async (): Promise<void> => {
+    const trigger = [...container.querySelectorAll('button')].find(
+      (candidate) => candidate.getAttribute('aria-label') === 'Sprint overflow',
+    )
+    assert.ok(trigger, 'the board header carries its overflow menu')
+    await act(async () => {
+      ;(trigger as HTMLElement).click()
+    })
+    await settle(2)
+  }
+  const overflowItem = (label: string): HTMLButtonElement | undefined =>
+    ([...dom.window.document.querySelectorAll('[data-overflow-item="true"]')] as HTMLButtonElement[])
+      .find((candidate) => candidate.textContent?.includes(label))
+  await openBoardOverflow()
+  assert.equal(overflowItem('Read plan')?.disabled, true, 'Read plan needs a workspace to open a tab in')
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await settle(2)
   console.log('ok - the door enables a role by statePath and offers no action it cannot finish')
 
   // ── The same controls on a resident mount are unchanged ──────────────────
@@ -1077,6 +1098,12 @@ async function main(): Promise<void> {
     { statePath: doorStatePath, role: 'security' },
     'and it reaches the engine by the same statePath route',
   )
+  await openBoardOverflow()
+  assert.equal(overflowItem('Read plan')?.disabled, false, 'and it is live where there is a workspace')
+  await act(async () => {
+    dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await settle(2)
   console.log('ok - the resident mount keeps every roster action live')
 
   // ── A handed-over link path spelled with foreign separators (item 1803) ──

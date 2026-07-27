@@ -1440,7 +1440,10 @@ export function SprintRunBoard({
  const focusAgentRoster = focusAgent ? rosterById[focusAgent.agentId] : undefined
  const focusAgentHasLiveTerminal = focusAgent ? isAgentTerminalLive(focusAgent.agentId) : false
  const focusAgentRole = focusAgentRoster?.role ?? focusAgent?.role ?? null
+ // Focusing an agent opens or starts its terminal, both of which need the run's
+ // workspace — with none, the action is not offered rather than offered inert.
  const showFocusAgentAction = Boolean(focusAgent)
+ && hasResidentWorkspace
  && (!focusAgentRole || focusAgentRole === 'architect' || !roleTaskLaunchSet.has(focusAgentRole))
  const focusAgentLabel = focusAgent
  ? focusAgentHasLiveTerminal
@@ -2297,6 +2300,9 @@ export function SprintRunBoard({
  id: 'verify-progress',
  label: 'Verify progress',
  onSelect: openRecoveryDialog,
+ // The audit runs IN an architect terminal, which needs the run's
+ // workspace. Without one there is nothing to start.
+ disabled: !hasResidentWorkspace,
  })
  }
  items.push({
@@ -2328,7 +2334,10 @@ export function SprintRunBoard({
  items.push({
  id: 'read-plan',
  label: 'Read plan',
+ // The plan opens as a tab in the run's workspace; with none there is no
+ // layout to open it in.
  onSelect: () => focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan'),
+ disabled: !hasResidentWorkspace,
  })
  if (canCancelSprint) {
  items.push({ kind: 'separator', id: 'sep-3' })
@@ -2388,16 +2397,19 @@ export function SprintRunBoard({
  if (!detail || typeof detail.id !== 'string') return
  switch (detail.id) {
  case 'sprintengine.verify.progress':
- if (architectAgentId) {
+ // Same two gates the overflow item carries: an architect to run the
+ // audit, and a workspace to run it in.
+ if (architectAgentId && hasResidentWorkspace) {
  openRecoveryDialog()
  } else {
  publishDiagnosticSync({
  level: 'info',
  source: 'sprintengine',
  title: 'Verify progress is unavailable',
- message: 'No architect agent is running yet. Spawn the architect to verify progress.',
- workspaceId,
- workspaceName: workspace?.name,
+ message: hasResidentWorkspace
+ ? 'No architect agent is running yet. Spawn the architect to verify progress.'
+ : 'This sprint’s workspace is closed, so the architect has nowhere to run the audit.',
+ ...(hasResidentWorkspace ? { workspaceId, workspaceName: workspace?.name } : {}),
  })
  }
  break
@@ -2411,7 +2423,9 @@ export function SprintRunBoard({
  addressPlanReviews()
  break
  case 'sprintengine.read.plan':
+ if (hasResidentWorkspace) {
  focusOrAddComponentTab(workspaceId, 'sprintengine-plan-reader', 'Architect Plan')
+ }
  break
  case 'sprintengine.focus.agent':
  if (!runFocusAgentAction()) {
@@ -2419,12 +2433,13 @@ export function SprintRunBoard({
  level: 'info',
  source: 'sprintengine',
  title: 'Focus active agent is unavailable',
- message: focusAgent
+ message: !hasResidentWorkspace
+ ? 'This sprint’s workspace is closed, so its agent terminals aren’t running.'
+ : focusAgent
  ? `The ${getSprintEngineRoleLabel(focusAgent.role)} agent already has a role-task launch on the panel; use that instead.`
  : 'No agent is currently running or waiting for input.',
- workspaceId,
- workspaceName: workspace?.name,
- agentId: focusAgent?.agentId,
+ ...(hasResidentWorkspace ? { workspaceId, workspaceName: workspace?.name } : {}),
+ ...(focusAgent?.agentId ? { agentId: focusAgent.agentId } : {}),
  })
  }
  break
