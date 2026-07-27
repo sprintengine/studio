@@ -214,9 +214,11 @@ run('autosave replaces the Save button with a quiet state readout', () => {
 // the run dir slug). MC-1880 replaced the Select with a roster menu and removed
 // the "Last used roster" sentinel — it was the honest name for a dishonest
 // default, resolving through whatever the sprint wizard last touched.
-run('renders the per-horizon roster control labelled "Roster"', () => {
+run('the per-horizon roster control names its SCOPE, not just "Roster"', () => {
   const markup = render()
-  assert.match(markup, /Roster/)
+  // MC-1882: it is the DEFAULT for steps that do not override it, not a hard
+  // setting for the whole horizon — the label has to say so.
+  assert.match(markup, /Default roster/)
   assert.doesNotMatch(markup, /Sprint team/)
 })
 
@@ -258,6 +260,118 @@ roster: Mobile UI
     /<span class="">No roles<\/span>/,
     'the control does not silently read as the default',
   )
+})
+
+
+// ---------------------------------------------------------------------------
+// Per-step roster on the rows (MC-1882)
+// ---------------------------------------------------------------------------
+
+// NOTE on the fixture: this harness renders through renderToStaticMarkup, and
+// zustand v5 serves SSR reads from `getInitialState()` — so seeding saved
+// rosters with `setState` has NO effect here and every NAMED roster resolves as
+// "(not found)". The tone fixture therefore uses the built-in "No roles", which
+// is never missing, which also makes the sharper point: the row tone is decided
+// by inherited-vs-override, NEVER by the label. A step that deliberately picks
+// the same roster the horizon uses is still an override and must still read as
+// one.
+const PER_STEP_ROADMAP = backlogItem(
+  'backlog/roadmaps/staffed.md',
+  `---
+type: roadmap
+status: ready
+advance: approve
+merge: manual
+---
+# Staffed roadmap
+
+## Backend
+- backlog/foo.md
+- backlog/epics/auth.md  @roster=No roles
+  - backlog/auth-login.md
+`,
+)
+
+// Row controls only — the policy-bar control names the whole horizon.
+const ROW_ROSTER_LABELS = /aria-label="Roster for (?!every sprint)[^"]*"/g
+
+function renderPerStep(): string {
+  return render(PER_STEP_ROADMAP, [PER_STEP_ROADMAP, ...items.slice(1)])
+}
+
+run('every step row carries a roster control in the tab order (no hover required)', () => {
+  const markup = renderPerStep()
+  // Two steps → two row controls, each a real <button> (keyboard reachable and
+  // operable without a pointer), plus the policy-bar control.
+  const rowTriggers = markup.match(ROW_ROSTER_LABELS) ?? []
+  assert.equal(rowTriggers.length, 2, 'one roster control per step row')
+  assert.ok(rowTriggers.some((label) => label.includes('Foo')))
+  assert.ok(rowTriggers.some((label) => label.includes('Auth')))
+})
+
+run('inherited reads QUIETLY, an override reads full-strength — from the override, not the name', () => {
+  const markup = renderPerStep()
+  // Both rows resolve to the SAME roster name ("No roles"), so anything that
+  // distinguishes them must come from whether the step overrides.
+  const rowTriggers = markup.match(ROW_ROSTER_LABELS) ?? []
+  assert.ok(rowTriggers.every((label) => label.includes('No roles')))
+  // The inherited row: muted text, no field behind it.
+  assert.match(markup, /border-transparent text-\[color:var\(--text-subtle\)\]/)
+  // The override: full-strength text on the soft accent field, so overrides are
+  // scannable straight down the track WITHOUT hovering.
+  assert.match(markup, /bg-\[color:var\(--accent-soft\)\]/)
+})
+
+run('an inherited row NAMES the horizon roster it falls back to', () => {
+  const inheriting = backlogItem(
+    'backlog/roadmaps/inheriting.md',
+    `---
+type: roadmap
+status: ready
+advance: approve
+merge: manual
+roster: General agents
+---
+# Staffed roadmap
+
+## Backend
+- backlog/foo.md
+`,
+  )
+  const markup = render(inheriting, [inheriting, ...items.slice(1)])
+  const rowTriggers = markup.match(ROW_ROSTER_LABELS) ?? []
+  assert.equal(rowTriggers.length, 1)
+  assert.match(rowTriggers[0], /General agents/, 'the row shows what it inherits, not a blank')
+})
+
+run('an epic step\u2019s children draw no roster control of their own', () => {
+  const markup = renderPerStep()
+  // The child (Login) is rendered, but only the two STEP rows have controls —
+  // the sprint is created per step, not per child.
+  assert.match(markup, /Login/)
+  assert.equal((markup.match(ROW_ROSTER_LABELS) ?? []).length, 2)
+  assert.doesNotMatch(markup, /aria-label="Roster for Login:/)
+})
+
+run('a step naming a deleted roster reads "(not found)" on the row itself', () => {
+  const deleted = backlogItem(
+    'backlog/roadmaps/deleted-step-roster.md',
+    `---
+type: roadmap
+status: ready
+advance: approve
+merge: manual
+---
+# Staffed roadmap
+
+## Backend
+- backlog/foo.md  @roster=Ghost roster
+`,
+  )
+  const markup = render(deleted, [deleted, ...items.slice(1)])
+  assert.match(markup, /Ghost roster/, 'the named roster keeps its name')
+  assert.match(markup, /\(not found\)/, 'and the row says so')
+  assert.match(markup, /text-\[color:var\(--status-danger\)\]/)
 })
 
 if (failures > 0) {

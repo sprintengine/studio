@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
+import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../store/slices/settingsSlice'
 import { LAYOUT_TEMPLATES } from '../../layouts/templates'
 import { userLayoutTemplateToTemplate } from '../../layouts/userTemplates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -408,7 +409,7 @@ export default function NewWorkspacePanel({
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
   const setProjectKnowledgeRoot = useWorkspaceStore((s) => s.setProjectKnowledgeRoot)
   const lastSpawnPermissionPreset = useWorkspaceStore(
-    (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default',
+    (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   )
   const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.setLastAgentSpawnPermissionPreset,

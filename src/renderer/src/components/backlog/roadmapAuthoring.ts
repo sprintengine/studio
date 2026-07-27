@@ -2,7 +2,7 @@
 // authoring engine. The pure, renderer-free structural transforms (add/remove/move a
 // step, split/merge a track, decide the save path, construct an entry) were promoted
 // to src/shared/backlog/roadmapAuthoring.ts (T6) so the human editor and the agent-
-// facing `roadmap.*` automation tools share ONE transform engine; they are re-exported
+// facing `horizon.*` automation tools share ONE transform engine; they are re-exported
 // below so every consumer of this path keeps importing them unchanged.
 //
 // What stays here needs the renderer read model (BacklogItem, childrenOfEpic,
@@ -55,6 +55,7 @@ export {
   removeLane,
   renameLane,
   roadmapProjectAlias,
+  setEntryRoster,
   splitAuthoredRef,
   splitLane,
   structureChanged,

@@ -33,6 +33,7 @@ import {
   workspaceRelativePath,
 } from '../components/workspace/newWorkspace/helpers'
 import { launchPlanSourcedSprint } from '../utils/sprintengineWorkspaceCreation'
+import { normalizeCliPermissionPreset } from '../store/slices/settingsSlice'
 import { sprintEnginePlannerRole } from '../utils/sprintengine'
 import {
   sprintEngineAutomationInitialStateForMode,
@@ -266,7 +267,12 @@ async function createSprint(
         startRunner: request.startRunner === true,
         autoApproveArtifacts: request.autoApproveArtifacts === true,
         useWorktrees: request.useWorktrees === true,
-        // External creation never escalates CLI permissions.
+        // External creation never escalates CLI permissions. This is the
+        // GOAL-sourced path: an arbitrary caller with a bare goal and no
+        // human-authored plan file behind it, so there is no consent to read.
+        // Deliberately does NOT honor `request.permissionPreset` (MC-1900) —
+        // otherwise the field would be exactly the self-escalation hole this
+        // literal exists to close. A horizon always arrives plan-sourced.
         cliPermissionPreset: 'default',
       },
       {
@@ -387,9 +393,13 @@ async function createPlanSourcedSprint(
       sprintEngineAutoState: {
         ...sprintEngineAutomationInitialStateForMode(automationMode),
         // Plan-sourced launches are horizon/automation-orchestrated: nobody is
-        // watching to answer per-tool prompts, so agents spawn in bypass
-        // (owner ruling 2026-07-26; MC-1900 makes this a configurable policy).
-        cliPermissionPreset: 'bypass_all',
+        // watching to answer per-tool prompts, so agents spawn in bypass unless
+        // the horizon's own `permissions:` policy says otherwise (MC-1900). The
+        // escalation is the OWNER'S file, not this caller — which is why the
+        // goal-sourced twin below still refuses to read this field.
+        //
+        // Spawn-time only (MC-1808): this is the run's one chance to be bypass.
+        cliPermissionPreset: normalizeCliPermissionPreset(request.permissionPreset ?? 'bypass_all'),
         maxConcurrentAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
       },
       workspaceWindowId: 'primary',
@@ -565,7 +575,10 @@ async function launchAgent(
     // Persisted so relaunch/resume keep the model and permission the run was
     // created with (the terminal launch path reads them off AgentState).
     cliModel: request.cliModel?.trim() || undefined,
-    cliPermissionPreset: request.permissionPreset,
+    // An automation-spawned agent runs unwatched, so an unset preset takes the
+    // app-level spawn default — bypass unless the user changed it (MC-1900).
+    // An explicit preset on the automation definition still wins outright.
+    cliPermissionPreset: request.permissionPreset ?? state.appSettings.lastAgentSpawnPermissionPreset,
     kind: specialistId ? 'specialist' : 'general',
     specialistId,
     // Route the agent's terminal cwd into the run's isolated worktree when the

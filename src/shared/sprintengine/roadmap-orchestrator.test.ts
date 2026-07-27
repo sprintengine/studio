@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   parseRoadmap,
   qualifiedRef,
+  resolveEntryRoster,
   type ProjectKey,
   type RoadmapItemState,
   type RoadmapRunState,
@@ -405,4 +406,108 @@ test('a pre-migration child-keyed active handle on a planned epic is NOT an orph
   )
   assert.equal(result.actions.length, 0)
   assert.equal(result.laneRuntimes.get('Backend')?.activeItemRef, qref('backlog/c1.md'))
+})
+
+// ---------------------------------------------------------------------------
+// Per-step roster (MC-1883) — resolved ONCE, frozen at start
+// ---------------------------------------------------------------------------
+
+// A two-step lane where the first step overrides the roster and the second does
+// not, under an optional roadmap-wide policy roster.
+function staffedRoadmap(policyRoster?: string) {
+  const policyLine = policyRoster ? `roster: ${policyRoster}\n` : ''
+  return parseRoadmap(
+    `---\ntype: roadmap\nadvance: auto\nmerge: manual\n${policyLine}---\n\n## Backend\n- backlog/a.md  @roster=Mobile UI\n- backlog/b.md\n`,
+  )
+}
+
+function startActionFor(roadmapValue: ReturnType<typeof parseRoadmap>, items: RoadmapItemState[]) {
+  const result = reconcileRoadmap(baseInput({ roadmap: roadmapValue, items }))
+  const action = result.actions[0]
+  assert.equal(action?.kind, 'start')
+  return { action: action as Extract<typeof action, { kind: 'start' }>, result }
+}
+
+test('SEAM(1881x1883): a step override wins over the policy roster', () => {
+  const { action, result } = startActionFor(staffedRoadmap('General agents'), [
+    item('backlog/a.md', 'ready'),
+    item('backlog/b.md', 'ready'),
+  ])
+  assert.equal(action.roster, 'Mobile UI')
+  // …and it is frozen onto the lane runtime at the same moment.
+  assert.equal(result.laneRuntimes.get('Backend')?.activeRoster, 'Mobile UI')
+})
+
+test('SEAM(1881x1883): a step with no override starts with the policy roster', () => {
+  // Step a is already delivered, so the frontier is step b — the un-annotated one.
+  const { action } = startActionFor(staffedRoadmap('General agents'), [
+    item('backlog/a.md', 'completed'),
+    item('backlog/b.md', 'ready'),
+  ])
+  assert.equal(action.itemRef, 'backlog/b.md')
+  assert.equal(action.roster, 'General agents')
+})
+
+test('SEAM(1881x1883): neither tier set → undefined (the built-in default)', () => {
+  const { action, result } = startActionFor(staffedRoadmap(undefined), [
+    item('backlog/a.md', 'completed'),
+    item('backlog/b.md', 'ready'),
+  ])
+  assert.equal(action.roster, undefined)
+  assert.equal('roster' in action, false)
+  assert.equal('activeRoster' in (result.laneRuntimes.get('Backend') ?? {}), false)
+})
+
+test('SEAM(1881x1883): the action agrees with resolveEntryRoster on every combination', () => {
+  // The acceptance claim is "one resolution function serves both". Prove it by
+  // asserting the orchestrator's answer EQUALS the substrate function's answer
+  // for the whole 2x2, rather than re-stating the expected strings by hand.
+  for (const policyRoster of [undefined, 'General agents']) {
+    for (const stepAnnotated of [true, false]) {
+      const body = stepAnnotated ? '- backlog/a.md  @roster=Mobile UI' : '- backlog/a.md'
+      const policyLine = policyRoster ? `roster: ${policyRoster}\n` : ''
+      const parsed = parseRoadmap(
+        `---\ntype: roadmap\nadvance: auto\nmerge: manual\n${policyLine}---\n\n## Backend\n${body}\n`,
+      )
+      const { action } = startActionFor(parsed, [item('backlog/a.md', 'ready')])
+      const expected = resolveEntryRoster(parsed.lanes[0].entries[0], parsed.policy)
+      assert.equal(
+        action.roster,
+        expected,
+        `policy=${String(policyRoster)} step=${stepAnnotated} → orchestrator and resolveEntryRoster must agree`,
+      )
+    }
+  }
+})
+
+test('SEAM(1881x1883): an epic step passes ONE roster for the whole step', () => {
+  const parsed = parseRoadmap(
+    '---\ntype: roadmap\nadvance: auto\nmerge: manual\n---\n\n## Backend\n- backlog/epics/auth.md  @roster=Mobile UI\n  - backlog/a.md\n  - backlog/b.md\n',
+  )
+  const { action, result } = startActionFor(parsed, [
+    item('backlog/epics/auth.md', 'ready'),
+    item('backlog/a.md', 'ready'),
+    item('backlog/b.md', 'ready'),
+  ])
+  // One start, one roster — children are not dispatched and carry no staffing.
+  assert.equal(result.actions.length, 1)
+  assert.equal(action.itemRef, 'backlog/epics/auth.md')
+  assert.equal(action.roster, 'Mobile UI')
+})
+
+test('clearing a lane’s active run also clears the roster it was started with', () => {
+  // A delivered shared run releases the lane; the roster is part of the ACTIVE
+  // handle, so a released lane must not keep reporting stale staffing.
+  const runtimes = new Map<string, RoadmapLaneRuntime>([
+    ['Backend', { lane: 'Backend', activeItemRef: qref('backlog/a.md'), activeTeamSlug: 'team-a', activeRoster: 'Mobile UI' }],
+  ])
+  const result = reconcileRoadmap(baseInput({
+    roadmap: staffedRoadmap(undefined),
+    items: [item('backlog/a.md', 'completed'), item('backlog/b.md', 'ready')],
+    laneRuntimes: runtimes,
+    observations: new Map([[qref('backlog/a.md'), observation({ mode: 'shared', lifecycle: 'completed' })]]),
+  }))
+  const cleared = result.actions.find((action) => action.kind === 'clear_active')
+  assert.ok(cleared, 'the delivered run should release the lane')
+  assert.equal(result.laneRuntimes.get('Backend')?.activeRoster, undefined)
 })

@@ -129,6 +129,22 @@ export type AutomationRendererRequest =
        */
       roster?: Record<string, number>
       /**
+       * The CLI permission preset the run's agents SPAWN with (MC-1900).
+       *
+       * Honored on the PLAN-SOURCED path only — a horizon step, an automation,
+       * a chained sprint: there the escalation comes from a human-authored plan
+       * file or automation definition, which is consent. The goal-sourced path
+       * (an arbitrary external caller with a bare goal) keeps its hardcoded
+       * 'default' and cannot be escalated through this field, which is the
+       * "external creation never self-escalates" rule the pre-horizon comment
+       * was protecting. Absent on the plan-sourced path = bypass, because a
+       * plan-sourced run is unwatched by construction.
+       *
+       * Spawn-time only (MC-1808): a running agent can never be flipped to
+       * bypass, so this value matters exactly once, at creation.
+       */
+      permissionPreset?: SprintEngineCliPermissionPreset
+      /**
        * Self-trigger loop guard (sprint chaining): refuse creation when the new
        * run's team dir slug would equal this watched team dir.
        */

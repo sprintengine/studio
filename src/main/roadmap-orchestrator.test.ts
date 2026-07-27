@@ -36,6 +36,12 @@ type Harness = {
   store: Map<string, Map<string, RoadmapLaneRuntime>>
   starts: string[]
   startCalls: Array<{ root: string; rel: string }>
+  // The FULL startSprint input, so a test can assert on staffing + permissions
+  // rather than only on which item started (MC-1883, MC-1900).
+  startInputs: Array<{ root: string; rel: string; roster?: string; permissionPreset: string }>
+  // Injected start refusal (e.g. an unknown roster name), cleared when null.
+  setStartFailure: (message: string | null) => void
+  diagnostics: Array<{ level: string; title: string; message: string }>
   merges: string[]
   notices: Array<{ severity: string; title: string; body?: string }>
   audits: RoadmapAuditEntry[]
@@ -52,6 +58,7 @@ type Harness = {
   itemOutcomes: Map<string, Map<string, RoadmapItemOutcome>>
   getRoadmap: () => string
   setRoadmap: (content: string) => void
+  roadmapFiles: Map<string, string>
 }
 
 const linkKey = (root: string, rel: string): string => `${root}::${rel}`
@@ -74,12 +81,17 @@ function harness(
     itemsByRoot.set(root, new Map(list.map((item) => [item.relativePath, item])))
   }
 
-  let roadmapContent = initialRoadmap
+  // MC-1901: horizon.create writes a NEW roadmap file, so the harness has to hold
+  // more than one. Keyed by relative path; ROADMAP_REF is the pre-existing one.
+  const roadmapFiles = new Map<string, string>([[ROADMAP_REF, initialRoadmap]])
   const links = new Map<string, RoadmapRunRef>()
   const runs = new Map<string, RoadmapRunSnapshot>()
   const store = new Map<string, Map<string, RoadmapLaneRuntime>>()
   const starts: string[] = []
   const startCalls: Array<{ root: string; rel: string }> = []
+  const startInputs: Array<{ root: string; rel: string; roster?: string; permissionPreset: string }> = []
+  const diagnostics: Array<{ level: string; title: string; message: string }> = []
+  let startFailure: string | null = null
   const merges: string[] = []
   const notices: Array<{ severity: string; title: string; body?: string }> = []
   const audits: RoadmapAuditEntry[] = []
@@ -96,13 +108,20 @@ function harness(
     listWorkspaceRoots: () => roots,
     listBacklogItems: async (root) => {
       const projItems = [...(itemsByRoot.get(root)?.values() ?? [])]
-      return root === ROOT
-        ? [{ relativePath: ROADMAP_REF, status: 'ready', isRoadmap: true, numericId: 100 }, ...projItems]
-        : projItems
+      if (root !== ROOT) return projItems
+      // Each roadmap file reports its REAL frontmatter status, so activation
+      // (promote one, demote the rest) is exercised rather than assumed.
+      const roadmaps = [...roadmapFiles.entries()].map(([relativePath, content], index) => ({
+        relativePath,
+        status: (/^status:\s*(\S+)/m.exec(content)?.[1] ?? 'idea') as RoadmapBacklogItem['status'],
+        isRoadmap: true,
+        numericId: 100 + index,
+      }))
+      return [...roadmaps, ...projItems]
     },
-    readRoadmapFile: async (_root, relativePath) => (relativePath === ROADMAP_REF ? roadmapContent : null),
+    readRoadmapFile: async (_root, relativePath) => roadmapFiles.get(relativePath) ?? null,
     writeRoadmapFile: async (_root, relativePath, content) => {
-      if (relativePath === ROADMAP_REF) roadmapContent = content
+      roadmapFiles.set(relativePath, content)
     },
     appendAudit: async (_roadmapRef, entry) => {
       audits.push(entry)
@@ -123,7 +142,14 @@ function harness(
       const item = projItems?.get(rel)
       if (item && projItems) projItems.set(rel, { ...item, status })
     },
-    startSprint: async ({ workspaceRoot, itemRelativePath }) => {
+    startSprint: async ({ workspaceRoot, itemRelativePath, roster, permissionPreset }) => {
+      startInputs.push({
+        root: workspaceRoot,
+        rel: itemRelativePath,
+        ...(roster !== undefined ? { roster } : {}),
+        permissionPreset,
+      })
+      if (startFailure) return { ok: false, message: startFailure }
       starts.push(itemRelativePath)
       startCalls.push({ root: workspaceRoot, rel: itemRelativePath })
       const statePath = statePathFor(workspaceRoot, itemRelativePath)
@@ -147,7 +173,7 @@ function harness(
       store.set(roadmapRef, new Map([...lanes].map(([k, v]) => [k, { ...v }])))
     },
     notify: (input) => notices.push({ severity: input.severity, title: input.title, ...(input.body ? { body: input.body } : {}) }),
-    logDiagnostic: () => undefined,
+    logDiagnostic: (input) => diagnostics.push({ level: input.level, title: input.title, message: input.message }),
     now: () => new Date('2026-07-18T00:00:00Z'),
   }
 
@@ -159,6 +185,11 @@ function harness(
     store,
     starts,
     startCalls,
+    startInputs,
+    diagnostics,
+    setStartFailure: (message) => {
+      startFailure = message
+    },
     merges,
     notices,
     audits,
@@ -171,10 +202,11 @@ function harness(
     setMergeFailure: (outcome) => {
       mergeFailure = outcome
     },
-    getRoadmap: () => roadmapContent,
+    getRoadmap: () => roadmapFiles.get(ROADMAP_REF) ?? '',
     setRoadmap: (content) => {
-      roadmapContent = content
+      roadmapFiles.set(ROADMAP_REF, content)
     },
+    roadmapFiles,
   }
 }
 
@@ -964,4 +996,260 @@ test('SEAM: the completion write is idempotent — a second reconcile re-asserts
   // Re-asserting is fine; changing its mind is not.
   assert.ok(h.statusWrites.every((write) => write.status === 'completed'))
   assert.ok(h.statusWrites.length >= afterMerge)
+})
+
+// ---------------------------------------------------------------------------
+// Per-step roster + permissions reach the launch (MC-1883, MC-1900)
+// ---------------------------------------------------------------------------
+
+const STAFFED_BODY = '## Backend\n- backlog/a.md  @roster=Mobile UI\n- backlog/b.md'
+
+test('SEAM(1881x1883): the driver forwards the RESOLVED per-step roster to startSprint', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'roster: General agents\n'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  // Step a overrides…
+  await orchestrator.reconcile()
+  assert.equal(h.startInputs.at(-1)?.rel, 'backlog/a.md')
+  assert.equal(h.startInputs.at(-1)?.roster, 'Mobile UI')
+  assert.equal(lane(h)?.activeRoster, 'Mobile UI')
+
+  // …and its sibling, which does not, starts with the horizon's roster.
+  setItem(h, ROOT, { relativePath: 'backlog/a.md', status: 'completed' })
+  h.runs.set([...h.links.values()][0].statePath, { mode: 'shared', lifecycle: 'completed' })
+  await orchestrator.reconcile()
+  await orchestrator.reconcile()
+  assert.equal(h.startInputs.at(-1)?.rel, 'backlog/b.md')
+  assert.equal(h.startInputs.at(-1)?.roster, 'General agents')
+  assert.equal(lane(h)?.activeRoster, 'General agents')
+})
+
+test('SEAM(1900x1883): a step launches with its own roster AND the horizon permission preset', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: auto_workspace\n'))
+  await createRoadmapOrchestrator(h.ports).reconcile()
+  assert.deepEqual(h.startInputs, [
+    { root: ROOT, rel: 'backlog/a.md', roster: 'Mobile UI', permissionPreset: 'auto_workspace' },
+  ])
+})
+
+test('SEAM(1900x1883): a horizon with NO permissions policy spawns in bypass', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY))
+  await createRoadmapOrchestrator(h.ports).reconcile()
+  assert.equal(h.startInputs.at(-1)?.permissionPreset, 'bypass_all')
+})
+
+test('a typo in the permissions policy reads as unset (bypass), never as a third thing', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: bypasss\n'))
+  await createRoadmapOrchestrator(h.ports).reconcile()
+  assert.equal(h.startInputs.at(-1)?.permissionPreset, 'bypass_all')
+})
+
+test('an unknown roster fails the start loudly: park + diagnostic, and the lane does NOT advance', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY))
+  h.setStartFailure('Saved roster "Mobile UI" was not found.')
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  await orchestrator.reconcile()
+  // It was attempted with the step's roster…
+  assert.equal(h.startInputs.at(-1)?.roster, 'Mobile UI')
+  // …no run was created…
+  assert.deepEqual(h.starts, [])
+  // …no execution link was written, so nothing can later adopt a phantom run…
+  assert.equal(h.links.size, 0)
+  // …the lane parked rather than advancing to the next step…
+  assert.equal(lane(h)?.parked?.reason, 'start_failed')
+  assert.equal(lane(h)?.parked?.itemRef, qref('backlog/a.md'))
+  // …and it is visible in the UI, not just a console warning.
+  assert.equal(h.notices.at(-1)?.title, 'Horizon paused')
+  const diagnostic = h.diagnostics.at(-1)
+  assert.equal(diagnostic?.title, 'Horizon step could not start')
+  assert.match(diagnostic?.message ?? '', /Mobile UI/)
+
+  // A parked lane never auto-unparks, so step b is never reached.
+  await orchestrator.reconcile()
+  assert.deepEqual(h.starts, [])
+})
+
+test('editing the horizon roster mid-run does not rewrite the running step’s recorded roster', async () => {
+  const h = harness(roadmapFile('auto', 'manual', '## Backend\n- backlog/a.md\n- backlog/b.md', 'roster: General agents\n'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.activeRoster, 'General agents')
+
+  // The author restaffs the horizon while step a is still executing.
+  h.setRoadmap(roadmapFile('auto', 'manual', '## Backend\n- backlog/a.md\n- backlog/b.md', 'roster: Mobile UI\n'))
+  await orchestrator.reconcile()
+
+  // The board must report what the run was STARTED with, not what the file says
+  // now — the run's agents cannot be restaffed after the fact.
+  assert.equal(lane(h)?.activeRoster, 'General agents')
+  assert.equal(h.startInputs.length, 1)
+})
+
+test('a resumed lane drops the roster with the rest of the dead active handle', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.activeRoster, 'Mobile UI')
+
+  // The run fails; the lane parks; a human resumes it.
+  h.runs.set([...h.links.values()][0].statePath, { mode: 'worktree', lifecycle: 'failed' })
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.parked?.reason, 'run_failed')
+  await orchestrator.resumeLane(ROADMAP_REF, 'Backend', 'user')
+  await orchestrator.reconcile()
+
+  // Resume re-plans a fresh sprint, so the roster is re-resolved from the file
+  // rather than inherited from the dead handle.
+  assert.equal(h.startInputs.at(-1)?.roster, 'Mobile UI')
+  assert.equal(h.startInputs.length, 2)
+})
+
+// ---------------------------------------------------------------------------
+// Horizon authoring over MCP (MC-1901)
+// ---------------------------------------------------------------------------
+
+test('horizon.configure: a policy write leaves the plan body byte-identical', async () => {
+  const h = harness(roadmapFile('approve', 'manual'))
+  const before = h.getRoadmap()
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const outcome = await orchestrator.configureHorizon({
+    policy: { roster: 'Mobile UI', permissions: 'bypass_all', merge: 'auto' },
+  })
+  assert.equal(outcome.ok, true)
+
+  const after = h.getRoadmap()
+  const bodyOf = (content: string): string => content.slice(content.indexOf('\n---\n') + 5)
+  assert.equal(bodyOf(after), bodyOf(before), 'the plan must not be perturbed by a policy write')
+  assert.match(after, /roster: Mobile UI/)
+  assert.match(after, /permissions: bypass_all/)
+  assert.match(after, /merge: auto/)
+  // Unrelated frontmatter survives.
+  assert.match(after, /id: 100/)
+})
+
+test('horizon.configure: clearing the roster removes the key, and an invalid value is refused', async () => {
+  const h = harness(roadmapFile('approve', 'manual', '## Backend\n- backlog/a.md', 'roster: Mobile UI\n'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const bad = await orchestrator.configureHorizon({ policy: { permissions: 'bypass' as never } })
+  assert.equal(bad.ok, false)
+  assert.match(bad.message ?? '', /permissions must be/)
+  assert.match(h.getRoadmap(), /roster: Mobile UI/, 'a refused write changes nothing')
+
+  const cleared = await orchestrator.configureHorizon({ policy: { roster: undefined } })
+  assert.equal(cleared.ok, true)
+  assert.doesNotMatch(h.getRoadmap(), /roster:/)
+})
+
+test('horizon.create: lands advance approve and starts NOTHING, even with a ready plan', async () => {
+  const h = harness(roadmapFile('auto', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const created = await orchestrator.createHorizon({
+    name: 'Payments',
+    steps: ['backlog/a.md', 'backlog/b.md'],
+    // The caller ASKS for auto and does not pass `start` — the write must still
+    // be gated. This is the live incident this default exists to prevent.
+    policy: { advance: 'auto', roster: 'Mobile UI' },
+  })
+  assert.equal(created.ok, true)
+  if (!created.ok) return
+  assert.equal(created.advance, 'approve')
+  assert.deepEqual(created.steps, ['backlog/a.md', 'backlog/b.md'])
+
+  const written = h.roadmapFiles.get(created.roadmapRef) ?? ''
+  assert.match(written, /advance: approve/)
+  assert.match(written, /roster: Mobile UI/)
+  assert.match(written, /- backlog\/a\.md/)
+  // It is the ACTIVE horizon (so it is steerable), and the previous one was demoted.
+  assert.match(written, /status: ready/)
+  assert.match(h.roadmapFiles.get(ROADMAP_REF) ?? '', /status: idea/)
+
+  // The decisive assertion: creating it spawned nothing.
+  assert.deepEqual(h.starts, [])
+  await orchestrator.reconcile()
+  assert.deepEqual(h.starts, [], 'a created horizon must not start on the next tick either')
+})
+
+test('horizon.create: `start: true` is the single explicit exception', async () => {
+  const h = harness(roadmapFile('approve', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const created = await orchestrator.createHorizon({
+    name: 'Now please',
+    steps: ['backlog/a.md'],
+    start: true,
+  })
+  assert.equal(created.ok, true)
+  if (!created.ok) return
+  assert.equal(created.advance, 'auto')
+  assert.match(h.roadmapFiles.get(created.roadmapRef) ?? '', /advance: auto/)
+
+  await orchestrator.reconcile()
+  assert.deepEqual(h.starts, ['backlog/a.md'])
+})
+
+test('horizon.create: an unknown step ref is rejected and named, not silently dropped', async () => {
+  const h = harness(roadmapFile('approve', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  const before = new Set(h.roadmapFiles.keys())
+  const activeBefore = h.getRoadmap()
+
+  const created = await orchestrator.createHorizon({ name: 'Typo', steps: ['backlog/a.md', 'backlog/nope.md'] })
+  assert.equal(created.ok, false)
+  if (created.ok) return
+  assert.match(created.message, /backlog\/nope\.md/)
+
+  // And the refusal is a NO-OP, not a half-built horizon: every step is checked
+  // BEFORE anything is written, so a typo in the second step cannot leave a new
+  // active horizon on disk with the first step in it and the old one demoted.
+  assert.match(created.message, /Nothing was created/)
+  assert.deepEqual(new Set(h.roadmapFiles.keys()), before, 'no file may be created')
+  assert.equal(h.getRoadmap(), activeBefore, 'the previously-active horizon must not be demoted')
+})
+
+test('horizon.create: an invalid policy value is refused before any file is written', async () => {
+  const h = harness(roadmapFile('approve', 'manual'))
+  const before = new Set(h.roadmapFiles.keys())
+  const created = await createRoadmapOrchestrator(h.ports).createHorizon({
+    name: 'Bad',
+    policy: { merge: 'sometimes' as never },
+  })
+  assert.equal(created.ok, false)
+  assert.deepEqual(new Set(h.roadmapFiles.keys()), before, 'no file may be created by a refused call')
+})
+
+test('horizon.create + configure are audited as agent actions', async () => {
+  const h = harness(roadmapFile('approve', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.createHorizon({ name: 'Audited', steps: ['backlog/a.md'], actor: 'automation' })
+  await orchestrator.configureHorizon({ policy: { merge: 'auto' }, actor: 'automation' })
+  const actions = h.audits.map((entry) => entry.action)
+  assert.ok(actions.includes('add_step'), 'the step add is audited')
+  assert.ok(actions.includes('configure'), 'the policy write is audited')
+  assert.ok(h.audits.every((entry) => entry.actor === 'automation'))
+})
+
+test('SEAM(1900x1808): adopting a LIVE run never re-starts it, so no preset flip is attempted', async () => {
+  const h = harness(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: default\n'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  // First tick starts the step under the horizon's gated policy.
+  await orchestrator.reconcile()
+  assert.equal(h.startInputs.length, 1)
+  assert.equal(h.startInputs[0].permissionPreset, 'default')
+
+  // The author now flips the horizon to bypass while that run is executing.
+  h.setRoadmap(roadmapFile('auto', 'manual', STAFFED_BODY, 'permissions: bypass_all\n'))
+  await orchestrator.reconcile()
+  await orchestrator.reconcile()
+
+  // Bypass is spawn-time-only (MC-1808): the live run is adopted through its
+  // execution link, NOT restarted, so nothing tries to change its agents'
+  // preset. A run started gated stays gated until it is cancelled and relaunched.
+  assert.equal(h.startInputs.length, 1, 'a live run must never be re-started to change its permissions')
+  assert.deepEqual(h.starts, ['backlog/a.md'])
 })

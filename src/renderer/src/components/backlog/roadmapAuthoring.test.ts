@@ -7,6 +7,7 @@ import {
   addLane,
   addLibraryEntry,
   authoredRef,
+  buildRoadmapEntry,
   composeRoadmapSaveContent,
   draftContainsRef,
   draftFromRoadmap,
@@ -27,6 +28,7 @@ import {
   resyncEpicEntry,
   roadmapItemStates,
   roadmapProjectAlias,
+  setEntryRoster,
   snapshotEpicChildren,
   splitLane,
   structureChanged,
@@ -416,6 +418,81 @@ run('snapshotEpicChildren: finished members never ride into a new plan', () => {
   // And the drift check agrees: an already-open-only snapshot reports no drift,
   // so "Update" never offers to re-add delivered work.
   assert.equal(epicEntryDrift(project.items, entry), null)
+})
+
+// ---------------------------------------------------------------------------
+// Per-step roster transform (MC-1881)
+// ---------------------------------------------------------------------------
+
+// A three-step plan on one track, saved to disk, ready to be edited.
+function rosterFixture(): { content: string; baseline: ReturnType<typeof draftFromRoadmap> } {
+  const seed = newRoadmapFileContent('Staffing')
+  let draft = draftFromRoadmap(parseRoadmap(seed))
+  draft = addLibraryEntry(draft, 0, HOME, 'backlog/foo.md')
+  draft = addLibraryEntry(draft, 0, HOME, 'backlog/bar.md')
+  draft = addLibraryEntry(draft, 0, HOME, 'backlog/baz.md')
+  const content = composeRoadmapSaveContent(seed, draftFromRoadmap(parseRoadmap(seed)), draft)
+  return { content, baseline: draftFromRoadmap(parseRoadmap(content)) }
+}
+
+run('SEAM(1881x1882): a roster edit takes the BODY save path, not the frontmatter-only one', () => {
+  const { content, baseline } = rosterFixture()
+  const draft = { ...baseline, lanes: setEntryRoster(baseline.lanes, 0, 1, 'Mobile UI') }
+  // The whole point: a roster edit must NOT take the frontmatter-only save path,
+  // or the edit silently does not persist.
+  assert.equal(structureChanged(baseline, draft), true)
+  assert.equal(policyChanged(baseline, draft), false)
+
+  const saved = composeRoadmapSaveContent(content, baseline, draft)
+  assert.deepEqual(
+    parseRoadmap(saved).lanes[0].entries.map((entry) => entry.roster),
+    [undefined, 'Mobile UI', undefined],
+  )
+})
+
+run('SEAM(1881x1882): only the edited line changes; every other byte survives', () => {
+  const { content, baseline } = rosterFixture()
+  const draft = { ...baseline, lanes: setEntryRoster(baseline.lanes, 0, 1, 'Mobile UI') }
+  const saved = composeRoadmapSaveContent(content, baseline, draft)
+
+  const before = content.split('\n')
+  const after = saved.split('\n')
+  assert.equal(before.length, after.length)
+  const changed = before.map((line, index) => [line, after[index]]).filter(([a, b]) => a !== b)
+  assert.deepEqual(changed, [['- backlog/bar.md', '- backlog/bar.md  @roster=Mobile UI']])
+})
+
+run('SEAM(1881x1882): clearing removes the key, restoring the original file byte-for-byte', () => {
+  const { content, baseline } = rosterFixture()
+  const staffed = { ...baseline, lanes: setEntryRoster(baseline.lanes, 0, 1, 'Mobile UI') }
+  const savedStaffed = composeRoadmapSaveContent(content, baseline, staffed)
+
+  const rebaseline = draftFromRoadmap(parseRoadmap(savedStaffed))
+  const cleared = { ...rebaseline, lanes: setEntryRoster(rebaseline.lanes, 0, 1, undefined) }
+  assert.equal(structureChanged(rebaseline, cleared), true)
+  assert.equal(composeRoadmapSaveContent(savedStaffed, rebaseline, cleared), content)
+  // Cleared means the KEY is gone, not an empty string left behind.
+  assert.equal('roster' in cleared.lanes[0].entries[1], false)
+})
+
+run('setEntryRoster: a blank name clears rather than storing an empty roster', () => {
+  const { baseline } = rosterFixture()
+  const lanes = setEntryRoster(setEntryRoster(baseline.lanes, 0, 0, 'Mobile UI'), 0, 0, '   ')
+  assert.equal('roster' in lanes[0].entries[0], false)
+})
+
+run('setEntryRoster: an out-of-range index is a no-op, and other tracks are untouched', () => {
+  const { baseline } = rosterFixture()
+  const twoTracks = { ...baseline, lanes: addLane(baseline.lanes, 'Later') }
+  const lanes = setEntryRoster(twoTracks.lanes, 0, 99, 'Mobile UI')
+  assert.deepEqual(lanes[0].entries.map((entry) => entry.roster), [undefined, undefined, undefined])
+  assert.equal(structureChanged(twoTracks, { ...twoTracks, lanes }), false)
+})
+
+run('buildRoadmapEntry: an optional roster rides the constructed entry', () => {
+  assert.equal(buildRoadmapEntry(null, 'backlog/foo.md', [], 'Mobile UI').roster, 'Mobile UI')
+  assert.equal('roster' in buildRoadmapEntry(null, 'backlog/foo.md', []), false)
+  assert.equal('roster' in buildRoadmapEntry(null, 'backlog/foo.md', [], '  '), false)
 })
 
 let failures = 0

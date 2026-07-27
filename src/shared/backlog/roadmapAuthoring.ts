@@ -3,7 +3,7 @@
 // a track, decide the save path — and the constructor that turns a picked reference
 // into a lane entry live here so ONE transform engine serves both the human editor
 // (src/renderer/src/components/backlog/roadmapAuthoring.ts, which re-exports these)
-// and the agent-facing `roadmap.*` automation tools (src/main).
+// and the agent-facing `horizon.*` automation tools (src/main).
 //
 // It consumes only the T3 substrate (src/shared/backlog/roadmap): the canonical body
 // serializer (renderRoadmapBody), the frontmatter-only policy/projects writers, and
@@ -136,13 +136,47 @@ export function isEpicRef(ref: string): boolean {
 // entry stays unqualified and an aliased entry keeps its `alias:` prefix, round-
 // tripping through renderRoadmapBody unchanged. A non-epic ref carries no children
 // even if the caller passes some (defensive: only an epic entry stores a snapshot).
-export function buildRoadmapEntry(projectKey: ProjectKey, relativePath: string, epicChildRefs: ReadonlyArray<string>): RoadmapEntry {
+// `roster` is the optional per-step staffing override (MC-1881); omitted or blank
+// means the step inherits the roadmap's policy roster.
+export function buildRoadmapEntry(
+  projectKey: ProjectKey,
+  relativePath: string,
+  epicChildRefs: ReadonlyArray<string>,
+  roster?: string,
+): RoadmapEntry {
   const normalized = normalizeRoadmapPath(relativePath)
   const ref = authoredRef(projectKey, normalized)
+  const staffing = roster?.trim() ? { roster: roster.trim() } : {}
   if (isEpicRef(normalized)) {
-    return { kind: 'epic', ref, projectKey, relativePath: normalized, children: epicChildRefs.map(normalizeRoadmapPath) }
+    return { kind: 'epic', ref, projectKey, relativePath: normalized, children: epicChildRefs.map(normalizeRoadmapPath), ...staffing }
   }
-  return { kind: 'item', ref, projectKey, relativePath: normalized, children: [] }
+  return { kind: 'item', ref, projectKey, relativePath: normalized, children: [], ...staffing }
+}
+
+// Set (or clear) one step's roster override. A blank/undefined roster REMOVES the
+// key rather than storing an empty string, so clearing an override renders the
+// entry line byte-identically to a step that never had one. Pure and immutable
+// like every transform here, so the human editor (MC-1882) and the agent-facing
+// horizon tools (MC-1901) share one engine and cannot drift on what a "cleared"
+// override serializes to.
+export function setEntryRoster(
+  lanes: RoadmapLane[],
+  laneIndex: number,
+  entryIndex: number,
+  roster: string | undefined,
+): RoadmapLane[] {
+  const trimmed = roster?.trim()
+  return lanes.map((lane, index) => {
+    if (index !== laneIndex) return lane
+    return {
+      ...lane,
+      entries: lane.entries.map((entry, i) => {
+        if (i !== entryIndex) return entry
+        const { roster: _dropped, ...rest } = entry
+        return trimmed ? { ...rest, roster: trimmed } : rest
+      }),
+    }
+  })
 }
 
 // Whether a ref already appears anywhere in the draft (as an entry ref). Used to
@@ -300,6 +334,9 @@ function policyDiff(baseline: RoadmapPolicy, next: RoadmapPolicy): Partial<Roadm
   // A cleared roster must ride the diff as an explicitly-present undefined key —
   // setRoadmapPolicy keys the frontmatter REMOVAL off `'roster' in updates`.
   if (baseline.roster !== next.roster) diff.roster = next.roster
+  // Same key-presence rule as roster: a cleared permission preset must ride the
+  // diff as a present-but-undefined key so setRoadmapPolicy REMOVES the scalar.
+  if (baseline.permissions !== next.permissions) diff.permissions = next.permissions
   return Object.keys(diff).length > 0 ? diff : null
 }
 

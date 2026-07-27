@@ -10,7 +10,7 @@ import { useNotificationStore } from '../../store/notificationStore'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { shouldOpenStartupTipOnComplete } from '../../store/onboardingState'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
-import { normalizeSelectedCli } from '../../store/slices/settingsSlice'
+import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
@@ -369,7 +369,7 @@ export default function WorkspaceManager() {
   const lastNewChatAgent = useWorkspaceStore((s) => s.appSettings.lastNewChatAgent)
   const setLastNewChatAgent = useWorkspaceStore((s) => s.setLastNewChatAgent)
   const lastAgentSpawnPermissionPreset = useWorkspaceStore(
-    (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? 'default'
+    (s) => s.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
   )
   const setLastAgentSpawnPermissionPreset = useWorkspaceStore(
     (s) => s.setLastAgentSpawnPermissionPreset

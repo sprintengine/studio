@@ -319,15 +319,17 @@ async function testToolListNamesTheToolSurface(): Promise<void> {
       'backlog.repair',
       'backlog.update',
       'backlog.work',
-      'roadmap.add_step',
-      'roadmap.approve',
-      'roadmap.merge',
-      'roadmap.pause',
-      'roadmap.remove_step',
-      'roadmap.reorder',
-      'roadmap.resume',
-      'roadmap.skip',
-      'roadmap.status',
+      'horizon.add_step',
+      'horizon.approve',
+      'horizon.configure',
+      'horizon.create',
+      'horizon.merge',
+      'horizon.pause',
+      'horizon.remove_step',
+      'horizon.reorder',
+      'horizon.resume',
+      'horizon.skip',
+      'horizon.status',
       'sprint.artifact.approve',
       'sprint.artifact.request_changes',
       'sprint.cancel',
@@ -1970,6 +1972,8 @@ function recordingRoadmapFrontDoor(overrides: {
   reorderStep?: (input: unknown) => Promise<{ ok: boolean; message?: string }>
   skipStep?: (input: unknown) => Promise<{ ok: boolean; message?: string }>
   steerLane?: (lane: string, action: string, actor: string) => Promise<{ ok: boolean; message?: string }>
+  createHorizon?: (input: unknown) => Promise<Record<string, unknown>>
+  configureHorizon?: (input: unknown) => Promise<Record<string, unknown>>
 } = {}): { frontDoor: AutomationBackends['getRoadmapFrontDoor']; calls: unknown[] } {
   const calls: unknown[] = []
   const record = <T,>(name: string, value: T): T => {
@@ -1983,6 +1987,15 @@ function recordingRoadmapFrontDoor(overrides: {
       removeStep: (input: unknown) => (overrides.removeStep ?? (async () => ({ ok: true })))(record('removeStep', input)),
       reorderStep: (input: unknown) => (overrides.reorderStep ?? (async () => ({ ok: true })))(record('reorderStep', input)),
       skipStep: (input: unknown) => (overrides.skipStep ?? (async () => ({ ok: true })))(record('skipStep', input)),
+      createHorizon: (input: unknown) =>
+        (overrides.createHorizon
+          ?? (async () => ({ ok: true, roadmapRef: 'backlog/roadmaps/2026-07-27-new.md', advance: 'approve', steps: [], policy: { advance: 'approve', merge: 'manual', concurrency: 1 } })))(
+          record('createHorizon', input),
+        ),
+      configureHorizon: (input: unknown) =>
+        (overrides.configureHorizon ?? (async () => ({ ok: true, policy: { advance: 'approve', merge: 'manual', concurrency: 1 } })))(
+          record('configureHorizon', input),
+        ),
       steerLane: (lane: string, action: string, actor: string, options?: unknown) => {
         calls.push({ name: 'steerLane', value: { lane, action, actor, options } })
         return (overrides.steerLane ?? (async () => ({ ok: true })))(lane, action, actor)
@@ -1991,19 +2004,94 @@ function recordingRoadmapFrontDoor(overrides: {
   return { frontDoor: () => frontDoor(), calls }
 }
 
+async function testHorizonCreateAndConfigure(): Promise<void> {
+  // SEAM(1901 x 1900/1881): the two authoring tools carry the policy fields the
+  // other items added — `permissions` (MC-1900) and `roster` (MC-1881) — through
+  // to the front door, and the safety default holds.
+  const created = recordingRoadmapFrontDoor({})
+  const tools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: created.frontDoor }))
+
+  // 1. A plain create passes no `start`, so the front door decides `approve`.
+  const plain = await tool(tools, 'horizon.create').handler({ name: 'Platform', steps: ['backlog/foo.md'] })
+  assert.equal(plain.isError, undefined)
+  const plainCall = created.calls.find((call) => (call as { name: string }).name === 'createHorizon') as { value: Record<string, unknown> }
+  assert.equal(plainCall.value.name, 'Platform')
+  assert.deepEqual(plainCall.value.steps, ['backlog/foo.md'])
+  assert.equal(plainCall.value.start, undefined, 'start must not be invented when the caller did not ask')
+  // The result says plainly whether anything will run, so consent is never inferred.
+  assert.equal((plain.structuredContent as { created: { startsOnItsOwn: boolean } }).created.startsOnItsOwn, false)
+
+  // 2. Policy fields ride through verbatim, including MC-1900's permissions.
+  await tool(tools, 'horizon.create').handler({
+    name: 'Staffed',
+    roster: 'Mobile UI',
+    permissions: 'auto_workspace',
+    merge: 'auto',
+    concurrency: 2,
+  })
+  const staffed = created.calls.filter((call) => (call as { name: string }).name === 'createHorizon').at(-1) as { value: { policy: Record<string, unknown> } }
+  assert.deepEqual(staffed.value.policy, { roster: 'Mobile UI', permissions: 'auto_workspace', merge: 'auto', concurrency: 2 })
+
+  // 3. `start: true` is forwarded as the single explicit exception.
+  await tool(tools, 'horizon.create').handler({ name: 'Now', start: true, advance: 'auto' })
+  const started = created.calls.filter((call) => (call as { name: string }).name === 'createHorizon').at(-1) as { value: Record<string, unknown> }
+  assert.equal(started.value.start, true)
+
+  // 4. A malformed steps array is refused before anything is written.
+  const badSteps = await tool(tools, 'horizon.create').handler({ name: 'Bad', steps: ['backlog/foo.md', ''] })
+  assert.equal(badSteps.isError, true)
+  assert.equal((badSteps.structuredContent as { error: { code: string } }).error.code, 'horizon_invalid_steps')
+
+  // 5. horizon.configure forwards only the named fields — `roster: null` CLEARS
+  //    (key present, value undefined), an absent key is left untouched.
+  await tool(tools, 'horizon.configure').handler({ roster: null, permissions: 'bypass_all' })
+  const configured = created.calls.find((call) => (call as { name: string }).name === 'configureHorizon') as { value: { policy: Record<string, unknown> } }
+  assert.equal('roster' in configured.value.policy, true)
+  assert.equal(configured.value.policy.roster, undefined)
+  assert.equal(configured.value.policy.permissions, 'bypass_all')
+  assert.equal('advance' in configured.value.policy, false, 'an unnamed field is never invented')
+
+  // 6. An empty configure is refused rather than writing nothing and reporting success.
+  const empty = await tool(tools, 'horizon.configure').handler({})
+  assert.equal(empty.isError, true)
+  assert.equal((empty.structuredContent as { error: { code: string } }).error.code, 'horizon_configure_empty')
+
+  // 7. A front-door refusal is never dressed as success. NOTE what this does and
+  //    does NOT prove: the refusal is INJECTED here, so this pins the tool's
+  //    error propagation only. `horizon.configure` does not itself validate a
+  //    roster NAME against the saved rosters — main cannot see them (they are
+  //    renderer appSettings). An unknown roster still fails loudly, but at the
+  //    step's START, which roadmap-orchestrator.test.ts pins. See MC-1901.
+  const refusing = recordingRoadmapFrontDoor({
+    configureHorizon: async () => ({ ok: false, message: 'the horizon file could not be read' }),
+  })
+  const refuseTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: refusing.frontDoor }))
+  const refused = await tool(refuseTools, 'horizon.configure').handler({ roster: 'Ghost' })
+  assert.equal(refused.isError, true)
+  assert.match((refused.structuredContent as { error: { message: string } }).error.message, /could not be read/)
+
+  // 8. Both are unavailable — not silently absent — when the module is off.
+  const offline = createAutomationTools(backendsOf({ getRoadmapFrontDoor: () => null }))
+  for (const name of ['horizon.create', 'horizon.configure']) {
+    const result = await tool(offline, name).handler({ name: 'X', roster: 'Y' })
+    assert.equal(result.isError, true, `${name} must report the module is unavailable`)
+    assert.equal((result.structuredContent as { error: { code: string } }).error.code, 'horizon_module_unavailable')
+  }
+}
+
 async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
-  // Unavailable module: every roadmap tool reports roadmap_module_unavailable, never
+  // Unavailable module: every horizon tool reports horizon_module_unavailable, never
   // a fake success.
   const offline = createAutomationTools(backendsOf({ getRoadmapFrontDoor: () => null }))
-  const offStatus = await tool(offline, 'roadmap.status').handler({})
+  const offStatus = await tool(offline, 'horizon.status').handler({})
   assert.equal(offStatus.isError, true)
-  assert.equal((offStatus.structuredContent as { error: { code: string } }).error.code, 'roadmap_module_unavailable')
+  assert.equal((offStatus.structuredContent as { error: { code: string } }).error.code, 'horizon_module_unavailable')
 
   // roadmap.status forwards the board read straight through.
   const board = { roadmapRef: 'backlog/roadmaps/platform.md', title: 'Platform', lanes: [] }
   const read = recordingRoadmapFrontDoor({ board })
   const readTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: read.frontDoor }))
-  const status = await tool(readTools, 'roadmap.status').handler({})
+  const status = await tool(readTools, 'horizon.status').handler({})
   assert.deepEqual((status.structuredContent as { roadmap: unknown }).roadmap, board)
 
   // add_step resolves a workspaceId to its project root and passes it as projectPath,
@@ -2015,7 +2103,7 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
       getRoadmapFrontDoor: add.frontDoor,
     })
   )
-  const added = await tool(addTools, 'roadmap.add_step').handler({ ref: 'backlog/foo.md', workspaceId: 'ws-mobile', lane: 'Up next' })
+  const added = await tool(addTools, 'horizon.add_step').handler({ ref: 'backlog/foo.md', workspaceId: 'ws-mobile', lane: 'Up next' })
   assert.equal(added.isError, undefined)
   assert.deepEqual(
     add.calls.find((call) => (call as { name: string }).name === 'addStep'),
@@ -2024,24 +2112,24 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
 
   // add_step with an unknown workspaceId fails at the tool boundary, never reaching
   // the front door.
-  const addUnknown = await tool(addTools, 'roadmap.add_step').handler({ ref: 'backlog/foo.md', workspaceId: 'nope' })
+  const addUnknown = await tool(addTools, 'horizon.add_step').handler({ ref: 'backlog/foo.md', workspaceId: 'nope' })
   assert.equal((addUnknown.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
 
   // A front-door rejection (malformed ref) surfaces as the tool's own failure code,
   // carrying the message — never fake success.
   const reject = recordingRoadmapFrontDoor({ addStep: async () => ({ ok: false, message: 'not a backlog path' }) })
   const rejectTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: reject.frontDoor }))
-  const rejected = await tool(rejectTools, 'roadmap.add_step').handler({ ref: 'not-a-path' })
+  const rejected = await tool(rejectTools, 'horizon.add_step').handler({ ref: 'not-a-path' })
   assert.equal(rejected.isError, true)
-  assert.equal((rejected.structuredContent as { error: { code: string; message: string } }).error.code, 'roadmap_add_step_failed')
+  assert.equal((rejected.structuredContent as { error: { code: string; message: string } }).error.code, 'horizon_add_step_failed')
   assert.match((rejected.structuredContent as { error: { message: string } }).error.message, /not a backlog path/)
 
   // reorder rejects a non-integer index at the boundary.
   const reorder = recordingRoadmapFrontDoor()
   const reorderTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: reorder.frontDoor }))
-  const badIndex = await tool(reorderTools, 'roadmap.reorder').handler({ ref: 'backlog/foo.md', toIndex: 1.5 })
+  const badIndex = await tool(reorderTools, 'horizon.reorder').handler({ ref: 'backlog/foo.md', toIndex: 1.5 })
   assert.equal((badIndex.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  await tool(reorderTools, 'roadmap.reorder').handler({ ref: 'backlog/foo.md', toIndex: 2, toLane: 'Later' })
+  await tool(reorderTools, 'horizon.reorder').handler({ ref: 'backlog/foo.md', toIndex: 2, toLane: 'Later' })
   assert.deepEqual(
     reorder.calls.find((call) => (call as { name: string }).name === 'reorderStep'),
     { name: 'reorderStep', value: { ref: 'backlog/foo.md', toIndex: 2, toLane: 'Later', actor: 'automation' } }
@@ -2050,9 +2138,9 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   // skip requires a reason and forwards it.
   const skip = recordingRoadmapFrontDoor()
   const skipTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: skip.frontDoor }))
-  const noReason = await tool(skipTools, 'roadmap.skip').handler({ ref: 'backlog/foo.md' })
+  const noReason = await tool(skipTools, 'horizon.skip').handler({ ref: 'backlog/foo.md' })
   assert.equal((noReason.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
-  await tool(skipTools, 'roadmap.skip').handler({ ref: 'backlog/foo.md', reason: 'superseded' })
+  await tool(skipTools, 'horizon.skip').handler({ ref: 'backlog/foo.md', reason: 'superseded' })
   assert.deepEqual(
     skip.calls.find((call) => (call as { name: string }).name === 'skipStep'),
     { name: 'skipStep', value: { ref: 'backlog/foo.md', reason: 'superseded', actor: 'automation' } }
@@ -2062,7 +2150,7 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   const steer = recordingRoadmapFrontDoor()
   const steerTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: steer.frontDoor }))
   for (const action of ['approve', 'merge', 'pause', 'resume'] as const) {
-    const result = await tool(steerTools, `roadmap.${action}`).handler({ lane: 'Up next' })
+    const result = await tool(steerTools, `horizon.${action}`).handler({ lane: 'Up next' })
     assert.equal(result.isError, undefined)
   }
   assert.deepEqual(
@@ -2082,7 +2170,7 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   // agent with no argument to acknowledge it would be stuck at a dead end.
   const ack = recordingRoadmapFrontDoor()
   const ackTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: ack.frontDoor }))
-  await tool(ackTools, 'roadmap.resume').handler({ lane: 'Up next', replanDeliveredRun: true })
+  await tool(ackTools, 'horizon.resume').handler({ lane: 'Up next', replanDeliveredRun: true })
   assert.deepEqual(
     ack.calls.filter((call) => (call as { name: string }).name === 'steerLane').map((call) => (call as { value: unknown }).value),
     [{ lane: 'Up next', action: 'resume', actor: 'automation', options: { replanDeliveredRun: true } }]
@@ -2091,8 +2179,8 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   // A steer refusal (no pending approval) surfaces the message.
   const refuse = recordingRoadmapFrontDoor({ steerLane: async () => ({ ok: false, message: 'No pending approval for this lane.' }) })
   const refuseTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: refuse.frontDoor }))
-  const refused = await tool(refuseTools, 'roadmap.approve').handler({ lane: 'Up next' })
-  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'roadmap_approve_failed')
+  const refused = await tool(refuseTools, 'horizon.approve').handler({ lane: 'Up next' })
+  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'horizon_approve_failed')
 }
 
 async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promise<void> {
@@ -2511,6 +2599,7 @@ const tests = [
   testBacklogWorkFallsBackAndRefusesFinishedItems,
   testBacklogWorkPresetGuardAndPostLaunchLinkFailure,
   testRoadmapToolsReadPlanAndSteer,
+  testHorizonCreateAndConfigure,
   testAutomationMutationToolsGateOnPresetAndModule,
   testAutomationMutationToolsPassPipelineFailuresThrough,
   testSprintReadToolsAnswerFromDisk,
