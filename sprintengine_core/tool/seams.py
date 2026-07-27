@@ -42,11 +42,7 @@ HOT_SEAM_OWNER_THRESHOLD = 3
 # api triple. Grouping the three files under one contract name means the signal
 # fires on "three tasks touched this contract" even when each touched a
 # different file of it — which is exactly the T4/T5/T9 shape that went unseen.
-_IPC_SEGMENTS = (
-    ("preload", "preload"),
-    ("shared", "shared_api"),
-    ("main", "main_handler"),
-)
+_IPC_SEGMENTS = ("preload", "shared", "main")
 
 
 def plan_seam_section_warnings(state: Dict[str, Any], plan_path: Path) -> List[str]:
@@ -103,7 +99,7 @@ def seam_key(path: str) -> str:
 
 def _ipc_contract_key(path: str) -> Optional[str]:
     segments = path.split("/")
-    for segment, _label in _IPC_SEGMENTS:
+    for segment in _IPC_SEGMENTS:
         if segment not in segments:
             continue
         stem = segments[-1].rsplit(".", 1)[0]

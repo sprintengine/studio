@@ -666,7 +666,9 @@ def _tasks_filed_from(state: Dict[str, Any], task_id: str, finding_id: str) -> L
             continue
         if str(origin.get("findingId") or "") != finding_id:
             continue
-        if task_id and str(origin.get("taskId") or "") not in {"", task_id}:
+        # `fromFinding` is normalized with both halves required, so the
+        # owning task id is always present and always comparable.
+        if str(origin.get("taskId") or "") != task_id:
             continue
         filed.append(str(task.get("id") or ""))
     return filed
