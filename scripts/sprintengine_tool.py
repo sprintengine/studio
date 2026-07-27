@@ -319,12 +319,6 @@ def _plan_payload(action: str, args, base: dict) -> tuple[str, dict]:
             "dependsOn": args.depends_on or [],
             "force": args.force,
         }
-    if action == "start-review":
-        return "sprintengine.plan.start_review", {**base, "role": args.role, "id": args.id}
-    if action == "review-status":
-        return "sprintengine.plan.review_status", base
-    if action == "address-reviews":
-        return "sprintengine.plan.address_reviews", {**base, "actor": args.actor}
     if action == "list":
         raise SystemExit("MCP backend does not support plan action: list")
     raise SystemExit(f"MCP backend does not support plan action: {action}")

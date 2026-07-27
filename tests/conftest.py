@@ -15,7 +15,7 @@ depends on an unmanaged process-wide mutation that also silently escaped into
 every subprocess forever.
 
 One pre-collection seed remains and cannot move into a fixture:
-``sprintengine_core.tool.roles`` computes ``VALID_ROLES`` / ``PLAN_REVIEW_ROLES``
+``sprintengine_core.tool.roles`` computes ``VALID_ROLES``
 eagerly at import time, and that import happens during collection — before any
 fixture runs. ``tests/souls/test_cli.py`` and
 ``tests/sprintengine_tool/test_tool_decomposition.py`` read that frozen snapshot,
@@ -59,7 +59,7 @@ def pytest_configure(config: pytest.Config) -> None:
     """Pre-collection seed for the eager ``VALID_ROLES`` import-time snapshot.
 
     Runs before any test module is imported, so the pack env is present when
-    ``sprintengine_core.tool.roles`` freezes ``VALID_ROLES`` / ``PLAN_REVIEW_ROLES``
+    ``sprintengine_core.tool.roles`` freezes ``VALID_ROLES``
     during collection. ``setdefault`` preserves any value an outer environment
     already supplied. The per-test fixture below re-establishes the same env under
     ``monkeypatch`` so runtime discovery stays scoped and restorable.

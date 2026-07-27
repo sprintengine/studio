@@ -2126,7 +2126,7 @@ async function testStudioGatewayMergesCanonicalRunToolsAndRoutesContext(): Promi
   assert.equal(isStudioGatewayMutation('backlog.list'), false)
   assert.equal(isStudioGatewayMutation('sprintengine.task.publish'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.vcs.commit'), true)
-  assert.equal(isStudioGatewayMutation('sprintengine.plan.address_reviews'), true)
+  assert.equal(isStudioGatewayMutation('sprintengine.plan.add_task'), true)
   assert.equal(isStudioGatewayMutation('sprintengine.task.list'), false)
 }
 
