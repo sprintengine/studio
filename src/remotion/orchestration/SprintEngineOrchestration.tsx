@@ -514,7 +514,7 @@ function GraphScene() {
                       transform: `translateY(${y}px)`,
                     }}
                   >
-                    {node.isEnd ? <EndNode /> : <GraphTaskNode task={node.task!} level={node.level} />}
+                    {node.isEnd ? <EndNode /> : <GraphTaskNode task={node.task!} />}
                   </div>
                 )
               })}
@@ -550,7 +550,7 @@ function GraphScene() {
   )
 }
 
-function GraphTaskNode({ task, level }: { task: SprintTask; level: number }) {
+function GraphTaskNode({ task }: { task: SprintTask }) {
   const accent = roleAccent[task.role]
   return (
     <div
@@ -609,7 +609,6 @@ function EndNode() {
 // ============================ Scene 4 — Parallel execution ============================
 
 function ExecuteScene() {
-  const win = sceneWindow('execute')
   return (
     <SceneLayer id="execute">
       {(local) => {
@@ -834,7 +833,6 @@ function GatesScene() {
 }
 
 function GateStation({ role, model, pop, check }: { role: RoleId; model: ModelId; pop: number; check: number }) {
-  const accent = roleAccent[role]
   return (
     <div
       style={{

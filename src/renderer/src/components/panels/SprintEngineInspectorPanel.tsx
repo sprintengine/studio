@@ -767,10 +767,12 @@ function TaskImplementerRow({
   entry,
   fallbackRole,
   onOpenAgentTerminal,
+  terminalActionsUnavailable,
 }: {
   entry: SprintEngineTaskImplementerEntry
   fallbackRole: SprintEngineRoleId
   onOpenAgentTerminal: (agentId: string) => void
+  terminalActionsUnavailable?: string
 }) {
   const role = entry.role ?? fallbackRole
   const relativeTime = entry.isActive ? null : formatRelativeTime(entry.lastActivityAt)
@@ -787,10 +789,16 @@ function TaskImplementerRow({
       <button
         type="button"
         onClick={() => onOpenAgentTerminal(entry.agentId)}
-        aria-label={`Open ${entry.label} terminal`}
+        disabled={Boolean(terminalActionsUnavailable)}
+        aria-label={
+          terminalActionsUnavailable
+            ? `Open ${entry.label} terminal — unavailable: ${terminalActionsUnavailable}`
+            : `Open ${entry.label} terminal`
+        }
         className={
           'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
           'transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+          'disabled:cursor-not-allowed disabled:hover:bg-transparent ' +
           FOCUS_RING_CLASS
         }
       >
@@ -813,10 +821,12 @@ function TaskImplementerTimeline({
   task,
   runtimeAgents,
   onOpenAgentTerminal,
+  terminalActionsUnavailable,
 }: {
   task: SprintEngineTask
   runtimeAgents: RuntimeAgentView[]
   onOpenAgentTerminal: (agentId: string) => void
+  terminalActionsUnavailable?: string
 }) {
   const entries = getSprintEngineTaskImplementerTimeline(task, runtimeAgents)
   if (entries.length === 0) {
@@ -836,6 +846,7 @@ function TaskImplementerTimeline({
           entry={entry}
           fallbackRole={task.role}
           onOpenAgentTerminal={onOpenAgentTerminal}
+          terminalActionsUnavailable={terminalActionsUnavailable}
         />
       ))}
     </ul>
@@ -2388,6 +2399,7 @@ export function SprintEngineInspectorPanel({
   onPopOutArtifact,
   onSpawnAgent,
   onOpenAgentTerminal,
+  terminalActionsUnavailable,
   isAgentTerminalLive,
   isExpanded,
   onToggleExpand,
@@ -2426,6 +2438,10 @@ export function SprintEngineInspectorPanel({
   onPopOutArtifact: () => void
   onSpawnAgent: (agentId: string) => void
   onOpenAgentTerminal: (agentId: string) => void
+  /** Set when the run has no resident workspace (the Sprints door, MC-1800):
+   *  its terminals live in that workspace, so opening and spawning are disabled
+   *  and say this reason rather than doing nothing. */
+  terminalActionsUnavailable?: string
   isAgentTerminalLive: (agentId: string) => boolean
   isExpanded: boolean
   onToggleExpand: () => void
@@ -2529,7 +2545,13 @@ export function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onOpenAgentTerminal(agent.id)}
-                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-[11px] font-medium text-[color:var(--text-default)] interactive transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]"
+                disabled={Boolean(terminalActionsUnavailable)}
+                aria-label={
+                  terminalActionsUnavailable
+                    ? `Open Terminal — unavailable: ${terminalActionsUnavailable}`
+                    : undefined
+                }
+                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-[11px] font-medium text-[color:var(--text-default)] interactive transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Open Terminal
               </button>
@@ -2537,7 +2559,13 @@ export function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onSpawnAgent(agent.id)}
-                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive transition-colors hover:bg-[color:var(--accent-primary-soft-strong)]"
+                disabled={Boolean(terminalActionsUnavailable)}
+                aria-label={
+                  terminalActionsUnavailable
+                    ? `Spawn — unavailable: ${terminalActionsUnavailable}`
+                    : undefined
+                }
+                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive transition-colors hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Spawn
               </button>
@@ -2637,6 +2665,7 @@ export function SprintEngineInspectorPanel({
         onResolveTaskInput={onResolveTaskInput}
         onPostTaskComment={onPostTaskComment}
         onOpenAgentTerminal={onOpenAgentTerminal}
+        terminalActionsUnavailable={terminalActionsUnavailable}
       />
     </div>
   )
@@ -2661,6 +2690,7 @@ function SprintEngineTaskBody({
   onResolveTaskInput,
   onPostTaskComment,
   onOpenAgentTerminal,
+  terminalActionsUnavailable,
 }: {
   selectedTask: SprintEngineTask
   selectedTaskOwnerLabel: string
@@ -2680,6 +2710,7 @@ function SprintEngineTaskBody({
   onResolveTaskInput: (taskId: string, resolution: string, complete: boolean) => Promise<boolean>
   onPostTaskComment: (taskId: string, body: string, options: { reopenForRework: boolean }) => Promise<boolean>
   onOpenAgentTerminal: (agentId: string) => void
+  terminalActionsUnavailable?: string
 }) {
   const openIssues = getOpenSprintEngineFeedbackIssues(selectedTask.feedback)
   const openFindings = getOpenSprintEngineFeedbackFindings(selectedTask.feedback)
@@ -2728,6 +2759,7 @@ function SprintEngineTaskBody({
         task={selectedTask}
         runtimeAgents={runtimeAgents}
         onOpenAgentTerminal={onOpenAgentTerminal}
+        terminalActionsUnavailable={terminalActionsUnavailable}
       />
 
       <TaskNeedsInputCallout

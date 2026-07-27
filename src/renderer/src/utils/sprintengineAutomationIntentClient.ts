@@ -20,7 +20,7 @@
  *    but unapplied revision must not block a later legitimate adoption.
  */
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
-import type { SprintEngineAutomationMode } from '../types/workspace'
+import type { SprintEngineAutomationMode, SprintEngineCliPermissionPreset } from '../types/workspace'
 import { publishDiagnosticSync } from './diagnostics'
 
 /** Identifies this window's pushes in broadcast echoes. */
@@ -74,70 +74,137 @@ export function setSprintEngineAutomationPushSettledListener(listener: PushSettl
 export type PushSprintEngineAutomationModeInput = {
   statePath: string
   mode: SprintEngineAutomationMode
-  workspaceId: string
+  /**
+   * Absent on a Sprints-door write (MC-1799): the run has no resident
+   * workspace, and the `''` sentinel must never stand in for one — the write
+   * is keyed by statePath, and the audit records no workspace rather than a
+   * workspace that is not open.
+   */
+  workspaceId?: string
   workspaceName?: string
   reason?: string
   details?: string
   suppressManualAudit?: boolean
 }
 
-/**
- * Fire-and-forget write of the authoritative mode intent. The local store has
- * already transitioned optimistically; main persists, audits, bridges
- * cliWatchPolling, and broadcasts back. A failed push is surfaced as a warning
- * diagnostic — the renderer keeps functioning on its local state, which is the
- * pre-MC-1567 behavior for every run.
- */
-export function pushSprintEngineAutomationModeIntent(input: PushSprintEngineAutomationModeInput): void {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.setSprintEngineAutomationMode) return
-  outstandingPushesByStatePath.set(
-    input.statePath,
-    (outstandingPushesByStatePath.get(input.statePath) ?? 0) + 1,
-  )
-  const settle = (record: SprintEngineAutomationIntentRecord | null): void => {
-    const remaining = (outstandingPushesByStatePath.get(input.statePath) ?? 1) - 1
-    if (remaining <= 0) outstandingPushesByStatePath.delete(input.statePath)
-    else outstandingPushesByStatePath.set(input.statePath, remaining)
-    pushSettledListener?.({ statePath: input.statePath, record })
+/** Open a push slot for a statePath; the returned function closes it. */
+function beginPush(statePath: string): (record: SprintEngineAutomationIntentRecord | null) => void {
+  outstandingPushesByStatePath.set(statePath, (outstandingPushesByStatePath.get(statePath) ?? 0) + 1)
+  return (record) => {
+    const remaining = (outstandingPushesByStatePath.get(statePath) ?? 1) - 1
+    if (remaining <= 0) outstandingPushesByStatePath.delete(statePath)
+    else outstandingPushesByStatePath.set(statePath, remaining)
+    pushSettledListener?.({ statePath, record })
   }
-  void api.setSprintEngineAutomationMode({
+}
+
+/**
+ * Write of the authoritative mode intent. Callers with a resident workspace
+ * have already transitioned the local store optimistically and ignore the
+ * result; main persists, audits, bridges cliWatchPolling, and broadcasts back.
+ * A failed push is surfaced as a warning diagnostic — the renderer keeps
+ * functioning on its local state, which is the pre-MC-1567 behavior for every
+ * run.
+ *
+ * Resolves true only when main confirms the write, so the Sprints-door caller
+ * — where this call IS the write, with no store transition behind it — can
+ * report the change only once it actually happened (MC-1799).
+ */
+export function pushSprintEngineAutomationModeIntent(
+  input: PushSprintEngineAutomationModeInput,
+): Promise<boolean> {
+  const api = typeof window !== 'undefined' ? window.api : undefined
+  if (!api?.setSprintEngineAutomationMode) return Promise.resolve(false)
+  const settle = beginPush(input.statePath)
+  const reportFailure = (details: string): void => {
+    publishDiagnosticSync({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'Automation mode not persisted',
+      // Not "changed locally but…": on a door mount this call IS the write
+      // (MC-1799), nothing moved locally, and the control has already snapped
+      // back. One sentence that stays true on both mounts.
+      message: 'The automation mode could not be written to this run’s store.',
+      details,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
+    })
+  }
+  return api.setSprintEngineAutomationMode({
     statePath: input.statePath,
     mode: input.mode,
     clientToken: SPRINT_ENGINE_AUTOMATION_CLIENT_TOKEN,
     ...(input.reason ? { reason: input.reason } : {}),
     ...(input.details ? { details: input.details } : {}),
     ...(input.suppressManualAudit ? { suppressManualAudit: true } : {}),
-    workspaceId: input.workspaceId,
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
   })
     .then((result) => {
       if (result.ok) {
         noteAppliedSprintEngineAutomationRevision(input.statePath, result.record.revision)
         settle(result.record)
-        return
+        return true
       }
       settle(null)
-      publishDiagnosticSync({
-        level: 'warning',
-        source: 'sprintengine',
-        title: 'Automation mode not persisted',
-        message: 'The automation mode changed locally but the authoritative store could not be written.',
-        details: result.message,
-        workspaceId: input.workspaceId,
-        ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
-      })
+      reportFailure(result.message)
+      return false
     })
     .catch((error) => {
       settle(null)
-      publishDiagnosticSync({
-        level: 'warning',
-        source: 'sprintengine',
-        title: 'Automation mode not persisted',
-        message: 'The automation mode changed locally but the authoritative store could not be written.',
-        details: error instanceof Error ? error.message : String(error),
-        workspaceId: input.workspaceId,
-        ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
-      })
+      reportFailure(error instanceof Error ? error.message : String(error))
+      return false
+    })
+}
+
+export type PushSprintEngineCliPermissionPresetInput = {
+  statePath: string
+  preset: SprintEngineCliPermissionPreset
+  workspaceId?: string
+  workspaceName?: string
+}
+
+/**
+ * Write of the authoritative CLI permission preset (MC-1799). It shares the
+ * mode's statePath-keyed home and echo bookkeeping, so a run's preset has one
+ * writer whether the board is mounted on a workspace or on the Sprints door.
+ * Resolves true only when main confirms the write.
+ */
+export function pushSprintEngineCliPermissionPresetIntent(
+  input: PushSprintEngineCliPermissionPresetInput,
+): Promise<boolean> {
+  const api = typeof window !== 'undefined' ? window.api : undefined
+  if (!api?.setSprintEngineCliPermissionPreset) return Promise.resolve(false)
+  const settle = beginPush(input.statePath)
+  const reportFailure = (details: string): void => {
+    publishDiagnosticSync({
+      level: 'warning',
+      source: 'sprintengine',
+      title: 'CLI permissions not persisted',
+      message: 'The CLI permission preset could not be written to this run’s store.',
+      details,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
+    })
+  }
+  return api.setSprintEngineCliPermissionPreset({
+    statePath: input.statePath,
+    preset: input.preset,
+    clientToken: SPRINT_ENGINE_AUTOMATION_CLIENT_TOKEN,
+  })
+    .then((result) => {
+      if (result.ok) {
+        noteAppliedSprintEngineAutomationRevision(input.statePath, result.record.revision)
+        settle(result.record)
+        return true
+      }
+      settle(null)
+      reportFailure(result.message)
+      return false
+    })
+    .catch((error) => {
+      settle(null)
+      reportFailure(error instanceof Error ? error.message : String(error))
+      return false
     })
 }

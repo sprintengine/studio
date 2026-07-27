@@ -8,6 +8,7 @@ import {
   REVIEW_WORKSPACE_MODE,
   type BundledWorkspaceMode,
 } from '../types/workspace'
+import { isModeHiddenFromRail } from '../../../shared/workspace-mode'
 import { isAutomationsHostWorkspace, isHiddenFromRail, isSprintRunWorkspace } from './workspaceVisibility'
 
 function run(name: string, body: () => void): void {
@@ -69,6 +70,17 @@ run('isSprintRunWorkspace is true only for the sprint-run mode', () => {
   }
   // The Design Wizard is a sibling mode, not a run: it keeps its Projects row.
   assert.equal(isHiddenFromRail({ mode: GUIDED_BRIEF_WORKSPACE_MODE }), false)
+})
+
+// Item 1807: rail-hidden-ness is one rule in `shared/workspace-mode.ts` because
+// main needs the same answer (the review guide's workspace fallback) and cannot
+// import the renderer. These two must never be able to disagree.
+run('the renderer predicate is the shared rule, over the same mode literals', () => {
+  assert.equal(AUTOMATIONS_HOST_WORKSPACE_MODE, 'automations-host')
+  assert.equal(SPRINT_ENGINE_WORKSPACE_MODE, 'sprintengine')
+  for (const mode of [...BUNDLED_MODES, 'custom-plugin-mode']) {
+    assert.equal(isModeHiddenFromRail(mode), isHiddenFromRail({ mode }), `shared rule differs for ${mode}`)
+  }
 })
 
 run('predicates treat an unknown custom mode as a normal visible workspace', () => {

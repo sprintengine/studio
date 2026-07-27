@@ -130,9 +130,9 @@ const MESSAGE_CLASS: Record<NonNullable<Message>['tone'], string> = {
 
 // Requested-access chips. Disclosure only: the chip text is what the module
 // says it does (describeCapabilityPermission keeps every string free of
-// enforcement language). The broad legacy scope (ipc:invoke) and unrecognized
-// scopes warn-tint the chip; the wording itself carries the same signal
-// ("broad legacy scope" / "Unrecognized capability"), so the flag is never
+// enforcement language). The broad scope (ipc:invoke) and unrecognized scopes
+// warn-tint the chip; the wording itself carries the same signal
+// ("(broad scope)" / "Unrecognized capability"), so the flag is never
 // color-only.
 export function PermissionChips({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {

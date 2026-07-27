@@ -4,10 +4,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { ReviewIndexEntry } from '../../../../../../shared/electron-api'
 import type { ReviewComment } from '../../../../../../shared/review'
 import { reviewFixture } from '../../../panels/review/fixtures'
-import { orderedSteps } from '../../../panels/review/reviewSelectors'
+import { orderedSteps, statsChip } from '../../../panels/review/reviewSelectors'
 import { synthesizeDegradedBrief } from '../../../panels/review/degradedBrief'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
 import { ReviewCanvas } from '../../../panels/review/ReviewCanvas'
+import { TopBar } from '../../../panels/review/TopBar'
 import { ReviewCanvasTools, buildReviewsSurfaceBar } from './ReviewSurfaceBar'
 import { reviewGuideAgentId, resolveGuideTerminal } from './reviewGuideTerminal'
 
@@ -213,6 +214,52 @@ run('the degraded canvas surfaces a failed guide run without blocking the change
   assert.match(failed, /keep reviewing without it/, 'and reassures the change is still reviewable')
   assert.match(failed, /Try again/, 'the retry affordance is present')
   assert.match(failed, /prisma\/schema\.prisma/, 'the change still renders under the failure banner')
+})
+
+// MC-1804. With a walkthrough on screen the canvas tools row is the only place a
+// re-run is visible, so it is where the run has to be stoppable. The row used to
+// answer a live run with a DISABLED "Re-running…" button — a status wearing a
+// control's clothes, and no way out of a runaway guide.
+run('a re-run in flight reads as running in the canvas tools, with Stop as the way out', () => {
+  const running = renderToStaticMarkup(
+    <ReviewCanvasTools session={stubSession({ run: { running: true, phase: 'grouping', error: null } })} />,
+  )
+  assert.match(running, /Re-running…/, 'the row still says the guide is working')
+  assert.match(running, />Stop</, 'and offers the stop the run never had a caller for')
+  // The attribute, not the `disabled:` Tailwind variants every button carries.
+  assert.doesNotMatch(running, /disabled="/, 'the running state is a live line, not a disabled button')
+  assert.match(running, /Ask the guide/, 'a running guide can still be asked')
+
+  const resting = renderToStaticMarkup(<ReviewCanvasTools session={stubSession({})} />)
+  assert.match(resting, /Re-run/, 'at rest the row is back to Re-run')
+  assert.doesNotMatch(resting, />Stop</, 'and offers no stop for a run that is not happening')
+})
+
+// MC-1815. Complexity is the guide's reading-effort judgment; the degraded model
+// states none. The top bar renders the rest of its identity row without it rather
+// than printing a hardcoded word over a change nobody judged.
+run('the walkthrough top bar renders with and without a complexity', () => {
+  const bar = (complexity?: 'low' | 'medium' | 'high') =>
+    renderToStaticMarkup(
+      <TopBar
+        title={reviewFixture.changeset.title}
+        source="multicode · main…invitations"
+        stats={statsChip(reviewFixture.changeset)}
+        {...(complexity ? { complexity } : {})}
+        diffView="side-by-side"
+        onSetDiffView={NOOP}
+        onRerun={NOOP}
+        rerunning={false}
+      />,
+    )
+  const judged = bar('high')
+  assert.match(judged, /Complexity/, 'a guide’s judgment is shown')
+  assert.match(judged, />high</, 'as the word it is')
+
+  const unjudged = bar()
+  assert.doesNotMatch(unjudged, /Complexity/, 'no guide judged, so no complexity is claimed')
+  assert.match(unjudged, /Side by side/, 'the rest of the bar renders unchanged')
+  assert.match(unjudged, /Re-run/, 'including its actions')
 })
 
 // Guide-terminal coordinates. A reported handle wins; without one they are

@@ -31,6 +31,7 @@ import type {
   TerminalSpawnResult,
 } from '../../shared/electron-api'
 import { bracketedTerminalPaste } from '../../shared/sprintengine/auto-run-executor'
+import { isModeHiddenFromRail } from '../../shared/workspace-mode'
 import type { TerminalSpawnPayload } from '../ipc/terminal-ipc'
 import type { BriefRunEvent } from './brief-run-service'
 import {
@@ -275,6 +276,17 @@ export class ReviewGuideTerminalService {
     this.deps.terminal.kill(sessionId)
   }
 
+  // The run ended by delivering: `review_submit_brief` landed and the gateway's
+  // sink calls this. The terminal is still alive and the reviewer may never open
+  // it, so without this the pty stays exempt from the idle reaper for the rest
+  // of the app session — one unsuspendable agent process retained per reviewed
+  // change (item 1806). The in-flight record goes with it: the run is over, so a
+  // later stop() must not overwrite the delivered `done` with a failure.
+  clearReapExempt(reviewId: string): void {
+    this.inFlight.delete(reviewId)
+    this.deps.terminal.setReapExempt(reviewGuideAgentId(reviewId), false)
+  }
+
   // The watchdog. A guide terminal that ends without a brief failed, whatever
   // the reason — a crashed CLI, a closed tab, an agent that gave up. The
   // registry, not this map, decides whether the run is still open: a brief that
@@ -447,11 +459,18 @@ export class ReviewGuideTerminalService {
 
   // The open workspace whose folder is this project. A project folder can host
   // more than one workspace (an automations host, a sprint run); the standard
-  // one is where a person's agents live, so prefer it and fall back to any.
+  // one is where a person's agents live, so prefer it and fall back to any
+  // OTHER rail-visible one. Rail-hidden workspaces are excluded outright (item
+  // 1807): the guide's terminal becomes a tab in whatever workspace it spawns
+  // into, and a workspace with no Projects row is one the reviewer cannot get
+  // back to — the guide tab would sit among a sprint run's agents forever. With
+  // none left, the caller reports the project as not open, which is the truth
+  // the reviewer can act on.
   private findProjectWorkspace(projectRoot: string): { id: string } | null {
     const matches = this.deps
       .listWorkspaces()
       .filter((workspace) => normalizeFolder(workspace.folderPath) === projectRoot)
+      .filter((workspace) => !workspace.mode || !isModeHiddenFromRail(workspace.mode))
     return matches.find((workspace) => workspace.mode === 'standard') ?? matches[0] ?? null
   }
 

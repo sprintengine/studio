@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { AgentState, LayoutTemplate, Workspace } from '../types/workspace'
+import type { AgentState, AppSettings, LayoutTemplate, Workspace } from '../types/workspace'
 import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
 import { defaultAgent } from './slices/agentsSlice'
@@ -1038,6 +1038,81 @@ assert.equal(
     rehydrated.activeWorkspaceId,
     'ws-host-late',
     'the active pointer does not dangle at a deduped host',
+  )
+}
+
+// ── Pre-flip conversation-transport opt-in in a CURRENT-version envelope ────
+// MC-1802 / store v67: the Design Wizard conversation transport is opt-in only,
+// but the pre-flip default was `true`, so persist wrote it to every existing
+// profile. Both envelopes below are stamped with the CURRENT version, so the
+// v67 migration never runs — merge() has to clear the inherited `true` on its
+// own, and must leave an opt-in recorded after the reset stamp alone.
+{
+  const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
+  const registryEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
+  const settingsEnvelope = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
+  assert.equal(
+    Math.max(registryEnvelope.version, settingsEnvelope.version),
+    WORKSPACE_STORE_VERSION,
+    'the seeded envelopes are at the current store version, so this exercises merge and not migrate',
+  )
+  const persistedAppSettings = (settingsEnvelope.state.appSettings ?? {}) as Record<string, unknown>
+  const seedAppSettings = (appSettings: Record<string, unknown>): void => {
+    stored['multicode-app-settings'] = JSON.stringify({
+      state: { ...settingsEnvelope.state, appSettings },
+      version: WORKSPACE_STORE_VERSION,
+    })
+  }
+  const besidesTransportOptIn = (settings: AppSettings): Partial<AppSettings> => {
+    const {
+      guidedBriefConversationSessions: _enabled,
+      guidedBriefConversationSessionsOptInReset: _reset,
+      ...rest
+    } = settings
+    return rest
+  }
+
+  // A pre-flip profile predates the stamp entirely; the live envelope already
+  // carries one, so drop it to reproduce what is actually on users' disks.
+  const {
+    guidedBriefConversationSessions: _persistedEnabled,
+    guidedBriefConversationSessionsOptInReset: _persistedReset,
+    ...preFlipAppSettings
+  } = persistedAppSettings
+
+  seedAppSettings(preFlipAppSettings)
+  await useWorkspaceStore.persist.rehydrate()
+  const settingsBeforeReset = useWorkspaceStore.getState().appSettings
+
+  seedAppSettings({ ...preFlipAppSettings, guidedBriefConversationSessions: true })
+  await useWorkspaceStore.persist.rehydrate()
+  const settingsAfterReset = useWorkspaceStore.getState().appSettings
+  assert.equal(
+    settingsAfterReset.guidedBriefConversationSessions,
+    false,
+    'merge resets a persisted opt-in that predates the reset stamp',
+  )
+  assert.equal(
+    settingsAfterReset.guidedBriefConversationSessionsOptInReset,
+    true,
+    'merge stamps the profile so the reset is one-time',
+  )
+  assert.deepEqual(
+    besidesTransportOptIn(settingsAfterReset),
+    besidesTransportOptIn(settingsBeforeReset),
+    'no other persisted setting changes value as a side effect of the reset',
+  )
+
+  seedAppSettings({
+    ...preFlipAppSettings,
+    guidedBriefConversationSessions: true,
+    guidedBriefConversationSessionsOptInReset: true,
+  })
+  await useWorkspaceStore.persist.rehydrate()
+  assert.equal(
+    useWorkspaceStore.getState().appSettings.guidedBriefConversationSessions,
+    true,
+    'an opt-in recorded after the reset survives the next hydration',
   )
 }
 

@@ -11,9 +11,9 @@
 //       card, ALWAYS with "Try again", never a dead end, never a blocking dialog).
 //   • SurfaceRail — the internal list rail: list semantics (role="list"), a
 //       status glyph + title + state line per row, ↑/↓ + j/k keyboard navigation,
-//       the "New …" affordance at the top, and an optional search + filter row
-//       (the Backlog toolbar idiom). The rail is the surface's, never the app
-//       sidebar.
+//       the "New …" affordance at the top, an optional leading project lens, and
+//       an optional search + filter row (the Backlog toolbar idiom). The rail is
+//       the surface's, never the app sidebar.
 //   • BarStatusChip — the one status idiom in the surface bar: a 6 px dot + label,
 //       never a competing pill or badge.
 
@@ -23,6 +23,7 @@ import { GhostButton } from '../../ui/Buttons'
 import { FilterMenu, type FilterMenuGroup } from '../../ui/FilterMenu'
 import { InboxSearchInput } from '../../ui/InboxSearchInput'
 import { InlineNotice } from '../../ui/InlineNotice'
+import { Select, type SelectItem } from '../../ui/Select'
 import { Spinner } from '../../ui/Spinner'
 import { StatusDot } from '../../ui/StatusDot'
 import { FOCUS_RING_CLASS, type StatusTone } from '../../ui/tokens'
@@ -196,6 +197,17 @@ export interface SurfaceRailFilter {
   groups: ReadonlyArray<FilterMenuGroup>
 }
 
+/** The rail's optional project lens: one compact Select LEADING the rail's
+ *  filter controls, exactly where the Backlog door's toolbar puts its own
+ *  (MC-1816). Which projects a door offers is the door's business; that the
+ *  operator finds the control in the same place on both is this substrate's. */
+export interface SurfaceRailScope {
+  ariaLabel: string
+  items: SelectItem<string>[]
+  value: string
+  onChange: (value: string) => void
+}
+
 export interface SurfaceRailNewAffordance {
   label: string
   /** The "New …" affordance is itself the current selection (Reviews' create flow). */
@@ -223,6 +235,7 @@ export function SurfaceRail({
   selectedId,
   onSelect,
   newAffordance,
+  scope,
   search,
   filter,
 }: {
@@ -237,6 +250,9 @@ export function SurfaceRail({
   selectedId: string | null
   onSelect: (id: string) => void
   newAffordance: SurfaceRailNewAffordance
+  /** The project lens, leading the rail's filter controls (the Backlog toolbar
+   *  idiom). Omit on a door with nothing to scope by. */
+  scope?: SurfaceRailScope
   /** Search over the rows, rendered above the list (the Backlog toolbar idiom). */
   search?: SurfaceRailSearch
   /** Filter glyph beside the search field. Ignored without `search`. */
@@ -248,7 +264,7 @@ export function SurfaceRail({
   // keyboard and the canvas stay in step. Ignored while typing in a field.
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if (isEditableTarget(event.target) || rows.length === 0) return
+      if (swallowsRailNavigation(event.target) || rows.length === 0) return
       const next = event.key === 'ArrowDown' || event.key === 'j'
       const prev = event.key === 'ArrowUp' || event.key === 'k'
       if (!next && !prev) return
@@ -296,10 +312,10 @@ export function SurfaceRail({
 
   return (
     <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
-      {/* The "New …" affordance and the search row lead the rail and stay
-          pinned while the list scrolls: with a long list they must never hide
-          below (or above) the scroll — creating and narrowing are the rail's
-          always-reachable actions, in the same place on every door. The
+      {/* The "New …" affordance, the project lens, and the search row lead the
+          rail and stay pinned while the list scrolls: with a long list they must
+          never hide below (or above) the scroll — creating and narrowing are the
+          rail's always-reachable actions, in the same place on every door. The
           negative offsets fold the shell aside's p-2.5 into the sticky header
           so it sits flush with the scrollport and paints over passing rows. */}
       <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 shrink-0 bg-[color:var(--bg-surface-raised)] px-2.5 pt-2.5">
@@ -319,6 +335,26 @@ export function SurfaceRail({
           {PLUS_ICON}
           {newAffordance.label}
         </button>
+        {scope ? (
+          <div className="pb-2">
+            <Select
+              ariaLabel={scope.ariaLabel}
+              items={scope.items}
+              value={scope.value}
+              onChange={scope.onChange}
+              // Full-rail width, not shrink-wrapped to the selected label: it
+              // stacks between the full-width "New …" button and the full-width
+              // search row, so a content-width trigger would sit short of both
+              // and change width every time the lens changes. `Popover`'s root
+              // is `inline-flex`, so the width has to come from here for the
+              // trigger's own `w-full` to mean the rail.
+              className="w-full"
+              // The rail is 224 px wide; the trigger truncates inside its track
+              // rather than overflowing the aside.
+              triggerMinWidthClassName="min-w-0"
+            />
+          </div>
+        ) : null}
         {search ? (
           <div className="flex items-center gap-1 pb-2">
             <InboxSearchInput
@@ -380,9 +416,14 @@ export function BarStatusChip({
   )
 }
 
-// A field being typed into swallows the rail's navigation keys.
-function isEditableTarget(target: EventTarget | null): boolean {
+// A field being typed into swallows the rail's navigation keys — and so does a
+// control with its own Arrow-key contract. The project lens and the filter glyph
+// sit INSIDE the rail's key handler, and neither stops propagation, so without
+// this an ArrowDown on the lens would open its listbox and move the rail's
+// selection, pulling focus off the control the operator is using.
+function swallowsRailNavigation(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return true
+  return Boolean(target.closest('[role="combobox"], [aria-haspopup]'))
 }

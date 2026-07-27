@@ -35,7 +35,13 @@ export function countUnreadSprintEngineAutomationNotifications(
 }
 
 export function publishSprintEngineAutomationModeNotification(input: {
-  workspaceId: WorkspaceId
+  /**
+   * Absent when the change was made from the Sprints door on a run with no
+   * resident workspace (MC-1799): the notification then names no workspace
+   * rather than carrying the `''` sentinel, which would render an Open action
+   * that resolves to nothing.
+   */
+  workspaceId?: WorkspaceId
   workspaceName?: string
   mode: SprintEngineAutomationMode
   reason?: string
@@ -51,7 +57,7 @@ export function publishSprintEngineAutomationModeNotification(input: {
     title: SPRINT_ENGINE_AUTOMATION_NOTIFICATION_TITLE,
     message: input.reason ? `${modeLabel}: ${input.reason}` : `Sprint automation is now ${modeLabel}.`,
     ...(input.details ? { details: input.details } : {}),
-    workspaceId: input.workspaceId,
+    ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
     ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
     ...(input.taskId ? { taskId: input.taskId } : {}),
     ...(input.taskId ? { navigationTarget: { kind: 'task', ref: input.taskId } } : {}),

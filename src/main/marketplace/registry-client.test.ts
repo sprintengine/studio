@@ -558,7 +558,10 @@ async function testCatalogueAndGithubRawYieldEquivalentEntries(): Promise<void> 
       // Second read exercises the ETag 304 round-trip under this URL.
       const cached = await client.read()
       assert.equal(cached.ok, true)
-      if (cached.ok) assert.equal(cached.notModified, true)
+      // `notModified` lives only on the online success branch, so the read
+      // staying online is part of what this asserts, not a precondition to skip.
+      assert.notEqual(cached.state, 'offline', 'the cached read stays on the online branch')
+      if (cached.ok && cached.state !== 'offline') assert.equal(cached.notModified, true)
       assert.equal(requestHeaders(requests[1].init)['if-none-match'], '"parity-v1"')
       return fresh
     })

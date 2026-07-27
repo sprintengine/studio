@@ -8,7 +8,10 @@ import { createAutomationService } from './automation/automation-service'
 import { createAutomationTools } from './automation/automation-tools'
 import { createReviewGatewayTools } from './automation/studio-gateway-tools'
 import { BRIEF_RUN_EVENT_CHANNEL } from './review/brief-run-service'
-import { recordGuideRunEvent } from './review/guide-terminal-service'
+import {
+  recordGuideRunEvent,
+  type ReviewGuideTerminalService,
+} from './review/guide-terminal-service'
 import { createRendererAutomationDelegate } from './automation/renderer-delegate'
 import { AutomationsStore } from './automations/store'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
@@ -46,7 +49,7 @@ import { listPluginRegistryEntries } from './plugin-registry-instance'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { SPRINT_RUNS_CHANGED_CHANNEL, type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
-import { invalidateSprintRunSummary } from './sprintengine-run-index'
+import { invalidateSprintRunSummary, watchSprintRunProjections } from './sprintengine-run-index'
 import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
 import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
 import { createGitWorktree, excludeMcpConfigFromWorktree } from './git'
@@ -63,6 +66,11 @@ import { createWorkspaceSyncRoutingSnapshotStore } from './workspace-sync-routin
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
+
+// All the review gateway's brief sink needs from the review module's guide
+// service: release a delivered run's terminal back to the idle reaper. Narrow on
+// purpose — a brief landing must not become a second way to drive the guide.
+type ReviewGuideReapRelease = Pick<ReviewGuideTerminalService, 'clearReapExempt'>
 
 export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
@@ -211,6 +219,16 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // The instance roadmap's front door (roadmap.* tools) is provided by the same
   // module and resolved lazily for the same reason — null until the module is up.
   let resolveRoadmapAppFrontDoor: () => RoadmapAppFrontDoor | null = () => null
+  // Live main-process module enablement, injected by index.ts once the manifest
+  // universe exists; it recomputes on every override the renderer pushes, so a
+  // module the user just switched off is off here on the next call. Until then
+  // nothing is enabled: a gateway tool that cannot learn its module's state must
+  // report the capability as off rather than act on its behalf.
+  let resolveModuleEnabled: (moduleId: string) => boolean = () => false
+  // The review guide's terminal service, provided by the review capability
+  // module. Resolved lazily like the front doors — null when the module never
+  // registered, in which case there is no guide terminal to release either.
+  let resolveReviewGuideTerminals: () => ReviewGuideReapRelease | null = () => null
 
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
@@ -305,8 +323,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   // Invalidate a run's cached summary and tell every open Sprints door to
-  // refetch. Fired for every runtime op with a statePath, and directly for
-  // state writes that happen with no registered runtime (non-resident cancel).
+  // refetch. Fired for every runtime op with a statePath, directly for state
+  // writes that happen with no registered runtime (non-resident cancel), and —
+  // via the run index's per-run directory watch below — for projection writes
+  // by the engine that no runtime op accompanies (MC-1801).
   const notifySprintRunsChanged = (statePath: string): void => {
     invalidateSprintRunSummary(statePath)
     const changed: SprintRunsChangedEvent = { statePath }
@@ -315,6 +335,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       window.webContents.send(SPRINT_RUNS_CHANGED_CHANNEL, changed)
     }
   }
+  watchSprintRunProjections(notifySprintRunsChanged)
   const sprintRuntime = createSprintRuntime({
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
@@ -558,6 +579,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // is an open project folder, and a landed brief broadcasts the brief-run event
     // so an open Reviews door reloads it with no app restart.
     reviewTools: createReviewGatewayTools({
+      isReviewModuleEnabled: () => resolveModuleEnabled('review'),
       listOpenProjectRoots: () =>
         workspaceSyncService
           .getSnapshot()
@@ -570,6 +592,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // guide would finish while the run-status IPC still reported it working,
         // and the next start would join a run that already delivered.
         recordGuideRunEvent(event)
+        // The guide took its terminal out of the idle reaper's reach for the
+        // duration of the run; a delivered brief is where that run ends, and the
+        // reviewer may never open the terminal to end it any other way.
+        if (event.phase === 'done') resolveReviewGuideTerminals()?.clearReapExempt(event.workspaceId)
         for (const window of BrowserWindow.getAllWindows()) {
           if (!window.isDestroyed()) window.webContents.send(BRIEF_RUN_EVENT_CHANNEL, event)
         }
@@ -590,6 +616,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     setRoadmapAppFrontDoorResolver(resolver: () => RoadmapAppFrontDoor | null): void {
       resolveRoadmapAppFrontDoor = resolver
+    },
+    setModuleEnabledResolver(resolver: (moduleId: string) => boolean): void {
+      resolveModuleEnabled = resolver
+    },
+    setReviewGuideTerminalsResolver(resolver: () => ReviewGuideReapRelease | null): void {
+      resolveReviewGuideTerminals = resolver
     },
     builtinSkillManager,
     conversationRuntime,

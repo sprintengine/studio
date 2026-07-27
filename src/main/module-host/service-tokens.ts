@@ -9,6 +9,7 @@ import type { RoadmapAppFrontDoor } from '../roadmap-orchestrator'
 import type { ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { CompanionAgentService, CompanionAgentsModuleRegistry } from '../companion-agent-service'
 import type { ReviewChangeSetService } from '../review/changeset-service'
+import type { ReviewGuideTerminalService } from '../review/guide-terminal-service'
 import { createServiceToken } from './main-host'
 
 // Tokens for the shared services that capability modules consume across module
@@ -93,4 +94,12 @@ export const CompanionAgentsModuleServiceToken = createServiceToken<CompanionAge
 // provider against the same instance.
 export const ReviewChangeSetServiceToken = createServiceToken<ReviewChangeSetService>(
   'review.change-set-service'
+)
+// The review guide's terminal service, provided by the same module. The Studio
+// gateway's `review_submit_brief` sink lives in app-services (the tools are
+// registered there), and a landed brief ends the run — so it resolves the guide
+// through this token to release the terminal, rather than reaching past the
+// module into the terminal runtime.
+export const ReviewGuideTerminalServiceToken = createServiceToken<ReviewGuideTerminalService>(
+  'review.guide-terminal-service'
 )

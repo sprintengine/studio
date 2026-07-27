@@ -10,7 +10,7 @@ import {
 } from './cli-availability'
 
 function entry(id: string): PluginRegistryListEntry {
-  return { id, displayName: id, source: 'bundled', version: 1, binary: id }
+  return { id, displayName: id, source: 'bundled', version: 1, binary: id, resumeSession: false, sessionIdFromCaller: false }
 }
 
 function detected(cli: AgentCli, installed: boolean, error: string | null = null): CliDetectResult {

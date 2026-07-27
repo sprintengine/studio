@@ -10,7 +10,11 @@ import { activeForChannel } from '../shared/modules/dev-only'
 import { resolveModuleEnablement } from '../shared/modules/resolve'
 import { loadMainModules } from './module-host/load-modules'
 import { readModuleOverridesSync } from './module-host/enablement-store'
-import { AutomationsAppFrontDoorToken, RoadmapAppFrontDoorToken } from './module-host/service-tokens'
+import {
+  AutomationsAppFrontDoorToken,
+  ReviewGuideTerminalServiceToken,
+  RoadmapAppFrontDoorToken,
+} from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
 import type { CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
@@ -140,6 +144,16 @@ services.setAutomationsAppFrontDoorResolver(
 // Roadmap.* tools ← the same Automations module, which constructs the orchestrator.
 services.setRoadmapAppFrontDoorResolver(
   () => moduleLoad.kernel.hostFor('@host').getService(RoadmapAppFrontDoorToken) ?? null
+)
+// Module enablement for gateway tools that belong to a capability module: the
+// resolved set is recomputed on every override the renderer pushes, so a module
+// switched off in Settings is off for MCP callers on their next call, not after
+// a restart. Today the review tools ask; MC-1805 is the ruling behind it.
+services.setModuleEnabledResolver((moduleId) => enabledMainModuleIds.has(moduleId))
+// Review guide ← the review module: a brief landing on the gateway ends the run,
+// so the sink releases the guide's terminal through the service that took it.
+services.setReviewGuideTerminalsResolver(
+  () => moduleLoad.kernel.hostFor('@host').getService(ReviewGuideTerminalServiceToken) ?? null
 )
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),

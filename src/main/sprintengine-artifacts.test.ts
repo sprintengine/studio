@@ -983,6 +983,7 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     },
     summarizeFeedback: async () => ({ ok: true, data: null }),
     readTokenUsage: async () => ({} as never),
+    listRuns: async () => [],
   })
 
   await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })

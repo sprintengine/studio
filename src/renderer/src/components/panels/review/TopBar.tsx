@@ -7,7 +7,10 @@ interface TopBarProps {
   title: string
   source: string
   stats: StatsChip
-  complexity: 'low' | 'medium' | 'high'
+  // Absent when no guide judged the change — the degraded model states no
+  // complexity rather than inventing one (MC-1815). The signal is then simply not
+  // on the bar; nothing renders in its place.
+  complexity?: 'low' | 'medium' | 'high'
   diffView: DiffView
   onSetDiffView: (view: DiffView) => void
   onRerun: () => void
@@ -48,9 +51,11 @@ export function TopBar({
         {stats.files} {stats.files === 1 ? 'file' : 'files'} · <span className="text-[color:var(--tone-good)]">+{stats.additions}</span>{' '}
         <span className="text-[color:var(--tone-error)]">−{stats.deletions}</span>
       </span>
-      <span className="shrink-0 text-[11.5px] text-[color:var(--text-subtle)]">
-        Complexity <span className="text-[color:var(--text-muted)]">{complexity}</span>
-      </span>
+      {complexity ? (
+        <span className="shrink-0 text-[11.5px] text-[color:var(--text-subtle)]">
+          Complexity <span className="text-[color:var(--text-muted)]">{complexity}</span>
+        </span>
+      ) : null}
       <SegmentedControl
         ariaLabel="Diff view"
         items={DIFF_VIEW_ITEMS}

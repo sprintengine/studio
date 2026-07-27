@@ -59,6 +59,7 @@ import {
   OverflowMenu,
   Popover,
   PrimaryButton,
+  Spinner,
   useConfirmDialog,
   type OverflowMenuItem,
 } from '../../../ui'
@@ -74,6 +75,7 @@ import {
 } from '../../../panels/sprintEngineBoard/repoMergeSurface'
 import { sprintRunShortDate } from './railState'
 import { requestCloseSprintWorkspace } from './sprintDoorRequests'
+import { deleteSprintRun } from './sprintRunDeletion'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
 
 const SprintRunBoard = React.lazy(async () => ({
@@ -585,7 +587,9 @@ function SprintRunDisposalMenu({
       confirmLabel: 'Close workspace',
       tone: 'danger',
     })
-    if (confirmed) requestCloseSprintWorkspace(workspaceId)
+    // Nothing on disk follows a plain close, so this one does not wait on the
+    // teardown it starts — the menu closes and the terminals stop behind it.
+    if (confirmed) void requestCloseSprintWorkspace(workspaceId)
   }, [dialog, model.residentWorkspaceId, runName])
 
   // Type-to-confirm, the same bar the Projects row's "Delete workspace" set: this
@@ -609,8 +613,13 @@ function SprintRunDisposalMenu({
     if (typed === null) return
     setBusy(true)
     try {
-      if (model.residentWorkspaceId) requestCloseSprintWorkspace(model.residentWorkspaceId)
-      await window.api.deletePath(runDirectory)
+      // Teardown, trash, tombstone — one ordered sequence (item 1812), which is
+      // why it lives in its own module rather than inline here.
+      await deleteSprintRun({
+        statePath: model.statePath,
+        runDirectory,
+        residentWorkspaceId: model.residentWorkspaceId ?? null,
+      })
       onRunDeleted()
     } catch (error) {
       publishDiagnosticSync({
@@ -623,7 +632,7 @@ function SprintRunDisposalMenu({
     } finally {
       setBusy(false)
     }
-  }, [dialog, runName, model.residentWorkspaceId, runDirectory, onRunDeleted])
+  }, [dialog, runName, model.residentWorkspaceId, model.statePath, runDirectory, onRunDeleted])
 
   // "Close workspace" drops out entirely for a run with no workspace, rather than
   // sitting there greyed: there is nothing to close, the canvas already says so on
@@ -648,7 +657,27 @@ function SprintRunDisposalMenu({
     onSelect: () => void deleteRun(),
   })
 
-  return <OverflowMenu ariaLabel={`More actions for ${runName}`} triggerTooltip="More actions" items={items} />
+  // The delete in flight, on the bar rather than only in the menu. Selecting a
+  // menu item closes the menu, so the "Deleting…" label above is never on screen
+  // while the delete runs — and since the delete now waits for every one of the
+  // run's terminals to die before the folder is trashed (item 1812), that is a
+  // real wait with no signal: the operator types the sprint name, presses
+  // Delete, and nothing changes for seconds. The live line is the same shape the
+  // Reviews door uses for a run in flight.
+  return (
+    <>
+      {busy ? (
+        <span
+          role="status"
+          className="flex shrink-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]"
+        >
+          <Spinner />
+          Deleting…
+        </span>
+      ) : null}
+      <OverflowMenu ariaLabel={`More actions for ${runName}`} triggerTooltip="More actions" items={items} />
+    </>
+  )
 }
 
 // A run's own directory: the folder holding `run.yaml` and everything beside it.

@@ -33,6 +33,8 @@ async function main(): Promise<void> {
   await testToolAfterResultOpensContinuationInsteadOfDenying()
   await testSubagentEventsAfterResultRideTheContinuationChannel()
   await testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack()
+  await testTurnTakeoverEndsTheReplacedContinuationQueue()
+  await testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused()
 
   console.log('claude-agent-provider tests passed')
 }
@@ -756,16 +758,18 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
 
   // A child that refuses the mode: the failure is surfaced and the preset stays
   // as it was, so a later respawn does not silently adopt the rejected mode.
+  // (Bypass no longer reaches this path — see the respawn test — so the refusal
+  // is exercised on the transition that still rides the control channel.)
   const refusing = createAdapter((_userMessage, context) => emitResult(context), {
     onSetPermissionMode: () => {
-      throw new Error('bypassPermissions requires --dangerously-skip-permissions')
+      throw new Error('permission mode auto is unavailable in this CLI build')
     },
   })
   await collect(refusing.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'default' }) as ConversationEvent[])
   await collect(refusing.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-  assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), {
+  assert.deepEqual(await refusing.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }), {
     ok: false,
-    message: 'Claude Code refused the permission change: bypassPermissions requires --dangerously-skip-permissions',
+    message: 'Claude Code refused the permission change: permission mode auto is unavailable in this CLI build',
   })
   assert.equal(refusing.adapter.disposeChildProcess('conv_1'), true)
   await collect(refusing.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
@@ -1034,6 +1038,155 @@ async function testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack():
   )
 
   await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+}
+
+// 1798, the provider half: a send that lands while a continuation turn is open
+// takes the session's turn over. The queue it replaces has to be ended, or its
+// drain awaits an iterator nobody will ever end — leaking one `for await` per
+// occurrence and stranding the permission that continuation was holding.
+async function testTurnTakeoverEndsTheReplacedContinuationQueue(): Promise<void> {
+  const gate = createDeferred<void>()
+  const decisions: Array<Record<string, unknown>> = []
+  let turns = 0
+  const { adapter } = createAdapter(async (_userMessage, context) => {
+    turns += 1
+    context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
+    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'cursor-1', usage: { input_tokens: 1, output_tokens: 1 } })
+    if (turns > 1) return
+    // The first turn's child keeps working: a post-`result` tool opens a
+    // continuation turn and blocks on its approval.
+    await gate.promise
+    const canUseTool = context.options.canUseTool as (
+      toolName: string,
+      input: Record<string, unknown>,
+      options: { signal?: AbortSignal }
+    ) => Promise<Record<string, unknown>>
+    decisions.push(await canUseTool('Bash', { command: 'ls' }, {}))
+  })
+
+  const continuation: ConversationEvent[] = []
+  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+  await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+
+  gate.resolve()
+  await waitForContinuationEvent(continuation, 'approval_requested')
+
+  // The composer flushes a queued message into that window (the runtime guard
+  // normally rejects this; the provider must survive it either way).
+  const takeover = collect(adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  const events = await withTimeout(
+    takeover,
+    'the replaced continuation queue was left open: its drain never ended, so its permission never resolved'
+  )
+
+  assert.equal(events.at(-1)?.type, 'turn_completed', 'the taking-over turn streams and completes normally')
+  assert.equal(decisions[0]?.behavior, 'deny', 'the permission the replaced turn was holding is resolved, not stranded')
+  assert.deepEqual(
+    continuation.map((event) => event.type),
+    ['turn_started', 'approval_requested'],
+    'the ended queue forwards nothing further to the session channel'
+  )
+
+  await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+}
+
+// 1808: Bypass is the one preset the SDK control channel cannot deliver — Claude
+// Code reads it from the flag its child was spawned with. Switching to it on a
+// session spawned Default/Auto respawns the child with `resume` instead of
+// surfacing a refusal the user cannot act on.
+async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): Promise<void> {
+  const emitResult = (context: FakeQueryContext): void => {
+    context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'cursor-1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+  }
+
+  // Idle session: the preset is recorded, the child disposed, and the next turn
+  // respawns into the same provider session with the bypass opt-in.
+  const idle = createAdapter((_userMessage, context) => emitResult(context), {
+    onSetPermissionMode: () => {
+      throw new Error('setPermissionMode must not be attempted for bypass')
+    },
+  })
+  await collect(idle.adapter.startSession(SESSION_INPUT) as ConversationEvent[])
+  await collect(idle.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+  assert.equal(idle.capturedOptions[0]?.permissionMode, 'default')
+  assert.equal(idle.adapter.listLiveSessions()[0]?.hasChildProcess, true)
+
+  assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), { ok: true })
+  assert.deepEqual(idle.permissionModes, [], 'the child is replaced, not asked')
+  const disposed = idle.adapter.listLiveSessions()[0]
+  assert.equal(disposed?.hasChildProcess, false, 'the query is disposed so the next turn respawns')
+  assert.equal(disposed?.providerSessionId, 'cursor-1', 'the resume cursor is kept')
+
+  await collect(idle.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  assert.equal(idle.capturedOptions[1]?.permissionMode, 'bypassPermissions')
+  assert.equal(idle.capturedOptions[1]?.allowDangerouslySkipPermissions, true)
+  assert.equal(idle.capturedOptions[1]?.resume, 'cursor-1', 'the conversation continues in the same provider session')
+  await collect(idle.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+
+  // Mid-turn: disposing would drop the reply being streamed, so the preset is
+  // recorded with a plain sentence about when it starts, and the swap happens at
+  // the next turn.
+  const gate = createDeferred<void>()
+  const inFlight = createAdapter(async (_userMessage, context) => {
+    context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
+    context.emit({
+      type: 'stream_event',
+      session_id: 'cursor-1',
+      parent_tool_use_id: null,
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'thinking' } },
+    })
+    await gate.promise
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'cursor-1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+  })
+  await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto_workspace' }) as ConversationEvent[])
+  const streamed: ConversationEvent[] = []
+  const streaming = (async () => {
+    for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>) streamed.push(event)
+  })()
+  await waitForContinuationEvent(streamed, 'content_delta')
+
+  assert.deepEqual(await inFlight.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass_all' }), {
+    ok: true,
+    notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
+  })
+  assert.equal(inFlight.adapter.listLiveSessions()[0]?.hasChildProcess, true, 'the streaming reply is not torn down')
+
+  gate.resolve()
+  await withTimeout(streaming, 'the in-flight turn never completed')
+  assert.equal(streamed.at(-1)?.type, 'turn_completed')
+
+  await collect(inFlight.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  assert.equal(inFlight.capturedOptions[1]?.permissionMode, 'bypassPermissions', 'the next turn runs under the recorded preset')
+  assert.equal(inFlight.capturedOptions[1]?.allowDangerouslySkipPermissions, true)
+  assert.equal(inFlight.capturedOptions[1]?.resume, 'cursor-1')
+  await collect(inFlight.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
+}
+
+async function withTimeout<T>(promise: Promise<T>, message: string, ms = 2000): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function createDeferred<T>(): { promise: Promise<T>; resolve(value: T): void } {

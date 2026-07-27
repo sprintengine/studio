@@ -10,7 +10,7 @@
  * Pure data logic: parsing, normalization, and successor-record math. All fs
  * and clock access lives in `src/main/sprintengine-automation-service.ts`.
  */
-import type { SprintEngineAutomationMode } from './automation-types'
+import type { SprintEngineAutomationMode, SprintEngineCliPermissionPreset } from './automation-types'
 import type { SprintEngineRosterSession } from './run-types'
 import { isSprintEngineAutomationMode } from './automation-lifecycle'
 
@@ -46,12 +46,34 @@ export type SprintEngineAutomationIntentRecord = {
   // local state over a newer revision.
   revision: number
   desiredMode: SprintEngineAutomationMode
+  /**
+   * The CLI permission preset agents spawn with (MC-1799). An app-side spawn
+   * concern the engine never reads, homed here so a Sprints-door mount with no
+   * resident workspace can set it by statePath like the mode.
+   *
+   * Optional and additive: the intent records already on disk predate it, so
+   * absence means "never set" and readers fall back to their own default. Not a
+   * schema-version bump.
+   */
+  cliPermissionPreset?: SprintEngineCliPermissionPreset
   changedAt: number
   lastWrite: SprintEngineAutomationIntentWrite
   runtime?: SprintEngineAutomationRuntimeResidue
 }
 
 const intentActors = new Set<SprintEngineAutomationIntentActor>(['ui', 'mobile', 'system', 'automation'])
+
+const cliPermissionPresets = new Set<SprintEngineCliPermissionPreset>([
+  'default',
+  'auto_workspace',
+  'bypass_all',
+])
+
+export function isSprintEngineCliPermissionPreset(
+  input: unknown,
+): input is SprintEngineCliPermissionPreset {
+  return typeof input === 'string' && cliPermissionPresets.has(input as SprintEngineCliPermissionPreset)
+}
 
 export function isSprintEngineAutomationIntentActor(
   input: unknown,
@@ -88,6 +110,11 @@ export function parseSprintEngineAutomationIntentRecord(
     schemaVersion: SPRINT_ENGINE_AUTOMATION_INTENT_SCHEMA_VERSION,
     revision,
     desiredMode: record.desiredMode,
+    // An unset or unrecognized preset is dropped rather than guessed at: the
+    // reader's own default applies, exactly as for a pre-MC-1799 record.
+    ...(isSprintEngineCliPermissionPreset(record.cliPermissionPreset)
+      ? { cliPermissionPreset: record.cliPermissionPreset }
+      : {}),
     changedAt,
     lastWrite,
     ...(record.runtime !== undefined ? { runtime: normalizeRuntimeResidue(record.runtime) } : {}),
@@ -119,11 +146,15 @@ export function nextSprintEngineAutomationIntentRecord(input: {
   actor: SprintEngineAutomationIntentActor
   deviceId?: string | null
   now: number
+  /** Omit to carry the current record's preset forward — a mode write never disturbs it. */
+  cliPermissionPreset?: SprintEngineCliPermissionPreset
 }): SprintEngineAutomationIntentRecord {
+  const cliPermissionPreset = input.cliPermissionPreset ?? input.current?.cliPermissionPreset
   return {
     schemaVersion: SPRINT_ENGINE_AUTOMATION_INTENT_SCHEMA_VERSION,
     revision: (input.current?.revision ?? 0) + 1,
     desiredMode: input.mode,
+    ...(cliPermissionPreset !== undefined ? { cliPermissionPreset } : {}),
     changedAt: input.now,
     lastWrite: {
       actor: input.actor,

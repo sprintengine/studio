@@ -71,6 +71,8 @@ import {
   type SprintEngineAutoRunProjectionRefreshResult,
 } from '../shared/sprintengine/auto-run-cycle'
 import type { SprintEngineDispatchAttempt } from '../shared/sprintengine/auto-run'
+import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
+import { samePath } from '../shared/paths'
 import type { TerminalSpawnArgs } from '../shared/sprintengine/auto-run-executor'
 import {
   agentCliSupportsConversationResume,
@@ -91,6 +93,10 @@ import type { SprintPowerManager } from './sprint-power-manager'
 // app relaunch never races projection hydration into duplicate spawns.
 const SPRINT_RUNTIME_TICK_MS = 4000
 const SPRINT_RUNTIME_STARTUP_SPAWN_DELAY_MS = 10_000
+// MC-1906: how long a session's `visible` flag counts as "the operator is
+// currently looking at it" without a fresh visibility edge or keystroke. Past
+// this, a latched flag (undelivered unmount hide) stops blocking retirement.
+const SPRINT_VISIBLE_TAB_HOLD_MS = 15 * 60_000
 // Generous — engine CLI operations (projection reads, auto-approval)
 // legitimately take seconds; the watchdog exists for hung subprocesses, not
 // slow ones.
@@ -208,6 +214,14 @@ function reconcileViewAgents(view: RunEntry['view'], state: SprintEngineState | 
 
 export function createSprintRuntime(deps: SprintRuntimeDeps) {
   const now = deps.now ?? (() => Date.now())
+  // MC-1906: the shared auto-run corpus's perf/skip audit (idle-retire-skipped,
+  // task-scoped-worker-torn-down, …) defaulted to a no-op in main, so the
+  // instrumentation built for retirement stalls (MC-1751) was dark in the one
+  // process that now runs the cycle. Route it to the main console (Electron
+  // log); the audit is why the 2026-07-26 leak needed a live post-mortem.
+  setSprintEngineAutoRunPerfLogger((scope, event, payload) => {
+    console.info(`[${scope}] ${event} ${payload ? JSON.stringify(payload) : ''}`)
+  })
   const timers = deps.timers ?? {
     setInterval: (handler: () => void, ms: number) => setInterval(handler, ms),
     clearInterval: (handle: unknown) => clearInterval(handle as ReturnType<typeof setInterval>),
@@ -413,15 +427,24 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
       // visibility (`setTerminalVisible` from mounted views), which is the
       // same signal one hop earlier — a visible live session means an open,
       // watched tab.
+      //
+      // MC-1906: `visible` LATCHES true when a view's unmount hide is never
+      // delivered (window reload, remount), and a latched flag skipped every
+      // retirement of a run forever — the incident run leaked all 15 done
+      // workers this way. Bound the hold: "currently looking at" requires a
+      // visibility edge or keystroke inside the window; a stale latch expires
+      // and the retirement proceeds (the recorded session still resumes).
       isAgentTabVisible: (workspaceId, agentId) => {
         const target = entryForWorkspaceId(workspaceId)
         if (!target) return false
+        const staleBefore = now() - SPRINT_VISIBLE_TAB_HOLD_MS
         return deps.terminal.list().some((session) =>
           session.kind === 'agent'
-          && session.sprintEngineStatePath === target.statePath
+          && samePath(session.sprintEngineStatePath ?? null, target.statePath)
           && session.agentId === agentId
           && session.processAlive
           && session.visible === true
+          && Math.max(session.lastVisibleAt ?? 0, session.lastInputAt ?? 0) > staleBefore
         )
       },
 
@@ -793,11 +816,19 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
     const agent = target.view.agents[agentId]
     // Suspended sessions count: an idle-reaped agent still owns a disposable
     // placeholder + snapshot sidecar and a recordable resume identity.
+    // MC-1906: statePaths compare normalized, and a CLI-session-id match works
+    // on its own (the id is a uuid — collision-proof) — a session the statePath
+    // arm misses must still be found, or the kill below is silently skipped
+    // while `worker_retired` reports a clean teardown.
     const liveSession = sessions.find((session) =>
       (session.processAlive || session.suspended)
       && session.kind === 'agent'
-      && session.sprintEngineStatePath === target.statePath
-      && (session.agentId === agentId || (agent?.cliSessionId && session.sessionId === agent.cliSessionId))
+      && (
+        (samePath(session.sprintEngineStatePath ?? null, target.statePath)
+          && (session.agentId === agentId || (agent?.cliSessionId && session.sessionId === agent.cliSessionId)))
+        || (agent?.cliSessionId != null
+          && (session.sessionId === agent.cliSessionId || session.cliSessionId === agent.cliSessionId))
+      )
     )
 
     let recorded = false

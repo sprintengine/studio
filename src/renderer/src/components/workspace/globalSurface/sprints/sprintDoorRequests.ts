@@ -27,6 +27,32 @@ export function subscribeNewSprintRequests(onRequest: () => void): () => void {
   return () => window.removeEventListener(NEW_SPRINT_REQUEST_EVENT, handler)
 }
 
+// ── The door's claim on the next sprint creation (items 1765 + 1811) ─────────
+// A run started at the door belongs to the door: creating it comes back to
+// Sprints rather than dropping the operator into the workspace it resides in. The
+// claim is made when the door asks for the wizard and spent when a workspace is
+// created — but the wizard can also go away without creating anything (cancel,
+// Cmd-W, switching workspace, opening New chat), and a claim that outlives its
+// wizard bounces the NEXT creation to the door from wherever it was started
+// (item 1811). Every one of those routes releases it, so the invariant is: the
+// claim is set only while the wizard the door opened is still on screen.
+let sprintCreationClaimedByDoor = false
+
+export function claimSprintCreationForDoor(): void {
+  sprintCreationClaimedByDoor = true
+}
+
+export function releaseSprintCreationDoorClaim(): void {
+  sprintCreationClaimedByDoor = false
+}
+
+/** True when the door opened the wizard this creation came from. Reads once. */
+export function consumeSprintCreationDoorClaim(): boolean {
+  const claimed = sprintCreationClaimedByDoor
+  sprintCreationClaimedByDoor = false
+  return claimed
+}
+
 // ── Close a run's workspace (item 1767) ──────────────────────────────────────
 // "Close workspace" left the Projects list with the sprint rows, so the door
 // owns it now. Terminating a workspace's agent terminals is the shell's job (it
@@ -36,16 +62,44 @@ export function subscribeNewSprintRequests(onRequest: () => void): () => void {
 
 export const CLOSE_SPRINT_WORKSPACE_EVENT = 'multicode:close-sprint-workspace'
 
-export function requestCloseSprintWorkspace(workspaceId: string): void {
-  window.dispatchEvent(new CustomEvent(CLOSE_SPRINT_WORKSPACE_EVENT, { detail: { workspaceId } }))
+type CloseSprintWorkspaceDetail = {
+  // Unknown because it arrives on an event: validated before it is handed on.
+  workspaceId?: unknown
+  /** Handed to the shell so it can report when its teardown has finished. */
+  whenClosed?: (teardown: Promise<void>) => void
+}
+
+/**
+ * Ask the shell to close a run's workspace. Resolves once the shell's teardown
+ * has run — every terminal kill acknowledged by main and the workspace removed —
+ * so a caller that goes on to touch the run's files on disk is not racing the
+ * agents that were writing them (item 1812).
+ *
+ * Resolves immediately when no shell is listening: there is then no teardown in
+ * flight to wait for, and waiting on a promise nobody will settle would wedge the
+ * caller instead.
+ */
+export function requestCloseSprintWorkspace(workspaceId: string): Promise<void> {
+  // `dispatchEvent` runs its listeners synchronously, so every teardown the shell
+  // started is in this array by the time the dispatch returns.
+  const teardowns: Promise<void>[] = []
+  const detail: CloseSprintWorkspaceDetail = {
+    workspaceId,
+    whenClosed: (teardown: Promise<void>) => teardowns.push(teardown),
+  }
+  window.dispatchEvent(new CustomEvent(CLOSE_SPRINT_WORKSPACE_EVENT, { detail }))
+  return Promise.all(teardowns).then(() => undefined)
 }
 
 export function subscribeCloseSprintWorkspaceRequests(
-  onRequest: (workspaceId: string) => void,
+  onRequest: (workspaceId: string) => void | Promise<void>,
 ): () => void {
   const handler = (event: Event): void => {
-    const workspaceId = (event as CustomEvent<{ workspaceId?: unknown }>).detail?.workspaceId
-    if (typeof workspaceId === 'string' && workspaceId) onRequest(workspaceId)
+    const detail = (event as CustomEvent<CloseSprintWorkspaceDetail>).detail
+    const workspaceId = detail?.workspaceId
+    if (typeof workspaceId !== 'string' || !workspaceId) return
+    const teardown = onRequest(workspaceId)
+    if (teardown && typeof detail.whenClosed === 'function') detail.whenClosed(teardown)
   }
   window.addEventListener(CLOSE_SPRINT_WORKSPACE_EVENT, handler)
   return () => window.removeEventListener(CLOSE_SPRINT_WORKSPACE_EVENT, handler)

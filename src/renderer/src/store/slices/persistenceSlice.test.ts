@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import type { AppSettings } from '../../types/workspace'
 import {
   WORKSPACE_STORAGE_KEY,
   WORKSPACE_STORE_VERSION,
@@ -487,5 +488,53 @@ const migratedRoadmapOnly = migratePersistedWorkspaceState(v64RoadmapOnly, 64) a
 }
 assert.equal(migratedRoadmapOnly.workspaces.length, 0, 'roadmap-only account migrates to an empty list')
 assert.equal(migratedRoadmapOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
+
+
+// v67: the Design Wizard conversation transport is opt-in only, but the
+// pre-flip default was `true` and persist had written it to every existing
+// profile — so the flip alone left the whole installed base on the Claude-only
+// conversation transport (MC-1802). The migration resets every persisted `true`
+// and stamps the profile; an opt-in recorded after the stamp is explicit and is
+// left alone.
+assert.equal(WORKSPACE_STORE_VERSION, 67, 'the conversation-transport reset ships at store v67')
+
+const v66PreFlipOptIn = {
+  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-standard',
+  appSettings: { guidedBriefConversationSessions: true, lastSelectedSpecialist: 'design' },
+}
+const migratedTransportReset = migratePersistedWorkspaceState(v66PreFlipOptIn, 66) as {
+  appSettings: AppSettings
+}
+assert.equal(
+  migratedTransportReset.appSettings.guidedBriefConversationSessions,
+  false,
+  'v67 resets a persisted opt-in that predates the flip',
+)
+assert.equal(
+  migratedTransportReset.appSettings.guidedBriefConversationSessionsOptInReset,
+  true,
+  'v67 stamps the profile so the reset runs exactly once',
+)
+assert.equal(
+  migratedTransportReset.appSettings.lastSelectedSpecialist,
+  'design',
+  'v67 leaves other persisted settings alone',
+)
+
+const v66PostResetOptIn = {
+  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-standard',
+  appSettings: {
+    guidedBriefConversationSessions: true,
+    guidedBriefConversationSessionsOptInReset: true,
+  },
+}
+assert.equal(
+  (migratePersistedWorkspaceState(v66PostResetOptIn, 66) as { appSettings: AppSettings })
+    .appSettings.guidedBriefConversationSessions,
+  true,
+  'an opt-in recorded after the reset survives the ladder',
+)
 
 console.log('persistenceSlice.test.ts: ok')

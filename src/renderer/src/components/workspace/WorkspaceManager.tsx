@@ -98,10 +98,14 @@ import {
 } from './globalSurface/extensions/extensionsSurfaceHost'
 import WorkspaceAsideMount, { useWorkspaceAsideTenant } from './WorkspaceAsideMount'
 import {
+  claimSprintCreationForDoor,
+  consumeSprintCreationDoorClaim,
   noteSprintDoorSelection,
+  releaseSprintCreationDoorClaim,
   subscribeCloseSprintWorkspaceRequests,
   subscribeNewSprintRequests,
 } from './globalSurface/sprints/sprintDoorRequests'
+import { noteSprintRunDeleted } from './globalSurface/sprints/sprintRunTombstones'
 import { WindowControls } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
@@ -484,6 +488,18 @@ export default function WorkspaceManager() {
 
   const [showNewWorkspacePanel, setShowNewWorkspacePanel] = useState(false)
   const [newWorkspacePanelInitialState, setNewWorkspacePanelInitialState] = useState<NewWorkspacePanelInitialState | null>(null)
+  // The one way the creation hub goes away. Every route out of it — cancelling,
+  // Cmd-W, switching workspace, opening New chat, the palette, and creating a
+  // workspace — runs through here, because each of them also ends the Sprints
+  // door's claim on the next sprint creation (item 1811). A route that only hid
+  // the panel left the claim armed, and the next sprint started from anywhere
+  // bounced back to the door. Creation reads the claim first (handleCreate); this
+  // releases it for everyone else.
+  const dismissNewWorkspacePanel = useCallback(() => {
+    setShowNewWorkspacePanel(false)
+    setNewWorkspacePanelInitialState(null)
+    releaseSprintCreationDoorClaim()
+  }, [])
   // The pre-creation New Chat panel's scope. Present while the panel is open;
   // folderPath is the project the chat lands in (null → inherit active),
   // folderLabel names it in the panel's scoping chip, and connector is the
@@ -734,19 +750,30 @@ export default function WorkspaceManager() {
   const [surfaceBarEl, setSurfaceBarEl] = useState<HTMLDivElement | null>(null)
   const surfaceBarSlot = useMemo(() => ({ el: surfaceBarEl }), [surfaceBarEl])
 
-  // Every creation-hub opener closes the active door surface: the hub mounts
-  // inside the workspace-card container, which is inert and painted over while
-  // a door is active — without this the click is a visible no-op and the armed
-  // panel pops up later (same contract as openNewChatPanel / the New-sprint
-  // door flow).
-  const openNewWorkspacePanel = useCallback(() => {
-    setNewWorkspacePanelInitialState(null)
+  // The one way the creation hub opens, on whatever the caller preselected.
+  //
+  // Every opener closes the active door surface: the hub mounts inside the
+  // workspace-card container, which is inert and painted over while a door is
+  // active — without this the click is a visible no-op and the armed panel pops
+  // up later (same contract as openNewChatPanel / the New-sprint door flow).
+  //
+  // Opening also releases the Sprints door's claim on the next sprint creation
+  // (item 1811): the wizard now on screen is the one this caller opened. The door
+  // re-claims immediately after asking for its own, so the claim always belongs to
+  // the wizard the operator is actually looking at.
+  const presentNewWorkspacePanel = useCallback((initialState: NewWorkspacePanelInitialState | null) => {
+    setNewWorkspacePanelInitialState(initialState)
     setShowNewWorkspacePanel(true)
+    releaseSprintCreationDoorClaim()
     closeGlobalSurface()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
   }, [closeGlobalSurface, closeSettingsOverlay])
+
+  const openNewWorkspacePanel = useCallback(() => {
+    presentNewWorkspacePanel(null)
+  }, [presentNewWorkspacePanel])
 
   const pickNewChatName = useCallback((folderPath: string | null): string => {
     const folderWorkspaces = workspaces.filter((workspace) => workspace.folderPath === folderPath)
@@ -860,8 +887,7 @@ export default function WorkspaceManager() {
       seedAgent: opts.seedAgent,
       ...(opts.worktree ? { worktree: opts.worktree } : {}),
     })
-    setShowNewWorkspacePanel(false)
-    setNewWorkspacePanelInitialState(null)
+    dismissNewWorkspacePanel()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
@@ -872,6 +898,7 @@ export default function WorkspaceManager() {
     activeWorkspace?.folderPath,
     addWorkspace,
     closeSettingsOverlay,
+    dismissNewWorkspacePanel,
     onboardingStep,
     pickNewChatName,
     setOnboardingStep,
@@ -1081,8 +1108,7 @@ export default function WorkspaceManager() {
       folderPath: targetFolderPath,
       windowId: workspaceWindowId,
     })
-    setShowNewWorkspacePanel(false)
-    setNewWorkspacePanelInitialState(null)
+    dismissNewWorkspacePanel()
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
@@ -1091,6 +1117,7 @@ export default function WorkspaceManager() {
     activeWorkspace?.folderPath,
     addWorkspace,
     closeSettingsOverlay,
+    dismissNewWorkspacePanel,
     onboardingStep,
     pickNewChatName,
     setOnboardingStep,
@@ -1098,23 +1125,13 @@ export default function WorkspaceManager() {
   ])
 
   const openNewWorkspacePanelForFolder = useCallback((folderPath: string) => {
-    setNewWorkspacePanelInitialState({ folderPath })
-    setShowNewWorkspacePanel(true)
-    closeGlobalSurface()
-    closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
-    setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeSettingsOverlay])
+    presentNewWorkspacePanel({ folderPath })
+  }, [presentNewWorkspacePanel])
 
   // Open the creation hub preselected on a type — the sidebar "+" menu rows.
   const openNewWorkspacePanelWithMode = useCallback((mode: WorkspaceMode) => {
-    setNewWorkspacePanelInitialState({ mode })
-    setShowNewWorkspacePanel(true)
-    closeGlobalSurface()
-    closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
-    setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeSettingsOverlay])
+    presentNewWorkspacePanel({ mode })
+  }, [presentNewWorkspacePanel])
 
   // "New sprint" on the Sprints door (item 1763). A door-routed surface is
   // zero-prop by contract, so it signals instead of calling — and because the
@@ -1122,55 +1139,46 @@ export default function WorkspaceManager() {
   // otherwise the wizard would open behind it. Item 1765 gives that wizard its
   // primary-project picker, and the return leg below: a run started at the door
   // belongs to the door, so creating one comes back here rather than dropping
-  // the operator into the workspace it resides in.
-  const sprintCreationCameFromDoor = useRef(false)
+  // the operator into the workspace it resides in. The claim lives with the door
+  // seam; it is taken after the wizard opens (opening releases whatever claim came
+  // before) and released again by every route back out of it (item 1811).
   useEffect(
     () =>
       subscribeNewSprintRequests(() => {
-        sprintCreationCameFromDoor.current = true
         closeGlobalSurface()
         openNewWorkspacePanelWithMode('sprintengine')
+        claimSprintCreationForDoor()
       }),
     [closeGlobalSurface, openNewWorkspacePanelWithMode],
   )
 
   const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
     openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
-    setShowNewWorkspacePanel(false)
+    dismissNewWorkspacePanel()
     setSpecialistMenuOpen(false)
     setSessionsOpen(false)
     setViewMenuOpen(false)
     setNotificationsOpen(false)
     setAccountOpen(false)
-  }, [openSettingsOverlay])
+  }, [dismissNewWorkspacePanel, openSettingsOverlay])
 
   const openLearnCenter = useCallback(() => {
     openSettings(false, 'learn')
   }, [openSettings])
 
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
-    setNewWorkspacePanelInitialState({
+    presentNewWorkspacePanel({
       mode: 'sprintengine',
       folderPath: source.folderPath,
       futurePlanSource: source,
     })
-    setShowNewWorkspacePanel(true)
-    closeGlobalSurface()
-    closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
-    setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeSettingsOverlay])
+  }, [presentNewWorkspacePanel])
 
   // The empty-workspace launcher's Sprint Engine path: open the New Workspace
   // panel pre-set to the team-setup flow (no source plan — "start a new team").
   const openSprintEngineSetup = useCallback(() => {
-    setNewWorkspacePanelInitialState({ mode: 'sprintengine' })
-    setShowNewWorkspacePanel(true)
-    closeGlobalSurface()
-    closeSettingsOverlay()
-    setSpecialistMenuOpen(false)
-    setNotificationsOpen(false)
-  }, [closeGlobalSurface, closeSettingsOverlay])
+    presentNewWorkspacePanel({ mode: 'sprintengine' })
+  }, [presentNewWorkspacePanel])
 
   const setAgentSpawnPermissionPreset = (preset: SprintEngineCliPermissionPreset) => {
     setAgentSpawnPermissionPresetState(preset)
@@ -1553,11 +1561,16 @@ export default function WorkspaceManager() {
     setNotificationsOpen(false)
   }, [windowActiveWorkspaceId])
 
+  // Resolves when the close has actually run: every terminal kill acknowledged by
+  // main and the workspace gone from the store. Callers that only want the
+  // workspace closed can ignore it; a caller that then touches the run's files
+  // must not (item 1812).
   const closeWorkspaceById = useCallback(
-    (id: string) => {
+    (id: string): Promise<void> => {
       const workspace = useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === id)
-      if (workspace) terminateWorkspaceTerminals(workspace)
+      const terminated = workspace ? terminateWorkspaceTerminals(workspace) : Promise.resolve()
       removeWorkspace(id)
+      return terminated
     },
     [removeWorkspace]
   )
@@ -1565,7 +1578,9 @@ export default function WorkspaceManager() {
   // "Close workspace" for a sprint run, asked for by the Sprints door (item
   // 1767). The row that used to offer it is gone, but the operation is unchanged:
   // the same close path, so the run's agent terminals are terminated rather than
-  // orphaned. The run itself stays on disk and keeps listing in the door.
+  // orphaned. The run itself stays on disk and keeps listing in the door. The
+  // returned promise is what the door's "Delete sprint" waits on before it moves
+  // the run's folder to the trash.
   useEffect(
     () => subscribeCloseSprintWorkspaceRequests((workspaceId) => closeWorkspaceById(workspaceId)),
     [closeWorkspaceById],
@@ -1649,18 +1664,16 @@ export default function WorkspaceManager() {
     mode?: Workspace['mode']
   }) => {
     addWorkspace(template, { name, folderPath, sprintEngineState, sprintEngineContext, sprintEngineRoleCliDefaults, sprintEngineAgentCliOverrides, sprintEngineRoleModelOverrides, sprintEngineInitialSpawnRoles, sprintEngineAutoState, guidedBriefState, mode, windowId: workspaceWindowId })
-    setShowNewWorkspacePanel(false)
-    setNewWorkspacePanelInitialState(null)
+    // Read the door's claim before dismissing the wizard — dismissal releases it.
+    const cameFromSprintsDoor = consumeSprintCreationDoorClaim()
+    dismissNewWorkspacePanel()
     // Started at the Sprints door: return there on the run that was just created
     // (item 1765). The workspace is still made and still resident — it holds the
     // terminals — but reading the run is the door's job, and "Open agents" on the
     // canvas is the deliberate way into the workspace.
-    if (sprintCreationCameFromDoor.current) {
-      sprintCreationCameFromDoor.current = false
-      if (mode === 'sprintengine' && sprintEngineContext?.statePath) {
-        noteSprintDoorSelection(sprintEngineContext.statePath)
-        openGlobalSurface('sprints')
-      }
+    if (cameFromSprintsDoor && mode === 'sprintengine' && sprintEngineContext?.statePath) {
+      noteSprintDoorSelection(sprintEngineContext.statePath)
+      openGlobalSurface('sprints')
     }
     // Creating the first workspace finishes onboarding outright — no payoff
     // overlay. Jump straight to 'complete' regardless of the current step.
@@ -1676,7 +1689,9 @@ export default function WorkspaceManager() {
     async (id: string) => {
       const workspace = workspaces.find((candidate) => candidate.id === id)
       if (!workspace) return
-      terminateWorkspaceTerminals(workspace)
+      // Before the folder is trashed, not alongside it: a still-live agent writing
+      // into the run directory recreates what was just deleted (item 1812).
+      await terminateWorkspaceTerminals(workspace)
       const dirPath =
         workspace.mode === 'sprintengine'
           ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
@@ -1684,6 +1699,11 @@ export default function WorkspaceManager() {
       if (dirPath) {
         try {
           await window.api.deletePath(dirPath)
+          // Same run, same debris risk as the door's own delete: the Sprints door
+          // lists from disk, so a folder a surviving writer puts back must not
+          // read as a run there either (item 1812).
+          const statePath = workspace.sprintEngineContext?.statePath
+          if (statePath) noteSprintRunDeleted(statePath)
         } catch (error) {
           publishDiagnosticSync({
             level: 'error',
@@ -1708,7 +1728,9 @@ export default function WorkspaceManager() {
       const targetKey = normalize(folderPath)
       workspaces.forEach((workspace) => {
         if (workspace.folderPath && normalize(workspace.folderPath) === targetKey) {
-          terminateWorkspaceTerminals(workspace)
+          // Nothing on disk is touched afterwards, so the kills run in the
+          // background rather than holding the folder out of the sidebar.
+          void terminateWorkspaceTerminals(workspace)
         }
       })
       forgetFolder(folderPath)
@@ -2118,8 +2140,7 @@ export default function WorkspaceManager() {
     // The New Chat panel renders only in the non-hub branch: leaving the
     // creation hub open would make this click a visible no-op and leave the
     // armed panel to pop up later (first-run keeps the hub pinned open).
-    setShowNewWorkspacePanel(false)
-    setNewWorkspacePanelInitialState(null)
+    dismissNewWorkspacePanel()
     // The panel mounts inside the workspace-card container, which is inert and
     // painted over while a door surface is active — the door closes first or
     // this click is a visible no-op (same contract as the New-sprint flow).
@@ -2127,7 +2148,7 @@ export default function WorkspaceManager() {
     closeSettingsOverlay()
     setSpecialistMenuOpen(false)
     setNotificationsOpen(false)
-  }, [activeWorkspace?.folderPath, closeGlobalSurface, closeSettingsOverlay])
+  }, [activeWorkspace?.folderPath, closeGlobalSurface, closeSettingsOverlay, dismissNewWorkspacePanel])
   const closeNewChatPanel = () => {
     setNewChatPanelState(null)
   }
@@ -2271,7 +2292,7 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'commandPalette.open') {
       setShowPalette(true)
-      setShowNewWorkspacePanel(false)
+      dismissNewWorkspacePanel()
       setSpecialistMenuOpen(false)
       setSessionsOpen(false)
       setAttentionQueueOpen(false)
@@ -2335,7 +2356,7 @@ export default function WorkspaceManager() {
       )
       if (!step) return false
       workspaceNavigationHistoryRef.current = step.history
-      setShowNewWorkspacePanel(false)
+      dismissNewWorkspacePanel()
       // Opening the door sets the surface without touching the underlying
       // workspace; activating a workspace clears any open door as a side effect.
       if (step.entry.kind === 'surface') {
@@ -2352,7 +2373,7 @@ export default function WorkspaceManager() {
         commandId === 'workspace.switch.previous' ? -1 : 1,
       )
       if (!nextWorkspaceId) return false
-      setShowNewWorkspacePanel(false)
+      dismissNewWorkspacePanel()
       setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)
       return true
     }
@@ -2360,7 +2381,7 @@ export default function WorkspaceManager() {
       const workspaceIndex = Number(commandId.slice('workspace.switch.'.length)) - 1
       const workspace = railWorkspaces[workspaceIndex]
       if (!workspace) return false
-      setShowNewWorkspacePanel(false)
+      dismissNewWorkspacePanel()
       setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
       return true
     }
@@ -2370,7 +2391,7 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'layout.tab.close') {
       if (showNewWorkspacePanel) {
-        if (railWorkspaces.length > 0) setShowNewWorkspacePanel(false)
+        if (railWorkspaces.length > 0) dismissNewWorkspacePanel()
         return true
       }
       if (!windowActiveWorkspaceId) return false
@@ -2757,7 +2778,7 @@ export default function WorkspaceManager() {
       })
     }
 
-    setShowNewWorkspacePanel(false)
+    dismissNewWorkspacePanel()
     setActiveWorkspaceForWindow(workspaceWindowId, workspace.id)
     setSessionsOpen(false)
 
@@ -2904,7 +2925,7 @@ export default function WorkspaceManager() {
         residentWorkspaceIds={residentWorkspaceIds}
         terminalRecencyByWorkspaceId={terminalRecencyByWorkspaceId}
         onSelectWorkspace={(id) => {
-          setShowNewWorkspacePanel(false)
+          dismissNewWorkspacePanel()
           setActiveWorkspaceForWindow(workspaceWindowId, id)
         }}
         onMoveWorkspaceToNewWindow={(id, placement) => void moveWorkspaceToNewWindow(id, placement)}
@@ -3054,13 +3075,7 @@ export default function WorkspaceManager() {
             <React.Suspense fallback={<SuspenseFallback label="Loading workspace setup" />}>
               <NewWorkspacePanel
                 onCreate={handleCreate}
-                onClose={() => {
-                  setShowNewWorkspacePanel(false)
-                  setNewWorkspacePanelInitialState(null)
-                  // Abandoning the wizard ends the door's claim on the next
-                  // creation — the following one may come from anywhere.
-                  sprintCreationCameFromDoor.current = false
-                }}
+                onClose={dismissNewWorkspacePanel}
                 workspaceWindowId={workspaceWindowId}
                 allowClose={railWorkspaces.length > 0}
                 initialState={newWorkspacePanelInitialState}
@@ -3439,7 +3454,14 @@ type LayoutSessionNode = {
   children?: LayoutSessionNode[]
 }
 
-function terminateWorkspaceTerminals(workspace: Workspace): void {
+/**
+ * Kill every terminal session the workspace holds. The returned promise settles
+ * once main has acknowledged each kill — the pty has been signalled and the
+ * session dropped from the registry — which is as close to "this workspace's
+ * writers are done" as the renderer can get. Kill failures are absorbed: a
+ * session that died first must not hold up the close.
+ */
+async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> {
   const sessionIds = new Set<string>()
 
   Object.values(workspace.agents).forEach((agent) => {
@@ -3466,9 +3488,9 @@ function terminateWorkspaceTerminals(workspace: Workspace): void {
   collectLayoutSessions(workspace.layoutModel.layout as LayoutSessionNode)
   workspace.layoutModel.borders?.forEach((border) => collectLayoutSessions(border as LayoutSessionNode))
 
-  sessionIds.forEach((sessionId) => {
-    void window.api.terminalKill(sessionId).catch(() => {})
-  })
+  await Promise.all(
+    [...sessionIds].map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
+  )
 }
 
 function EmptyState({ onNew }: { onNew: () => void }) {

@@ -119,8 +119,10 @@ export type MockAdapterPermissionInput = MockAdapterSessionInput & {
 
 // Whether the adapter actually applied the preset. A failure message is shown to
 // the user, so it must say what the provider refused rather than a generic error.
+// `notice` accompanies a preset the adapter recorded but could not apply to the
+// turn already running; it is shown as information, never as a failure.
 export type ConversationProviderPermissionResult =
-  | { ok: true }
+  | { ok: true; notice?: string }
   | { ok: false; message: string }
 
 export type MockAdapterApprovalInput = MockAdapterSessionInput & {

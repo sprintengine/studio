@@ -15,6 +15,7 @@ import {
   type AgentCliCatalogOption,
 } from '../../newWorkspace/cliRuntimeOptions'
 import type { ReviewSession } from '../../../panels/review/useReviewSession'
+import { StopGuideRunButton } from './ReviewGuideStop'
 import type { GuideTerminalLink } from './useGuideTerminal'
 
 // The store-bound guide controls on the Reviews door (MC-1783). The canvas stays
@@ -103,8 +104,8 @@ const DEPTH_HINT: Record<ReviewBriefRunDepth, string> = {
 }
 
 // The action side of the guide banner: the two preparation choices and Prepare,
-// or — while a guide is working — the one link that matters, into the terminal
-// where it is working. The message side (resting / working / failed) stays with
+// or — while a guide is working — the way into the terminal where it is working
+// and the way to end it. The message side (resting / working / failed) stays with
 // the canvas. The choices sit here, at the moment of invoking the guide, rather
 // than in a settings tab: they are per-review decisions that happen to be
 // remembered, not configuration. The depth one-liner sits under the control it
@@ -121,14 +122,22 @@ export function ReviewGuideActions({
   // The depth line is visible copy AND the group's description, so a screen
   // reader hears what the selected depth produces, not just its one-word label.
   const depthHintId = useId()
-  // While the guide works there is nothing to configure and nothing to press —
-  // only the terminal it is working in, which is where its progress really is.
+  // While the guide works there is nothing to configure: only the terminal it is
+  // working in, which is where its progress really is, and the way to end it. Stop
+  // is trailing — the terminal link is the frequent action, Stop ends the row
+  // because it ends the run — and it stands alone when no terminal link resolves
+  // (a run seeded from the main process on remount carries no coordinates), so a
+  // working guide is never an affordance with no exit.
   if (session.run.running) {
-    if (!terminal.terminal) return null
     return (
-      <GhostButton onClick={() => void terminal.open()} className="shrink-0">
-        Open the guide’s terminal
-      </GhostButton>
+      <span className="flex shrink-0 items-center gap-2">
+        {terminal.terminal ? (
+          <GhostButton onClick={() => void terminal.open()} className="shrink-0">
+            Open the guide’s terminal
+          </GhostButton>
+        ) : null}
+        <StopGuideRunButton session={session} />
+      </span>
     )
   }
   const failed = Boolean(session.run.error)

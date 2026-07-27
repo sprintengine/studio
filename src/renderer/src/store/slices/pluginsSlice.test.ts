@@ -30,8 +30,8 @@ const okApi = {
   pluginsList: async () => ({
     ok: true as const,
     plugins: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled' as const, version: 1, binary: 'codex' },
-      { id: 'opencode', displayName: 'OpenCode', source: 'user' as const, version: 1, binary: 'opencode' },
+      { id: 'codex', displayName: 'Codex', source: 'bundled' as const, version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
+      { id: 'opencode', displayName: 'OpenCode', source: 'user' as const, version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false },
     ],
   }),
 }
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   useWorkspaceStore.setState((state) => ({
     ...state,
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
   // catalog on a transient failure.
   const bgCarrier: PluginsSliceState = {
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   const modeResolvers: Array<(value: { ok: false; message: string }) => void> = []
   const modeCarrier: PluginsSliceState = {
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' },
+      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
