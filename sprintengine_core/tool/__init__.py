@@ -28,7 +28,6 @@ from .commands.plan import (
     cmd_plan_update_task,
 )
 from .commands.roster import (
-    cmd_roster_configure,
     cmd_roster_enable,
     cmd_roster_runtime,
 )

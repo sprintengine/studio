@@ -75,13 +75,6 @@ export type SprintEngineAutoState = {
   // expansion / a chained follow-up sprint), re-arming teardown for the next
   // completion. Persisted with the rest of the auto state.
   completionTeardownAt?: number
-  // Optional free-text "Guidance for the architect" captured in the wizard for an
-  // architect-roster run (rosterSource === 'architect'). Prompt-only: quoted
-  // verbatim into the architect's startup prompt to shape team size/spend
-  // posture, never persisted by the engine. Lives here (renderer-owned run
-  // config) rather than on SprintEngineState so the ~4s projection rebuild never
-  // clobbers it. Absent for user-mode runs.
-  architectGuidance?: string
 }
 
 /**

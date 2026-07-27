@@ -10,7 +10,6 @@ AUDITED_TOOLS = {
     "sprintengine.handover",
     "sprintengine.init",
     "sprintengine.recover",
-    "sprintengine.roster.configure",
     "sprintengine.agent.join",
     "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",

@@ -31,7 +31,6 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.recover',
   'sprintengine.roles.get',
   'sprintengine.roles.list',
-  'sprintengine.roster.configure',
   'sprintengine.run.get',
   'sprintengine.run.policy.get',
   'sprintengine.run.subscribe',
@@ -1196,55 +1195,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "items": {
             "type": "string"
           }
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.roster.configure",
-    "description": "roster configure",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "roles"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "roles": {
-          "type": "array",
-          "description": "Roles to enable with a pinned runtime each. Every cli/model must exactly match an entry in the sprint's allowedRuntimes palette.",
-          "items": {
-            "type": "object",
-            "required": [
-              "role",
-              "cli"
-            ],
-            "properties": {
-              "role": {
-                "type": "string",
-                "description": "Registry role id to enable."
-              },
-              "cli": {
-                "type": "string",
-                "description": "Runtime CLI/plugin id, e.g. claude-code."
-              },
-              "model": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Model id, or null for the CLI's default (no --model)."
-              }
-            }
-          }
-        },
-        "id": {
-          "type": "string",
-          "description": "Architect actor id recording the configuration."
         }
       }
     }
@@ -2512,7 +2462,6 @@ export const SPRINTENGINE_MUTATING_TOOL_NAMES = [
   'sprintengine.plan.start_review',
   'sprintengine.plan.update_task',
   'sprintengine.recover',
-  'sprintengine.roster.configure',
   'sprintengine.task.advance',
   'sprintengine.task.claim',
   'sprintengine.task.comment',

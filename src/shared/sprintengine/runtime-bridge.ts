@@ -42,7 +42,6 @@ export type SprintRuntimeRunRegistration = {
   /** Renderer-owned run configuration the scheduler honours. */
   cliPermissionPreset: SprintEngineCliPermissionPreset
   maxConcurrentAgents: number
-  architectGuidance?: string
   /**
    * Renderer-persisted runtime residue the scheduler adopts on first
    * registration so an in-flight run migrates cleanly (delivered notification

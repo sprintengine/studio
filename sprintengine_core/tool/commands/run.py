@@ -45,13 +45,11 @@ from sprintengine_core.tool.shell import ensure_run_worktree
 from sprintengine_core.tool.state import (
     append_event,
     append_task_activity,
-    apply_allowed_runtimes,
     apply_configured_roles,
     apply_init_source,
     apply_role_runtimes,
     apply_default_phases,
     apply_phase_runtimes,
-    apply_roster_source,
     configured_role_set,
     declared_repo_ids,
     end_lease,
@@ -336,17 +334,10 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
             state.setdefault("sprintengine", {})["rosterConfigured"] = True
         apply_role_runtimes(state, getattr(args, "role_runtimes_json", None))
         apply_configured_roles(state, getattr(args, "configured_roles_json", None))
-        # "Architect picks the team": the wizard forwards the roster-source mode
-        # and the sprint's ticked model palette. Both are CLI-init-only and
-        # persist top-level in run.yaml (RUN_ROSTER_SOURCE_KEYS); roster.configure
-        # later enforces allowedRuntimes as the hard boundary on role assignment.
-        apply_roster_source(state, getattr(args, "roster_source", None))
-        apply_allowed_runtimes(state, getattr(args, "allowed_runtimes_json", None))
         # The run's phase list, from the wizard's "Agents review their own work"
         # toggle. Default AND ceiling for every task (assert_phases_within_run_ceiling).
         apply_default_phases(state, getattr(args, "default_phases_json", None))
-        # MC-1543 premium mode. Validated against allowedRuntimes, so this must run
-        # after apply_allowed_runtimes.
+        # MC-1543 premium mode.
         apply_phase_runtimes(state, getattr(args, "phase_runtimes_json", None))
         # Seed the sprint source at creation (app-created runs) so run.yaml carries
         # the "Started from" seed before any agent runs handover. write_run persists

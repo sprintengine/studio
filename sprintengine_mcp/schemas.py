@@ -211,25 +211,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
     ),
     "sprintengine.init": object_schema(["statePath"], {"goal": {"type": "string"}, "useWorktrees": {"type": "boolean"}, "agent": {"type": "array", "items": {"type": "string"}}}),
     "sprintengine.recover": object_schema(["statePath"], {}),
-    "sprintengine.roster.configure": object_schema(
-        ["statePath", "roles"],
-        {
-            "roles": {
-                "type": "array",
-                "description": "Roles to enable with a pinned runtime each. Every cli/model must exactly match an entry in the sprint's allowedRuntimes palette.",
-                "items": {
-                    "type": "object",
-                    "required": ["role", "cli"],
-                    "properties": {
-                        "role": {"type": "string", "description": "Registry role id to enable."},
-                        "cli": {"type": "string", "description": "Runtime CLI/plugin id, e.g. claude-code."},
-                        "model": {"type": ["string", "null"], "description": "Model id, or null for the CLI's default (no --model)."},
-                    },
-                },
-            },
-            "id": {"type": "string", "description": "Architect actor id recording the configuration."},
-        },
-    ),
     "sprintengine.agent.join": object_schema(
         ["statePath", "role", "agentId"],
         {

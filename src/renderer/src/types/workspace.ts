@@ -83,7 +83,6 @@ export type {
   SprintEngineRoleSettings,
   SprintEngineRosterSession,
   SprintEngineRosterSessions,
-  SprintEngineRosterSource,
   SprintEngineRosterTeam,
   SprintEngineRunnerPolicy,
   SprintEngineRunSettings,

@@ -168,50 +168,6 @@ sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
 
 ## Roster Composition
 
-Two `sprintengine init` flags decide who composes the team and which runtimes
-are in play. Both are written once at init (the app forwards them from the
-sprint wizard) and are **not MCP-mutable**:
-
-- `--roster-source <user|architect>`: who composes the roster. `user` (the
-  default; absent/legacy runs behave as `user`) means the operator picked the
-  team in the wizard. `architect` ("Architect picks the team") means the
-  architect enables roles via `sprintengine roster configure` during planning.
-- `--allowed-runtimes-json '<json>'`: the sprint's allowed runtime palette — a
-  JSON array of `{"cli", "model"}` objects (`"model": null` = that CLI's own
-  default). `roster configure` hard-rejects any role assignment whose
-  `{cli, model}` is not an exact entry here. Absent on `user`/legacy runs.
-
-On an `architect`-source run the architect enables roles and pins each role's
-runtime in one sanctioned mutation, before creating task cards:
-
-```bash
-sprintengine roster configure --id architect --roles-json '[
-  {"role": "developer", "cli": "claude-code", "model": "claude-opus-4-8"},
-  {"role": "tester", "cli": "claude-code", "model": null}
-]'
-```
-
-- `--roles-json` (required) is a JSON array of `{"role", "cli", "model"}`
-  objects; `"model": null` pins the CLI default (no `--model`).
-- `configuredRoles` is **replaced** by the union of the submitted roles and the
-  run's planning role — this enabled set is what gates roles. `roleRuntimes` is
-  **merged** over the existing map, so a revision that drops a role leaves that
-  role's stale runtime entry behind (harmless, since `configuredRoles` gates).
-- The command is rejected when: the run is not `rosterSource: architect`
-  (`roster_configure_requires_architect_roster_source`); the plan is already
-  approved (`roster_locked_after_plan_approval` — route post-approval changes
-  through `needs_input(user)`); a submitted role is unknown to the registry; or
-  a `{cli, model}` is outside `--allowed-runtimes-json`
-  (`runtime_not_allowed_for_run`). Re-run the command to revise the team until
-  the plan is approved.
-
-Over MCP the same operation is `sprintengine.roster.configure` with
-`{ roles: [{ role, cli, model }, ...], id? }`. It lives in `PLANNING_TOOLS`, so
-the planning role holds it — architect and general converge on the same surface
-(MC-1591 deleted the roster-growth tools that used to distinguish them). It still
-gates on `rosterSource: architect`, so only an architect-composed run can seat a
-team through it.
-
 ### Operator runtime edits (`roster runtime`, MC-1516)
 
 The **operator** (never an agent) can change one role's runtime at any point in
@@ -227,11 +183,9 @@ sprintengine roster runtime --role developer --cli claude-code --model claude-ha
   launch).
 - Merges the one role into `roleRuntimes` in a locked transaction and appends a
   `role_runtime_changed` event carrying the previous value.
-- Deliberately **not** an MCP tool and **not** subject to the
-  `rosterSource`/plan-approval-lock/`allowedRuntimes` guards above — the
-  palette constrains the architect, never the operator. The role must resolve
-  in the registry and, on configured rosters, be in `configuredRoles`
-  (`role_not_enabled_for_run`).
+- Deliberately **not** an MCP tool: a role's execution runtime is user config.
+  The role must resolve in the registry and, on configured rosters, be in
+  `configuredRoles` (`role_not_enabled_for_run`).
 - Applies to every future spawn and claim of the role; live sessions keep the
   runtime they launched with until they next start.
 
@@ -245,8 +199,8 @@ board's "Add a role" control on the Agents tab:
 sprintengine roster enable --role tester --cli claude-code --actor ui
 ```
 
-- **Additive only**: the role is unioned into `configuredRoles`; unlike
-  `roster configure`, the existing set is never replaced or reduced.
+- **Additive only**: the role is unioned into `configuredRoles`; the existing
+  set is never replaced or reduced.
 - Optional `--cli`/`--model` seed the role's runtime in the same locked write
   (a plain `roleRuntimes` merge, same semantics as `roster runtime`).
 - Appends a `role_enabled` event; re-enabling an already-enabled role is a
@@ -280,8 +234,7 @@ sprintengine init --name my-team --default-phases-json '[]'
   straight to `done`.
 - An absent key reads as the engine default `["review"]`
   (`store.run_default_phases`).
-- CLI-init-only, like `--roster-source` and `--allowed-runtimes-json`. It is not
-  MCP-mutable: "agents on this run do not review their own work" is an operator
+- CLI-init-only, like `--role-runtimes-json`. It is not MCP-mutable: "agents on this run do not review their own work" is an operator
   guarantee, not an architect preference.
 
 Per-task trimming happens at plan time with a comma-separated `--phases`
@@ -345,13 +298,10 @@ build:
 
 ```bash
 sprintengine init --name my-team \
-  --allowed-runtimes-json '[{"cli": "claude-code", "model": "sonnet"}, {"cli": "claude-code", "model": "fable"}]' \
   --phase-runtimes-json '{"review": {"cli": "claude-code", "model": "fable"}}'
 ```
 
-Each key must be a valid phase and each binding must appear in
-`allowedRuntimes` (validated at init, so the flag must follow
-`--allowed-runtimes-json`).
+Each key must be a valid phase and each binding must name a CLI.
 
 The cost invariant is the point of the feature. **An absent `phaseRuntimes`, or
 a binding that equals the task owner's own runtime, creates no extra sessions**

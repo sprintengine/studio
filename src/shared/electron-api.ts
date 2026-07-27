@@ -1818,18 +1818,6 @@ export type SprintEngineStateInitializeInput = {
   // this run. Written to run.yaml `configuredRoles` at init so Python knows
   // which roles the architect may seat under the lazy (architect-only) roster.
   enabledRoles?: string[]
-  // How the roster is composed: 'architect' ("Architect picks the team") seats
-  // only the architect and lets it choose the team via roster.configure; 'user'
-  // (default/absent) means the wizard-composed roster. Written to run.yaml
-  // `rosterSource` via the `--roster-source` init flag; CLI-init-only, never
-  // MCP-mutable.
-  rosterSource?: 'user' | 'architect'
-  // The sprint's allowed runtime palette for an architect-roster run: the
-  // `{cli, model}` set the user ticked (model null = the CLI's own default).
-  // Written to run.yaml `allowedRuntimes` via `--allowed-runtimes-json`; the
-  // engine hard-rejects any roster.configure assignment outside it. Omitted for
-  // user-mode runs.
-  allowedRuntimes?: Array<{ cli: string; model: string | null }>
   // The post-implementation phases every task inherits (MC-1542). Written to
   // run.yaml `defaultPhases` via `--default-phases-json`. It is the DEFAULT and
   // the CEILING: a task may trim its phases, never add one outside this set, so
@@ -1840,8 +1828,8 @@ export type SprintEngineStateInitializeInput = {
   // MC-1543 premium mode: per-phase runtime bindings, e.g.
   // `{ review: { cli: 'claude-code', model: 'fable' } }` — a stronger model reviews
   // each task's diff as a fresh, diff-seeded session while cheap models build.
-  // Written to run.yaml `phaseRuntimes` via `--phase-runtimes-json` and validated
-  // against `allowedRuntimes`. ABSENT means zero extra sessions are created.
+  // Written to run.yaml `phaseRuntimes` via `--phase-runtimes-json`. ABSENT means
+  // zero extra sessions are created.
   phaseRuntimes?: Record<string, { cli: string; model: string | null }>
 }
 

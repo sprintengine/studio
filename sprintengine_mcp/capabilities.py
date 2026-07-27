@@ -100,7 +100,6 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
     "sprintengine.plan.list",
     "sprintengine.plan.read",
     "sprintengine.triage.needs_input",
-    "sprintengine.roster.configure",
     "sprintengine.summary",
     "sprintengine.feedback.summarize",
     "sprintengine.feedback.recommend_actions",

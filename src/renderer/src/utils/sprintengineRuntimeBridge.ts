@@ -60,10 +60,6 @@ function listRegistrableSprintWorkspaces(): Workspace[] {
 
 function buildRegistration(workspace: Workspace, statePath: string): SprintRuntimeRunRegistration {
   const autoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
-  // The normalizer deliberately does not carry `architectGuidance` (it is a
-  // creation-time value, not lifecycle state), so read it off the raw record.
-  const architectGuidance =
-    autoState.architectGuidance ?? workspace.sprintEngineAutoState?.architectGuidance
   return {
     statePath,
     workspaceId: workspace.id,
@@ -72,7 +68,6 @@ function buildRegistration(workspace: Workspace, statePath: string): SprintRunti
     memoryRelativeRoot: workspace.memory?.relativeRoot ?? null,
     cliPermissionPreset: autoState.cliPermissionPreset,
     maxConcurrentAgents: autoState.maxConcurrentAgents,
-    ...(architectGuidance !== undefined ? { architectGuidance } : {}),
     deliveredAgentNotificationEventKeys: autoState.deliveredAgentNotificationEventKeys,
     ...(autoState.completionTeardownAt !== undefined
       ? { completionTeardownAt: autoState.completionTeardownAt }
@@ -129,7 +124,6 @@ function registrationSignature(registration: SprintRuntimeRunRegistration): stri
     registration.memoryRelativeRoot,
     registration.cliPermissionPreset,
     registration.maxConcurrentAgents,
-    registration.architectGuidance ?? null,
     registration.agentConfigs,
   ])
 }

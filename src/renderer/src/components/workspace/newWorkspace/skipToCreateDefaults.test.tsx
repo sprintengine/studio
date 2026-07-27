@@ -109,6 +109,7 @@ assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, { general: 1 }, 'and stage
 for (const [what, pattern] of [
   ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
   ['the specialist-roles axis opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
+  ['the Team segment is that one axis projected — MC-1889 left no third formation', /const seTeamMode: SprintEngineTeamMode = seUseSpecialistRoles \? 'roles' : 'pool'/],
   ['a fresh install computes the pool segment unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedTeamId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
   ['plain-agents create stages a lone general planner', /const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/],
   ['plain-agents create swaps in that lone seat', /sprintEnginePlainAgents\n\s*\? PLAIN_AGENT_ROLE_COUNTS\n\s*: sprintEngineCreateRoleCounts/],
@@ -152,9 +153,6 @@ const teamPage = renderToStaticMarkup(
     // The fresh-install experience: the segmented control opens on the pool.
     teamMode="pool"
     onChangeTeamMode={spy('onChangeTeamMode')}
-    architectModeAvailable={false}
-    architectModeDisabledHint="Add at least one model to your catalog in Settings"
-    architectCard={null}
     roleCounts={UNTOUCHED.roleCounts}
     roleCliDefaults={UNTOUCHED.roleCliDefaults}
     roleModelOverrides={UNTOUCHED.roleModelOverrides}
@@ -214,7 +212,6 @@ const startPage = renderToStaticMarkup(
     roleCliDefaults={UNTOUCHED.roleCliDefaults}
     roleModelOverrides={UNTOUCHED.roleModelOverrides}
     poolAgentCount={UNTOUCHED.maxParallelAgents}
-    architectSeatLabel={null}
     selectedToolNames={[]}
     selectedSkillPackCount={0}
     onEditStep={spy('onEditStep')}
@@ -307,7 +304,6 @@ function creationArgsFor(state: SprintWizardState) {
     autoApproveArtifacts: state.autoApproveArtifacts,
     useWorktrees: state.useWorktrees,
     cliPermissionPreset: state.cliPermissionPreset as never,
-    rosterSource: 'user',
   } as never)
 }
 

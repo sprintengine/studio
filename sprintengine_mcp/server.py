@@ -405,7 +405,6 @@ class SprintEngineMcpServer:
                     run,
                     state_path,
                     configured_roles=state.get("configuredRoles"),
-                    roster_source=state.get("rosterSource"),
                 ),
                 # Compose-time gate for the multicode_backlog layer skill: only a
                 # backlog-sourced run pays its prompt cost.
@@ -530,7 +529,6 @@ class SprintEngineMcpServer:
                     state.get("sprintengine", {}),
                     state_path,
                     configured_roles=state.get("configuredRoles"),
-                    roster_source=state.get("rosterSource"),
                 ),
                 "runner": folder_store.normalize_runner_policy(state.get("runner")),
                 "write": False,
@@ -1132,7 +1130,6 @@ def _run_metadata(
     state_path: Path,
     *,
     configured_roles: Any = None,
-    roster_source: Any = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "name": run.get("name"),
@@ -1143,12 +1140,6 @@ def _run_metadata(
         "statePath": str(state_path),
         "teamDir": str(state_path.parent),
     }
-    # The run's roster-source mode (top-level `state["rosterSource"]`, written
-    # once at init) so a joined architect can self-check whether it must pick the
-    # team via roster.configure. Omitted for user-mode/legacy runs so they stay
-    # absent-safe.
-    if isinstance(roster_source, str) and roster_source.strip():
-        metadata["rosterSource"] = roster_source.strip()
     # The run's enabled role set (top-level `state["configuredRoles"]`, written
     # once at init by apply_configured_roles) so join/run responses carry the
     # allowed roles and headless agents can self-check without the

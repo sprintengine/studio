@@ -193,8 +193,7 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
   sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
   sprintengine merge start --id architect --target main
 
-Roster commands (run-config only; MC-1591 removed membership add/retire/replenish/list — leases replace the roster):
-  sprintengine roster configure --id architect --roles-json '[{"role":"developer","cli":"claude-code","model":"claude-opus-4-8"}]'
+Roster commands (run-config only; MC-1591 removed membership add/retire/replenish/list — leases replace the roster, and MC-1889 removed `roster configure` with the architect-picks-the-team formation):
   sprintengine roster runtime --role developer --cli claude-code --model claude-haiku-4-5 --actor ui
   sprintengine roster enable --role tester --cli claude-code --actor ui
 
@@ -430,19 +429,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON array of the roster's enabled role ids: the roles a task may be tagged with. Enforced by plan.add_task, so a lazy (architect-only) roster still admits its planned tasks. Distinct from the seated agents and from --role-runtimes-json (which includes CLI-default roles).",
     )
     p.add_argument(
-        "--roster-source",
-        dest="roster_source",
-        help="Who composes the roster: 'user' (default; picked in the wizard) or 'architect' ('Architect picks the team' — the architect enables roles via sprintengine.roster.configure). CLI-init-only; not MCP-mutable.",
-    )
-    p.add_argument(
-        "--allowed-runtimes-json",
-        dest="allowed_runtimes_json",
-        help='JSON array of the sprint\'s allowed {"cli", "model"} runtimes (model null = the CLI default). The ticked per-sprint model selection; roster.configure hard-rejects any role assignment outside it. CLI-init-only; not MCP-mutable.',
-    )
-    p.add_argument(
         "--phase-runtimes-json",
         dest="phase_runtimes_json",
-        help='JSON object of phase -> {"cli", "model"} (model null = the CLI default), e.g. {"review": {"cli": "claude-code", "model": "fable"}}. Premium mode: a stronger model reviews each task\'s diff as a fresh, diff-seeded session. Validated against --allowed-runtimes-json. Absent = the phase runs in-session on the owner\'s runtime and no extra sessions are created. CLI-init-only; not MCP-mutable.',
+        help='JSON object of phase -> {"cli", "model"} (model null = the CLI default), e.g. {"review": {"cli": "claude-code", "model": "fable"}}. Premium mode: a stronger model reviews each task\'s diff as a fresh, diff-seeded session. Absent = the phase runs in-session on the owner\'s runtime and no extra sessions are created. CLI-init-only; not MCP-mutable.',
     )
     p.add_argument(
         "--default-phases-json",
@@ -498,16 +487,6 @@ def build_parser() -> argparse.ArgumentParser:
     # deleted by MC-1591 when leases replaced the roster.
     roster_p = sub.add_parser("roster", help="Run-config operations (configuredRoles + per-role runtimes).")
     roster_sub = roster_p.add_subparsers(dest="action", required=True)
-
-    p = roster_sub.add_parser("configure", help="Architect: enable roles + pick each role's cli/model ('Architect picks the team' runs, pre-plan-approval).")
-    p.add_argument("--id", default="architect", help="Architect actor id recording the configuration.")
-    p.add_argument(
-        "--roles-json",
-        dest="roles_json",
-        required=True,
-        help='JSON array of {"role", "cli", "model"} objects (model null = the CLI default). Each cli/model must exactly match an entry in the sprint\'s allowedRuntimes palette.',
-    )
-    p.set_defaults(handler=roster_commands.configure)
 
     p = roster_sub.add_parser("runtime", help="Operator: set one role's cli/model mid-run. Applies to future spawns and claims; live agents switch when they next start. App-owned (--actor ui), not an agent tool.")
     p.add_argument("--role", required=True)
