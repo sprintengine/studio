@@ -84,13 +84,18 @@ export type AutomationRendererRequest =
       // Create a new Sprint Engine run: a sprintengine-mode workspace whose
       // run.yaml is initialized through the same controller path the wizard
       // uses (main spawns the one-shot Python init). Roster defaults resolve
-      // like the wizard's roster step (last saved team, else the built-in
+      // like the wizard's roster step (last saved roster, else the built-in
       // default). The board-panel mount owns launching the architect, so the
       // renderer activates the new workspace before answering.
+      //
+      // TWO CONCEPTS, THREE FIELDS (MC-1874) — do not merge them:
+      //   `name`           = RUN IDENTITY seed. Becomes the run's team dir slug.
+      //   `refuseTeamSlug` = RUN IDENTITY. A slug to refuse (self-trigger guard).
+      //   `rosterName` / `roster` = AGENT CONFIGURATION. Which roles staff the run.
       kind: 'sprint.create'
       folderPath: string
       goal: string
-      /** Team name; defaults to the wizard's 'Sprint Roster'. */
+      /** Run name (seeds the team dir slug); defaults to the wizard's 'Sprint Roster'. */
       name?: string
       /** Start the auto-runner (spawns the architect at mount). Default false: a manual run sits idle until opened. */
       startRunner?: boolean
@@ -103,12 +108,12 @@ export type AutomationRendererRequest =
        * empty — it derives from the item's first heading.
        */
       sourceRelativePath?: string
-      /** Saved team (roster) name to staff the run with; absent resolves like the wizard (last selected, else default). */
-      team?: string
+      /** Saved ROSTER name to staff the run with; absent resolves like the wizard (last selected, else default). */
+      rosterName?: string
       /**
-       * Explicit roster: role id -> staffed flag. Wins over `team` and over the
-       * saved-roster fallback, so a caller with no saved team can still staff a
-       * run precisely. A role omitted here is OFF — the map is applied over a
+       * Explicit roster: role id -> staffed flag. Wins over `rosterName` and over
+       * the saved-roster fallback, so a caller with no saved roster can still staff
+       * a run precisely. A role omitted here is OFF — the map is applied over a
        * zero base, never over the default counts (owner, 2026-07-14: absent
        * means off).
        *

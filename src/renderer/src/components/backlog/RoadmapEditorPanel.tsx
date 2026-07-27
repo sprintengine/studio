@@ -295,8 +295,8 @@ export function RoadmapEditorPanel({
     return map
   }, [projectsInput])
 
-  const savedTeamNames = useWorkspaceStore(
-    useShallow((s) => (s.appSettings.sprintEngineRoleSettings?.savedTeams ?? []).map((team) => team.name)),
+  const savedRosterNames = useWorkspaceStore(
+    useShallow((s) => (s.appSettings.sprintEngineRoleSettings?.savedRosters ?? []).map((roster) => roster.name)),
   )
 
   const title = draft.title ?? roadmapItem.title
@@ -346,7 +346,7 @@ export function RoadmapEditorPanel({
             </Tooltip>
           </div>
         </div>
-        <PolicyBar policy={draft.policy} teamNames={savedTeamNames} onChange={setPolicy} />
+        <PolicyBar policy={draft.policy} rosterNames={savedRosterNames} onChange={setPolicy} />
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -434,35 +434,35 @@ function TitleField({ value, onChange }: { value: string; onChange: (next: strin
   )
 }
 
-// The sentinel Select value for "no saved team pinned" (Select items need a
+// The sentinel Select value for "no saved roster pinned" (Select items need a
 // non-empty string value).
-const TEAM_LAST_USED = ' last-used'
+const ROSTER_LAST_USED = ' last-used'
 
 // The execution policies, in plain human terms: what happens after a step
-// finishes, who merges delivered work, and which saved team staffs each sprint.
+// finishes, who merges delivered work, and which saved roster staffs each sprint.
 // (`policy.concurrency` is parsed and preserved but the orchestrator does not
 // honor it yet — it serializes to one active run per repo — so no editing
 // control is shown for it. See the backlog item for real per-repo concurrency.)
 function PolicyBar({
   policy,
-  teamNames,
+  rosterNames,
   onChange,
 }: {
   policy: RoadmapPolicy
-  // The user's saved teams (rosters), for the per-roadmap team pick.
-  teamNames: ReadonlyArray<string>
+  // The user's saved roster names, for the per-horizon roster pick.
+  rosterNames: ReadonlyArray<string>
   onChange: (patch: Partial<RoadmapPolicy>) => void
 }): JSX.Element {
-  const teamItems = useMemo<SelectItem<string>[]>(() => {
-    const items: SelectItem<string>[] = [{ value: TEAM_LAST_USED, label: 'Last used roster' }]
-    for (const name of teamNames) items.push({ value: name, label: name })
-    // A stored team that is no longer among the saved teams still shows (and
+  const rosterItems = useMemo<SelectItem<string>[]>(() => {
+    const items: SelectItem<string>[] = [{ value: ROSTER_LAST_USED, label: 'Last used roster' }]
+    for (const name of rosterNames) items.push({ value: name, label: name })
+    // A stored roster that is no longer among the saved rosters still shows (and
     // warns) rather than silently reading as "Last used".
-    if (policy.team && !teamNames.includes(policy.team)) {
-      items.push({ value: policy.team, label: `${policy.team} (not found)` })
+    if (policy.roster && !rosterNames.includes(policy.roster)) {
+      items.push({ value: policy.roster, label: `${policy.roster} (not found)` })
     }
     return items
-  }, [teamNames, policy.team])
+  }, [rosterNames, policy.roster])
   return (
     <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3">
       <PolicyControl label="After a step finishes">
@@ -487,12 +487,12 @@ function PolicyBar({
           ]}
         />
       </PolicyControl>
-      <PolicyControl label="Sprint team">
+      <PolicyControl label="Roster">
         <Select
-          ariaLabel="Team for every sprint this horizon starts"
-          items={teamItems}
-          value={policy.team ?? TEAM_LAST_USED}
-          onChange={(value) => onChange({ team: value === TEAM_LAST_USED ? undefined : value })}
+          ariaLabel="Roster for every sprint this horizon starts"
+          items={rosterItems}
+          value={policy.roster ?? ROSTER_LAST_USED}
+          onChange={(value) => onChange({ roster: value === ROSTER_LAST_USED ? undefined : value })}
         />
       </PolicyControl>
     </div>

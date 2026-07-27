@@ -9,7 +9,7 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   resolveInitialSprintEngineRoster,
-} from '../workspace/newWorkspace/savedTeams'
+} from '../workspace/newWorkspace/savedRosters'
 import { SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS } from '../workspace/newWorkspace/controllers/sprintEngineController'
 import { markdownTitle, workspaceRelativePath } from '../workspace/newWorkspace/helpers'
 import {
@@ -111,8 +111,8 @@ export function useBacklogTrackerSeeding(params: {
         const store = useWorkspaceStore.getState()
         const roleSettings = store.appSettings.sprintEngineRoleSettings
         const roster = resolveInitialSprintEngineRoster({
-          savedTeams: roleSettings?.savedTeams ?? [],
-          lastSelectedTeamId: roleSettings?.lastSelectedTeamId ?? null,
+          savedRosters: roleSettings?.savedRosters ?? [],
+          lastSelectedRosterId: roleSettings?.lastSelectedRosterId ?? null,
           savedRoster: roleSettings?.savedRoster ?? null,
           defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
           defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,

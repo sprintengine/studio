@@ -10,8 +10,8 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   resolveInitialSprintEngineRoster,
-} from './savedTeams'
-import { SprintEngineTeamPanel } from './SprintEngineTeamPanel'
+} from './savedRosters'
+import { SprintEngineRosterPanel } from './SprintEngineRosterPanel'
 import { SprintEngineToolsPanel } from './SprintEngineToolsPanel'
 import { SprintEngineStartPanel } from './SprintEngineStartPanel'
 
@@ -49,8 +49,8 @@ assert.deepEqual(
 // ---------------------------------------------------------------------------
 
 const initialRoster = resolveInitialSprintEngineRoster({
-  savedTeams: [],
-  lastSelectedTeamId: null,
+  savedRosters: [],
+  lastSelectedRosterId: null,
   savedRoster: null,
   defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
@@ -109,8 +109,8 @@ assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, { general: 1 }, 'and stage
 for (const [what, pattern] of [
   ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
   ['the specialist-roles axis opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
-  ['the Team segment is that one axis projected — MC-1889 left no third formation', /const seTeamMode: SprintEngineTeamMode = seUseSpecialistRoles \? 'roles' : 'pool'/],
-  ['a fresh install computes the pool segment unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedTeamId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
+  ['the Team segment is that one axis projected — MC-1889 left no third formation', /const seRosterMode: SprintEngineRosterMode = seUseSpecialistRoles \? 'roles' : 'pool'/],
+  ['a fresh install computes the pool segment unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedRosterId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
   ['plain-agents create stages a lone general planner', /const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/],
   ['plain-agents create swaps in that lone seat', /sprintEnginePlainAgents\n\s*\? PLAIN_AGENT_ROLE_COUNTS\n\s*: sprintEngineCreateRoleCounts/],
   ['agents-at-start is on', /const \[seStartRunner, setSeStartRunner\] = useState\(true\)/],
@@ -149,10 +149,10 @@ const spy = (name: string) => (...args: unknown[]) => {
 const cliOptions = [{ id: 'claude' as AgentCli, label: 'Claude' } as never]
 
 const teamPage = renderToStaticMarkup(
-  <SprintEngineTeamPanel
+  <SprintEngineRosterPanel
     // The fresh-install experience: the segmented control opens on the pool.
-    teamMode="pool"
-    onChangeTeamMode={spy('onChangeTeamMode')}
+    rosterMode="pool"
+    onChangeRosterMode={spy('onChangeRosterMode')}
     roleCounts={UNTOUCHED.roleCounts}
     roleCliDefaults={UNTOUCHED.roleCliDefaults}
     roleModelOverrides={UNTOUCHED.roleModelOverrides}
@@ -165,14 +165,14 @@ const teamPage = renderToStaticMarkup(
     disabledRoleIds={null}
     rosterDisabled={false}
     hasExistingTeam={false}
-    teams={[]}
-    selectedTeamId={null}
-    selectedTeamDirty={false}
-    onSelectTeam={spy('onSelectTeam')}
-    onSaveTeam={spy('onSaveTeam')}
-    onUpdateTeam={spy('onUpdateTeam')}
-    onRenameTeam={spy('onRenameTeam')}
-    onDeleteTeam={spy('onDeleteTeam')}
+    rosters={[]}
+    selectedRosterId={null}
+    selectedRosterDirty={false}
+    onSelectRoster={spy('onSelectRoster')}
+    onSaveRoster={spy('onSaveRoster')}
+    onUpdateRoster={spy('onUpdateRoster')}
+    onRenameRoster={spy('onRenameRoster')}
+    onDeleteRoster={spy('onDeleteRoster')}
     poolAgentCount={UNTOUCHED.maxParallelAgents}
     onChangePoolAgentCount={spy('onChangePoolAgentCount')}
   />,
@@ -202,7 +202,7 @@ const startPage = renderToStaticMarkup(
     workspaceName="Sprint Roster"
     folderPath="/repo"
     objective="Ship the thing"
-    teamMode="pool"
+    rosterMode="pool"
     hasExistingTeam={false}
     existingTeamName={null}
     roleCounts={UNTOUCHED.roleCounts}
@@ -266,7 +266,7 @@ assert.doesNotMatch(startPage, /aria-label="Run in an isolated git worktree"[^>]
 for (const file of [
   'WizardControls.tsx',
   'SprintEngineRosterTable.tsx',
-  'SprintEngineTeamPanel.tsx',
+  'SprintEngineRosterPanel.tsx',
   'SprintEngineToolsPanel.tsx',
   'SprintEngineStartPanel.tsx',
 ]) {

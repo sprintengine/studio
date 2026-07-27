@@ -6,7 +6,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
-  SprintEngineRosterTeam,
+  SprintEngineRoster,
   SprintEngineSavedRoster,
 } from '../../../types/workspace'
 import { SPRINT_ENGINE_GENERAL_ROLE_ID } from '../../../utils/sprintengineRoleOptions'
@@ -49,7 +49,7 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS: Required<SprintEngineRoleC
 ) as Required<SprintEngineRoleCliDefaults>
 
 export type ResolvedInitialSprintEngineRoster = {
-  selectedTeamId: string | null
+  selectedRosterId: string | null
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
@@ -70,21 +70,21 @@ function effectiveSavedRoleModel(
 
 // Resolve the roster the new-workspace wizard opens with, so the roster step is
 // a single Continue on a runnable team. Precedence:
-//   1. The most recently selected saved team (lastSelectedTeamId → savedTeams).
+//   1. The most recently selected saved team (lastSelectedRosterId → savedRosters).
 //   2. The legacy single saved roster.
 //   3. The built-in default roster (a runnable implement-and-review team) when no
 //      saved roster exists — a fresh install still opens pre-selected.
 // CLI defaults always layer over the full default map, so every known role keeps
 // a valid CLI even when a saved team stored only a subset.
 export function resolveInitialSprintEngineRoster(input: {
-  savedTeams: SprintEngineRosterTeam[]
-  lastSelectedTeamId: string | null | undefined
+  savedRosters: SprintEngineRoster[]
+  lastSelectedRosterId: string | null | undefined
   savedRoster: SprintEngineSavedRoster | null
   defaultRoleCounts: SprintEngineRoleCounts
   defaultRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
 }): ResolvedInitialSprintEngineRoster {
   const selectedTeam =
-    input.savedTeams.find((team) => team.id === input.lastSelectedTeamId) ?? null
+    input.savedRosters.find((team) => team.id === input.lastSelectedRosterId) ?? null
   const sourceRoster: SprintEngineSavedRoster | null = selectedTeam
     ? {
         roleCounts: selectedTeam.roleCounts,
@@ -102,7 +102,7 @@ export function resolveInitialSprintEngineRoster(input: {
   const roleModelOverrides: SprintEngineRoleModelOverrides = {
     ...(sourceRoster?.roleModelOverrides ?? {}),
   }
-  return { selectedTeamId: selectedTeam?.id ?? null, roleCounts, roleCliDefaults, roleModelOverrides }
+  return { selectedRosterId: selectedTeam?.id ?? null, roleCounts, roleCliDefaults, roleModelOverrides }
 }
 
 export function activeSprintEngineRoleIds(counts: SprintEngineRoleCounts): SprintEngineRoleId[] {
@@ -158,8 +158,8 @@ export function pruneSprintEngineRoleModelOverrides(
 // model, does. A model change (like a CLI change) marks the team edited so Update
 // can re-save it. null/absent/"" all resolve to the same "CLI default", so an
 // explicit default pick does not falsely read as diverged.
-export function sprintEngineRosterMatchesTeam(
-  team: SprintEngineRosterTeam,
+export function sprintEngineRosterMatches(
+  team: SprintEngineRoster,
   counts: SprintEngineRoleCounts,
   cliDefaults: SprintEngineRoleCliDefaults,
   modelOverrides?: SprintEngineRoleModelOverrides,
@@ -188,8 +188,8 @@ export function sprintEngineRosterMatchesTeam(
 
 // Case-insensitive name-collision check for the save/rename affordances. When
 // `excludeId` is set (rename) the team keeping its own name is not a collision.
-export function sprintEngineTeamNameTaken(
-  teams: SprintEngineRosterTeam[],
+export function sprintEngineRosterNameTaken(
+  teams: SprintEngineRoster[],
   name: string,
   excludeId?: string | null,
 ): boolean {

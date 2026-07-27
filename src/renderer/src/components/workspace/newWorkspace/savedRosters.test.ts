@@ -3,18 +3,18 @@ import assert from 'node:assert/strict'
 import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
-  SprintEngineRosterTeam,
+  SprintEngineRoster,
 } from '../../../types/workspace'
 import {
   activeSprintEngineRoleIds,
   pruneSprintEngineRoleCliDefaults,
   pruneSprintEngineRoleModelOverrides,
   resolveInitialSprintEngineRoster,
-  sprintEngineRosterMatchesTeam,
-  sprintEngineTeamNameTaken,
-} from './savedTeams'
+  sprintEngineRosterMatches,
+  sprintEngineRosterNameTaken,
+} from './savedRosters'
 
-function team(overrides: Partial<SprintEngineRosterTeam>): SprintEngineRosterTeam {
+function team(overrides: Partial<SprintEngineRoster>): SprintEngineRoster {
   return {
     id: 't1',
     name: 'Lightweight',
@@ -44,35 +44,35 @@ assert.deepEqual(
   'CLI defaults for count-0 and absent roles are dropped',
 )
 
-// --- sprintEngineRosterMatchesTeam ---------------------------------------
+// --- sprintEngineRosterMatches ---------------------------------------
 const base = team({})
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 2 }, { architect: 'claude-code', developer: 'codex' }),
+  sprintEngineRosterMatches(base, { architect: 1, developer: 2 }, { architect: 'claude-code', developer: 'codex' }),
   true,
   'identical roster matches',
 )
 // Pool model: a persisted count is read as an enabled flag, so bumping developer
 // 2 -> 3 (still enabled) is NOT divergence — only enable/disable + runtime are.
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 3 }, { architect: 'claude-code', developer: 'codex' }),
+  sprintEngineRosterMatches(base, { architect: 1, developer: 3 }, { architect: 'claude-code', developer: 'codex' }),
   true,
   'a changed count on a still-enabled role is not divergence (tolerant count read)',
 )
 // Disabling a role the team staffed (count -> 0) IS divergence.
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 0 }, { architect: 'claude-code' }),
+  sprintEngineRosterMatches(base, { architect: 1, developer: 0 }, { architect: 'claude-code' }),
   false,
   'disabling a staffed role diverges',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 2 }, { architect: 'claude-code', developer: 'claude-code' }),
+  sprintEngineRosterMatches(base, { architect: 1, developer: 2 }, { architect: 'claude-code', developer: 'claude-code' }),
   false,
   'a changed CLI on an active role diverges',
 )
 // A count-0 role with a leftover CLI default must not register as divergence —
 // only active roles are compared, with claude-code as the shared fallback.
 assert.equal(
-  sprintEngineRosterMatchesTeam(
+  sprintEngineRosterMatches(
     team({ roleCliDefaults: { architect: 'claude-code', developer: 'codex' } }),
     { architect: 1, developer: 2, tester: 0 },
     { architect: 'claude-code', developer: 'codex', tester: 'codex' },
@@ -81,7 +81,7 @@ assert.equal(
   'a leftover CLI default on a count-0 role is not divergence',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(
+  sprintEngineRosterMatches(
     team({ roleCounts: { architect: 1, developer: 2 }, roleCliDefaults: { architect: 'claude-code' } }),
     { architect: 1, developer: 2 },
     { architect: 'claude-code', developer: 'claude-code' },
@@ -91,48 +91,48 @@ assert.equal(
 )
 // Adding a role the team did not have diverges (union covers the new active role).
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, { architect: 1, developer: 2, security: 1 }, { architect: 'claude-code', developer: 'codex', security: 'claude-code' }),
+  sprintEngineRosterMatches(base, { architect: 1, developer: 2, security: 1 }, { architect: 'claude-code', developer: 'codex', security: 'claude-code' }),
   false,
   'adding a new active role diverges',
 )
 
-// --- sprintEngineRosterMatchesTeam: model overrides ----------------------
+// --- sprintEngineRosterMatches: model overrides ----------------------
 const modelTeam = team({ roleModelOverrides: { developer: 'opus' } })
 const modelCounts: SprintEngineRoleCounts = { architect: 1, developer: 2 }
 const modelClis = { architect: 'claude-code', developer: 'codex' }
 assert.equal(
-  sprintEngineRosterMatchesTeam(modelTeam, modelCounts, modelClis, { developer: 'opus' }),
+  sprintEngineRosterMatches(modelTeam, modelCounts, modelClis, { developer: 'opus' }),
   true,
   'a saved role model that still matches is not divergence',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(modelTeam, modelCounts, modelClis, { developer: 'sonnet' }),
+  sprintEngineRosterMatches(modelTeam, modelCounts, modelClis, { developer: 'sonnet' }),
   false,
   'a changed role model diverges',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(modelTeam, modelCounts, modelClis, {}),
+  sprintEngineRosterMatches(modelTeam, modelCounts, modelClis, {}),
   false,
   'clearing a saved role model diverges',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(modelTeam, modelCounts, modelClis, { developer: 'opus', architect: null }),
+  sprintEngineRosterMatches(modelTeam, modelCounts, modelClis, { developer: 'opus', architect: null }),
   true,
   'an explicit CLI-default (null) on a role the team left unset is not divergence',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, modelCounts, modelClis, { developer: null }),
+  sprintEngineRosterMatches(base, modelCounts, modelClis, { developer: null }),
   true,
   'null / absent / "" model all resolve to the same CLI default (no divergence vs a team without models)',
 )
 assert.equal(
-  sprintEngineRosterMatchesTeam(base, modelCounts, modelClis),
+  sprintEngineRosterMatches(base, modelCounts, modelClis),
   true,
   'omitting the model argument (pre-model callers) still matches a modelless team',
 )
 // A model override on a count-0 role must not register as divergence.
 assert.equal(
-  sprintEngineRosterMatchesTeam(
+  sprintEngineRosterMatches(
     team({ roleCounts: { architect: 1, developer: 2 }, roleModelOverrides: { developer: 'opus' } }),
     { architect: 1, developer: 2, tester: 0 },
     { architect: 'claude-code', developer: 'codex' },
@@ -157,14 +157,14 @@ assert.deepEqual(
   'a missing override map prunes to empty',
 )
 
-// --- sprintEngineTeamNameTaken -------------------------------------------
+// --- sprintEngineRosterNameTaken -------------------------------------------
 const teams = [team({ id: 'a', name: 'Lightweight' }), team({ id: 'b', name: 'Full stack' })]
-assert.equal(sprintEngineTeamNameTaken(teams, 'lightweight'), true, 'collision is case-insensitive')
-assert.equal(sprintEngineTeamNameTaken(teams, '  Full Stack '), true, 'collision trims and folds case')
-assert.equal(sprintEngineTeamNameTaken(teams, 'Security run'), false, 'a fresh name is free')
-assert.equal(sprintEngineTeamNameTaken(teams, 'Lightweight', 'a'), false, 'a team keeping its own name is not a collision')
-assert.equal(sprintEngineTeamNameTaken(teams, 'Lightweight', 'b'), true, 'another team taking the name is a collision')
-assert.equal(sprintEngineTeamNameTaken(teams, '   '), false, 'a blank name is never taken')
+assert.equal(sprintEngineRosterNameTaken(teams, 'lightweight'), true, 'collision is case-insensitive')
+assert.equal(sprintEngineRosterNameTaken(teams, '  Full Stack '), true, 'collision trims and folds case')
+assert.equal(sprintEngineRosterNameTaken(teams, 'Security run'), false, 'a fresh name is free')
+assert.equal(sprintEngineRosterNameTaken(teams, 'Lightweight', 'a'), false, 'a team keeping its own name is not a collision')
+assert.equal(sprintEngineRosterNameTaken(teams, 'Lightweight', 'b'), true, 'another team taking the name is a collision')
+assert.equal(sprintEngineRosterNameTaken(teams, '   '), false, 'a blank name is never taken')
 
 // --- resolveInitialSprintEngineRoster ------------------------------------
 // The wizard's default-selection contract: open pre-selected on a runnable team.
@@ -178,29 +178,29 @@ const DEFAULT_CLIS = {
 // Fresh install (no saved teams, no saved roster) → built-in default, Custom.
 {
   const resolved = resolveInitialSprintEngineRoster({
-    savedTeams: [],
-    lastSelectedTeamId: null,
+    savedRosters: [],
+    lastSelectedRosterId: null,
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
   assert.deepEqual(resolved.roleCounts, DEFAULT_COUNTS, 'fresh install seeds the default counts')
   assert.deepEqual(resolved.roleCliDefaults, DEFAULT_CLIS, 'fresh install seeds the default CLI map')
-  assert.equal(resolved.selectedTeamId, null, 'fresh install has no selected team')
+  assert.equal(resolved.selectedRosterId, null, 'fresh install has no selected team')
   assert.notEqual(resolved.roleCounts, DEFAULT_COUNTS, 'counts are cloned, not the same reference')
 }
 
-// lastSelectedTeamId resolves to that team, which becomes the selection.
+// lastSelectedRosterId resolves to that team, which becomes the selection.
 {
   const picked = team({ id: 'b', name: 'Reviewers', roleCounts: { architect: 1, developer: 2, security: 1 }, roleCliDefaults: { developer: 'codex' } })
   const resolved = resolveInitialSprintEngineRoster({
-    savedTeams: [team({ id: 'a' }), picked],
-    lastSelectedTeamId: 'b',
+    savedRosters: [team({ id: 'a' }), picked],
+    lastSelectedRosterId: 'b',
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
-  assert.equal(resolved.selectedTeamId, 'b', 'lastSelectedTeamId selects the matching saved team')
+  assert.equal(resolved.selectedRosterId, 'b', 'lastSelectedRosterId selects the matching saved team')
   assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 2, security: 1 }, 'counts come from the selected team')
   // CLI defaults layer the team subset over the full default map.
   assert.deepEqual(
@@ -219,8 +219,8 @@ const DEFAULT_CLIS = {
     roleModelOverrides: { developer: 'opus' },
   })
   const resolved = resolveInitialSprintEngineRoster({
-    savedTeams: [team({ id: 'a' }), picked],
-    lastSelectedTeamId: 'b',
+    savedRosters: [team({ id: 'a' }), picked],
+    lastSelectedRosterId: 'b',
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
@@ -232,8 +232,8 @@ const DEFAULT_CLIS = {
 // A modelless team (or fresh install) resolves to an empty override map.
 {
   const resolved = resolveInitialSprintEngineRoster({
-    savedTeams: [],
-    lastSelectedTeamId: null,
+    savedRosters: [],
+    lastSelectedRosterId: null,
     savedRoster: null,
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
@@ -241,16 +241,16 @@ const DEFAULT_CLIS = {
   assert.deepEqual(resolved.roleModelOverrides, {}, 'fresh install has no model overrides')
 }
 
-// lastSelectedTeamId with no match falls back to the legacy single saved roster.
+// lastSelectedRosterId with no match falls back to the legacy single saved roster.
 {
   const resolved = resolveInitialSprintEngineRoster({
-    savedTeams: [team({ id: 'a' })],
-    lastSelectedTeamId: 'missing',
+    savedRosters: [team({ id: 'a' })],
+    lastSelectedRosterId: 'missing',
     savedRoster: { roleCounts: { architect: 1, developer: 1 }, roleCliDefaults: { architect: 'codex' } },
     defaultRoleCounts: DEFAULT_COUNTS,
     defaultRoleCliDefaults: DEFAULT_CLIS,
   })
-  assert.equal(resolved.selectedTeamId, null, 'an unmatched lastSelectedTeamId is Custom, not a team')
+  assert.equal(resolved.selectedRosterId, null, 'an unmatched lastSelectedRosterId is Custom, not a team')
   assert.deepEqual(resolved.roleCounts, { architect: 1, developer: 1 }, 'falls back to the legacy saved roster counts')
   assert.deepEqual(
     resolved.roleCliDefaults,

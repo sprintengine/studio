@@ -972,16 +972,22 @@ export type SprintEngineSavedRoster = {
   roleModelOverrides?: SprintEngineRoleModelOverrides
 }
 
-// A named, reusable roster preset ("team"). Lets users keep several rosters —
-// e.g. a lightweight two-agent team and a heavyweight full-review team — and
-// pick one when creating a workspace instead of reconfiguring every time.
-export type SprintEngineRosterTeam = {
+// A named, reusable roster preset. Lets users keep several rosters — e.g. a
+// lightweight two-agent roster and a heavyweight full-review one — and pick one
+// when creating a workspace instead of reconfiguring every time.
+//
+// NAMING (MC-1874): a ROSTER is agent CONFIGURATION — which roles, which CLIs,
+// which models. It is NOT a "team". In this codebase `team` means the run
+// directory slug (`.multi-code/sprintengine/<team>/run.yaml`) and appears as
+// `teamSlug` / `teamName` / `teamDirectoryPath`. The two used to share the word
+// and met in the same signatures; keep them apart.
+export type SprintEngineRoster = {
   id: string
   name: string
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
   // Per-role explicit launch model (see SprintEngineSavedRoster). Absent on
-  // teams saved before model persistence — those fall back to CLI default.
+  // rosters saved before model persistence — those fall back to CLI default.
   roleModelOverrides?: SprintEngineRoleModelOverrides
   createdAt: number
   updatedAt: number
@@ -990,12 +996,12 @@ export type SprintEngineRosterTeam = {
 export type SprintEngineRoleSettings = {
   enabled: Record<SprintEngineRoleId, boolean>
   // Legacy single-roster default, retained for migration and as the run-mount
-  // CLI-default fallback. New saves go through `savedTeams`.
+  // CLI-default fallback. New saves go through `savedRosters`.
   savedRoster?: SprintEngineSavedRoster | null
   // Named roster presets the user can pick from.
-  savedTeams?: SprintEngineRosterTeam[]
-  // The team most recently selected/saved, used to seed the new-workspace wizard.
-  lastSelectedTeamId?: string | null
+  savedRosters?: SprintEngineRoster[]
+  // The roster most recently selected/saved, used to seed the new-workspace wizard.
+  lastSelectedRosterId?: string | null
 }
 
 export type SprintEngineRunSettings = {

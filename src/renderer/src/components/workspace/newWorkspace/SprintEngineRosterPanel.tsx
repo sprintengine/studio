@@ -1,8 +1,8 @@
-// The sprint wizard's Team step (MC-1646, mockup §1). One reading column:
-// a segmented control chooses how the team is formed (pick roles yourself /
+// The sprint wizard's Roster step (MC-1646, mockup §1). One reading column:
+// a segmented control chooses how the roster is formed (pick roles yourself /
 // plain agent pool), the roster is a single dense hairline list summarized by
-// an overlapping glyph stack, and saved teams collapse into a quiet
-// "Team: <name>" menu instead of a permanent rail. Replaces the old
+// an overlapping glyph stack, and saved rosters collapse into a quiet
+// "Roster: <name>" menu instead of a permanent rail. Replaces the old
 // "Your AI team" screen's banner, checkbox card, option cards, and boxed rail.
 
 import React from 'react'
@@ -14,7 +14,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
-  SprintEngineRosterTeam,
+  SprintEngineRoster,
 } from '../../../types/workspace'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
@@ -26,14 +26,14 @@ import {
 } from '../../../utils/sprintengineRoleOptions'
 import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
-import { sprintEngineTeamNameTaken } from './savedTeams'
+import { sprintEngineRosterNameTaken } from './savedRosters'
 
-// How the team is formed. 'roles' = the user staffs the roster below; 'pool' =
+// How the roster is formed. 'roles' = the user staffs the roster below; 'pool' =
 // no specialist roles, a pool of plain agents shares one task graph. (MC-1889
 // removed a third formation where the architect staffed from a model palette.)
-export type SprintEngineTeamMode = 'roles' | 'pool'
+export type SprintEngineRosterMode = 'roles' | 'pool'
 
-const TEAM_MODE_HELP: Record<SprintEngineTeamMode, string> = {
+const ROSTER_MODE_HELP: Record<SprintEngineRosterMode, string> = {
   roles: 'You choose the roles and models below. The architect plans within them.',
   pool: 'No specialist roles. A pool of plain agents shares one task graph.',
 }
@@ -49,9 +49,9 @@ function effectiveRoleModel(
   return override || undefined
 }
 
-export function SprintEngineTeamPanel({
-  teamMode,
-  onChangeTeamMode,
+export function SprintEngineRosterPanel({
+  rosterMode,
+  onChangeRosterMode,
   roleCounts,
   roleCliDefaults,
   roleModelOverrides,
@@ -64,20 +64,20 @@ export function SprintEngineTeamPanel({
   disabledRoleIds,
   rosterDisabled,
   hasExistingTeam,
-  teams,
-  selectedTeamId,
-  selectedTeamDirty,
-  onSelectTeam,
-  onSaveTeam,
-  onUpdateTeam,
-  onRenameTeam,
-  onDeleteTeam,
+  rosters,
+  selectedRosterId,
+  selectedRosterDirty,
+  onSelectRoster,
+  onSaveRoster,
+  onUpdateRoster,
+  onRenameRoster,
+  onDeleteRoster,
   poolAgentCount,
   onChangePoolAgentCount,
 }: {
-  teamMode: SprintEngineTeamMode
-  // Absent for an existing team: its formation is fixed, so no segmented control.
-  onChangeTeamMode?: (mode: SprintEngineTeamMode) => void
+  rosterMode: SprintEngineRosterMode
+  // Absent for an existing run: its formation is fixed, so no segmented control.
+  onChangeRosterMode?: (mode: SprintEngineRosterMode) => void
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
@@ -88,17 +88,17 @@ export function SprintEngineTeamPanel({
   registry: SprintEngineRoleRegistry | null
   registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
   disabledRoleIds: ReadonlySet<SprintEngineRoleId> | null
-  /** Existing team: role membership is read-only (runtimes stay editable). */
+  /** Existing run: role membership is read-only (runtimes stay editable). */
   rosterDisabled: boolean
   hasExistingTeam: boolean
-  teams: SprintEngineRosterTeam[]
-  selectedTeamId: string | null
-  selectedTeamDirty: boolean
-  onSelectTeam: (id: string | null) => void
-  onSaveTeam: (name: string) => void
-  onUpdateTeam: (id: string, name: string) => void
-  onRenameTeam: (id: string, name: string) => void
-  onDeleteTeam: (id: string) => void
+  rosters: SprintEngineRoster[]
+  selectedRosterId: string | null
+  selectedRosterDirty: boolean
+  onSelectRoster: (id: string | null) => void
+  onSaveRoster: (name: string) => void
+  onUpdateRoster: (id: string, name: string) => void
+  onRenameRoster: (id: string, name: string) => void
+  onDeleteRoster: (id: string) => void
   /** Pool mode: how many plain agents share the run (the concurrency cap). */
   poolAgentCount: number
   onChangePoolAgentCount: (value: number) => void
@@ -114,26 +114,26 @@ export function SprintEngineTeamPanel({
 
   return (
     <div className="flex flex-col gap-1">
-      {onChangeTeamMode ? (
+      {onChangeRosterMode ? (
         <>
-          <SegmentedControl<SprintEngineTeamMode>
-            ariaLabel="How the team is formed"
+          <SegmentedControl<SprintEngineRosterMode>
+            ariaLabel="How the roster is formed"
             ariaDescribedBy={formationHelpId}
             className="self-start"
             items={[
               { value: 'roles', label: 'Pick roles yourself' },
               { value: 'pool', label: 'Plain agent pool' },
             ]}
-            value={teamMode}
-            onChange={onChangeTeamMode}
+            value={rosterMode}
+            onChange={onChangeRosterMode}
           />
           <p id={formationHelpId} className="mt-2 min-h-[18px] text-[12px] leading-4 text-[color:var(--text-subtle)]">
-            {TEAM_MODE_HELP[teamMode]}
+            {ROSTER_MODE_HELP[rosterMode]}
           </p>
         </>
       ) : null}
 
-      {teamMode === 'pool' ? (
+      {rosterMode === 'pool' ? (
         <div className="mt-4">
           <PlainAgentsPanel
             agentCount={poolAgentCount}
@@ -156,22 +156,22 @@ export function SprintEngineTeamPanel({
             </span>
             <span className="flex-1" />
             {!hasExistingTeam ? (
-              <SavedTeamsMenu
-                teams={teams}
-                selectedTeamId={selectedTeamId}
-                selectedTeamDirty={selectedTeamDirty}
-                onSelectTeam={onSelectTeam}
-                onSaveTeam={onSaveTeam}
-                onUpdateTeam={onUpdateTeam}
-                onRenameTeam={onRenameTeam}
-                onDeleteTeam={onDeleteTeam}
+              <SavedRostersMenu
+                rosters={rosters}
+                selectedRosterId={selectedRosterId}
+                selectedRosterDirty={selectedRosterDirty}
+                onSelectRoster={onSelectRoster}
+                onSaveRoster={onSaveRoster}
+                onUpdateRoster={onUpdateRoster}
+                onRenameRoster={onRenameRoster}
+                onDeleteRoster={onDeleteRoster}
               />
             ) : null}
           </div>
 
           <div className="mt-2 border-t border-[color:var(--border-subtle)]">
             {roles.map((role) => (
-              <TeamRoleRow
+              <RosterRoleRow
                 key={role}
                 role={role}
                 isOn={(roleCounts[role] ?? 0) > 0}
@@ -221,7 +221,7 @@ function RoleGlyphStack({
 // One dense roster row: glyph · name (+ Planner chip) over a full, untruncated
 // description · full-width model chip · switch. Off roles stay visible but
 // muted, with the runtime chip withheld (invisible keeps the columns aligned).
-function TeamRoleRow({
+function RosterRoleRow({
   role,
   isOn,
   floored,
@@ -302,36 +302,36 @@ function TeamRoleRow({
   )
 }
 
-// Quiet saved-teams menu: load / save as new / update / rename / delete, all in
+// Quiet saved-rosters menu: load / save as new / update / rename / delete, all in
 // one popover so the roster header stays a single line. "Custom" is the current
 // unsaved config.
-function SavedTeamsMenu({
-  teams,
-  selectedTeamId,
-  selectedTeamDirty,
-  onSelectTeam,
-  onSaveTeam,
-  onUpdateTeam,
-  onRenameTeam,
-  onDeleteTeam,
+function SavedRostersMenu({
+  rosters,
+  selectedRosterId,
+  selectedRosterDirty,
+  onSelectRoster,
+  onSaveRoster,
+  onUpdateRoster,
+  onRenameRoster,
+  onDeleteRoster,
 }: {
-  teams: SprintEngineRosterTeam[]
-  selectedTeamId: string | null
-  selectedTeamDirty: boolean
-  onSelectTeam: (id: string | null) => void
-  onSaveTeam: (name: string) => void
-  onUpdateTeam: (id: string, name: string) => void
-  onRenameTeam: (id: string, name: string) => void
-  onDeleteTeam: (id: string) => void
+  rosters: SprintEngineRoster[]
+  selectedRosterId: string | null
+  selectedRosterDirty: boolean
+  onSelectRoster: (id: string | null) => void
+  onSaveRoster: (name: string) => void
+  onUpdateRoster: (id: string, name: string) => void
+  onRenameRoster: (id: string, name: string) => void
+  onDeleteRoster: (id: string) => void
 }) {
   const [open, setOpen] = React.useState(false)
-  // 'idle' | 'adding' (save as new) | 'renaming' (selected team).
+  // 'idle' | 'adding' (save as new) | 'renaming' (selected roster).
   const [editing, setEditing] = React.useState<'idle' | 'adding' | 'renaming'>('idle')
   const [name, setName] = React.useState('')
-  const selectedTeam = selectedTeamId ? teams.find((team) => team.id === selectedTeamId) ?? null : null
-  const triggerLabel = selectedTeam
-    ? `Team: ${selectedTeam.name}${selectedTeamDirty ? ' · edited' : ''}`
-    : 'Team: Custom'
+  const selectedRoster = selectedRosterId ? rosters.find((roster) => roster.id === selectedRosterId) ?? null : null
+  const triggerLabel = selectedRoster
+    ? `Roster: ${selectedRoster.name}${selectedRosterDirty ? ' · edited' : ''}`
+    : 'Roster: Custom'
 
   const close = () => {
     setEditing('idle')
@@ -341,16 +341,16 @@ function SavedTeamsMenu({
     'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
 
   const trimmed = name.trim()
-  const collides = sprintEngineTeamNameTaken(
-    teams,
+  const collides = sprintEngineRosterNameTaken(
+    rosters,
     trimmed,
-    editing === 'renaming' ? selectedTeam?.id ?? null : null,
+    editing === 'renaming' ? selectedRoster?.id ?? null : null,
   )
   const canSubmit = trimmed.length > 0 && !collides
   const submitName = () => {
     if (!canSubmit) return
-    if (editing === 'renaming' && selectedTeam) onRenameTeam(selectedTeam.id, trimmed)
-    else onSaveTeam(trimmed)
+    if (editing === 'renaming' && selectedRoster) onRenameRoster(selectedRoster.id, trimmed)
+    else onSaveRoster(trimmed)
     close()
     setOpen(false)
   }
@@ -362,7 +362,7 @@ function SavedTeamsMenu({
         setOpen(next)
         if (!next) close()
       }}
-      ariaLabel="Saved teams"
+      ariaLabel="Saved rosters"
       popupRole="menu"
       placement="bottom-end"
       className="shrink-0"
@@ -390,8 +390,8 @@ function SavedTeamsMenu({
             autoFocus
             type="text"
             value={name}
-            placeholder="Team name"
-            aria-label={editing === 'renaming' ? 'Rename team' : 'New team name'}
+            placeholder="Roster name"
+            aria-label={editing === 'renaming' ? 'Rename roster' : 'New roster name'}
             aria-invalid={collides}
             onChange={(event) => setName(event.target.value)}
             onKeyDown={(event) => {
@@ -411,7 +411,7 @@ function SavedTeamsMenu({
           />
           {collides ? (
             <span className="px-0.5 text-[11px] text-[color:var(--tone-error)]">
-              A team named “{trimmed}” already exists.
+              A roster named “{trimmed}” already exists.
             </span>
           ) : null}
           <div className="flex items-center justify-end gap-1">
@@ -425,32 +425,32 @@ function SavedTeamsMenu({
         </div>
       ) : (
         <>
-          {teams.length > 0 ? (
+          {rosters.length > 0 ? (
             <>
               <div className="px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
-                Saved teams
+                Saved rosters
               </div>
-              {selectedTeam ? (
-                <button type="button" role="menuitem" className={itemClass} onClick={() => { onSelectTeam(null); setOpen(false) }}>
+              {selectedRoster ? (
+                <button type="button" role="menuitem" className={itemClass} onClick={() => { onSelectRoster(null); setOpen(false) }}>
                   <span className="min-w-0 flex-1 truncate">Custom roster</span>
                 </button>
               ) : null}
-              {teams.map((team) => {
-                const total = Object.values(team.roleCounts).reduce<number>((sum, n) => sum + (n ?? 0), 0)
+              {rosters.map((roster) => {
+                const total = Object.values(roster.roleCounts).reduce<number>((sum, n) => sum + (n ?? 0), 0)
                 return (
                   <button
-                    key={team.id}
+                    key={roster.id}
                     type="button"
                     role="menuitem"
                     className={itemClass}
                     onClick={() => {
-                      onSelectTeam(team.id)
+                      onSelectRoster(roster.id)
                       setOpen(false)
                     }}
                   >
                     <span className="min-w-0 flex-1 truncate">
-                      {team.name}
-                      {team.id === selectedTeamId ? (
+                      {roster.name}
+                      {roster.id === selectedRosterId ? (
                         <span className="text-[color:var(--accent-primary)]"> ✓</span>
                       ) : null}
                     </span>
@@ -464,29 +464,29 @@ function SavedTeamsMenu({
             </>
           ) : null}
           <button type="button" role="menuitem" className={itemClass} onClick={() => setEditing('adding')}>
-            Save as new team…
+            Save as new roster…
           </button>
-          {selectedTeam && selectedTeamDirty ? (
+          {selectedRoster && selectedRosterDirty ? (
             <button
               type="button"
               role="menuitem"
               className={itemClass}
               onClick={() => {
-                onUpdateTeam(selectedTeam.id, selectedTeam.name)
+                onUpdateRoster(selectedRoster.id, selectedRoster.name)
                 setOpen(false)
               }}
             >
-              Update “{selectedTeam.name}”
+              Update “{selectedRoster.name}”
             </button>
           ) : null}
-          {selectedTeam ? (
+          {selectedRoster ? (
             <>
               <button
                 type="button"
                 role="menuitem"
                 className={itemClass}
                 onClick={() => {
-                  setName(selectedTeam.name)
+                  setName(selectedRoster.name)
                   setEditing('renaming')
                 }}
               >
@@ -497,7 +497,7 @@ function SavedTeamsMenu({
                 role="menuitem"
                 className={`${itemClass} text-[color:var(--tone-error)] hover:text-[color:var(--tone-error)]`}
                 onClick={() => {
-                  onDeleteTeam(selectedTeam.id)
+                  onDeleteRoster(selectedRoster.id)
                   setOpen(false)
                 }}
               >

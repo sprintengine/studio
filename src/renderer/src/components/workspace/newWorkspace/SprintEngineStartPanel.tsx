@@ -17,7 +17,7 @@ import type {
 } from '../../../types/workspace'
 import type { StepId } from './creationStepFlows'
 import type { SprintEngineCliOption } from './SprintEngineRosterTable'
-import type { SprintEngineTeamMode } from './SprintEngineTeamPanel'
+import type { SprintEngineRosterMode } from './SprintEngineRosterPanel'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
 import { listSprintEngineWizardRoles } from '../../../utils/sprintengineRoleOptions'
 import { RoleAvatar, Select, Switch } from '../../ui'
@@ -70,7 +70,7 @@ export function SprintEngineStartPanel({
   workspaceName: string
   folderPath: string | null
   objective: string
-  teamMode: SprintEngineTeamMode
+  teamMode: SprintEngineRosterMode
   hasExistingTeam: boolean
   existingTeamName: string | null
   roleCounts: SprintEngineRoleCounts

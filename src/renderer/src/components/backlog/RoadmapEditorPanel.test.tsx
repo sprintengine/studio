@@ -210,9 +210,12 @@ run('autosave replaces the Save button with a quiet state readout', () => {
   assert.doesNotMatch(markup, /Discard/)
 })
 
-run('renders the per-roadmap sprint team control with the last-used default', () => {
+// MC-1874 renamed the control off "team": a roster is agent config, "team" is
+// the run dir slug. MC-1880 replaces the last-used sentinel with "No roles".
+run('renders the per-horizon roster control with the last-used default', () => {
   const markup = render()
-  assert.match(markup, /Sprint team/)
+  assert.match(markup, /Roster/)
+  assert.doesNotMatch(markup, /Sprint team/)
   assert.match(markup, /Last used roster/)
 })
 

@@ -20,7 +20,7 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   resolveInitialSprintEngineRoster,
-} from '../components/workspace/newWorkspace/savedTeams'
+} from '../components/workspace/newWorkspace/savedRosters'
 import {
   inferSourcePlanKind,
   joinPath,
@@ -97,15 +97,16 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
 }
 
 // Create + start a Sprint Engine run the way the wizard does: resolve the
-// roster (last saved team, else the built-in default), run the new-team
+// roster (last saved roster, else the built-in default), run the new-team
 // controller (main's one-shot Python init writes run.yaml), add the workspace,
 // then activate it so the board panel mounts — the mount effect is what
 // consumes initial spawns and launches the architect. Waiting for the layout
 // model here is the renderer-side half of that start guarantee; main confirms
 // the architect's live terminal session before reporting success.
 // Roster resolution for an externally-created run. Precedence: an explicit
-// `roster` (role id -> count) wins outright; else a named saved `team`; else the
-// wizard's own fallback (last selected, saved roster, built-in default).
+// `roster` (role id -> count) wins outright; else a named saved roster
+// (`rosterName`); else the wizard's own fallback (last selected, saved roster,
+// built-in default).
 //
 // The explicit path must seed `roleCliDefaults` for EVERY role it staffs.
 // `DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS` is derived from the built-in count
@@ -121,7 +122,7 @@ function resolveRequestedRoster(
 ): RosterResolution {
   const store = useWorkspaceStore.getState()
   const roleSettings = store.appSettings.sprintEngineRoleSettings
-  const savedTeams = roleSettings?.savedTeams ?? []
+  const savedRosters = roleSettings?.savedRosters ?? []
 
   const explicit = request.roster
   if (explicit && Object.keys(explicit).length > 0) {
@@ -157,7 +158,7 @@ function resolveRequestedRoster(
     return {
       ok: true,
       roster: {
-        selectedTeamId: null,
+        selectedRosterId: null,
         roleCounts,
         roleModelOverrides: {},
         roleCliDefaults,
@@ -165,23 +166,23 @@ function resolveRequestedRoster(
     }
   }
 
-  // An unknown named team is an explicit failure — silently falling back would
+  // An unknown named roster is an explicit failure — silently falling back would
   // staff the run with a roster the caller never picked.
-  const requestedTeamName = request.team?.trim()
-  const namedTeam = requestedTeamName
-    ? savedTeams.find((team) => team.name.trim().toLowerCase() === requestedTeamName.toLowerCase()) ?? null
+  const requestedRosterName = request.rosterName?.trim()
+  const namedRoster = requestedRosterName
+    ? savedRosters.find((roster) => roster.name.trim().toLowerCase() === requestedRosterName.toLowerCase()) ?? null
     : null
-  if (requestedTeamName && !namedTeam) {
+  if (requestedRosterName && !namedRoster) {
     return {
       ok: false,
-      response: { ok: false, code: 'sprint_unknown_team', message: `Saved team "${requestedTeamName}" was not found.` },
+      response: { ok: false, code: 'sprint_unknown_roster', message: `Saved roster "${requestedRosterName}" was not found.` },
     }
   }
   return {
     ok: true,
     roster: resolveInitialSprintEngineRoster({
-      savedTeams,
-      lastSelectedTeamId: namedTeam?.id ?? roleSettings?.lastSelectedTeamId ?? null,
+      savedRosters,
+      lastSelectedRosterId: namedRoster?.id ?? roleSettings?.lastSelectedRosterId ?? null,
       savedRoster: roleSettings?.savedRoster ?? null,
       defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
       defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,

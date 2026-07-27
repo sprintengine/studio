@@ -602,52 +602,139 @@ assert.deepEqual(
 // A legacy single saved roster migrates into a selectable named team so users
 // keep their saved config when teams ship.
 assert.equal(
-  normalizedSavedRoster.sprintEngineRoleSettings.savedTeams?.length,
+  normalizedSavedRoster.sprintEngineRoleSettings.savedRosters?.length,
   1,
   'legacy savedRoster migrates into one named team',
 )
 assert.equal(
-  normalizedSavedRoster.sprintEngineRoleSettings.savedTeams?.[0]?.name,
+  normalizedSavedRoster.sprintEngineRoleSettings.savedRosters?.[0]?.name,
   'Saved roster',
   'migrated team gets a default name',
 )
 assert.equal(
-  normalizedSavedRoster.sprintEngineRoleSettings.lastSelectedTeamId,
-  normalizedSavedRoster.sprintEngineRoleSettings.savedTeams?.[0]?.id,
+  normalizedSavedRoster.sprintEngineRoleSettings.lastSelectedRosterId,
+  normalizedSavedRoster.sprintEngineRoleSettings.savedRosters?.[0]?.id,
   'the migrated team is pre-selected so legacy users open on their roster',
 )
 
-// Once a savedTeams key exists (even empty), the legacy roster must NOT be
+// Once a savedRosters key exists (even empty), the legacy roster must NOT be
 // re-migrated — otherwise a user who deletes their last team would see it
 // resurrected on the next normalize/reload.
 const normalizedAfterDeleteAll = normalizeAppSettings(
   {
     sprintEngineRoleSettings: {
       enabled: {},
-      savedTeams: [],
+      savedRosters: [],
       savedRoster: { roleCounts: { architect: 1 }, roleCliDefaults: { architect: 'codex' } },
     },
   },
   [],
 )
 assert.equal(
-  normalizedAfterDeleteAll.sprintEngineRoleSettings.savedTeams?.length,
+  normalizedAfterDeleteAll.sprintEngineRoleSettings.savedRosters?.length,
   0,
-  'an explicit empty savedTeams list is not re-migrated from the legacy roster',
+  'an explicit empty savedRosters list is not re-migrated from the legacy roster',
+)
+
+// --- MC-1874: one-time savedTeams -> savedRosters key migration ------------
+// A settings blob written by the PREVIOUS build carries `savedTeams` /
+// `lastSelectedTeamId`. It must load with its rosters intact under the new key,
+// keep its selection, and — critically — a second normalize pass over the
+// already-migrated output must not re-run anything.
+const legacyBlob = {
+  sprintEngineRoleSettings: {
+    enabled: {},
+    savedTeams: [
+      {
+        id: 'bihOkvw7kvxXoKTxOfmrD',
+        name: 'opus',
+        roleCounts: { architect: 1, frontend: 1, developer: 1 },
+        roleCliDefaults: { architect: 'claude-code', frontend: 'claude-code' },
+        roleModelOverrides: { architect: 'claude-opus-5' },
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_000,
+      },
+    ],
+    lastSelectedTeamId: 'bihOkvw7kvxXoKTxOfmrD',
+  },
+}
+const migrated = normalizeAppSettings(legacyBlob, []).sprintEngineRoleSettings
+assert.equal(migrated.savedRosters?.length, 1, 'legacy savedTeams migrates into savedRosters')
+assert.equal(migrated.savedRosters?.[0]?.name, 'opus', 'the migrated roster keeps its name')
+assert.equal(
+  migrated.savedRosters?.[0]?.id,
+  'bihOkvw7kvxXoKTxOfmrD',
+  'the migrated roster keeps its id, so a horizon or automation naming it still resolves',
+)
+assert.deepEqual(
+  migrated.savedRosters?.[0]?.roleCounts,
+  { architect: 1, frontend: 1, developer: 1 },
+  'the migrated roster keeps its staffing',
+)
+assert.equal(
+  migrated.savedRosters?.[0]?.roleModelOverrides?.architect,
+  'claude-opus-5',
+  'the migration is lossless for per-role model overrides',
+)
+assert.equal(
+  migrated.lastSelectedRosterId,
+  'bihOkvw7kvxXoKTxOfmrD',
+  'lastSelectedTeamId carries over so the wizard opens on the same roster',
+)
+
+// Idempotence: normalizing the migrated OUTPUT (which has `savedRosters` and no
+// `savedTeams`) leaves it byte-equal. This is what a second app launch does.
+const reNormalized = normalizeAppSettings(
+  { sprintEngineRoleSettings: migrated },
+  [],
+).sprintEngineRoleSettings
+assert.deepEqual(reNormalized, migrated, 'a second load does not re-run the migration')
+
+// Key ABSENCE, not emptiness, is the legacy signal — a user who deleted every
+// roster on the new build must not see the pre-rename list resurrected.
+const deletedAllAfterMigration = normalizeAppSettings(
+  {
+    sprintEngineRoleSettings: {
+      enabled: {},
+      savedRosters: [],
+      savedTeams: [
+        {
+          id: 'ghost',
+          name: 'ghost',
+          roleCounts: { architect: 1 },
+          roleCliDefaults: {},
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      lastSelectedTeamId: 'ghost',
+    },
+  },
+  [],
+).sprintEngineRoleSettings
+assert.equal(
+  deletedAllAfterMigration.savedRosters?.length,
+  0,
+  'an explicit empty savedRosters list is never repopulated from the legacy savedTeams key',
+)
+assert.equal(
+  deletedAllAfterMigration.lastSelectedRosterId,
+  null,
+  'nor does the legacy selection pointer survive once the new key exists',
 )
 
 // --- Named roster teams --------------------------------------------------
 const teamStore = useWorkspaceStore.getState()
-const lightweightId = teamStore.saveSprintEngineRosterTeam({
+const lightweightId = teamStore.saveSprintEngineRoster({
   name: 'Lightweight',
   roleCounts: { architect: 1, developer: 1 },
   roleCliDefaults: { architect: 'claude-code', developer: 'codex' },
 })
 assert.ok(lightweightId, 'saving a team returns an id')
 const afterSave = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-const teamCountAfterSave = afterSave.savedTeams?.length ?? 0
-assert.equal(afterSave.lastSelectedTeamId, lightweightId, 'saving selects the new team')
-const savedLightweight = afterSave.savedTeams?.find((team) => team.id === lightweightId)
+const teamCountAfterSave = afterSave.savedRosters?.length ?? 0
+assert.equal(afterSave.lastSelectedRosterId, lightweightId, 'saving selects the new team')
+const savedLightweight = afterSave.savedRosters?.find((team) => team.id === lightweightId)
 assert.equal(savedLightweight?.name, 'Lightweight', 'team name persists')
 // savedRoster mirrors the active team so the run-mount CLI-default fallback stays meaningful.
 assert.deepEqual(
@@ -657,15 +744,15 @@ assert.deepEqual(
 )
 
 // Saving with the same id updates the team in place rather than adding a new one.
-teamStore.saveSprintEngineRosterTeam({
+teamStore.saveSprintEngineRoster({
   id: lightweightId,
   name: 'Lightweight v2',
   roleCounts: { architect: 1, developer: 2 },
   roleCliDefaults: { architect: 'claude-code' },
 })
 const afterUpdate = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-assert.equal(afterUpdate.savedTeams?.length, teamCountAfterSave, 'updating a team does not add a duplicate')
-const updatedLightweight = afterUpdate.savedTeams?.find((team) => team.id === lightweightId)
+assert.equal(afterUpdate.savedRosters?.length, teamCountAfterSave, 'updating a team does not add a duplicate')
+const updatedLightweight = afterUpdate.savedRosters?.find((team) => team.id === lightweightId)
 assert.equal(updatedLightweight?.name, 'Lightweight v2', 'team name updates in place')
 assert.deepEqual(
   updatedLightweight?.roleCounts,
@@ -675,7 +762,7 @@ assert.deepEqual(
 
 // A blank name is rejected.
 assert.equal(
-  teamStore.saveSprintEngineRosterTeam({
+  teamStore.saveSprintEngineRoster({
     name: '   ',
     roleCounts: { architect: 1 },
     roleCliDefaults: {},
@@ -685,9 +772,9 @@ assert.equal(
 )
 
 // Renaming changes only the name, leaving the saved roster untouched.
-teamStore.renameSprintEngineRosterTeam(lightweightId, '  Featherweight  ')
+teamStore.renameSprintEngineRoster(lightweightId, '  Featherweight  ')
 const afterRename = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-const renamedTeam = afterRename.savedTeams?.find((team) => team.id === lightweightId)
+const renamedTeam = afterRename.savedRosters?.find((team) => team.id === lightweightId)
 assert.equal(renamedTeam?.name, 'Featherweight', 'rename trims and applies the new name')
 assert.deepEqual(
   renamedTeam?.roleCounts,
@@ -695,31 +782,31 @@ assert.deepEqual(
   'rename leaves the saved roster counts intact',
 )
 // A blank rename and an unknown id are no-ops rather than throwing or clearing.
-teamStore.renameSprintEngineRosterTeam(lightweightId, '   ')
+teamStore.renameSprintEngineRoster(lightweightId, '   ')
 assert.equal(
-  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedTeams
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRosters
     ?.find((team) => team.id === lightweightId)?.name,
   'Featherweight',
   'a blank rename is ignored',
 )
-teamStore.renameSprintEngineRosterTeam('does-not-exist', 'Ghost')
+teamStore.renameSprintEngineRoster('does-not-exist', 'Ghost')
 assert.ok(
-  !useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedTeams
+  !useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings.savedRosters
     ?.some((team) => team.name === 'Ghost'),
   'renaming an unknown id is a no-op',
 )
 
 // Deleting the selected team clears the selection.
-teamStore.deleteSprintEngineRosterTeam(lightweightId)
+teamStore.deleteSprintEngineRoster(lightweightId)
 const afterDelete = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
 assert.ok(
-  !afterDelete.savedTeams?.some((team) => team.id === lightweightId),
+  !afterDelete.savedRosters?.some((team) => team.id === lightweightId),
   'deleting removes the team',
 )
-assert.equal(afterDelete.lastSelectedTeamId, null, 'deleting the selected team clears selection')
+assert.equal(afterDelete.lastSelectedRosterId, null, 'deleting the selected team clears selection')
 
 // --- Per-role model overrides persist with the team ----------------------
-const modelTeamId = teamStore.saveSprintEngineRosterTeam({
+const modelTeamId = teamStore.saveSprintEngineRoster({
   name: 'Model team',
   roleCounts: { architect: 1, developer: 1 },
   roleCliDefaults: { developer: 'codex' },
@@ -727,7 +814,7 @@ const modelTeamId = teamStore.saveSprintEngineRosterTeam({
   roleModelOverrides: { developer: 'opus', architect: null },
 })
 const afterModelSave = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-const savedModelTeam = afterModelSave.savedTeams?.find((team) => team.id === modelTeamId)
+const savedModelTeam = afterModelSave.savedRosters?.find((team) => team.id === modelTeamId)
 assert.deepEqual(
   savedModelTeam?.roleModelOverrides,
   { developer: 'opus' },
@@ -739,7 +826,7 @@ assert.deepEqual(
   'saving a team mirrors its model overrides into savedRoster',
 )
 // Re-saving with the models cleared drops them (explicit overwrite, not merge).
-teamStore.saveSprintEngineRosterTeam({
+teamStore.saveSprintEngineRoster({
   id: modelTeamId,
   name: 'Model team',
   roleCounts: { architect: 1, developer: 1 },
@@ -747,7 +834,7 @@ teamStore.saveSprintEngineRosterTeam({
   roleModelOverrides: {},
 })
 const afterModelClear = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
-  .savedTeams?.find((team) => team.id === modelTeamId)
+  .savedRosters?.find((team) => team.id === modelTeamId)
 assert.equal(
   afterModelClear?.roleModelOverrides ?? undefined,
   undefined,

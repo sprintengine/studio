@@ -80,7 +80,7 @@ export type {
   SprintEngineRoleSettings,
   SprintEngineRosterSession,
   SprintEngineRosterSessions,
-  SprintEngineRosterTeam,
+  SprintEngineRoster,
   SprintEngineRunnerPolicy,
   SprintEngineRunSettings,
   SprintEngineRuntimeAgent,
