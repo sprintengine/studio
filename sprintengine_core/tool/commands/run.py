@@ -1285,18 +1285,9 @@ def cmd_runner_status(args: argparse.Namespace) -> Dict[str, Any]:
 
     return with_locked_state(args.state, run)
 
-_LEGACY_MODE_TO_CLI_WATCH_POLLING = {"auto": "enabled", "off": "disabled"}
-
-
 def cmd_runner_set(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         current = folder_store.normalize_runner_policy(state.get("runner"))
-        # `--mode auto|off` is the legacy CLI flag. Accept it as an alias and
-        # translate to the new `cliWatchPolling` namespace.
-        if getattr(args, "mode", None):
-            translated = _LEGACY_MODE_TO_CLI_WATCH_POLLING.get(str(args.mode).strip().lower())
-            if translated is not None:
-                current["cliWatchPolling"] = translated
         if getattr(args, "cli_watch_polling", None):
             current["cliWatchPolling"] = str(args.cli_watch_polling).strip().lower()
         if args.poll_interval_seconds is not None:

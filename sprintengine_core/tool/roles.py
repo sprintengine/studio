@@ -2,44 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable
-
 from sprintengine_core.role_registry import RegistryDiscovery, discover_role_registry, normalize_role_id
-
-
-# Compatibility view for older callers that need the historically bundled
-# Sprint Engine role set. Active dispatch validation uses the role registry.
-BUNDLED_ROLE_IDS = frozenset({
-    "architect",
-    "product",
-    "developer",
-    "frontend",
-    "ui_ux_reviewer",
-    "tester",
-    "security",
-    "performance",
-    "production_readiness_reviewer",
-    "cross_platform",
-})
-
-
-class RoleRegistry:
-    """Read-only compatibility registry for built-in role defaults."""
-
-    def __init__(self, role_ids: Iterable[str] = BUNDLED_ROLE_IDS) -> None:
-        self._role_ids = frozenset(str(role_id) for role_id in role_ids)
-
-    def all(self) -> frozenset[str]:
-        return self._role_ids
-
-    def choices(self) -> list[str]:
-        return sorted(self._role_ids)
-
-    def is_valid(self, role: str) -> bool:
-        return normalize_role_id(role) in self._role_ids
-
-    def without(self, *role_ids: str) -> frozenset[str]:
-        return self._role_ids - set(role_ids)
 
 
 def configured_soul_role_ids(discovery: RegistryDiscovery | None = None) -> frozenset[str]:
@@ -90,10 +53,3 @@ def require_configured_role(role: str, *, context: str = "role", discovery: Regi
         known = ", ".join(sorted(configured_role_ids(discovery)))
         detail = f" Known roles: {known}." if known else ""
         raise SystemExit(f"{context} has unknown role {role!r}.{detail}") from exc
-
-
-DEFAULT_ROLE_REGISTRY = RoleRegistry()
-# Import-compatible snapshot retained for older tests and callers. Active CLI,
-# MCP, roster, task, gate, join, and plan paths call require_configured_role()
-# so workspace registry roles are resolved at command time.
-VALID_ROLES = configured_role_ids()

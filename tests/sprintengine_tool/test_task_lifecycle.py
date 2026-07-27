@@ -359,7 +359,7 @@ def test_task_publish_records_implementation_summary_and_enters_the_review_phase
     # A task that produced changes enters phases[0] and the OWNER STAYS BOUND: it
     # is mid-tool-call and gets its phase directive back inline.
     fixture = create_team(tmp_path, "publish-routes-review", [owned_task()])
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
 
     payload = fixture.cli.run(
         "task",
@@ -399,7 +399,7 @@ def test_task_publish_records_implementation_summary_and_enters_the_review_phase
 
 def test_task_advance_out_of_review_completes_the_task(tmp_path) -> None:
     fixture = create_team(tmp_path, "advance-completes", [owned_task()])
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
     fixture.cli.run("task", "publish", "--task-id", "T1", "--id", "developer-fixture", "--summary", "Implemented it.")
 
     payload = fixture.cli.run(
@@ -793,7 +793,7 @@ def test_rework_publish_refreshes_latest_diff_snapshot(tmp_path) -> None:
 def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
     fixture = create_team(tmp_path, "runner-policy", [task("T1", "Implement", "developer")])
 
-    payload = fixture.cli.run("runner", "set", "--mode", "auto", "--poll-interval-seconds", "2", "--idle-backoff-seconds", "3")
+    payload = fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled", "--poll-interval-seconds", "2", "--idle-backoff-seconds", "3")
 
     assert payload["runner"]["cliWatchPolling"] == "enabled"
     assert payload["runner"]["pollIntervalSeconds"] == 2
@@ -802,7 +802,7 @@ def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
     projection = fixture.cli.run("projection")
     assert projection["run"]["runner"]["cliWatchPolling"] == "enabled"
 
-    off_payload = fixture.cli.run("runner", "set", "--mode", "off")
+    off_payload = fixture.cli.run("runner", "set", "--cli-watch-polling", "disabled")
     assert off_payload["runner"]["cliWatchPolling"] == "disabled"
     assert read_state(fixture.state_path)["runner"]["cliWatchPolling"] == "disabled"
 
@@ -811,7 +811,7 @@ def test_join_returns_idle_once_when_no_work_is_ready_for_the_role(tmp_path) -> 
     # Join is one-shot (MC-1827): with another role's work queued it reports idle
     # and returns, whatever the runner policy says. Nothing polls.
     fixture = create_team(tmp_path, "join-idle", [task("T1", "Frontend work", "frontend", "todo")])
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
 
     payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1")
 
@@ -840,7 +840,7 @@ def test_join_resumes_an_owner_parked_in_its_review_phase(tmp_path) -> None:
     # the ready task queued behind it. A stranger sees no ready work at all.
     review_task = owned_task("review", owner="developer-fixture")
     fixture = create_team(tmp_path, "join-review-resume", [review_task])
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
 
     owner = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture")
     stranger = fixture.cli.run("join", "--role", "developer", "--id", "developer-2")
@@ -895,7 +895,7 @@ def test_join_routes_architect_needs_input_before_ready_task(tmp_path) -> None:
     }
     ready_architect = task("T2", "Architect normal task", "architect")
     fixture = create_team(tmp_path, "join-architect-triage", [blocked, ready_architect])
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
 
     payload = fixture.cli.run("join", "--role", "architect", "--id", "architect")
 
@@ -913,7 +913,7 @@ def test_join_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
         "reportedAt": "2026-05-25T00:00:00Z",
     }
     fixture = create_team(tmp_path, "join-owner-needs-input-stops", [blocked])
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
 
     payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1")
 
@@ -968,7 +968,7 @@ def test_task_status_done_completes_an_owned_task_and_releases_its_owner(tmp_pat
         "status-done-auto-mode",
         [task("T1", "Completed from review", "developer", "review", owner="developer-fixture")],
     )
-    fixture.cli.run("runner", "set", "--mode", "auto")
+    fixture.cli.run("runner", "set", "--cli-watch-polling", "enabled")
 
     payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 

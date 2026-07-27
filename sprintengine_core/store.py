@@ -92,6 +92,26 @@ DEFAULT_RUN_PHASES = ("review",)
 # default. Round-trips through run.yaml + projection like RUN_SOURCE_KEYS.
 RUN_PHASE_KEYS = ("defaultPhases",)
 
+# Task comment vocabulary — defined here once and imported by
+# sprintengine_core/tool/constants.py and sprintengine_core/tool/comments.py, so the
+# set cannot drift between validation, the prompt queues, and the projection.
+# `test_feedback`/`product_feedback` are gone (MC-1829): the tester- and
+# product-owned review statuses they belonged to died with MC-1542.
+VALID_TASK_COMMENT_TYPES = frozenset({
+    "implementation_summary",
+    "implementation_response",
+    "review_feedback",
+    "architect_feedback",
+    "needs_input",
+    "user_note",
+    "system_note",
+})
+# Comment types that carry review feedback an owner must answer. `needs_input`
+# joins them in the rework queue: it also blocks the owner, but it is a blocker
+# question rather than a finding.
+FEEDBACK_COMMENT_TYPES = frozenset({"review_feedback", "architect_feedback"})
+REWORK_COMMENT_TYPES = FEEDBACK_COMMENT_TYPES | {"needs_input"}
+
 
 # Task-scoped roster identity (no slot recycling): a worker roster id owns at
 # most one task for its whole lifetime. `per_task` is the only policy today; the
@@ -257,22 +277,12 @@ def _positive_int(value: Any, fallback: int, *, minimum: int = 1, maximum: int =
     return max(minimum, min(maximum, parsed))
 
 
-_LEGACY_TO_NEW_CLI_WATCH = {"auto": "enabled", "off": "disabled"}
-
-
 def normalize_runner_policy(raw: Any) -> dict[str, Any]:
-    """Normalize the on-disk runner policy.
-
-    Field rename: `runner.mode` (`auto|off`) → `runner.cliWatchPolling`
-    (`enabled|disabled`). Read both shapes for backward compatibility with
-    existing `run.yaml` files; write the new shape on output.
-    """
+    """Normalize the on-disk runner policy."""
     policy = raw if isinstance(raw, dict) else {}
     raw_value = policy.get("cliWatchPolling")
     if raw_value is None:
-        # Legacy field name and value space.
-        legacy_mode = str(policy.get("mode") or "").strip().lower()
-        raw_value = _LEGACY_TO_NEW_CLI_WATCH.get(legacy_mode, DEFAULT_RUNNER_POLICY["cliWatchPolling"])
+        raw_value = DEFAULT_RUNNER_POLICY["cliWatchPolling"]
     cli_watch_polling = str(raw_value).strip().lower()
     if cli_watch_polling not in {"enabled", "disabled"}:
         cli_watch_polling = str(DEFAULT_RUNNER_POLICY["cliWatchPolling"])
@@ -926,11 +936,10 @@ def _projection_latest_comments(task: dict[str, Any], limit: int = 5) -> list[di
 
 
 def _projection_open_feedback(task: dict[str, Any], limit: int = 10) -> list[dict[str, Any]]:
-    feedback_types = {"review_feedback", "test_feedback", "product_feedback", "architect_feedback"}
     comments = task.get("comments") if isinstance(task.get("comments"), list) else []
     open_comments = []
     for comment in comments:
-        if not isinstance(comment, dict) or comment.get("type") not in feedback_types:
+        if not isinstance(comment, dict) or comment.get("type") not in FEEDBACK_COMMENT_TYPES:
             continue
         data = comment.get("data") if isinstance(comment.get("data"), dict) else {}
         if data.get("status", "open") == "open":

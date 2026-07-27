@@ -339,7 +339,7 @@ def recompute_phase(state: Dict[str, Any]) -> bool:
     tasks = state.get("tasks", [])
     if tasks and all(t.get("status") in {"done", "canceled"} for t in tasks):
         return set_if_changed(sprintengine, "status", "completed")
-    if any(t.get("status") in RUN_EXECUTING_TASK_STATUSES for t in tasks):
+    if any(t.get("status") in ACTIVE_TASK_STATUSES for t in tasks):
         return set_if_changed(sprintengine, "status", "executing")
     return set_if_changed(sprintengine, "status", "planned" if tasks else "planning")
 
@@ -478,9 +478,7 @@ def normalize_needs_input_kind(kind: Optional[str]) -> Optional[str]:
     store the canonical kind. One place applies the alias map; the CLI arg paths and
     the state normalizer both come through here.
     """
-    if kind in LEGACY_NEEDS_INPUT_KIND_MAP:
-        return LEGACY_NEEDS_INPUT_KIND_MAP[kind][0]
-    return kind
+    return LEGACY_NEEDS_INPUT_KIND_MAP.get(kind, kind)
 
 
 def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any]]:
@@ -489,10 +487,7 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
     if not isinstance(raw, dict):
         raise SystemExit(f"Task {task_id} needsInput must be an object.")
 
-    kind = optional_non_empty_string(raw, "kind")
-    legacy_default_reason = None
-    if kind in LEGACY_NEEDS_INPUT_KIND_MAP:
-        kind, legacy_default_reason = LEGACY_NEEDS_INPUT_KIND_MAP[kind]
+    kind = normalize_needs_input_kind(optional_non_empty_string(raw, "kind"))
     if kind not in VALID_NEEDS_INPUT_KINDS:
         raise SystemExit(
             f"Task {task_id} needsInput.kind must be one of: {', '.join(sorted(VALID_NEEDS_INPUT_KINDS))}."
@@ -502,8 +497,6 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
     reason = optional_non_empty_string(raw, "reason")
     if reason is not None:
         needs_input["reason"] = reason
-    elif legacy_default_reason:
-        needs_input["reason"] = legacy_default_reason
     elif kind in NEEDS_INPUT_KIND_DEFAULT_REASONS:
         needs_input["reason"] = NEEDS_INPUT_KIND_DEFAULT_REASONS[kind]
 

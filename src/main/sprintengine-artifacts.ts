@@ -1421,21 +1421,9 @@ export function createSprintEngineArtifactHandlers(deps: SprintEngineArtifactDep
     async setRunnerMode(payload) {
       try {
         const state = validateSprintEngineStatePath(payload?.statePath)
-        // Field rename: legacy `mode: 'auto' | 'off'` → `cliWatchPolling:
-        // 'enabled' | 'disabled'`. Accept either shape from older callers and
-        // translate to the new canonical value. SprintEngineRunnerSetInput in
-        // src/shared/electron-api.ts documents this contract.
-        const legacyModeAlias = (payload as { mode?: unknown } | undefined)?.mode
-        let cliWatchPolling: string | undefined
-        if (payload?.cliWatchPolling === 'enabled' || payload?.cliWatchPolling === 'disabled') {
-          cliWatchPolling = payload.cliWatchPolling
-        } else if (legacyModeAlias === 'auto') {
-          cliWatchPolling = 'enabled'
-        } else if (legacyModeAlias === 'off') {
-          cliWatchPolling = 'disabled'
-        }
+        const cliWatchPolling = payload?.cliWatchPolling
         if (cliWatchPolling !== 'enabled' && cliWatchPolling !== 'disabled') {
-          throw new Error('CLI watch polling must be enabled or disabled (legacy mode: auto|off also accepted).')
+          throw new Error('CLI watch polling must be enabled or disabled.')
         }
         const toolResult = await runSprintEngineCli(state, [
           '--state',

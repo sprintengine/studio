@@ -3,23 +3,20 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from sprintengine_core.store import FEEDBACK_COMMENT_TYPES, REWORK_COMMENT_TYPES
+
 def open_feedback_comments(task: Dict[str, Any]) -> List[Dict[str, Any]]:
-    feedback_types = {"review_feedback", "test_feedback", "product_feedback", "architect_feedback"}
-    comments = task.get("comments") if isinstance(task.get("comments"), list) else []
-    return [
-        comment for comment in comments
-        if isinstance(comment, dict)
-        and comment.get("type") in feedback_types
-        and (not isinstance(comment.get("data"), dict) or comment["data"].get("status", "open") == "open")
-    ]
+    return _open_comments_of_type(task, FEEDBACK_COMMENT_TYPES)
 
 def open_rework_comments(task: Dict[str, Any]) -> List[Dict[str, Any]]:
-    rework_types = {"review_feedback", "test_feedback", "product_feedback", "architect_feedback", "needs_input"}
+    return _open_comments_of_type(task, REWORK_COMMENT_TYPES)
+
+def _open_comments_of_type(task: Dict[str, Any], types: frozenset[str]) -> List[Dict[str, Any]]:
     comments = task.get("comments") if isinstance(task.get("comments"), list) else []
     return [
         comment for comment in comments
         if isinstance(comment, dict)
-        and comment.get("type") in rework_types
+        and comment.get("type") in types
         and (not isinstance(comment.get("data"), dict) or comment["data"].get("status", "open") == "open")
     ]
 

@@ -3,7 +3,12 @@ from pathlib import Path
 import sprintengine_core.tool as tool
 from sprintengine_core.tool import artifacts, feedback, phase_prompts, plans, tasks
 from sprintengine_core.role_registry import RoleSkillRegistry
-from sprintengine_core.tool.roles import DEFAULT_ROLE_REGISTRY, VALID_ROLES, configured_soul_role_ids, dispatchable_role_ids
+from sprintengine_core.tool.roles import (
+    configured_role_ids,
+    configured_soul_role_ids,
+    dispatchable_role_ids,
+    is_configured_role,
+)
 
 
 def test_tool_package_preserves_public_entrypoint_imports() -> None:
@@ -51,13 +56,14 @@ def test_required_helper_domains_are_rehomed_outside_legacy() -> None:
     assert tasks.publish_task.__module__ == "sprintengine_core.tool.tasks"
 
 
-def test_role_validation_uses_compatibility_registry() -> None:
-    assert DEFAULT_ROLE_REGISTRY.all().issubset(VALID_ROLES)
-    assert DEFAULT_ROLE_REGISTRY.is_valid("developer")
-    assert not DEFAULT_ROLE_REGISTRY.is_valid("marketer")
+def test_role_validation_resolves_the_registry_at_call_time() -> None:
+    """No import-time role snapshot survives (MC-1829): every check discovers."""
+    assert "developer" in configured_role_ids()
+    assert is_configured_role("developer")
+    assert not is_configured_role("marketer")
 
 
-def test_custom_registry_roles_are_dispatchable_without_bundled_compatibility_registry(tmp_path: Path) -> None:
+def test_custom_registry_roles_are_dispatchable(tmp_path: Path) -> None:
     root = tmp_path / "workspace" / ".sprintengine"
     (root / "roles").mkdir(parents=True)
     (root / "skills" / "marketer").mkdir(parents=True)
@@ -75,4 +81,5 @@ def test_custom_registry_roles_are_dispatchable_without_bundled_compatibility_re
 
     assert "marketer" in configured_soul_role_ids(discovery)
     assert "marketer" in dispatchable_role_ids(discovery)
-    assert not DEFAULT_ROLE_REGISTRY.is_valid("marketer")
+    # …and only for that discovery: the ambient registry still does not know it.
+    assert not is_configured_role("marketer")

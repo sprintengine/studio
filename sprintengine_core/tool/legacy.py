@@ -187,8 +187,8 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
   sprintengine projection
   sprintengine join --role developer --id developer-1
   sprintengine --backend mcp-local join --role developer --id developer-1
-  sprintengine runner set --mode auto
-  sprintengine runner set --mode off
+  sprintengine runner set --cli-watch-polling enabled
+  sprintengine runner set --cli-watch-polling disabled
   sprintengine triage needs-input --id architect
   sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
 
@@ -504,9 +504,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=run_commands.runner_status)
 
     p = runner_sub.add_parser("set", help="Update the durable runner policy.")
-    # `--mode auto|off` is the legacy spelling. New canonical flag is
-    # `--cli-watch-polling enabled|disabled`. The handler accepts either.
-    p.add_argument("--mode", choices=["auto", "off"], help="DEPRECATED alias for --cli-watch-polling. auto = enabled, off = disabled.")
     p.add_argument("--cli-watch-polling", dest="cli_watch_polling", choices=["enabled", "disabled"], help="Automation-mode hint recorded on the run. The CLI watch loop it once configured is gone (MC-1827); Multicode reads this back to derive the run's automation mode.")
     p.add_argument("--poll-interval-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
     p.add_argument("--idle-backoff-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
