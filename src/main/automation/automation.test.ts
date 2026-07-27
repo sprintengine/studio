@@ -2087,7 +2087,7 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   assert.equal(offStatus.isError, true)
   assert.equal((offStatus.structuredContent as { error: { code: string } }).error.code, 'horizon_module_unavailable')
 
-  // roadmap.status forwards the board read straight through.
+  // horizon.status forwards the board read straight through.
   const board = { roadmapRef: 'backlog/roadmaps/platform.md', title: 'Platform', lanes: [] }
   const read = recordingRoadmapFrontDoor({ board })
   const readTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: read.frontDoor }))
