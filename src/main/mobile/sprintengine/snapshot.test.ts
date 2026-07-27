@@ -1325,7 +1325,7 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
         id: 'architect',
         label: 'Architect',
         aliases: [],
-        summary: 'Plans production software work and task decomposition.',
+        description: 'Plans production software work and task decomposition. Staff it whenever a run needs planning.',
         icon: null,
         directives: { implement: [{ skill: 'architect' }] },
         source: { layer: 'bundled' },
@@ -1334,14 +1334,14 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
         id: 'tester',
         label: 'QA',
         aliases: [],
-        summary: 'Validates real product paths.',
+        description: 'Validates real product paths. Staff it when integrated behavior is worth exercising end to end.',
         directives: { implement: [{ skill: 'tester' }] },
         source: { layer: 'bundled' },
       },
       {
         id: 'prompt_smith',
         label: 'Prompt Smith',
-        summary: 'Tunes prompts.',
+        description: 'Tunes prompts.',
         // User-global roles mount as a plugin root; the phone should be told "user".
         source: { layer: 'plugin:user-roles' },
       },
@@ -1375,9 +1375,15 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
   })
   assert.equal(flooded?.length, 48)
 
-  const [truncated] = normalizeRoleCatalog({ roles: [{ id: 'x', label: 'X', summary: 's'.repeat(400) }] }) ?? []
+  // The manifest field is `description` (MC-1831); the wire field stays `summary`
+  // because protocol.ts mirrors the phone's copy byte for byte.
+  const [truncated] = normalizeRoleCatalog({ roles: [{ id: 'x', label: 'X', description: 's'.repeat(400) }] }) ?? []
   assert.equal(truncated?.summary?.length, 160)
   assert.equal(truncated?.summary?.endsWith('…'), true)
+
+  // A manifest read by an engine that has no description yet simply carries none.
+  const [descriptionless] = normalizeRoleCatalog({ roles: [{ id: 'x', label: 'X' }] }) ?? []
+  assert.equal('summary' in (descriptionless ?? {}), false)
 
   // A manifest with no label still has a name to show.
   const [humanized] = normalizeRoleCatalog({ roles: [{ id: 'data_platform_engineer' }] }) ?? []

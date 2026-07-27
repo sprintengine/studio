@@ -839,7 +839,11 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
         active = runtime["activeTask"]
         ready = [t for t in state.get("tasks", []) if t.get("role") == args.role and task_is_ready(state, t)]
 
-        prompt = load_prompt(args.role, backlog_sourced=run_is_backlog_sourced(state))
+        prompt = load_prompt(
+            args.role,
+            backlog_sourced=run_is_backlog_sourced(state),
+            staffed_roles=[str(entry) for entry in (state.get("configuredRoles") or []) if str(entry).strip()],
+        )
         policy = runner_policy(state)
 
         if active:

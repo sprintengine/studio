@@ -1055,9 +1055,11 @@ function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRo
         return normalized ? [normalized] : []
       })
     : []
-  const summary = typeof record.summary === 'string' && record.summary.trim()
-    ? record.summary.trim()
-    : record.summary === null
+  // MC-1831: the manifest field is `description` (prose: what the role does and
+  // when to staff it). A manifest predating the rename carries none.
+  const description = typeof record.description === 'string' && record.description.trim()
+    ? record.description.trim()
+    : record.description === null
       ? null
       : undefined
   const icon = typeof record.icon === 'string' && record.icon.trim()
@@ -1091,7 +1093,7 @@ function normalizeSprintEngineRoleRegistryMetadata(raw: unknown): SprintEngineRo
     id,
     label,
     aliases,
-    ...(summary !== undefined ? { summary } : {}),
+    ...(description !== undefined ? { description } : {}),
     ...(icon !== undefined ? { icon } : {}),
     source: { layer },
     ...(shadowedSources.length > 0 ? { shadowedSources } : {}),

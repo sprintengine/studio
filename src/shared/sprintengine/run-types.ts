@@ -53,7 +53,7 @@ export type SprintEngineRoleRegistryWarning = {
 // Registry-derived metadata for a single role. Mirrors the
 // `sprintengine.roles.list` / `sprintengine.roles.get` payload shape. The
 // renderer only reads from here; mutations go through the Sprint Engine
-// tool. `label`, `summary`, `icon`, and `source.layer` are the only fields
+// tool. `label`, `description`, `icon`, and `source.layer` are the only fields
 // the renderer currently uses for display; the rest is captured so future
 // surfaces (settings tab, soul preview) can grow without re-plumbing the
 // type.
@@ -61,7 +61,7 @@ export type SprintEngineRoleRegistryMetadata = {
   id: SprintEngineRoleId
   label: string
   aliases: string[]
-  summary?: string | null
+  description?: string | null
   icon?: string | null
   source: { layer: SprintEngineRoleRegistrySourceLayer }
   shadowedSources?: { layer: SprintEngineRoleRegistrySourceLayer }[]
@@ -695,7 +695,7 @@ export const DEFAULT_SPRINTENGINE_TASK_REPO = 'primary'
 export type SprintEngineTask = {
   id: string
   title: string
-  description: string
+  description?: string | null
   role: SprintEngineRoleId
   /**
    * Id of the declared repo this task works in — one task, one git tree, always.

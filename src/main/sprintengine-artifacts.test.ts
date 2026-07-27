@@ -704,7 +704,7 @@ async function testReadRegistryRolesUsesRealMcpBridgeForBundledAndCustomRoles():
       id: 'marketer',
       label: 'Marketer',
       aliases: ['growth-marketer'],
-      summary: 'Tests workspace custom role discovery.',
+      description: 'Tests workspace custom role discovery. Staff it when a workspace role must be discovered.',
       directives: { implement: [{ skill: 'marketer' }] },
     }, null, 2),
     'utf-8'

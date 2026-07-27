@@ -1154,7 +1154,7 @@ const registry: SprintEngineRoleRegistry = buildSprintEngineRoleRegistry({
       label: 'Growth Engineer',
       aliases: [],
       icon: 'developer',
-      summary: 'Owns growth experiments.',
+      description: 'Owns growth experiments. Staff it for growth work.',
       source: { layer: 'plugin' },
       shadowedSources: [{ layer: 'bundled' }],
     },
@@ -1571,7 +1571,7 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
         id: 'marketer',
         label: 'Marketer',
         aliases: [],
-        summary: 'Owns positioning and copy.',
+        description: 'Owns positioning and copy. Staff it for marketing work.',
         source: { layer: 'workspace' },
       },
       {
@@ -1591,7 +1591,11 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
   const marketer = options.find((option) => option.role === 'marketer')
   assert.ok(marketer, 'custom role appears in options')
   assert.equal(marketer.label, 'Marketer', 'registry label used for custom role')
-  assert.equal(marketer.summary, 'Owns positioning and copy.', 'registry summary used when no override')
+  assert.equal(
+    marketer.summary,
+    'Owns positioning and copy. Staff it for marketing work.',
+    'registry description used when no override',
+  )
   assert.equal(marketer.activeForRole, 1)
   assert.equal(marketer.openTasksForRole, 1)
   assert.equal(
@@ -1662,7 +1666,7 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
         id: 'marketer',
         label: 'Marketer',
         aliases: [],
-        summary: 'Owns positioning and copy.',
+        description: 'Owns positioning and copy. Staff it for marketing work.',
         source: { layer: 'workspace' },
       },
     ],
@@ -1736,7 +1740,7 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
         id: 'marketer',
         label: 'Marketer',
         aliases: [],
-        summary: 'Owns positioning and launch copy.',
+        description: 'Owns positioning and launch copy. Staff it for marketing work.',
         source: { layer: 'workspace' },
       },
       {
@@ -1766,8 +1770,8 @@ const INSTALLED_SPECIALIST_PACK_REGISTRY: SprintEngineRoleRegistry = buildSprint
   )
   assert.equal(
     getSprintEngineWizardRoleSummary('marketer', registry),
-    'Owns positioning and launch copy.',
-    'registry summary used when bundled wizard copy is unavailable',
+    'Owns positioning and launch copy. Staff it for marketing work.',
+    'registry description used when bundled wizard copy is unavailable',
   )
   assert.equal(
     getSprintEngineWizardRoleSummary('unknown_role'),

@@ -24,7 +24,7 @@ async function exists(path: string): Promise<boolean> {
 const VALID_ROLE = JSON.stringify({
   id: 'auditor',
   label: 'Auditor',
-  summary: 'Audits the change.',
+  description: 'Audits the change. Staff it before a release.',
   directives: { implement: [{ skill: 'auditor' }] },
 })
 
@@ -105,7 +105,7 @@ async function testSaveGetRoundTrip(): Promise<void> {
       {
         id: 'auditor',
         label: 'Auditor',
-        summary: 'Audits the change.',
+        description: 'Audits the change. Staff it before a release.',
         aliases: ['audit'],
         body: '<what-to-do>\n# Role\nYou are Auditor.\n</what-to-do>\n',
       },
@@ -140,7 +140,7 @@ async function testSaveGetRoundTrip(): Promise<void> {
 async function testDeleteIsIdempotent(): Promise<void> {
   await withTempDir(async (dir) => {
     const root = join(dir, 'registry')
-    await saveUserRole({ id: 'auditor', label: 'Auditor', body: '# Auditor' }, root)
+    await saveUserRole({ id: 'auditor', label: 'Auditor', description: 'Audits the change.', body: '# Auditor' }, root)
     assert.ok(await exists(join(root, 'roles', 'auditor.json')))
 
     const removed = await deleteUserRole('auditor', root)
@@ -161,7 +161,7 @@ async function testSaveRejectsInvalidManifestWithoutWriting(): Promise<void> {
   await withTempDir(async (dir) => {
     const root = join(dir, 'registry')
     // Empty label fails validateRoleManifest.
-    const result = await saveUserRole({ id: 'auditor', label: '   ', body: '# Auditor' }, root)
+    const result = await saveUserRole({ id: 'auditor', label: '   ', description: 'Audits the change.', body: '# Auditor' }, root)
     assert.equal(result.ok, false)
     assert.ok(result.issues && result.issues.some((issue) => issue.path === 'label'))
     assert.equal(await exists(join(root, 'roles', 'auditor.json')), false)
@@ -172,7 +172,7 @@ async function testSaveRejectsInvalidManifestWithoutWriting(): Promise<void> {
 async function testSaveRejectsEmptyBodyWithoutWriting(): Promise<void> {
   await withTempDir(async (dir) => {
     const root = join(dir, 'registry')
-    const result = await saveUserRole({ id: 'auditor', label: 'Auditor', body: '   ' }, root)
+    const result = await saveUserRole({ id: 'auditor', label: 'Auditor', description: 'Audits the change.', body: '   ' }, root)
     assert.equal(result.ok, false)
     assert.ok(result.issues && result.issues.some((issue) => issue.path === 'body'))
     assert.equal(await exists(join(root, 'roles', 'auditor.json')), false)
@@ -183,7 +183,7 @@ async function testSaveAndDeleteRejectTraversalIds(): Promise<void> {
   await withTempDir(async (dir) => {
     const root = join(dir, 'registry')
     for (const badId of ['../escape', 'a/b', 'Bad', '..']) {
-      const saved = await saveUserRole({ id: badId, label: 'X', body: '# X' }, root)
+      const saved = await saveUserRole({ id: badId, label: 'X', description: 'Audits the change.', body: '# X' }, root)
       assert.equal(saved.ok, false, `save must reject id ${JSON.stringify(badId)}`)
       assert.ok(saved.issues && saved.issues.some((issue) => issue.path === 'id'))
       const removed = await deleteUserRole(badId, root)

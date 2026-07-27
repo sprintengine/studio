@@ -150,7 +150,7 @@ state.
 The bundled-role compatibility set and renderer label/accent defaults are not
 runtime dispatch authority. They exist for older callers, specialist UI
 defaults, and graceful display fallbacks. Registry metadata in projection and
-MCP discovery is the path for custom role labels, summaries, icons, aliases,
+MCP discovery is the path for custom role labels, descriptions, icons, aliases,
 source layers, and warnings.
 
 A role is routing plus directive packs. The manifest schema is:
@@ -160,7 +160,7 @@ A role is routing plus directive packs. The manifest schema is:
   "id": "frontend",
   "label": "Frontend engineer",
   "aliases": ["front-end", "ui"],
-  "summary": "Owns UI implementation tasks end to end.",
+  "description": "Builds user-facing screens and components. Staff this role when the run changes what the user sees.",
   "directives": {
     "implement": [{ "skill": "frontend" }],
     "review": [{ "skill": "frontend_review" }]
@@ -176,11 +176,21 @@ A role is routing plus directive packs. The manifest schema is:
   vocabulary is `review` only (`DIRECTIVE_PHASES`); an unknown key rejects the
   manifest, so a typo never silently drops a directive pack.
   `directives.review` entries are appended after the shared base review pack.
-- `summary` and `icon` are optional strings.
+- `description` is the role's whole capability statement, in natural language:
+  what the role does and when a sprint should staff it. The architect's join
+  prompt renders each staffed role's description verbatim; nothing in the engine
+  derives behaviour from its text, and there are no capability flags. Write one
+  for every role. It is schema-optional only so a manifest predating the field
+  still loads.
+- `icon` is an optional string.
 - The removed keys `soul` and `capabilities` are rejected **by name**
   (`REMOVED_MANIFEST_KEYS`). A manifest carrying either is skipped with a
   `v1_role_manifest` registry warning naming its replacement. There is no
   compatibility shim and no runtime migration.
+- `summary`, the one-line predecessor of `description`, is **renamed, not
+  removed** (`RENAMED_MANIFEST_KEYS`): the manifest still loads so an installed
+  pack keeps staffing runs, the key is ignored, and discovery emits a
+  `renamed_manifest_key` warning. Its value is never read as `description`.
 
 Prompt composition is layered:
 
@@ -626,7 +636,9 @@ Task dispatch routes by exact canonical `task.role`. When the run records a
 `configuredRoles` set, `plan.add_task` requires the task's role to be in it. The
 core does not infer routing from role metadata at all: a manifest carries no
 capability or review flags, so the architect reads the role's natural-language
-`summary` when deciding what to task it with.
+`description` when deciding what to task it with. Each staffed role's
+description is rendered verbatim into the architect's join prompt under
+**Roles On This Run**.
 
 Plan reviews use registry-backed non-architect role ids from the active roster
 instead of a static reviewer-role list. Built-in roles can still have

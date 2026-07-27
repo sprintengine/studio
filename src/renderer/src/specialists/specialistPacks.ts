@@ -37,12 +37,12 @@ function iconForRegistryRole(icon: string | null | undefined): SpecialistIcon {
 
 function specialistFromRegistryRole(role: SprintEngineRoleRegistryMetadata): SpecialistAction {
   // A discovered role's id is its registry role id, so its soul renders via
-  // `souls get <id>`. Display comes from the manifest's label/summary/icon.
+  // `souls get <id>`. Display comes from the manifest's label/description/icon.
   return {
     id: role.id,
     label: role.label,
     shortLabel: role.label,
-    description: role.summary ?? '',
+    description: role.description ?? '',
     icon: iconForRegistryRole(role.icon),
     soulRole: role.id,
   }

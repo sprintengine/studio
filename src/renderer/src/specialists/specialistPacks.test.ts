@@ -16,7 +16,7 @@ import {
 } from './specialistPacks'
 
 function registry(
-  roles: Array<{ id: string; label: string; layer: string; summary?: string; icon?: string }>,
+  roles: Array<{ id: string; label: string; layer: string; description?: string; icon?: string }>,
 ): SprintEngineRoleRegistry {
   return {
     roles: Object.fromEntries(
@@ -26,7 +26,7 @@ function registry(
           id: r.id,
           label: r.label,
           aliases: [],
-          summary: r.summary ?? null,
+          description: r.description ?? null,
           icon: r.icon ?? null,
           source: { layer: r.layer },
         },
@@ -55,7 +55,7 @@ function main(): void {
   // --- registry-discovered packs ---
   const reg = registry([
     // A new role on the workspace layer → its own discovered pack.
-    { id: 'marketer', label: 'Marketer', layer: 'workspace', summary: 'Growth.', icon: 'product' },
+    { id: 'marketer', label: 'Marketer', layer: 'workspace', description: 'Growth.', icon: 'product' },
     // A new role on a plugin layer → a separate discovered pack.
     { id: 'translator', label: 'Translator', layer: 'plugin:lang' },
     // A bundled-layer entry carries only host skills now (no role manifests);

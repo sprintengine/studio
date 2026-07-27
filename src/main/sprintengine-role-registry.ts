@@ -179,7 +179,7 @@ export async function loadUserRoleManifests(root: string): Promise<UserRoleListR
       rejected.push({ path, issues: result.issues })
       continue
     }
-    roles.push({ id: result.manifest.id, label: result.manifest.label, summary: result.manifest.summary })
+    roles.push({ id: result.manifest.id, label: result.manifest.label, description: result.manifest.description })
   }
 
   return { roles, rejected }

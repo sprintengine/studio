@@ -17,8 +17,9 @@ import { readSprintEngineRegistryRoles } from '../../sprintengine-artifacts'
 // Reducing is the point. A manifest carries directives and skill routing; none of
 // that is the phone's business (it stages a roster, it does not compose an agent),
 // and the snapshot rides the relay's result-summary budget, which the size-shedding
-// pass can only reclaim by dropping whole sprint engines. So: id, label, summary,
-// layer. Nothing else.
+// pass can only reclaim by dropping whole sprint engines. So: id, label, the
+// manifest description (truncated onto the wire's `summary` field), layer. Nothing
+// else.
 
 export type RoleCatalogReader = (workspaceRoot: string) => Promise<MobileControlRoleDescriptor[] | undefined>
 
@@ -122,7 +123,12 @@ export function normalizeRoleCatalog(input: unknown): MobileControlRoleDescripto
     seen.add(roleId)
 
     const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : humanizeRoleId(roleId)
-    const summary = typeof raw.summary === 'string' ? truncate(raw.summary.trim()) : ''
+    // MC-1831 renamed the manifest's one-line `summary` to a fuller `description`.
+    // The wire field stays `summary` — protocol.ts is a byte-identical mirror of
+    // the mobile app's copy — so the picker gets the description, truncated to the
+    // same budget. A manifest read by an older engine simply has no description
+    // and the picker renders the label alone.
+    const summary = typeof raw.description === 'string' ? truncate(raw.description.trim()) : ''
     // MC-1886 removed the sweep concept, so no descriptor carries `sweep` any
     // more. The wire field stays declared in protocol.ts (a byte-identical
     // mirror of the mobile app's copy) for one release, so a phone build that

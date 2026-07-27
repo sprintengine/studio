@@ -106,7 +106,7 @@ export function sprintEngineRosterRoleFloor(
 
 // Resolve the wizard summary for a role. The soulless `general` participant has
 // its own copy; bundled roles use the wizard copy; custom registry roles fall
-// back to their registry `summary` if present, then to a generic label so
+// back to their registry `description` if present, then to a generic label so
 // unknown ids still render. Centralizing this here so the new-workspace roster
 // table consumes the same shared module as the live board.
 export function getSprintEngineWizardRoleSummary(
@@ -115,7 +115,7 @@ export function getSprintEngineWizardRoleSummary(
 ): string {
   if (roleId === SPRINT_ENGINE_GENERAL_ROLE_ID) return SPRINT_ENGINE_GENERAL_WIZARD_SUMMARY
   if (isBundledWizardRole(roleId)) return BUNDLED_SPRINT_ENGINE_WIZARD_ROLE_SUMMARIES[roleId]
-  const fromRegistry = registry?.roles?.[roleId]?.summary
+  const fromRegistry = registry?.roles?.[roleId]?.description
   if (typeof fromRegistry === 'string' && fromRegistry.trim()) return fromRegistry.trim()
   return WIZARD_CUSTOM_REGISTRY_ROLE_SUMMARY
 }
@@ -141,7 +141,7 @@ export type SprintEngineAddMemberOptionsInput = {
   roster: Iterable<RosterLike>
   tasks: Iterable<TaskLike>
   // Per-role summary copy. Bundled board summary is used when not provided.
-  // Registry metadata `summary` is the next fallback; final fallback is a
+  // Registry metadata `description` is the next fallback; final fallback is a
   // generic "Custom registry role." label so unknown roles still render.
   roleSummaries?: Partial<Record<SprintEngineRoleId, string>> | null
   fallbackSummary?: string
@@ -274,7 +274,7 @@ function resolveRoleSummary(
   const override = overrides?.[role]?.trim()
   if (override) return override
   if (isBundledBoardRole(role)) return BUNDLED_SPRINT_ENGINE_BOARD_ROLE_SUMMARIES[role]
-  const fromRegistry = registry?.roles?.[role]?.summary
+  const fromRegistry = registry?.roles?.[role]?.description
   if (typeof fromRegistry === 'string' && fromRegistry.trim()) return fromRegistry.trim()
   return fallback
 }

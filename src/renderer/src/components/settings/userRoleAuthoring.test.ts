@@ -8,7 +8,6 @@ import {
   idleAuthoringStatus,
   isAuthoringBusy,
   mapIssuesToFieldErrors,
-  parseAliasesText,
   toUserRoleSaveInput,
   validateRoleAuthoringDraft,
   type RoleAuthoringDraft,
@@ -19,8 +18,8 @@ function validDraft(overrides: Partial<RoleAuthoringDraft> = {}): RoleAuthoringD
   return {
     id: 'auditor',
     label: 'Auditor',
-    summary: '',
-    aliasesText: '',
+    description: 'Audits diffs for regressions. Staff it before a release.',
+    aliases: [],
     body: 'You audit the change.',
     ...overrides,
   }
@@ -44,7 +43,7 @@ function testEditDraftPrefillsAndLocksId(): void {
     {
       id: 'code_auditor',
       label: 'Code auditor',
-      summary: 'Audits diffs.',
+      description: 'Audits diffs. Staff it before a release.',
       aliases: ['auditor', 'reviewer_x'],
       directives: { implement: [{ skill: 'code_auditor' }] },
     },
@@ -52,25 +51,29 @@ function testEditDraftPrefillsAndLocksId(): void {
   )
   assert.equal(draft.id, 'code_auditor')
   assert.equal(draft.label, 'Code auditor')
-  assert.equal(draft.summary, 'Audits diffs.')
-  assert.equal(draft.aliasesText, 'auditor, reviewer_x')
+  assert.equal(draft.description, 'Audits diffs. Staff it before a release.')
+  // Aliases are no longer an authoring field, but editing a role that has them
+  // must not silently drop them on save.
+  assert.deepEqual(draft.aliases, ['auditor', 'reviewer_x'])
   assert.equal(draft.body, 'Instructions here.')
-}
-
-// --- aliases parsing -----------------------------------------------------
-
-function testParseAliases(): void {
-  assert.deepEqual(parseAliasesText('a, b   c,,d'), ['a', 'b', 'c', 'd'])
-  assert.deepEqual(parseAliasesText('   '), [])
 }
 
 // --- save input assembly -------------------------------------------------
 
 function testSaveInputOmitsEmptyOptionals(): void {
   const input = toUserRoleSaveInput(validDraft())
-  assert.deepEqual(input, { id: 'auditor', label: 'Auditor', body: 'You audit the change.' })
-  assert.equal('summary' in input, false)
+  assert.deepEqual(input, {
+    id: 'auditor',
+    label: 'Auditor',
+    description: 'Audits diffs for regressions. Staff it before a release.',
+    body: 'You audit the change.',
+  })
   assert.equal('aliases' in input, false)
+}
+
+function testSaveInputCarriesPreservedAliases(): void {
+  const input = toUserRoleSaveInput(validDraft({ aliases: ['auditor', '  '] }))
+  assert.deepEqual(input.aliases, ['auditor'])
 }
 
 // --- validation ----------------------------------------------------------
@@ -101,13 +104,13 @@ function testEmptyLabelMapsToLabelField(): void {
   if (!result.ok) assert.ok(result.errors.label)
 }
 
-function testBadAliasMapsToAliasesField(): void {
-  const result = validateRoleAuthoringDraft(validDraft({ aliasesText: 'Bad Alias!' }), {
+function testEmptyDescriptionMapsToDescriptionField(): void {
+  const result = validateRoleAuthoringDraft(validDraft({ description: '   ' }), {
     mode: createMode,
     existingIdsAndAliases: noExisting,
   })
   assert.equal(result.ok, false)
-  if (!result.ok) assert.ok(result.errors.aliases)
+  if (!result.ok) assert.ok(result.errors.description)
 }
 
 // --- empty body ----------------------------------------------------------
@@ -157,11 +160,12 @@ function testMapIssuesKeepsFirstPerField(): void {
   const errors = mapIssuesToFieldErrors([
     { path: 'id', message: 'first id' },
     { path: 'id', message: 'second id' },
-    { path: 'aliases[0]', message: 'bad alias' },
+    { path: 'description', message: 'needs a description' },
     { path: 'mystery', message: 'unhomed' },
   ])
   assert.equal(errors.id, 'first id')
-  assert.equal(errors.aliases, 'bad alias')
+  assert.equal(errors.description, 'needs a description')
+  // Aliases are not authored here, so an alias issue has no field home.
   assert.equal(errors.form, 'unhomed')
 }
 
@@ -218,12 +222,12 @@ function testStaleEventsIgnored(): void {
 
 testCreateDraftSeedsStarterBody()
 testEditDraftPrefillsAndLocksId()
-testParseAliases()
 testSaveInputOmitsEmptyOptionals()
+testSaveInputCarriesPreservedAliases()
 testValidDraftPasses()
 testInvalidIdMapsToIdField()
 testEmptyLabelMapsToLabelField()
-testBadAliasMapsToAliasesField()
+testEmptyDescriptionMapsToDescriptionField()
 testEmptyBodyIsBlocking()
 testIdCollisionBlocksInCreateMode()
 testIdCollisionAgainstAliasBlocks()
