@@ -200,7 +200,7 @@ def _in_scope_dirty_across_declared_repos(
 
 
 def enter_phase(task: Dict[str, Any], actor: str) -> None:
-    """Bind the task to whoever will run `phase` (MC-1542: always its owner).
+    """Bind the phase the task just entered to its owner (MC-1542).
 
     The owner is already in-session and mid-tool-call, so it stays bound through
     every phase and the phase directive is returned to it inline.
