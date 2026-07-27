@@ -91,6 +91,14 @@ export type SprintEngineRoleCounts = Record<SprintEngineRoleId, number>
  */
 export type SprintEngineTaskStatus = 'todo' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
 
+/**
+ * Task charter markers. MIRRORS `REVIEW_TASK_KINDS` in
+ * sprintengine_core/tool/integration.py; a task with no marker is ordinary
+ * work and carries no `kind` at all rather than a `'work'` value.
+ */
+export const SPRINTENGINE_TASK_KINDS = ['review', 'integration_review'] as const
+export type SprintEngineTaskKind = (typeof SPRINTENGINE_TASK_KINDS)[number]
+
 /** Board columns: todo -> ready -> in progress -> in review -> done, plus needs_input. */
 export type SprintEngineTaskBoardColumn = 'todo' | 'ready' | 'in_progress' | 'review' | 'needs_input' | 'done' | 'canceled'
 
@@ -708,13 +716,15 @@ export type SprintEngineTask = {
   repo: string
   status: SprintEngineTaskStatus
   /**
-   * Charter marker, not machinery: `integration_review` names the terminal
-   * task that proves the pieces work together (build, run the app, exercise
-   * the seams). It claims, publishes, and completes like any other task —
-   * the marker exists for plan-approval coverage warnings and the board
-   * badge. Absent means ordinary work.
+   * Charter marker, not machinery. `review` names a planned review of other
+   * tasks' work; `integration_review` names the terminal task that proves the
+   * pieces work together (build, run the app, exercise the seams). Both claim,
+   * publish, and complete like any other task — the markers exist for
+   * plan-approval coverage warnings and the board badge, because roles never
+   * self-dispatch and an unplanned review is no review at all. Absent means
+   * ordinary work.
    */
-  kind?: 'integration_review'
+  kind?: SprintEngineTaskKind
   source?: SprintEngineTaskSource
   ownerAgentId: string | null
   /** Worker who last published an implementation pass. Retained after the task

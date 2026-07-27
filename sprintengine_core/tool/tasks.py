@@ -275,6 +275,9 @@ def advance_task(
         }
         if needs_input.get("suggestedResolution"):
             task["needsInput"]["suggestedResolution"] = str(needs_input["suggestedResolution"]).strip()
+        # The reviewer task-filing request rides the escalation it belongs to.
+        if needs_input.get("findingId"):
+            task["needsInput"]["findingId"] = str(needs_input["findingId"]).strip()
         comment = create_task_comment(
             state,
             task,
@@ -343,6 +346,32 @@ def recompute_phase(state: Dict[str, Any]) -> bool:
         return set_if_changed(sprintengine, "status", "executing")
     return set_if_changed(sprintengine, "status", "planned" if tasks else "planning")
 
+def coerce_evidence_values(value: Any) -> List[str]:
+    """Wrap a bare string; never spread it into characters.
+
+    `["ok"].extend("suite green")` appends eleven single-character entries.
+    That is how T15's evidence `results` array ended up as
+    `"o","k"," ","-",...` — the audit trail of the audit task itself, shredded
+    because a caller passed a string where a list was expected and `extend`
+    obliged. Every evidence writer coerces through here, so the corruption
+    cannot be reintroduced by a new caller or a client that ignores the schema.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        out: List[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                out.append(text)
+        return out
+    text = str(value).strip()
+    return [text] if text else []
+
+
 def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
     ev = task.setdefault("evidence", {})
     ev.setdefault("summary", "")
@@ -350,6 +379,12 @@ def ensure_evidence(task: Dict[str, Any]) -> Dict[str, Any]:
     ev.setdefault("commandsRan", [])
     ev.setdefault("results", [])
     ev.setdefault("scopeExpansions", [])
+    # Read-side repair for stores written before the writers coerced: a
+    # `results`/`commandsRan` that is a bare string reads back as one entry
+    # rather than as its characters.
+    for key in ("touchedFiles", "commandsRan", "results"):
+        if isinstance(ev.get(key), str):
+            ev[key] = coerce_evidence_values(ev[key])
     return ev
 
 def task_diff_capture_cwd(state: Dict[str, Any], state_path: Path, task: Dict[str, Any]) -> Path:
@@ -500,7 +535,10 @@ def normalize_task_needs_input(raw: Any, task_id: str) -> Optional[Dict[str, Any
     elif kind in NEEDS_INPUT_KIND_DEFAULT_REASONS:
         needs_input["reason"] = NEEDS_INPUT_KIND_DEFAULT_REASONS[kind]
 
-    for key in ("question", "suggestedResolution", "reportedBy", "reportedAt", "artifactId"):
+    # `findingId` carries the reviewer task-filing channel's request: the
+    # structured finding this escalation is about, so the architect triaging it
+    # can file the follow-up task against a record rather than against prose.
+    for key in ("question", "suggestedResolution", "reportedBy", "reportedAt", "artifactId", "findingId"):
         value = optional_non_empty_string(raw, key)
         if value is not None:
             needs_input[key] = value
@@ -692,6 +730,13 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     needs_input = normalize_task_needs_input(raw.get("needsInput"), task_id)
     if needs_input is not None:
         task["needsInput"] = needs_input
+    from_finding = raw.get("fromFinding")
+    if isinstance(from_finding, dict):
+        normalized_origin = normalize_from_finding(
+            from_finding.get("taskId"), from_finding.get("findingId"), task_id
+        )
+        if normalized_origin:
+            task["fromFinding"] = normalized_origin
     difficulty = normalize_task_difficulty(raw.get("difficulty"), task_id)
     if difficulty is not None:
         task["difficulty"] = difficulty
@@ -779,6 +824,34 @@ def next_task_id(tasks: List[Dict[str, Any]]) -> str:
         index += 1
     return f"T{index}"
 
+def normalize_from_finding(
+    origin_task_id: Any, finding_id: Any, task_id: str
+) -> Optional[Dict[str, str]]:
+    """The reviewer task-filing channel's other end (MC-1818 / MC-1823).
+
+    A reviewer whose finding is too large to fix forward inside its review task
+    escalates `needs_input(architect)` naming the finding. The architect triages
+    it into a NEW task — done stays terminal, so the finding never reopens the
+    card it was found on — and this records which finding that new task exists
+    to answer. Without the back-pointer the chain breaks exactly where T10's
+    chip-ordering finding broke: the finding survived as prose in a comment and
+    had to be hand-rescued three days later (item 1816).
+
+    Both halves are required together: a finding id with no owning task cannot
+    be resolved to a record, and an owning task with no finding id names
+    nothing in particular.
+    """
+    origin = str(origin_task_id or "").strip()
+    finding = str(finding_id or "").strip()
+    if not origin and not finding:
+        return None
+    if not origin or not finding:
+        raise SystemExit(
+            f"Task {task_id}: --from-finding-task-id and --from-finding-id must be given together."
+        )
+    return {"taskId": origin, "findingId": finding}
+
+
 def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dict[str, Any]:
     task_id = getattr(args, "task_id", None) or next_task_id(state.get("tasks", []))
     # Role legality is enforced against configuredRoles by ensure_role_in_roster in
@@ -818,6 +891,13 @@ def build_task_from_args(args: argparse.Namespace, state: Dict[str, Any]) -> Dic
         raw["kind"] = getattr(args, "kind")
     if getattr(args, "needs_triage", False):
         raw["needsTriage"] = True
+    from_finding = normalize_from_finding(
+        getattr(args, "from_finding_task_id", None),
+        getattr(args, "from_finding_id", None),
+        task_id,
+    )
+    if from_finding:
+        raw["fromFinding"] = from_finding
     phases = parse_phases_arg(getattr(args, "phases", None))
     if phases is not None:
         assert_phases_within_run_ceiling(state, phases, task_id)

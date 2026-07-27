@@ -771,9 +771,14 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "type": "string",
           "enum": [
             "work",
+            "review",
             "integration_review"
           ],
-          "description": "Charter marker: integration_review = the terminal task proving the pieces work together; runs like any other task."
+          "description": "Charter marker: review = a planned review of other tasks' work; integration_review = the terminal task proving the pieces work together. Both run like any other task."
+        },
+        "fromFinding": {
+          "type": "object",
+          "description": "The structured finding this task was filed to answer: {taskId, findingId}. Set it when triaging a reviewer escalation into a new task, so the finding chain survives the run."
         },
         "needsTriage": {
           "type": "boolean"
@@ -1382,6 +1387,10 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
             "tooling",
             "verification"
           ]
+        },
+        "needsInputFindingId": {
+          "type": "string",
+          "description": "Structured finding id this escalation is about (the reviewer task-filing channel)."
         },
         "needsInputQuestion": {
           "type": "string",
@@ -2026,6 +2035,10 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "needsInputArtifactId": {
           "type": "string"
+        },
+        "needsInputFindingId": {
+          "type": "string",
+          "description": "Structured finding id this escalation is about. The reviewer task-filing channel: a finding too large to fix forward inside its review task escalates naming the finding; the architect then files a task carrying fromFinding."
         },
         "needsInputQuestion": {
           "type": "string"

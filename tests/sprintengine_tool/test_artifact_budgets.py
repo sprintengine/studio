@@ -126,7 +126,15 @@ PROMPT_BYTE_CEILINGS = {
     # section, MC-1828 deleted the plan-review-file instruction. That last
     # deletion lands inside the same 250-byte step, so this one ceiling sits on
     # the next 50-byte step instead — down-only holds either way.
-    "architect.md": 13_800,
+    # Re-ratcheted DOWN again 2026-07-27 (epic MC-1817): MC-1818/1819/1820 each
+    # ADD planning prose (no-self-dispatch + review-task expectation, the plan
+    # `## Seams` section, the verifiable-artifact rule for integration reviews).
+    # Additions do not buy headroom — the room was made by consolidating
+    # duplicated prose (the review-only bullets folded into the roster section,
+    # the sources/reference-mode and verify-in-place instructions deduplicated,
+    # the autonomous-override bullets and approval rules compressed). Net the
+    # file SHRANK, so the ceiling steps down with it.
+    "architect.md": 13_750,
     "cross_platform.md": 1_500,
     "developer.md": 750,
     "frontend.md": 1_750,

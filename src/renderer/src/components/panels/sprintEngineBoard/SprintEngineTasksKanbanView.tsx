@@ -121,11 +121,21 @@ export function SprintEngineTasksKanbanView({
                       // only — surfaced in the inspector, never as card chrome
                       // (a per-card model chip crowded every column).
                       <span className="flex items-center gap-1.5">
-                        {task.kind === 'integration_review' ? (
-                          <Tooltip content="Integration review — proves the pieces work together">
+                        {task.kind ? (
+                          <Tooltip
+                            content={
+                              task.kind === 'integration_review'
+                                ? 'Integration review — proves the pieces work together'
+                                : "Review — audits other tasks' work"
+                            }
+                          >
                             <span
                               className="text-[color:var(--text-muted)]"
-                              aria-label="Integration review task"
+                              aria-label={
+                                task.kind === 'integration_review'
+                                  ? 'Integration review task'
+                                  : 'Review task'
+                              }
                               role="img"
                             >
                               <SprintEngineIntegrationIcon className="icon-sm" />

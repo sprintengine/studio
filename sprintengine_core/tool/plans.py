@@ -607,6 +607,71 @@ def parse_source_bundle_arg(value: str) -> Dict[str, str]:
         raise SystemExit(f"--source kind must be one of: {', '.join(sorted(VALID_SOURCE_BUNDLE_KINDS))}.")
     return {"kind": kind, "path": raw_path}
 
+def collect_run_findings(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every structured finding recorded on the run, flattened and attributed.
+
+    The `findings` array was empty in all 33 task records across the three runs
+    merged 2026-07-23 — even where the task's own summary prose reported
+    findings — so nothing downstream could ask "what did this sprint find?".
+    The channel already existed; what it lacked was anywhere the answer showed
+    up. Every finding lands here with its owning task, whether it was filed by
+    the task's owner (`feedback.findings`) or by a reviewer assessing that task
+    (`feedbackAssessments[].findings`), and whether or not it was later routed
+    into a follow-up task.
+    """
+    findings: List[Dict[str, Any]] = []
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        task_id = str(task.get("id") or "")
+        sources: List[tuple[Dict[str, Any], str]] = []
+        feedback = task.get("feedback")
+        if isinstance(feedback, dict):
+            sources.append((feedback, "self_report"))
+        for assessment in task.get("feedbackAssessments") or []:
+            if isinstance(assessment, dict):
+                sources.append((assessment, "reviewer_assessment"))
+        for record, origin in sources:
+            for finding in record.get("findings") or []:
+                if not isinstance(finding, dict):
+                    continue
+                findings.append({
+                    "taskId": task_id,
+                    "taskTitle": task.get("title") or "",
+                    "origin": origin,
+                    "reportedBy": record.get("agentId") or "",
+                    "capturedAt": record.get("capturedAt") or "",
+                    "id": finding.get("id") or "",
+                    "kind": finding.get("kind") or "",
+                    "severity": finding.get("severity") or "",
+                    "area": finding.get("area") or "",
+                    "status": finding.get("status") or "",
+                    "title": finding.get("title") or "",
+                    # The task the architect filed FOR this finding, if any —
+                    # the other half of the reviewer task-filing channel.
+                    "filedTaskIds": _tasks_filed_from(state, task_id, str(finding.get("id") or "")),
+                })
+    return findings
+
+
+def _tasks_filed_from(state: Dict[str, Any], task_id: str, finding_id: str) -> List[str]:
+    if not finding_id:
+        return []
+    filed = []
+    for task in state.get("tasks", []) or []:
+        if not isinstance(task, dict):
+            continue
+        origin = task.get("fromFinding")
+        if not isinstance(origin, dict):
+            continue
+        if str(origin.get("findingId") or "") != finding_id:
+            continue
+        if task_id and str(origin.get("taskId") or "") not in {"", task_id}:
+            continue
+        filed.append(str(task.get("id") or ""))
+    return filed
+
+
 def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
     tasks = state.get("tasks", [])
     completed = [t for t in tasks if t.get("status") == "done"]
@@ -643,9 +708,17 @@ def build_run_summary(state: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(q, str) and q.strip():
                 open_questions.append(f"{t.get('id')}: {q.strip()}")
 
+    findings = collect_run_findings(state)
+    findings_by_severity: Dict[str, int] = {}
+    for finding in findings:
+        severity = finding.get("severity") or "unspecified"
+        findings_by_severity[severity] = findings_by_severity.get(severity, 0) + 1
+
     sprintengine = state.get("sprintengine", {})
     return {
         "goal": sprintengine.get("goal", ""),
+        "findings": findings,
+        "findingsBySeverity": dict(sorted(findings_by_severity.items())),
         "status": sprintengine.get("status", "planning"),
         "tasks": {"total": len(tasks), "completed": len(completed), "remaining": max(0, len(tasks) - len(completed))},
         "touchedFiles": unique_strings(touched_files),

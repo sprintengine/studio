@@ -178,14 +178,37 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
             raise SystemExit("Draft artifacts must be marked ready before approval.")
 
         # Advisory only: the human approving an architect plan sees whether the
-        # plan carries a terminal integration_review task covering the
-        # implementation work. Never blocks — a docs-only or spike plan may
-        # legitimately skip it; the point is the absence is a visible decision.
+        # plan engages with the review expectation — review tasks planned at
+        # all (MC-1818), a terminal integration_review covering the
+        # implementation work, a `## Seams` section on a multi-task plan
+        # (MC-1819) — plus each review task's acceptance criteria verbatim so
+        # "this permits paper verification" is a call someone makes (MC-1820).
+        #
+        # None of it blocks, and none of it is a new approval requirement
+        # (owner ruling 2026-07-23: autonomous means autonomous). Enforcement
+        # depth is the run's EXISTING approval mode: in manual /
+        # approved-artifacts modes the human reads these and judges the plan
+        # like any artifact; under full auto-approval the planning directive is
+        # the guidance and approval stands. A docs-only or spike plan may
+        # legitimately carry none of it — the point is the absence is a visible
+        # decision rather than an accident.
+        integration_warnings: list[str] = []
+        review_notices: list[dict] = []
         if artifact.get("kind") == "architect_plan":
-            from sprintengine_core.tool.integration import integration_review_warnings
-            integration_warnings = integration_review_warnings(state)
-        else:
-            integration_warnings = []
+            from sprintengine_core.tool.integration import (
+                integration_review_warnings,
+                review_acceptance_notices,
+                review_planning_warnings,
+            )
+            from sprintengine_core.tool.seams import plan_seam_section_warnings
+            integration_warnings = [
+                *review_planning_warnings(state),
+                *integration_review_warnings(state),
+                *plan_seam_section_warnings(
+                    state, artifact_absolute_path(args.state, str(artifact.get("path") or ""))
+                ),
+            ]
+            review_notices = review_acceptance_notices(state)
 
         task = find_task(state, str(artifact.get("taskId")))
         artifact["status"] = "approved"
@@ -222,6 +245,7 @@ def cmd_artifact_approve(args: argparse.Namespace) -> Dict[str, Any]:
             "event": event,
             "notification": notification,
             **({"integrationWarnings": integration_warnings} if integration_warnings else {}),
+            **({"reviewAcceptance": review_notices} if review_notices else {}),
         }
 
     return with_locked_state(args.state, run)
