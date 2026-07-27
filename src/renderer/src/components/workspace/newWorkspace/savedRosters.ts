@@ -133,9 +133,20 @@ export function resolveInitialSprintEngineRoster(input: {
   /** Explicit roster id or name (a horizon's `roster:`, an automation config). */
   explicitRosterRef?: string | null
 }): ResolvedInitialSprintEngineRoster {
-  // The built-in short-circuits everything: naming it means "no roster", so no
-  // saved roster and no last-used selection may override it.
-  if (isNoRolesRosterRef(input.explicitRosterRef) || isNoRolesRosterRef(input.lastSelectedRosterId)) {
+  // PRECEDENCE (order matters, and getting it wrong is the bug this epic
+  // exists to kill): an EXPLICIT reference always wins. Only when none is given
+  // does the last-used selection get a say.
+  //
+  // Writing this as `isNoRolesRosterRef(explicit) || isNoRolesRosterRef(lastSelected)`
+  // is wrong and was caught by the roster-editor seam suite: a user whose last
+  // wizard pick was No roles would have that override an explicitly requested
+  // roster — unrelated UI state deciding staffing, which is exactly what
+  // MC-1876's default flip set out to stop.
+  const hasExplicitRef = Boolean(input.explicitRosterRef?.trim())
+  const wantsNoRoles = hasExplicitRef
+    ? isNoRolesRosterRef(input.explicitRosterRef)
+    : isNoRolesRosterRef(input.lastSelectedRosterId)
+  if (wantsNoRoles) {
     return {
       selectedRosterId: NO_ROLES_ROSTER_ID,
       mode: 'pool',
