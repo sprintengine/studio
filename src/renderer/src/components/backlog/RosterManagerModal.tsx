@@ -116,7 +116,7 @@ export function RosterManagerModal({
                 className="w-full rounded border border-[color:var(--border-default)] bg-transparent px-2 py-1 text-[12px] text-[color:var(--text-default)] outline-none placeholder:text-[color:var(--text-disabled)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
               />
               {nameCollides ? (
-                <p className="mt-1 px-0.5 text-[11px] text-[color:var(--status-danger)]">
+                <p className="mt-1 px-0.5 text-[11px] text-[color:var(--tone-error)]">
                   {trimmedNewName.toLowerCase() === NO_ROLES_ROSTER_NAME.toLowerCase()
                     ? `“${NO_ROLES_ROSTER_NAME}” is the built-in default and cannot be reused.`
                     : `A roster named “${trimmedNewName}” already exists.`}

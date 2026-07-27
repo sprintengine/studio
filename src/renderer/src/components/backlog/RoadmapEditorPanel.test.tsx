@@ -309,17 +309,19 @@ run('every step row carries a roster control in the tab order (no hover required
   assert.ok(rowTriggers.some((label) => label.includes('Auth')))
 })
 
-run('inherited reads QUIETLY, an override reads full-strength — from the override, not the name', () => {
+run('inherited reads QUIETLY, an override stays visible — from the override, not the name', () => {
   const markup = renderPerStep()
   // Both rows resolve to the SAME roster name ("No roles"), so anything that
   // distinguishes them must come from whether the step overrides.
   const rowTriggers = markup.match(ROW_ROSTER_LABELS) ?? []
   assert.ok(rowTriggers.every((label) => label.includes('No roles')))
-  // The inherited row: muted text, no field behind it.
-  assert.match(markup, /border-transparent text-\[color:var\(--text-subtle\)\]/)
-  // The override: full-strength text on the soft accent field, so overrides are
-  // scannable straight down the track WITHOUT hovering.
-  assert.match(markup, /bg-\[color:var\(--accent-soft\)\]/)
+  // The inherited row is quiet until hover or focus (the MC-1924 density pass),
+  // but stays in the tab order — opacity, never `display`.
+  assert.match(markup, /text-\[color:var\(--text-subtle\)\] opacity-0/)
+  // The override is always visible, so overrides are scannable straight down the
+  // track WITHOUT hovering, and it carries no `opacity-0`.
+  const override = (markup.match(/class="[^"]*text-\[color:var\(--text-muted\)\][^"]*"/g) ?? []).join(' ')
+  assert.ok(override.length > 0, 'the overriding row renders at full strength')
 })
 
 run('an inherited row NAMES the horizon roster it falls back to', () => {
@@ -371,7 +373,9 @@ merge: manual
   const markup = render(deleted, [deleted, ...items.slice(1)])
   assert.match(markup, /Ghost roster/, 'the named roster keeps its name')
   assert.match(markup, /\(not found\)/, 'and the row says so')
-  assert.match(markup, /text-\[color:var\(--status-danger\)\]/)
+  // A DEFINED token: `--status-danger` was never declared in the stylesheet, so
+  // the marker that must never read as the default rendered with no colour at all.
+  assert.match(markup, /text-\[color:var\(--tone-warn\)\]/)
 })
 
 if (failures > 0) {

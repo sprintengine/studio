@@ -1,29 +1,31 @@
-// The Roadmap tenant of the door-routed full-page surface (global-surfaces epic
-// 1704, mockup §2). Registered by the roadmap module and mounted by
-// WorkspaceManager over the workspace card region when the Roadmap door opens —
-// no scrim, no 1080×760 card, no Escape trap: this is a page, not a dialog.
+// The Horizon tenant of the door-routed full-page surface (global-surfaces epic
+// 1704; rebuilt by epic 1920 against mockup
+// `backlog/mockups/2026-07-27-horizon-plan-detail-v2.html`). Mounted by
+// WorkspaceManager over the workspace card region when the Horizon door opens —
+// no scrim, no card, no Escape trap: this is a page, not a dialog.
 //
-// Anatomy: a roadmaps RAIL (every roadmap file in this Multicode, exactly one
-// Active, the rest drafts, plus "New roadmap"), a surface BAR (name · Active/Draft
-// · "N tracks · M steps · K running" · merge policy · Edit plan · Pause) and a
-// full-width CANVAS of the selected roadmap's tracks. There is no separate
-// "waiting on you" strip (MC-1917): an approval, a merge or a park is shown on the
-// track it belongs to, beside the control that resolves it — an attention list
-// away from the work restates what the board already says and dates instantly.
-// The one-active-roadmap rule (epic 1687 D1) gets its visible home here — extra
-// roadmap files surface as drafts, and activating one is an explicit action,
-// never a silent newest-id pick.
+// Anatomy: a horizons RAIL (every horizon file in this Multicode, exactly one
+// Active, the rest drafts), a surface BAR (name · Active/Draft · the ONE
+// progress readout · Saved · Pause), a 360px PLAN COLUMN of one-line selectable
+// steps, and a DETAIL pane for the selected step. A Horizon step IS a backlog
+// item, so the plan column reads as a worklist and the detail is the Backlog
+// door's own detail — Horizon adds exactly one thing Backlog cannot know: which
+// sprint is delivering this step.
 //
-// The board/planner/orchestrator/substrate underneath carry over unchanged: every
-// steering control is a file/store write the orchestrator reconciles against, and
-// the roadmap file (its home in the D1 home project) is the source of truth. The
-// board leaves by activating a workspace, which clears the active surface.
+// There is no separate "waiting on you" strip (MC-1922) and no edit mode
+// (MC-1926): an approval, a merge or a park shows on the track it belongs to
+// beside the control that resolves it, and every plan edit is a write to the
+// horizon file, autosaved.
+//
+// The board/orchestrator/substrate underneath carry over unchanged: every
+// steering control is a file/store write the orchestrator reconciles against,
+// and the horizon file (in its D1 home project) is the source of truth.
 
 import { useCallback, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
-import type { RoadmapBoardUnit } from '../../../../../shared/sprintengine/roadmap-surface'
-import { buildRoadmapRail, roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
+import { roadmapProgress } from '../../../../../shared/sprintengine/roadmap-surface'
+import { buildRoadmapRail } from '../../../../../shared/sprintengine/roadmap-surface'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { GhostButton, InlineNotice, PrimaryButton, Spinner, useConfirmDialog } from '../../ui'
 import { normalizeRelativePath } from '../../../utils/backlog'
@@ -38,9 +40,25 @@ import {
   type LoadedRoadmap,
   type RoadmapFileSummary,
 } from '../../panels/roadmapBoard/roadmapBoardData'
-import { RoadmapLaneColumn, type RoadmapLaneCallbacks } from '../../panels/roadmapBoard/RoadmapLaneColumn'
 import { RoadmapPlannerView } from '../../panels/roadmapBoard/RoadmapPlannerView'
 import { RoadmapRail, type RoadmapRailRow } from '../../panels/roadmapBoard/RoadmapRail'
+import { HorizonPlanColumn } from '../../panels/roadmapBoard/HorizonPlanColumn'
+import { buildHorizonPlan, type HorizonStepRow } from '../../panels/roadmapBoard/horizonPlanModel'
+import { useHorizonLibrary } from '../../panels/roadmapBoard/useHorizonLibrary'
+import { useRoadmapPlanDraft } from '../../backlog/useRoadmapPlanDraft'
+import {
+  addLibraryEntry,
+  epicEntryDrift,
+  refDisplayMapMulti,
+  removeLane,
+  renameLane,
+  resyncEpicEntry,
+  splitAuthoredRef,
+} from '../../backlog/roadmapAuthoring'
+import { RosterManagerModal } from '../../backlog/RosterManagerModal'
+import { NO_ROLES_ROSTER_NAME } from '../newWorkspace/savedRosters'
+import type { ProjectKey } from '../../../../../shared/backlog/roadmap'
+import type { BacklogItem } from '../../../utils/backlog'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from './GlobalSurfaceShell'
 
 export default function RoadmapGlobalSurface(): JSX.Element {
@@ -68,13 +86,15 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const [actionError, setActionError] = useState<string | null>(null)
   const back = useSurfaceBackNav()
   // The roadmap file being planned in the in-surface cross-project planner, or
-  // null when the steering board is showing. Planning happens here — no detour to
-  // a single project's Backlog panel.
+  // null when the plan column is showing. (Retired by MC-1926.)
   const [planningRef, setPlanningRef] = useState<string | null>(null)
-  // Which rail roadmap the canvas shows. Null falls back to the active roadmap.
+  // Which rail horizon the surface shows. Null falls back to the active horizon.
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
   // The rail's search query — transient per-window view state.
   const [railSearch, setRailSearch] = useState('')
+  // The selected STEP, by authored ref — the one selection driving the detail.
+  const [selectedStepRef, setSelectedStepRef] = useState<string | null>(null)
+  const [rosterManagerOpen, setRosterManagerOpen] = useState(false)
 
   const runLaneCommand = useCallback(
     async (lane: string, action: () => Promise<{ ok: boolean; message?: string }>) => {
@@ -90,10 +110,10 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     [reload],
   )
 
-  // Roadmap-level pause/resume (mockup §2 surface bar): loops the SAME per-lane
-  // command over every track once, so it is a convenience over the existing
-  // controls — never a new orchestrator primitive. Stops on the first failure and
-  // surfaces it, then reloads once.
+  // Horizon-level pause/resume (surface bar): loops the SAME per-lane command
+  // over every track once, so it is a convenience over the existing controls —
+  // never a new orchestrator primitive. Stops on the first failure and surfaces
+  // it, then reloads once.
   const runBoardCommand = useCallback(
     async (lanes: ReadonlyArray<string>, action: (lane: string) => Promise<{ ok: boolean; message?: string }>) => {
       setBusyBoard(true)
@@ -196,46 +216,13 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     [commandInput, dialog, runLaneCommand],
   )
 
-  // Skip removes the step from the active roadmap's file (the source of truth) in one
-  // main-process op; the orchestrator advances past the removed step on its next
-  // reconcile. Skip is only ever offered on the active roadmap's tracks, so the op
-  // derives the target roadmap itself — the component carries only intent + error.
-  const handleSkip = useCallback(
-    async (lane: string, unit: RoadmapBoardUnit) => {
-      const reason = await dialog.prompt({
-        title: `Skip “${unit.title}”?`,
-        body: 'This removes the step from this track so the horizon moves past it. Tell us why — it is recorded in the horizon file.',
-        confirmLabel: 'Skip step',
-        inputLabel: 'Reason for skipping',
-        placeholder: 'e.g. superseded by another item',
-        required: true,
-        validate: (value) => (value.trim().length === 0 ? 'A reason is required.' : null),
-      })
-      if (reason === null) return
-      setBusyLane(lane)
-      try {
-        const result = await window.api.skipRoadmapStep({ ref: unit.ref, reason: reason.trim() })
-        if (!result.ok) {
-          setActionError(
-            result.message ??
-              'This step was not found in the horizon file, so nothing changed. Refresh and try again, or open “Edit plan” to change it directly.',
-          )
-        }
-      } finally {
-        setBusyLane(null)
-        reload()
-      }
-    },
-    [dialog, reload],
-  )
-
   // Reveal a backlog file in its project's Backlog panel. Cross-project safe: the
   // item may live in any project, so it routes to that project's workspace (which
   // clears this surface) and otherwise leaves the surface in place. Several
   // workspaces can share the project root — every sprint run mounts one — so
-  // prefer a PLAIN workspace: clicking a step must open the item's detail, never
+  // prefer a PLAIN workspace: opening a step must show the item's detail, never
   // dump the user into whichever sprint happens to share the folder.
-  const openPlanning = useCallback(
+  const openInProject = useCallback(
     (projectRoot: string, relativePath: string) => {
       const candidates = useWorkspaceStore
         .getState()
@@ -251,21 +238,9 @@ export default function RoadmapGlobalSurface(): JSX.Element {
 
   const handleEditPlan = useCallback((roadmapRef: string) => setPlanningRef(roadmapRef), [])
 
-  // Focus the running sprint's own workspace, when it is open. Autonomous runs may
-  // not be mounted as a workspace; the affordance is then inert, never a broken link.
-  const handleOpenRun = useCallback(
-    (statePath: string) => {
-      const workspace = useWorkspaceStore
-        .getState()
-        .workspaces.find((candidate) => candidate.sprintEngineContext?.statePath === statePath)
-      if (workspace) setActiveWorkspace(workspace.id)
-    },
-    [setActiveWorkspace],
-  )
-
-  // Create a new roadmap: pick the home project (D1), write the file (a DRAFT —
-  // status idea, so nothing runs until it is made active), set the home project if
-  // unset, select it, and drop into planning.
+  // Create a new horizon: pick the home project (D1), write the file (a DRAFT —
+  // status idea, so nothing runs until it is made active), set the home project
+  // if unset, and select it.
   const handleCreateRoadmap = useCallback(async () => {
     const store = useWorkspaceStore.getState()
     const active = store.workspaces.find((w) => w.id === store.activeWorkspaceId)
@@ -280,7 +255,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         title: 'New horizon',
         body: homePath
           ? 'Name your horizon. It can line up work from every project in this Multicode.'
-          : `Your roadmap will live in ${projectName} and can line up work from every project in this Multicode.`,
+          : `Your horizon will live in ${projectName} and can line up work from every project in this Multicode.`,
         inputLabel: 'Horizon name',
         placeholder: 'e.g. Next quarter',
         confirmLabel: 'Create',
@@ -291,8 +266,8 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     if (!name) return
     setCreating(true)
     try {
-      // One main-process op writes the draft file and, when this Multicode has no home
-      // project yet, adopts this one — no sequential renderer file IO to strand.
+      // One main-process op writes the draft file and, when this Multicode has no
+      // home project yet, adopts this one — no sequential renderer file IO to strand.
       const result = await window.api.createRoadmap({ projectRoot, name })
       if (!result.ok) {
         setActionError(result.message)
@@ -300,17 +275,17 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       }
       reload()
       setSelectedRef(result.roadmapRef)
-      setPlanningRef(result.roadmapRef)
+      setSelectedStepRef(null)
     } finally {
       setCreating(false)
     }
   }, [dialog, homePath, reload])
 
-  // Delete a horizon file (MC-1917). The confirm names exactly what goes and what
-  // stays — the plan only; the backlog items it lines up and the sprints it already
-  // delivered are untouched. The orchestrator refuses while a sprint is running on
-  // it and says which track, so that refusal surfaces as the normal action error
-  // rather than a silent no-op.
+  // Delete a horizon file (MC-1922). The confirm names exactly what goes and what
+  // stays — the plan only; the backlog items it lines up and the sprints it
+  // already delivered are untouched. The orchestrator refuses while a sprint is
+  // running on it and says which track, so that refusal surfaces as the normal
+  // action error rather than a silent no-op.
   const handleDeleteRoadmap = useCallback(
     async (roadmapRef: string) => {
       const file = roadmapFiles.find((candidate) => candidate.roadmapRef === roadmapRef)
@@ -355,25 +330,24 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   )
 
   // Reveal a horizon file in the Backlog panel of the home project it lives in.
-  // `openPlanning` routes into a workspace open on that project and does nothing
-  // without one, so the affordance is only offered when it can actually land —
-  // a menu item is never shown as a control that quietly does nothing.
+  // `openInProject` routes into a workspace open on that project and does nothing
+  // without one, so the affordance is only offered when it can actually land — a
+  // menu item is never shown as a control that quietly does nothing.
   const canRevealHomeFile = useWorkspaceStore(
     (state) => homePath !== null && state.workspaces.some((candidate) => samePath(candidate.folderPath, homePath)),
   )
   const handleRevealRoadmapFile = useCallback(
     (roadmapRef: string) => {
       if (!homePath) return
-      openPlanning(homePath, normalizeRelativePath(roadmapRef))
+      openInProject(homePath, normalizeRelativePath(roadmapRef))
     },
-    [homePath, openPlanning],
+    [homePath, openInProject],
   )
 
-  // Make a draft the single active roadmap (epic 1687 D1): one main-process op
-  // promotes it to `ready` and demotes every OTHER active-status roadmap to `idea`,
-  // atomically and in an order that can never strand zero active roadmaps. The
-  // component keeps only the confirm-intent and error display. An explicit,
-  // confirmed action — never a silent switch.
+  // Make a draft the single active horizon (epic 1687 D1): one main-process op
+  // promotes it to `ready` and demotes every OTHER active-status horizon to
+  // `idea`, atomically and in an order that can never strand zero active
+  // horizons. An explicit, confirmed action — never a silent switch.
   const handleMakeActive = useCallback(
     async (file: RoadmapFileSummary) => {
       const demoting = roadmapFiles.filter(
@@ -412,8 +386,8 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const normActiveRef = activeRef ? normalizeRelativePath(activeRef) : null
   const railEntries = useMemo(() => buildRoadmapRail(roadmapFiles, normActiveRef), [roadmapFiles, normActiveRef])
   const hasRoadmaps = roadmapFiles.length > 0
-  // The effective selection: the user's pick when it still exists, else the active
-  // roadmap, else the first rail row.
+  // The effective selection: the user's pick when it still exists, else the
+  // active horizon, else the first rail row.
   const effectiveSelectedRef =
     (selectedRef && railEntries.some((entry) => entry.roadmapRef === selectedRef) ? selectedRef : null) ??
     normActiveRef ??
@@ -423,6 +397,190 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   const isActiveSelected = effectiveSelectedRef !== null && effectiveSelectedRef === normActiveRef
   const activeRoadmap =
     roadmaps.find((roadmap) => normalizeRelativePath(roadmap.roadmapRef) === normActiveRef) ?? null
+
+  // --- The plan: one draft, autosaved -------------------------------------
+
+  const planItem: BacklogItem | null = selectedFile?.item ?? null
+  const plan = useRoadmapPlanDraft({
+    path: planItem?.path ?? '',
+    relativePath: planItem?.relativePath ?? '',
+    sourceContent: planItem?.sourceContent ?? '',
+    onSaved: reload,
+  })
+  const library = useHorizonLibrary(homePath, planItem?.sourceContent ?? null)
+  const savedRosters = useWorkspaceStore(
+    useShallow((s) => s.appSettings.sprintEngineRoleSettings?.savedRosters ?? []),
+  )
+
+  const projectByKey = useCallback(
+    (projectKey: ProjectKey) => library.projects.find((project) => project.projectKey === projectKey),
+    [library.projects],
+  )
+  const itemsByProjectKey = useMemo(() => {
+    const map = new Map<ProjectKey, ReadonlyArray<BacklogItem>>()
+    for (const project of library.projects) map.set(project.projectKey, project.items)
+    return map
+  }, [library.projects])
+  const refDisplay = useMemo(() => refDisplayMapMulti(library.projects), [library.projects])
+  const projectNameByKey = useMemo(() => {
+    const map = new Map<ProjectKey, string>()
+    for (const project of library.projects) map.set(project.projectKey, project.projectName)
+    return map
+  }, [library.projects])
+
+  // The epic drift affordance ("this epic gained N items → Update step"), keyed
+  // by authored ref so the pure plan model never needs the scan itself. Each
+  // epic reconciles against ITS OWN project's membership, not the home project's.
+  const driftByRef = useMemo(() => {
+    const map = new Map<string, { gained: number; removed: number }>()
+    for (const lane of plan.draft.lanes) {
+      for (const entry of lane.entries) {
+        if (entry.kind !== 'epic') continue
+        const drift = epicEntryDrift(itemsByProjectKey.get(entry.projectKey) ?? [], entry)
+        if (drift) map.set(entry.ref, { gained: drift.gained.length, removed: drift.removed.length })
+      }
+    }
+    return map
+  }, [plan.draft.lanes, itemsByProjectKey])
+
+  // The tag is earned only by a horizon that actually spans projects — repeating
+  // one project's name on every row of a single-project plan is the noise the
+  // density pass removed.
+  const spansProjects = useMemo(
+    () => plan.draft.lanes.some((lane) => lane.entries.some((entry) => entry.projectKey !== null)),
+    [plan.draft.lanes],
+  )
+
+  const horizonPlan = useMemo(
+    () =>
+      buildHorizonPlan({
+        lanes: plan.draft.lanes,
+        // The runtime overlay exists only for the ACTIVE horizon; a draft reads
+        // from backlog status alone, which is the honest draft frontier.
+        boardLanes: isActiveSelected && activeRoadmap ? activeRoadmap.lanes : (selectedFile?.lanes ?? []),
+        refDisplay,
+        projectNameByKey,
+        policyRoster: plan.draft.policy.roster,
+        knownRosterNames: new Set([
+          NO_ROLES_ROSTER_NAME.toLowerCase(),
+          ...savedRosters.map((roster) => roster.name.trim().toLowerCase()),
+        ]),
+        defaultRosterLabel: NO_ROLES_ROSTER_NAME,
+        driftByRef,
+      }),
+    [
+      plan.draft.lanes,
+      plan.draft.policy.roster,
+      isActiveSelected,
+      activeRoadmap,
+      selectedFile,
+      refDisplay,
+      projectNameByKey,
+      savedRosters,
+      driftByRef,
+    ],
+  )
+
+  const addRef = useCallback(
+    (laneIndex: number, value: string, index?: number) => {
+      const { projectKey, relativePath } = splitAuthoredRef(value)
+      const project = projectByKey(projectKey)
+      if (!project) return
+      plan.update((draft) => addLibraryEntry(draft, laneIndex, project, relativePath, index))
+    },
+    [plan, projectByKey],
+  )
+
+  const handleResyncEpic = useCallback(
+    (laneIndex: number, entryIndex: number) => {
+      const entry = plan.draft.lanes[laneIndex]?.entries[entryIndex]
+      if (!entry) return
+      plan.setLanes(
+        resyncEpicEntry(itemsByProjectKey.get(entry.projectKey) ?? [], plan.draft.lanes, laneIndex, entryIndex),
+      )
+    },
+    [plan, itemsByProjectKey],
+  )
+
+  const handleOpenStep = useCallback(
+    (row: HorizonStepRow) => {
+      const { projectKey, relativePath } = splitAuthoredRef(row.ref)
+      const project = projectByKey(projectKey)
+      if (!project) return
+      openInProject(project.path, relativePath)
+    },
+    [projectByKey, openInProject],
+  )
+
+  const handleRenameTrack = useCallback(
+    async (laneIndex: number) => {
+      const lane = plan.draft.lanes[laneIndex]
+      if (!lane) return
+      const next = await dialog.prompt({
+        title: 'Rename track',
+        inputLabel: 'Track name',
+        initialValue: lane.title,
+        confirmLabel: 'Rename',
+        required: true,
+        validate: (value) => (value.trim().length === 0 ? 'A name is required.' : null),
+      })
+      if (next === null) return
+      const trimmed = next.trim()
+      if (!trimmed || trimmed === lane.title) return
+      plan.setLanes(renameLane(plan.draft.lanes, laneIndex, trimmed))
+    },
+    [dialog, plan],
+  )
+
+  const handleRemoveTrack = useCallback(
+    async (laneIndex: number) => {
+      const lane = plan.draft.lanes[laneIndex]
+      if (!lane) return
+      if (lane.entries.length > 0) {
+        const ok = await dialog.confirm({
+          title: 'Remove this track?',
+          body: `“${lane.title}” has ${lane.entries.length} ${lane.entries.length === 1 ? 'step' : 'steps'}. Removing the track drops them from the horizon (the backlog items stay).`,
+          confirmLabel: 'Remove track',
+          tone: 'danger',
+        })
+        if (!ok) return
+      }
+      plan.setLanes(removeLane(plan.draft.lanes, laneIndex))
+    },
+    [dialog, plan],
+  )
+
+  // Steering is only ever real on the ACTIVE horizon — a draft has no runtime to
+  // pause, approve or merge, so its tracks park none of these.
+  const steeringRef = isActiveSelected ? effectiveSelectedRef : null
+  const pausedLanes = useMemo(
+    () =>
+      new Set(
+        (isActiveSelected && activeRoadmap ? activeRoadmap.lanes : []).filter((lane) => lane.parked).map((lane) => lane.lane),
+      ),
+    [isActiveSelected, activeRoadmap],
+  )
+  const steering = useMemo(
+    () => ({
+      busyLane,
+      pausedLanes,
+      onPause: (lane: string) => {
+        if (steeringRef) void handlePause(steeringRef, lane)
+      },
+      onResume: (lane: string) => {
+        if (steeringRef) void handleResume(steeringRef, lane)
+      },
+      onApprove: (lane: string) => {
+        if (steeringRef) handleApprove(steeringRef, lane)
+      },
+      onMerge: (lane: string) => {
+        if (steeringRef) handleMerge(steeringRef, lane)
+      },
+    }),
+    [busyLane, pausedLanes, steeringRef, handlePause, handleResume, handleApprove, handleMerge],
+  )
+
+  // --- Chrome ---------------------------------------------------------------
 
   // The cross-project planner shows in the CANVAS while editing — the shell (and
   // its lifted top bar) stays mounted, so the door keeps its title, status, and
@@ -455,10 +613,15 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           onEditPlan: handleEditPlan,
           onPauseRoadmap: handlePauseRoadmap,
           onResumeRoadmap: handleResumeRoadmap,
+          onMakeActive: () => void handleMakeActive(selectedFile),
+          activating,
           busyBoard,
           refreshing,
+          saveState: plan.saveState,
+          onRetrySave: () => void plan.save(),
         })
       : undefined
+
   const rail = (
     <RoadmapRail
       rows={railRows}
@@ -466,9 +629,10 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       search={railSearch}
       onSelect={(ref) => {
         // Selecting from the rail while editing leaves the planner (edits
-        // autosave, so nothing is lost) and shows that roadmap's canvas.
+        // autosave, so nothing is lost) and shows that horizon's plan.
         if (planning) setPlanningRef(null)
         setSelectedRef(ref)
+        setSelectedStepRef(null)
       }}
       onSearch={setRailSearch}
       onNewRoadmap={() => void handleCreateRoadmap()}
@@ -485,6 +649,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       }}
     />
   )
+
   return (
     <GlobalSurfaceShell
       ariaLabel="Horizon"
@@ -501,6 +666,20 @@ export default function RoadmapGlobalSurface(): JSX.Element {
             </InlineNotice>
           </div>
         ) : null}
+        {plan.saveError ? (
+          <div className="shrink-0 px-6 pt-4">
+            <InlineNotice
+              tone="error"
+              title="Your latest plan edits couldn’t be saved."
+              detail={plan.saveError}
+              action={
+                <GhostButton onClick={() => void plan.save()} disabled={plan.saving}>
+                  Try again
+                </GhostButton>
+              }
+            />
+          </div>
+        ) : null}
         <div className="min-h-0 flex-1">
           {planning && planningRef && homePath ? (
             <RoadmapPlannerView
@@ -508,7 +687,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
               roadmapRef={planningRef}
               onBack={exitPlanning}
               onSaved={reload}
-              onRevealItem={openPlanning}
+              onRevealItem={openInProject}
             />
           ) : !hasRoadmaps ? (
             // A read failure with nothing loaded offers only the retry, never the
@@ -528,7 +707,11 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                 kind="empty"
                 glyph={<RoadmapDoorGlyph />}
                 title="No horizon yet"
-                body={projectCount === 0 ? 'Open a project to plan a horizon.' : undefined}
+                body={
+                  projectCount === 0
+                    ? 'Open a project to plan a horizon.'
+                    : 'A horizon lines up work across your projects and runs it one sprint at a time.'
+                }
                 action={
                   <PrimaryButton onClick={() => void handleCreateRoadmap()} disabled={creating}>
                     {creating ? 'Creating…' : 'Plan your horizon'}
@@ -536,42 +719,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                 }
               />
             )
-          ) : isActiveSelected ? (
-            // The active roadmap needs its runtime board; if that read failed (or is
-            // still loading), surface it here rather than mislabelling it a draft.
-            activeRoadmap ? (
-              <RoadmapTracks
-                roadmap={activeRoadmap}
-                homePath={homePath}
-                busyLane={busyLane}
-                reload={reload}
-                onApprove={handleApprove}
-                onPause={handlePause}
-                onResume={handleResume}
-                onMerge={handleMerge}
-                onSkip={handleSkip}
-                onEditPlan={handleEditPlan}
-                onOpenRun={handleOpenRun}
-              />
-            ) : (
-              <SurfaceCanvasState
-                kind="error"
-                title="Couldn’t read this horizon."
-                hint="This is usually temporary."
-                detail={error ?? undefined}
-                onRetry={reload}
-              />
-            )
-          ) : selectedFile ? (
-            // A draft has no runtime, so a transient orchestrator-state read failure
-            // never blanks it out.
-            <RoadmapDraftCanvas
-              file={selectedFile}
-              activating={activating}
-              onEditPlan={() => handleEditPlan(selectedFile.roadmapRef)}
-              onMakeActive={() => void handleMakeActive(selectedFile)}
-            />
-          ) : (
+          ) : !selectedFile ? (
             <SurfaceCanvasState
               kind="error"
               title="Couldn’t read this horizon."
@@ -579,16 +727,59 @@ export default function RoadmapGlobalSurface(): JSX.Element {
               detail={error ?? undefined}
               onRetry={reload}
             />
+          ) : !planItem ? (
+            <SurfaceCanvasState kind="loading" label="Loading your horizon…" />
+          ) : (
+            <div className="flex h-full min-h-0">
+              <HorizonPlanColumn
+                plan={horizonPlan}
+                lanes={plan.draft.lanes}
+                selectedRef={selectedStepRef}
+                onSelect={setSelectedStepRef}
+                showProjectTag={spansProjects}
+                rosters={savedRosters}
+                policyRoster={plan.draft.policy.roster}
+                onManageRosters={() => setRosterManagerOpen(true)}
+                onLanes={plan.setLanes}
+                onAddRef={addRef}
+                onResyncEpic={handleResyncEpic}
+                onOpenItem={handleOpenStep}
+                onAddWork={() => handleEditPlan(selectedFile.roadmapRef)}
+                addWorkActive={false}
+                libraryDragRef={null}
+                steering={steering}
+                onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
+                onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
+              />
+              {/* The step's own detail lands in MC-1923; until then the pane says
+                  what it is for rather than rendering an empty frame. */}
+              <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
+                {selectedStepRef ?? 'Select a step to see it.'}
+              </div>
+            </div>
           )}
         </div>
       </div>
+
+      {rosterManagerOpen ? (
+        <RosterManagerModal
+          // The horizon's home project supplies the role registry. A horizon can
+          // span projects, but rosters are a global user preference, so the
+          // registry only decides which ROWS are offered.
+          workspaceRoot={homePath}
+          onClose={() => setRosterManagerOpen(false)}
+          onRosterChosen={(name) => {
+            plan.setPolicy({ roster: name })
+            setRosterManagerOpen(false)
+          }}
+        />
+      ) : null}
     </GlobalSurfaceShell>
   )
 }
 
-// The surface bar while EDITING a plan: the roadmap's identity plus an honest
-// "changes save automatically" sub — no actions (the editor's controls live with
-// the plan), back exits to the board.
+// The surface bar while EDITING a plan in the retired planner: the horizon's
+// identity plus an honest "changes save automatically" sub — no actions.
 function buildEditingBar(file: RoadmapFileSummary | null, isActive: boolean): GlobalSurfaceBar {
   return {
     title: file?.title ?? 'Plan horizon',
@@ -597,10 +788,9 @@ function buildEditingBar(file: RoadmapFileSummary | null, isActive: boolean): Gl
   }
 }
 
-// The surface bar for the selected roadmap (mockup §2): name · Active/Draft · the
-// context sub · merge policy (active only, an honest readout, not a lookalike
-// button) · Edit plan · Pause/Resume (active) — a draft's Make active lives in
-// RoadmapDraftCanvas beside the plan it acts on.
+// The surface bar for the selected horizon (mockup frame 1): name · Active/Draft
+// · the ONE progress readout · the Saved indicator · the state's one action.
+// A draft uses the SAME screen — only its primary action differs.
 function buildBar(
   file: RoadmapFileSummary,
   isActive: boolean,
@@ -609,21 +799,30 @@ function buildBar(
     onEditPlan: (roadmapRef: string) => void
     onPauseRoadmap: (roadmap: LoadedRoadmap) => void
     onResumeRoadmap: (roadmap: LoadedRoadmap) => void
+    onMakeActive: () => void
+    activating: boolean
     busyBoard: boolean
     /** A background re-read is in flight — a quiet header pulse, never a content blink. */
     refreshing: boolean
+    saveState: 'saved' | 'saving' | 'pending' | 'failed'
+    onRetrySave: () => void
   },
 ): GlobalSurfaceBar {
   const active = isActive && activeRoadmap ? activeRoadmap : null
   const progress = active ? roadmapProgress(active.lanes) : null
-  const trackCount = active ? active.lanes.length : file.tracks.length
-  const stepCount = progress ? progress.total : file.totalSteps
-  const contextSubText = progress && progress.running > 0
-    ? `${plural(trackCount, 'track')} · ${plural(stepCount, 'step')} · ${progress.running} running`
-    : `${plural(trackCount, 'track')} · ${plural(stepCount, 'step')}`
+  // ONE progress readout per surface: the bar owns it. The row's trailing count
+  // owns step size and the detail's own bar owns an epic's children, so the old
+  // "N tracks · M steps · K running" head count is gone.
+  const contextSubText = progress
+    ? progress.total > 0
+      ? `Step ${progress.step} of ${progress.total}`
+      : 'Nothing planned yet'
+    : file.totalSteps > 0
+      ? `${file.totalSteps} ${file.totalSteps === 1 ? 'step' : 'steps'}`
+      : 'Nothing planned yet'
   const contextSub = (
     <span className="inline-flex items-center gap-2">
-      {contextSubText}
+      <span className="tabular-nums">{contextSubText}</span>
       {handlers.refreshing ? (
         <span className="inline-flex items-center gap-1 text-[color:var(--text-subtle)]">
           <Spinner size={10} />
@@ -632,8 +831,6 @@ function buildBar(
       ) : null}
     </span>
   )
-  // The roadmap-level pause toggle: Pause while any track runs, Resume once every
-  // track is paused; hidden for a roadmap with no tracks to steer.
   const allPaused = active !== null && active.lanes.length > 0 && active.lanes.every((lane) => Boolean(lane.parked))
   const anyPausable = active !== null && active.lanes.some((lane) => !lane.parked)
   return {
@@ -644,13 +841,13 @@ function buildBar(
     contextSub,
     actions: (
       <>
-        {active ? (
-          <span className="text-[11px] text-[color:var(--text-subtle)]" title="How this horizon merges delivered work">
-            Merges: {active.roadmap.policy.merge === 'auto' ? 'automatic' : 'you approve'}
-          </span>
-        ) : null}
+        <SavedIndicator state={handlers.saveState} onRetry={handlers.onRetrySave} />
         <GhostButton onClick={() => handlers.onEditPlan(file.roadmapRef)}>Edit plan</GhostButton>
-        {active && allPaused ? (
+        {!isActive ? (
+          <PrimaryButton onClick={handlers.onMakeActive} disabled={handlers.activating}>
+            {handlers.activating ? 'Making active…' : 'Make active'}
+          </PrimaryButton>
+        ) : active && allPaused ? (
           <GhostButton onClick={() => handlers.onResumeRoadmap(active)} disabled={handlers.busyBoard}>
             Resume
           </GhostButton>
@@ -664,178 +861,39 @@ function buildBar(
   }
 }
 
-// The active roadmap's tracks, full-width across the canvas (mockup §2 drops the
-// max-width card squeeze). One column per track, each with its steering controls.
-function RoadmapTracks({
-  roadmap,
-  homePath,
-  busyLane,
-  reload,
-  onApprove,
-  onPause,
-  onResume,
-  onMerge,
-  onSkip,
-  onEditPlan,
-  onOpenRun,
+// Autosave's readout — the thing that replaced the edit mode. A state, not a
+// button, except when a save has actually failed and there is something to retry.
+function SavedIndicator({
+  state,
+  onRetry,
 }: {
-  roadmap: LoadedRoadmap
-  homePath: string | null
-  busyLane: string | null
-  reload: () => void
-  onApprove: (roadmapRef: string, lane: string) => void
-  onPause: (roadmapRef: string, lane: string) => void
-  onResume: (roadmapRef: string, lane: string) => void | Promise<void>
-  onMerge: (roadmapRef: string, lane: string) => void
-  onSkip: (lane: string, unit: RoadmapBoardUnit) => void
-  onEditPlan: (roadmapRef: string) => void
-  onOpenRun: (statePath: string) => void
+  state: 'saved' | 'saving' | 'pending' | 'failed'
+  onRetry: () => void
 }): JSX.Element {
-  const spansProjects = roadmap.roadmap.projects.length > 0
-  if (roadmap.lanes.length === 0) {
+  if (state === 'failed') {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-        <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
-          This horizon has no tracks yet.
-        </p>
-        <RoadmapVocabulary />
-        <PrimaryButton onClick={() => onEditPlan(roadmap.roadmapRef)}>Edit plan</PrimaryButton>
-      </div>
+      <GhostButton onClick={onRetry} aria-label="Retry saving the plan">
+        Couldn’t save — try again
+      </GhostButton>
     )
   }
-  const callbacks: RoadmapLaneCallbacks = {
-    onApprove: (lane) => onApprove(roadmap.roadmapRef, lane),
-    onPause: (lane) => onPause(roadmap.roadmapRef, lane),
-    onResume: (lane) => void onResume(roadmap.roadmapRef, lane),
-    onMerge: (lane) => onMerge(roadmap.roadmapRef, lane),
-    onSkip: (lane, unit) => onSkip(lane, unit),
-    onEditPlan: () => onEditPlan(roadmap.roadmapRef),
-    onOpenRun,
-    busyLane,
-  }
-  const single = roadmap.lanes.length === 1
   return (
-    <div className="h-full overflow-auto p-4">
-      <div className={trackRowClass(roadmap.lanes.length)}>
-        {roadmap.lanes.map((lane) => (
-          <div key={lane.lane} className={single ? SINGLE_TRACK_COLUMN_CLASS : 'flex'}>
-            <RoadmapLaneColumn
-              lane={lane}
-              folderPath={homePath}
-              callbacks={callbacks}
-              onReloadBoard={reload}
-              showProjectTag={spansProjects}
-              wide={single}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// How the tracks lay out on the canvas (MC-1905, mockup
-// `backlog/mockups/2026-07-26-horizon-single-track-layout.html`). Two or more
-// tracks are the multi-column kanban the wrap was written for and are unchanged.
-// ONE track — the normal case, every horizon authored so far — is its own designed
-// layout rather than the degenerate case of that one: the row centers so the lone
-// column stops hugging the left edge of an otherwise empty canvas.
-function trackRowClass(laneCount: number): string {
-  return laneCount === 1 ? 'flex flex-wrap justify-center gap-3' : 'flex flex-wrap gap-3'
-}
-
-// The lone column may widen toward a readable maximum (the lane column's own
-// 340px cap is a kanban width, not a reading width) while keeping its floor, so a
-// narrow window reads exactly as it does today.
-const SINGLE_TRACK_COLUMN_CLASS = 'flex w-full max-w-[560px]'
-
-// Inert callbacks for the read-only draft tracks — the column renders no
-// controls in readOnly mode, so none of these can fire.
-const DRAFT_LANE_CALLBACKS: RoadmapLaneCallbacks = {
-  onApprove: () => undefined,
-  onPause: () => undefined,
-  onResume: () => undefined,
-  onMerge: () => undefined,
-  onSkip: () => undefined,
-  onEditPlan: () => undefined,
-  onOpenRun: () => undefined,
-  busyLane: null,
-}
-
-// A selected DRAFT: not orchestrated, so no steering chrome — but the PLAN
-// itself shows in full (the same track columns the active board uses, read-only,
-// resolved against live backlog status), with the two honest actions on top:
-// Edit plan and the explicit Make active.
-function RoadmapDraftCanvas({
-  file,
-  activating,
-  onEditPlan,
-  onMakeActive,
-}: {
-  file: RoadmapFileSummary
-  activating: boolean
-  onEditPlan: () => void
-  onMakeActive: () => void
-}): JSX.Element {
-  const spansProjects = file.lanes.some((lane) => lane.units.some((unit) => unit.projectKey !== null))
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-auto">
-      <div className="flex w-full flex-col gap-4 px-6 py-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex max-w-[62ch] flex-col gap-1">
-            <h3 className="text-[14px] font-semibold text-[color:var(--text-strong)]">Draft horizon</h3>
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              This plan isn’t running yet. Make it active to have Multicode work it, one sprint at a time.
-            </p>
-            <RoadmapVocabulary />
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <PrimaryButton onClick={onMakeActive} disabled={activating}>
-              {activating ? 'Making active…' : 'Make active'}
-            </PrimaryButton>
-            <GhostButton onClick={onEditPlan}>Edit plan</GhostButton>
-          </div>
-        </div>
-        {file.lanes.length > 0 ? (
-          // Same board for active and draft (MC-1905): both render through the same
-          // track columns, so the single-track layout is one rule, not two.
-          <div className={trackRowClass(file.lanes.length)}>
-            {file.lanes.map((lane) => (
-              <div
-                key={lane.lane}
-                className={file.lanes.length === 1 ? SINGLE_TRACK_COLUMN_CLASS : 'flex'}
-              >
-                <RoadmapLaneColumn
-                  lane={lane}
-                  folderPath={null}
-                  callbacks={DRAFT_LANE_CALLBACKS}
-                  onReloadBoard={() => undefined}
-                  showProjectTag={spansProjects}
-                  readOnly
-                  wide={file.lanes.length === 1}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="rounded-md border border-dashed border-[color:var(--border-default)] px-3 py-4 text-center text-[12px] text-[color:var(--text-muted)]">
-            No tracks yet — open Edit plan to lay out the work.
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// The plain-human vocabulary (epic requirement): a first-time user can read what a
-// track and a step are without leaving the surface.
-function RoadmapVocabulary(): JSX.Element {
-  return (
-    <p className="max-w-[52ch] text-[12px] leading-5 text-[color:var(--text-subtle)]">
-      A <strong className="font-medium text-[color:var(--text-muted)]">track</strong> is a lane of steps that run in
-      order, one sprint at a time; tracks run side by side. A{' '}
-      <strong className="font-medium text-[color:var(--text-muted)]">step</strong> is one backlog item or epic.
-    </p>
+    <span aria-live="polite" className="inline-flex items-center gap-1.5 text-[11px] text-[color:var(--text-subtle)]">
+      {state === 'saved' ? (
+        <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+          <path
+            d="M3.5 8.4 6.4 11.3 12.5 5.2"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : null}
+      {/* An edit waiting out the debounce has NOT been written yet, so it says
+          so — "Saving…" over a pending edit is a small lie about durability. */}
+      {state === 'saving' ? 'Saving…' : state === 'pending' ? 'Unsaved edits…' : 'Saved'}
+    </span>
   )
 }
 
@@ -851,8 +909,4 @@ function RoadmapDoorGlyph(): JSX.Element {
       <path d="M11.8 6.8 12.8 5.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
-}
-
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }

@@ -11,7 +11,21 @@
 
 import type { LifecycleState } from '../../ui'
 import type { BacklogItemStatusPayload } from '../../../../../shared/electron-api'
-import { isTerminalRoadmapStatus } from '../../../../../shared/sprintengine/roadmap-surface'
+import { isTerminalRoadmapStatus, type RoadmapUnitState } from '../../../../../shared/sprintengine/roadmap-surface'
+
+// The other half of the same rule, one level up: how a STEP's board state reads
+// as a lifecycle glyph. Lives beside the member mapping so the two surfaces that
+// render a plan — the plan column and, until it is retired, the track column —
+// cannot disagree about what a paused or unresolvable step looks like.
+export const roadmapUnitLifecycle: Record<RoadmapUnitState, LifecycleState> = {
+  done: 'done',
+  running: 'in_progress',
+  up_next: 'ready',
+  queued: 'todo',
+  paused: 'paused',
+  unknown: 'blocked',
+  unknown_project: 'blocked',
+}
 
 export function roadmapMemberLifecycle(status: BacklogItemStatusPayload | undefined): LifecycleState {
   // Terminal covers `archived` as well as `completed`: both are settled work, and

@@ -56,10 +56,14 @@ export type RoadmapFileSummary = {
   status: BacklogItemStatus
   tracks: { title: string; steps: number }[]
   totalSteps: number
-  // The file's board model with NO runtime overlay — the read-only tracks a
-  // selected DRAFT shows (its plan at a glance, resolved against live backlog
-  // status), never steering chrome.
+  // The file's board model with NO runtime overlay — the plan at a glance,
+  // resolved against live backlog status.
   lanes: RoadmapBoardLane[]
+  // The scanned backlog item the file IS: its absolute path and current bytes are
+  // what the plan column's draft edits and autosaves (MC-1924). Absent only on
+  // the tick where the orchestrator has named an active horizon the home scan has
+  // not caught up with — the surface shows loading rather than an uneditable plan.
+  item?: BacklogItem
 }
 
 // The backlog statuses under which the orchestrator treats a roadmap as active
@@ -270,7 +274,7 @@ export function useRoadmapBoard(): RoadmapBoardData {
   // always a rail citizen even on the first tick before the scan has caught up
   // with readRoadmapStates. (Archived roadmaps are filtered in the parse pass.)
   const roadmapFiles = useMemo<RoadmapFileSummary[]>(() => {
-    const summaries = parsedFiles.map(({ item, roadmap }) => {
+    const summaries: RoadmapFileSummary[] = parsedFiles.map(({ item, roadmap }) => {
       const resolver = buildInstanceResolver(roadmap, homePath, itemsByRootKey, knownRootKeys)
       const tracks = roadmap.lanes.map((lane) => ({ title: lane.title, steps: flattenLaneUnits(lane).length }))
       return {
@@ -281,6 +285,7 @@ export function useRoadmapBoard(): RoadmapBoardData {
         tracks,
         totalSteps: tracks.reduce((sum, track) => sum + track.steps, 0),
         lanes: buildRoadmapBoardModel(roadmap, resolver, EMPTY_LANE_RUNTIME),
+        item,
       }
     })
     if (activeRef && !summaries.some((summary) => summary.roadmapRef === normalizeRelativePath(activeRef))) {
