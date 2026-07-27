@@ -68,7 +68,7 @@ function adoptAuthoritativeRecord(workspaceId: string, event: SprintEngineAutoma
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
   if (!workspace) return
   noteAppliedSprintEngineAutomationRevision(event.statePath, event.record.revision)
-  adoptAuthoritativeCliPermissionPreset(workspaceId, workspace, event.record)
+  adoptAuthoritativeCliPermissionPreset(store, workspaceId, workspace, event.record)
   const currentMode = deriveSprintEngineAutomationMode(workspace.sprintEngineAutoState)
   if (currentMode === event.record.desiredMode) return
   store.setSprintEngineAutomationMode(workspaceId, event.record.desiredMode, {
@@ -93,6 +93,7 @@ function adoptAuthoritativeRecord(workspaceId: string, event: SprintEngineAutoma
  * write with no revision bump and no broadcast, so the echo dies there.
  */
 function adoptAuthoritativeCliPermissionPreset(
+  store: Pick<ReturnType<typeof useWorkspaceStore.getState>, 'setSprintEngineCliPermissionPreset'>,
   workspaceId: string,
   workspace: { sprintEngineAutoState?: { cliPermissionPreset?: SprintEngineCliPermissionPreset } },
   record: SprintEngineAutomationIntentRecord,
@@ -102,7 +103,7 @@ function adoptAuthoritativeCliPermissionPreset(
   const preset = record.cliPermissionPreset
   if (!preset) return
   if (workspace.sprintEngineAutoState?.cliPermissionPreset === preset) return
-  useWorkspaceStore.getState().setSprintEngineCliPermissionPreset(workspaceId, preset)
+  store.setSprintEngineCliPermissionPreset(workspaceId, preset)
 }
 
 /** Returns true when the statePath is fully hydrated (stop retrying). */
@@ -131,11 +132,13 @@ async function hydrateStatePath(ref: SprintWorkspaceRef): Promise<boolean> {
     mode: localMode,
   }).catch(() => null)
   if (!hydrated?.ok) return false
-  noteAppliedSprintEngineAutomationRevision(ref.statePath, hydrated.record.revision)
-  if (hydrated.record.desiredMode !== localMode) {
-    // Another window hydrated first with a different value; adopt it.
-    adoptAuthoritativeRecord(ref.workspaceId, { statePath: ref.statePath, record: hydrated.record })
-  }
+  // Adopt unconditionally: main returns the existing record when one appeared
+  // between the read above and this call, and that record can differ from our
+  // seed in EITHER half — a different mode from a window that hydrated first,
+  // or a preset from a Sprints-door write. Adoption is a no-op per half when
+  // that half already matches, so the old same-mode short-circuit only risked
+  // dropping the other one.
+  adoptAuthoritativeRecord(ref.workspaceId, { statePath: ref.statePath, record: hydrated.record })
   return true
 }
 
