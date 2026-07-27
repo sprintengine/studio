@@ -48,7 +48,7 @@ import type {
 } from '../backlog-service'
 import type { AutomationStoreListResult } from '../automations/store'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
-import type { RoadmapAppFrontDoor, RoadmapSteerAction } from '../roadmap-orchestrator'
+import type { RoadmapAppFrontDoor, RoadmapResumeOptions, RoadmapSteerAction } from '../roadmap-orchestrator'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
 import { renderSkillInvocationTemplate } from '../../shared/skill-invocation'
@@ -2025,13 +2025,23 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     action: RoadmapSteerAction
     description: string
     failureCode: string
+    // Extra inputs this action accepts, plus how they become steer options. Only
+    // `resume` uses it today (MC-1909's `replan_delivered_run` acknowledgement).
+    // Without this the confirmation is UI-only: the orchestrator refuses, and an
+    // agent has no argument to answer with — a dead end on the surface the owner
+    // actually drives horizons from.
+    extraProperties?: Record<string, unknown>
+    optionsFrom?: (args: Record<string, unknown>) => RoadmapResumeOptions
   }): McpToolRegistration {
     return {
       name: config.name,
       description: config.description,
       inputSchema: {
         type: 'object',
-        properties: { lane: { type: 'string', description: 'The lane (track heading) to steer, from roadmap.status.' } },
+        properties: {
+          lane: { type: 'string', description: 'The lane (track heading) to steer, from roadmap.status.' },
+          ...(config.extraProperties ?? {}),
+        },
         required: ['lane'],
         additionalProperties: false,
       },
@@ -2040,7 +2050,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         if ('content' in frontDoor) return frontDoor
         const lane = requireString(args, 'lane')
         if (typeof lane !== 'string') return lane
-        const outcome = await frontDoor.steerLane(lane, config.action, 'automation')
+        const options = config.optionsFrom?.(args)
+        const outcome = await frontDoor.steerLane(lane, config.action, 'automation', options)
         return roadmapResult(config.failureCode, outcome, { [config.action]: { lane } })
       },
     }
@@ -2076,8 +2087,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     action: 'resume',
     failureCode: 'roadmap_resume_failed',
     description:
-      'Resume a paused or parked lane. A manual pause continues exactly where it was; a failure park re-plans a fresh sprint '
-      + 'from the same item (abandoning the dead run first). Verify the effect with roadmap.status.',
+      'Resume a paused or parked lane. A manual pause continues exactly where it was. A merge park RETRIES the merge rather '
+      + 'than abandoning the run. Any other park whose run already DELIVERED refuses, returning confirm '
+      + '"replan_delivered_run": re-planning would throw that finished work away, so pass replanDeliveredRun: true to '
+      + 'acknowledge it and start over. Verify the effect with roadmap.status.',
+    extraProperties: {
+      replanDeliveredRun: {
+        type: 'boolean',
+        description:
+          'Acknowledge that resuming discards a run that already delivered, and re-plan a fresh sprint from the same item. '
+          + 'Only needed after a refusal carrying confirm "replan_delivered_run".',
+      },
+    },
+    optionsFrom: (args) => ({ replanDeliveredRun: args.replanDeliveredRun === true }),
   })
 
   return [
