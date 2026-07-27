@@ -245,5 +245,12 @@ const retiredDispatch = new RendererCommandDispatcher().resolve(
   { activeScopes: ['global'], keybindingOverrides: { [RETIRED_ID]: ['primary+9'] }, platform: 'darwin' },
 )
 assert.equal(retiredDispatch.kind, 'unmatched', 'a retired command id never dispatches')
+// Same chord on a live id must match, or the assertion above would pass on an
+// unparseable chord instead of on the retirement.
+const liveDispatch = new RendererCommandDispatcher().resolve(
+  { key: '9', code: 'Digit9', metaKey: true },
+  { activeScopes: ['global'], keybindingOverrides: { 'commandPalette.open': ['primary+9'] }, platform: 'darwin' },
+)
+assert.equal(liveDispatch.kind, 'matched', 'the same chord bound to a live command does dispatch')
 
 console.log('KeyboardShortcutsTab.test.ts: ok')
