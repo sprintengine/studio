@@ -27,7 +27,6 @@ export type StepId =
   | 'standard-layout'
   | 'sprintengine-team'
   | 'sprintengine-roster'
-  | 'sprintengine-reviews'
   | 'sprintengine-tools'
   | 'sprintengine-start'
   | 'guided-idea'
@@ -58,15 +57,14 @@ export const STEPS_BY_MODE: Record<CreationStepsId, StepId[]> = {
   automations: ['workspace'],
   // The sprint's team page carries the only required intent (an objective, or a
   // backlog item / plan file / existing team). Everything after it — the team
-  // roster, the review passes, the optional tools & skills, and the final
-  // review-&-start summary — is fully defaulted, so each pages separately and
-  // all of them sit behind "Skip the rest and create" (MC-1646: one reading
-  // column per page, no settings dump).
+  // roster, the optional tools & skills, and the final review-&-start summary —
+  // is fully defaulted, so each pages separately and all of them sit behind
+  // "Skip the rest and create" (MC-1646: one reading column per page, no
+  // settings dump).
   sprintengine: [
     'workspace',
     'sprintengine-team',
     'sprintengine-roster',
-    'sprintengine-reviews',
     'sprintengine-tools',
     'sprintengine-start',
   ],

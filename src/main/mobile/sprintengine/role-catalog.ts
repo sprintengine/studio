@@ -18,7 +18,7 @@ import { readSprintEngineRegistryRoles } from '../../sprintengine-artifacts'
 // that is the phone's business (it stages a roster, it does not compose an agent),
 // and the snapshot rides the relay's result-summary budget, which the size-shedding
 // pass can only reclaim by dropping whole sprint engines. So: id, label, summary,
-// sweep flag, layer. Nothing else.
+// layer. Nothing else.
 
 export type RoleCatalogReader = (workspaceRoot: string) => Promise<MobileControlRoleDescriptor[] | undefined>
 
@@ -123,16 +123,16 @@ export function normalizeRoleCatalog(input: unknown): MobileControlRoleDescripto
 
     const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : humanizeRoleId(roleId)
     const summary = typeof raw.summary === 'string' ? truncate(raw.summary.trim()) : ''
-    // A manifest's `sweep` is an object ({focus, when}) or null; the phone only
-    // needs the boolean, and sending the block would leak plan-time prose.
-    const sweep = isRecord(raw.sweep)
+    // MC-1886 removed the sweep concept, so no descriptor carries `sweep` any
+    // more. The wire field stays declared in protocol.ts (a byte-identical
+    // mirror of the mobile app's copy) for one release, so a phone build that
+    // still reads it simply sees an absent key.
     const source = roleSource(raw.source)
 
     descriptors.push({
       roleId,
       label,
       ...(summary ? { summary } : {}),
-      ...(sweep ? { sweep: true } : {}),
       ...(source ? { source } : {}),
     })
 

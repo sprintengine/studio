@@ -29,7 +29,6 @@ import {
 import type { ReviewControllerPorts } from './reviewController'
 import type { ReviewGuideConfig } from '../../../../types/workspace'
 import { getRendererHost } from '../../../../modules'
-import { buildSprintEngineWorkflowInitKeys } from '../sprintengineWorkflowConfig'
 import type { GuidedBriefScaffoldPorts, GuidedBriefStartBuildPorts } from './types'
 import type { SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
 
@@ -369,14 +368,13 @@ async function testSprintEngineNewTeamInitializesRunState(): Promise<void> {
   assert.equal(args.sprintEngineAutoState?.desiredMode, 'run_agents')
 }
 
-// A role the wizard OMITS from the counts must stay off. The wizard's sweep
-// filter (`sprintEngineCreateRoleCounts`) does not zero a sweep role — it
-// DELETES the key, because sweeps are chosen in "Final sweeps", not staffed as
-// work rows. `normalizeSprintEngineRoleCounts` used to seed its result from a
-// built-in starter team (architect + product + developer) and only overwrite the
-// keys the input mentioned, so a deleted key silently came back staffed at the
-// starter value: `product` landed in configuredRoles on runs whose operator
-// never chose it, and the architect planned a Product sweep task for it.
+// A role the wizard OMITS from the counts must stay off. The wizard's offered-
+// role filter (`sprintEngineCreateRoleCounts`) does not zero an unoffered role
+// — it DELETES the key. `normalizeSprintEngineRoleCounts` used to seed its
+// result from a built-in starter team (architect + product + developer) and
+// only overwrite the keys the input mentioned, so a deleted key silently came
+// back staffed at the starter value: `product` landed in configuredRoles on
+// runs whose operator never chose it, and the architect planned work for it.
 //
 // Every other test here passes `product: 0` EXPLICITLY, which is exactly why
 // none of them caught it. Absent must mean off.
@@ -388,13 +386,12 @@ async function testSprintEngineOmittedRoleStaysUnstaffed(): Promise<void> {
       teamName: 'Ship Squad',
       goal: 'Ship the things',
       // Exactly what the wizard emits: the user ticked developer + frontend, and
-      // `product` (a sweep role) is absent, not zeroed. No sweeps were toggled on.
+      // `product` is absent, not zeroed.
       roleCounts: { architect: 1, developer: 1, frontend: 1 },
       visibleRoleCounts: { architect: 1, developer: 1, frontend: 1 },
       maxParallelAgents: 2,
       roleCliDefaults: { architect: 'claude-code', developer: 'claude-code', frontend: 'claude-code', performance: 'claude-code', cross_platform: 'claude-code', tester: 'claude-code', security: 'claude-code', product: 'claude-code' },
       roleModelOverrides: {},
-      additionalEnabledRoles: [],
       startRunner: false,
       autoApproveArtifacts: false,
       cliPermissionPreset: 'default',
@@ -447,7 +444,6 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
           rosterSource: input.rosterSource,
           allowedRuntimes: input.allowedRuntimes,
           defaultPhases: input.defaultPhases,
-          requiredSweeps: input.requiredSweeps,
           phaseRuntimes: input.phaseRuntimes,
         })
         return { ok: true, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
@@ -459,9 +455,8 @@ async function testSprintEngineNewTeamUserModeInitArgsUnchanged(): Promise<void>
   assert.equal(init.rosterSource, undefined, 'user mode sends no roster-source flag')
   assert.equal(init.allowedRuntimes, undefined, 'user mode sends no allowed-runtimes flag')
   // Workflow-panel keys are absent when the wizard passes no workflow input, so a
-  // plain run stays byte-identical to a pre-panel run (MC-1542 / MC-1543).
+  // plain run stays byte-identical to a pre-panel run (MC-1543).
   assert.equal(init.defaultPhases, undefined, 'no defaultPhases when self-review stays on')
-  assert.equal(init.requiredSweeps, undefined, 'no requiredSweeps when none are mandated')
   assert.equal(init.phaseRuntimes, undefined, 'no phaseRuntimes when the same agent reviews')
   assert.deepEqual(init.enabledRoles, ['architect', 'developer'], 'enabled roles derive from the roster')
   // roleRuntimes is built from the full role-cli-defaults map (unchanged
@@ -533,71 +528,6 @@ async function testSprintEngineArchitectRosterInitArgs(): Promise<void> {
   assert.equal(args.sprintEngineAutoState?.architectGuidance, 'Quality matters')
 }
 
-// The "Workflow steps" + "Final sweeps" panels map to the three run-level init
-// keys. Default state (self-review on, same-agent reviewer, no mandated sweeps)
-// omits all three; each divergence populates exactly its key.
-function testSprintEngineWorkflowInitKeys(): void {
-  assert.deepEqual(
-    buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: true,
-      reviewRuntime: null,
-      requiredSweepRoleIds: [],
-    }),
-    {},
-    'defaults omit all three keys (byte-identical plain run)',
-  )
-
-  assert.deepEqual(
-    buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: false,
-      reviewRuntime: null,
-      requiredSweepRoleIds: [],
-    }),
-    { defaultPhases: [] },
-    'self-review off records the empty phase set',
-  )
-
-  assert.deepEqual(
-    buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: true,
-      reviewRuntime: { cli: 'claude-code', model: 'claude-fable-5' },
-      requiredSweepRoleIds: [],
-    }),
-    { phaseRuntimes: { review: { cli: 'claude-code', model: 'claude-fable-5' } } },
-    'a stronger reviewer binds phaseRuntimes.review',
-  )
-
-  assert.deepEqual(
-    buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: false,
-      reviewRuntime: { cli: 'claude-code', model: 'claude-fable-5' },
-      requiredSweepRoleIds: [],
-    }),
-    { defaultPhases: [] },
-    'a reviewer binding is ignored when self-review is off (no review phase runs)',
-  )
-
-  assert.deepEqual(
-    buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: true,
-      reviewRuntime: null,
-      requiredSweepRoleIds: ['tester', 'security', 'tester', '  '],
-    }),
-    { requiredSweeps: ['tester', 'security'] },
-    'mandated sweeps de-duplicate and drop blanks, display order preserved',
-  )
-
-  assert.deepEqual(
-    buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: false,
-      reviewRuntime: { cli: 'zai', model: null },
-      requiredSweepRoleIds: ['ui_ux_reviewer'],
-    }),
-    { defaultPhases: [], requiredSweeps: ['ui_ux_reviewer'] },
-    'divergent keys compose; reviewer binding still gated by self-review',
-  )
-}
-
 // The controller forwards the pre-computed workflow keys verbatim into the run
 // init, and forwards nothing when the wizard sets none.
 async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
@@ -616,7 +546,6 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
   const captureInit = (bucket: Array<Record<string, unknown>>) => async (input: SprintEngineStateInitializeInput) => {
     bucket.push({
       defaultPhases: input.defaultPhases,
-      requiredSweeps: input.requiredSweeps,
       phaseRuntimes: input.phaseRuntimes,
     })
     return { ok: true as const, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
@@ -627,14 +556,12 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
     {
       ...baseInput,
       defaultPhases: [],
-      requiredSweeps: ['tester'],
       phaseRuntimes: { review: { cli: 'claude-code', model: 'claude-fable-5' } },
     },
     { pathExists: async () => false, initializeSprintEngineState: captureInit(populated) },
   )
   assert.equal(populated.length, 1)
   assert.deepEqual(populated[0].defaultPhases, [], 'defaultPhases forwarded')
-  assert.deepEqual(populated[0].requiredSweeps, ['tester'], 'requiredSweeps forwarded')
   assert.deepEqual(populated[0].phaseRuntimes, { review: { cli: 'claude-code', model: 'claude-fable-5' } }, 'phaseRuntimes forwarded')
 
   const omitted: Array<Record<string, unknown>> = []
@@ -644,63 +571,7 @@ async function testSprintEngineWorkflowKeysFlowToInit(): Promise<void> {
   )
   assert.equal(omitted.length, 1)
   assert.equal(omitted[0].defaultPhases, undefined, 'no defaultPhases key when the wizard sets none')
-  assert.equal(omitted[0].requiredSweeps, undefined, 'no requiredSweeps key when the wizard sets none')
   assert.equal(omitted[0].phaseRuntimes, undefined, 'no phaseRuntimes key when the wizard sets none')
-}
-
-// MC-1542 "Work types & models" panel: sweep roles are no longer offered as
-// seats, so the wizard forwards them via additionalEnabledRoles and they merge
-// (de-duplicated) into enabledRoles -> configuredRoles. Architect mode still
-// collapses to ['architect'] — the architect grows roles via roster.configure.
-async function testSprintEngineAdditionalEnabledRolesMergeIntoInit(): Promise<void> {
-  const baseInput = {
-    folderPath: '/p',
-    teamName: 'Ship Squad',
-    goal: 'Ship the things',
-    roleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
-    visibleRoleCounts: { architect: 1, developer: 1, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
-    maxParallelAgents: 2,
-    roleCliDefaults: { architect: 'claude-code' as const, developer: 'claude-code' as const, frontend: 'claude-code' as const, performance: 'claude-code' as const, cross_platform: 'claude-code' as const, tester: 'claude-code' as const, security: 'claude-code' as const, product: 'claude-code' as const },
-    startRunner: false,
-    autoApproveArtifacts: false,
-    cliPermissionPreset: 'default' as const,
-  }
-  const captureInit = (bucket: Array<Record<string, unknown>>) => async (input: SprintEngineStateInitializeInput) => {
-    bucket.push({ enabledRoles: input.enabledRoles })
-    return { ok: true as const, data: { projectionContent: JSON.stringify(sprintEngineProjectionFixture({ name: 'Ship Squad', goal: 'Ship the things' })) } }
-  }
-
-  const userMode: Array<Record<string, unknown>> = []
-  await runSprintEngineNewTeamCreation(
-    { ...baseInput, additionalEnabledRoles: ['tester', 'security', 'developer'] },
-    { pathExists: async () => false, initializeSprintEngineState: captureInit(userMode) },
-  )
-  assert.equal(userMode.length, 1)
-  assert.deepEqual(
-    userMode[0].enabledRoles,
-    ['architect', 'developer', 'tester', 'security'],
-    'sweep roles merge into enabledRoles without duplicating staffed roles',
-  )
-
-  const architectMode: Array<Record<string, unknown>> = []
-  await runSprintEngineNewTeamCreation(
-    {
-      ...baseInput,
-      roleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
-      visibleRoleCounts: { architect: 1, developer: 0, frontend: 0, performance: 0, cross_platform: 0, tester: 0, security: 0, product: 0 },
-      additionalEnabledRoles: ['tester', 'security'],
-      rosterSource: 'architect' as const,
-      architectSeat: { cli: 'claude-code', model: 'claude-fable-5' },
-      allowedRuntimes: [{ cli: 'claude-code', model: 'claude-fable-5' }],
-    },
-    { pathExists: async () => false, initializeSprintEngineState: captureInit(architectMode) },
-  )
-  assert.equal(architectMode.length, 1)
-  assert.deepEqual(
-    architectMode[0].enabledRoles,
-    ['architect'],
-    'architect mode ignores additionalEnabledRoles — roles grow via roster.configure',
-  )
 }
 
 async function testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs(): Promise<void> {
@@ -1088,25 +959,23 @@ async function testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt
 }
 
 // Regression (design-wizard-premium): the plan-sourced path used to DROP the
-// "Workflow steps" + "Final sweeps" init keys entirely — a mandated sweep never
-// reached run.yaml `requiredSweeps` — while every registry sweep role was
-// force-merged into configuredRoles. The contract now: the keys forward exactly
-// like the new-team path, and enabledRoles carries only the architect, the
-// staffed work roles, and the user-selected sweeps.
-async function testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit(): Promise<void> {
+// "Workflow steps" init keys entirely, and force-merged roles the operator
+// never staffed into configuredRoles. The contract now: the keys forward
+// exactly like the new-team path, and enabledRoles carries the architect plus
+// the staffed roles — nothing else.
+async function testSprintEnginePlanSourcedWorkflowKeysFlowToInit(): Promise<void> {
   const initInputs: Array<{
     enabledRoles?: string[]
     defaultPhases?: string[]
-    requiredSweeps?: string[]
     phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   }> = []
   await runSprintEnginePlanSourcedCreation(
     {
       folderPath: '/p',
-      teamName: 'Sweep Keys Run',
-      goal: 'Ship the sweep work',
-      sourcePlanPath: '/p/backlog/sweep-plan.md',
-      sourcePlanRelativePath: 'backlog/sweep-plan.md',
+      teamName: 'Workflow Keys Run',
+      goal: 'Ship the planned work',
+      sourcePlanPath: '/p/backlog/workflow-plan.md',
+      sourcePlanRelativePath: 'backlog/workflow-plan.md',
       sourcePlanContent: '# Plan',
       sourcePlanKind: 'architect_plan',
       sourceBundle: null,
@@ -1116,19 +985,15 @@ async function testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit():
       startRunner: false,
       autoApproveArtifacts: false,
       cliPermissionPreset: 'default',
-      // Only the user-selected sweep rides in — never the full registry catalog.
-      additionalEnabledRoles: ['ui_ux_reviewer'],
       defaultPhases: [],
-      requiredSweeps: ['ui_ux_reviewer'],
       phaseRuntimes: { review: { cli: 'claude-code', model: 'opus[1m]' } },
     },
     {
-      pathExists: async (path) => path === '/p/backlog/sweep-plan.md',
+      pathExists: async (path) => path === '/p/backlog/workflow-plan.md',
       initializeSprintEngineState: async (input) => {
         initInputs.push({
           enabledRoles: input.enabledRoles,
           defaultPhases: input.defaultPhases,
-          requiredSweeps: input.requiredSweeps,
           phaseRuntimes: input.phaseRuntimes,
         })
         return { ok: true, data: {} }
@@ -1139,11 +1004,10 @@ async function testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit():
   assert.equal(initInputs.length, 1, 'creation initializes run state exactly once')
   assert.deepEqual(
     initInputs[0].enabledRoles,
-    ['architect', 'product', 'ui_ux_reviewer'],
-    'configuredRoles = architect + staffed work roles + the user-selected sweeps only',
+    ['architect', 'product'],
+    'configuredRoles = architect + the staffed roles only',
   )
   assert.deepEqual(initInputs[0].defaultPhases, [], 'defaultPhases forwarded on the plan-sourced path')
-  assert.deepEqual(initInputs[0].requiredSweeps, ['ui_ux_reviewer'], 'requiredSweeps forwarded on the plan-sourced path')
   assert.deepEqual(
     initInputs[0].phaseRuntimes,
     { review: { cli: 'claude-code', model: 'opus[1m]' } },
@@ -2071,9 +1935,7 @@ async function main(): Promise<void> {
   await testSprintEngineOmittedRoleStaysUnstaffed()
   await testSprintEngineNewTeamUserModeInitArgsUnchanged()
   await testSprintEngineArchitectRosterInitArgs()
-  testSprintEngineWorkflowInitKeys()
   await testSprintEngineWorkflowKeysFlowToInit()
-  await testSprintEngineAdditionalEnabledRolesMergeIntoInit()
   await testSprintEngineNewTeamDeclaresRepos()
   await testSprintEngineNewTeamInitFailuresBlockWorkspaceArgs()
   testSprintEngineEffectiveSpawnAtStartRoles()
@@ -2082,7 +1944,7 @@ async function main(): Promise<void> {
   await testSprintEnginePlanSourcedMockupBundleNeverDisplacesThePrimarySource()
   await testSprintEnginePlanSourcedBundleOnlyLaunchPromotesFirstItem()
   await testSprintEnginePlanSourcedWorktreeModeFlowsThroughStateAndPrompt()
-  await testSprintEnginePlanSourcedWorkflowKeysAndSweepRolesFlowToInit()
+  await testSprintEnginePlanSourcedWorkflowKeysFlowToInit()
   await testSprintEnginePlanSourcedSkipsNonBacklogLink()
   await testSprintEngineEpicSourcedLinksEpicAndFlagsChildren()
   await testGuidedBriefScaffoldValidation()

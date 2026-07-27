@@ -45,17 +45,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCliDefaults?: SprintEngineRoleCliDefaults
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
-  // Extra roles merged into enabledRoles -> configuredRoles at init: the sweep
-  // roles the user actually selected in the wizard's "Final sweeps" panel. The
-  // roster is the user's configuration — an unselected sweep role must not be
-  // seated or plannable (the architect raises needs_input if the work needs
-  // a role the run doesn't have).
-  additionalEnabledRoles?: SprintEngineRoleId[]
-  // "Workflow steps" + "Final sweeps" run-init keys (MC-1542 / MC-1543),
-  // forwarded verbatim to init; each present only when it diverges from the
-  // engine default (same contract as the new-team path).
+  // "Workflow steps" run-init keys (MC-1543), forwarded verbatim to init; each
+  // present only when it diverges from the engine default (same contract as the
+  // new-team path).
   defaultPhases?: string[]
-  requiredSweeps?: string[]
   phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
@@ -132,8 +125,8 @@ export function buildSprintEngineRoleRuntimes(
   ])) {
     const model = roleModelOverrides?.[role as SprintEngineRoleId] ?? null
     const cli = roleCliDefaults?.[role as SprintEngineRoleId] ?? null
-    // A recorded role MUST carry a CLI. Sweep roles supplied by the role
-    // registry (e.g. nuclear_reviewer, spec_reviewer) are absent from
+    // A recorded role MUST carry a CLI. Roles supplied by the role registry
+    // (e.g. nuclear_reviewer, spec_reviewer) are absent from
     // DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, so DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
     // (derived from its keys) has no baseline entry for them. A model-only pick
     // then reaches here with cli:null and persists into run.yaml `roleRuntimes`
@@ -190,9 +183,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleCliDefaults,
   roleModelOverrides,
   initialSpawnRoles,
-  additionalEnabledRoles,
   defaultPhases,
-  requiredSweeps,
   phaseRuntimes,
   sprintEngineAutoState,
   workspaceWindowId,
@@ -241,7 +232,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   // same list (the projection then overwrites it with the identical canonical
   // copy). Never derive this from roster seats — the lazy roster seats only
   // the planner.
-  const enabledRoles = sprintEngineEnabledRoles(sprintEngineState.roleCounts, additionalEnabledRoles)
+  const enabledRoles = sprintEngineEnabledRoles(sprintEngineState.roleCounts)
   sprintEngineState.configuredRoles = enabledRoles
 
   // Reference-mode (backlog/plan-sourced) launches seed the source into run.yaml
@@ -267,11 +258,8 @@ export async function createPlanSourcedSprintEngineWorkspace({
       ...(useWorktrees === true && baseStartPoint?.trim() ? { baseStartPoint: baseStartPoint.trim() } : {}),
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
       enabledRoles,
-      // "Workflow steps" + "Final sweeps" keys, present only when set — the
-      // plan-sourced path used to drop these, so a mandated sweep never reached
-      // run.yaml `requiredSweeps`.
+      // "Workflow steps" keys, present only when set.
       ...(defaultPhases !== undefined ? { defaultPhases } : {}),
-      ...(requiredSweeps !== undefined ? { requiredSweeps } : {}),
       ...(phaseRuntimes !== undefined ? { phaseRuntimes } : {}),
       ...(initSourceSeed
         ? { source: initSourceSeed.source, sourceBundle: initSourceSeed.sourceBundle }

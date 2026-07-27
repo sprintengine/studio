@@ -22,7 +22,6 @@ import {
   getSprintEngineWizardRoleSummary,
   isSprintEnginePlanningRole,
   listSprintEngineWizardRoles,
-  listSprintEngineWizardWorkRoles,
   sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
 import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
@@ -116,11 +115,10 @@ export function SprintEngineTeamPanel({
   poolAgentCount: number
   onChangePoolAgentCount: (value: number) => void
 }) {
-  // An existing team renders its canonical roster (sweep seats included);
-  // a fresh roster offers the work roles — sweeps live on the Reviews step.
-  const roles = hasExistingTeam
-    ? listSprintEngineWizardRoles(registry, disabledRoleIds)
-    : listSprintEngineWizardWorkRoles(registry, disabledRoleIds)
+  // One roster list for every staffable role, reviewers included (MC-1886):
+  // staffing a role makes it available to the architect, which is the same
+  // meaning for a reviewer as for a builder.
+  const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
   const onRoles = roles.filter((role) => (roleCounts[role] ?? 0) > 0)
 
   return (

@@ -19,12 +19,10 @@ const DEFAULT_CLI: AgentCli = 'claude-code'
 // runnable plan -> build pair, so Continue yields a team that can actually do
 // work. Saved teams override it; it only seeds when none exists.
 //
-// Every role here MUST be one the wizard renders as an editable "Work types &
-// models" row, so the user can see it and switch it off. `product` used to be
-// seeded here and is a SWEEP role — the wizard never draws a row for it (sweeps
-// are opt-in via "Final sweeps"), so it was invisible config the user could not
-// uncheck, and it rode into `configuredRoles` on every run. Sweeps are chosen in
-// "Final sweeps", never staffed here.
+// Every role here MUST be one the wizard renders as an editable roster row, so
+// the user can see it and switch it off. A role seeded here that the wizard
+// draws no row for is invisible config the user cannot uncheck, and it rides
+// into `configuredRoles` on every run.
 export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   architect: 1,
   product: 0,

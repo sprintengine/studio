@@ -39,14 +39,13 @@ for (const [flowId, steps] of Object.entries(STEPS_BY_MODE)) {
 }
 
 // The novice critical paths stay short. The sprint's config pages (MC-1646) —
-// team roster, reviews, optional tools & skills, review & start — are each one
-// reading column, all fully defaulted, and all behind "Skip the rest and
-// create" once the team page's objective is answered.
+// team roster, optional tools & skills, review & start — are each one reading
+// column, all fully defaulted, and all behind "Skip the rest and create" once
+// the team page's objective is answered.
 assert.deepEqual(STEPS_BY_MODE.sprintengine, [
   'workspace',
   'sprintengine-team',
   'sprintengine-roster',
-  'sprintengine-reviews',
   'sprintengine-tools',
   'sprintengine-start',
 ])
@@ -61,7 +60,6 @@ const INTENT_STEPS = ['guided-idea', 'sprintengine-team'] as const
 const DEFAULTED_REFINEMENT_STEPS = [
   'standard-layout',
   'sprintengine-roster',
-  'sprintengine-reviews',
   'sprintengine-tools',
   'sprintengine-start',
 ] as const

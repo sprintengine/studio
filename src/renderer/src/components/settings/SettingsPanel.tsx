@@ -823,7 +823,6 @@ function UserRoleAuthoringForm({
   onCancel: () => void
 }) {
   const editing = mode.kind === 'edit'
-  const sweepLabelId = React.useId()
   return (
     <div className="space-y-4 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
       <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
@@ -887,55 +886,6 @@ function UserRoleAuthoringForm({
           className={INPUT_CLASS}
         />
       </Field>
-
-      <div className="space-y-3 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <span id={sweepLabelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
-              Reviews the finished work
-            </span>
-            <p className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-              This role gets its own task near the end of a run: it reviews everything the sprint changed and
-              fixes what it finds. Off for a role that builds its own features.
-            </p>
-          </div>
-          <Switch
-            checked={draft.sweep.enabled}
-            onChange={(next) => onChange({ sweep: { ...draft.sweep, enabled: next } })}
-            disabled={busy}
-            ariaLabelledBy={sweepLabelId}
-            className="mt-0.5"
-          />
-        </div>
-        {draft.sweep.enabled ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="What it looks for" htmlFor="user-role-sweep-focus" required>
-              <input
-                value={draft.sweep.focus}
-                onChange={(event) => onChange({ sweep: { ...draft.sweep, focus: event.target.value } })}
-                disabled={busy}
-                placeholder="dead abstractions, boilerplate comments, hedging copy"
-                className={`${INPUT_CLASS} font-sans`}
-              />
-            </Field>
-            <Field
-              label="When a sprint needs it"
-              htmlFor="user-role-sweep-when"
-              required
-              help="The architect reads this to decide whether to plan the review."
-            >
-              <input
-                value={draft.sweep.when}
-                onChange={(event) => onChange({ sweep: { ...draft.sweep, when: event.target.value } })}
-                disabled={busy}
-                placeholder="always"
-                className={`${INPUT_CLASS} font-sans`}
-              />
-            </Field>
-          </div>
-        ) : null}
-        {errors.sweep ? <p className="text-[11px] text-[color:var(--tone-error)]">{errors.sweep}</p> : null}
-      </div>
 
       <Field
         label="Instructions"

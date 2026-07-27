@@ -12,16 +12,13 @@ import {
   resolveInitialSprintEngineRoster,
 } from './savedTeams'
 import { SprintEngineTeamPanel } from './SprintEngineTeamPanel'
-import { SprintEngineReviewsPanel } from './SprintEngineReviewsPanel'
 import { SprintEngineToolsPanel } from './SprintEngineToolsPanel'
 import { SprintEngineStartPanel } from './SprintEngineStartPanel'
-import { buildSprintEngineWorkflowInitKeys } from './sprintengineWorkflowConfig'
 
 // "Skip the rest and create" leaves as soon as the sprint's intent page (the
-// team objective) is answered, so the roster, reviews, tools, and review-&-start
-// pages may never be rendered. The promise the footer makes is that this
-// creates exactly what walking those pages and changing nothing would have
-// created.
+// team objective) is answered, so the roster, tools, and review-&-start pages
+// may never be rendered. The promise the footer makes is that this creates
+// exactly what walking those pages and changing nothing would have created.
 //
 // That promise rests on two things, and this file asserts BOTH rather than
 // taking either on faith:
@@ -42,8 +39,8 @@ const SKIPPED_PAGES = STEPS_BY_MODE.sprintengine.slice(
 )
 assert.deepEqual(
   SKIPPED_PAGES,
-  ['sprintengine-roster', 'sprintengine-reviews', 'sprintengine-tools', 'sprintengine-start'],
-  'skip leaves the team, reviews, tools, and review-&-start pages unseen',
+  ['sprintengine-roster', 'sprintengine-tools', 'sprintengine-start'],
+  'skip leaves the team, tools, and review-&-start pages unseen',
 )
 
 // ---------------------------------------------------------------------------
@@ -73,9 +70,6 @@ type SprintWizardState = {
   useWorktrees: boolean
   maxParallelAgents: number
   cliPermissionPreset: 'default'
-  selfReviewEnabled: boolean
-  reviewRuntime: null
-  requiredSweepRoleIds: SprintEngineRoleId[]
 }
 
 // Mirrors the panel's useState initializers for every roster/run value create
@@ -101,9 +95,6 @@ const UNTOUCHED: SprintWizardState = {
   // The panel seeds this from the stored spawn-permission preference, which is
   // workspace-scoped state read at mount — not something a page render produces.
   cliPermissionPreset: 'default',
-  selfReviewEnabled: true,
-  reviewRuntime: null,
-  requiredSweepRoleIds: [],
 }
 
 // MC-1585: the resolved initial roster still holds the balanced specialist team
@@ -127,17 +118,13 @@ for (const [what, pattern] of [
   ['untouched automation follows the create path: manual only for an existing team', /: seExistingTeam\n\s*\? 'manual'\n\s*: 'run_agents_and_approve_artifacts'/],
   ['worktrees are off', /const \[seUseWorktrees, setSeUseWorktrees\] = useState\(false\)/],
   ['plain-agents runs default to 2 agents, specialist runs to 3', /const \[seMaxParallelAgents, setSeMaxParallelAgents\] = useState\(\(\) => \(initialUseSpecialistRoles \? 3 : 2\)\)/],
-  // Self-review is no longer wizard state: it is fixed at the engine default
-  // (same agent, no phaseRuntimes) and create passes the literals directly.
-  ['self-review stays at the engine default (same agent)', /buildSprintEngineWorkflowInitKeys\(\{\n\s*selfReviewEnabled: true,\n\s*reviewRuntime: null,/],
-  ['no sweeps are mandated', /const \[seRequiredSweeps, setSeRequiredSweeps\] = useState<ReadonlySet<SprintEngineRoleId>>\(\s*\(\) => new Set<SprintEngineRoleId>\(\)/],
 ] as const) {
   assert.match(panelSource, pattern, `panel default: ${what}`)
 }
 
 // The refinement pages can never block create — that is what lets skip appear
 // the moment the team page is answered, four pages early.
-for (const page of ['sprintengine-reviews', 'sprintengine-tools', 'sprintengine-start']) {
+for (const page of ['sprintengine-tools', 'sprintengine-start']) {
   assert.match(
     panelSource,
     new RegExp(`case '${page}':\\n\\s*return true\\n`),
@@ -193,21 +180,6 @@ const teamPage = renderToStaticMarkup(
   />,
 )
 
-const reviewsPage = renderToStaticMarkup(
-  <SprintEngineReviewsPanel
-    cliOptions={cliOptions}
-    registry={null}
-    requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
-    onToggleRequiredSweep={spy('onToggleRequiredSweep')}
-    roleCliDefaults={UNTOUCHED.roleCliDefaults}
-    roleModelOverrides={UNTOUCHED.roleModelOverrides}
-    onSetRoleCli={spy('onSetRoleCli')}
-    onSetRoleModel={spy('onSetRoleModel')}
-    // Pool mode hides the specialist sweeps (MC-1585).
-    showFinalSweeps={UNTOUCHED.useSpecialistRoles}
-  />,
-)
-
 const toolsPage = renderToStaticMarkup(
   <SprintEngineToolsPanel
     mcpCatalog={[]}
@@ -243,8 +215,6 @@ const startPage = renderToStaticMarkup(
     roleModelOverrides={UNTOUCHED.roleModelOverrides}
     poolAgentCount={UNTOUCHED.maxParallelAgents}
     architectSeatLabel={null}
-    showReviewsRow
-    requiredSweepRoleIds={new Set(UNTOUCHED.requiredSweepRoleIds)}
     selectedToolNames={[]}
     selectedSkillPackCount={0}
     onEditStep={spy('onEditStep')}
@@ -280,9 +250,6 @@ assert.ok(
   teamPage.includes(`>${UNTOUCHED.maxParallelAgents}<`),
   'the stepper shows the default agent count',
 )
-// Self-review is fixed: the page states it is done by the same agent.
-assert.ok(reviewsPage.includes('Reviewed by the same agent'), 'the reviews page states self-review is by the same agent')
-assert.ok(reviewsPage.includes('looks over the work it just made'), 'and explains what self-review does')
 // The tools page is optional and renders its empty state without inventing state.
 assert.ok(toolsPage.includes('Search tools and skills'), 'the tools page renders its search field')
 // The review-&-start page renders the run settings; in pool mode it drops its
@@ -303,7 +270,6 @@ for (const file of [
   'WizardControls.tsx',
   'SprintEngineRosterTable.tsx',
   'SprintEngineTeamPanel.tsx',
-  'SprintEngineReviewsPanel.tsx',
   'SprintEngineToolsPanel.tsx',
   'SprintEngineStartPanel.tsx',
 ]) {
@@ -342,11 +308,6 @@ function creationArgsFor(state: SprintWizardState) {
     useWorktrees: state.useWorktrees,
     cliPermissionPreset: state.cliPermissionPreset as never,
     rosterSource: 'user',
-    ...buildSprintEngineWorkflowInitKeys({
-      selfReviewEnabled: state.selfReviewEnabled,
-      reviewRuntime: state.reviewRuntime,
-      requiredSweepRoleIds: state.requiredSweepRoleIds,
-    }),
   } as never)
 }
 
@@ -361,9 +322,8 @@ assert.deepEqual(
 
 // And the run those defaults produce is the one the footer promises: a plain
 // general run, the default agent cap, no worktrees, automation on (run agents
-// + approve eligible artifacts), and none of the workflow init keys (an
-// untouched run sends none — self-review on, reviewer = same agent, no mandated
-// sweeps are all engine defaults).
+// + approve eligible artifacts), and no workflow init keys — an untouched run
+// keeps every engine default.
 assert.equal(skippedCreate.sprintEngineState?.roleCounts.general, 1, 'the skipped run stages the general planner seat')
 assert.equal(skippedCreate.sprintEngineState?.roleCounts.architect ?? 0, 0, 'and seats no specialist architect')
 assert.equal(skippedCreate.sprintEngineState?.useWorktrees, undefined, 'the skipped run does not turn worktrees on')
@@ -383,15 +343,15 @@ assert.equal(
   3,
   'the three sprint create paths derive automation from seAutomationMode',
 )
-assert.deepEqual(
-  buildSprintEngineWorkflowInitKeys({
-    selfReviewEnabled: UNTOUCHED.selfReviewEnabled,
-    reviewRuntime: UNTOUCHED.reviewRuntime,
-    requiredSweepRoleIds: UNTOUCHED.requiredSweepRoleIds,
-  }),
-  {},
-  'an untouched run sends no workflow overrides',
-)
+// The wizard no longer composes any workflow-override init key, so an untouched
+// run cannot send one: the sprint create call must mention none of them.
+for (const key of ['defaultPhases', 'requiredSweeps', 'phaseRuntimes']) {
+  assert.doesNotMatch(
+    panelSource,
+    new RegExp(`\\b${key}:`),
+    `the wizard sends no ${key} init key — the run keeps the engine default`,
+  )
+}
 
 // The create path reads state, never the page: if it ever branched on `step`, the
 // two paths above could diverge no matter how equal their state was.

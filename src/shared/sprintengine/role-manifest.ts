@@ -8,8 +8,8 @@
 //
 // v2 schema (MC-1542): a role is routing + directive packs. `directives.implement`
 // composes the owner's startup brief (this replaced `soul`); `directives.<phase>`
-// adds role-scoped content to that phase's shared base pack. `sweep` marks a
-// fix-forward sweep role. `soul` and `capabilities` are rejected by name.
+// adds role-scoped content to that phase's shared base pack. `soul` and
+// `capabilities` are rejected by name.
 //
 // This validator mirrors sprintengine_core/role_registry.py and the hand-rolled
 // style of plugin-manifest-validate.ts (the repo has no JSON-schema runtime);
@@ -27,18 +27,12 @@ export type RoleDirectives = { implement: RoleDirectiveEntry[] } & Partial<
   Record<RoleDirectivePhase, RoleDirectiveEntry[]>
 >
 
-// Sweep roles audit the combined branch diff (or exercise the finished work) and
-// fix what they find. `focus` = what it audits; `when` = the risk trigger the
-// architect reads at plan time.
-export type RoleSweep = { focus: string; when: string }
-
 export type RoleManifest = {
   id: string
   label: string
   summary?: string
   aliases?: string[]
   directives: RoleDirectives
-  sweep?: RoleSweep | null
 }
 
 // The authoring surface (renderer form -> main install path) collects one
@@ -50,7 +44,6 @@ export type AuthoredRoleInput = {
   label: string
   summary?: string
   aliases?: string[]
-  sweep?: RoleSweep
 }
 
 export type RoleManifestValidationIssue = { path: string; message: string }
@@ -69,7 +62,7 @@ const DIRECTIVE_KEYS = ['implement', ...DIRECTIVE_PHASES] as const
 // its v2 replacement named, rather than silently losing its identity.
 const REMOVED_MANIFEST_KEYS: Record<string, string> = {
   soul: `'soul' was removed in the v2 role manifest. Use "directives": { "implement": [{ "skill": "<id>" }] }.`,
-  capabilities: `'capabilities' was removed in the v2 role manifest. Review-only roles no longer exist: declare "sweep": { "focus": "...", "when": "..." } for a sweep role, and put role-scoped review content in "directives": { "review": [{ "skill": "<id>" }] }.`,
+  capabilities: `'capabilities' was removed in the v2 role manifest. Review-only roles no longer exist: a reviewer is an ordinary implementer, and role-scoped review content goes in "directives": { "review": [{ "skill": "<id>" }] }.`,
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -124,24 +117,6 @@ function validateDirectives(value: unknown, issues: RoleManifestValidationIssue[
   }
 }
 
-function validateSweep(value: unknown, issues: RoleManifestValidationIssue[]): void {
-  if (value === null || value === undefined) return
-  if (!isObject(value)) {
-    issues.push({ path: 'sweep', message: 'sweep must be null or an object.' })
-    return
-  }
-  const unsupported = Object.keys(value).find((key) => key !== 'focus' && key !== 'when')
-  if (unsupported) {
-    issues.push({ path: `sweep.${unsupported}`, message: 'unsupported sweep field; expected focus and when.' })
-  }
-  for (const key of ['focus', 'when'] as const) {
-    const field = value[key]
-    if (typeof field !== 'string' || field.trim().length === 0) {
-      issues.push({ path: `sweep.${key}`, message: `sweep.${key} is required and must be a non-empty string.` })
-    }
-  }
-}
-
 export function validateRoleManifest(value: unknown): RoleManifestValidationResult {
   const issues: RoleManifestValidationIssue[] = []
   if (!isObject(value)) {
@@ -184,7 +159,6 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
   }
 
   validateDirectives(value.directives, issues)
-  validateSweep(value.sweep, issues)
 
   if (issues.length > 0) return { ok: false, issues }
 
@@ -202,12 +176,6 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
   }
   if (typeof value.summary === 'string') manifest.summary = value.summary
   if (Array.isArray(value.aliases)) manifest.aliases = value.aliases as string[]
-  if (isObject(value.sweep)) {
-    manifest.sweep = {
-      focus: (value.sweep.focus as string).trim(),
-      when: (value.sweep.when as string).trim(),
-    }
-  }
   return { ok: true, manifest }
 }
 
@@ -287,10 +255,6 @@ export function buildAuthoredRoleManifest(input: AuthoredRoleInput): RoleManifes
   if (summary) manifest.summary = summary
   const aliases = input.aliases?.filter((alias) => alias.trim().length > 0)
   if (aliases && aliases.length > 0) manifest.aliases = aliases
-  // Passed through whenever the author opted into a sweep, even when blank, so
-  // validateRoleManifest reports the empty focus/when rather than the manifest
-  // silently dropping the sweep the author asked for.
-  if (input.sweep) manifest.sweep = { focus: input.sweep.focus.trim(), when: input.sweep.when.trim() }
   return manifest
 }
 

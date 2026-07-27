@@ -67,11 +67,6 @@ export type SprintEngineRoleRegistryMetadata = {
   shadowedSources?: { layer: SprintEngineRoleRegistrySourceLayer }[]
   warnings?: SprintEngineRoleRegistryWarning[]
   enabled?: boolean
-  // True when the role manifest declares a `sweep` block — i.e. it audits the
-  // finished work as its own late task (reviewers + QA), rather than building.
-  // The wizard's "Final sweeps" panel enumerates these; derived from the
-  // `sweep` field on the `sprintengine.roles.list` payload.
-  isSweep?: boolean
 }
 
 // Read-only directory the renderer builds from a registry payload. Indexed
@@ -422,13 +417,14 @@ export type SprintEngineAgentMeasuredMetrics = {
   taskCounts?: Record<string, SprintEngineAgentTaskCounts>
 }
 
-/** Reviewer-side activity for an agent that performed reviews. */
 /**
- * A fix-forward sweep's activity: the tasks it audited and what it did about what
- * it found. MC-1542 replaced the reviewer/gate-verdict tables with this — a sweep
- * fixes what it finds rather than sending work back.
+ * What an agent found (and fixed) reviewing ANOTHER agent's task: the tasks it
+ * audited and what it did about what it found. Sourced from the analysis
+ * `peerReview` block, which the engine builds from review assessments carrying
+ * the `--review-target-*` trio. A reviewer fixes what it finds rather than
+ * sending work back.
  */
-export type SprintEngineAgentSweepMetrics = {
+export type SprintEngineAgentPeerReviewMetrics = {
   tasksAudited: number
   assessmentsRecorded: number
   passed: number
@@ -460,7 +456,7 @@ export type SprintEngineAgentMetrics = {
   }
   measured: SprintEngineAgentMeasuredMetrics
   findingsRaised: number
-  sweep?: SprintEngineAgentSweepMetrics
+  peerReview?: SprintEngineAgentPeerReviewMetrics
   selfReview?: SprintEngineAgentSelfReviewMetrics
 }
 
@@ -878,14 +874,6 @@ export type SprintEngineState = {
    * the engine default, `['review']`.
    */
   defaultPhases?: SprintEngineTaskPhase[]
-  /**
-   * Sweep role ids the operator mandated for this run (run.yaml `requiredSweeps`,
-   * projection-owned; the wizard forwards it as an init flag). The architect's
-   * planning directive treats them as non-negotiable, and the engine refuses to
-   * complete the run while a required sweep role has no planned task. Absent when
-   * the operator mandated none.
-   */
-  requiredSweeps?: SprintEngineRoleId[]
   /**
    * Per-phase runtime bindings (MC-1543, run.yaml `phaseRuntimes`,
    * projection-owned). When a phase is bound to a runtime that differs from a

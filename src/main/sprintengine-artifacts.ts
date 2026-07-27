@@ -140,7 +140,6 @@ type SerializableSprintEngineStatePayload = {
   allowedRuntimes: Array<{ cli: string; model: string | null }>
   // `null` = absent (engine default applies); `[]` = an explicit no-review run.
   defaultPhases: string[] | null
-  requiredSweeps: string[]
   phaseRuntimes: Record<string, { cli: string; model: string | null }> | null
   source: SprintEngineStateInitializeSource | null
   sourceBundle: SprintEngineStateInitializeSourceBundleItem[]
@@ -429,7 +428,6 @@ function resolveInitialSprintEngineStatePayload(payload: SprintEngineStateInitia
     rosterSource: resolveRosterSource(payload?.rosterSource),
     allowedRuntimes: resolveAllowedRuntimes(payload?.allowedRuntimes),
     defaultPhases: resolveDefaultPhases(payload?.defaultPhases),
-    requiredSweeps: resolveRequiredSweeps(payload?.requiredSweeps),
     phaseRuntimes: resolvePhaseRuntimes(payload?.phaseRuntimes),
     source: resolveInitSource(payload?.source),
     sourceBundle: resolveInitSourceBundle(payload?.sourceBundle),
@@ -460,18 +458,6 @@ function resolveInitRepos(input: SprintEngineStateInitializeInput['repos']): Arr
     if (id && root) repos.push({ id, root })
   }
   return repos
-}
-
-// Mandated sweep roles. Unlike `defaultPhases`, an empty list is the same as absent
-// (no mandate), so this collapses to a plain array and the flag is only forwarded
-// when non-empty. The engine rejects any id that is not a registry sweep role.
-function resolveRequiredSweeps(input: SprintEngineStateInitializeInput['requiredSweeps']): string[] {
-  if (!Array.isArray(input)) return []
-  const seen = new Set<string>()
-  for (const role of input) {
-    if (typeof role === 'string' && role.trim()) seen.add(role.trim())
-  }
-  return [...seen]
 }
 
 // Per-phase runtime bindings (MC-1543). An entry with no `cli` cannot spawn a
@@ -655,9 +641,6 @@ function sprintEngineInitArgs(state: ValidSprintEngineStatePath, payload: Serial
   if (payload.defaultPhases !== null) {
     args.push('--default-phases-json', JSON.stringify(payload.defaultPhases))
   }
-  if (payload.requiredSweeps.length > 0) {
-    args.push('--required-sweeps-json', JSON.stringify(payload.requiredSweeps))
-  }
   // Must follow --allowed-runtimes-json: the engine validates bindings against the palette.
   if (payload.phaseRuntimes) {
     args.push('--phase-runtimes-json', JSON.stringify(payload.phaseRuntimes))
@@ -676,7 +659,7 @@ function runSprintEngineCli(state: ValidSprintEngineStatePath, args: string[]): 
     const runtimeRoot = getSprintEngineMcpRuntimeRoot()
     const toolPath = join(runtimeRoot, 'scripts', 'sprintengine_tool.py')
     // Same registry roots the spawn menu discovers, so init-time role
-    // validation (--required-sweeps-json, --agent role:id) resolves exactly
+    // validation (--agent role:id) resolves exactly
     // the roles the menu offered — plugin roots are dynamic and only the
     // running app knows them (the user-install root the engine now finds
     // natively; see MULTICODE_USER_REGISTRY_ROOT in role_registry.py).

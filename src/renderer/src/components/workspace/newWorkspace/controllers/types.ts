@@ -108,12 +108,6 @@ export type SprintEngineNewTeamInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
-  // Roles enabled outside the role table, merged into enabledRoles ->
-  // configuredRoles at init (MC-1542: the registry's sweep roles, so the
-  // architect can plan the audits the "Final sweeps" panel promises even when
-  // the operator mandated none). Ignored in architect mode, whose configured
-  // roles collapse to ['architect'] and grow via roster.configure.
-  additionalEnabledRoles?: SprintEngineRoleId[]
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
@@ -135,12 +129,10 @@ export type SprintEngineNewTeamInput = {
   architectSeat?: SprintEngineAllowedRuntime
   allowedRuntimes?: SprintEngineAllowedRuntime[]
   architectGuidance?: string
-  // MC-1542 / MC-1543 "Workflow steps" + "Final sweeps" panels. Each is
-  // pre-computed by the wizard (see `buildSprintEngineWorkflowInitKeys`) and
+  // MC-1543 "Workflow steps" panel. Each is pre-computed by the wizard and
   // forwarded verbatim into the run init; each is present ONLY when it diverges
   // from the engine default, so a plain run sends none of them.
   defaultPhases?: string[]
-  requiredSweeps?: string[]
   phaseRuntimes?: Record<string, { cli: string; model: string | null }>
 }
 
@@ -166,9 +158,6 @@ export type SprintEnginePlanSourcedInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
-  // Extra roles for enabledRoles -> configuredRoles (the user-selected "Final
-  // sweeps" roles; see SprintEngineNewTeamInput.additionalEnabledRoles).
-  additionalEnabledRoles?: SprintEngineRoleId[]
   startRunner: boolean
   autoApproveArtifacts: boolean
   useWorktrees?: boolean
@@ -177,12 +166,10 @@ export type SprintEnginePlanSourcedInput = {
   // "Also works in" field is withheld for those paths. Such a run brings another
   // project in through `sprintengine.vcs.request_repo` when an agent finds it needs
   // one.
-  // "Workflow steps" + "Final sweeps" run-init keys (MC-1542 / MC-1543), same
-  // contract as SprintEngineNewTeamInput: forwarded verbatim, each present ONLY
-  // when it diverges from the engine default. The plan-sourced path historically
-  // dropped these, silently discarding the operator's sweep mandate.
+  // "Workflow steps" run-init keys (MC-1543), same contract as
+  // SprintEngineNewTeamInput: forwarded verbatim, each present ONLY when it
+  // diverges from the engine default.
   defaultPhases?: string[]
-  requiredSweeps?: string[]
   phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   // Record file-backed sources as project-root-relative references (no copy).
   sourceReference?: boolean

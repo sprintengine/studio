@@ -107,7 +107,6 @@ async function testSaveGetRoundTrip(): Promise<void> {
         label: 'Auditor',
         summary: 'Audits the change.',
         aliases: ['audit'],
-        sweep: { focus: 'security review', when: 'always' },
         body: '<what-to-do>\n# Role\nYou are Auditor.\n</what-to-do>\n',
       },
       root
@@ -126,7 +125,6 @@ async function testSaveGetRoundTrip(): Promise<void> {
       assert.equal(fetched.manifest.id, 'auditor')
       assert.deepEqual(fetched.manifest.directives, { implement: [{ skill: 'auditor' }] })
       assert.deepEqual(fetched.manifest.aliases, ['audit'])
-      assert.deepEqual(fetched.manifest.sweep, { focus: 'security review', when: 'always' })
       assert.ok(fetched.body.includes('You are Auditor.'))
     }
 

@@ -6,7 +6,6 @@ import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
   getSprintEngineWizardRoleSummary,
   listSprintEngineWizardRoles,
-  listSprintEngineWizardWorkRoles,
 } from '../../../utils/sprintengineRoleOptions'
 import type {
   AgentCli,
@@ -44,10 +43,9 @@ interface RosterTableProps {
   /** Optional trailing row rendered inside the roster border, hairline-divided
    *  below the role rows (e.g. the "save as default" affordance). */
   footer?: React.ReactNode
-  /** MC-1542 "Work types & models" panel mode: rows are the kinds of work the
-   *  run can include (sweep roles are excluded — they live in the "Final
-   *  sweeps" panel) and the row copy reads as turning work on, not hiring an
-   *  agent. Off (default) keeps the classic team-roster presentation. */
+  /** MC-1542 "Work types & models" panel mode: the row copy reads as turning
+   *  work on, not hiring an agent. Off (default) keeps the classic team-roster
+   *  presentation. */
   workTypes?: boolean
 }
 
@@ -70,9 +68,7 @@ export function SprintEngineRosterTable({
   footer,
   workTypes,
 }: RosterTableProps) {
-  const roles = workTypes
-    ? listSprintEngineWizardWorkRoles(registry, disabledRoleIds)
-    : listSprintEngineWizardRoles(registry, disabledRoleIds)
+  const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
   const fallbackCli = cliOptions[0]?.value ?? 'claude-code'
   return (
     <div className="divide-y divide-[color:var(--border-default)] rounded-md border border-[color:var(--border-default)]">

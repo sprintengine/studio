@@ -81,13 +81,10 @@ import AgentComposer, {
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
 import { SprintEngineTeamPanel, type SprintEngineTeamMode } from './newWorkspace/SprintEngineTeamPanel'
-import { SprintEngineReviewsPanel } from './newWorkspace/SprintEngineReviewsPanel'
 import { SprintEngineToolsPanel } from './newWorkspace/SprintEngineToolsPanel'
 import { SprintEngineStartPanel } from './newWorkspace/SprintEngineStartPanel'
-import { buildSprintEngineWorkflowInitKeys } from './newWorkspace/sprintengineWorkflowConfig'
 import {
-  listSprintEngineWizardSweepRoles,
-  listSprintEngineWizardWorkRoles,
+  listSprintEngineWizardRoles,
   sprintEngineRosterHasPlanningRole,
   sprintEngineRosterRoleFloor,
 } from '../../utils/sprintengineRoleOptions'
@@ -198,10 +195,6 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
     title: 'Team',
     subtitle: 'Who plans and builds this sprint.',
   },
-  'sprintengine-reviews': {
-    title: 'Reviews',
-    subtitle: 'What gets checked before the sprint finishes.',
-  },
   'sprintengine-tools': {
     title: 'Tools & skills',
     subtitle: 'Optional. Selected tools are added to this project — manage them anytime in Settings.',
@@ -221,9 +214,9 @@ const STEP_HEADING: Record<StepId, { title: string; subtitle: string }> = {
 }
 
 // Short station names for the labeled progress header (MC-1646): the sprint
-// flow reads Where · What · Team · Reviews · Tools · Start instead of
-// anonymous dashes. Other flows keep the dash strip and label back-jumps with
-// the full STEP_HEADING title.
+// flow reads Where · What · Team · Tools · Start instead of anonymous dashes.
+// Other flows keep the dash strip and label back-jumps with the full
+// STEP_HEADING title.
 const STEP_LABEL: Record<StepId, string> = {
   workspace: 'Where',
   'mcp-servers': 'Tools',
@@ -232,7 +225,6 @@ const STEP_LABEL: Record<StepId, string> = {
   'standard-layout': 'Layout',
   'sprintengine-team': 'What',
   'sprintengine-roster': 'Team',
-  'sprintengine-reviews': 'Reviews',
   'sprintengine-tools': 'Tools',
   'sprintengine-start': 'Start',
   'guided-idea': 'What',
@@ -644,9 +636,9 @@ export default function NewWorkspacePanel({
   // prompt-only (never persisted by the engine).
   const [seRosterSource, setSeRosterSource] = useState<SprintEngineRosterSource>('user')
   // Specialist roles on/off (MC-1585). Off = plain agents (a pool of general
-  // agents sized by the concurrency cap). On = the specialist roster,
-  // architect-picks-the-team mode, and Final sweeps. Driven by the Team page's
-  // segmented control (MC-1646) through seTeamMode below.
+  // agents sized by the concurrency cap). On = the specialist roster and
+  // architect-picks-the-team mode. Driven by the Team page's segmented control
+  // (MC-1646) through seTeamMode below.
   const [seUseSpecialistRoles, setSeUseSpecialistRoles] = useState(initialUseSpecialistRoles)
   // The Team page's segmented control (MC-1646) is a projection of the two
   // stored axes: specialist roles on/off (MC-1585) and who staffs the roster
@@ -668,23 +660,6 @@ export default function NewWorkspacePanel({
   const [seArchitectSeat, setSeArchitectSeat] = useState<SprintEngineAllowedRuntime | null>(null)
   const [seSprintModelSelection, setSeSprintModelSelection] = useState<ReadonlySet<string> | null>(null)
   const [seArchitectGuidance, setSeArchitectGuidance] = useState('')
-  // "Reviews" + "Final sweeps" panels (MC-1542 / MC-1543). Self-review is a
-  // fixed part of every run — each agent reviews its own diff, on its own model,
-  // before finishing — so it is no longer a wizard control: the run always keeps
-  // the engine defaults (defaultPhases absent, no phaseRuntimes). Only mandated
-  // sweeps vary, and an untouched run still omits requiredSweeps.
-  const [seRequiredSweeps, setSeRequiredSweeps] = useState<ReadonlySet<SprintEngineRoleId>>(
-    () => new Set<SprintEngineRoleId>(),
-  )
-  const toggleSprintEngineRequiredSweep = (role: SprintEngineRoleId, next: boolean) => {
-    setSeRequiredSweeps((prev) => {
-      const updated = new Set(prev)
-      if (next) updated.add(role)
-      else updated.delete(role)
-      return updated
-    })
-  }
-
 
   // Review workspace creation state (MC-1677). The source segment leads with
   // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
@@ -885,34 +860,16 @@ export default function NewWorkspacePanel({
       : seRoleCounts),
     [seRoleCounts, effectiveSprintEngineDisabledRoleIds],
   )
-  // The "Final sweeps" toggles ARE the roster contract for sweep roles: only
-  // the sweeps the user turns ON ride into enabledRoles -> configuredRoles at
-  // create (and into requiredSweeps as the completion mandate), so the roster
-  // and the architect's plan reflect exactly what the user configured. MC-1545
-  // originally force-enabled every registry sweep role here so "the architect
-  // can decide" — which seated the full audit catalog (security, performance,
-  // production-readiness…) on runs whose operator selected none of them, and
-  // the architect then dutifully planned one sweep task per seated role (the
-  // design-wizard-premium regression). If the work needs an unconfigured role,
-  // the architect raises needs_input instead of adding it (agentPrompt.ts).
-  const sprintEngineSweepEnabledRoles = useMemo<SprintEngineRoleId[]>(
-    () =>
-      listSprintEngineWizardSweepRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds).filter(
-        (role) => seRequiredSweeps.has(role),
-      ),
-    [seRoleRegistry, effectiveSprintEngineDisabledRoleIds, seRequiredSweeps],
-  )
   // Role counts handed to CREATION (not the panel view): only roles the wizard
-  // actually offers as "Work types & models" rows. seRoleCounts can carry stale
-  // extras from a saved team — sweep roles (seats pre-MC-1542, toggles now) and
-  // role ids the current registry doesn't know (e.g. the v1-era spec_reviewer)
-  // — which would silently ride into configuredRoles as phantom, unseatable
-  // roster rows the user never chose. Existing teams never re-create, so their
-  // canonical counts pass through untouched.
+  // actually offers as roster rows. seRoleCounts can carry stale extras from a
+  // saved team — role ids the current registry doesn't know (e.g. the v1-era
+  // spec_reviewer) — which would silently ride into configuredRoles as phantom,
+  // unseatable roster rows the user never chose. Existing teams never
+  // re-create, so their canonical counts pass through untouched.
   const sprintEngineCreateRoleCounts = useMemo<SprintEngineRoleCounts>(() => {
     if (seExistingTeam) return visibleSprintEngineRoleCounts
     const offered = new Set<SprintEngineRoleId>(
-      listSprintEngineWizardWorkRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
+      listSprintEngineWizardRoles(seRoleRegistry, effectiveSprintEngineDisabledRoleIds),
     )
     const filtered: SprintEngineRoleCounts = {}
     for (const [role, count] of Object.entries(visibleSprintEngineRoleCounts)) {
@@ -933,14 +890,10 @@ export default function NewWorkspacePanel({
     : sprintEngineCreateRoleCounts
   // Spawn-at-start follows the planner (general here, architect in specialist
   // mode), so the launch bootstrap reads the effective counts, not the hidden
-  // specialist roster. Final sweeps are a specialist affordance: plain runs mandate none.
+  // specialist roster.
   const sprintEngineEffectiveVisibleRoleCounts = sprintEnginePlainAgents
     ? PLAIN_AGENT_ROLE_COUNTS
     : visibleSprintEngineRoleCounts
-  const sprintEngineEffectiveSweepEnabledRoles = sprintEnginePlainAgents ? [] : sprintEngineSweepEnabledRoles
-  const sprintEngineEffectiveRequiredSweeps = sprintEnginePlainAgents
-    ? []
-    : ([...seRequiredSweeps] as SprintEngineRoleId[])
 
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp)
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -1305,13 +1258,8 @@ export default function NewWorkspacePanel({
 
   const steps = useMemo(() => {
     const base = stepsForMode(mode)
-    const withKnowledge = knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
-    // An existing team's review workflow is already initialized in its run
-    // state, so the Reviews page would be an empty screen — it drops out of the
-    // flow the moment a team is loaded (mirroring the knowledge step's
-    // eligibility filter). Tools stay: project-level integrations still apply.
-    return seExistingTeam ? withKnowledge.filter((id) => id !== 'sprintengine-reviews') : withKnowledge
-  }, [mode, knowledgeStepEligible, seExistingTeam])
+    return knowledgeStepEligible ? base : base.filter((id) => id !== 'knowledge')
+  }, [mode, knowledgeStepEligible])
   // The hub pages a mode's flow: the name+folder fields ('workspace') first,
   // then each config step on its own page, in flow order.
   const configSteps = useMemo(
@@ -2597,21 +2545,6 @@ export default function NewWorkspacePanel({
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
-              // Only the sweeps the user turned ON in the "Final sweeps" panel
-              // join configuredRoles — the roster is the user's configuration.
-              // Plain-agents runs never mandate a sweep (the panel is hidden).
-              additionalEnabledRoles: sprintEngineEffectiveSweepEnabledRoles,
-              // "Workflow steps" + "Final sweeps" init keys — same contract as
-              // the new-team path (each key present only when set), so a
-              // mandated sweep actually reaches run.yaml `requiredSweeps` on
-              // plan-sourced launches too.
-              // Self-review is fixed at the engine default (same agent, on its
-              // own model); only mandated sweeps vary from the wizard now.
-              ...buildSprintEngineWorkflowInitKeys({
-                selfReviewEnabled: true,
-                reviewRuntime: null,
-                requiredSweepRoleIds: sprintEngineEffectiveRequiredSweeps,
-              }),
               startRunner: seAutomationMode !== 'manual',
               autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
               useWorktrees: seUseWorktrees,
@@ -2700,10 +2633,6 @@ export default function NewWorkspacePanel({
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
             initialSpawnRoles: architectMode ? ['architect'] : seInitialSpawnRoles,
-            // Only the sweeps the user turned ON in the "Final sweeps" panel
-            // join configuredRoles (ignored in architect mode) — the roster is
-            // the user's configuration. Plain-agents runs mandate none.
-            additionalEnabledRoles: sprintEngineEffectiveSweepEnabledRoles,
             startRunner: seAutomationMode !== 'manual',
             autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
             useWorktrees: seUseWorktrees,
@@ -2713,15 +2642,6 @@ export default function NewWorkspacePanel({
             ...(seRepoDeclarations.length > 0 ? { repos: seRepoDeclarations } : {}),
             cliPermissionPreset,
             rosterSource: architectMode ? 'architect' : 'user',
-            // "Workflow steps" + "Final sweeps" panels. Each key is present only
-            // when it diverges from the engine default, so a plain run sends none.
-            // Self-review is fixed at the engine default (same agent, on its own
-            // model); only mandated sweeps vary from the wizard now.
-            ...buildSprintEngineWorkflowInitKeys({
-              selfReviewEnabled: true,
-              reviewRuntime: null,
-              requiredSweepRoleIds: sprintEngineEffectiveRequiredSweeps,
-            }),
             ...(architectMode
               ? {
                 architectSeat: effectiveArchitectSeat,
@@ -3405,29 +3325,6 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {step === 'sprintengine-reviews' ? (
-            <ConfigStepSection stepId="sprintengine-reviews" headingRef={headingRef}>
-            {!sprintEngineAccess.allowed ? (
-              <SprintEngineAccessNotice access={sprintEngineAccess} onSignIn={() => void startLogin()} />
-            ) : (
-              <SprintEngineReviewsPanel
-                cliOptions={sprintEngineCliOptions}
-                registry={seRoleRegistry}
-                disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
-                requiredSweepRoleIds={seRequiredSweeps}
-                onToggleRequiredSweep={toggleSprintEngineRequiredSweep}
-                roleCliDefaults={seRoleCliDefaults}
-                roleModelOverrides={seRoleModelOverrides}
-                onSetRoleCli={setRoleCli}
-                onSetRoleModel={setRoleModel}
-                // Final sweeps are a specialist affordance (MC-1585): hidden
-                // while the run is a plain agent pool.
-                showFinalSweeps={seUseSpecialistRoles}
-              />
-            )}
-            </ConfigStepSection>
-          ) : null}
-
           {step === 'sprintengine-tools' ? (
             <ConfigStepSection stepId="sprintengine-tools" headingRef={headingRef}>
             {!sprintEngineAccess.allowed ? (
@@ -3476,8 +3373,6 @@ export default function NewWorkspacePanel({
                 roleModelOverrides={seRoleModelOverrides}
                 poolAgentCount={seMaxParallelAgents}
                 architectSeatLabel={architectSeatLabel}
-                showReviewsRow={seExistingTeam == null}
-                requiredSweepRoleIds={new Set(sprintEngineEffectiveRequiredSweeps)}
                 selectedToolNames={selectedMcpServers.map(mcpServerDisplayName)}
                 selectedSkillPackCount={selectedSkillPackIds.size}
                 onEditStep={(target) => jumpToStep(steps.indexOf(target))}
@@ -5269,14 +5164,11 @@ function isStepReady(
       return readiness.sprintEngineTeamReady
     case 'sprintengine-roster':
       return readiness.sprintEngineRosterReady
-    // The reviews, tools, and review-&-start pages are refinement pages, not
-    // intent ones: every control on them is already defaulted (self-review,
-    // required sweeps, integrations, automation, permissions, parallelism,
-    // worktrees), so none of them can ever block create. That is what keeps
-    // "Skip the rest and create" honest from the roster page on (the
-    // skip-to-create invariant in creationStepFlows).
-    case 'sprintengine-reviews':
-      return true
+    // The tools and review-&-start pages are refinement pages, not intent ones:
+    // every control on them is already defaulted (integrations, automation,
+    // permissions, parallelism, worktrees), so neither can ever block create.
+    // That is what keeps "Skip the rest and create" honest from the roster page
+    // on (the skip-to-create invariant in creationStepFlows).
     case 'sprintengine-tools':
       return true
     case 'sprintengine-start':
@@ -5384,9 +5276,6 @@ function getStepBlockingMessage(args: {
         return 'Ready to create.'
       }
       if (totalAgents === 0) return 'Turn on at least one role.'
-      return 'Ready to create.'
-    case 'sprintengine-reviews':
-      if (!sprintEngineAccess.allowed) return 'Sign in to run sprints.'
       return 'Ready to create.'
     // The tools page's hint reports the live selection instead of a readiness
     // gate — the page is optional and can never block create.

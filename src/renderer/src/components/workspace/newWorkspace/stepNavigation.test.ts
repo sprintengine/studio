@@ -16,13 +16,12 @@ import {
 // footer and the progress bar make; the panel owns the `step` state, so a break
 // here is invisible to every other test in the tree.
 
-// The sprint flow is the long one — six pages — so it exercises every move.
+// The sprint flow is the long one — five pages — so it exercises every move.
 const SPRINT = STEPS_BY_MODE.sprintengine
 assert.deepEqual(SPRINT, [
   'workspace',
   'sprintengine-team',
   'sprintengine-roster',
-  'sprintengine-reviews',
   'sprintengine-tools',
   'sprintengine-start',
 ])

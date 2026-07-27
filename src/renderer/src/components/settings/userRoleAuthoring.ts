@@ -1,6 +1,6 @@
 // DOM-free view-model for the Settings -> Roles custom-role authoring form.
 //
-// All validation, id-collision detection, sweep disclosure mapping, and the
+// All validation, id-collision detection, and the
 // idle/validating/saving/saved/error state machine live here so they can be unit
 // tested under the Node runner without rendering (mirroring extensionsInstalled.ts).
 // The renderer holds the draft in component state, calls these pure helpers, and
@@ -29,15 +29,6 @@ import {
 // get bridge. The mode also gates id-collision (only meaningful when creating).
 export type RoleAuthoringMode = { kind: 'create' } | { kind: 'edit'; id: string }
 
-// The optional sweep block, disclosed behind a switch (default off). A sweep role
-// reviews the whole branch diff at a planned point in the run and fixes what it
-// finds; when disabled no sweep is emitted and the role is an ordinary worker.
-export type RoleSweepDraft = {
-  enabled: boolean
-  focus: string
-  when: string
-}
-
 // The editable form state. Aliases are a single free-text field parsed to an
 // array on save; body is the SKILL.md instructions document.
 export type RoleAuthoringDraft = {
@@ -45,7 +36,6 @@ export type RoleAuthoringDraft = {
   label: string
   summary: string
   aliasesText: string
-  sweep: RoleSweepDraft
   body: string
 }
 
@@ -56,7 +46,6 @@ export type RoleAuthoringFieldErrors = {
   id?: string
   label?: string
   aliases?: string
-  sweep?: string
   body?: string
   form?: string
 }
@@ -64,10 +53,6 @@ export type RoleAuthoringFieldErrors = {
 export type RoleAuthoringValidation =
   | { ok: true; input: UserRoleSaveInput }
   | { ok: false; errors: RoleAuthoringFieldErrors }
-
-export function emptySweepDraft(): RoleSweepDraft {
-  return { enabled: false, focus: '', when: '' }
-}
 
 // A brand-new draft: the body is seeded with the starter template so the author
 // edits a labelled scaffold rather than a blank textarea.
@@ -77,7 +62,6 @@ export function createRoleAuthoringDraft(): RoleAuthoringDraft {
     label: '',
     summary: '',
     aliasesText: '',
-    sweep: emptySweepDraft(),
     body: starterSoulTemplate(''),
   }
 }
@@ -85,13 +69,11 @@ export function createRoleAuthoringDraft(): RoleAuthoringDraft {
 // Prefill a draft from an existing user-authored role (manifest + SKILL.md body)
 // for editing. The id is preserved verbatim and the caller keeps it locked.
 export function editRoleAuthoringDraft(manifest: RoleManifest, body: string): RoleAuthoringDraft {
-  const sweep = manifest.sweep
   return {
     id: manifest.id,
     label: manifest.label,
     summary: manifest.summary ?? '',
     aliasesText: (manifest.aliases ?? []).join(', '),
-    sweep: sweep ? { enabled: true, focus: sweep.focus, when: sweep.when } : emptySweepDraft(),
     body,
   }
 }
@@ -117,9 +99,6 @@ export function toUserRoleSaveInput(draft: RoleAuthoringDraft): UserRoleSaveInpu
   if (summary) input.summary = summary
   const aliases = parseAliasesText(draft.aliasesText)
   if (aliases.length > 0) input.aliases = aliases
-  if (draft.sweep.enabled) {
-    input.sweep = { focus: draft.sweep.focus.trim(), when: draft.sweep.when.trim() }
-  }
   return input
 }
 
@@ -127,7 +106,6 @@ function fieldForIssuePath(path: string): keyof RoleAuthoringFieldErrors {
   if (path === 'id') return 'id'
   if (path === 'label') return 'label'
   if (path.startsWith('aliases')) return 'aliases'
-  if (path.startsWith('sweep')) return 'sweep'
   if (path === 'body') return 'body'
   return 'form'
 }

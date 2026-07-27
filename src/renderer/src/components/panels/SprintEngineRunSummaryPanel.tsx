@@ -510,9 +510,9 @@ const MEASURED_ISSUE_HINTS: Record<string, string> = {
 // Definitions for the review-throughput columns: "reviews" counts passes (a task
 // can be reviewed more than once) while "tasks reviewed" counts distinct tasks.
 const REVIEW_COLUMN_HINTS = {
-  tasksAudited: 'Distinct tasks this sweep read at least once.',
-  passed: 'Audits where the sweep found nothing to fix.',
-  fixedForward: 'Audits where the sweep found problems and fixed them itself.',
+  tasksAudited: "Distinct tasks this agent read at least once reviewing another agent's work.",
+  passed: 'Reviews that found nothing to fix.',
+  fixedForward: 'Reviews that found problems and fixed them in place.',
   escalated: 'Findings too large to fix in place, escalated to the architect or the user.',
 } as const
 
@@ -734,7 +734,7 @@ function ImplementationTable({
 function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
   return (
     <div className="mt-5">
-      <WorkTypeHeading label="Sweeps" count={rows.length} />
+      <WorkTypeHeading label="Reviews" count={rows.length} />
       <div className="overflow-x-auto">
         <table className={TABLE_CLASS} style={tableStyleFor(4)}>
           <ColGroup numCols={4} />
@@ -763,21 +763,21 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
           </thead>
           <tbody>
             {rows.map((row) => {
-              const sweep = row.metrics?.sweep
+              const peerReview = row.metrics?.peerReview
               const border = 'border-b border-[color:var(--border-subtle)]'
-              const escalated = sweep?.escalated ?? 0
+              const escalated = peerReview?.escalated ?? 0
               return (
                 <tr key={row.agentId}>
                   <td className={`${border} py-[7px] pr-6`}>
                     <AgentName role={row.role} agentId={row.agentId} />
                   </td>
                   <NumCellB border={border} sep={COL_SEP}>
-                    {sweep ? sweep.tasksAudited : NA}
+                    {peerReview ? peerReview.tasksAudited : NA}
                   </NumCellB>
-                  <NumCellB border={border}>{sweep ? sweep.passed : NA}</NumCellB>
-                  <NumCellB border={border}>{sweep ? sweep.fixedForward : NA}</NumCellB>
+                  <NumCellB border={border}>{peerReview ? peerReview.passed : NA}</NumCellB>
+                  <NumCellB border={border}>{peerReview ? peerReview.fixedForward : NA}</NumCellB>
                   <NumCellB border={border}>
-                    {!sweep ? (
+                    {!peerReview ? (
                       NA
                     ) : escalated > 0 ? (
                       <span className="text-[color:var(--tone-warn)]">{escalated}</span>

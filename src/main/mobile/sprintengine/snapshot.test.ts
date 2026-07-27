@@ -788,7 +788,7 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
       // The real reader spawns the Sprint Engine MCP; stub it so this stays a unit test.
       readRoleCatalog: async () => [
         { roleId: 'architect', label: 'Architect', summary: 'Plans the run.', source: 'bundled' },
-        { roleId: 'tester', label: 'QA', sweep: true, source: 'bundled' },
+        { roleId: 'tester', label: 'QA', summary: 'Validates real product paths.', source: 'bundled' },
         { roleId: 'prompt_smith', label: 'Prompt Smith', summary: 'Tunes prompts.', source: 'user' },
       ],
     },
@@ -819,7 +819,6 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   // MC-1543: the workspace's role registry rides its backlog workspace, so the
   // phone's launch picker can offer roles it was never compiled to know about.
   assert.deepEqual(backlogWorkspace?.roles?.map((role) => role.roleId), ['architect', 'tester', 'prompt_smith'])
-  assert.equal(backlogWorkspace?.roles?.find((role) => role.roleId === 'tester')?.sweep, true)
   const custom = backlogWorkspace?.roles?.find((role) => role.roleId === 'prompt_smith')
   assert.equal(custom?.label, 'Prompt Smith')
   assert.equal(custom?.source, 'user')
@@ -1329,7 +1328,6 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
         summary: 'Plans production software work and task decomposition.',
         icon: null,
         directives: { implement: [{ skill: 'architect' }] },
-        sweep: null,
         source: { layer: 'bundled' },
       },
       {
@@ -1338,20 +1336,17 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
         aliases: [],
         summary: 'Validates real product paths.',
         directives: { implement: [{ skill: 'tester' }] },
-        // A sweep is a {focus, when} block — the phone gets the boolean, never the prose.
-        sweep: { focus: 'the combined branch diff', when: 'behaviour changed' },
         source: { layer: 'bundled' },
       },
       {
         id: 'prompt_smith',
         label: 'Prompt Smith',
         summary: 'Tunes prompts.',
-        sweep: null,
         // User-global roles mount as a plugin root; the phone should be told "user".
         source: { layer: 'plugin:user-roles' },
       },
-      { id: 'house_style', label: 'House Style', sweep: null, source: { layer: 'workspace' } },
-      { id: 'vendor_role', label: 'Vendor Role', sweep: null, source: { layer: 'plugin:acme' } },
+      { id: 'house_style', label: 'House Style', source: { layer: 'workspace' } },
+      { id: 'vendor_role', label: 'Vendor Role', source: { layer: 'plugin:acme' } },
     ],
   })
 
@@ -1364,8 +1359,6 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
   ])
   // Directives and skill routing are not the phone's business and must not ride.
   assert.deepEqual(Object.keys(catalog?.[0] ?? {}).sort(), ['label', 'roleId', 'source', 'summary'])
-  assert.equal(catalog?.[1]?.sweep, true, 'a sweep block reduces to the flag')
-  assert.equal(catalog?.[0]?.sweep, undefined, 'a null sweep is not a sweep')
   assert.equal(catalog?.[2]?.source, 'user', 'plugin:user-roles is what a user authored')
   assert.equal(catalog?.[3]?.source, 'workspace')
   assert.equal(catalog?.[4]?.source, 'plugin', 'other plugin layers collapse to plugin')

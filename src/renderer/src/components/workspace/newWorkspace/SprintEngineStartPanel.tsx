@@ -19,8 +19,7 @@ import type { StepId } from './creationStepFlows'
 import type { SprintEngineCliOption } from './SprintEngineRosterTable'
 import type { SprintEngineTeamMode } from './SprintEngineTeamPanel'
 import { sprintEngineAutomationModeOptions } from '../../../utils/sprintengineAutomation'
-import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
-import { listSprintEngineWizardWorkRoles } from '../../../utils/sprintengineRoleOptions'
+import { listSprintEngineWizardRoles } from '../../../utils/sprintengineRoleOptions'
 import { RoleAvatar, Select, Switch } from '../../ui'
 import { cliPermissionOptions } from './WizardControls'
 
@@ -53,8 +52,6 @@ export function SprintEngineStartPanel({
   roleModelOverrides,
   poolAgentCount,
   architectSeatLabel,
-  showReviewsRow,
-  requiredSweepRoleIds,
   selectedToolNames,
   selectedSkillPackCount,
   onEditStep,
@@ -85,9 +82,6 @@ export function SprintEngineStartPanel({
   roleModelOverrides: SprintEngineRoleModelOverrides
   poolAgentCount: number
   architectSeatLabel: string | null
-  /** False for an existing team (its review workflow is already initialized). */
-  showReviewsRow: boolean
-  requiredSweepRoleIds: ReadonlySet<SprintEngineRoleId>
   selectedToolNames: string[]
   selectedSkillPackCount: number
   onEditStep: (step: StepId) => void
@@ -106,7 +100,7 @@ export function SprintEngineStartPanel({
   declaredRepoNames: readonly string[]
   createError: string | null
 }) {
-  const onRoles = listSprintEngineWizardWorkRoles(registry, disabledRoleIds).filter(
+  const onRoles = listSprintEngineWizardRoles(registry, disabledRoleIds).filter(
     (role) => (roleCounts[role] ?? 0) > 0,
   )
 
@@ -132,14 +126,6 @@ export function SprintEngineStartPanel({
             text: `${onRoles.length} role${onRoles.length === 1 ? '' : 's'}, picked yourself`,
             crumb: sharedRuntime ?? 'mixed runtimes',
           }
-
-  const sweepLabels = [...requiredSweepRoleIds].map((role) => getSprintEngineRoleLabel(role, registry))
-  const reviewsSummary = [
-    // Self-review is fixed for every run now — the same agent reviews its own
-    // work before finishing (no toggle, no stronger-model option).
-    'Self-review by the same agent',
-    sweepLabels.length > 0 ? `${sweepLabels.join(', ')} sweep${sweepLabels.length === 1 ? '' : 's'}` : 'no final sweeps',
-  ].join(' · ')
 
   const toolsSummary =
     selectedToolNames.length === 0 && selectedSkillPackCount === 0
@@ -196,11 +182,6 @@ export function SprintEngineStartPanel({
             </span>
           </span>
         </SummaryRow>
-        {showReviewsRow ? (
-          <SummaryRow label="Reviews" onEdit={() => onEditStep('sprintengine-reviews')}>
-            {reviewsSummary}
-          </SummaryRow>
-        ) : null}
         <SummaryRow label="Tools" onEdit={() => onEditStep('sprintengine-tools')}>
           {toolsSummary}
         </SummaryRow>
