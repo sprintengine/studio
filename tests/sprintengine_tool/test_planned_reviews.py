@@ -221,3 +221,26 @@ def test_an_engaged_plan_approves_quietly(tmp_path) -> None:
     # The acceptance still reaches the approver — that notice is not a warning,
     # it is the material the judgment needs.
     assert approved["reviewAcceptance"][0]["acceptance"] == ["New cross-module test covers T5's seam."]
+
+
+def test_the_review_marker_can_be_set_and_cleared_after_planning(tmp_path) -> None:
+    """`plan update-task` must admit the new kind too. The add path and the
+    update path carry separate enums (CLI choices and MCP schema alike), so a
+    marker that can be created but never corrected is a half-shipped field."""
+    fixture = create_team(tmp_path, "review-kind-update", [])
+    state = read_state(fixture.state_path)
+    state.setdefault("sprintengine", {})["rosterConfigured"] = True
+    state["configuredRoles"] = ["developer"]
+    write_state(fixture.state_path, state)
+
+    added = fixture.cli.run(
+        "plan", "add-task", "--title", "Audit T1", "--role", "developer",
+        "--description", "Audit it.", "--acceptance", "Findings filed.",
+    )
+    task_id = added["task"]["id"]
+
+    marked = fixture.cli.run("plan", "update-task", "--task-id", task_id, "--kind", "review")
+    assert marked["task"]["kind"] == REVIEW_KIND
+
+    cleared = fixture.cli.run("plan", "update-task", "--task-id", task_id, "--kind", "work")
+    assert "kind" not in cleared["task"]

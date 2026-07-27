@@ -955,6 +955,7 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
           "type": "string",
           "enum": [
             "work",
+            "review",
             "integration_review"
           ],
           "description": "Set or clear the charter marker; work clears it."
