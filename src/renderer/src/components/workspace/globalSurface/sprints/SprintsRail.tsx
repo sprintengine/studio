@@ -1,5 +1,6 @@
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { LifecycleGlyph } from '../../../ui'
+import { basename } from '../../../../utils/paths'
 import { SurfaceRail, type SurfaceRailRow, type SurfaceRailScope } from '../surfaceSubstrate'
 import {
   buildSprintRailGroups,
@@ -75,13 +76,20 @@ export function SprintsRail({
   const rawGroups = buildSprintRailGroups(searched, projectFilter, sort)
   const groups = rawGroups.map((group) => ({ ...group, rows: withGlyphIcons(group.rows) }))
   const rows = groups.flatMap((group) => group.rows)
+  // A lens narrowed to a project whose last run has since been deleted: the
+  // chips are derived from the runs, so that project is no longer among them.
+  // Keep its option — the trigger must name the lens that is actually applied
+  // (never the Select's placeholder), and it is the only way back to All
+  // projects (the Backlog door's rule for a project it can no longer count).
+  const strandedFilter =
+    projectFilter && !chips.some((chip) => chip.projectRoot === projectFilter) ? projectFilter : null
   // The project lens, leading the rail exactly as it leads the Backlog toolbar.
   // Offered only when there is a second project to choose between — a lone
   // option beside "All projects" narrows nothing. Options carry their run count,
   // and `deriveSprintProjectChips` derives them from the runs themselves, so a
   // project with no run is never listed.
   const projectScope: SurfaceRailScope | undefined =
-    chips.length > 1
+    chips.length > 1 || strandedFilter
       ? {
           ariaLabel: 'Filter by project',
           items: [
@@ -90,6 +98,9 @@ export function SprintsRail({
               value: chip.projectRoot,
               label: `${chip.label} · ${chip.runCount}`,
             })),
+            ...(strandedFilter
+              ? [{ value: strandedFilter, label: `${basename(strandedFilter)} · no sprints` }]
+              : []),
           ],
           value: projectFilter ?? ALL_PROJECTS,
           onChange: (next: string) => onFilter(next === ALL_PROJECTS ? null : next),

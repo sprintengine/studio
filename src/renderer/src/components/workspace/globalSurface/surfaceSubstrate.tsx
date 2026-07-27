@@ -264,7 +264,7 @@ export function SurfaceRail({
   // keyboard and the canvas stay in step. Ignored while typing in a field.
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if (isEditableTarget(event.target) || rows.length === 0) return
+      if (swallowsRailNavigation(event.target) || rows.length === 0) return
       const next = event.key === 'ArrowDown' || event.key === 'j'
       const prev = event.key === 'ArrowUp' || event.key === 'k'
       if (!next && !prev) return
@@ -409,9 +409,14 @@ export function BarStatusChip({
   )
 }
 
-// A field being typed into swallows the rail's navigation keys.
-function isEditableTarget(target: EventTarget | null): boolean {
+// A field being typed into swallows the rail's navigation keys — and so does a
+// control with its own Arrow-key contract. The project lens and the filter glyph
+// sit INSIDE the rail's key handler, and neither stops propagation, so without
+// this an ArrowDown on the lens would open its listbox and move the rail's
+// selection, pulling focus off the control the operator is using.
+function swallowsRailNavigation(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return true
+  return Boolean(target.closest('[role="combobox"], [aria-haspopup]'))
 }

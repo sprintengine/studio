@@ -474,6 +474,31 @@ async function main(): Promise<void> {
   )
   assert.ok(lensAt < railHtml.indexOf('Sprints: '), 'and the whole block leads the rows')
 
+  // The lens sits INSIDE the rail's ↑/↓ + j/k handler and its own Arrow contract
+  // does not stop propagation. Without a guard, opening it from the keyboard also
+  // walked the rail and pulled focus onto a row — the control would be unusable
+  // by keyboard. Arrow keys on the lens must move the lens and nothing else.
+  const selectedRunName = (): string =>
+    container.querySelector('li button[aria-current="true"]')?.textContent ?? ''
+  const beforeArrow = selectedRunName()
+  await act(async () => {
+    filterTrigger().focus()
+    filterTrigger().dispatchEvent(
+      new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    )
+  })
+  assert.equal(selectedRunName(), beforeArrow, 'ArrowDown on the lens never walks the rail')
+  assert.equal(
+    dom.window.document.activeElement,
+    filterTrigger(),
+    'and never pulls focus off the control being used',
+  )
+  await act(async () => {
+    filterTrigger().dispatchEvent(
+      new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    )
+  })
+
   await pickFilter('multicode ·')
   const railRowsNow = (): string =>
     [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
