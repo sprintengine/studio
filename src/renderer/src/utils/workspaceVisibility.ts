@@ -52,7 +52,12 @@ export function isHiddenFromRail(workspace: WorkspaceModeInput): boolean {
   return isModeHiddenFromRail(workspace.mode)
 }
 
-// True when the user archived the workspace (Sprints aside row action).
+// True when the workspace is archived. The only writer today is the startup
+// staleness sweep (`archiveStaleWorkspaces`, once per WorkspaceManager mount);
+// typing into one of its terminals clears it again
+// (`recordWorkspaceTerminalActivity`). The Sprints aside row action that used to
+// set it by hand went with the aside (item 1767), leaving `setWorkspaceArchived`
+// as the manual path with no caller.
 // Deliberately separate from isHiddenFromRail: rail lists filter archived rows
 // out, but the command palette / search keeps them findable and window
 // assignment never consults this.

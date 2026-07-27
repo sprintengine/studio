@@ -9,6 +9,8 @@ import {
   conflictTone,
   eventToChordString,
   groupRows,
+  RETIRED_COMMAND_IDS,
+  retiredKeybindingIds,
   rowMatchesQuery,
   type RecorderKeyEvent,
 } from './KeyboardShortcutsTab'
@@ -200,5 +202,48 @@ assert.ok(
   ),
   'the built-in row names the module command as the conflicting side',
 )
+
+// --- Retired commands (item 1813) -------------------------------------------
+// A profile that saved a binding for a command the shell has since retired must
+// not grow a dangling row, must not fire the old key, and must lose the stored
+// delta — the tab prunes what it lists as retired.
+const RETIRED_ID = 'panel.sprint-engines.toggle'
+assert.ok(RETIRED_COMMAND_IDS.includes(RETIRED_ID), 'the removed Sprint Engines toggle is listed as retired')
+for (const id of RETIRED_COMMAND_IDS) {
+  assert.equal(
+    COMMAND_REGISTRY.some((command) => command.id === id),
+    false,
+    `retired id ${id} must not still be a live command`,
+  )
+}
+
+const withRetiredOverride: KeybindingSettings = { overrides: { [RETIRED_ID]: ['primary+9'] }, disabled: {} }
+assert.equal(
+  buildShortcutRows(COMMAND_REGISTRY, withRetiredOverride).some((row) => row.id === RETIRED_ID),
+  false,
+  'a retired command contributes no shortcut row',
+)
+assert.deepEqual(retiredKeybindingIds(withRetiredOverride), [RETIRED_ID], 'a stored override is pruneable')
+assert.deepEqual(
+  retiredKeybindingIds({ overrides: {}, disabled: { [RETIRED_ID]: true } }),
+  [RETIRED_ID],
+  'a stored disable flag is pruneable on its own',
+)
+assert.deepEqual(retiredKeybindingIds(EMPTY), [], 'a profile with no retired deltas prunes nothing')
+// Not-currently-registered is not the same as retired: a disabled module's
+// customization must survive, so only the named ids are pruned.
+assert.deepEqual(
+  retiredKeybindingIds({ overrides: { 'demo-module.hello': ['primary+alt+j'] }, disabled: {} }),
+  [],
+  'an unregistered module binding is left alone',
+)
+
+// The dispatcher matches the live registry, so the orphaned key is already inert
+// — pruning removes dead settings, it does not fix a ghost shortcut.
+const retiredDispatch = new RendererCommandDispatcher().resolve(
+  { key: '9', code: 'Digit9', metaKey: true },
+  { activeScopes: ['global'], keybindingOverrides: { [RETIRED_ID]: ['primary+9'] }, platform: 'darwin' },
+)
+assert.equal(retiredDispatch.kind, 'unmatched', 'a retired command id never dispatches')
 
 console.log('KeyboardShortcutsTab.test.ts: ok')
