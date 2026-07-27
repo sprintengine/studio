@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
+import { normalizeStatePathKey } from '../../../../store/sprintRunStoreSlice'
 import { PrimaryButton } from '../../../ui'
 import { GlobalSurfaceShell } from '../GlobalSurfaceShell'
 import { BarStatusChip, SurfaceCanvasState } from '../surfaceSubstrate'
@@ -68,9 +69,15 @@ export default function SprintsGlobalSurface(): JSX.Element {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SprintSort>('recent')
 
+  // One run can be spelled two ways: the index builds native-separator paths
+  // with `path.join`, while a Backlog "Open Sprint" link builds forward-slash
+  // ones (item 1803). Every match below is therefore made on the normalized key
+  // — raw equality drops the link on Windows and silently opens another run.
+  const selectedKey = selectedStatePath === null ? null : normalizeStatePathKey(selectedStatePath)
+
   const selectedRun = useMemo(
-    () => runs.find((summary) => summary.statePath === selectedStatePath) ?? null,
-    [runs, selectedStatePath],
+    () => runs.find((summary) => normalizeStatePathKey(summary.statePath) === selectedKey) ?? null,
+    [runs, selectedKey],
   )
 
   // The rows the rail could show under the current filter/search. Deliberately
@@ -97,28 +104,34 @@ export default function SprintsGlobalSurface(): JSX.Element {
   const filter = useCallback(
     (projectRoot: string | null) => {
       setProjectFilter(projectRoot)
-      if (!projectRoot || selectedStatePath === null) return
+      if (!projectRoot || selectedKey === null) return
       const stillListed = runs.some(
-        (summary) => summary.statePath === selectedStatePath && summary.projectRoot === projectRoot,
+        (summary) =>
+          normalizeStatePathKey(summary.statePath) === selectedKey && summary.projectRoot === projectRoot,
       )
       if (stillListed) return
       lastSelectedStatePath = null
       setSelectedStatePath(null)
     },
-    [runs, selectedStatePath],
+    [runs, selectedKey],
   )
 
   // Open on content, not on a prompt: with no restored selection (or one whose
   // run is gone — a deleted run store), fall to the row the rail leads with,
   // which the attention ordering makes the run most worth looking at.
+  //
+  // A resolved row also lends the selection its own spelling of the statePath,
+  // so a handed-over link path is adopted once and everything downstream (the
+  // rail's selected-row marker, the canvas) keeps comparing by identity.
   useEffect(() => {
     if (loadState !== 'ready' || rows.length === 0) return
-    if (selectedStatePath && rows.some((row) => row.id === selectedStatePath)) return
-    const first = rows[0]
-    if (!first) return
-    lastSelectedStatePath = first.id
-    setSelectedStatePath(first.id)
-  }, [loadState, rows, selectedStatePath])
+    const matched = rows.find((row) => normalizeStatePathKey(row.id) === selectedKey)
+    if (matched?.id === selectedStatePath) return
+    const next = matched ?? rows[0]
+    if (!next) return
+    lastSelectedStatePath = next.id
+    setSelectedStatePath(next.id)
+  }, [loadState, rows, selectedKey, selectedStatePath])
 
   // The selected run in full: its projection, its repositories, its merge state —
   // and, for a run only this door is watching, its single refresh driver.

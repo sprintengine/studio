@@ -87,7 +87,14 @@ import {
  sprintEngineAutomationModeOptions,
 } from '../../utils/sprintengineAutomation'
 import { normalizeSprintEngineAutomationRuntimeState } from '../../utils/sprintengineAutomationLifecycle'
-import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
+import {
+ applySprintEngineAutomationStopReason,
+ SPRINT_ENGINE_MANUAL_MODE_REASON,
+} from '../../utils/sprintengineSupervisorNotifications'
+import {
+ pushSprintEngineAutomationModeIntent,
+ pushSprintEngineCliPermissionPresetIntent,
+} from '../../utils/sprintengineAutomationIntentClient'
 import {
  publishSprintEngineAutomationModeNotification,
 } from '../../utils/sprintengineNotifications'
@@ -605,9 +612,12 @@ export function SprintRunBoard({
 }) {
   // `''` when the run has no resident workspace: workspace-store lookups by that
   // id resolve to nothing (degraded, never a crash), and workspace-scoped store
-  // setters no-op against it — they are only ever invoked behind actions the UI
-  // disables when the workspace is absent.
+  // setters no-op against it — so no engine mutation may be routed through one
+  // (MC-1799). `hasResidentWorkspace` is the board's ONE door-mode predicate:
+  // engine-level controls take a statePath route instead, and workspace-bound
+  // actions are visibly unavailable.
   const workspaceId = handle.workspaceId ?? ''
+  const hasResidentWorkspace = workspaceId !== ''
   const sprintEngineState = handle.sprintEngineState
   const workspace = useWorkspaceStore((s) =>
     handle.workspaceId ? s.workspaces.find((w) => w.id === handle.workspaceId) ?? null : null,
@@ -765,7 +775,38 @@ export function SprintRunBoard({
  const folderPath = folderReadyPath
  const agents = workspace?.agents ?? {}
  const terminalSessions = useTerminalSessions()
-  const projectedAutomationMode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState, sprintEngineState?.runner)
+  // A door mount has no workspace record to read the run's engine-level intent
+  // from, so the board reads it where it writes it: the statePath-keyed record
+  // main owns (MC-1799). Absent (a run whose intent was never written), the
+  // store-derived defaults below stand.
+  const [doorAutomationIntent, setDoorAutomationIntent] = useState<{
+    mode: SprintEngineAutomationMode
+    cliPermissionPreset: SprintEngineCliPermissionPreset
+  } | null>(null)
+  useEffect(() => {
+    const statePath = sprintEngineContext?.statePath
+    if (hasResidentWorkspace || !statePath) {
+      setDoorAutomationIntent(null)
+      return undefined
+    }
+    let cancelled = false
+    void window.api.readSprintEngineAutomationMode({ statePath })
+      .then((result) => {
+        if (cancelled || !result.ok || !result.record) return
+        setDoorAutomationIntent({
+          mode: result.record.desiredMode,
+          cliPermissionPreset: result.record.cliPermissionPreset ?? 'default',
+        })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [hasResidentWorkspace, sprintEngineContext?.statePath])
+  const storeAutomationMode = deriveSprintEngineAutomationMode(workspace?.sprintEngineAutoState, sprintEngineState?.runner)
+  const projectedAutomationMode = hasResidentWorkspace
+    ? storeAutomationMode
+    : doorAutomationIntent?.mode ?? storeAutomationMode
   const automationMode = pendingAutomationMode ?? projectedAutomationMode
   const automationRuntimeState = normalizeSprintEngineAutomationRuntimeState(
   workspace?.sprintEngineAutoState?.runtimeState,
@@ -773,7 +814,9 @@ export function SprintRunBoard({
   )
   const automationRuntimeReason = workspace?.sprintEngineAutoState?.reasonMessage
   const automationRuntimeGlyph = sprintEngineAutomationRuntimeGlyphs[automationRuntimeState]
-  const cliPermissionPreset = workspace?.sprintEngineAutoState?.cliPermissionPreset ?? 'default'
+  const cliPermissionPreset = (hasResidentWorkspace
+    ? workspace?.sprintEngineAutoState?.cliPermissionPreset
+    : doorAutomationIntent?.cliPermissionPreset) ?? 'default'
 
  // Sprint Engine role registry for the workspace. Loaded once per folder so
  // the Add Member options and uncovered-role detection surface custom enabled
@@ -1494,6 +1537,36 @@ export function SprintRunBoard({
   if (nextMode === automationMode) return
   const previousMode = automationMode
  setPendingAutomationMode(nextMode)
+  // Door mount (MC-1799): there is no workspace record to transition
+  // optimistically, so the statePath write IS the write — and the mode-changed
+  // notification is published from its confirmation, never ahead of it. A
+  // refused write leaves the control where it was and says nothing.
+  if (!hasResidentWorkspace) {
+    const doorStatePath = sprintEngineContext?.statePath
+    if (!doorStatePath) {
+      setPendingAutomationMode(null)
+      return
+    }
+    void pushSprintEngineAutomationModeIntent({
+      statePath: doorStatePath,
+      mode: nextMode,
+      ...(nextMode === 'manual' ? { reason: SPRINT_ENGINE_MANUAL_MODE_REASON } : {}),
+    })
+      .then((written) => {
+        if (!written) return
+        setDoorAutomationIntent((current) => ({
+          mode: nextMode,
+          cliPermissionPreset: current?.cliPermissionPreset ?? 'default',
+        }))
+        if (nextMode !== 'manual') {
+          publishSprintEngineAutomationModeNotification({ mode: nextMode })
+        }
+      })
+      .finally(() => {
+        setPendingAutomationMode(null)
+      })
+    return
+  }
  if (nextMode === 'manual') {
   applySprintEngineAutomationStopReason(workspaceId, 'user_manual_toggle')
  } else {
@@ -1592,7 +1665,21 @@ export function SprintRunBoard({
  if (!confirmed) return
  }
 
- setSprintEngineCliPermissionPreset(workspaceId, preset)
+  // Same split as the automation mode (MC-1799). Resident: the optimistic store
+  // write, which mirrors the preset to the run's statePath-keyed record. Door:
+  // that record IS the write, and the chip only moves once main confirms it.
+  if (hasResidentWorkspace) {
+    setSprintEngineCliPermissionPreset(workspaceId, preset)
+    return
+  }
+  const statePath = sprintEngineContext?.statePath
+  if (!statePath) return
+  const written = await pushSprintEngineCliPermissionPresetIntent({ statePath, preset })
+  if (!written) return
+  setDoorAutomationIntent((current) => ({
+    mode: current?.mode ?? projectedAutomationMode,
+    cliPermissionPreset: preset,
+  }))
  }
 
  const getAgentName = (agentId: string, fallback: string) => agents[agentId]?.name ?? fallback

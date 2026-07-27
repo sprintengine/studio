@@ -134,6 +134,29 @@ let lastRoots: string[] = []
 const projections = new Map<string, Record<string, unknown>>()
 const mergeCalls: Array<{ statePath: string; repo?: string }> = []
 
+// The run-configuration seam (item 1799): both engine-level controls write the
+// statePath-keyed automation intent through main. The stub is a real store — it
+// records every write, answers reads from what it recorded, and can refuse.
+type IntentWrite = { statePath: string; mode?: string; preset?: string; workspaceId?: string }
+const intentWrites: IntentWrite[] = []
+const intentRecords = new Map<string, { desiredMode: string; cliPermissionPreset?: string; revision: number }>()
+let intentWritesRefused = false
+
+function writeIntent(statePath: string, patch: { mode?: string; preset?: string }): unknown {
+  if (intentWritesRefused) return { ok: false, message: 'The run store could not be written.' }
+  const previous = intentRecords.get(statePath) ?? { desiredMode: 'manual', revision: 0 }
+  const record = {
+    ...previous,
+    ...(patch.mode ? { desiredMode: patch.mode } : {}),
+    ...(patch.preset ? { cliPermissionPreset: patch.preset } : {}),
+    revision: previous.revision + 1,
+  }
+  intentRecords.set(statePath, record)
+  return { ok: true, record, changed: true }
+}
+
+const notifications: Array<Record<string, unknown>> = []
+
 const api: Record<string, unknown> = {
   platform: 'darwin',
   listSprintRuns: async (roots: string[]) => {
@@ -151,6 +174,24 @@ const api: Record<string, unknown> = {
   mergeSprintEnginePullRequest: async (statePath: string, repo?: string) => {
     mergeCalls.push({ statePath, repo })
     return { ok: true }
+  },
+  pathExists: async () => true,
+  readSprintEngineAutomationMode: async ({ statePath }: { statePath: string }) => ({
+    ok: true,
+    record: intentRecords.get(statePath) ?? null,
+  }),
+  setSprintEngineAutomationMode: async (input: { statePath: string; mode: string; workspaceId?: string }) => {
+    intentWrites.push({ statePath: input.statePath, mode: input.mode, ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}) })
+    return writeIntent(input.statePath, { mode: input.mode })
+  },
+  setSprintEngineCliPermissionPreset: async (input: { statePath: string; preset: string }) => {
+    intentWrites.push({ statePath: input.statePath, preset: input.preset })
+    return writeIntent(input.statePath, { preset: input.preset })
+  },
+  logDiagnostic: async (input: Record<string, unknown>) => {
+    const entry = { ...input, id: `diag-${notifications.length + 1}`, timestamp: '2026-07-26T12:00:00.000Z' }
+    notifications.push(entry)
+    return entry
   },
 }
 
@@ -176,6 +217,10 @@ async function main(): Promise<void> {
   )
   const { default: SprintsGlobalSurface } = await import(
     './SprintsGlobalSurface'
+  )
+  const { noteSprintDoorSelection } = await import('./sprintDoorRequests')
+  const { normalizeSprintEngineProjection } = await import(
+    '../../../../../../shared/sprintengine/state'
   )
   const { ConfirmDialogProvider } = await import('../../../ui/ConfirmDialog')
   const { getTimerRegistrations } = await import('../../../../utils/diagnostics/timerRegistry')
@@ -596,11 +641,223 @@ async function main(): Promise<void> {
   assert.equal(projectionDrivers(), 0, 'and nothing loops against a projection that cannot be read')
   console.log('ok - an unreadable projection degrades with a reason and a retry')
 
+  // ── Run configuration on a door mount routes by statePath (item 1799) ────
+  // The board is mounted on a run with no resident workspace. Both engine-level
+  // controls must still reach the engine — and must never claim a change they
+  // did not make.
+  const openRunConfig = async (): Promise<void> => {
+    const trigger = [...container.querySelectorAll('button')].find((candidate) =>
+      candidate.getAttribute('aria-label')?.startsWith('Run configuration'),
+    )
+    assert.ok(trigger, 'the board header carries the run-configuration chip')
+    await act(async () => {
+      ;(trigger as HTMLElement).click()
+    })
+    await settle(2)
+  }
+  // Each mode radio renders its label and its hint as sibling spans; the label
+  // alone identifies the option ('Run agents' is a prefix of another label).
+  const automationModeLabel = (radio: Element): string =>
+    radio.querySelector('span span')?.textContent?.trim() ?? ''
+  const pickAutomationMode = async (label: string): Promise<void> => {
+    const option = [...dom.window.document.querySelectorAll('[role="radio"]')].find(
+      (candidate) => automationModeLabel(candidate) === label,
+    )
+    assert.ok(option, `the run-configuration popover offers ${label}`)
+    await act(async () => {
+      ;(option as HTMLElement).click()
+    })
+    await settle(3)
+  }
+  const checkedAutomationMode = (): string => {
+    const checked = [...dom.window.document.querySelectorAll('[role="radio"]')].find(
+      (candidate) => candidate.getAttribute('aria-checked') === 'true',
+    )
+    return checked ? automationModeLabel(checked) : ''
+  }
+  const pickCliPreset = async (label: string): Promise<void> => {
+    const trigger = dom.window.document.querySelector('button[aria-label="CLI permission preset"]')
+    assert.ok(trigger, 'the popover carries the CLI permission preset control')
+    await act(async () => {
+      ;(trigger as HTMLElement).click()
+    })
+    const option = [...dom.window.document.querySelectorAll('li[role="option"]')].find(
+      (candidate) => candidate.textContent?.startsWith(label),
+    )
+    assert.ok(option, `the preset list offers ${label}`)
+    await act(async () => {
+      ;(option as HTMLElement).click()
+    })
+    await settle(3)
+  }
+  const modeNotifications = (): Array<Record<string, unknown>> =>
+    notifications.filter((entry) => entry.title === 'Auto-run mode changed')
+
+  const doorStatePath = statePathOf(projectRoot, 'wake-filter-sprint')
+  const doorRow = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button')].find(
+    (candidate) => candidate.textContent?.includes('wake-filter-sprint'),
+  )
+  await act(async () => {
+    ;(doorRow as HTMLElement).click()
+  })
+  await settle()
+  assert.equal(
+    useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === doorStatePath),
+    false,
+    'the run has no resident workspace — this is the door mount',
+  )
+
+  await openRunConfig()
+  await pickAutomationMode('Run agents')
+  // Compared as a copy: `assert.deepEqual` narrows its first argument to the
+  // shape of the second, which would erase the optional fields asserted below.
+  assert.deepEqual(
+    [...intentWrites],
+    [{ statePath: doorStatePath, mode: 'run_agents' }],
+    'the mode reaches the engine by statePath, with no workspace id standing in for one',
+  )
+  assert.equal(modeNotifications().length, 1, 'the confirmed write announces itself once')
+  assert.equal(checkedAutomationMode(), 'Run agents', 'and the control holds the mode it wrote')
+
+  // A refused write changes nothing and claims nothing.
+  intentWritesRefused = true
+  await pickAutomationMode('Run agents + approve artifacts')
+  assert.equal(intentWrites.length, 2, 'the refused write was still attempted')
+  assert.equal(modeNotifications().length, 1, 'a refused write publishes no success notification')
+  assert.equal(checkedAutomationMode(), 'Run agents', 'and the control stays where it was')
+  intentWritesRefused = false
+
+  await pickCliPreset('Auto in workspace')
+  assert.deepEqual(
+    intentWrites[intentWrites.length - 1],
+    { statePath: doorStatePath, preset: 'auto_workspace' },
+    'the CLI permission preset takes the same statePath route',
+  )
+  const presetTrigger = dom.window.document.querySelector('button[aria-label="CLI permission preset"]')
+  assert.ok(
+    presetTrigger?.textContent?.includes('Auto in workspace'),
+    'and the preset control holds what it wrote',
+  )
+  assert.equal(
+    intentWrites.some((write) => write.workspaceId === ''),
+    false,
+    'no engine write is ever routed through the empty workspace-id sentinel',
+  )
+  console.log('ok - the door mount routes both run-configuration controls by statePath')
+
+  // ── The same controls on a resident mount are unchanged ──────────────────
+  // The optimistic workspace-store write still happens; the authoritative
+  // statePath write rides along, so both mounts agree on the run's intent.
+  await act(async () => {
+    root2.unmount()
+  })
+  intentWrites.length = 0
+  useWorkspaceStore.setState({
+    workspaces: [
+      { id: 'w1', name: 'multicode', mode: 'standard', folderPath: projectRoot, agents: {}, openFiles: [], createdAt: 1 },
+      { id: 'w2', name: 'mobile', mode: 'standard', folderPath: mobileRoot, agents: {}, openFiles: [], createdAt: 2 },
+      {
+        id: 'w3',
+        name: 'wake-filter-sprint',
+        mode: 'sprintengine',
+        folderPath: projectRoot,
+        agents: {},
+        openFiles: [],
+        createdAt: 3,
+        sprintEngineContext: {
+          teamName: 'wake-filter-sprint',
+          teamSlug: 'wake-filter-sprint',
+          teamDirectoryPath: `${projectRoot}/.multi-code/sprintengine/wake-filter-sprint`,
+          statePath: doorStatePath,
+        },
+        sprintEngineState: normalizeSprintEngineProjection(
+          projections.get(doorStatePath),
+          'wake-filter-sprint',
+        ),
+      },
+    ],
+    activeWorkspaceId: 'w1',
+    activeGlobalSurface: 'sprints',
+  } as never)
+  const root3 = createRoot(container)
+  await act(async () => {
+    root3.render(surface())
+  })
+  await settle()
+  const residentRow = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button')].find(
+    (candidate) => candidate.textContent?.includes('wake-filter-sprint'),
+  )
+  await act(async () => {
+    ;(residentRow as HTMLElement).click()
+  })
+  await settle()
+
+  const residentAutoState = (): Record<string, unknown> | undefined =>
+    useWorkspaceStore.getState().workspaces.find((ws) => ws.id === 'w3')?.sprintEngineAutoState as
+      | Record<string, unknown>
+      | undefined
+  await openRunConfig()
+  await pickAutomationMode('Run agents')
+  assert.equal(residentAutoState()?.desiredMode, 'run_agents', 'the optimistic store write still happens')
+  assert.deepEqual(
+    intentWrites[0],
+    { statePath: doorStatePath, mode: 'run_agents', workspaceId: 'w3' },
+    'and the authoritative write still names the run and its real workspace',
+  )
+  await pickCliPreset('Auto in workspace')
+  assert.equal(
+    residentAutoState()?.cliPermissionPreset,
+    'auto_workspace',
+    'the preset lands in the workspace store the spawn path reads',
+  )
+  assert.deepEqual(
+    intentWrites[intentWrites.length - 1],
+    { statePath: doorStatePath, preset: 'auto_workspace' },
+    'and mirrors into the run’s statePath-keyed record',
+  )
+  console.log('ok - the resident mount keeps its optimistic store write and reaches the same record')
+
+  // ── A handed-over link path spelled with foreign separators (item 1803) ──
+  // The Backlog link builds forward slashes; the index builds native-separator
+  // paths. Raw equality drops the link and the door opens the wrong run.
+  await act(async () => {
+    root3.unmount()
+  })
+  const windowsRoot = 'C:\\work\\multicode'
+  const windowsStatePath = `${windowsRoot}\\.multi-code\\sprintengine\\win-run\\run.yaml`
+  listed = [
+    summary({
+      teamSlug: 'other-run',
+      root: windowsRoot,
+      statePath: `${windowsRoot}\\.multi-code\\sprintengine\\other-run\\run.yaml`,
+      runtimeState: 'needs_input',
+      needsInputCount: 1,
+    }),
+    summary({
+      teamSlug: 'win-run',
+      root: windowsRoot,
+      statePath: windowsStatePath,
+      runtimeState: 'completed',
+    }),
+  ]
+  noteSprintDoorSelection(windowsStatePath.replace(/\\/g, '/'))
+  const root4 = createRoot(container)
+  await act(async () => {
+    root4.render(surface())
+  })
+  await settle()
+  const handedOverSelection = container.querySelector('li button[aria-current="true"]')
+  assert.ok(
+    handedOverSelection?.textContent?.includes('win-run'),
+    'the forward-slash link path selects the run whose index row carries the native-separator path',
+  )
+  console.log('ok - a link path spelled with foreign separators still opens its own run')
+
   assert.ok(listCalls >= 1, 'the index was actually read over IPC')
   // Tear the surface down so the door's projection-refresh driver (and its
   // interval) is disposed — a leaked driver would keep this process alive.
   await act(async () => {
-    root2.unmount()
+    root4.unmount()
   })
   console.log('all Sprints surface composition tests passed')
 }

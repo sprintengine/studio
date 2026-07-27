@@ -11,7 +11,10 @@ import {
   transitionSprintEngineAutomation,
 } from '../../utils/sprintengineAutomationLifecycle'
 import { auditSprintEngineLifecycleTransition } from '../../utils/sprintengineAutomationAudit'
-import { pushSprintEngineAutomationModeIntent } from '../../utils/sprintengineAutomationIntentClient'
+import {
+  pushSprintEngineAutomationModeIntent,
+  pushSprintEngineCliPermissionPresetIntent,
+} from '../../utils/sprintengineAutomationIntentClient'
 import {
   getSprintEngineDirectoryPath,
   getSprintEngineStateFilePath,
@@ -584,7 +587,15 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         })
       }),
 
-    setSprintEngineCliPermissionPreset: (workspaceId, cliPermissionPreset) =>
+    // Workspace-keyed entry point for a resident mount: the local transition is
+    // optimistic, and the authoritative write goes to the run's statePath-keyed
+    // intent record (MC-1799) so a run's preset reads the same whether the board
+    // is mounted on the workspace or on the Sprints door. A door mount has no
+    // workspace record to reach this action and writes that record directly.
+    setSprintEngineCliPermissionPreset: (workspaceId, cliPermissionPreset) => {
+      const push: {
+        current: { statePath: string; preset: SprintEngineCliPermissionPreset; workspaceName?: string } | null
+      } = { current: null }
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
@@ -596,7 +607,18 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           changedAt: Date.now(),
         }
         rememberSprintEngineRunSettings(state, ws, { cliPermissionPreset: nextPreset })
-      }),
+        const statePath = ws.sprintEngineContext?.statePath
+        if (statePath) push.current = { statePath, preset: nextPreset, workspaceName: ws.name }
+      })
+      if (push.current) {
+        void pushSprintEngineCliPermissionPresetIntent({
+          statePath: push.current.statePath,
+          preset: push.current.preset,
+          workspaceId,
+          ...(push.current.workspaceName ? { workspaceName: push.current.workspaceName } : {}),
+        })
+      }
+    },
 
     setSprintEngineMaxConcurrentAgents: (workspaceId, maxConcurrentAgents) =>
       set((state) => {
