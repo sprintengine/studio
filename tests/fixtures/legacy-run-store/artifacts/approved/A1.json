@@ -1,0 +1,34 @@
+{
+  "approvalMode": "policy",
+  "approvedAt": "2026-07-19T12:09:17Z",
+  "approvedBy": "usr_a0cdef7a-be72-44c0-a6a5-a70137938b55",
+  "createdAt": "2026-07-19T11:58:45Z",
+  "createdBy": "architect",
+  "fingerprint": "f28292d4da21a9866e13b5f2cf89e65daaf95123fb3d4b409da8bfbe78051a32",
+  "id": "A1",
+  "kind": "architect_plan",
+  "path": ".multi-code/sprintengine/mobile-relay-traffic-efficiency2/plan.md",
+  "recommendedTasks": [],
+  "reviewHistory": [
+    {
+      "action": "created",
+      "actor": "sprintengine",
+      "timestamp": "2026-07-19T11:58:45Z"
+    },
+    {
+      "action": "ready_for_review",
+      "actor": "architect",
+      "timestamp": "2026-07-19T12:09:16Z"
+    },
+    {
+      "action": "approved",
+      "actor": "usr_a0cdef7a-be72-44c0-a6a5-a70137938b55",
+      "note": "Approval mode: policy.",
+      "timestamp": "2026-07-19T12:09:17Z"
+    }
+  ],
+  "status": "approved",
+  "taskId": "T0",
+  "title": "Architect Plan",
+  "updatedAt": "2026-07-19T12:09:17Z"
+}

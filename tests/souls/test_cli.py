@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -148,6 +149,14 @@ def test_standalone_soul_layers_multicode_skills_only() -> None:
     assert "# Evidence Quality Assessment" not in rendered
 
 
+# A base Soul may legitimately cite a repository file whose *name* contains a
+# forbidden word (`src/remotion/SprintEngineProductHero.tsx` in the creative
+# Soul). The guard is about runtime vocabulary in prose, so drop code-span file
+# paths before matching. Only path-shaped spans are dropped: a bare `` `task
+# card` `` or `` `claimsChecked` `` span still counts as a leak.
+_CODE_SPAN_FILE_PATH = re.compile(r"`[\w.@/-]+/[\w.@-]+\.[A-Za-z0-9]+`")
+
+
 def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> None:
     forbidden = [
         "Sprint Engine",
@@ -162,9 +171,9 @@ def test_bundled_base_souls_do_not_include_sprintengine_runtime_language() -> No
     ]
 
     for role in sorted(configured_role_ids()):
-        rendered = render_soul(role)
+        prose = _CODE_SPAN_FILE_PATH.sub("`<path>`", render_soul(role))
         for needle in forbidden:
-            assert needle not in rendered, f"{role} base Soul leaked runtime language: {needle}"
+            assert needle not in prose, f"{role} base Soul leaked runtime language: {needle}"
 
 
 def test_souls_get_returns_coordinator() -> None:

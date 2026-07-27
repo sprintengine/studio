@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "desiredMode": "run_agents_and_approve_artifacts",
+  "changedAt": 1784462325522,
+  "lastWrite": {
+    "actor": "system",
+    "deviceId": null,
+    "at": "2026-07-19T11:58:45.522Z"
+  },
+  "runtime": {
+    "deliveredAgentNotificationEventKeys": [
+      "<team-dir>/run.yaml:EVT-012"
+    ],
+    "completionTeardownAt": 1784493102264,
+    "rosterSessions": {
+      "developer-1": {
+        "role": "developer",
+        "cli": "claude-code",
+        "cliSessionId": "31e76d1d-5a16-4f99-a990-3940602f2463",
+        "harnessSessionId": "31e76d1d-5a16-4f99-a990-3940602f2463",
+        "cliModel": "opus[1m]",
+        "name": "developer-1",
+        "recordedAt": 1784463665539
+      },
+      "tester-1": {
+        "role": "tester",
+        "cli": "claude-code",
+        "cliSessionId": "def1b31d-c0b8-4575-8f54-914dfba6a548",
+        "harnessSessionId": "def1b31d-c0b8-4575-8f54-914dfba6a548",
+        "cliModel": "opus[1m]",
+        "name": "tester-1",
+        "recordedAt": 1784464373791
+      },
+      "spec_reviewer-1": {
+        "role": "spec_reviewer",
+        "cli": "claude-code",
+        "cliSessionId": "d8633ee5-a963-48b4-957e-58c1ecd4509c",
+        "harnessSessionId": "d8633ee5-a963-48b4-957e-58c1ecd4509c",
+        "cliModel": "opus[1m]",
+        "name": "spec_reviewer-1",
+        "recordedAt": 1784493086256
+      },
+      "nuclear_reviewer-1": {
+        "role": "nuclear_reviewer",
+        "cli": "claude-code",
+        "cliSessionId": "c1d89a72-38d6-4efa-b0c0-70bce10f7c99",
+        "harnessSessionId": "c1d89a72-38d6-4efa-b0c0-70bce10f7c99",
+        "cliModel": "opus[1m]",
+        "name": "nuclear_reviewer-1",
+        "recordedAt": 1784493102264
+      }
+    }
+  }
+}
