@@ -337,6 +337,7 @@ export default function WorkspaceManager() {
   const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -796,8 +797,15 @@ export default function WorkspaceManager() {
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
-      }),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
+      }, cliModelCatalog),
+    [
+      pluginCatalogStatus,
+      pluginCatalogEntries,
+      cliRuntimes,
+      cliAvailability,
+      cliAvailabilityStatus,
+      cliModelCatalog,
+    ],
   )
   // First available catalog entry used to rescue new spawns whose remembered CLI
   // (lastSelectedCli / specialist default) is no longer installed.

@@ -635,6 +635,7 @@ export default function NewWorkspacePanel({
   }, [guidedPreset, guidedBrandDemo])
 
   const appCliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -649,8 +650,15 @@ export default function NewWorkspacePanel({
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
-      }),
-    [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, cliAvailability, cliAvailabilityStatus],
+      }, cliModelCatalog),
+    [
+      pluginCatalogStatus,
+      pluginCatalogEntries,
+      appCliRuntimes,
+      cliAvailability,
+      cliAvailabilityStatus,
+      cliModelCatalog,
+    ],
   )
   // Once detection is trustworthy, remap any role default seeded to an
   // uninstalled CLI (e.g. the Claude Code seed, or a saved roster's Claude Code on
