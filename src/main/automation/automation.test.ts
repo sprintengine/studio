@@ -1983,8 +1983,8 @@ function recordingRoadmapFrontDoor(overrides: {
       removeStep: (input: unknown) => (overrides.removeStep ?? (async () => ({ ok: true })))(record('removeStep', input)),
       reorderStep: (input: unknown) => (overrides.reorderStep ?? (async () => ({ ok: true })))(record('reorderStep', input)),
       skipStep: (input: unknown) => (overrides.skipStep ?? (async () => ({ ok: true })))(record('skipStep', input)),
-      steerLane: (lane: string, action: string, actor: string) => {
-        calls.push({ name: 'steerLane', value: { lane, action, actor } })
+      steerLane: (lane: string, action: string, actor: string, options?: unknown) => {
+        calls.push({ name: 'steerLane', value: { lane, action, actor, options } })
         return (overrides.steerLane ?? (async () => ({ ok: true })))(lane, action, actor)
       },
     }) as unknown as ReturnType<NonNullable<AutomationBackends['getRoadmapFrontDoor']>>
@@ -2068,11 +2068,24 @@ async function testRoadmapToolsReadPlanAndSteer(): Promise<void> {
   assert.deepEqual(
     steer.calls.filter((call) => (call as { name: string }).name === 'steerLane').map((call) => (call as { value: unknown }).value),
     [
-      { lane: 'Up next', action: 'approve', actor: 'automation' },
-      { lane: 'Up next', action: 'merge', actor: 'automation' },
-      { lane: 'Up next', action: 'pause', actor: 'automation' },
-      { lane: 'Up next', action: 'resume', actor: 'automation' },
+      { lane: 'Up next', action: 'approve', actor: 'automation', options: undefined },
+      { lane: 'Up next', action: 'merge', actor: 'automation', options: undefined },
+      { lane: 'Up next', action: 'pause', actor: 'automation', options: undefined },
+      // resume always carries options; an unacknowledged call is an explicit false,
+      // never an absent flag the orchestrator would have to guess about.
+      { lane: 'Up next', action: 'resume', actor: 'automation', options: { replanDeliveredRun: false } },
     ]
+  )
+
+  // MC-1909's confirmation must be answerable from MCP, not only from the board:
+  // the orchestrator refuses a resume that would discard a delivered run, and an
+  // agent with no argument to acknowledge it would be stuck at a dead end.
+  const ack = recordingRoadmapFrontDoor()
+  const ackTools = createAutomationTools(backendsOf({ getRoadmapFrontDoor: ack.frontDoor }))
+  await tool(ackTools, 'roadmap.resume').handler({ lane: 'Up next', replanDeliveredRun: true })
+  assert.deepEqual(
+    ack.calls.filter((call) => (call as { name: string }).name === 'steerLane').map((call) => (call as { value: unknown }).value),
+    [{ lane: 'Up next', action: 'resume', actor: 'automation', options: { replanDeliveredRun: true } }]
   )
 
   // A steer refusal (no pending approval) surfaces the message.

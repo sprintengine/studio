@@ -18,6 +18,7 @@ import type {
   RoadmapHomeResult,
   RoadmapLaneCommandInput,
   RoadmapLaneCommandResult,
+  RoadmapResumeLaneInput,
   RoadmapSkipStepInput,
   RoadmapStatesReadResult,
   SprintEngineRegistryRoleReadInput,
@@ -208,7 +209,7 @@ export const sprintEngineApi = {
     ipcRenderer.invoke('roadmap:lane:approve', input),
   mergeRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:lane:merge', input),
-  resumeRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
+  resumeRoadmapLane: (input: RoadmapResumeLaneInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:lane:resume', input),
   pauseRoadmapLane: (input: RoadmapLaneCommandInput): Promise<RoadmapLaneCommandResult> =>
     ipcRenderer.invoke('roadmap:lane:pause', input),

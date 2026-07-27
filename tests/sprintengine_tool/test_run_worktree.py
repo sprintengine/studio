@@ -521,7 +521,10 @@ def test_refresh_run_pull_request_state_detects_manual_merge(tmp_path) -> None:
 
     state = read_state(fixture.state_path)
     before = refresh_run_pull_request_state(state, fixture.state_path)
-    assert before["pullRequestState"] == "open"
+    # No pull request was ever opened for this run, so there is no pull-request
+    # state to report — reporting "open" here is what let a lane read a pull
+    # request that did not exist (MC-1909).
+    assert before["pullRequestState"] is None
 
     # Merge the run branch into main in the workspace checkout.
     _git(workspace, "merge", "--no-edit", "sprintengine/alpha")
@@ -532,13 +535,18 @@ def test_refresh_run_pull_request_state_detects_manual_merge(tmp_path) -> None:
     assert state["sprintengine"]["vcs"]["pullRequestState"] == "merged"
 
 
-def test_vcs_pr_status_cli_reports_open_before_merge(tmp_path) -> None:
+def test_vcs_pr_status_cli_reports_no_pull_request_before_one_is_opened(tmp_path) -> None:
+    # `pr-status` is enabled (this is a worktree run) but the run has no pull
+    # request yet, and says so. It used to answer "open", which is the null-url /
+    # null-error / open-state contradiction MC-1909 was filed on — reachable with
+    # no `gh` involvement at all, because `observeRun` fires this probe on every
+    # completed worktree run.
     workspace = tmp_path / "ws"
     fixture, _ = _completed_worktree_run(workspace)
 
     result = fixture.cli.run("vcs", "pr-status")
     assert result["enabled"] is True
-    assert result["pullRequestState"] == "open"
+    assert result["pullRequestState"] is None
 
 
 def test_build_run_pull_request_body_lists_delivered_tasks(tmp_path) -> None:

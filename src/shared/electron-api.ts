@@ -1662,7 +1662,17 @@ export type SprintEngineArtifactCommandResult =
 // no longer carries a `workspaceRoot` — the main driver derives the home project
 // (D1). A command names only the roadmap file + the lane it steers.
 export type RoadmapLaneCommandInput = { roadmapRef: string; lane: string }
-export type RoadmapLaneCommandResult = { ok: boolean; message?: string }
+// Resume carries the human's explicit acknowledgement that starting a step over
+// discards a run that already delivered (MC-1909); without it the orchestrator
+// refuses that case rather than doing it silently.
+export type RoadmapResumeLaneInput = RoadmapLaneCommandInput & { replanDeliveredRun?: boolean }
+// A consequence the caller must acknowledge before the command will run.
+export type RoadmapCommandConfirmation = 'replan_delivered_run'
+export type RoadmapLaneCommandResult = {
+  ok: boolean
+  message?: string
+  confirm?: RoadmapCommandConfirmation
+}
 export type RoadmapStatesReadResult =
   | { ok: true; roadmaps: RoadmapStateView[] }
   | { ok: false; message: string }
@@ -2917,7 +2927,7 @@ export type ElectronApi = {
   /** Merge a lane's delivered pull request through the orchestrator (merge: manual). */
   mergeRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
   /** Resume a parked lane: a failure re-plans a fresh sprint; a manual pause continues in place. */
-  resumeRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
+  resumeRoadmapLane: (input: RoadmapResumeLaneInput) => Promise<RoadmapLaneCommandResult>
   /** Pause a lane: hold advancement/merge/start-next without stopping the running sprint. */
   pauseRoadmapLane: (input: RoadmapLaneCommandInput) => Promise<RoadmapLaneCommandResult>
   /** The home project holding the instance roadmap (D1), or null when unset. */

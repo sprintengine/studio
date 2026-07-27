@@ -14,6 +14,7 @@ real pushes, real worktrees.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -25,6 +26,11 @@ from sprintengine_core import store as folder_store
 from sprintengine_core.tool import shell
 from sprintengine_core.tool.commands import run as run_cmd
 from sprintengine_core.tool.paths import resolve_vcs_path, workspace_root_for_state_path
+from sprintengine_core.tool.repo_model import (
+    PULL_REQUEST_URL_MISSING_ERROR,
+    set_repo_pull_request,
+    vcs_repos,
+)
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -65,9 +71,21 @@ class FakeGh:
     assert on what a reviewer would actually read.
     """
 
-    def __init__(self, *, urls: Dict[Path, str], create_fails: Optional[Dict[Path, str]] = None) -> None:
+    def __init__(
+        self,
+        *,
+        urls: Dict[Path, str],
+        create_fails: Optional[Dict[Path, str]] = None,
+        silent_creates: Optional[set[Path]] = None,
+        knows_branch_url: bool = True,
+    ) -> None:
         self.urls = urls
         self.create_fails = create_fails or {}
+        # Projects whose `gh pr create` succeeds but prints no url — the real-world
+        # shape behind MC-1909's url-less `pullRequestState: open`.
+        self.silent_creates = silent_creates or set()
+        # Whether `gh pr view <branch> --json url` can answer (GitHub reachable).
+        self.knows_branch_url = knows_branch_url
         self.merged: set[str] = set()
         self.bodies: Dict[str, str] = {}
         self.calls: List[Dict[str, Any]] = []
@@ -81,12 +99,20 @@ class FakeGh:
                 return self._completed(1, stderr=failure)
             url = self.urls[Path(cwd)]
             self.bodies[url] = args[args.index("--body") + 1]
+            if Path(cwd) in self.silent_creates:
+                return self._completed(0)
             return self._completed(0, stdout=f"{url}\n")
         if command == ("pr", "edit"):
             url = args[2]
             self.bodies[url] = args[args.index("--body") + 1]
             return self._completed(0)
         if command == ("pr", "view"):
+            fields = args[args.index("--json") + 1] if "--json" in args else ""
+            if fields == "url":
+                # Asked by BRANCH, for a pull request whose url the create never printed.
+                if not self.knows_branch_url:
+                    return self._completed(1, stderr="could not resolve to a PullRequest")
+                return self._completed(0, stdout=json.dumps({"url": self.urls[Path(cwd)]}))
             state = "MERGED" if args[2] in self.merged else "OPEN"
             return self._completed(0, stdout=f'{{"state": "{state}"}}')
         if command == ("pr", "merge"):
@@ -160,13 +186,22 @@ def _single_project_run(tmp_path: Path) -> SwarmTeamFixture:
     return fixture
 
 
-def _fake_gh(monkeypatch, fixture: SwarmTeamFixture, *, create_fails: Optional[Dict[Path, str]] = None) -> FakeGh:
+def _fake_gh(
+    monkeypatch,
+    fixture: SwarmTeamFixture,
+    *,
+    create_fails: Optional[Dict[Path, str]] = None,
+    silent_creates: Optional[set] = None,
+    knows_branch_url: bool = True,
+) -> FakeGh:
     fake = FakeGh(
         urls={
             fixture.team_dir / "worktree": "https://github.com/acme/multicode/pull/1",
             fixture.team_dir / "worktree-mobile": "https://github.com/acme/multicode-mobile/pull/9",
         },
         create_fails=create_fails,
+        silent_creates=silent_creates,
+        knows_branch_url=knows_branch_url,
     )
     monkeypatch.setattr(shell, "run_gh_checked", fake)
     return fake
@@ -711,3 +746,177 @@ def test_merge_probes_only_the_merging_repo_and_its_predecessors(tmp_path, monke
 
     probed = {call["args"][2] for call in fake.calls[before:] if tuple(call["args"][:2]) == ("pr", "view")}
     assert probed == {"https://github.com/acme/multicode/pull/1"}
+
+
+# --- a pull request the run cannot name is never recorded (MC-1909) -----------
+
+
+def test_silent_pr_create_recovers_the_url_from_github(tmp_path, monkeypatch) -> None:
+    # The defect MC-1909 was filed on: `gh pr create` exits 0 but prints no url, so
+    # the run recorded `pullRequestState: open` with `pullRequestUrl: null` while the
+    # pull request existed on GitHub. The url is asked for by branch instead.
+    fixture = _single_project_run(tmp_path)
+    worktree = fixture.team_dir / "worktree"
+    fake = _fake_gh(monkeypatch, fixture, silent_creates={worktree})
+
+    state = read_state(fixture.state_path)
+    result = shell.create_run_pull_request(state, fixture.state_path)
+
+    assert result["ok"] is True
+    assert result["pullRequestUrl"] == "https://github.com/acme/multicode/pull/1"
+    primary = state["sprintengine"]["vcs"]["repos"][0]
+    assert primary["pullRequestUrl"] == "https://github.com/acme/multicode/pull/1"
+    assert primary["pullRequestState"] == "open"
+    assert primary["pullRequestError"] is None
+    # It really did have to ask — by branch, not by url.
+    assert any(
+        call["args"][:2] == ["pr", "view"] and call["args"][3:] == ["--json", "url"]
+        for call in fake.calls
+    )
+
+
+def test_unrecoverable_url_records_an_error_never_an_unnamed_open_pr(tmp_path, monkeypatch) -> None:
+    # GitHub cannot answer either. The run records WHY it has no url — the one thing
+    # the lane's auto-merge could not read before.
+    fixture = _single_project_run(tmp_path)
+    worktree = fixture.team_dir / "worktree"
+    _fake_gh(monkeypatch, fixture, silent_creates={worktree}, knows_branch_url=False)
+
+    state = read_state(fixture.state_path)
+    result = shell.create_run_pull_request(state, fixture.state_path)
+
+    assert result["ok"] is False
+    primary = state["sprintengine"]["vcs"]["repos"][0]
+    assert primary["pullRequestUrl"] is None
+    assert primary["pullRequestState"] is None
+    assert "no url" in (primary["pullRequestError"] or "")
+    # The invariant, stated directly: never open-with-neither.
+    assert not (primary["pullRequestState"] == "open" and not primary["pullRequestUrl"] and not primary["pullRequestError"])
+
+
+def test_state_layer_refuses_an_open_pull_request_with_no_url_and_no_error() -> None:
+    vcs = {"mode": "run_worktree", "repos": [{"id": "primary", "root": ".", "worktreePath": "w", "branchName": "b"}]}
+    with pytest.raises(SystemExit) as excinfo:
+        set_repo_pull_request(vcs, "primary", url=None, state="open", error=None)
+    assert "neither a url nor" in str(excinfo.value)
+    # The two representable shapes both still write.
+    set_repo_pull_request(vcs, "primary", url="https://example.test/pull/1", state="open", error=None)
+    assert vcs["repos"][0]["pullRequestUrl"] == "https://example.test/pull/1"
+    set_repo_pull_request(vcs, "primary", url=None, state=None, error="gh not authed")
+    assert vcs["repos"][0]["pullRequestError"] == "gh not authed"
+
+
+def test_a_store_already_carrying_the_invalid_state_reads_back_with_a_reason() -> None:
+    # A run.yaml written before the refusal existed still opens — and says what is
+    # wrong with it, rather than reporting an open pull request with no url.
+    vcs = {
+        "mode": "run_worktree",
+        "repos": [
+            {
+                "id": "primary",
+                "root": ".",
+                "worktreePath": "w",
+                "branchName": "b",
+                "pullRequestState": "open",
+                "pullRequestUrl": None,
+                "pullRequestError": None,
+            }
+        ],
+    }
+    primary = vcs_repos(vcs)[0]
+    assert primary["pullRequestState"] == "open"
+    assert primary["pullRequestError"] == PULL_REQUEST_URL_MISSING_ERROR
+
+
+def test_merge_succeeds_while_the_users_checkout_sits_on_another_branch(tmp_path, monkeypatch) -> None:
+    # MC-1909 suspected the lane merge needed the user's checkout free. It does not:
+    # the merge runs in the RUN'S OWN worktree and lands through `gh`, so the
+    # workspace checkout is neither read for its branch nor moved off it. Parked on
+    # an unrelated spike branch — the exact state the first horizon stalled in.
+    fixture = _single_project_run(tmp_path)
+    workspace = tmp_path / "ws"
+    _git(workspace, "checkout", "-q", "-b", "spike/unrelated")
+    (workspace / "scratch.txt").write_text("work in progress\n", encoding="utf-8")
+
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+
+    merged = shell.merge_repo_pull_request(state, fixture.state_path, repo_id="primary")
+
+    assert merged["ok"] is True, merged.get("error")
+    assert merged["merged"] is True
+    # The user's checkout is exactly where they left it, dirty file and all.
+    on_branch = _git(workspace, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    assert on_branch == "spike/unrelated"
+    assert (workspace / "scratch.txt").read_text(encoding="utf-8") == "work in progress\n"
+    # And no `gh` call was made from the user's checkout — every one ran in the
+    # run's own tree or the repo root, never against their working branch.
+    assert all(call["cwd"] != workspace for call in fake.calls if tuple(call["args"][:2]) == ("pr", "merge"))
+
+
+def test_pr_status_never_invents_an_open_pull_request_for_a_repo_that_has_none(tmp_path, monkeypatch) -> None:
+    # The SECOND route into MC-1909's stalled state, and the one that needs no `gh`
+    # weirdness at all: `vcs pr-status` used to start every repo at "open", so
+    # probing a run before (or without) a pull request stamped
+    # `pullRequestState: open` next to a null url and a null error. `observeRun`
+    # fires this probe on every completed worktree run, so the lane read a pull
+    # request that did not exist and had nothing to merge.
+    fixture = _single_project_run(tmp_path)
+    _fake_gh(monkeypatch, fixture)  # asserts on any unexpected gh call
+
+    state = read_state(fixture.state_path)
+    result = shell.refresh_run_pull_request_state(state, fixture.state_path)
+
+    assert result["ok"] is True
+    primary = state["sprintengine"]["vcs"]["repos"][0]
+    assert primary["pullRequestUrl"] is None
+    assert primary["pullRequestState"] is None, "a repo with no pull request must not report one open"
+    assert primary["pullRequestError"] is None
+
+
+def test_pr_status_keeps_reporting_a_real_pull_request_open(tmp_path, monkeypatch) -> None:
+    # The other half of that change: a repo that DOES have a pull request still reads
+    # open until GitHub says merged, so the fix above narrows nothing real.
+    fixture = _single_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+    shell.create_run_pull_request(state, fixture.state_path)
+    assert state["sprintengine"]["vcs"]["repos"][0]["pullRequestState"] == "open"
+
+    shell.refresh_run_pull_request_state(state, fixture.state_path)
+    assert state["sprintengine"]["vcs"]["repos"][0]["pullRequestState"] == "open"
+
+    fake.merged.add("https://github.com/acme/multicode/pull/1")
+    shell.refresh_run_pull_request_state(state, fixture.state_path)
+    assert state["sprintengine"]["vcs"]["repos"][0]["pullRequestState"] == "merged"
+
+
+def test_no_pull_request_pipeline_path_leaves_an_open_state_with_neither_url_nor_error(tmp_path, monkeypatch) -> None:
+    # The acceptance criterion stated directly, swept across the pipeline rather than
+    # at one call site: open the pull request, probe it, merge it, probe again — and
+    # after every step assert no repo claims an open pull request it cannot name.
+    fixture = _two_project_run(tmp_path)
+    fake = _fake_gh(monkeypatch, fixture)
+    state = read_state(fixture.state_path)
+
+    def assert_representable(step: str) -> None:
+        for repo in shell.vcs_repos(state["sprintengine"]["vcs"]):
+            assert not (
+                repo["pullRequestState"] == "open"
+                and not repo["pullRequestUrl"]
+                and not repo["pullRequestError"]
+            ), f"{step}: {repo['id']} claims an open pull request with no url and no error"
+
+    assert_representable("before anything")
+    shell.refresh_run_pull_request_state(state, fixture.state_path)
+    assert_representable("after a pre-pull-request probe")
+    shell.create_run_pull_request(state, fixture.state_path)
+    assert_representable("after opening the pull requests")
+    shell.refresh_run_pull_request_state(state, fixture.state_path)
+    assert_representable("after probing them")
+    shell.merge_repo_pull_request(state, fixture.state_path, repo_id="primary")
+    assert_representable("after merging the primary")
+    fake.merged.add("https://github.com/acme/multicode-mobile/pull/9")
+    shell.refresh_run_pull_request_state(state, fixture.state_path)
+    assert_representable("after both merged")

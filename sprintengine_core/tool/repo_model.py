@@ -33,6 +33,18 @@ _REQUIRED_REPO_KEYS = ("id", "root", "worktreePath", "branchName")
 # merged or closed, or the branch lands in its base; the other two are terminal.
 VALID_PULL_REQUEST_STATES = {"open", "merged", "closed"}
 
+# What a store says when it claims an open pull request it has no url for. A run
+# recorded `pullRequestState: open` with neither a url nor an error is the exact
+# state MC-1909 was filed on: the lane's auto-merge reads "there is a pull request"
+# and "there is nothing to merge" at once and can act on neither. Writing that
+# combination is refused outright (:func:`set_repo_pull_request`); a store that
+# already carries it from before reads back with this error, so the pull request is
+# never silently url-less.
+PULL_REQUEST_URL_MISSING_ERROR = (
+    "This run recorded an open pull request but no url for it. "
+    "Re-run `vcs pr` to adopt the pull request, or open it on GitHub."
+)
+
 # The per-repo fields the primary repo also stores flat on `vcs`, because the app,
 # the mobile snapshot, and the PR surfaces still read them there.
 _PRIMARY_MIRRORED_KEYS = ("status", "lastCommitSha", "pullRequestUrl", "pullRequestState", "pullRequestError")
@@ -64,7 +76,17 @@ def _repo_entry(
 
     A run spanning two projects opens one pull request per project, so the PR fields
     belong to the repo that owns the branch they describe (MC-1612), not to the run.
+
+    An entry that claims an open pull request with neither a url nor an error reads
+    back carrying :data:`PULL_REQUEST_URL_MISSING_ERROR`. Normalizing on READ rather
+    than raising keeps a store written before that combination was refused openable —
+    the run still says something true about its pull request instead of nothing.
     """
+    resolved_state = pull_request_state if pull_request_state in VALID_PULL_REQUEST_STATES else None
+    resolved_url = _optional_str(pull_request_url)
+    resolved_error = _optional_str(pull_request_error)
+    if resolved_state == "open" and not resolved_url and not resolved_error:
+        resolved_error = PULL_REQUEST_URL_MISSING_ERROR
     return {
         "id": repo_id,
         "root": root,
@@ -73,9 +95,9 @@ def _repo_entry(
         "baseRef": base_ref,
         "status": status if status in VALID_VCS_STATUSES else "not_created",
         "lastCommitSha": last_commit_sha if isinstance(last_commit_sha, str) else None,
-        "pullRequestUrl": _optional_str(pull_request_url),
-        "pullRequestState": pull_request_state if pull_request_state in VALID_PULL_REQUEST_STATES else None,
-        "pullRequestError": _optional_str(pull_request_error),
+        "pullRequestUrl": resolved_url,
+        "pullRequestState": resolved_state,
+        "pullRequestError": resolved_error,
     }
 
 
@@ -208,7 +230,18 @@ def set_repo_pull_request(
     Written together because they are one fact — a repo has a pull request, or it has
     a reason it has none — and writing them apart is how a store ends up claiming an
     open pull request and a stale failure at the same time.
+
+    An OPEN pull request with neither a url nor an error is that fact contradicting
+    itself, and is refused here rather than persisted: it is the state a lane's
+    auto-merge cannot act on (MC-1909). Every caller that opens a pull request either
+    resolves the url or records why it has none.
     """
+    if state == "open" and not _optional_str(url) and not _optional_str(error):
+        raise SystemExit(
+            f"Sprint Engine cannot record an open pull request for {repo_id!r} with neither a url nor "
+            "an error: a pull request the run cannot name is one nothing can merge. "
+            "Record the url it opened, or the reason it has none."
+        )
     _set_repo_field(vcs, repo_id, "pullRequestUrl", url)
     _set_repo_field(vcs, repo_id, "pullRequestState", state)
     _set_repo_field(vcs, repo_id, "pullRequestError", error)

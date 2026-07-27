@@ -33,9 +33,11 @@ import {
   type RoadmapRunObservation,
 } from '../shared/sprintengine/roadmap-orchestrator'
 import {
+  flattenLaneUnits,
   nextEligible,
   parseRoadmap,
   qualifiedRef,
+  resolveEpicChildRef,
   roadmapRefSlug,
   splitQualifiedRef,
   type ProjectKey,
@@ -126,9 +128,33 @@ export type RoadmapBoardView = {
 }
 
 // A roadmap steer/plan action's result. `ref` echoes the stored (authored) ref for
-// an add so the caller can address it later.
-export type RoadmapCommandOutcome = { ok: boolean; message?: string; ref?: string }
+// an add so the caller can address it later. `confirm` names a consequence the
+// caller must acknowledge before the action will run — today only re-planning a
+// fresh sprint over a run that already DELIVERED (MC-1909): a one-click Resume
+// must never quietly discard 17 finished tasks.
+export type RoadmapConfirmation = 'replan_delivered_run'
+export type RoadmapCommandOutcome = {
+  ok: boolean
+  message?: string
+  ref?: string
+  confirm?: RoadmapConfirmation
+}
 export type RoadmapSteerAction = 'approve' | 'merge' | 'pause' | 'resume'
+
+// What the merge primitive reports back. `repo` and `branch` name WHAT could not
+// merge; `message` is the engine's own reason. A parked lane repeats all three, so
+// the person reading it does not have to open a run store to find out (MC-1909).
+export type RoadmapMergeOutcome = { ok: boolean; message?: string; repo?: string; branch?: string }
+
+// Whether a delivered run's terminal task state says one backlog item shipped.
+// `skipped` covers every non-`done` terminal task outcome (canceled work, an item
+// the sprint dropped) — the honesty constraint on the completed-on-merge write:
+// a stale `ready` is a lesser lie than a false `completed` (MC-1904).
+export type RoadmapItemOutcome = 'delivered' | 'skipped'
+
+// Options a human steering command carries beyond its target. `replanDeliveredRun`
+// is the explicit acknowledgement the `replan_delivered_run` confirmation asks for.
+export type RoadmapResumeOptions = { replanDeliveredRun?: boolean }
 
 // The narrow surface the automation server's `roadmap.*` tools reach (MC-1693),
 // provided as a service and resolved lazily like the Automations front door. It is
@@ -141,7 +167,12 @@ export type RoadmapAppFrontDoor = {
   removeStep(input: { ref: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
   reorderStep(input: { ref: string; toIndex: number; toLane?: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
   skipStep(input: { ref: string; reason: string; actor?: RoadmapActor }): Promise<RoadmapCommandOutcome>
-  steerLane(lane: string, action: RoadmapSteerAction, actor: RoadmapActor): Promise<RoadmapCommandOutcome>
+  steerLane(
+    lane: string,
+    action: RoadmapSteerAction,
+    actor: RoadmapActor,
+    options?: RoadmapResumeOptions,
+  ): Promise<RoadmapCommandOutcome>
   // On-demand reconcile, for events that change a lane's world outside the
   // 60s engine tick (e.g. a sprint canceled from the Sprints door).
   reconcile(): Promise<void>
@@ -181,8 +212,20 @@ export type RoadmapOrchestratorPorts = {
   observeRun(runRef: RoadmapRunRef): Promise<RoadmapRunSnapshot | null>
   // Merge a run's PR(s) via the single-repo primitive; the engine re-probes state
   // first, enforces merge order, and is idempotent. `ok:false` carries the
-  // refusal reason (conflict/order/gh).
-  mergePullRequest(statePath: string): Promise<{ ok: boolean; message?: string }>
+  // refusal reason (conflict/order/gh) PLUS the project and branch it refused for,
+  // so a parked lane says which repo and which branch could not land rather than
+  // only that "a merge could not complete" (MC-1909).
+  mergePullRequest(statePath: string): Promise<RoadmapMergeOutcome>
+  // Which of a delivered run's backlog items its terminal task state says it
+  // actually addressed, keyed by the project-relative item path each task named in
+  // its `sourceDocs`. An item whose tasks did not all finish reads `skipped` and is
+  // never marked completed; an item with no task mapping at all is simply absent —
+  // the run's brief was the whole step, so the caller's default is delivered.
+  readRunItemOutcomes(runRef: RoadmapRunRef): Promise<Map<string, RoadmapItemOutcome>>
+  // Record a backlog item's status on the MAIN checkout — the delivered-on-merge
+  // write (MC-1904) and `abandonRun`'s `ready` reset are the same write path. Never
+  // called from inside a run worktree, and never by a sprint worker.
+  setBacklogStatus(workspaceRoot: string, itemRelativePath: string, status: 'completed'): Promise<void>
   // Start a sprint from a backlog item OR epic (one sprint delivers a whole epic
   // step) through the shared plan-sourced flow (worktree mode, startRunner) in
   // the item's own project root. Records the execution link. `team` names the
@@ -502,17 +545,123 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       case 'merge': {
         const merged = await ports.mergePullRequest(action.statePath)
         if (!merged.ok) {
-          laneRuntimes.set(action.lane, parkedRuntime(runtime, 'merge_failed', action.itemRef, merged.message, ports.now()))
-          notifyPark('merge_failed', merged.message)
+          const detail = mergeFailureDetail(merged)
+          laneRuntimes.set(action.lane, parkedRuntime(runtime, 'merge_failed', action.itemRef, detail, ports.now()))
+          notifyPark('merge_failed', detail)
+          return
         }
+        // The merge IS the delivery. Recording it here rather than waiting for the
+        // next reconcile's `clear_active` is what makes "the step merged" and "its
+        // backlog items read completed" one event instead of two a tick apart —
+        // and the write is idempotent, so the later `clear_active` agrees (MC-1904).
+        await recordStepDelivered(entry, action.itemRef, {
+          statePath: action.statePath,
+          teamSlug: runtime.activeTeamSlug ?? '',
+        })
         return
       }
       case 'park':
         notifyPark(action.reason, action.detail)
         return
       case 'clear_active':
+        // Only a DELIVERED run marks its work done. A run that merely vanished from
+        // observations carries no itemRef and shipped nothing.
+        if (action.delivered && action.itemRef) {
+          await recordStepDelivered(
+            entry,
+            action.itemRef,
+            action.statePath ? { statePath: action.statePath, teamSlug: action.teamSlug ?? '' } : undefined,
+          )
+        }
         return
     }
+  }
+
+  // Record a delivered step's backlog items as completed, on the MAIN checkout
+  // (MC-1904). An epic step marks its SNAPSHOTTED MEMBERS, never the epic file —
+  // an epic's status derives from its members (`nextEligible`'s effectiveState), so
+  // writing it directly would paper over the derivation instead of feeding it. An
+  // item step (and an epic with no snapshotted members) marks itself.
+  //
+  // Honesty constraint: a member whose tasks did not all finish is left alone. The
+  // run's brief is the whole step, so the default is delivered; the run's terminal
+  // task state overrides that only where it actually maps an item to tasks.
+  async function recordStepDelivered(
+    entry: RoadmapEntry,
+    itemRef: string,
+    runRef: RoadmapRunRef | undefined,
+  ): Promise<void> {
+    const targets = deliveredTargets(entry, itemRef)
+    if (targets.length === 0) {
+      // The handle names nothing the plan still carries. Say so rather than
+      // returning quietly: a delivery that marks nothing is exactly the silent
+      // no-op this item exists to remove.
+      ports.logDiagnostic({
+        level: 'warning',
+        title: 'Roadmap completion write skipped',
+        message: `${itemRef} delivered but is no longer a step in this horizon; nothing was marked completed.`,
+      })
+      return
+    }
+    const outcomes = runRef ? await readItemOutcomes(runRef) : new Map<string, RoadmapItemOutcome>()
+    for (const target of targets) {
+      const relativePath = normalizeRoadmapPath(target.relativePath)
+      if (outcomes.get(relativePath) === 'skipped') continue
+      try {
+        await ports.setBacklogStatus(projectRootOf(entry, target.projectKey), target.relativePath, 'completed')
+      } catch (error) {
+        // One item's write failing must not cost the others theirs; the next
+        // reconcile's `clear_active` retries the whole set.
+        ports.logDiagnostic({
+          level: 'warning',
+          title: 'Roadmap completion write skipped',
+          message: `${target.relativePath}: ${errorMessage(error)}`,
+        })
+      }
+    }
+  }
+
+  async function readItemOutcomes(runRef: RoadmapRunRef): Promise<Map<string, RoadmapItemOutcome>> {
+    try {
+      const raw = await ports.readRunItemOutcomes(runRef)
+      return new Map([...raw].map(([path, outcome]) => [normalizeRoadmapPath(path), outcome]))
+    } catch {
+      // No task mapping readable: fall back to the documented default (the run's
+      // brief was the whole step), exactly as a run whose tasks name no sources.
+      return new Map()
+    }
+  }
+
+  // The backlog items a delivered handle should mark completed.
+  //
+  // A STEP handle (the normal case) resolves to the step's snapshotted members, or
+  // to the step itself when it has none. A handle naming a snapshotted MEMBER
+  // resolves to that member alone: a lane runtime written under the old
+  // child-granularity keys its `activeItemRef` on a member, and the reducer
+  // deliberately keeps such a handle (`plannedKeysOf` includes children) — so
+  // matching only top-level steps here would have silently marked nothing for
+  // exactly the runs that migration guard exists to carry.
+  //
+  // Empty means the handle names nothing the plan still carries; the caller reports
+  // that rather than doing nothing quietly.
+  function deliveredTargets(
+    entry: RoadmapEntry,
+    itemRef: string,
+  ): Array<{ projectKey: ProjectKey; relativePath: string }> {
+    for (const lane of entry.roadmap.lanes) {
+      for (const unit of flattenLaneUnits(lane)) {
+        if (unit.key === itemRef) {
+          return unit.children.length > 0
+            ? unit.children.map((child) => resolveEpicChildRef(child, unit.projectKey))
+            : [{ projectKey: unit.projectKey, relativePath: unit.relativePath }]
+        }
+        for (const child of unit.children) {
+          const resolved = resolveEpicChildRef(child, unit.projectKey)
+          if (qualifiedRef(resolved.projectKey, resolved.relativePath) === itemRef) return [resolved]
+        }
+      }
+    }
+    return []
   }
 
   // Idempotent start keyed on the execution link: if the item already has a live
@@ -605,47 +754,98 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     return { ok: true }
   }
 
-  async function mergeLane(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<{ ok: boolean; message?: string }> {
+  async function mergeLane(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<RoadmapCommandOutcome> {
     const runtimes = await ports.readLaneRuntime(roadmapRef)
     const runtime = runtimes.get(lane)
     if (!runtime?.activeStatePath) {
       return { ok: false, message: 'No run to merge for this lane.' }
     }
     const merged = await ports.mergePullRequest(runtime.activeStatePath)
-    if (!merged.ok) return { ok: false, message: merged.message }
+    if (!merged.ok) return { ok: false, message: mergeFailureDetail(merged) }
     await auditIfAgent({ at: ports.now().toISOString(), actor, action: 'merge', roadmapRef, lane, ...(runtime.activeItemRef ? { ref: runtime.activeItemRef } : {}) })
     await reconcile()
     return { ok: true }
   }
 
-  async function resumeLane(roadmapRef: string, lane: string, actor: RoadmapActor = 'user'): Promise<{ ok: boolean; message?: string }> {
+  async function resumeLane(
+    roadmapRef: string,
+    lane: string,
+    actor: RoadmapActor = 'user',
+    options: RoadmapResumeOptions = {},
+  ): Promise<RoadmapCommandOutcome> {
     await auditIfAgent({ at: ports.now().toISOString(), actor, action: 'resume', roadmapRef, lane })
     const runtime = (await ports.readLaneRuntime(roadmapRef)).get(lane)
     // A MANUAL pause is not a failure: resume continues the lane exactly where it
     // was, so it must NOT abandon the still-live run. Only clear the parked flag.
     if (runtime?.parked?.reason === 'paused') {
-      const runtimes = await ports.readLaneRuntime(roadmapRef)
-      const current = runtimes.get(lane)
-      if (current?.parked) {
-        const { parked, ...rest } = current
-        runtimes.set(lane, rest)
-        await ports.writeLaneRuntime(roadmapRef, runtimes)
-      }
+      await clearPark(roadmapRef, lane)
       await reconcile()
       return { ok: true }
     }
-    // A failure resume re-plans a NEW sprint: abandon the dead run BEFORE the
-    // reconcile so its execution link is gone by the time the adoption pass runs.
-    // Only a lane that actually started a run has something to abandon (a dangling
-    // / unknown_project park never started one).
+    // A MERGE park is not a dead run either — the work is done and waiting on a
+    // merge that was refused. Resume retries THE MERGE (MC-1909). Abandoning here
+    // is what discarded a completed, delivered 17-task run on the first horizon.
+    if (runtime?.parked?.reason === 'merge_failed' && runtime.activeStatePath) {
+      const merged = await ports.mergePullRequest(runtime.activeStatePath)
+      if (!merged.ok) {
+        const detail = mergeFailureDetail(merged)
+        await reparkMergeFailure(roadmapRef, lane, runtime.parked.itemRef, detail)
+        notifyPark('merge_failed', detail)
+        return { ok: false, message: detail }
+      }
+      await clearPark(roadmapRef, lane)
+      await reconcile()
+      return { ok: true }
+    }
+    // Every other park re-plans a NEW sprint from the same step, which throws away
+    // whatever the parked run produced. That is right for a run that DIED and wrong
+    // for one that finished, so a completed run needs the consequence spelled out
+    // and acknowledged before the abandon (MC-1909).
     const abandonKey = runtime?.activeItemRef
     if (abandonKey && runtime?.activeRepoId) {
       const { relativePath } = splitQualifiedRef(abandonKey)
+      if (!options.replanDeliveredRun && (await runHasDelivered(runtime))) {
+        return {
+          ok: false,
+          confirm: 'replan_delivered_run',
+          message:
+            'This sprint finished its work — resuming would throw it away and plan a new sprint for the same step from scratch. ' +
+            'Merge it instead, or confirm that you want to start over.',
+        }
+      }
       await ports.abandonRun(runtime.activeRepoId, relativePath, runtime.activeTeamSlug)
     }
     resumes.add(laneKey(roadmapRef, lane))
     await reconcile()
     return { ok: true }
+  }
+
+  // True when the lane's parked run actually completed its tasks — the state a
+  // resume must not silently discard. An unreadable/absent run is not delivered:
+  // the abandon path is exactly what recovers those.
+  async function runHasDelivered(runtime: RoadmapLaneRuntime): Promise<boolean> {
+    if (!runtime.activeStatePath || !runtime.activeTeamSlug) return false
+    const snapshot = await ports.observeRun({ statePath: runtime.activeStatePath, teamSlug: runtime.activeTeamSlug })
+    return snapshot?.lifecycle === 'completed'
+  }
+
+  // Drop a lane's park flag, leaving every other handle in place.
+  async function clearPark(roadmapRef: string, lane: string): Promise<void> {
+    const runtimes = await ports.readLaneRuntime(roadmapRef)
+    const current = runtimes.get(lane)
+    if (!current?.parked) return
+    const { parked, ...rest } = current
+    runtimes.set(lane, rest)
+    await ports.writeLaneRuntime(roadmapRef, runtimes)
+  }
+
+  // Re-stamp a merge park with the reason THIS attempt failed, so a retry that hits
+  // a new error does not leave the old one on screen.
+  async function reparkMergeFailure(roadmapRef: string, lane: string, itemRef: string, detail: string): Promise<void> {
+    const runtimes = await ports.readLaneRuntime(roadmapRef)
+    const current = runtimes.get(lane) ?? { lane }
+    runtimes.set(lane, parkedRuntime(current, 'merge_failed', itemRef, detail, ports.now()))
+    await ports.writeLaneRuntime(roadmapRef, runtimes)
   }
 
   // Hold a lane at the human's request: set a `paused` park so the reducer stops
@@ -981,7 +1181,12 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
 
   // Lane-only steer for the agent surface: derive the instance roadmap ref so the
   // tool names only a lane, then forward to the same steer method the board IPC uses.
-  async function steerLane(lane: string, action: RoadmapSteerAction, actor: RoadmapActor): Promise<RoadmapCommandOutcome> {
+  async function steerLane(
+    lane: string,
+    action: RoadmapSteerAction,
+    actor: RoadmapActor,
+    options: RoadmapResumeOptions = {},
+  ): Promise<RoadmapCommandOutcome> {
     const entry = await loadActiveRoadmap()
     if (!entry) return { ok: false, message: 'No active roadmap is configured for this Multicode.' }
     switch (action) {
@@ -992,7 +1197,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
       case 'pause':
         return pauseLane(entry.roadmapRef, lane, actor)
       case 'resume':
-        return resumeLane(entry.roadmapRef, lane, actor)
+        return resumeLane(entry.roadmapRef, lane, actor, options)
     }
   }
 
@@ -1103,6 +1308,16 @@ function pickActiveRoadmap(candidates: RoadmapBacklogItem[]): RoadmapBacklogItem
 
 function normalizeRoot(root: string): string {
   return root.replace(/\\/g, '/').replace(/\/+$/, '')
+}
+
+// What a merge-park says, in one line: which project, which branch, and the
+// engine's own reason. Before MC-1909 a merge park carried only "a merge could not
+// complete", which is unactionable on an unwatched horizon.
+function mergeFailureDetail(outcome: RoadmapMergeOutcome): string {
+  const target = outcome.repo && outcome.branch ? `${outcome.repo} (${outcome.branch})` : (outcome.repo ?? outcome.branch)
+  const reason = outcome.message?.trim()
+  if (target && reason) return `${target}: ${reason}`
+  return reason || (target ? `${target}: the merge was refused.` : 'The merge was refused.')
 }
 
 function parkedRuntime(
