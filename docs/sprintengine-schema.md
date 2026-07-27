@@ -40,7 +40,7 @@ Each team folder contains these store files and directories:
 ```
 
 Folder-store files are not safe manual editing surfaces. Human/debug/headless
-operators can use commands such as `sprintengine join --watch`,
+operators can use commands such as `sprintengine join`,
 `sprintengine task next`, `sprintengine task log`, `sprintengine task status`,
 `sprintengine artifact add`, and `sprintengine runner set`. Multicode-launched
 autonomous agents use the managed Sprint Engine MCP server instead of CLI
@@ -184,7 +184,7 @@ Prompt composition is layered:
 1. The startup brief: `directives.implement` skills, plus host-supplied layer
    skills (`render_soul`, `extra_skills`).
 2. Sprint Engine coordination rules selected by the dispatch kind.
-3. Runtime directive from `join --watch`, MCP lifecycle tools, or the active task
+3. Runtime directive from the MCP lifecycle tools or the active task
    payload.
 
 Phase directives are **not** composed at startup. They are composed on demand by
@@ -317,7 +317,6 @@ Lifecycle names (MC-1591 deleted the per-agent dispatch cursor tools
 - `sprintengine.agent.join`
 - `sprintengine.agent.heartbeat`
 - `sprintengine.agent.leave`
-- `sprintengine.agent.next_directive` (headless-CLI routing adapter)
 
 Discovery names:
 
@@ -476,12 +475,13 @@ callers working. Capability tests live in
 Compatibility names:
 
 - `sprintengine.join` remains a compatibility alias for the agent join
-  behavior used by `sprintengine join --watch`. It must keep the current CLI
-  response shape while sharing lifecycle state with `sprintengine.agent.join`.
-  It is operator-only under the capability policy: autonomous agents never see
-  it. Managed Multicode prompt flows use `sprintengine.agent.join` followed by
-  the direct claim tool named in the runtime prompt; `agent.next_directive`
-  survives for standalone/headless compatibility only.
+  behavior, used by the one-shot `sprintengine join` operator command. It must
+  keep the current CLI response shape while sharing lifecycle state with
+  `sprintengine.agent.join`. It is operator-only under the capability policy:
+  autonomous agents never see it. Managed Multicode prompt flows use
+  `sprintengine.agent.join` followed by the direct claim tool named in the
+  runtime prompt. `sprintengine.agent.next_directive` and the `--watch` polling
+  loop it adapted were deleted (MC-1827).
 - CLI wrapper flows still use `sprintengine.task.next`,
   `sprintengine.task.claim`, `sprintengine.task.note`,
   `sprintengine.task.resolve_input`, `sprintengine.task.release`,
@@ -492,7 +492,7 @@ Transition tests must prove that `sprintengine.join` does not duplicate
 dispatch ledger entries, returns active work before claiming new work, records
 or refreshes the same agent lifecycle fields as the final join path, treats
 unclaimed ready tasks as wake candidates until claim time, and returns idle
-without mutation when Auto Mode is off and no target is available.
+without mutation when no target is available.
 
 ## Task Files
 
@@ -912,7 +912,7 @@ An entry in `tasks/ready/` is claimability state, not a durable assignment to a
 specific agent. Auto-run renderers may surface it as a wake candidate for a live
 agent only when the current projection shows that agent has no active task,
 dispatch, or `needs_input` ownership. `task next`, `task claim`, or
-`join --watch` must perform the actual claim before any task owner,
+`join` must perform the actual claim before any task owner,
 `currentDispatch`, or dispatch ledger row is created.
 
 A worker id holds at most one **active lease** (MC-1591; `worker_has_active_lease`,
@@ -926,7 +926,7 @@ is no per-task-for-life cap.
 `needsInput`. Missing `needsTriage` normalizes to `false`. When `true`, the task
 remains visible in the `todo` board/projection, is omitted from materialized
 ready queues, and cannot be claimed through `task next`, `task claim`,
-`join --watch`, or normal dispatch. Clearing it restores normal
+or normal dispatch. Clearing it restores normal
 dependency-based readiness.
 
 Readiness refresh rejects unknown dependencies and cycles. The CLI command is:
@@ -1009,13 +1009,13 @@ artifact folders, metrics files, or comments from folder internals.
 
 ## Runner Policy
 
-Runner policy is stored in `run.yaml` and projected under `run.runner`.
-For standalone/headless CLI sessions, `cliWatchPolling: disabled` means
-`join --watch` returns idle immediately when no work is ready, and `enabled` means
-`join --watch` sleeps and polls until work appears, polling is turned off, the run
-completes, or a diagnostic max-wait limit is reached. In Multicode, the runtime
-owns terminal dispatch/continuation and restarts missing capacity instead of
-asking agents to poll; the supervisor ignores this field.
+Runner policy is stored in `run.yaml` and projected under `run.runner`. The CLI
+watch loop these fields configured was deleted in MC-1827 — nothing in the
+engine polls. `cliWatchPolling` survives as the run.yaml hint Multicode writes
+when a run's automation mode changes and the mobile snapshot reads back to
+derive that mode; the remaining timing fields are inert. The runtime owns
+terminal dispatch/continuation and restarts missing capacity instead of asking
+agents to poll; the supervisor ignores this field.
 
 ## Verification Commands
 

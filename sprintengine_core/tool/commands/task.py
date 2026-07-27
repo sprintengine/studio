@@ -71,7 +71,6 @@ from sprintengine_core.tool.tasks import (
     reject_absolute_path_values,
     task_is_ready,
 )
-from sprintengine_core.tool.commands.run import auto_mode_continuation
 
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     if getattr(args, "role", None):
@@ -438,7 +437,6 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
         )
         recompute_phase(state)
         event = append_event(state, "task_status_changed", actor, f"{actor} moved {args.task_id} to {final_status}.")
-        continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor)) if final_status == "done" else None
         return {
             "ok": True,
             "task": task,
@@ -446,7 +444,6 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             **({"requestedStatus": args.status} if final_status != args.status else {}),
             "event": event,
             "commitSha": commit_sha,
-            **(continuation or {}),
             "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
         }
     result = with_locked_state(args.state, run)
@@ -679,7 +676,6 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             state, "task_published", str(actor),
             f"{actor} published {args.task_id} to {result['nextStatus']}{no_changes_suffix}.",
         )
-        continuation = auto_mode_continuation(state, str(task.get("role") or ""), str(actor))
         # The owner is in-session and mid-tool-call: hand it the phase directive here
         # rather than pasting into its terminal. There is no third delivery channel
         # (see phase_prompts) — the only other one is the respawn brief for a dead owner.
@@ -744,7 +740,6 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             "commitSha": commit_sha,
             "event": event,
             "_noChangesFeedbackRecord": no_changes_record,
-            **(continuation or {}),
         }
 
     result = with_locked_state(args.state, run)
@@ -799,7 +794,6 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
             f"{actor} advanced {args.task_id} out of {result['phase']} with {args.outcome}.",
             {"taskId": args.task_id, "phase": result["phase"], "outcome": args.outcome, "status": result["nextStatus"]},
         )
-        continuation = auto_mode_continuation(state, str(task.get("role") or ""), actor)
         next_directive = (
             build_phase_directive(state, args.state, task, result["nextPhase"])
             if result["nextPhase"]
@@ -815,7 +809,6 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
             **({"nextPhase": result["nextPhase"]} if result["nextPhase"] else {}),
             **({"nextDirective": next_directive} if next_directive else {}),
             "event": event,
-            **(continuation or {}),
             **({"feedbackWarnings": feedback_warnings} if feedback_warnings else {}),
             "_feedbackRecord": feedback_payload["record"] if feedback_payload else None,
         }

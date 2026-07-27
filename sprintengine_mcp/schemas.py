@@ -219,18 +219,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
             "workspaceRoot": WORKSPACE_ROOT_PROPERTY,
         },
     ),
-    "sprintengine.agent.next_directive": object_schema(
-        ["statePath", "role", "agentId"],
-        {
-            "role": ROLE_PROPERTY,
-            "agentId": AGENT_ID_PROPERTY,
-            "attempts": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Current watch attempt count, used only to calculate retry timing for idle auto-mode directives.",
-            },
-        },
-    ),
     "sprintengine.agent.heartbeat": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY}),
     "sprintengine.agent.leave": object_schema(["statePath", "agentId"], {"agentId": AGENT_ID_PROPERTY, "role": ROLE_PROPERTY, "reason": {"type": "string"}}),
     "sprintengine.join": object_schema(
@@ -238,8 +226,6 @@ MCP_V1_CONTRACT_SCHEMAS: dict[str, dict[str, Any]] = {
         {
             "role": ROLE_PROPERTY,
             "id": AGENT_ID_PROPERTY,
-            "watch": {"type": "boolean", "description": "Compatibility flag for CLI join --watch polling."},
-            "maxWaitSeconds": {"type": "number", "description": "Compatibility timeout for CLI join --watch diagnostics."},
         },
     ),
     "sprintengine.summary": object_schema(["statePath"], {}),

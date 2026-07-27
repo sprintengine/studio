@@ -106,9 +106,10 @@ export type SprintEngineTaskPhase = 'review'
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'
 
 export type SprintEngineRunnerPolicy = {
-  // `cliWatchPolling` controls whether `sprintengine join --watch` keeps
-  // polling for ready work (`enabled`) or exits when nothing is ready
-  // (`disabled`). It is a CLI-runtime concern only — Multicode's supervisor
+  // The CLI watch loop these fields configured was retired with the CLI-runner
+  // era (MC-1827); nothing polls any more. `cliWatchPolling` survives as the
+  // run.yaml hint main writes when the automation mode changes, which the
+  // mobile snapshot reads back to derive that mode. Multicode's supervisor
   // ignores it and decides spawning from local renderer autoState alone.
   cliWatchPolling: SprintEngineCliWatchPolling
   pollIntervalSeconds: number

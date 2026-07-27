@@ -152,10 +152,7 @@ def _mcp_payload(args) -> tuple[str, dict]:
         # payload mapper.
         raise SystemExit(f"MCP backend does not support roster action: {action}; use --backend direct-core.")
     if group == "join":
-        payload = {**base, "role": args.role, "id": args.id, "watch": bool(args.watch)}
-        if args.max_wait_seconds is not None:
-            payload["maxWaitSeconds"] = args.max_wait_seconds
-        return "sprintengine.join", payload
+        return "sprintengine.join", {**base, "role": args.role, "id": args.id}
     if group in {"roles", "role", "soul", "skill"}:
         return _registry_payload(group, action, args)
     if group == "summary":

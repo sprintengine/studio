@@ -11,7 +11,6 @@ AUDITED_TOOLS = {
     "sprintengine.init",
     "sprintengine.recover",
     "sprintengine.agent.join",
-    "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",
     "sprintengine.agent.leave",
     "sprintengine.join",

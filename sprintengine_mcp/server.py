@@ -308,7 +308,6 @@ class SprintEngineMcpServer:
                 "You own your task from claim to done. Implement, then sprintengine.task.publish. In worktree-mode runs that also commits your task-scoped changes in your task's project worktree, under that project's commit lock.",
                 "If your task produced a diff, publish routes it into its review phase and returns your review directive INLINE in the publish response (`nextDirective`). Follow it, fix what you find, then close the phase with sprintengine.task.advance. If it produced no diff, publish lands the task in done.",
                 "After the task is done, stop. Multicode owns dispatch and continuation.",
-                "Headless CLI agents outside the managed runtime use sprintengine.agent.next_directive for routing instead.",
                 "If Auto Mode is off, you are blocked, need user input, or are near context limit, stop after recording the appropriate note or status.",
             ],
             # The triage line is filtered by the CAPABILITY TABLE, not by a role
@@ -428,9 +427,8 @@ class SprintEngineMcpServer:
             ],
         )
         # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
-        # omitted from the MCP response. Agents are MCP-native: managed agents read `prompt`
-        # and then call the claim tool their startup/wake prompt names; headless CLI agents
-        # route through `sprintengine.agent.next_directive`.
+        # omitted from the MCP response. Agents are MCP-native: they read `prompt` and then
+        # call the claim tool their startup/wake prompt names.
         return {
             "ok": True,
             "agentId": agent_id,
@@ -752,9 +750,6 @@ class SprintEngineMcpServer:
                 result.setdefault("state", "idle" if not result.get("claimed") else "blocked")
             else:
                 result.setdefault("state", "dispatched")
-        if tool_name in {"sprintengine.task.publish", "sprintengine.task.advance", "sprintengine.task.status"}:
-            next_command = result.get("nextCommand")
-            result.setdefault("progression", {"nextCommand": next_command, "state": "continuation_available" if next_command else "idle"})
         return result
 
     def _state_path(self, payload: dict[str, Any], *, required: bool) -> Path | None:

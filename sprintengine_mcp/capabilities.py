@@ -52,7 +52,6 @@ RoleClassification = str  # "operator" | "architect" | "general" | "owner"
 AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.help",
     "sprintengine.agent.join",
-    "sprintengine.agent.next_directive",
     "sprintengine.agent.heartbeat",
     "sprintengine.agent.leave",
     "sprintengine.task.get",
@@ -109,9 +108,8 @@ PLANNING_TOOLS: frozenset[str] = frozenset({
 })
 
 # Operator-only compatibility surface. `sprintengine.join` backs the human
-# `sprintengine --backend mcp-local join --watch` CLI flow and must keep its
-# response shape; managed autonomous agents use `agent.join` followed by
-# `task.next`, while headless CLI agents route through `agent.next_directive`.
+# `sprintengine --backend mcp-local join` CLI flow and must keep its response
+# shape; managed autonomous agents use `agent.join` followed by `task.next`.
 OPERATOR_ONLY_TOOLS: frozenset[str] = frozenset({
     "sprintengine.join",
 })
@@ -121,7 +119,6 @@ OPERATOR_ONLY_TOOLS: frozenset[str] = frozenset({
 # impersonate another role through these.
 CALLER_ROLE_PAYLOAD_TOOLS: frozenset[str] = frozenset({
     "sprintengine.agent.join",
-    "sprintengine.agent.next_directive",
     "sprintengine.task.next",
 })
 

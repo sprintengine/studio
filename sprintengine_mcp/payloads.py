@@ -35,9 +35,7 @@ def command_payload_to_namespace(
             force=bool(payload.get("force", False)),
         )
     elif tool_name == "sprintengine.join":
-        base.update(role=payload["role"], id=payload["id"], watch=bool(payload.get("watch", False)), max_wait_seconds=payload.get("maxWaitSeconds"))
-    elif tool_name == "sprintengine.agent.next_directive":
-        base.update(role=payload["role"], id=payload["agentId"], attempts=payload.get("attempts") or 1)
+        base.update(role=payload["role"], id=payload["id"])
     elif tool_name == "sprintengine.triage.needs_input":
         base.update(id=payload["id"])
     elif tool_name == "sprintengine.task.next":

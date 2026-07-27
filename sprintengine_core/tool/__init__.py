@@ -29,12 +29,9 @@ from .commands.roster import (
     cmd_roster_runtime,
 )
 from .commands.run import (
-    build_agent_next_directive,
-    auto_mode_continuation,
     cmd_handover,
     cmd_init,
     cmd_join,
-    cmd_merge_start,
     cmd_projection,
     cmd_recover,
     cmd_runner_set,
@@ -45,7 +42,6 @@ from .commands.run import (
     cmd_vcs_pr,
     cmd_vcs_request_repo,
     cmd_vcs_status,
-    runner_watch_delay_seconds,
 )
 from .commands.task import (
     cmd_task_advance,

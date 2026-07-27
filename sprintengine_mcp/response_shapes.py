@@ -148,17 +148,6 @@ def _slim_needs_input(needs_input: Any) -> tuple[dict[str, Any] | None, bool]:
     return slim, truncated
 
 
-def task_stub(task: Any) -> dict[str, Any] | None:
-    if not isinstance(task, dict):
-        return None
-    return {
-        "id": task.get("id"),
-        "title": task.get("title"),
-        "status": task.get("status"),
-        "role": task.get("role"),
-    }
-
-
 def slim_task_card(task: Any) -> dict[str, Any] | None:
     if not isinstance(task, dict):
         return None
@@ -287,15 +276,6 @@ def _slim_card_response(result: dict[str, Any]) -> dict[str, Any]:
     return shaped
 
 
-def _directive_response(result: dict[str, Any]) -> dict[str, Any]:
-    shaped = dict(result)
-    if isinstance(shaped.get("task"), dict):
-        shaped["task"] = task_stub(shaped["task"])
-    if shaped.get("releasedExpired") == []:
-        del shaped["releasedExpired"]
-    return shaped
-
-
 def _heartbeat_response(result: dict[str, Any]) -> dict[str, Any]:
     """Heartbeat is pure liveness: the mutation only renews the lease `heartbeatAt`
     of the tasks the worker owns (MC-1591 deleted the agents-map mirror), so a
@@ -352,8 +332,6 @@ def shape_tool_result(tool_name: str, payload: dict[str, Any], result: Any) -> A
         include = payload.get("include") if isinstance(payload.get("include"), list) else []
         shaped["task"] = expanded_task_card(shaped.get("task"), [str(item) for item in include])
         return shaped
-    if tool_name == "sprintengine.agent.next_directive":
-        return _directive_response(result)
     if tool_name == "sprintengine.agent.heartbeat":
         return _heartbeat_response(result)
     if tool_name == "sprintengine.summary":

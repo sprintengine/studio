@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 from sprintengine_core.tool import (
-    build_agent_next_directive,
     cmd_artifact_add,
     cmd_artifact_approve,
     cmd_artifact_list,
@@ -79,7 +78,6 @@ MCP_TOOL_CONTRACTS: dict[str, McpToolContract] = {
         _command("sprintengine.init", cmd_init),
         _command("sprintengine.recover", cmd_recover),
         _special("sprintengine.agent.join"),
-        _command("sprintengine.agent.next_directive", build_agent_next_directive),
         _special("sprintengine.agent.heartbeat"),
         _special("sprintengine.agent.leave"),
         _command("sprintengine.join", cmd_join),

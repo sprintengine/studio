@@ -55,10 +55,9 @@ Use repeated `--extra-dir <registry-root>` flags to add plugin registry roots
 containing `roles/` and `skills/`, and `--user-dir <path>` to override the user
 registry base directory. The server remains a local stdio MCP boundary.
 Studio-launched autonomous Sprint Engine agents use the managed
-`sprintengine-studio` MCP gateway (which proxies the module-owned Python hub) and runtime dispatch; they do not use
-`join --watch` for idle polling. Standalone/headless CLI users can still run
-`sprintengine join --role <role> --id <agent-id> --watch`, where the CLI owns
-polling/backoff.
+`sprintengine-studio` MCP gateway (which proxies the module-owned Python hub) and runtime dispatch.
+Human and debug operators can run `sprintengine join --role <role> --id <agent-id>`
+for a one-shot read of what the run would hand that role; it never polls.
 
 ## Single-Owner Task Lifecycle
 
@@ -549,18 +548,16 @@ sprintengine runner set --mode auto
 sprintengine runner set --mode off
 ```
 
-Standalone/headless CLI agents can start and continue with `join --watch`.
-When Auto Mode is on, `join --watch` sleeps and polls under the CLI until work
-is available or Auto Mode is turned off. When Auto Mode is off, idle CLI agents
-stop.
+`join` is a one-shot operator read: it reports what the run would hand this
+role right now and returns. The polling `--watch` loop and its completion
+machinery were retired with the CLI-runner era (MC-1827); the managed runtime
+is the product.
 
-Multicode-launched autonomous roster agents use the managed Sprint Engine MCP
-server instead. Their startup and wake prompts call `sprintengine.agent.join`
-and `sprintengine.agent.next_directive`; if a directive includes
-`nextMcpToolName`, the agent invokes that MCP tool once with
-`nextMcpArguments`. Multicode owns later continuation, terminal wake/resume,
-and replacement spawning for ready work, owner re-engagement after human
-feedback, and `needs_input` recovery.
+Multicode-launched autonomous agents never use the CLI. Their startup and wake
+prompts call `sprintengine.agent.join`, then claim with `sprintengine.task.next`.
+Multicode owns later continuation, terminal wake/resume, and replacement
+spawning for ready work, owner re-engagement after human feedback, and
+`needs_input` recovery.
 
 Phase directives never travel this way. They have exactly two delivery channels
 (`sprintengine_core/tool/phase_prompts.py`): inline in the owner's own

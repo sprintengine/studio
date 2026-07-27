@@ -101,11 +101,13 @@ WORKER_ASSIGNMENT_PER_TASK = "per_task"
 WORKER_ASSIGNMENT_POLICIES = (WORKER_ASSIGNMENT_PER_TASK,)
 DEFAULT_ROSTER_POLICY = {"workerAssignment": WORKER_ASSIGNMENT_PER_TASK}
 DEFAULT_RUNNER_POLICY = {
-    # `cliWatchPolling` controls whether `sprintengine join --watch` keeps
-    # polling for new work (`enabled`) or exits when no work is ready
-    # (`disabled`). It is a CLI-runtime concern only — Multicode's supervisor
-    # ignores it and decides spawning from local renderer autoState. Legacy
-    # `mode: auto|off` is read as a fallback by `normalize_runner_policy`.
+    # The CLI watch loop this policy configured was retired with the CLI-runner
+    # era (MC-1827); nothing in the engine polls any more. `cliWatchPolling`
+    # survives as the run.yaml hint the app writes when the automation mode
+    # changes, and the mobile snapshot reads it back to derive that mode.
+    # Multicode's supervisor ignores it and decides spawning from local
+    # renderer autoState. Legacy `mode: auto|off` is read as a fallback by
+    # `normalize_runner_policy`.
     "cliWatchPolling": "disabled",
     "pollIntervalSeconds": 10,
     "idleBackoffSeconds": 30,

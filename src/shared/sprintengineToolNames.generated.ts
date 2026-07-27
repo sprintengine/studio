@@ -5,7 +5,6 @@ export const SPRINTENGINE_TOOL_NAMES = [
   'sprintengine.agent.heartbeat',
   'sprintengine.agent.join',
   'sprintengine.agent.leave',
-  'sprintengine.agent.next_directive',
   'sprintengine.artifact.add',
   'sprintengine.artifact.approve',
   'sprintengine.artifact.list',
@@ -140,37 +139,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         },
         "reason": {
           "type": "string"
-        }
-      }
-    }
-  },
-  {
-    "name": "sprintengine.agent.next_directive",
-    "description": "agent next directive",
-    "inputSchema": {
-      "type": "object",
-      "required": [
-        "role",
-        "agentId"
-      ],
-      "additionalProperties": true,
-      "properties": {
-        "statePath": {
-          "type": "string",
-          "description": "Run state path; server-resolved, agents normally omit it."
-        },
-        "role": {
-          "type": "string",
-          "description": "Canonical Sprint Engine role id, after registry alias resolution."
-        },
-        "agentId": {
-          "type": "string",
-          "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "attempts": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Current watch attempt count, used only to calculate retry timing for idle auto-mode directives."
         }
       }
     }
@@ -712,14 +680,6 @@ export const SPRINTENGINE_TOOL_DEFINITIONS = [
         "id": {
           "type": "string",
           "description": "Stable Sprint Engine agent id, for example developer-1."
-        },
-        "watch": {
-          "type": "boolean",
-          "description": "Compatibility flag for CLI join --watch polling."
-        },
-        "maxWaitSeconds": {
-          "type": "number",
-          "description": "Compatibility timeout for CLI join --watch diagnostics."
         }
       }
     }
@@ -2386,7 +2346,6 @@ export const SPRINTENGINE_MUTATING_TOOL_NAMES = [
   'sprintengine.agent.heartbeat',
   'sprintengine.agent.join',
   'sprintengine.agent.leave',
-  'sprintengine.agent.next_directive',
   'sprintengine.artifact.add',
   'sprintengine.artifact.approve',
   'sprintengine.artifact.ready',
