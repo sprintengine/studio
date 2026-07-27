@@ -79,7 +79,6 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'git',
   'memory-graph',
   'switchboard',
-  'multiloop',
   'sprint-engine',
   'review',
   'automations',
@@ -867,7 +866,6 @@ export type CommandScope =
   | 'terminal'
   | 'panel'
   | 'panel:sprintengine'
-  | 'panel:multiloop'
   | 'panel:watchtower'
   | 'panel:switchboard'
 
@@ -879,8 +877,6 @@ export type CommandAvailability =
   | 'sprintengineWorkspace'
   | 'sprintengineHasArchitect'
   | 'sprintengineFocusAgentVisible'
-  | 'multiloopWorkspace'
-  | 'multiloopStateLoaded'
   | 'switchboardWorkspace'
   | 'memoryGraphEnabled'
   | 'sprintEngineEnabled'
