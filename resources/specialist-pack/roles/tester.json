@@ -4,7 +4,7 @@
   "aliases": [
     "qa-test"
   ],
-  "summary": "Validates real product paths and regression coverage.",
+  "description": "Validates finished work through real product paths and builds reproducible regression coverage. Staff this role when integrated behavior is worth exercising end to end — one whole-flow task at the end, or one per milestone.",
   "icon": "test",
   "directives": {
     "implement": [

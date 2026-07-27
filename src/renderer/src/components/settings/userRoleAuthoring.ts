@@ -29,23 +29,25 @@ import {
 // get bridge. The mode also gates id-collision (only meaningful when creating).
 export type RoleAuthoringMode = { kind: 'create' } | { kind: 'edit'; id: string }
 
-// The editable form state. Aliases are a single free-text field parsed to an
-// array on save; body is the SKILL.md instructions document.
+// The editable form state: the four things a role is — id, name, what it does,
+// and its instructions. `aliases` is not an authoring field (MC-1831 cut the form
+// to name/description/skills); it rides the draft only so editing a role that has
+// aliases does not silently drop them.
 export type RoleAuthoringDraft = {
   id: string
   label: string
-  summary: string
-  aliasesText: string
+  description: string
+  aliases: string[]
   body: string
 }
 
 // Inline errors keyed by the form control they belong to. `form` carries any
 // issue with no obvious field home (it should not normally appear, since the
-// directive pack is auto-assembled from the id).
+// directive pack is auto-assembled from the id and aliases are not authored here).
 export type RoleAuthoringFieldErrors = {
   id?: string
   label?: string
-  aliases?: string
+  description?: string
   body?: string
   form?: string
 }
@@ -60,8 +62,8 @@ export function createRoleAuthoringDraft(): RoleAuthoringDraft {
   return {
     id: '',
     label: '',
-    summary: '',
-    aliasesText: '',
+    description: '',
+    aliases: [],
     body: starterSoulTemplate(''),
   }
 }
@@ -72,18 +74,10 @@ export function editRoleAuthoringDraft(manifest: RoleManifest, body: string): Ro
   return {
     id: manifest.id,
     label: manifest.label,
-    summary: manifest.summary ?? '',
-    aliasesText: (manifest.aliases ?? []).join(', '),
+    description: manifest.description ?? '',
+    aliases: manifest.aliases ?? [],
     body,
   }
-}
-
-// Split the aliases free-text field on commas/whitespace into trimmed entries.
-export function parseAliasesText(text: string): string[] {
-  return text
-    .split(/[\s,]+/u)
-    .map((alias) => alias.trim())
-    .filter(Boolean)
 }
 
 // Assemble the save payload from the draft, omitting empty optional fields so the
@@ -93,11 +87,10 @@ export function toUserRoleSaveInput(draft: RoleAuthoringDraft): UserRoleSaveInpu
   const input: UserRoleSaveInput = {
     id: draft.id.trim(),
     label: draft.label.trim(),
+    description: draft.description.trim(),
     body: draft.body,
   }
-  const summary = draft.summary.trim()
-  if (summary) input.summary = summary
-  const aliases = parseAliasesText(draft.aliasesText)
+  const aliases = draft.aliases.filter((alias) => alias.trim().length > 0)
   if (aliases.length > 0) input.aliases = aliases
   return input
 }
@@ -105,7 +98,7 @@ export function toUserRoleSaveInput(draft: RoleAuthoringDraft): UserRoleSaveInpu
 function fieldForIssuePath(path: string): keyof RoleAuthoringFieldErrors {
   if (path === 'id') return 'id'
   if (path === 'label') return 'label'
-  if (path.startsWith('aliases')) return 'aliases'
+  if (path === 'description') return 'description'
   if (path === 'body') return 'body'
   return 'form'
 }
@@ -137,6 +130,13 @@ export function validateRoleAuthoringDraft(
   const manifestResult = validateRoleManifest(buildAuthoredRoleManifest(input))
   if (!manifestResult.ok) {
     Object.assign(errors, mapIssuesToFieldErrors(manifestResult.issues))
+  }
+
+  // Two write-blocking checks the manifest validator does not own: both fields
+  // are optional to a *loaded* manifest (a pack predating them still works), but
+  // a role authored here must carry them.
+  if (input.description.trim().length === 0) {
+    errors.description = 'Describe what this role does and when a sprint should staff it.'
   }
 
   if (input.body.trim().length === 0) {

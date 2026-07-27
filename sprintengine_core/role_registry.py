@@ -48,8 +48,9 @@ IMPLEMENT_DIRECTIVE = "implement"
 DIRECTIVE_PHASES: tuple[str, ...] = ("review",)
 DIRECTIVE_KEYS: tuple[str, ...] = (IMPLEMENT_DIRECTIVE, *DIRECTIVE_PHASES)
 
-# v1 keys removed by MC-1542. Parsing rejects them by name so a stale pack fails
-# loudly with its v2 replacement rather than silently losing its identity.
+# Keys removed by earlier manifest revisions. Parsing rejects them by name so a
+# stale pack fails loudly with its replacement rather than silently losing its
+# identity.
 REMOVED_MANIFEST_KEYS: dict[str, str] = {
     "soul": (
         "'soul' was removed in the v2 role manifest. Use "
@@ -59,6 +60,17 @@ REMOVED_MANIFEST_KEYS: dict[str, str] = {
         "'capabilities' was removed in the v2 role manifest. Review-only roles no longer exist: "
         "a reviewer is an ordinary implementer, and role-scoped review content goes in "
         "\"directives\": {\"review\": [{\"skill\": \"<id>\"}]}."
+    ),
+}
+
+# Keys renamed rather than deleted. An installed pack predating the rename must
+# keep loading — its roles are how a user's runs are staffed — so the old key is
+# a warning, not a rejection, and its value is NOT read as the new field: the
+# author renames it and writes the fuller text the new field asks for.
+RENAMED_MANIFEST_KEYS: dict[str, str] = {
+    "summary": (
+        "'summary' was renamed to 'description' (MC-1831) and is ignored. A role's capabilities are "
+        "prose the architect reads: say what the role does and when a sprint should staff it."
     ),
 }
 
@@ -114,7 +126,11 @@ class RoleManifest:
     id: str
     label: str
     aliases: tuple[str, ...]
-    summary: str | None
+    # The role's whole capability statement, in prose: what it does and when to
+    # staff it. The architect plans from it; nothing in the engine derives
+    # behaviour from its text. Absent only for a manifest written before the
+    # field existed, which still loads (see RENAMED_MANIFEST_KEYS).
+    description: str | None
     icon: str | None
     # phase key -> ordered skills. Always carries a non-empty `implement` entry.
     directives: Mapping[str, tuple[DirectiveSkillEntry, ...]]
@@ -408,7 +424,7 @@ def role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
         "id": role.id,
         "label": role.label,
         "aliases": list(role.aliases),
-        "summary": role.summary,
+        "description": role.description,
         "icon": role.icon,
         "directives": {
             key: [{"skill": entry.skill} for entry in role.directives[key]]
@@ -546,10 +562,10 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
 
     role_id = _required_string(raw, "id")
     label = _required_string(raw, "label")
+    description = _required_string(raw, "description")
     if role_id is None or label is None:
         warnings.append(_role_warning("invalid_role_manifest", "Role manifest requires string id and label.", path, layer))
         return None
-
     aliases = raw.get("aliases", [])
     if aliases is None:
         aliases = []
@@ -561,6 +577,10 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         if removed_key in raw:
             warnings.append(_role_warning("v1_role_manifest", guidance, path, layer, role_id))
             return None
+
+    for renamed_key, guidance in RENAMED_MANIFEST_KEYS.items():
+        if renamed_key in raw:
+            warnings.append(_role_warning("renamed_manifest_key", guidance, path, layer, role_id))
 
     directives = _parse_role_directives(raw.get("directives"))
     if directives is None:
@@ -576,11 +596,7 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         )
         return None
 
-    summary = raw.get("summary")
     icon = raw.get("icon")
-    if summary is not None and not isinstance(summary, str):
-        warnings.append(_role_warning("invalid_role_manifest", "Role summary must be a string when present.", path, layer, role_id))
-        return None
     if icon is not None and not isinstance(icon, str):
         warnings.append(_role_warning("invalid_role_manifest", "Role icon must be a string when present.", path, layer, role_id))
         return None
@@ -589,7 +605,7 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         id=normalize_role_id(role_id),
         label=label.strip(),
         aliases=tuple(alias.strip() for alias in aliases),
-        summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
+        description=description,
         icon=icon.strip() if isinstance(icon, str) and icon.strip() else None,
         directives=directives,
     )

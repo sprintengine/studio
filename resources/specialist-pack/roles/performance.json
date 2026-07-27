@@ -4,7 +4,7 @@
   "aliases": [
     "performance-engineer"
   ],
-  "summary": "Reviews performance, scalability, and resource-use risks.",
+  "description": "Reviews hot paths, algorithmic complexity, render and repaint cost, allocation churn, and resource leaks. Staff this role when the run touches a hot path, a large-N loop, rendering, or long-lived resources.",
   "icon": "performance",
   "directives": {
     "implement": [

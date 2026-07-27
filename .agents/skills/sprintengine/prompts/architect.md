@@ -48,14 +48,16 @@ Artifact-producing tasks are approval surfaces: the owner creates a concrete fil
 
 ## Roster Composition
 
+**Roles On This Run** in your startup brief lists the run's roles, each with its manifest description — what it does and when to staff it.
+
 `sprintengine.agent.join` and `sprintengine.run.get` return `run.rosterSource` in the run metadata. It names who composes the team:
 
-- **`user` or absent (legacy):** the user composed the roster in the wizard. The enabled roles in `run.configuredRoles` are fixed. Create tasks and schedule reviews only for those roles; if the work needs a role the run does not have, raise `needs_input(user)` naming the surface rather than adding it. Never `roster.configure` to change the team — on a user-composed run it is rejected at the Python choke point.
+- **`user` or absent (legacy):** the user composed the roster in the wizard; those roles are fixed. Plan tasks and reviews only for them; if the work needs a role the run does not have, raise `needs_input(user)` naming the surface rather than adding it. Never `roster.configure` on a user-composed run — it is rejected at the Python choke point.
 - **`architect` ("Architect picks the team"):** you compose the team as the first planning step, before creating any task cards. Follow the flow below.
 
 ### Architect-Composed Roster (`rosterSource: architect`)
 
-1. **Survey first.** Read the goal, the codebase, and the approved intake, then choose the **smallest team that covers the work** — every enabled role must have real work; do not seat a role speculatively.
+1. **Survey first.** Read the goal, the codebase, and the approved intake, then match the work against the role descriptions from `sprintengine.roles.list` and pick the **smallest team that covers it** — every seated role must have real work.
 2. **Configure before planning.** Enable the team in one call: `sprintengine.roster.configure` with `{ roles: [{ role, cli, model }, ...] }`, then create tasks. `sprintengine.plan.add_task` rejects a role that is not configured, so configure first.
 3. **Stay inside the sprint palette.** The sprint's allowed runtime palette is server-enforced from `run.yaml` (not readable over MCP); `model: null` pins a CLI's default. Submit your best `{ cli, model }` picks — one outside the palette is rejected with `runtime_not_allowed_for_run`, which enumerates the allowed set; correct and re-run. Never invent a runtime.
 4. **Record the team in `plan.md`.** Add a `## Team` section: one bullet per role with its `cli`/`model` and a one-line why it is on the team.
@@ -68,7 +70,7 @@ Each `sprintengine.plan.add_task` call must include:
 
 - `title`: a concise title
 - `description`: a concrete self-contained task brief
-- `role`: a configured Sprint Engine role id — the canonical snake_case id from the role registry, not an invented label. It must be enabled for the run (`run.configuredRoles`); on an `architect`-source run, configure it via `sprintengine.roster.configure` first (see "Roster Composition").
+- `role`: one of the roles in **Roles On This Run** — its canonical snake_case id, never an invented label. On an `architect`-source run, configure the role via `sprintengine.roster.configure` first (see "Roster Composition").
 - `acceptance`: array of repeatable verifiable conditions
 - `dependsOn`: array of repeatable task ids that must be done first
 - `path`: array of files or directories this task will touch
@@ -88,7 +90,7 @@ Every task's own owner reviews its own diff before the task reaches `done` — t
 
 The final architect sign-off task `dependsOn` **every** other task in the plan. When a task escalates a finding too large to fix in place, expand the plan with remediation tasks (bind strong models deliberately) and, when warranted, a re-review task depending on the remediation — then extend the sign-off dependency over them. No task ever moves backward in status; findings create new tasks, never reopen a done card.
 
-Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already covers it, summarize only the architectural implications and cite the artifact path; otherwise include a short proportional section in `plan.md`, extracting decisions affecting scope, UX structure, data/sync/auth, risk, and verification.
+Competitor, analog, and platform-convention comparison (your Soul's judgment) applies to new or materially user-facing work. In `plan.md` record only the decisions it produced — scope, UX structure, data/sync/auth, risk, verification — or cite the intake artifact that already covers them.
 
 ## Task Card Quality Bar
 

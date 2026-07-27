@@ -7,7 +7,7 @@
     "structural-review",
     "maintainability-review"
   ],
-  "summary": "Runs a strict maintainability review for structure, abstraction, large-file, and spaghetti-growth risks.",
+  "description": "Runs a strict maintainability review of structure, abstraction quality, large-file risk, and special-case sprawl. Staff this role when the run adds substantial new code, refactors shared paths, or grows already-large files.",
   "icon": "nuclear",
   "directives": {
     "implement": [

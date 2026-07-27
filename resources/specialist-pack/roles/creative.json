@@ -10,7 +10,7 @@
     "marketing",
     "brand"
   ],
-  "summary": "Creates programmatic video, premium motion, and expressive marketing surfaces.",
+  "description": "Creates programmatic video, premium motion, and expressive marketing surfaces. Staff this role when the deliverable is motion or marketing craft rather than product UI.",
   "icon": "design",
   "directives": {
     "implement": [

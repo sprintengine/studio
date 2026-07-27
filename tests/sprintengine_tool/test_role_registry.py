@@ -18,6 +18,7 @@ def write_role(
     role_id: str,
     *,
     label: str | None = None,
+    description: str | None = None,
     aliases: list[str] | None = None,
     implement: list[dict] | None = None,
     review: list[dict] | None = None,
@@ -32,6 +33,7 @@ def write_role(
     payload = {
         "id": role_id,
         "label": role_id.replace("_", " ").title() if label is None else label,
+        "description": description if description is not None else f"Does {role_id} work. Staff it when the run needs {role_id} work.",
         "aliases": aliases or [],
         "directives": directives,
     }

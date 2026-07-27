@@ -11,6 +11,12 @@
 // adds role-scoped content to that phase's shared base pack. `soul` and
 // `capabilities` are rejected by name.
 //
+// MC-1831: a role's capabilities are prose. `description` says what the role
+// does and when to staff it, the architect reads it verbatim when planning, and
+// no engine behaviour is derived from it. Write one for every role; it is
+// optional here only so a manifest predating the field still loads (its
+// one-line predecessor `summary` is ignored).
+//
 // This validator mirrors sprintengine_core/role_registry.py and the hand-rolled
 // style of plugin-manifest-validate.ts (the repo has no JSON-schema runtime);
 // resources/sprintengine/role-manifest.schema.json is the human/marketplace-facing
@@ -30,7 +36,11 @@ export type RoleDirectives = { implement: RoleDirectiveEntry[] } & Partial<
 export type RoleManifest = {
   id: string
   label: string
-  summary?: string
+  // The role's whole capability statement, in prose (MC-1831): what it does and
+  // when to staff it. The architect reads it verbatim when planning; nothing
+  // derives behaviour from its text, and there are no capability flags. Absent
+  // only for a manifest written before the field existed, which still loads.
+  description?: string
   aliases?: string[]
   directives: RoleDirectives
 }
@@ -42,7 +52,7 @@ export type RoleManifest = {
 export type AuthoredRoleInput = {
   id: string
   label: string
-  summary?: string
+  description: string
   aliases?: string[]
 }
 
@@ -58,12 +68,18 @@ const ID_PATTERN = /^[a-z][a-z0-9_]{0,62}$/
 const ALIAS_PATTERN = /^[a-z][a-z0-9_-]{0,62}$/
 const DIRECTIVE_KEYS = ['implement', ...DIRECTIVE_PHASES] as const
 
-// v1 keys removed by MC-1542. Rejected by name so a stale pack fails loudly with
-// its v2 replacement named, rather than silently losing its identity.
+// Keys removed by earlier manifest revisions. Rejected by name so a stale pack
+// fails loudly with its replacement named, rather than silently losing meaning.
 const REMOVED_MANIFEST_KEYS: Record<string, string> = {
   soul: `'soul' was removed in the v2 role manifest. Use "directives": { "implement": [{ "skill": "<id>" }] }.`,
   capabilities: `'capabilities' was removed in the v2 role manifest. Review-only roles no longer exist: a reviewer is an ordinary implementer, and role-scoped review content goes in "directives": { "review": [{ "skill": "<id>" }] }.`,
 }
+
+// `summary` (MC-1831's renamed predecessor of `description`) is deliberately NOT
+// listed above: an installed pack predating the rename must keep loading. It is
+// ignored here and warned about by the engine's discovery
+// (RENAMED_MANIFEST_KEYS in role_registry.py); re-saving a role through the
+// authoring form drops it and writes a `description`.
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -135,8 +151,13 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
     issues.push({ path: 'label', message: 'label is required and must be a non-empty string.' })
   }
 
-  if ('summary' in value && value.summary !== undefined && typeof value.summary !== 'string') {
-    issues.push({ path: 'summary', message: 'summary must be a string when present.' })
+  if ('description' in value && value.description !== undefined) {
+    if (typeof value.description !== 'string' || value.description.trim().length === 0) {
+      issues.push({
+        path: 'description',
+        message: 'description must be non-empty prose: what this role does and when a sprint should staff it.',
+      })
+    }
   }
 
   if ('aliases' in value && value.aliases !== undefined) {
@@ -174,7 +195,7 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
     label: (value.label as string).trim(),
     directives,
   }
-  if (typeof value.summary === 'string') manifest.summary = value.summary
+  if (typeof value.description === 'string') manifest.description = value.description.trim()
   if (Array.isArray(value.aliases)) manifest.aliases = value.aliases as string[]
   return { ok: true, manifest }
 }
@@ -184,7 +205,7 @@ export function validateRoleManifest(value: unknown): RoleManifestValidationResu
 export type RoleRegistryRejection = { path: string; issues: RoleManifestValidationIssue[] }
 
 export type UserRoleListResult = {
-  roles: Array<Pick<RoleManifest, 'id' | 'label' | 'summary'>>
+  roles: Array<Pick<RoleManifest, 'id' | 'label' | 'description'>>
   rejected: RoleRegistryRejection[]
 }
 
@@ -251,8 +272,8 @@ export function buildAuthoredRoleManifest(input: AuthoredRoleInput): RoleManifes
     label: input.label,
     directives: { implement: [{ skill: input.id }] },
   }
-  const summary = input.summary?.trim()
-  if (summary) manifest.summary = summary
+  const description = input.description.trim()
+  if (description) manifest.description = description
   const aliases = input.aliases?.filter((alias) => alias.trim().length > 0)
   if (aliases && aliases.length > 0) manifest.aliases = aliases
   return manifest

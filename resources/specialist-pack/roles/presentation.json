@@ -7,7 +7,7 @@
     "slide-author",
     "slides"
   ],
-  "summary": "Creates presentation narratives, slide outlines, and speaker-ready materials.",
+  "description": "Creates presentation narratives, slide outlines, and speaker-ready materials. Staff this role when the deliverable is a talk, deck, or briefing rather than shipped software.",
   "icon": "writing",
   "directives": {
     "implement": [

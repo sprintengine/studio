@@ -8,7 +8,7 @@
     "release-readiness",
     "launch-readiness"
   ],
-  "summary": "Reviews whether a product is ready to release to production with real integrations, deployment, data, observability, rollback, scale, and user setup accounted for.",
+  "description": "Reviews release readiness: real integrations, deployment configuration, data safety, observability, rollback, scalability, and user setup. Staff this role when the run changes deployment, data migration, external integrations, or anything else on the release path.",
   "icon": "production_readiness",
   "directives": {
     "implement": [

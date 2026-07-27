@@ -170,6 +170,7 @@ def write_workspace_role(
     *,
     aliases: list[str] | None = None,
     label: str | None = None,
+    description: str | None = None,
     review_skill: str | None = None,
 ) -> None:
     """Write a v2 workspace-layer role manifest plus its implement skill.
@@ -185,12 +186,14 @@ def write_workspace_role(
     directives: dict[str, Any] = {"implement": [{"skill": role_id}]}
     if review_skill is not None:
         directives["review"] = [{"skill": review_skill}]
-    payload = {
+    payload: dict[str, Any] = {
         "id": role_id,
         "label": label or role_id.replace("_", " ").title(),
         "aliases": aliases or [],
         "directives": directives,
     }
+    if description is not None:
+        payload["description"] = description
     (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
     (skill_dir / "SKILL.md").write_text(f"# {role_id}\n\nTemporary test role.", encoding="utf-8")
 

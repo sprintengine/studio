@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Iterable, Optional, Sequence
 
 from sprintengine_core.tool.paths import PROMPTS_DIR, REPO_ROOT
 from sprintengine_core.role_registry import (
     SOUL_LEGEND,
     RegistryDiscovery,
+    RoleManifest,
     SkillDocument,
     SoulRenderError,
     discover_role_registry,
@@ -149,7 +150,54 @@ def generic_role_swarm_prompt(role: str) -> str:
     ])
 
 
-def load_sprintengine_coordination_prompt(role: str) -> str:
+def architect_role_catalog(
+    role: str,
+    staffed_roles: Iterable[str],
+    *,
+    discovery: Optional[RegistryDiscovery] = None,
+) -> Optional[str]:
+    """The run's staffed roles and what each one is for, for the planning role.
+
+    Only the architect picks who does what, so only its brief carries this. A
+    role's capabilities are prose (MC-1831): the manifest `description` is
+    rendered verbatim and nothing in the engine derives behaviour from its text.
+    A staffed id with no manifest (`general`, a pack the user removed) is skipped
+    rather than guessed at.
+    """
+    if normalize_role_id(role) != "architect":
+        return None
+    resolved = discovery if discovery is not None else discover_role_registry()
+    seen: set[str] = set()
+    entries: list[RoleManifest] = []
+    for raw_role in staffed_roles:
+        try:
+            manifest = resolved.get_role(str(raw_role))
+        except KeyError:
+            continue
+        if manifest.normalized_id in seen:
+            continue
+        seen.add(manifest.normalized_id)
+        entries.append(manifest)
+    if not entries:
+        return None
+    return "\n".join([
+        "# Roles On This Run",
+        "",
+        (
+            "Each line is the role's own manifest description — what it does and when to staff it. "
+            "This is the whole capability statement a role carries; read it as written and plan tasks "
+            "for these roles only."
+        ),
+        "",
+        *(
+            f"- **{manifest.label}** (`{manifest.id}`): "
+            f"{manifest.description or '(its manifest carries no description)'}"
+            for manifest in entries
+        ),
+    ])
+
+
+def load_sprintengine_coordination_prompt(role: str, *, role_catalog: Optional[str] = None) -> str:
     path = PROMPTS_DIR / f"{role}.md"
     role_prompt = path.read_text(encoding="utf-8").strip() if path.exists() else generic_role_swarm_prompt(role)
     runtime_skills = [
@@ -158,6 +206,7 @@ def load_sprintengine_coordination_prompt(role: str) -> str:
     return "\n\n---\n\n".join([
         *runtime_skills,
         role_prompt,
+        *([role_catalog] if role_catalog else []),
     ])
 
 
@@ -280,10 +329,14 @@ def load_prompt(
     *,
     backlog_sourced: bool = True,
     knowledge_root_configured: Optional[bool] = None,
+    staffed_roles: Sequence[str] = (),
 ) -> str:
     return compose_prompt(
         "# SprintEngine Coordination Rules",
-        load_sprintengine_coordination_prompt(role),
+        load_sprintengine_coordination_prompt(
+            role,
+            role_catalog=architect_role_catalog(role, staffed_roles),
+        ),
         load_soul_prompt(
             role,
             backlog_sourced=backlog_sourced,

@@ -6,7 +6,7 @@
     "content-writer",
     "blogger"
   ],
-  "summary": "Writes and edits publishable long-form content.",
+  "description": "Writes and edits publishable long-form content — articles, changelog narratives, and documentation prose in a consistent voice. Staff this role when the deliverable is writing for readers rather than code.",
   "icon": "writing",
   "directives": {
     "implement": [

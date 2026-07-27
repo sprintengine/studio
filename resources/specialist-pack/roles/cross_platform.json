@@ -6,7 +6,7 @@
     "compatibility",
     "platform-compatibility"
   ],
-  "summary": "Reviews applications for operating system, browser, device, filesystem, shell, packaging, and runtime compatibility risks.",
+  "description": "Reviews operating-system, browser, device, filesystem, shell, packaging, and runtime compatibility risks. Staff this role when the run touches platform-specific code, packaging, or behavior that must hold on another OS or runtime.",
   "icon": "cross_platform",
   "directives": {
     "implement": [

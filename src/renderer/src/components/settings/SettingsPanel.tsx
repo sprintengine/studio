@@ -246,11 +246,15 @@ const INPUT_CLASS =
 const ROW_INPUT_CLASS =
   'h-8 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
+const TEXTAREA_BASE_CLASS =
+  'w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 // Instructions editor: the SKILL.md document the runtime parses, so it reads as a
 // structured document (mono) rather than prose. Tall by default since the author
 // is filling in a multi-section scaffold.
-const TEXTAREA_CLASS =
-  'min-h-[260px] w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 font-mono text-[12px] leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+const TEXTAREA_CLASS = `min-h-[260px] font-mono ${TEXTAREA_BASE_CLASS}`
+// Prose textareas (a few sentences, read by people and agents): same field, sized
+// to its content instead of a document editor.
+const PROSE_TEXTAREA_CLASS = `font-sans ${TEXTAREA_BASE_CLASS}`
 
 type MessageTone = 'neutral' | 'accent' | 'warn' | 'error'
 type RoleRegistryStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
@@ -859,31 +863,20 @@ function UserRoleAuthoringForm({
         </Field>
       </div>
 
-      <Field label="Summary" htmlFor="user-role-summary" help="One line shown in role lists. Optional.">
-        <input
-          value={draft.summary}
-          onChange={(event) => onChange({ summary: event.target.value })}
-          disabled={busy}
-          placeholder="Audits diffs for regressions before release."
-          className={`${INPUT_CLASS} font-sans`}
-        />
-      </Field>
-
       <Field
-        label="Aliases"
-        htmlFor="user-role-aliases"
-        error={errors.aliases}
-        help="Optional. Comma- or space-separated alternate ids."
+        label="Description"
+        htmlFor="user-role-description"
+        required
+        error={errors.description}
+        help="What this role does and when a sprint should staff it. The architect reads it when planning."
       >
-        <input
-          value={draft.aliasesText}
-          onChange={(event) => onChange({ aliasesText: event.target.value })}
+        <textarea
+          value={draft.description}
+          onChange={(event) => onChange({ description: event.target.value })}
           disabled={busy}
-          placeholder="auditor, reviewer_x"
-          spellCheck={false}
-          autoCapitalize="none"
-          autoCorrect="off"
-          className={INPUT_CLASS}
+          rows={3}
+          placeholder="Audits diffs for regressions before release. Staff this role when the run touches release-critical paths."
+          className={PROSE_TEXTAREA_CLASS}
         />
       </Field>
 
@@ -1024,7 +1017,7 @@ export default function SettingsPanel({
   // into the install flow.
   const [selectedCliId, setSelectedCliId] = useState<string | null>(null)
   const [installIntentId, setInstallIntentId] = useState<string | null>(null)
-  const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; summary?: string }>>([])
+  const [userRoles, setUserRoles] = useState<Array<{ id: string; label: string; description?: string }>>([])
   const [globalInstallPending, setGlobalInstallPending] = useState(false)
   const [globalInstallMessage, setGlobalInstallMessage] = useState<RoleInstallMessage>(null)
   // Custom-role authoring form. `null` = closed; otherwise create or edit a single
@@ -2253,9 +2246,9 @@ export default function SettingsPanel({
                         >
                           {role.id} · {roleSourceLabel(role)}
                         </div>
-                        {role.summary ? (
+                        {role.description ? (
                           <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                            {role.summary}
+                            {role.description}
                           </p>
                         ) : null}
                         {manifestDisabled ? (
@@ -2372,9 +2365,9 @@ export default function SettingsPanel({
                     <div key={role.id} className="group flex items-baseline justify-between gap-3 py-2.5">
                       <div className="min-w-0">
                         <div className="text-[12px] font-medium text-[color:var(--text-default)]">{role.label}</div>
-                        {role.summary ? (
+                        {role.description ? (
                           <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
-                            {role.summary}
+                            {role.description}
                           </div>
                         ) : null}
                       </div>

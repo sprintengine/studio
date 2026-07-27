@@ -2,7 +2,7 @@
   "id": "coordinator",
   "label": "Coordinator",
   "aliases": [],
-  "summary": "Coordinates multi-agent work across Multicode sessions.",
+  "description": "Coordinates multi-agent work across Multicode sessions: sequencing, handoffs, and keeping parallel agents from colliding. Staff this role when the run spans several agents or sessions that need active shepherding.",
   "icon": "architecture",
   "directives": {
     "implement": [

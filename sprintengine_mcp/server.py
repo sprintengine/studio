@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Sequence
 
 from sprintengine_core.analysis import analyze_feedback_metrics
 from sprintengine_core.audit import record_audit_event
@@ -43,6 +43,7 @@ from sprintengine_core.skill_layers import (
     sprintengine_soul_extra_skills,
 )
 from sprintengine_core.tool.prompts import (
+    architect_role_catalog,
     compose_prompt,
     load_general_soul_prompt,
     load_sprintengine_coordination_prompt,
@@ -421,6 +422,11 @@ class SprintEngineMcpServer:
             str(lifecycle["run"].get("name") or ""),
             backlog_sourced=bool(lifecycle.get("backlogSourced")),
             knowledge_root_configured=_knowledge_root_configured_for_request(),
+            # The architect plans from what each staffed role says it does, so its
+            # brief carries the run's roles with their manifest descriptions.
+            staffed_roles=[
+                str(entry) for entry in (lifecycle["run"].get("configuredRoles") or []) if str(entry).strip()
+            ],
         )
         # `legacyJoin` (the cmd_join prose containing CLI-laden directives) is intentionally
         # omitted from the MCP response. Agents are MCP-native: managed agents read `prompt`
@@ -1174,6 +1180,7 @@ def _compose_registry_prompt(
     *,
     backlog_sourced: bool = True,
     knowledge_root_configured: bool = True,
+    staffed_roles: Sequence[str] = (),
 ) -> str:
     if normalize_role_id(role) == "general":
         # The soulless General has no role manifest, so it would otherwise fall
@@ -1201,7 +1208,10 @@ def _compose_registry_prompt(
             soul_prompt = None
     return compose_prompt(
         "# SprintEngine Coordination Rules",
-        load_sprintengine_coordination_prompt(role),
+        load_sprintengine_coordination_prompt(
+            role,
+            role_catalog=architect_role_catalog(role, staffed_roles, discovery=registry),
+        ),
         soul_prompt,
         (
             "Use the Soul prompt above for role personality, judgment, and quality bar. "
@@ -1232,7 +1242,7 @@ def _general_role_manifest_payload() -> dict[str, Any]:
         "id": "general",
         "label": "General",
         "aliases": [],
-        "summary": "Soulless General agent that plans, builds, reviews, and tests a sprint by itself.",
+        "description": "Soulless General agent that plans, builds, reviews, and tests a sprint by itself. Staff it when one agent should run the whole sprint instead of a specialist team.",
         "icon": None,
         # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a
         # manifest, so it carries no directive packs. The key is still present so

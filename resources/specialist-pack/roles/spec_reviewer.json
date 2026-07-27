@@ -7,7 +7,7 @@
     "requirements-review",
     "acceptance-review"
   ],
-  "summary": "Reviews implementation coverage against requirements and acceptance criteria.",
+  "description": "Reviews implementation coverage against requirements and acceptance criteria, naming behavior gaps and missing tests. Staff this role when the run implements planned work backed by written requirements, acceptance criteria, or an approved plan.",
   "icon": "review",
   "directives": {
     "implement": [

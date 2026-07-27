@@ -7,7 +7,7 @@
     "frontend-ux-review",
     "brand-ui-review"
   ],
-  "summary": "Reviews frontend UX, UI consistency, brand alignment, responsive behavior, and visual polish.",
+  "description": "Reviews UX flow, UI consistency, brand alignment, responsive behavior, accessibility, and visual polish. Staff this role when the run changes a user-visible screen, component, or interaction.",
   "icon": "design_review",
   "directives": {
     "implement": [

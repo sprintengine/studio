@@ -4,7 +4,7 @@
   "aliases": [
     "frontend-design-review"
   ],
-  "summary": "Builds and reviews user-facing application experiences.",
+  "description": "Builds user-facing application experiences: components, screens, state wiring, and design-system-conformant UI. Staff this role when the run changes what the user sees or interacts with.",
   "icon": "design",
   "directives": {
     "implement": [
