@@ -14,7 +14,6 @@ import type {
   AgentCli,
   AgentId,
   LifecycleState,
-  SprintEngineAllowedRuntime,
   SprintEngineArtifact,
   SprintEngineArtifactApprovalMode,
   SprintEngineArtifactKind,
@@ -448,18 +447,6 @@ export const sprintEngineTaskBoardColumns: { key: SprintEngineTaskBoardColumn; l
  * boundary is this subsystem's known bug class.
  */
 export const sprintEngineTaskPhases = ['review'] as const satisfies readonly SprintEngineTaskPhase[]
-
-/** The run's phase list when `run.defaultPhases` is absent. */
-export const sprintEngineDefaultRunPhases: readonly SprintEngineTaskPhase[] = ['review']
-
-/** The phases a task actually walks: its own list when set, else the run's. */
-export function resolveSprintEngineTaskPhases(
-  task: Pick<SprintEngineTask, 'phases'>,
-  run: Pick<SprintEngineState, 'defaultPhases'>
-): readonly SprintEngineTaskPhase[] {
-  if (task.phases) return task.phases
-  return run.defaultPhases ?? sprintEngineDefaultRunPhases
-}
 
 function isSprintEngineTaskCommentType(value: unknown): value is SprintEngineTaskCommentType {
   return (
@@ -2257,27 +2244,6 @@ export function normalizeSprintEngineDefaultPhases(value: unknown): SprintEngine
   )
 }
 
-// MC-1543: a task's `awaitingPhaseSession` marker (a released phase awaiting a
-// fresh session on a bound runtime). Dropped unless it names a valid phase and a
-// runtime with a usable cli — a half-formed marker must not strand a task in the
-// Birth-path with no runtime to spawn on. Returns null when absent.
-export function normalizeSprintEngineAwaitingPhaseSession(
-  value: unknown,
-): { phase: SprintEngineTaskPhase; runtime: SprintEngineAllowedRuntime } | null {
-  if (!value || typeof value !== 'object') return null
-  const record = value as Record<string, unknown>
-  const phase = record.phase
-  if (!sprintEngineTaskPhases.includes(phase as SprintEngineTaskPhase)) return null
-  const rawRuntime = record.runtime
-  if (!rawRuntime || typeof rawRuntime !== 'object') return null
-  const runtimeRecord = rawRuntime as Record<string, unknown>
-  const cli = typeof runtimeRecord.cli === 'string' && runtimeRecord.cli.trim() ? runtimeRecord.cli.trim() : ''
-  if (!cli) return null
-  const model =
-    typeof runtimeRecord.model === 'string' && runtimeRecord.model.trim() ? runtimeRecord.model.trim() : null
-  return { phase: phase as SprintEngineTaskPhase, runtime: { cli, model } }
-}
-
 export function normalizeSprintEngineState(input: SprintEngineState | null | undefined): SprintEngineState | null {
   if (!input) return null
 
@@ -2306,7 +2272,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
     const boardColumn = isSprintEngineTaskBoardColumn(task.boardColumn) ? task.boardColumn : undefined
     const folderStatus = optionalTrimmedString(task.folderStatus)
     const taskRecord = task as unknown as Record<string, unknown>
-    const awaitingPhaseSession = normalizeSprintEngineAwaitingPhaseSession(taskRecord.awaitingPhaseSession)
     const phases = normalizeSprintEngineDefaultPhases(taskRecord.phases)
     const latestComments = normalizeSprintEngineTaskComments(taskRecord.latestComments)
     const latestOpenFeedback = normalizeSprintEngineTaskComments(taskRecord.latestOpenFeedback)
@@ -2328,7 +2293,6 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       ...(source ? { source } : {}),
       ownerAgentId: task.ownerAgentId ?? null,
       ...(task.lastImplementedByAgentId ? { lastImplementedByAgentId: task.lastImplementedByAgentId } : {}),
-      ...(awaitingPhaseSession ? { awaitingPhaseSession } : {}),
       ...(typeof task.model === 'string' && task.model.trim() ? { model: task.model.trim() } : {}),
       ...(typeof task.cli === 'string' && task.cli.trim() ? { cli: task.cli.trim() } : {}),
       dependsOn: stringArray(task.dependsOn),

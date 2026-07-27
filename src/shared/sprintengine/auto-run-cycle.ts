@@ -1117,25 +1117,6 @@ export async function executeSprintEngineDispatchPlan(
       logPerfEvent('SprintEngineAutoRun', 'respawn-skipped-no-context', { ...base, ...respawn.data })
       continue
     }
-    // MC-1543: a phase-bound task stamps its owner's runtime (`task.cli`/
-    // `task.model`) at claim time. If that owner's terminal dies, respawn must
-    // re-bind the SAME runtime rather than fall through to the cheap role
-    // default — otherwise a crash silently downgrades the premium review.
-    // Normal tasks stamp the role default, so this override is a no-op for them.
-    const respawnTask = spawnContext.sprintEngineState.tasks.find((t) => t.id === respawn.taskId)
-    const respawnRoleDefault = resolveSprintEngineAgentRuntime(
-      spawnContext.sprintEngineState.roleRuntimes,
-      respawn.role,
-      undefined,
-    )
-    const respawnStampedCli = respawnTask?.cli ?? null
-    const respawnStampedModel = respawnTask?.model ?? null
-    const respawnRuntimeOverride =
-      respawnStampedCli
-      && (respawnStampedCli !== respawnRoleDefault.cli
-        || respawnStampedModel !== (respawnRoleDefault.cliModel ?? null))
-        ? { cli: respawnStampedCli as AgentCli, model: respawnStampedModel }
-        : undefined
     const result = await spawnAutoRunCandidate(
       ports,
       workspace,
@@ -1145,7 +1126,6 @@ export async function executeSprintEngineDispatchPlan(
         label: respawn.label,
         role: respawn.role,
         taskId: respawn.taskId,
-        ...(respawnRuntimeOverride ? { runtimeOverride: respawnRuntimeOverride } : {}),
       },
       spawnContext.cliRuntimes,
       spawnContext.mcpSettings,
@@ -1522,12 +1502,8 @@ export async function spawnAutoRunCandidate(
     nextRun.role,
     currentAgent,
   )
-  // MC-1543: a phase-session Birth forces the spawn onto the phase's bound
-  // runtime (the operator's stronger review model), overriding the role default.
-  // Only ever set for an `awaitingPhaseSession` task, so the ordinary spawn path
-  // is unchanged and no run without `phaseRuntimes` ever takes this branch.
-  const selectedCli = nextRun.runtimeOverride?.cli ?? resolvedRuntime.cli
-  const selectedCliModel = nextRun.runtimeOverride ? nextRun.runtimeOverride.model : resolvedRuntime.cliModel
+  const selectedCli = resolvedRuntime.cli
+  const selectedCliModel = resolvedRuntime.cliModel
   const sessionId = ports.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'

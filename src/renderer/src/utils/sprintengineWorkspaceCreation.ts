@@ -45,11 +45,10 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCliDefaults?: SprintEngineRoleCliDefaults
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
-  // "Workflow steps" run-init keys (MC-1543), forwarded verbatim to init; each
-  // present only when it diverges from the engine default (same contract as the
-  // new-team path).
+  // The run's post-implementation phase list, forwarded verbatim to init; present
+  // only when it diverges from the engine default (same contract as the new-team
+  // path).
   defaultPhases?: string[]
-  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
   sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
   workspaceWindowId?: WorkspaceWindowId | null
   useWorktrees?: boolean
@@ -184,7 +183,6 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleModelOverrides,
   initialSpawnRoles,
   defaultPhases,
-  phaseRuntimes,
   sprintEngineAutoState,
   workspaceWindowId,
   useWorktrees,
@@ -258,9 +256,8 @@ export async function createPlanSourcedSprintEngineWorkspace({
       ...(useWorktrees === true && baseStartPoint?.trim() ? { baseStartPoint: baseStartPoint.trim() } : {}),
       roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
       enabledRoles,
-      // "Workflow steps" keys, present only when set.
+      // The run's phase list, present only when set.
       ...(defaultPhases !== undefined ? { defaultPhases } : {}),
-      ...(phaseRuntimes !== undefined ? { phaseRuntimes } : {}),
       ...(initSourceSeed
         ? { source: initSourceSeed.source, sourceBundle: initSourceSeed.sourceBundle }
         : {}),

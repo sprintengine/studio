@@ -429,11 +429,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON array of the roster's enabled role ids: the roles a task may be tagged with. Enforced by plan.add_task, so a lazy (architect-only) roster still admits its planned tasks. Distinct from the seated agents and from --role-runtimes-json (which includes CLI-default roles).",
     )
     p.add_argument(
-        "--phase-runtimes-json",
-        dest="phase_runtimes_json",
-        help='JSON object of phase -> {"cli", "model"} (model null = the CLI default), e.g. {"review": {"cli": "claude-code", "model": "fable"}}. Premium mode: a stronger model reviews each task\'s diff as a fresh, diff-seeded session. Absent = the phase runs in-session on the owner\'s runtime and no extra sessions are created. CLI-init-only; not MCP-mutable.',
-    )
-    p.add_argument(
         "--default-phases-json",
         dest="default_phases_json",
         help='JSON array of the post-implementation phases every task inherits, e.g. ["review"]. Default AND ceiling: a task may trim its phases with `plan add-task --phases`, never add one outside this set. `[]` means no review step (every publish with changes routes straight to done). Absent = ["review"]. CLI-init-only; not MCP-mutable.',

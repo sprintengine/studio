@@ -44,7 +44,6 @@ export type {
   SprintEngineAgentSelfReviewMetrics,
   SprintEngineAgentPeerReviewMetrics,
   SprintEngineAgentTaskCounts,
-  SprintEngineAllowedRuntime,
   SprintEngineArchitectDifficulty,
   SprintEngineArtifact,
   SprintEngineArtifactApprovalMode,

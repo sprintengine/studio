@@ -1825,12 +1825,6 @@ export type SprintEngineStateInitializeInput = {
   // guarantee. `undefined` leaves the key absent and the engine default
   // (`['review']`) applies; `[]` is a meaningful, recorded value.
   defaultPhases?: string[]
-  // MC-1543 premium mode: per-phase runtime bindings, e.g.
-  // `{ review: { cli: 'claude-code', model: 'fable' } }` — a stronger model reviews
-  // each task's diff as a fresh, diff-seeded session while cheap models build.
-  // Written to run.yaml `phaseRuntimes` via `--phase-runtimes-json`. ABSENT means
-  // zero extra sessions are created.
-  phaseRuntimes?: Record<string, { cli: string; model: string | null }>
 }
 
 export type SprintEngineCliWatchPolling = 'enabled' | 'disabled'

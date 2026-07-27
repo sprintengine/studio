@@ -149,7 +149,7 @@ def publish_task(
         supersede_stale_gate_placeholder_on_completion(state, task, actor)
     else:
         task["completedAt"] = None
-        enter_phase(state, task, next_status, actor)
+        enter_phase(task, actor)
 
     append_task_activity(
         task,
@@ -169,7 +169,6 @@ def publish_task(
         "previousStatus": previous_status,
         "producedChanges": produced_changes,
         "phases": phases,
-        "awaitingPhaseSession": task.get("awaitingPhaseSession"),
         **({"completionKind": completion_kind} if completion_kind else {}),
     }
 
@@ -200,70 +199,16 @@ def _in_scope_dirty_across_declared_repos(
     return dirty
 
 
-def enter_phase(state: Dict[str, Any], task: Dict[str, Any], phase: str, actor: str) -> None:
-    """Bind the task to whoever will run `phase`.
+def enter_phase(task: Dict[str, Any], actor: str) -> None:
+    """Bind the task to whoever will run `phase` (MC-1542: always its owner).
 
-    Default (MC-1542): the owner stays bound through every phase — it is already
-    in-session and mid-tool-call, and the phase directive is returned to it inline.
-
-    Premium (MC-1543): when the run binds this phase to a DIFFERENT `{cli, model}`,
-    the phase runs as a fresh, diff-seeded session on that runtime. The task is
-    released from its implementer and marked `awaitingPhaseSession`; the supervisor
-    spawns the bound session, which claims the task and becomes its owner.
-    `lastImplementedByAgentId` is retained either way, so attribution survives.
+    The owner is already in-session and mid-tool-call, so it stays bound through
+    every phase and the phase directive is returned to it inline.
     """
-    if phase_needs_own_session(state, task, phase):
-        task["ownerAgentId"] = None
-        end_lease(task)
-        task["awaitingPhaseSession"] = {"phase": phase, "runtime": dict(phase_runtime(state, phase))}
-        append_task_activity(
-            task,
-            "status_change",
-            actor,
-            f"{task.get('id')} awaits a {phase} session on its bound runtime.",
-            {"status": phase, "awaitingPhaseSession": phase},
-        )
-        return
-    task.pop("awaitingPhaseSession", None)
     task["ownerAgentId"] = actor
     # The owner stays bound across the phase walk; refresh its lease so review /
     # needs_input stay bound to it and the expiry sweep measures from re-entry.
     mint_lease(task, actor, task.get("role"))
-
-
-def task_awaiting_phase_session(task: Dict[str, Any]) -> Optional[str]:
-    """The phase a task is waiting for a bound session to run, or None."""
-    awaiting = task.get("awaitingPhaseSession")
-    if not isinstance(awaiting, dict) or task.get("ownerAgentId"):
-        return None
-    phase = str(awaiting.get("phase") or "").strip()
-    return phase if phase == str(task.get("status") or "") else None
-
-
-def claim_phase_session(state: Dict[str, Any], task: Dict[str, Any], agent_id: str) -> Dict[str, Any]:
-    """A bound phase session takes over ownership WITHOUT resetting the task.
-
-    Unlike `assign_task` this never rewinds the status to `in_progress`: the diff is
-    published and the task is mid-walk. It re-stamps the execution identity to the
-    phase's runtime (that is what the operator is paying for) while leaving
-    `lastImplementedByAgentId` alone, so the implementer stays identifiable.
-    """
-    phase = task_awaiting_phase_session(task)
-    if not phase:
-        raise SystemExit(f"Task {task.get('id')} is not awaiting a phase session.")
-    runtime = task["awaitingPhaseSession"].get("runtime") or {}
-    task.pop("awaitingPhaseSession", None)
-    task["ownerAgentId"] = agent_id
-    mint_lease(task, agent_id, task.get("role"))
-    stamp_task_execution_identity(state, task, model=runtime.get("model"), cli=runtime.get("cli"))
-    append_task_activity(
-        task,
-        "claim",
-        agent_id,
-        f"{agent_id} claimed the {phase} phase of {task.get('id')} on its bound runtime.",
-        {"status": phase, "phase": phase},
-    )
-    return {"agent": worker_view(state, agent_id), "phase": phase}
 
 
 def advance_task(
@@ -298,14 +243,6 @@ def advance_task(
     if outcome not in VALID_PHASE_OUTCOMES:
         raise SystemExit(f"Invalid outcome {outcome!r}; expected one of: {', '.join(sorted(VALID_PHASE_OUTCOMES))}.")
     owner = str(task.get("ownerAgentId") or "")
-    if task_awaiting_phase_session(task):
-        # MC-1543: the phase was released to a bound runtime and no session has
-        # claimed it yet. A stale implementer (or any non-owner) must not advance
-        # past the paid-for review — the bound session claims via `task.claim` first.
-        raise SystemExit(
-            f"awaiting_phase_session: {task.get('id')} is waiting for its bound "
-            f"{task.get('status')} session to claim it; advance is not permitted until then."
-        )
     if not owner:
         raise SystemExit(
             f"not_task_owner: {actor} cannot advance unowned task {task.get('id')}. "
@@ -347,7 +284,6 @@ def advance_task(
             source="agent",
             data={"phase": clean_phase, "outcome": outcome},
         )
-        task.pop("awaitingPhaseSession", None)
         next_status = "needs_input"
         next_phase = None
     else:
@@ -372,12 +308,11 @@ def advance_task(
             task["completedAt"] = now
             task["ownerAgentId"] = None
             end_lease(task)
-            task.pop("awaitingPhaseSession", None)
             from sprintengine_core.tool.artifacts import supersede_stale_gate_placeholder_on_completion
             supersede_stale_gate_placeholder_on_completion(state, task, actor)
         else:
             task["completedAt"] = None
-            enter_phase(state, task, next_status, actor)
+            enter_phase(task, actor)
 
     append_task_activity(
         task,
@@ -391,7 +326,6 @@ def advance_task(
         "nextStatus": next_status,
         "nextPhase": next_phase,
         "phase": clean_phase,
-        "awaitingPhaseSession": task.get("awaitingPhaseSession"),
     }
 
 def recompute_phase(state: Dict[str, Any]) -> bool:
@@ -773,9 +707,6 @@ def normalize_task(raw: Dict[str, Any]) -> Dict[str, Any]:
     phases = normalize_task_phases(raw.get("phases"), task_id)
     if phases is not None:
         task["phases"] = phases
-    awaiting = raw.get("awaitingPhaseSession")
-    if isinstance(awaiting, dict) and str(awaiting.get("phase") or "").strip():
-        task["awaitingPhaseSession"] = awaiting
     return task
 
 def parse_phases_arg(raw: Any) -> Optional[List[str]]:

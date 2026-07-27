@@ -17,7 +17,6 @@
 import { DEFAULT_SPRINTENGINE_TASK_REPO } from './run-types'
 import type {
   AgentId,
-  SprintEngineAllowedRuntime,
   SprintEngineArtifact,
   SprintEngineCurrentDispatch,
   SprintEngineEvent,
@@ -80,13 +79,6 @@ export type AutoRunCandidate = {
   role: SprintEngineRoleId
   taskId: string
   startupPromptOverride?: string
-  /**
-   * MC-1543 premium review: force the spawn onto this runtime instead of the
-   * role's resolved `roleRuntimes` binding. Set only for a phase-session Birth
-   * (an `awaitingPhaseSession` task), so the operator's stronger review model
-   * runs even though the task's role default is a cheaper build model.
-   */
-  runtimeOverride?: SprintEngineAllowedRuntime
 }
 
 /**
@@ -2054,33 +2046,6 @@ export function buildSprintEngineContinuationPrompt(
   ].join('\n')
 }
 
-/**
- * MC-1543 phase-session Birth prompt. The engine has released this task to a
- * bound runtime (`awaitingPhaseSession`); this fresh session claims it through
- * `task next`, which returns the diff-seeded review brief inline — so the prompt
- * only has to point the session at the claim, not carry the diff itself.
- */
-export function buildSprintEnginePhaseSessionPrompt(
-  task: SprintEngineTask,
-  agentId: string,
-  phase: string
-): string {
-  // Claim BY TASK ID via task.claim — pinned to this session so a concurrent
-  // cheaper same-role session cannot grab the review off the bound runtime (a
-  // plain task.next never claims a phase session). The claim returns the
-  // diff-seeded brief inline.
-  return [
-    `Sprint Engine assigned you the ${phase} phase of a ${task.role} task on this runtime.`,
-    `Task: ${task.id} - ${task.title}`,
-    'Call `sprintengine.task.claim` once to take over this phase:',
-    '`sprintengine.task.claim`',
-    '```json',
-    JSON.stringify({ taskId: task.id, id: agentId }, null, 2),
-    '```',
-    `It returns the published diff and the ${phase} directive; review that diff, fix what you find in place, then advance the phase.`,
-  ].join('\n')
-}
-
 export const AGENT_COMPLETION_NOTIFICATION_KINDS = new Set<string>([
   'task_completed_after_artifact_approval',
   'task_completed_after_input_resolution',
@@ -2377,66 +2342,6 @@ export function pickNextAutoRuns(
     addCandidate(task, agentId, rosterAgent?.label ?? agentId)
   }
 
-  // MC-1543 phase-session Birth. A task the engine released to a bound runtime
-  // has no owner and sits at its review phase — a non-claimable board column, so
-  // the ready-task loop below never sees it. It needs a FRESH task-scoped id
-  // spawned on the phase's bound runtime (the operator's stronger review model);
-  // that session claims the phase through `task next` (`claim_phase_session`) and
-  // gets its diff-seeded brief inline. Absent `phaseRuntimes` no task ever
-  // carries this marker, so zero extra sessions are created — the cost invariant.
-  const awaitingPhaseTasks = sprintEngineState.tasks.filter(
-    (task) => !task.ownerAgentId && Boolean(task.awaitingPhaseSession)
-  )
-  if (awaitingPhaseTasks.length > 0) {
-    // Seed the id allocator with every id a concurrent spawn already reserved
-    // (pending/selected/running/in-flight) so a minted <role>-N never collides;
-    // getNextSprintEngineAgentId otherwise only avoids ids in sprintEngineAgents.
-    // getNextSprintEngineAgentId reads only an entry's id + role, so a role-only
-    // placeholder is enough to make the allocator skip a reserved id.
-    const phaseSessionAgents: Record<AgentId, SprintEngineRuntimeAgent> = {
-      ...sprintEngineState.sprintEngineAgents,
-    }
-    const reserveId = (id: string, role: SprintEngineRoleId) => {
-      if (!phaseSessionAgents[id]) phaseSessionAgents[id] = { role } as SprintEngineRuntimeAgent
-    }
-    for (const id of selectedAgentIds) reserveId(id, 'developer')
-    for (const id of options.runningAgentIds) reserveId(id, 'developer')
-    for (const spawnKey of options.inFlightSpawns) {
-      if (spawnKey.startsWith(`${workspace.id}:`)) reserveId(spawnKey.slice(workspace.id.length + 1), 'developer')
-    }
-    for (const task of awaitingPhaseTasks) {
-      if (candidates.length >= options.limit) break
-      const awaiting = task.awaitingPhaseSession
-      if (!awaiting) continue
-      if (selectedTaskIds.has(task.id)) continue
-      // Per-task dedup (sanctioned: phase births carry their task): a booting
-      // session already birthed for this phase must not be doubled.
-      if (unboundLiveWorkers.some((worker) => worker.taskId === task.id)) continue
-      const agentId = getNextSprintEngineAgentId(task.role, phaseSessionAgents)
-      reserveId(agentId, task.role)
-      candidates.push({
-        agentId,
-        label: labelFor(agentId, agentId),
-        role: task.role,
-        taskId: task.id,
-        runtimeOverride: awaiting.runtime,
-        startupPromptOverride: buildSprintEnginePhaseSessionPrompt(task, agentId, awaiting.phase),
-      })
-      selectedTaskIds.add(task.id)
-      selectedAgentIds.add(agentId)
-      autoRunPerfLogger('SprintEngineAutoRun', 'candidate-pick-phase-session-birth', {
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        taskId: task.id,
-        role: task.role,
-        phase: awaiting.phase,
-        selectedAgentId: agentId,
-        runtimeCli: awaiting.runtime.cli,
-        runtimeModel: awaiting.runtime.model,
-      })
-    }
-  }
-
   // Desired-pool pass (MC-1592/MC-1615): ready, unowned, launchable work is
   // grouped by the demand key — (role, repo) since MC-1610 — and each group
   // gets fresh sessions up to the remaining slots. Groups drain round-robin so
@@ -2448,8 +2353,8 @@ export function pickNextAutoRuns(
   // uncovered task, carried as the routing/attribution exemplar (cwd
   // resolution, spawn diagnostics), not a claim. Dedup is by key-count (one
   // spawn per uncovered task in the group), not per-task bookkeeping — the
-  // per-task exceptions (phase-session births above, bound-owner recovery,
-  // active-owner rescue) keep their task binding by design.
+  // per-task exceptions (bound-owner recovery, active-owner rescue) keep their
+  // task binding by design.
   const demandKeyFn = options.demandKeyFn ?? sprintEngineDemandKey
   const demandByKey = computeSprintEngineDemand(sprintEngineState, demandKeyFn)
 

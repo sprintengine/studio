@@ -110,67 +110,6 @@ def run_default_phases(state: Dict[str, Any]) -> List[str]:
         raise SystemExit(str(error)) from error
 
 
-def apply_phase_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
-    """Persist per-phase runtime bindings at init (MC-1543, CLI-init-only).
-
-    `raw_json` is `{phase: {"cli": str, "model": str|null}}` — the operator paying
-    for a stronger model to review each task's diff as a fresh, diff-seeded session.
-    Validated against the shipped phase vocabulary. An entry with no `cli` is
-    dropped: a binding with no CLI cannot spawn
-    a session, and silently ignoring it would leave the operator believing they had
-    bought independent review. Absent/blank leaves the key off, so ZERO extra
-    sessions are created (the MC-1542 default).
-    """
-    if not raw_json or not str(raw_json).strip():
-        return
-    try:
-        parsed = json.loads(raw_json)
-    except (TypeError, ValueError) as error:
-        raise SystemExit(f"--phase-runtimes-json must be a JSON object: {error}")
-    if not isinstance(parsed, dict):
-        raise SystemExit("--phase-runtimes-json must be a JSON object of phase -> {cli, model}.")
-    runtimes: Dict[str, Dict[str, Any]] = {}
-    for raw_phase, raw_entry in parsed.items():
-        phase = str(raw_phase or "").strip()
-        if phase not in VALID_TASK_PHASES:
-            raise SystemExit(
-                f"--phase-runtimes-json names unknown phase {phase!r}; expected one of: {', '.join(VALID_TASK_PHASES)}."
-            )
-        if not isinstance(raw_entry, dict):
-            raise SystemExit(f"--phase-runtimes-json entry for {phase!r} must be an object of {{cli, model}}.")
-        cli = str(raw_entry.get("cli") or "").strip()
-        if not cli:
-            raise SystemExit(f"--phase-runtimes-json entry for {phase!r} requires a cli.")
-        raw_model = raw_entry.get("model")
-        model: Optional[str] = str(raw_model).strip() or None if raw_model is not None else None
-        runtimes[phase] = {"cli": cli, "model": model}
-    if runtimes:
-        state["phaseRuntimes"] = runtimes
-
-
-def phase_runtime(state: Dict[str, Any], phase: str) -> Dict[str, Any]:
-    """The `{cli, model}` bound to `phase`, or `{}` when it runs in-session."""
-    return folder_store.phase_runtime(state, phase)
-
-
-def phase_needs_own_session(state: Dict[str, Any], task: Dict[str, Any], phase: str) -> bool:
-    """True when `phase` must run as a FRESH session on a different runtime.
-
-    Absent binding, or a binding equal to the runtime the task is already stamped
-    with, falls through to the in-session default: the owner is mid-tool-call and
-    gets the directive inline. Only a genuinely different `{cli, model}` buys a new
-    session — the operator pays per bound phase per task, and never by accident.
-    """
-    binding = phase_runtime(state, phase)
-    if not binding:
-        return False
-    bound_cli = str(binding.get("cli") or "").strip()
-    bound_model = binding.get("model") or None
-    task_cli = str(task.get("cli") or "").strip()
-    task_model = str(task.get("model") or "").strip() or None
-    return (bound_cli, bound_model) != (task_cli, task_model)
-
-
 def apply_init_source(
     state: Dict[str, Any],
     source_json: Optional[str],

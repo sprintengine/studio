@@ -49,7 +49,6 @@ from sprintengine_core.tool.state import (
     apply_init_source,
     apply_role_runtimes,
     apply_default_phases,
-    apply_phase_runtimes,
     configured_role_set,
     declared_repo_ids,
     end_lease,
@@ -337,8 +336,6 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # The run's phase list, from the wizard's "Agents review their own work"
         # toggle. Default AND ceiling for every task (assert_phases_within_run_ceiling).
         apply_default_phases(state, getattr(args, "default_phases_json", None))
-        # MC-1543 premium mode.
-        apply_phase_runtimes(state, getattr(args, "phase_runtimes_json", None))
         # Seed the sprint source at creation (app-created runs) so run.yaml carries
         # the "Started from" seed before any agent runs handover. write_run persists
         # state[source]/[sourceBundle] via RUN_SOURCE_KEYS.
@@ -1493,7 +1490,6 @@ def cmd_cancel(args: argparse.Namespace) -> Dict[str, Any]:
             task["ownerAgentId"] = None
             task["completedAt"] = None
             end_lease(task)
-            task.pop("awaitingPhaseSession", None)
             append_task_activity(
                 task,
                 "status_change",

@@ -341,7 +341,7 @@ assert.equal(
 )
 // The wizard no longer composes any workflow-override init key, so an untouched
 // run cannot send one: the sprint create call must mention none of them.
-for (const key of ['defaultPhases', 'requiredSweeps', 'phaseRuntimes']) {
+for (const key of ['defaultPhases', 'requiredSweeps']) {
   assert.doesNotMatch(
     panelSource,
     new RegExp(`\\b${key}:`),

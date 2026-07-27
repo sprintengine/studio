@@ -61,7 +61,6 @@ from sprintengine_core.tool.tasks import (
     add_unique_scope_expansions,
     add_unique_values,
     advance_task,
-    claim_phase_session,
     ensure_evidence,
     normalize_needs_input_kind,
     publish_task,
@@ -70,7 +69,6 @@ from sprintengine_core.tool.tasks import (
     refresh_materialized_ready_queue,
     refresh_task_diff_evidence,
     reject_absolute_path_values,
-    task_awaiting_phase_session,
     task_is_ready,
 )
 from sprintengine_core.tool.commands.run import auto_mode_continuation
@@ -182,11 +180,6 @@ def cmd_task_next(args: argparse.Namespace) -> Dict[str, Any]:
                     "write": runtime["dirty"] or expired["dirty"],
                 }
 
-            # MC-1543 phase sessions are claimed by task id via `task.claim` (pinned
-            # to the exact bound-runtime session the supervisor spawned), NOT
-            # auto-grabbed here: matching on role alone let a concurrent CHEAP
-            # same-role session win the review and silently downgrade the paid-for
-            # runtime. `task.next` therefore only serves ready work now.
             # The repo this session works in (MC-1610), bound by the MCP server
             # from the worktree the session was spawned into. A session can only
             # claim work in its own tree: its cwd, its commit lock, and its
@@ -277,34 +270,6 @@ def cmd_task_claim(args: argparse.Namespace) -> Dict[str, Any]:
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
         with folder_store.FolderLock(args.state.parent / folder_store.CLAIM_QUEUE_LOCK_FILE):
             task = find_task(state, args.task_id)
-            # MC-1543: an awaiting phase session is claimed here, pinned to THIS task
-            # id, by the fresh session the supervisor spawned on the phase's bound
-            # runtime. claim_phase_session re-stamps the bound runtime and returns the
-            # diff-seeded brief WITHOUT rewinding the phase status. A fresh id needs no
-            # membership check — the lease it mints is the authority.
-            if task_awaiting_phase_session(task):
-                if worker_has_active_lease(state, args.id, excluding_task_id=task.get("id")):
-                    return {
-                        "ok": False,
-                        "error": "Worker already holds an active lease; another worker must run this phase.",
-                        "reason": "worker_task_capacity_reached",
-                        "task": {"id": task.get("id"), "status": task.get("status")},
-                        "write": False,
-                    }
-                claimed_phase = claim_phase_session(state, task, args.id)
-                recompute_phase(state)
-                event = append_event(
-                    state, "task_phase_session_claimed", args.id,
-                    f"{args.id} claimed the {claimed_phase['phase']} phase of {task.get('id')}.",
-                )
-                return {
-                    "ok": True,
-                    "task": task,
-                    "agent": claimed_phase["agent"],
-                    "phase": claimed_phase["phase"],
-                    "prompt": build_phase_respawn_brief(state, args.state, task, claimed_phase["phase"]),
-                    "event": event,
-                }
             ensure_role_in_roster(state, str(task.get("role") or ""))
             ensure_task_repo_declared(
                 state, folder_store.task_repo(task), context=f"Task {task.get('id')}"
@@ -718,13 +683,9 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         # The owner is in-session and mid-tool-call: hand it the phase directive here
         # rather than pasting into its terminal. There is no third delivery channel
         # (see phase_prompts) — the only other one is the respawn brief for a dead owner.
-        # MC-1543: when the phase is bound to a different runtime the directive is NOT
-        # returned inline; it rides the diff-seeded brief of the session the supervisor
-        # spawns on that runtime.
-        awaiting = result.get("awaitingPhaseSession")
         next_directive = (
             build_phase_directive(state, args.state, task, result["nextStatus"])
-            if result["nextStatus"] != "done" and not awaiting
+            if result["nextStatus"] != "done"
             else None
         )
         # Post-commit leftover check (MC-1753): after the sweep, in-scope dirty
@@ -771,7 +732,6 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             "producedChanges": result["producedChanges"],
             "phases": result["phases"],
             **({"completionKind": result["completionKind"]} if result.get("completionKind") else {}),
-            **({"awaitingPhaseSession": awaiting} if awaiting else {}),
             **({"nextDirective": next_directive} if next_directive else {}),
             **({
                 "warnings": [
@@ -840,10 +800,9 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
             {"taskId": args.task_id, "phase": result["phase"], "outcome": args.outcome, "status": result["nextStatus"]},
         )
         continuation = auto_mode_continuation(state, str(task.get("role") or ""), actor)
-        awaiting = result.get("awaitingPhaseSession")
         next_directive = (
             build_phase_directive(state, args.state, task, result["nextPhase"])
-            if result["nextPhase"] and not awaiting
+            if result["nextPhase"]
             else None
         )
         return {
@@ -854,7 +813,6 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
             "outcome": args.outcome,
             "nextStatus": result["nextStatus"],
             **({"nextPhase": result["nextPhase"]} if result["nextPhase"] else {}),
-            **({"awaitingPhaseSession": awaiting} if awaiting else {}),
             **({"nextDirective": next_directive} if next_directive else {}),
             "event": event,
             **(continuation or {}),

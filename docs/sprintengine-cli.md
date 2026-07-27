@@ -291,29 +291,6 @@ A docs-only or spike plan may legitimately skip the integration task; the
 warnings exist so the absence is a visible decision at plan approval, not an
 accident.
 
-### `--phase-runtimes-json`
-
-Binds a phase to its own runtime, so a strong model reviews what cheap models
-build:
-
-```bash
-sprintengine init --name my-team \
-  --phase-runtimes-json '{"review": {"cli": "claude-code", "model": "fable"}}'
-```
-
-Each key must be a valid phase and each binding must name a CLI.
-
-The cost invariant is the point of the feature. **An absent `phaseRuntimes`, or
-a binding that equals the task owner's own runtime, creates no extra sessions**
-— the owner reviews its own diff in-session, exactly as it does without the
-flag. Only a binding that *differs* from the owner's runtime releases the task
-(`ownerAgentId: null`, `awaitingPhaseSession: {phase, runtime}`); the supervisor
-then spawns a fresh, diff-seeded session on that runtime, which claims the task
-through `task next` without rewinding its status. You pay for exactly the
-independent reviews you asked for.
-
-`phaseRuntimes` is CLI-init-only and not MCP-mutable, like the other init keys.
-
 ## Command Groups
 
 Inspect help before scripting a command:
