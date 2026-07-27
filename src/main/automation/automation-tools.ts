@@ -239,18 +239,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         `Workspace "${workspaceId}" has no usable folder path in this app session; open it in the app first.`
       )
     }
-    if (workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID) {
-      const hasLiveAgent = backends.listTerminalSessions().some(
-        (session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.processAlive
+    if (workspace.templateId === ROUTING_PLACEHOLDER_TEMPLATE_ID && !hasLiveAgentTerminal(workspaceId)) {
+      return failure(
+        'workspace_without_folder',
+        `Workspace "${workspaceId}" has not been restored into this app session; open it in the app first.`
       )
-      if (!hasLiveAgent) {
-        return failure(
-          'workspace_without_folder',
-          `Workspace "${workspaceId}" has not been restored into this app session; open it in the app first.`
-        )
-      }
     }
     return { root: workspace.folderPath }
+  }
+
+  function hasLiveAgentTerminal(workspaceId: string): boolean {
+    return backends.listTerminalSessions().some(
+      (session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.processAlive
+    )
   }
 
   // Backlog tools address a project folder, not the workspace registry: the
@@ -476,13 +477,22 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceList: McpToolRegistration = {
     name: 'workspace.list',
     description:
-      'List workspaces known to the running Multicode instance, with window assignment and agent ids. '
-      + 'Workspaces from before this app session appear with detail "routing-only" (real id/window, placeholder name).',
+      'List the workspaces visible to the user in the running Multicode instance, with window assignment and agent ids. '
+      + 'A workspace surviving from before this app session appears only while it still has a live agent terminal, '
+      + 'with detail "routing-only" (real id/window, placeholder name).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const { state } = backends.getWorkspaceSyncSnapshot()
+      // The sync snapshot restores every workspace it has ever synced as a
+      // routing placeholder, unpruned — hundreds on a long-lived profile, and
+      // every workspace-scoped tool rejects their ids (MC-1903). List only what
+      // the user can see: restored workspaces, plus placeholders whose live
+      // agent terminals make them the current Studio-owned sessions.
+      const visible = state.workspaces.filter(
+        (workspace) => workspace.templateId !== ROUTING_PLACEHOLDER_TEMPLATE_ID || hasLiveAgentTerminal(workspace.id)
+      )
       return success({
-        workspaces: state.workspaces.map(workspaceProjection),
+        workspaces: visible.map(workspaceProjection),
         activeWorkspaceId: state.activeWorkspaceId,
         primaryWindowId: state.primaryWorkspaceWindowId,
       })

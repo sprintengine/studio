@@ -384,12 +384,37 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
   ]
   const tools = createAutomationTools(backendsOf({ workspaces: [workspace, placeholder], sessions }))
 
+  // MC-1903: a routing placeholder with no live agent is the unactionable
+  // graveyard — workspace.list omits it entirely.
   const list = await tool(tools, 'workspace.list').handler({})
   assert.equal(list.isError, undefined)
   const listed = list.structuredContent as { workspaces: Array<{ id: string; detail: string }> }
-  assert.equal(listed.workspaces.length, 2)
-  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-old')?.detail, 'routing-only')
-  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-1')?.detail, 'full')
+  assert.equal(listed.workspaces.length, 1)
+  assert.equal(listed.workspaces[0]?.id, 'ws-1')
+  assert.equal(listed.workspaces[0]?.detail, 'full')
+
+  // A placeholder whose agent terminal survived the restart is the current
+  // Studio-owned session: it stays listed, disclosed as routing-only.
+  const liveOldSession = {
+    sessionId: 'session-old',
+    processAlive: true,
+    kind: 'agent',
+    workspaceId: 'ws-old',
+    agentId: 'agent-old',
+    visible: true,
+    startedAt: 10,
+    lastOutputAt: 20,
+    lastInputAt: null,
+    lastVisibleAt: null,
+    activity: { kind: 'idle', since: 20 },
+  } as unknown as TerminalSessionSnapshot
+  const toolsWithLivePlaceholder = createAutomationTools(
+    backendsOf({ workspaces: [workspace, placeholder], sessions: [...sessions, liveOldSession] })
+  )
+  const listWithLive = await tool(toolsWithLivePlaceholder, 'workspace.list').handler({})
+  const listedWithLive = listWithLive.structuredContent as { workspaces: Array<{ id: string; detail: string }> }
+  assert.equal(listedWithLive.workspaces.length, 2)
+  assert.equal(listedWithLive.workspaces.find((entry) => entry.id === 'ws-old')?.detail, 'routing-only')
 
   const status = await tool(tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId: 'agent-a' })
   assert.equal(status.isError, undefined)
