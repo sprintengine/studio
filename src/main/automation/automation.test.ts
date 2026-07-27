@@ -2243,24 +2243,35 @@ function reviewValidBrief(): ReviewBrief {
 
 // Seed a review directory with an ingested change set under a temp project root,
 // and build the review tools scoped to it. `emitted` captures brief-run events.
-function reviewHarness(options: { moduleEnabled?: boolean } = {}): {
+function reviewHarness(): {
   tools: McpToolRegistration[]
   projectRoot: string
   reviewDir: string
   emitted: BriefRunEvent[]
+  /** Flip the Review module the way Settings does, mid-session. */
+  setModuleEnabled: (enabled: boolean) => void
 } {
   const projectRoot = mkdtempSync(join(tmpdir(), 'review-gw-'))
   const reviewDir = reviewChangeSetDir(projectRoot, REVIEW_ID)
   mkdirSync(reviewDir, { recursive: true })
   writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(reviewFixtureChangeSet(projectRoot), null, 2)}\n`)
   const emitted: BriefRunEvent[] = []
+  let moduleEnabled = true
   const tools = createReviewGatewayTools({
-    isReviewModuleEnabled: () => options.moduleEnabled ?? true,
+    isReviewModuleEnabled: () => moduleEnabled,
     listOpenProjectRoots: () => [projectRoot],
     homeDir: () => homedir(),
     emitBriefRunEvent: (event) => emitted.push(event),
   })
-  return { tools, projectRoot, reviewDir, emitted }
+  return {
+    tools,
+    projectRoot,
+    reviewDir,
+    emitted,
+    setModuleEnabled: (enabled) => {
+      moduleEnabled = enabled
+    },
+  }
 }
 
 async function testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits(): Promise<void> {
@@ -2392,8 +2403,9 @@ async function testReviewToolsRejectUnknownTargetAndStripAbsolutePaths(): Promis
 // The tools stay registered — an agent still sees the capability, and learns why
 // it is refusing — but every one of them refuses before touching a file.
 async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
-  const { tools, projectRoot, reviewDir, emitted } = reviewHarness({ moduleEnabled: false })
+  const { tools, projectRoot, reviewDir, emitted, setModuleEnabled } = reviewHarness()
   try {
+    setModuleEnabled(false)
     assert.deepEqual(
       tools.map((registration) => registration.name),
       ['review_list_pending', 'review_get_changeset', 'review_get_brief', 'review_submit_brief'],
@@ -2425,14 +2437,18 @@ async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
     assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'no brief was written')
     assert.deepEqual(emitted, [], 'nothing was announced to open windows')
 
-    // Enabling it restores every tool, with no re-registration.
-    const enabled = reviewHarness()
-    try {
-      const listed = await tool(enabled.tools, 'review_list_pending').handler({})
-      assert.equal(listed.isError, undefined, 'an enabled module answers normally')
-    } finally {
-      rmSync(enabled.projectRoot, { recursive: true, force: true })
-    }
+    // Enablement is read per call, off the same registrations: switching the
+    // module back on in Settings works on the next call, not the next restart.
+    setModuleEnabled(true)
+    const listed = await tool(tools, 'review_list_pending').handler({})
+    assert.equal(listed.isError, undefined, 'an enabled module answers normally')
+    const submitted = await tool(tools, 'review_submit_brief').handler({
+      reviewId: REVIEW_ID,
+      projectRoot,
+      brief: reviewValidBrief() as unknown as Record<string, unknown>,
+    })
+    assert.equal(submitted.structuredContent?.ok, true, 'and the one mutation works again')
+    assert.deepEqual(emitted, [{ workspaceId: REVIEW_ID, phase: 'done' }])
   } finally {
     rmSync(projectRoot, { recursive: true, force: true })
   }
