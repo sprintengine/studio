@@ -57,7 +57,7 @@ import {
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 67
+export const WORKSPACE_STORE_VERSION = 68
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -66,8 +66,12 @@ export type WorkspaceMigrationState = {
   activeWorkspaceId?: WorkspaceId | null
   workspaceWindows?: WorkspaceWindowState[]
   primaryWorkspaceWindowId?: WorkspaceWindowId
+  // Retired keys stay declared here so the migrations that read or delete them
+  // are typed rather than cast: `cliCommands` (pre-v10 CLI commands) and
+  // `sprintEngineModelCatalog` (the model catalog retired in MC-1890).
   appSettings?: Partial<AppSettings> & {
     cliCommands?: Partial<Record<AgentCli, string>>
+    sprintEngineModelCatalog?: unknown
   }
   sidebarCollapsed?: boolean
   workspaceRegistryEmptyState?: import('../../types/workspace').WorkspaceRegistryEmptyState | null
@@ -1036,6 +1040,21 @@ export function migratePersistedWorkspaceState(
     // never revisits); this step just gives clean upgrades the same result.
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
+  }
+  if (version < 68) {
+    // The Sprint Engine model catalog retired (MC-1890): the Settings section
+    // where each CLI+model carried hand-set intelligence / frontendDesign /
+    // mobile / speed / cost axes is gone, and its last two live readers went
+    // with the architect-decides-staffing formation (MC-1889). Drop the
+    // persisted array so an upgraded profile stops carrying scores nothing
+    // reads. Nothing the user chose is lost: per-role models live on the saved
+    // roster and per-CLI model ids in `cliRuntimes[cli].models`.
+    // Deleting the key here is the clean-upgrade half; normalizeAppSettings is
+    // the enforcement half — it builds every field explicitly and never spreads
+    // the persisted object, and persist merge() runs it on every hydration, so
+    // the slice also cannot survive inside a current-version envelope this
+    // ladder never revisits (a dev-HMR module swap stamps exactly that).
+    if (migrationState.appSettings) delete migrationState.appSettings.sprintEngineModelCatalog
   }
 
   return state as never

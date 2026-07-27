@@ -2,14 +2,13 @@
  * Agent-launch settings mirrored from the renderer to the main process
  * (sprint-runtime-ownership Phase 2). The main-process sprint scheduler spawns
  * agents with the same launch inputs the renderer supervisor used —
- * user-configured CLI runtime overrides, MCP settings, project knowledge
- * roots, and the sprint model catalog — but those live in renderer
- * localStorage (`appSettings`). The renderer pushes them here on change; main
- * persists a copy under userData so a fresh app boot (before any window
- * pushes) still launches with the last-known settings.
+ * user-configured CLI runtime overrides, MCP settings, and project knowledge
+ * roots — but those live in renderer localStorage (`appSettings`). The
+ * renderer pushes them here on change; main persists a copy under userData so
+ * a fresh app boot (before any window pushes) still launches with the
+ * last-known settings.
  */
 import type { McpSettings } from './agent-state'
-import type { SprintEngineModelCatalogEntry } from './run-types'
 
 export type SprintEngineLaunchCliRuntimeSettings = {
   command: string
@@ -21,7 +20,6 @@ export type SprintEngineLaunchSettings = {
   cliRuntimes: Record<string, SprintEngineLaunchCliRuntimeSettings>
   mcp: McpSettings
   projectKnowledgeRoots: Record<string, string | null>
-  sprintEngineModelCatalog: SprintEngineModelCatalogEntry[]
 }
 
 export function emptySprintEngineLaunchSettings(): SprintEngineLaunchSettings {
@@ -29,7 +27,6 @@ export function emptySprintEngineLaunchSettings(): SprintEngineLaunchSettings {
     cliRuntimes: {},
     mcp: { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: {},
-    sprintEngineModelCatalog: [],
   }
 }
 
@@ -69,8 +66,5 @@ export function normalizeSprintEngineLaunchSettings(raw: unknown): SprintEngineL
       if (typeof value === 'string' || value === null) projectKnowledgeRoots[key] = value
     }
   }
-  const sprintEngineModelCatalog = Array.isArray(record.sprintEngineModelCatalog)
-    ? record.sprintEngineModelCatalog as SprintEngineModelCatalogEntry[]
-    : []
-  return { cliRuntimes, mcp, projectKnowledgeRoots, sprintEngineModelCatalog }
+  return { cliRuntimes, mcp, projectKnowledgeRoots }
 }

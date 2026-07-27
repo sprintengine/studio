@@ -17,7 +17,6 @@ import type {
   NewChatAgentChoice,
   ReviewGuideDefaults,
   SprintEngineRoleId,
-  SprintEngineModelCatalogEntry,
   AgentConversationRuntime,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleModelOverrides,
@@ -42,7 +41,6 @@ import {
   resolveInitialOnboardingStep,
   type OnboardingStep,
 } from '../onboardingState'
-import { normalizeSprintEngineModelCatalog } from '../../utils/modelCatalog'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
 import {
   WORKSPACE_ASIDE_DEFAULT_WIDTH,
@@ -892,7 +890,6 @@ export const defaultAppSettings = (): AppSettings => ({
   // (fresh → true/skip, returning → false/run the one-time MC-1587 migration).
   specialistPacks: { disabled: [], migratedBundledPack: true },
   sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
-  sprintEngineModelCatalog: [],
   sprintEngineRunSettings: {},
   searchExcludes: [],
   projectKnowledgeRoots: {},
@@ -964,7 +961,10 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       !(settings?.modulesChosen ?? workspaces.length > 0),
     ),
     sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
-    sprintEngineModelCatalog: normalizeSprintEngineModelCatalog(settings?.sprintEngineModelCatalog),
+    // No `sprintEngineModelCatalog` line: the model catalog retired (MC-1890,
+    // store v68). Every field here is built explicitly and `settings` is never
+    // spread, so an upgraded profile's persisted array drops on every hydration
+    // — the same merge-not-only-migrate enforcement as the opt-in reset below.
     sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
     searchExcludes: normalizeSearchExcludes(settings?.searchExcludes),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
@@ -1135,12 +1135,6 @@ export interface SettingsSliceActions {
   renameSprintEngineRosterTeam: (id: string, name: string) => void
   deleteSprintEngineRosterTeam: (id: string) => void
   setSprintEngineLastSelectedTeam: (id: string | null) => void
-  /**
-   * Replace the global Sprint Engine model catalog. The Settings UI owns the
-   * array (add/edit/remove rows) and passes the whole list; the store
-   * normalizes it, so persisted state is always clean regardless of caller.
-   */
-  setSprintEngineModelCatalog: (catalog: SprintEngineModelCatalogEntry[]) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
@@ -1643,11 +1637,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
               }
             : current.savedRoster,
         }
-      }),
-
-    setSprintEngineModelCatalog: (catalog) =>
-      set((state) => {
-        state.appSettings.sprintEngineModelCatalog = normalizeSprintEngineModelCatalog(catalog)
       }),
 
     setModuleEnabled: (moduleId, enabled) =>

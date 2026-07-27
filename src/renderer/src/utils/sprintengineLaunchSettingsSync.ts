@@ -1,8 +1,8 @@
 /**
  * Mirrors the renderer's agent-launch settings to the main process
  * (sprint-runtime-ownership Phase 2): the main sprint scheduler spawns agents
- * with the same cliRuntimes / MCP / knowledge-root / model-catalog inputs the
- * renderer supervisor used, but those live in renderer `appSettings`. Mounted
+ * with the same cliRuntimes / MCP / knowledge-root inputs the renderer
+ * supervisor used, but those live in renderer `appSettings`. Mounted
  * once from `WorkspaceManager`; pushes on mount and whenever the relevant
  * settings actually change (signature-compared, debounced a tick by the
  * store's own batching).
@@ -16,7 +16,6 @@ function currentLaunchSettings(): SprintEngineLaunchSettings {
     cliRuntimes: appSettings.cliRuntimes ?? {},
     mcp: appSettings.mcp ?? { syncEnabled: false, servers: {} },
     projectKnowledgeRoots: appSettings.projectKnowledgeRoots ?? {},
-    sprintEngineModelCatalog: appSettings.sprintEngineModelCatalog ?? [],
   }
 }
 

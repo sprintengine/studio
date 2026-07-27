@@ -1008,24 +1008,6 @@ export type SprintEngineRoleSettings = {
   lastSelectedTeamId?: string | null
 }
 
-// A global Sprint Engine "model catalog" entry: user-entered facts about one
-// CLI+model pairing, entered once in Settings and stable across sprints. It
-// holds facts (scores, cost, note, an offered-by-default toggle), NOT which
-// models a given sprint may use — that is the wizard's per-sprint selection.
-// Enforcement is structural elsewhere (the ticked selection becomes a run's
-// allowed runtimes); scores and the note are descriptive guidance only.
-export type SprintEngineModelCatalogEntry = {
-  cli: AgentCli // plugin id, e.g. 'claude-code', 'codex', 'zai'
-  model: string | null // model id; null = the CLI's own default (no --model flag)
-  offeredByDefault: boolean // seeds the wizard's per-sprint checkbox
-  intelligence: number // 1–10 — reasoning/planning/review rigor
-  frontendDesign: number // 1–10 — UI/UX design and frontend taste
-  mobile: number // 1–10 — mobile app development
-  speed: number // 1–10 — throughput/latency
-  cost: number // relative multiplier, positive; ratios are the meaning
-  note?: string // free-text descriptive guidance only, never enforcement
-}
-
 export type SprintEngineRunSettings = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   maxConcurrentAgents?: number

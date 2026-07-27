@@ -48,8 +48,8 @@ export function registerSprintEngineAutomationIpc(
   )
 
   // Phase 2: the renderer mirrors its agent-launch settings (cliRuntimes, mcp,
-  // knowledge roots, model catalog) so the main scheduler spawns with the same
-  // inputs the renderer supervisor used. Payload is normalized fail-soft.
+  // knowledge roots) so the main scheduler spawns with the same inputs the
+  // renderer supervisor used. Payload is normalized fail-soft.
   ipcMain.handle('sprintengine:launch-settings:sync', (_event, payload: unknown) => {
     deps.launchSettings.set(payload)
     return { ok: true as const }

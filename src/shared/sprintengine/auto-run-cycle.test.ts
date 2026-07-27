@@ -89,7 +89,7 @@ function makePorts(
     applyTerminalRevealPolicy: () => {},
     isAgentTabVisible: () => false,
     getPluginCatalogEntries: () => [],
-    getSpawnSettings: () => ({ projectKnowledgeRoots: null, sprintEngineModelCatalog: [] }),
+    getSpawnSettings: () => ({ projectKnowledgeRoots: null }),
     getWorkspace: () => workspace,
     setSprintEngineState: () => {},
     setSprintEngineAutomationMode: () => {},

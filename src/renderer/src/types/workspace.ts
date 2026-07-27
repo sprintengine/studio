@@ -16,7 +16,6 @@ import type {
 import type {
   AgentCli,
   AgentId,
-  SprintEngineModelCatalogEntry,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleSettings,
@@ -59,7 +58,6 @@ export type {
   SprintEngineFeedbackAnalysisSummary,
   SprintEngineFeedbackScoreStat,
   SprintEngineMockConfig,
-  SprintEngineModelCatalogEntry,
   SprintEngineNeedsInputKind,
   SprintEngineNeedsInputReason,
   SprintEngineProjectionCreation,
@@ -532,13 +530,6 @@ export type AppSettings = {
    */
   specialistPacks: { disabled: string[]; migratedBundledPack: boolean }
   sprintEngineRoleSettings: SprintEngineRoleSettings
-  /**
-   * Global Sprint Engine model catalog: user-entered facts about CLI+model
-   * pairings (scores, cost, note, offered-by-default). Default `[]`; the app
-   * ships no seeded entries. Read through `getAvailableModelCatalogEntries`
-   * downstream so uninstalled-CLI entries are never offered for a sprint.
-   */
-  sprintEngineModelCatalog: SprintEngineModelCatalogEntry[]
   /**
    * Local operator preferences for an existing Sprint Engine run, keyed by the
    * normalized absolute `run.yaml` path. These intentionally stay in app-local

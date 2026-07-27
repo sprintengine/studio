@@ -163,7 +163,6 @@ const LAUNCH_SETTINGS: SprintEngineLaunchSettings = {
     },
   },
   projectKnowledgeRoots: {},
-  sprintEngineModelCatalog: [],
 }
 
 type Harness = {

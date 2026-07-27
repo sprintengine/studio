@@ -10,7 +10,7 @@ import {
   nonEmptyPersistedWorkspaceState,
   readPersistedWorkspaceState,
 } from './persistenceSlice'
-import { sprintEngineRunSettingsKey } from './settingsSlice'
+import { normalizeAppSettings, sprintEngineRunSettingsKey } from './settingsSlice'
 
 // classifyPersistedWorkspaceState ----------------------------------------------
 
@@ -496,8 +496,6 @@ assert.equal(migratedRoadmapOnly.activeWorkspaceId, null, 'active pointer is cle
 // conversation transport (MC-1802). The migration resets every persisted `true`
 // and stamps the profile; an opt-in recorded after the stamp is explicit and is
 // left alone.
-assert.equal(WORKSPACE_STORE_VERSION, 67, 'the conversation-transport reset ships at store v67')
-
 const v66PreFlipOptIn = {
   workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
   activeWorkspaceId: 'ws-standard',
@@ -535,6 +533,49 @@ assert.equal(
     .appSettings.guidedBriefConversationSessions,
   true,
   'an opt-in recorded after the reset survives the ladder',
+)
+
+// v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
+// still carries the persisted `sprintEngineModelCatalog` array of hand-set
+// scores; the ladder drops it and leaves every other setting alone.
+assert.equal(WORKSPACE_STORE_VERSION, 68, 'the model-catalog drop is the newest step, at store v68')
+
+const v67WithModelCatalog = {
+  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
+  activeWorkspaceId: 'ws-standard',
+  appSettings: {
+    sprintEngineModelCatalog: [
+      { cli: 'claude-code', model: 'opus', offeredByDefault: true, intelligence: 9, frontendDesign: 8, mobile: 5, speed: 4, cost: 10 },
+    ],
+    lastSelectedSpecialist: 'design',
+  },
+}
+const migratedModelCatalogDrop = migratePersistedWorkspaceState(v67WithModelCatalog, 67) as {
+  appSettings: AppSettings & { sprintEngineModelCatalog?: unknown }
+}
+assert.equal(
+  'sprintEngineModelCatalog' in migratedModelCatalogDrop.appSettings,
+  false,
+  'v68 drops the retired model catalog slice, key and all',
+)
+assert.equal(
+  migratedModelCatalogDrop.appSettings.lastSelectedSpecialist,
+  'design',
+  'v68 leaves other persisted settings alone',
+)
+
+// The version-gated step cannot be the only enforcement: a dev-HMR module swap
+// (or any write path that stamps the current version onto un-migrated state)
+// leaves the slice inside a current-version envelope the ladder never revisits.
+// normalizeAppSettings — which persist merge() runs on every hydration — is the
+// self-healing chokepoint, so the key cannot survive even at v68.
+assert.equal(
+  'sprintEngineModelCatalog' in normalizeAppSettings(
+    v67WithModelCatalog.appSettings as Partial<AppSettings>,
+    [],
+  ),
+  false,
+  'normalizeAppSettings drops the retired catalog regardless of store version',
 )
 
 console.log('persistenceSlice.test.ts: ok')
