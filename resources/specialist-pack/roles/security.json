@@ -12,9 +12,5 @@
         "skill": "security"
       }
     ]
-  },
-  "sweep": {
-    "focus": "authn/authz, input handling, secrets, injection, privacy, and abuse risk",
-    "when": "the run touches authentication, authorization, a network boundary, secrets, or user-supplied input"
   }
 }

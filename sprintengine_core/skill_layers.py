@@ -12,9 +12,6 @@ mechanics:
 - ``SPRINTENGINE_NORM_SKILLS`` — the engineering quality bar Sprint Engine
   enforces. Owned by Sprint Engine and layered on only inside a Sprint Engine
   run; a raw standalone soul does not carry them.
-- ``SPRINTENGINE_SWEEP_SKILLS`` — the fix-forward mandate, layered onto sweep
-  roles only (``sweep`` present in the manifest). See
-  ``sprintengine_extra_skills_for_role``.
 
 These ids resolve against the same skill registry as soul skills, so the
 composed layer skills are wrapped in the identical ``<skill name="...">``
@@ -53,13 +50,6 @@ SPRINTENGINE_SOUL_EXTRA_SKILLS: tuple[str, ...] = (
     *MULTICODE_LAYER_SKILLS,
     *SPRINTENGINE_NORM_SKILLS,
 )
-
-# The fix-forward mandate + significant-findings ladder every sweep role carries.
-# A HOST layer, not a manifest reference: the rule is identical for every sweep
-# (bundled or custom), so stating it once here keeps the prompt-layer policy (one
-# behavior, one layer) and keeps a third-party sweep manifest portable — a pack
-# author declares `sweep: {focus, when}` and inherits the mandate for free.
-SPRINTENGINE_SWEEP_SKILLS: tuple[str, ...] = ("sprintengine_sweep_workflow",)
 
 # The full-loop orchestration skill that stands in for a role-personality Soul on
 # a soulless General. It drives one agent through plan -> build -> self-review ->
@@ -124,33 +114,21 @@ def multicode_layer_skills_for_run(
     return tuple(skills)
 
 
-def sprintengine_extra_skills_for_role(
-    discovery: Any,
-    role: str,
+def sprintengine_soul_extra_skills(
     *,
     backlog_sourced: bool = True,
     knowledge_root_configured: bool = True,
 ) -> tuple[str, ...]:
-    """Host layer skills for one role's startup brief.
+    """Host layer skills for a dispatched agent's startup brief.
 
-    Every dispatched agent gets the Multicode product layer (gated per run) + the
-    Sprint Engine quality norms. A SWEEP role additionally gets the fix-forward
-    mandate, layered here rather than referenced from its manifest so a third-party
-    sweep pack inherits it by declaring `sweep: {focus, when}` and nothing else. An
-    unresolvable role falls back to the base layer — a broken manifest must not
-    strip the quality bar.
+    Every dispatched agent gets the same layer: the Multicode product skills
+    (gated per run) + the Sprint Engine quality norms. It does not vary by role —
+    the role's own identity comes from its manifest directives.
     """
-    base = (
+    return (
         *multicode_layer_skills_for_run(
             backlog_sourced=backlog_sourced,
             knowledge_root_configured=knowledge_root_configured,
         ),
         *SPRINTENGINE_NORM_SKILLS,
     )
-    try:
-        manifest = discovery.get_role(role)
-    except (KeyError, AttributeError):
-        return base
-    if getattr(manifest, "is_sweep", False):
-        return (*SPRINTENGINE_SWEEP_SKILLS, *base)
-    return base

@@ -510,8 +510,8 @@ def test_aggregate_by_agent_emits_per_task_counts_for_drilldown() -> None:
     assert task_counts["T2"]["counts"] == {}
 
 
-def test_aggregate_by_agent_emits_sweep_activity() -> None:
-    """A SWEEP audits other agents' tasks and passes the --review-target-* trio."""
+def test_aggregate_by_agent_emits_peer_review_activity() -> None:
+    """A reviewer audits other agents' tasks and passes the --review-target-* trio."""
     records = [
         {
             "source": "reviewer_assessment", "agent_id": "security-1", "role": "developer",
@@ -529,12 +529,12 @@ def test_aggregate_by_agent_emits_sweep_activity() -> None:
             "reviewer_agent_id": "security-1", "phase_outcome": "escalate",
         },
     ]
-    sweep = summarize_feedback_records(records)["aggregateByAgent"]["security-1"]["sweep"]
-    assert sweep["assessmentsRecorded"] == 3
-    assert sweep["tasksAudited"] == 2  # T1, T2
-    assert sweep["passed"] == 1
-    assert sweep["fixedForward"] == 1
-    assert sweep["escalated"] == 1
+    peer = summarize_feedback_records(records)["aggregateByAgent"]["security-1"]["peerReview"]
+    assert peer["assessmentsRecorded"] == 3
+    assert peer["tasksAudited"] == 2  # T1, T2
+    assert peer["passed"] == 1
+    assert peer["fixedForward"] == 1
+    assert peer["escalated"] == 1
 
 
 def test_a_content_free_reviewer_log_is_not_counted_as_a_clean_pass() -> None:
@@ -564,11 +564,11 @@ def test_a_content_free_reviewer_log_is_not_counted_as_a_clean_pass() -> None:
             "findings": [{"kind": "code_bug", "severity": "high", "area": "backend"}],
         },
     ]
-    sweep = summarize_feedback_records(records)["aggregateByAgent"]["security-1"]["sweep"]
+    peer = summarize_feedback_records(records)["aggregateByAgent"]["security-1"]["peerReview"]
     # The empty log still counts as review activity, but not as a verdict.
-    assert sweep["assessmentsRecorded"] == 3
-    assert sweep["passed"] == 1
-    assert sweep["fixedForward"] == 1
+    assert peer["assessmentsRecorded"] == 3
+    assert peer["passed"] == 1
+    assert peer["fixedForward"] == 1
 
 
 def test_aggregate_by_agent_emits_self_review_activity() -> None:
@@ -613,4 +613,4 @@ def test_aggregate_by_agent_emits_self_review_activity() -> None:
     assert row["measured"]["reviewSampleCount"] == 0
     assert "findingsAgainst" not in row["measured"]
     assert row["measured"]["counts"] == {}
-    assert "sweep" not in row
+    assert "peerReview" not in row

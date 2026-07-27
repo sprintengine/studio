@@ -9,7 +9,7 @@ MC-1542 collapsed the `reviewer` classification into `owner`. The classification
 are now `operator | architect | general | owner`, and there is no tool a reviewer
 needs that an owner must not have: one agent owns a task from claim to `done`,
 closing its own phases with `sprintengine.task.advance`. These tests pin that the
-owner surface is exactly `AGENT_COMMON_TOOLS`, that a sweep role gets the same
+owner surface is exactly `AGENT_COMMON_TOOLS`, that a reviewer role gets the same
 surface as any other worker, and that the retired gate / `task.request_changes`
 tool names are unknown rather than merely hidden.
 """
@@ -283,17 +283,13 @@ def test_hidden_tools_fail_when_called_by_name(tmp_path) -> None:
     assert architect_plan["ok"] is True
 
 
-def test_plugin_sweep_role_gets_the_plain_owner_surface(tmp_path) -> None:
-    """A sweep role is a full implementer: it claims its own task, fixes what it
-    finds, and closes its phases with `task.advance`. Its manifest `sweep` block
-    schedules it; it grants no tool a plain worker lacks."""
+def test_plugin_reviewer_role_gets_the_plain_owner_surface(tmp_path) -> None:
+    """A reviewer role is a full implementer: it claims its own task, fixes what it
+    finds, and closes its phases with `task.advance`. It grants no tool a plain
+    worker lacks."""
     clear_role_classification_cache()
     workspace = tmp_path / "plugin-ws"
-    write_workspace_role(
-        workspace,
-        "compliance_reviewer",
-        sweep={"focus": "compliance controls", "when": "the run touches regulated data"},
-    )
+    write_workspace_role(workspace, "compliance_reviewer")
     write_workspace_role(workspace, "data_engineer")
     fixture = create_workspace_team(tmp_path, "plugin-ws", "cap-plugin", [task("T1", "Work", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
@@ -314,10 +310,10 @@ def test_plugin_sweep_role_gets_the_plain_owner_surface(tmp_path) -> None:
             ),
         )
 
-    sweep_surface = surface("compliance_reviewer")
-    assert sweep_surface == surface("data_engineer")
-    assert "sprintengine.task.advance" in sweep_surface
-    assert "sprintengine.plan.add_task" not in sweep_surface
+    reviewer_surface = surface("compliance_reviewer")
+    assert reviewer_surface == surface("data_engineer")
+    assert "sprintengine.task.advance" in reviewer_surface
+    assert "sprintengine.plan.add_task" not in reviewer_surface
 
 
 def test_role_bound_session_cannot_impersonate_another_role(tmp_path) -> None:

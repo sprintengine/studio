@@ -96,7 +96,6 @@ def test_one_general_run_bootstraps_plans_self_reviews_then_publishes_without_ro
     assert joined["ok"] is True, joined.get("error")
     # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a manifest.
     assert joined["result"]["roleManifest"]["directives"] == {}
-    assert joined["result"]["roleManifest"]["sweep"] is None
 
     # Plan-approval gate: the General self-approves its own plan (no architect).
     approved = call(server, fixture.state_path, "sprintengine.artifact.approve", "general-1", "general",

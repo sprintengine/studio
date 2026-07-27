@@ -65,7 +65,7 @@ def publish_task(
     """Record the implementation summary and route the task into its phase walk.
 
     Two steps, per decision 7. First change detection; then routing: no changes
-    skips every phase and lands on `done` (the clean-sweep / analysis-only exit);
+    skips every phase and lands on `done` (the analysis-only exit);
     changes enter `phases[0]`, or `done` when the task has no phases. Publish is the
     ONLY tool that enters the walk.
     """

@@ -445,11 +445,6 @@ def build_parser() -> argparse.ArgumentParser:
         help='JSON object of phase -> {"cli", "model"} (model null = the CLI default), e.g. {"review": {"cli": "claude-code", "model": "fable"}}. Premium mode: a stronger model reviews each task\'s diff as a fresh, diff-seeded session. Validated against --allowed-runtimes-json. Absent = the phase runs in-session on the owner\'s runtime and no extra sessions are created. CLI-init-only; not MCP-mutable.',
     )
     p.add_argument(
-        "--required-sweeps-json",
-        dest="required_sweeps_json",
-        help='JSON array of sweep role ids the operator mandates for this run, e.g. ["tester", "security"]. The architect must plan one task per required role, and the run cannot complete until it has. Every id must name a registry sweep role. CLI-init-only; not MCP-mutable.',
-    )
-    p.add_argument(
         "--default-phases-json",
         dest="default_phases_json",
         help='JSON array of the post-implementation phases every task inherits, e.g. ["review"]. Default AND ceiling: a task may trim its phases with `plan add-task --phases`, never add one outside this set. `[]` means no review step (every publish with changes routes straight to done). Absent = ["review"]. CLI-init-only; not MCP-mutable.',
@@ -684,8 +679,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help='Repeatable JSON object for a justified touched file outside ownedPaths, e.g. {"path":"src/foo.test.ts","reason":"needed colocated regression test","risk":"low"}.',
     )
-    # Sweep assessment channel: a no-phase sweep records per-audited-task
-    # telemetry here (the --review-target-* trio + counts/findings), since it
+    # Review assessment channel: a reviewer records per-audited-task telemetry
+    # here (the --review-target-* trio + counts/findings) when its review task
     # never enters a phase walk and publish carries no feedback fields.
     add_feedback_arguments(p)
     p.set_defaults(handler=task_commands.log)

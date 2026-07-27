@@ -12,9 +12,5 @@
         "skill": "product"
       }
     ]
-  },
-  "sweep": {
-    "focus": "product acceptance, user-facing behavior, copy, and requirement coverage",
-    "when": "the run changes a user-facing surface or the behavior a requirement promised"
   }
 }

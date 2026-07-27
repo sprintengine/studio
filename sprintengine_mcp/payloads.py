@@ -217,7 +217,7 @@ def add_feedback_defaults(target: dict[str, Any], payload: dict[str, Any]) -> No
         target[attr] = payload.get(attr, payload.get(camel))
     for attr, camel, _ in FEEDBACK_TEXT_FIELDS:
         target[attr] = payload.get(camel, payload.get(attr, ""))
-    # The reviewer-assessment trio: a sweep assessing ANOTHER task passes all
+    # The reviewer-assessment trio: an agent assessing ANOTHER task passes all
     # three so the record attributes to the audited task's implementer.
     target["review_target_task_id"] = payload.get("reviewTargetTaskId", payload.get("review_target_task_id", ""))
     target["review_target_agent_id"] = payload.get("reviewTargetAgentId", payload.get("review_target_agent_id", ""))

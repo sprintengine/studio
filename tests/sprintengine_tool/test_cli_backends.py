@@ -214,20 +214,13 @@ def test_plan_add_task_rejects_the_retired_gate_flags(tmp_path) -> None:
         assert "unrecognized arguments" in rejected.stderr, flag
 
 
-def test_custom_workspace_role_carries_sweep_metadata_but_no_gate(tmp_path) -> None:
-    """A `sweep` role is a fix-forward sweep, never a gate a task can require."""
+def test_custom_workspace_role_resolves_through_the_cli(tmp_path) -> None:
+    """A workspace-layer role manifest resolves for CLI role validation."""
     from sprintengine_core.role_registry import discover_role_registry
 
     workspace = tmp_path / "workspace"
-    write_workspace_role(
-        workspace,
-        "creative_director",
-        sweep={
-            "focus": "brand consistency and campaign readiness",
-            "when": "the run touches a marketing surface",
-        },
-    )
-    fixture = create_workspace_team(tmp_path, "workspace", "cli-sweep-role", [])
+    write_workspace_role(workspace, "creative_director")
+    fixture = create_workspace_team(tmp_path, "workspace", "cli-custom-role", [])
     state = read_state(fixture.state_path)
     state["sprintengine"]["rosterConfigured"] = True
     state["agents"] = {
@@ -237,9 +230,7 @@ def test_custom_workspace_role_carries_sweep_metadata_but_no_gate(tmp_path) -> N
     write_state(fixture.state_path, state)
 
     manifest = discover_role_registry(workspace_root=workspace).get_role("creative_director")
-    assert manifest.is_sweep is True
-    assert manifest.sweep.focus == "brand consistency and campaign readiness"
-    assert manifest.sweep.when == "the run touches a marketing surface"
+    assert manifest.id == "creative_director"
 
     payload = fixture.cli.run(
         "plan",

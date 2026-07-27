@@ -98,13 +98,6 @@ DEFAULT_RUN_PHASES = ("review",)
 # default. Round-trips through run.yaml + projection like RUN_SOURCE_KEYS.
 RUN_PHASE_KEYS = ("defaultPhases",)
 
-# Sweep roles the OPERATOR mandated for this run ("UI/UX specialist reviews all
-# frontend work at the end"). Sweep inclusion is normally the architect's
-# risk-tiered call; this is the override. Written once at init via
-# `--required-sweeps-json`; omitted entirely when none are mandated. The run cannot
-# complete while a required sweep role has no planned task.
-RUN_SWEEP_KEYS = ("requiredSweeps",)
-
 # MC-1543 premium mode: per-phase runtime bindings, e.g.
 # `{"review": {"cli": "claude-code", "model": "fable"}}` — a stronger model reviews
 # each task's diff as a FRESH, diff-seeded session while cheap models do the
@@ -122,11 +115,6 @@ def phase_runtime(state: dict[str, Any], phase: str) -> dict[str, Any]:
     return entry if isinstance(entry, dict) else {}
 
 
-def run_required_sweeps(state: dict[str, Any]) -> list[str]:
-    raw = state.get("requiredSweeps")
-    if not isinstance(raw, list):
-        return []
-    return [str(role).strip() for role in raw if str(role or "").strip()]
 # Task-scoped roster identity (no slot recycling): a worker roster id owns at
 # most one task for its whole lifetime. `per_task` is the only policy today; the
 # field is durable and versioned so a future multi-task policy can relax the
@@ -672,7 +660,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_SWEEP_KEYS + RUN_PHASE_RUNTIME_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
         if key in state:
             run[key] = state[key]
     if configured_roles is not None:
@@ -922,7 +910,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     # one stays absent (its roster boundary then no-ops).
     if isinstance(run.get("configuredRoles"), list):
         state["configuredRoles"] = run["configuredRoles"]
-    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_SWEEP_KEYS + RUN_PHASE_RUNTIME_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_ROSTER_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_PHASE_RUNTIME_KEYS:
         if key in run:
             state[key] = run[key]
     return state
@@ -1346,9 +1334,6 @@ def build_projection(
             # wizard's "Agents review their own work" toggle writes it; the board
             # and architect prompt read it. Absent = the engine default.
             **{key: run[key] for key in RUN_PHASE_KEYS if key in run},
-            # Operator-mandated sweep roles. The wizard's "Final sweeps" panel writes
-            # them; the architect's planning directive treats them as mandatory.
-            **{key: run[key] for key in RUN_SWEEP_KEYS if key in run},
             # MC-1543: per-phase runtime bindings. The supervisor spawns the bound
             # session, so the projection must carry them.
             **{key: run[key] for key in RUN_PHASE_RUNTIME_KEYS if key in run},

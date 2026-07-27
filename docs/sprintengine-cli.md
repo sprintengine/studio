@@ -107,22 +107,17 @@ registry folders, user registry folders, and bundled
 `resources/sprintengine/{roles,skills}/`.
 
 A role manifest (`sprintengine_core/role_registry.py`) is `id`, `label`,
-`aliases`, optional `summary`/`icon`, a required `directives` object, and an
-optional `sweep` block:
+`aliases`, optional `summary`/`icon`, and a required `directives` object:
 
 - `directives.implement` — the ordered `{ "skill": "<id>" }` entries composed
   into the role's startup brief. Required and non-empty.
 - `directives.<phase>` — optional role-specific additions appended to that
   phase's shared base pack. The only shipped phase key is `review`; any other
   key rejects the manifest.
-- `sweep` — `null`, or `{ "focus": "...", "when": "..." }` on a sweep role: a
-  full implementer that audits a body of work and fixes what it finds.
-  `RegistryDiscovery.sweep_roles()` enumerates every registry-visible sweep
-  role, bundled or custom.
 - The removed keys `soul` and `capabilities` are rejected by name
   (`REMOVED_MANIFEST_KEYS`): a manifest carrying either is skipped with a
-  `v1_role_manifest` warning that names its replacement (`directives` /
-  `sweep`). There is no compatibility shim.
+  `v1_role_manifest` warning that names its `directives` replacement. There is
+  no compatibility shim.
 
 Sprint Engine routing is driven by run state: the run's `configuredRoles` (the
 roles a task may be tagged with), the per-role `roleRuntimes` binding, and each
@@ -297,25 +292,22 @@ sprintengine plan add-task --title "Update the changelog" --role developer --pha
 sprintengine plan update-task --task-id T4 --phases review
 ```
 
-## Sweeps
+## Review tasks
 
-A sweep role is a full implementer that audits a body of work and fixes what it
-finds, planned by the architect as an ordinary task (typically `dependsOn` the
-implementation it audits). It declares a `sweep` block in its manifest and has
-the same tool surface as any worker: it claims its task, patches what it finds,
-publishes, and — because it produced a diff — walks `review` on its own fixes. A
-clean sweep produces no diff and publishes straight to `done`.
+Cross-cutting quality (QA, security, performance, product, UX, production
+readiness) is planned by the architect as ordinary tasks in a reviewer role's
+lane, typically `dependsOn` the implementation they audit. Nothing in a manifest
+marks a role as a reviewer — the architect reads the role's natural-language
+`summary` and decides what to task it with.
 
-The operator can mandate sweeps regardless of the architect's risk assessment:
+A reviewer has the same tool surface as any worker: it claims its task, patches
+what it finds, publishes, and — because it produced a diff — walks `review` on
+its own fixes. A review that found nothing produces no diff and publishes
+straight to `done`.
 
-```bash
-sprintengine init --name my-team --required-sweeps-json '["tester", "security"]'
-```
-
-Each id must name a registry sweep role (a worker role or a typo fails at init,
-listing the known sweeps). `requiredSweeps` is written once at init,
-round-tripped through `run.yaml`/projection, and omitted when none are mandated.
-Like the other init keys it is CLI-init-only and not MCP-mutable.
+There is no run-level mandate for reviewer coverage: the `requiredSweeps` run
+key and `--required-sweeps-json` were removed in MC-1825. The engine ignores the
+key an older `run.yaml` still carries.
 
 ## Integration review (`--kind integration_review`)
 
@@ -493,7 +485,7 @@ task in one step (`publish_task`, `sprintengine_core/tool/tasks.py`):
    answer cannot be determined at all (no git repository), the answer is `True`
    — routing to review is the failure-safe direction.
 2. **Routing.** No diff → every phase is skipped and the task lands on `done`
-   (the clean-sweep / analysis-only exit). A diff → the task advances to
+   (the analysis-only exit). A diff → the task advances to
    `phases[0]`, or to `done` when the task has no phases.
 
 The owner **keeps** the task across that transition. When the task enters a

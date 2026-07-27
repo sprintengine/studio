@@ -670,7 +670,7 @@ def test_old_task_without_difficulty_still_loads_and_dispatches(tmp_path) -> Non
 
 
 def test_task_publish_with_no_changes_completes_the_task(tmp_path) -> None:
-    # The clean-sweep / analysis-only exit — now EXPLICIT (MC-1753): change
+    # The analysis-only exit — now EXPLICIT (MC-1753): change
     # detection finds no diff, and completion requires --no-changes-ok. Without
     # it the publish is rejected (a silent no-op completion is how work stranded
     # in the wrong tree once passed unnoticed); with it, every phase is skipped,

@@ -178,49 +178,6 @@ def phase_needs_own_session(state: Dict[str, Any], task: Dict[str, Any], phase: 
     return (bound_cli, bound_model) != (task_cli, task_model)
 
 
-def apply_required_sweeps(state: Dict[str, Any], raw_json: Optional[str]) -> None:
-    """Persist the operator's mandated sweep roles at init (CLI-init-only).
-
-    `raw_json` is a JSON array of sweep role ids the operator ticked in the wizard's
-    "Final sweeps" panel. Sweep inclusion is normally the architect's risk-tiered
-    call; a mandated sweep is not negotiable — the planning directive must plan one
-    task per required role, and the run cannot complete until it has. Every id is
-    checked against the role registry's sweep roles, so a typo (or a worker role)
-    fails at init rather than silently never being planned. Blank/absent input, and
-    an explicit empty array, leave the key off entirely.
-    """
-    if not raw_json or not str(raw_json).strip():
-        return
-    try:
-        parsed = json.loads(raw_json)
-    except (TypeError, ValueError) as error:
-        raise SystemExit(f"--required-sweeps-json must be a JSON array: {error}")
-    if not isinstance(parsed, list):
-        raise SystemExit("--required-sweeps-json must be a JSON array of sweep role ids.")
-    roles: List[str] = []
-    for raw_role in parsed:
-        role = require_configured_role(str(raw_role or "").strip(), context="--required-sweeps-json")
-        if role not in roles:
-            roles.append(role)
-    if not roles:
-        return
-    from sprintengine_core.role_registry import discover_role_registry
-
-    sweep_ids = {manifest.id for manifest in discover_role_registry().sweep_roles()}
-    not_sweeps = [role for role in roles if role not in sweep_ids]
-    if not_sweeps:
-        raise SystemExit(
-            f"--required-sweeps-json names non-sweep role(s): {', '.join(not_sweeps)}. "
-            f"Sweep roles declare a `sweep` block in their manifest. Known sweeps: {', '.join(sorted(sweep_ids))}."
-        )
-    state["requiredSweeps"] = roles
-
-
-def run_required_sweeps(state: Dict[str, Any]) -> List[str]:
-    """Sweep roles the operator mandated for this run."""
-    return folder_store.run_required_sweeps(state)
-
-
 def apply_roster_source(state: Dict[str, Any], value: Optional[str]) -> None:
     """Persist the run's roster-source mode at init (CLI-init-only).
 

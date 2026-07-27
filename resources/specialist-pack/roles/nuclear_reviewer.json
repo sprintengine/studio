@@ -15,9 +15,5 @@
         "skill": "nuclear_reviewer"
       }
     ]
-  },
-  "sweep": {
-    "focus": "structural maintainability, abstraction quality, large-file risk, and special-case sprawl",
-    "when": "the run adds substantial new code, refactors shared paths, or grows already-large files"
   }
 }

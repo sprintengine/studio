@@ -9,14 +9,13 @@ callers without gate context keep the runtime self-gating behavior.
 from __future__ import annotations
 
 from helpers import create_team, read_state, task, write_state
-from sprintengine_core.role_registry import discover_role_registry
 from sprintengine_core.skill_layers import (
     SPRINTENGINE_NORM_SKILLS,
     SPRINTENGINE_SOUL_EXTRA_SKILLS,
     knowledge_root_is_configured,
     multicode_layer_skills_for_run,
     run_is_backlog_sourced,
-    sprintengine_extra_skills_for_role,
+    sprintengine_soul_extra_skills,
 )
 from sprintengine_mcp.http_server import HttpMcpRunRegistry
 from sprintengine_mcp.server import ActorContext
@@ -31,20 +30,12 @@ def test_multicode_layer_skills_gate_independently() -> None:
 
 def test_extra_skills_default_to_the_full_layer() -> None:
     # Fail-open contract: no gate context means the historical full list.
-    discovery = discover_role_registry()
-    assert sprintengine_extra_skills_for_role(discovery, "developer") == SPRINTENGINE_SOUL_EXTRA_SKILLS
+    assert sprintengine_soul_extra_skills() == SPRINTENGINE_SOUL_EXTRA_SKILLS
 
 
 def test_extra_skills_gate_the_product_layer_but_never_the_norms() -> None:
-    discovery = discover_role_registry()
-    gated = sprintengine_extra_skills_for_role(
-        discovery, "developer", backlog_sourced=False, knowledge_root_configured=False
-    )
+    gated = sprintengine_soul_extra_skills(backlog_sourced=False, knowledge_root_configured=False)
     assert gated == SPRINTENGINE_NORM_SKILLS
-    sweep_gated = sprintengine_extra_skills_for_role(
-        discovery, "tester", backlog_sourced=False, knowledge_root_configured=False
-    )
-    assert sweep_gated == ("sprintengine_sweep_workflow", *SPRINTENGINE_NORM_SKILLS)
 
 
 def test_run_is_backlog_sourced_reads_source_and_bundle() -> None:

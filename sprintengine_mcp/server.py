@@ -40,7 +40,7 @@ from sprintengine_core.tool.plans import plan_path_for_state
 from sprintengine_core.skill_layers import (
     knowledge_root_is_configured,
     run_is_backlog_sourced,
-    sprintengine_extra_skills_for_role,
+    sprintengine_soul_extra_skills,
 )
 from sprintengine_core.tool.prompts import (
     compose_prompt,
@@ -1192,9 +1192,7 @@ def _compose_registry_prompt(
                 role,
                 workspace_root=workspace_root,
                 run_id=run_id,
-                extra_skills=sprintengine_extra_skills_for_role(
-                    registry,
-                    role,
+                extra_skills=sprintengine_soul_extra_skills(
                     backlog_sourced=backlog_sourced,
                     knowledge_root_configured=knowledge_root_configured,
                 ),
@@ -1237,10 +1235,9 @@ def _general_role_manifest_payload() -> dict[str, Any]:
         "summary": "Soulless General agent that plans, builds, reviews, and tests a sprint by itself.",
         "icon": None,
         # `general` composes its brief from SPRINTENGINE_GENERAL_SKILLS, not a
-        # manifest, so it carries no directive packs and is not a sweep role. The
-        # keys are still present so the payload shape matches a real v2 manifest.
+        # manifest, so it carries no directive packs. The key is still present so
+        # the payload shape matches a real v2 manifest.
         "directives": {},
-        "sweep": None,
         "source": _source_payload("builtin"),
     }
 

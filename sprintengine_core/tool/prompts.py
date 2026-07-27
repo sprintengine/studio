@@ -18,7 +18,7 @@ from sprintengine_core.skill_layers import (
     SPRINTENGINE_NORM_SKILLS,
     knowledge_root_is_configured,
     multicode_layer_skills_for_run,
-    sprintengine_extra_skills_for_role,
+    sprintengine_soul_extra_skills,
 )
 
 
@@ -33,11 +33,11 @@ def load_soul_prompt(
     knowledge_root_configured: Optional[bool] = None,
 ) -> Optional[str]:
     # Role manifests carry only the portable role identity. A Sprint Engine dispatch
-    # layers the Multicode product skills (gated per run), the Sprint Engine quality
-    # norms, and (for a sweep role) the fix-forward mandate on top, so the rendered
-    # brief carries the full quality bar without any of it being baked into the
-    # manifest. `knowledge_root_configured=None` resolves from this process's env —
-    # correct for CLI/stdio composition, overridden by the HTTP run context.
+    # layers the Multicode product skills (gated per run) and the Sprint Engine
+    # quality norms on top, so the rendered brief carries the full quality bar
+    # without any of it being baked into the manifest.
+    # `knowledge_root_configured=None` resolves from this process's env — correct
+    # for CLI/stdio composition, overridden by the HTTP run context.
     if knowledge_root_configured is None:
         knowledge_root_configured = knowledge_root_is_configured()
     if normalize_role_id(role) == "general":
@@ -55,9 +55,7 @@ def load_soul_prompt(
             .render_soul(
                 role,
                 workspace_root=REPO_ROOT,
-                extra_skills=sprintengine_extra_skills_for_role(
-                    discovery,
-                    role,
+                extra_skills=sprintengine_soul_extra_skills(
                     backlog_sourced=backlog_sourced,
                     knowledge_root_configured=knowledge_root_configured,
                 ),

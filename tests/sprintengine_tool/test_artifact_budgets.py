@@ -121,7 +121,9 @@ PROMPT_BYTE_CEILINGS = {
     # claim/publish/advance, scope-expansion, and self-feedback mechanics live in
     # `sprintengine_workflow`. architect.md is the outlier by content, not by slack —
     # it carries the mandatory architect-picks-the-team roster-composition guidance.
-    "architect.md": 18_750,
+    # Re-ratcheted DOWN 2026-07-26 (MC-1825): the Sweeps doctrine section was deleted
+    # with the sweep concept.
+    "architect.md": 16_000,
     "cross_platform.md": 1_500,
     "developer.md": 750,
     "frontend.md": 1_750,

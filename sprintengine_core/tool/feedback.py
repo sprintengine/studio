@@ -294,7 +294,7 @@ def elapsed_ms(task: Dict[str, Any]) -> Optional[int]:
     """Task duration, truthful for in-flight captures too (MC-1755).
 
     A completed task measures start -> completion. A record captured MID-task
-    (a self-report before publish, a mid-flight sweep) used to return None and
+    (a self-report before publish, a mid-flight audit) used to return None and
     drop the field; it now measures start -> now, so no row divides by a
     missing duration.
     """
@@ -333,7 +333,7 @@ def observed_task_metrics(task: Dict[str, Any]) -> Dict[str, Any]:
     return observed
 
 def feedback_review_target(args: argparse.Namespace, state: Dict[str, Any], default_task: Dict[str, Any]) -> Dict[str, Any]:
-    # This runs on every feedback path. A sweep that assesses ANOTHER task passes
+    # This runs on every feedback path. A reviewer that assesses ANOTHER task passes
     # --review-target-task-id and becomes a reviewer assessment; the audited
     # task's implementer is resolved from its record (single-owner invariant), so
     # --review-target-agent-id / --review-target-execution-id are optional
@@ -384,7 +384,7 @@ def build_feedback_payload(
     now = now_iso()
     # A phase advance is the OWNER reporting on its own work (MC-1542 decision 1),
     # so it is a self-report, not a reviewer assessment — there is no separate
-    # reviewer to attribute it to. A sweep assessing another task still passes the
+    # reviewer to attribute it to. A reviewer assessing another task still passes the
     # --review-target-* trio and lands on the reviewer-assessment branch below.
     # Target resolution can fail (unknown target task, no recorded implementer):
     # in best-effort mode that is telemetry, not an operational error, so degrade

@@ -12,9 +12,5 @@
         "skill": "tester"
       }
     ]
-  },
-  "sweep": {
-    "focus": "real-path validation of the finished work, regression coverage, and reproducible verification",
-    "when": "integrated behavior is worth exercising end to end \u2014 one whole-flow task at the end, or one per milestone"
   }
 }

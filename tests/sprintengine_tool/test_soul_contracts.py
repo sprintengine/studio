@@ -56,7 +56,7 @@ SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     "cross_platform": ("principal cross-platform compatibility engineer",),
     # code_reviewer retired in MC-1542; its scar-tissue rules live in
     # PHASE_REVIEW_ANCHORS below. nuclear_reviewer / spec_reviewer were retired
-    # with it, then restored 2026-07 as final-sweep roles (stricter lenses on
+    # with it, then restored 2026-07 as final review roles (stricter lenses on
     # top of the folded base pack, which keeps its anchors regardless).
     "nuclear_reviewer": ("principal-level structural maintainability reviewer",),
     "spec_reviewer": ("principal-level specification-conformance reviewer",),

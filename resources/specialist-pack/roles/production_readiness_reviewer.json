@@ -16,9 +16,5 @@
         "skill": "production_readiness_reviewer"
       }
     ]
-  },
-  "sweep": {
-    "focus": "real integrations, deployment configuration, data safety, observability, rollback, scalability, and user setup",
-    "when": "the run changes deployment, data migration, external integrations, or anything on the release path"
   }
 }

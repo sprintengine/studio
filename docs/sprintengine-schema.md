@@ -67,10 +67,6 @@ commands.
   and the ceiling a per-task `phases` list must be a subset of. Written once at
   init from `--default-phases-json`; absent means the engine default
   (`["review"]`). `[]` is valid and recorded.
-- `requiredSweeps`: sweep role ids the operator mandated for this run. Written
-  once at init from `--required-sweeps-json`; every id is validated against the
-  registry's sweep roles, and the key is omitted entirely when none are
-  mandated (`RUN_SWEEP_KEYS`, `store.run_required_sweeps`).
 - `tasks`: compact task graph entries with `id`, `status`, `role`, and
   `dependsOn`. Each graph entry also carries `needsTriage`, defaulting to
   `false` when absent.
@@ -118,9 +114,10 @@ is additionally surfaced on the `sprintengine.agent.join`/`sprintengine.run.get`
 `run` metadata so a joined architect can self-check whether it must compose the
 team via `sprintengine.roster.configure`.
 
-`defaultPhases` (`RUN_PHASE_KEYS`) and `requiredSweeps` (`RUN_SWEEP_KEYS`)
-round-trip through `run.yaml` and re-emit on `projection.run` the same way,
-omitted when absent.
+`defaultPhases` (`RUN_PHASE_KEYS`) round-trips through `run.yaml` and re-emits on
+`projection.run` the same way, omitted when absent. The retired `requiredSweeps`
+key (removed with the sweep concept, MC-1825) does neither: an older `run.yaml`
+may still carry it, and the engine ignores it.
 
 ### Store Version Rejection
 
@@ -167,8 +164,7 @@ A role is routing plus directive packs. The manifest schema is:
   "directives": {
     "implement": [{ "skill": "frontend" }],
     "review": [{ "skill": "frontend_review" }]
-  },
-  "sweep": null
+  }
 }
 ```
 
@@ -180,11 +176,6 @@ A role is routing plus directive packs. The manifest schema is:
   vocabulary is `review` only (`DIRECTIVE_PHASES`); an unknown key rejects the
   manifest, so a typo never silently drops a directive pack.
   `directives.review` entries are appended after the shared base review pack.
-- `sweep` is `null` or an object with exactly `{"focus", "when"}` non-empty
-  strings. A sweep role is a full implementer that audits work and fixes what it
-  finds; it has the same tool surface as any worker.
-  `RegistryDiscovery.sweep_roles()` enumerates every registry-visible sweep role,
-  bundled or custom, id-sorted.
 - `summary` and `icon` are optional strings.
 - The removed keys `soul` and `capabilities` are rejected **by name**
   (`REMOVED_MANIFEST_KEYS`). A manifest carrying either is skipped with a
@@ -499,8 +490,8 @@ plugin roles participate. There are four classifications:
 - `owner` — every other resolvable role, and the conservative fallback for a role
   the registry cannot resolve. `AGENT_COMMON_TOOLS` only.
 
-A sweep role is an `owner` like any other worker: same tools, same lifecycle. It
-claims its own task, fixes what it finds, and closes its phases with
+A reviewer role is an `owner` like any other worker: same tools, same lifecycle.
+It claims its own task, fixes what it finds, and closes its phases with
 `task.advance`. `task.publish` and `task.advance` are the whole lifecycle surface
 in `AGENT_COMMON_TOOLS`; there is no separate reviewer tool set.
 `artifact.request_changes` is a planner/operator tool (`PLANNING_TOOLS`): the
@@ -633,9 +624,9 @@ are unknown.
 
 Task dispatch routes by exact canonical `task.role`. When the run records a
 `configuredRoles` set, `plan.add_task` requires the task's role to be in it. The
-core does not infer routing from role metadata: a `sweep` block describes what a
-role audits and when a run needs it (read by the architect's planning directive),
-never who may claim what.
+core does not infer routing from role metadata at all: a manifest carries no
+capability or review flags, so the architect reads the role's natural-language
+`summary` when deciding what to task it with.
 
 Plan reviews use registry-backed non-architect role ids from the active roster
 instead of a static reviewer-role list. Built-in roles can still have
@@ -772,7 +763,7 @@ record by `source`:
   self-report; the record carries `phase` and `phase_outcome`, and the task-local
   payload carries a `phase: {phase, outcome}` object.
 - `reviewer_assessment` — an agent assessing a different task (the
-  `--review-target-*` trio), as a sweep does.
+  `--review-target-*` trio), as a planned review task does.
 - `agent_self_report` — everything else.
 
 Findings and issues on the phase-advance path are validated best-effort
@@ -800,7 +791,7 @@ the per-role aggregates (`aggregateScoresByRole`, `aggregateCountsByRole`,
   `agent_self_report` score dimensions.
 - `measured`: `{ reviewSampleCount, scores, counts, hallucinationRatePct?,
   findingsAgainst?, taskCounts? }` — derived from records carrying a
-  `review_target_agent_id` (a sweep or other cross-task assessment) and attributed
+  `review_target_agent_id` (a cross-task assessment) and attributed
   to the implementer, never the assessor. `counts` uses camelCase keys
   (`regressionCount`, `missedRequirements`, …); `hallucinationRatePct` is
   emitted only when `claimsChecked > 0`; `findingsAgainst` only when defects
@@ -810,6 +801,10 @@ the per-role aggregates (`aggregateScoresByRole`, `aggregateCountsByRole`,
   `claimsChecked` is excluded). Finding prose is NOT included here (kept in the
   projection) so the analysis output stays a sanitized aggregate.
 - `findingsRaised`: count of findings the agent authored while reviewing.
+- `peerReview`: `{ tasksAudited, assessmentsRecorded, passed, fixedForward,
+  escalated }` — what the agent found reviewing OTHER agents' tasks, and what it
+  did about it. Emitted only when the agent recorded at least one cross-task
+  assessment. (Named `sweep` before MC-1825; the shape is unchanged.)
 
 The run-summary panel consumes this via the read-only
 `sprintengine:feedback:summarize` IPC and joins it against the roster + local
@@ -1029,7 +1024,7 @@ stale-lock warnings without requiring direct lock-file reads.
 `projection.run` carries `schemaVersion`, `roleRuntimes`, `configuredRoles`, `vcs`,
 `rosterPolicy`, `runner`, and — when present — `source`/`sourceBundle`
 (`RUN_SOURCE_KEYS`), `rosterSource`/`allowedRuntimes` (`RUN_ROSTER_SOURCE_KEYS`),
-`defaultPhases` (`RUN_PHASE_KEYS`), and `requiredSweeps` (`RUN_SWEEP_KEYS`).
+and `defaultPhases` (`RUN_PHASE_KEYS`).
 
 Each projected task includes comment context for UI/mobile consumers:
 

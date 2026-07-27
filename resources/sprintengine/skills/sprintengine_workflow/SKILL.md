@@ -7,7 +7,7 @@ Coordinate through Sprint Engine MCP tools; never edit run-store files directly.
 No other agent reviews your work. Implement, then publish with `sprintengine.task.publish`. The engine detects whether you produced a diff:
 
 - **A diff** — the task enters its review phase and the publish response carries your review directive (`nextDirective`). Follow it: read your own diff adversarially, fix everything you find, commit fixes scoped to the task, then close the phase with `sprintengine.task.advance`.
-- **No diff** — the task lands in `done`; analysis-only tasks and clean sweeps end here.
+- **No diff** — the task lands in `done`; analysis-only tasks and clean reviews end here.
 
 In worktree-mode runs `task.publish` also commits your task-scoped changes in your task's project worktree, under that project's own commit lock.
 

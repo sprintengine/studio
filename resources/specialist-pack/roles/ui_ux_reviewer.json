@@ -15,9 +15,5 @@
         "skill": "ui_ux_reviewer"
       }
     ]
-  },
-  "sweep": {
-    "focus": "UX flow, UI consistency, brand alignment, responsive behavior, accessibility, and visual polish",
-    "when": "the run changes a user-visible screen, component, or interaction"
   }
 }

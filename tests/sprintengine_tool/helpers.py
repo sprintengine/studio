@@ -170,13 +170,12 @@ def write_workspace_role(
     *,
     aliases: list[str] | None = None,
     label: str | None = None,
-    sweep: dict[str, str] | None = None,
     review_skill: str | None = None,
 ) -> None:
     """Write a v2 workspace-layer role manifest plus its implement skill.
 
-    `sweep` marks a fix-forward sweep role; `review_skill` adds a role-scoped
-    `directives.review` pack (the caller writes that skill itself).
+    `review_skill` adds a role-scoped `directives.review` pack (the caller writes
+    that skill itself).
     """
     root = workspace / ".sprintengine"
     roles_dir = root / "roles"
@@ -191,7 +190,6 @@ def write_workspace_role(
         "label": label or role_id.replace("_", " ").title(),
         "aliases": aliases or [],
         "directives": directives,
-        "sweep": sweep,
     }
     (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
     (skill_dir / "SKILL.md").write_text(f"# {role_id}\n\nTemporary test role.", encoding="utf-8")

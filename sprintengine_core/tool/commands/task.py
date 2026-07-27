@@ -640,7 +640,7 @@ def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
         event = append_event(state, "task_evidence_appended", args.id, f"{args.id} logged evidence for {args.task_id}.")
 
         # Repeatable feedback channel (best-effort, like the advance path): a
-        # sweep audits N tasks and records one assessment per audited task via
+        # reviewer audits N tasks and records one assessment per audited task via
         # the --review-target-* trio; without the trio the fields land as the
         # agent's own self-report. No feedback args -> zero-cost no-op.
         feedback_warnings: List[str] = []

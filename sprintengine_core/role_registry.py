@@ -24,10 +24,10 @@ SESSION_REGISTRY_ROOTS_ENV = "MULTICODE_SPRINTENGINE_REGISTRY_ROOTS"
 # specialist pack and user-added roles. MUST stay in sync with
 # defaultUserRoleRegistryRoot() in src/main/sprintengine-role-registry.ts.
 # Discovered NATIVELY by every bare `discover_role_registry()` (role
-# validation, prompt composition, sweep resolution), matching souls.registry:
-# an installed sweep role must resolve identically whether the engine CLI was
-# spawned by the app, an agent terminal, or a bare shell — otherwise
-# `--required-sweeps-json` rejects roles the spawn menu just offered.
+# validation, prompt composition), matching souls.registry: an installed role
+# must resolve identically whether the engine CLI was spawned by the app, an
+# agent terminal, or a bare shell — otherwise the engine rejects roles the spawn
+# menu just offered.
 # The env override exists for hermeticity: tests (and any embedder that must
 # not read the machine's home) point it at a directory they control.
 USER_REGISTRY_ROOT_ENV = "MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT"
@@ -57,8 +57,8 @@ REMOVED_MANIFEST_KEYS: dict[str, str] = {
     ),
     "capabilities": (
         "'capabilities' was removed in the v2 role manifest. Review-only roles no longer exist: "
-        "declare \"sweep\": {\"focus\": \"...\", \"when\": \"...\"} for a sweep role, and put "
-        "role-scoped review content in \"directives\": {\"review\": [{\"skill\": \"<id>\"}]}."
+        "a reviewer is an ordinary implementer, and role-scoped review content goes in "
+        "\"directives\": {\"review\": [{\"skill\": \"<id>\"}]}."
     ),
 }
 
@@ -110,19 +110,6 @@ class DirectiveSkillEntry:
 
 
 @dataclass(frozen=True)
-class RoleSweep:
-    """Sweep metadata: what this role audits, and when a run needs it.
-
-    Present only on sweep roles. The architect's planning directive reads it to
-    decide which fix-forward sweep tasks a run needs. A sweep role is a full
-    implementer — same tool surface as any worker.
-    """
-
-    focus: str
-    when: str
-
-
-@dataclass(frozen=True)
 class RoleManifest:
     id: str
     label: str
@@ -131,7 +118,6 @@ class RoleManifest:
     icon: str | None
     # phase key -> ordered skills. Always carries a non-empty `implement` entry.
     directives: Mapping[str, tuple[DirectiveSkillEntry, ...]]
-    sweep: RoleSweep | None = None
 
     @property
     def normalized_id(self) -> str:
@@ -150,10 +136,6 @@ class RoleManifest:
 
     def all_directive_skills(self) -> tuple[DirectiveSkillEntry, ...]:
         return tuple(entry for key in DIRECTIVE_KEYS for entry in self.directives.get(key, ()))
-
-    @property
-    def is_sweep(self) -> bool:
-        return self.sweep is not None
 
 
 @dataclass(frozen=True)
@@ -212,20 +194,6 @@ class RegistryDiscovery:
             if entry is not None and isinstance(entry.value, SkillDocument):
                 documents.append(entry.value)
         return tuple(documents)
-
-    def sweep_roles(self) -> tuple[RoleManifest, ...]:
-        """Every registry-visible sweep role, bundled and custom, id-sorted.
-
-        The wizard's sweeps panel and the architect's planning directive both
-        enumerate sweeps from here, so a workspace-layer custom sweep role shows
-        up with no engine change.
-        """
-        roles = [
-            entry.value
-            for _, entry in sorted(self.roles.items())
-            if isinstance(entry.value, RoleManifest) and entry.value.is_sweep
-        ]
-        return tuple(roles)
 
     def render_soul(
         self,
@@ -447,7 +415,6 @@ def role_manifest_payload(role: RoleManifest) -> dict[str, Any]:
             for key in DIRECTIVE_KEYS
             if key in role.directives
         },
-        "sweep": {"focus": role.sweep.focus, "when": role.sweep.when} if role.sweep else None,
     }
 
 
@@ -497,9 +464,9 @@ def discover_role_registry(
 ) -> RegistryDiscovery:
     # Omitting plugin_roots reads the app-injected session roots from the
     # environment AND the canonical user-install root, so every bare direct-core
-    # discovery (CLI role validation, prompt composition, sweep resolution)
-    # resolves an installed specialist pack — same order as souls.registry and
-    # the app's spawn-menu discovery: session roots first, install root last.
+    # discovery (CLI role validation, prompt composition) resolves an installed
+    # specialist pack — same order as souls.registry and the app's spawn-menu
+    # discovery: session roots first, install root last.
     # Callers that pass plugin_roots explicitly (the MCP server from its payload,
     # the registry-inspection CLI from --extra-dir) opt out of both and stay
     # hermetic.
@@ -609,11 +576,6 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         )
         return None
 
-    sweep, sweep_error = _parse_role_sweep(raw.get("sweep"))
-    if sweep_error is not None:
-        warnings.append(_role_warning("invalid_role_manifest", sweep_error, path, layer, role_id))
-        return None
-
     summary = raw.get("summary")
     icon = raw.get("icon")
     if summary is not None and not isinstance(summary, str):
@@ -630,7 +592,6 @@ def _load_role_manifest(path: Path, layer: SourceLayer, warnings: list[RegistryW
         summary=summary.strip() if isinstance(summary, str) and summary.strip() else None,
         icon=icon.strip() if isinstance(icon, str) and icon.strip() else None,
         directives=directives,
-        sweep=sweep,
     )
 
 
@@ -670,19 +631,6 @@ def _parse_role_directives(raw: Any) -> dict[str, tuple[DirectiveSkillEntry, ...
     if IMPLEMENT_DIRECTIVE not in parsed:
         return None
     return parsed
-
-
-def _parse_role_sweep(raw: Any) -> tuple[RoleSweep | None, str | None]:
-    """Parse the optional `sweep` block. Returns `(sweep, error_message)`."""
-    if raw is None:
-        return None, None
-    if not isinstance(raw, dict) or set(raw) != {"focus", "when"}:
-        return None, "Role sweep must be null or an object with exactly {\"focus\", \"when\"} string fields."
-    focus = raw.get("focus")
-    when = raw.get("when")
-    if not isinstance(focus, str) or not focus.strip() or not isinstance(when, str) or not when.strip():
-        return None, "Role sweep 'focus' and 'when' must be non-empty strings."
-    return RoleSweep(focus=focus.strip(), when=when.strip()), None
 
 
 def _load_skill_document(

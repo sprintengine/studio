@@ -158,7 +158,7 @@ def _publish(fixture, *, produced: bool, phases=None):
 
 
 def test_publish_with_no_changes_routes_straight_to_done(tmp_path: Path) -> None:
-    """The clean-sweep / analysis-only exit."""
+    """The analysis-only exit."""
     fixture = rostered_team(tmp_path, "pub-clean", [owned_task()])
     result = _publish(fixture, produced=False)["result"]
 

@@ -51,9 +51,7 @@ from sprintengine_core.tool.state import (
     apply_role_runtimes,
     apply_default_phases,
     apply_phase_runtimes,
-    apply_required_sweeps,
     apply_roster_source,
-    run_required_sweeps,
     configured_role_set,
     declared_repo_ids,
     end_lease,
@@ -347,10 +345,6 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         # The run's phase list, from the wizard's "Agents review their own work"
         # toggle. Default AND ceiling for every task (assert_phases_within_run_ceiling).
         apply_default_phases(state, getattr(args, "default_phases_json", None))
-        # Operator-mandated sweeps ("QA tests the finished work"). The architect's
-        # planning directive treats these as non-negotiable, and the run cannot
-        # complete until each has a planned task.
-        apply_required_sweeps(state, getattr(args, "required_sweeps_json", None))
         # MC-1543 premium mode. Validated against allowedRuntimes, so this must run
         # after apply_allowed_runtimes.
         apply_phase_runtimes(state, getattr(args, "phase_runtimes_json", None))
@@ -1341,24 +1335,6 @@ def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, write_result)
 
 
-def missing_required_sweeps(state: Dict[str, Any]) -> List[str]:
-    """Mandated sweep roles with no planned task. Empty when the plan honours them.
-
-    The operator's mandate is enforced here rather than by a new gate mechanism: a
-    run whose architect never planned the QA sweep it was told to plan is not done.
-    A canceled task does not satisfy the mandate.
-    """
-    required = run_required_sweeps(state)
-    if not required:
-        return []
-    planned = {
-        str(task.get("role") or "")
-        for task in state.get("tasks", []) or []
-        if isinstance(task, dict) and str(task.get("status") or "") != "canceled"
-    }
-    return [role for role in required if role not in planned]
-
-
 def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict[str, Any]) -> Dict[str, Any]:
     """Commit leftover task-scoped changes at completion and report run state.
 
@@ -1371,18 +1347,6 @@ def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict
     """
     from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
     from sprintengine_core.tool.shell import commit_task_changes_if_needed, run_orphaned_dirty_paths
-
-    missing_sweeps = missing_required_sweeps(state)
-    if missing_sweeps:
-        return {
-            "blocked": True,
-            "missingRequiredSweeps": missing_sweeps,
-            "message": (
-                "All tasks are done, but this run mandates sweep(s) the plan never included: "
-                f"{', '.join(missing_sweeps)}. The architect must plan one task per required sweep role, "
-                "depending on the work it audits, before the run can complete."
-            ),
-        }
 
     vcs = get_run_vcs(state)
     if not vcs:

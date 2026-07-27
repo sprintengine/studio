@@ -331,8 +331,8 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
                     findings_raised[agent_id] += len(record["findings"])
             continue
 
-        # A SWEEP assessing another task still passes the --review-target-* trio →
-        # measured, attributed to the implementer of the audited task.
+        # A reviewer assessing another task still passes the --review-target-* trio
+        # → measured, attributed to the implementer of the audited task.
         target = str(record.get("review_target_agent_id") or "").strip()
         if target:
             roles.setdefault(target, role)  # role is the implementer (target task) role
@@ -366,9 +366,9 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
             outcome = str(record.get("phase_outcome") or "").strip()
             if not outcome:
                 # A task.log assessment carries no phase outcome; classify it
-                # from content. Fix-forward is the sweep mandate, so an audit
-                # that surfaced defects reads as fixed-forward, a defect-free
-                # one as a clean pass (escalations arrive via task.advance).
+                # from content. A reviewer fixes forward, so an audit that
+                # surfaced defects reads as fixed-forward, a defect-free one as
+                # a clean pass (escalations arrive via task.advance).
                 raw_counts = record.get("counts")
                 defect_count = (
                     sum(
@@ -450,11 +450,11 @@ def _aggregate_by_agent(records: list[dict[str, Any]]) -> dict[str, Any]:
             "measured": measured,
             "findingsRaised": findings_raised.get(agent_id, 0),
         }
-        # Sweep table: an agent that audited OTHER tasks (a fix-forward sweep) and
-        # what it did about what it found.
+        # Peer-review table: an agent that audited OTHER agents' tasks and what it
+        # did about what it found.
         if reviews_performed.get(agent_id, 0) > 0:
             outcomes = review_verdicts.get(agent_id, {})
-            row["sweep"] = {
+            row["peerReview"] = {
                 "tasksAudited": len(tasks_reviewed.get(agent_id, set())),
                 "assessmentsRecorded": reviews_performed[agent_id],
                 "passed": outcomes.get("pass", 0),

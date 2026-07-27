@@ -200,17 +200,17 @@ def test_done_status_records_reviewer_target_feedback_on_reviewed_task(tmp_path)
     assert "hallucination_pct" not in record
 
 
-def test_task_log_records_repeatable_sweep_assessments(tmp_path) -> None:
-    """A no-phase sweep never calls task.advance, so task.log is its telemetry
+def test_task_log_records_repeatable_review_assessments(tmp_path) -> None:
+    """A no-phase review task never calls task.advance, so task.log is its telemetry
     channel: one reviewer assessment per audited task via the review-target trio,
-    repeatable within the one sweep task."""
+    repeatable within the one review task."""
     fixture = create_team(
         tmp_path,
-        "sweep-log-feedback",
+        "review-log-feedback",
         [
             task("T1", "Implement feature", "developer", "done", owner="developer-fixture"),
             task("T2", "Implement surface", "frontend", "done", owner="frontend-fixture"),
-            task("T3", "QA sweep", "tester", "in_progress", owner="tester-fixture"),
+            task("T3", "QA review", "tester", "in_progress", owner="tester-fixture"),
         ],
     )
 
@@ -280,13 +280,13 @@ def test_task_log_records_repeatable_sweep_assessments(tmp_path) -> None:
     assert dev["measured"]["reviewSampleCount"] == 1
     assert dev["measured"]["counts"]["missedRequirements"] == 1
     assert dev["measured"]["findingsAgainst"]["total"] == 1
-    sweep_row = by_agent["tester-fixture"]["sweep"]
-    assert sweep_row["tasksAudited"] == 2
-    assert sweep_row["assessmentsRecorded"] == 2
+    peer_row = by_agent["tester-fixture"]["peerReview"]
+    assert peer_row["tasksAudited"] == 2
+    assert peer_row["assessmentsRecorded"] == 2
     # No phase outcome on a task.log assessment: classified from content —
     # defects found reads as fixed-forward, a defect-free audit as clean.
-    assert sweep_row["fixedForward"] == 1
-    assert sweep_row["passed"] == 1
+    assert peer_row["fixedForward"] == 1
+    assert peer_row["passed"] == 1
 
 
 def test_task_log_feedback_target_failure_degrades_and_keeps_the_evidence(tmp_path) -> None:
@@ -296,7 +296,7 @@ def test_task_log_feedback_target_failure_degrades_and_keeps_the_evidence(tmp_pa
     fixture = create_team(
         tmp_path,
         "log-target-degrade",
-        [task("T3", "QA sweep", "tester", "in_progress", owner="tester-fixture")],
+        [task("T3", "QA review", "tester", "in_progress", owner="tester-fixture")],
     )
 
     payload = fixture.cli.run(

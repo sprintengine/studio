@@ -21,7 +21,6 @@ def write_role(
     aliases: list[str] | None = None,
     implement: list[dict] | None = None,
     review: list[dict] | None = None,
-    sweep: dict | None = None,
     raw: dict | None = None,
 ) -> None:
     """Write a v2 role manifest. `raw` overrides the whole payload for reject tests."""
@@ -36,8 +35,6 @@ def write_role(
         "aliases": aliases or [],
         "directives": directives,
     }
-    if sweep is not None:
-        payload["sweep"] = sweep
     if raw is not None:
         payload = {**payload, **raw}
     (roles_dir / f"{role_id}.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -204,43 +201,6 @@ def _discover(tmp_path: Path, workspace: Path):
     ).discover()
 
 
-def test_sweep_metadata_is_optional_and_exposed(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    root = workspace / ".sprintengine"
-    write_role(
-        root,
-        "creative_director",
-        sweep={"focus": "brand consistency and campaign readiness", "when": "the run touches marketing surfaces"},
-    )
-    write_skill(root, "creative_director")
-    write_role(root, "plain_worker")
-    write_skill(root, "plain_worker")
-
-    discovery = _discover(tmp_path, workspace)
-    role = discovery.get_role("creative_director")
-
-    assert role.is_sweep
-    assert role.sweep is not None
-    assert role.sweep.focus == "brand consistency and campaign readiness"
-    assert role.sweep.when == "the run touches marketing surfaces"
-    assert not discovery.get_role("plain_worker").is_sweep
-    # sweep_roles() is what the wizard's sweeps panel and the architect's planning
-    # directive enumerate, so a custom workspace-layer sweep appears with no engine change.
-    assert [role.id for role in discovery.sweep_roles()] == ["creative_director"]
-
-
-def test_null_sweep_is_a_worker_role(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    root = workspace / ".sprintengine"
-    write_role(root, "builder", raw={"sweep": None})
-    write_skill(root, "builder")
-
-    discovery = _discover(tmp_path, workspace)
-
-    assert discovery.get_role("builder").sweep is None
-    assert discovery.sweep_roles() == ()
-
-
 def test_v1_soul_key_is_rejected_by_name(tmp_path: Path) -> None:
     """Decision 8: no v1 shim. A stale pack fails loudly, naming its v2 replacement."""
     workspace = tmp_path / "workspace"
@@ -272,7 +232,7 @@ def test_v1_capabilities_key_is_rejected_by_name(tmp_path: Path) -> None:
     rejections = [warning for warning in discovery.warnings if warning.code == "v1_role_manifest"]
     assert len(rejections) == 1
     assert "'capabilities' was removed" in rejections[0].message
-    assert '"sweep"' in rejections[0].message
+    assert '"directives"' in rejections[0].message
 
 
 def test_unknown_directive_phase_rejects_manifest(tmp_path: Path) -> None:
@@ -298,18 +258,6 @@ def test_directives_without_implement_reject_manifest(tmp_path: Path) -> None:
 
     assert "review_only" not in discovery.roles
     assert any(warning.code == "invalid_role_manifest" for warning in discovery.warnings)
-
-
-def test_malformed_sweep_rejects_manifest(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    root = workspace / ".sprintengine"
-    write_role(root, "half_sweep", sweep={"focus": "things"})
-    write_skill(root, "half_sweep")
-
-    discovery = _discover(tmp_path, workspace)
-
-    assert "half_sweep" not in discovery.roles
-    assert any("focus" in warning.message and "when" in warning.message for warning in discovery.warnings)
 
 
 def test_review_directives_are_exposed_per_phase_and_not_in_the_startup_brief(tmp_path: Path) -> None:
@@ -446,7 +394,7 @@ def test_every_pack_role_manifest_has_expected_shared_skill_boundary() -> None:
 
     assert not v1_keys, (
         f"These bundled role manifests still carry removed v1 keys: {v1_keys}. "
-        "Migrate them to `directives` + `sweep` (MC-1542)."
+        "Migrate them to `directives` (MC-1542)."
     )
     assert not not_identity_only, (
         "These role manifests do not carry an identity-only implement pack: "
@@ -461,54 +409,28 @@ def test_every_pack_role_manifest_has_expected_shared_skill_boundary() -> None:
     )
 
 
-def test_bundled_sweep_roles_match_the_shipped_disposition() -> None:
-    """MC-1542 shipped disposition: exactly these roles are fix-forward sweeps.
-
-    Pins the routing decision the wizard's sweeps panel and the architect's
-    planning directive both read, so converting or retiring a role is a deliberate
-    edit here rather than a silent manifest drift.
-    """
-    discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
-
-    assert [role.id for role in discovery.sweep_roles()] == [
-        # code_reviewer retired in Stage 4 (MC-1542). nuclear_reviewer /
-        # spec_reviewer retired with it, restored 2026-07 as final-sweep roles.
-        "nuclear_reviewer",
-        "performance",
-        "product",
-        "production_readiness_reviewer",
-        "security",
-        "spec_reviewer",
-        "tester",
-        "ui_ux_reviewer",
-    ]
-    for worker in ("architect", "developer", "frontend", "devops", "cross_platform", "coordinator"):
-        assert not discovery.get_role(worker).is_sweep, f"{worker} must stay a worker role"
-
-
 def test_bare_discovery_searches_the_user_install_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """An installed role resolves through bare discovery with no session env.
 
     The app installs the specialist pack (and user-added roles) under
     ~/.multicode/sprintengine-roles; init-time role validation
-    (--required-sweeps-json, --agent role:id) runs through bare
-    discover_role_registry(), so the install root must be discovered natively —
-    otherwise the engine rejects sweep roles the spawn menu just offered.
+    (--agent role:id) runs through bare discover_role_registry(), so the install
+    root must be discovered natively — otherwise the engine rejects roles the
+    spawn menu just offered.
     """
     install_root = tmp_path / "sprintengine-roles"
-    write_role(install_root, "installed_sweeper", sweep={"focus": "installed", "when": "always"})
-    write_skill(install_root, "installed_sweeper")
+    write_role(install_root, "installed_auditor")
+    write_skill(install_root, "installed_auditor")
     monkeypatch.delenv("MULTICODE_SPRINTENGINE_REGISTRY_ROOTS", raising=False)
     monkeypatch.setenv("MULTICODE_SPRINTENGINE_USER_REGISTRY_ROOT", str(install_root))
 
     discovery = discover_role_registry(workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"))
 
-    role = discovery.get_role("installed_sweeper")
-    assert role.is_sweep
+    assert discovery.get_role("installed_auditor").id == "installed_auditor"
     # Session env roots keep precedence over the install root, and explicit
     # plugin_roots callers stay hermetic (no install root).
     hermetic = discover_role_registry(
         workspace_root=Path("/unused/workspace"), user_root=Path("/unused/user"), plugin_roots=[]
     )
     with pytest.raises(KeyError):
-        hermetic.get_role("installed_sweeper")
+        hermetic.get_role("installed_auditor")

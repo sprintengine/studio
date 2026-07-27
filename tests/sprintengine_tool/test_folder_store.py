@@ -266,6 +266,23 @@ def test_planned_tasks_carry_no_quality_gate_state(tmp_path) -> None:
     assert "qualityGateSummary" not in projected
 
 
+def test_legacy_required_sweeps_key_is_inert(tmp_path) -> None:
+    # MC-1825 removed the sweep concept engine-side while ~13 existing run.yamls
+    # still carry `requiredSweeps`. The key must load without error and reach
+    # neither the in-memory state nor the projection, so an old run finishes on
+    # the same rules as a new one.
+    fixture = create_team(tmp_path, "legacy-required-sweeps", [task("T1", "Work", "developer")])
+    run = store.load_run_yaml(fixture.team_dir)
+    run["requiredSweeps"] = ["tester"]
+    store.atomic_write_yaml(fixture.team_dir / store.RUN_FILE, run)
+
+    assert "requiredSweeps" not in read_state(fixture.state_path)
+
+    _rostered(fixture)
+    projection = json.loads((fixture.team_dir / store.PROJECTION_FILE).read_text(encoding="utf-8"))
+    assert "requiredSweeps" not in projection["run"]
+
+
 def test_plan_add_and_update_persist_product_facing_and_produces_implementation(tmp_path) -> None:
     # Both flags survive as plain persisted task metadata. They no longer derive
     # gates; nothing in the engine reads them today.

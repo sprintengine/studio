@@ -22,10 +22,10 @@ because roles are plugin-extensible:
 - ``owner`` — every other resolvable role, and the conservative fallback for
   roles the registry cannot resolve (such a role cannot join anyway).
 
-MC-1542 collapsed the old ``reviewer`` classification into ``owner``. A sweep role
-is a full implementer with the same tool surface as any worker: it claims its own
-task, fixes what it finds, and closes its phases with ``task.advance``. There is
-no longer any tool a reviewer needs and a worker must not have.
+MC-1542 collapsed the old ``reviewer`` classification into ``owner``. A reviewer
+role is a full implementer with the same tool surface as any worker: it claims its
+own task, fixes what it finds, and closes its phases with ``task.advance``. There
+is no longer any tool a reviewer needs and a worker must not have.
 """
 
 from __future__ import annotations
@@ -226,7 +226,7 @@ def _classify_registry_role(
         return "owner"
     if manifest.normalized_id == "architect":
         return "architect"
-    # A sweep role is an owner like any other: same tools, same lifecycle.
+    # A reviewer role is an owner like any other: same tools, same lifecycle.
     return "owner"
 
 

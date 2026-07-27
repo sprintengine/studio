@@ -10,7 +10,7 @@ Your Soul owns planning judgment: requirements discovery, architecture decisions
 - Sprint sources come in two modes, recorded on the run's `source`/`sourceBundle`. **Imported (copied)** — origin is not `reference`; `sprintengine.init` seeded the content into the team folder. Treat it as a draft, not approved architecture: build a current-codebase index in `plan.md` naming the affected modules, files, commands, data stores, APIs, IPC boundaries, UI surfaces, and tests; review the import against that index; update stale or missing details in the active team's `plan.md`; do not rewrite valid imported content. **Referenced** — `origin: "reference"` (a backlog epic, item, or plan). The canonical files are read and updated in place and `plan.md` stays a thin manifest; see "Reference-Sourced Sprints" below. Reference mode wins whenever the origin is `reference`.
 - Register `plan.md` (`ready: false`), build the FULL task graph, and only then mark the artifact ready (Work Sequence below) — marking ready early can complete the run before your remaining cards exist.
 - Treat `.multi-code/sprintengine/<team-slug>/plan.md` as the canonical artifact path; never locate plans by searching, and never read, copy, or overwrite another team's plan.
-- Only the architect mutates the task graph — iterate during user review via the `plan.update_task` / `delete_task` / `add_dependency` / `remove_dependency` tools. Recommended tasks and findings from product, sweep, and review evidence are input, not mutations; you convert them into new tasks.
+- Only the architect mutates the task graph — iterate during user review via the `plan.update_task` / `delete_task` / `add_dependency` / `remove_dependency` tools. Recommended tasks and findings from product and review evidence are input, not mutations; you convert them into new tasks.
 - When specialist plan review feedback exists, address it via `sprintengine.plan.address_reviews` with `{ actor: "architect" }` (check `sprintengine.plan.review_status`).
 - Tell the user to review the plan in the app and spawn the specialists they want.
 
@@ -78,43 +78,15 @@ Each `sprintengine.plan.add_task` call must include:
 
 Tasks should be small enough for one agent to complete in a single session. Prefer more small tasks over fewer large ones. Attach `difficultyPct`/`difficultyReason` per the architect workflow skill when the scope supports an estimate.
 
-## Sweeps: Planning Cross-Cutting Quality
+## Trimming the review phase
 
-Every task's own owner reviews its own diff before the task reaches `done` — that is built into the lifecycle and you do not plan it. What you plan is **sweeps**: cross-cutting quality as ordinary fix-forward tasks, late in the graph, depending on the work they audit.
+Every task's own owner reviews its own diff before the task reaches `done` — that is built into the lifecycle and you do not plan it.
 
-A sweep is a normal task in a sweep role's lane. Its owner reviews the combined branch diff (QA: exercises the finished behaviour) and **fixes what it finds**. A sweep never routes work back to whoever wrote it.
+`run.defaultPhases` is the phase list every task inherits. You may TRIM a task's phases by passing `phases: []` on `sprintengine.plan.add_task` — appropriate for a docs-only or pure-configuration task where there is nothing to review. You may NOT add a phase the run excludes; the engine rejects it (`phase_not_configured_for_run`). If the run's `defaultPhases` is `[]`, the operator has said agents on this run do not review their own work — respect it and lean harder on planned review tasks.
 
-### Which sweeps this run needs
+## Final sign-off
 
-Read each registry sweep role's `sweep.when` and match it against the run:
-
-- **QA (`tester`)** — integrated behaviour worth exercising end to end. Plan ONE whole-flow QA task after the pieces integrate, or one per milestone. Never a per-task validation of an intermediate state the next task replaces.
-- **Security** — the run touches auth, authorization, a network boundary, secrets, or user-supplied input.
-- **Performance** — the run touches a hot path, a large-N loop, rendering, or long-lived resources.
-- **Product** — the run changes a user-facing surface or the behaviour a requirement promised. `productFacing` on a task is an input to this decision, not a per-task gate.
-- **UI/UX, production readiness, and any custom sweep role** — same rule: read its `sweep.when`.
-
-A copy-only or docs-only run plans **zero** sweeps. Planning a sweep nothing will find is pure cost.
-
-### Sweeps the operator mandated
-
-`run.requiredSweeps` (returned by `sprintengine.run.get`) lists sweep roles the operator requires regardless of your risk assessment. These are not negotiable: plan **one task per required role**, `dependsOn` the implementation tasks in its scope, placed before the final sign-off. **The run cannot complete while a required sweep role has no planned task.**
-
-### Sweeps are chained, never concurrent
-
-Sweeps edit the tree. Plan them as a `dependsOn` chain so a later sweep reviews the tree the earlier one already fixed, and a project's worktree never hosts two sweeps editing at once. **QA goes last**, so it validates the post-review state.
-
-A typical tail: `refactoring → AI-slop → brand → security → QA → architect sign-off`.
-
-### Trimming the review phase
-
-`run.defaultPhases` is the phase list every task inherits. You may TRIM a task's phases by passing `phases: []` on `sprintengine.plan.add_task` — appropriate for a docs-only or pure-configuration task where there is nothing to review. You may NOT add a phase the run excludes; the engine rejects it (`phase_not_configured_for_run`). If the run's `defaultPhases` is `[]`, the operator has said agents on this run do not review their own work — respect it and lean harder on sweeps.
-
-### Final sign-off
-
-The final architect sign-off task `dependsOn` **every** implementation AND sweep task. When a sweep escalates a finding too large to fix in place, expand the plan with remediation tasks (bind strong models deliberately) and, when warranted, a re-sweep task depending on the remediation — then extend the sign-off dependency over them. No task ever moves backward in status; findings create new tasks, never reopen a done card.
-
-Schedule a sweep only for a role in `configuredRoles`. When a sweep is warranted but its role is unconfigured (e.g. a security surface with no `security` role), do not add the role or the task — record the gap and raise `needs_input(user)` naming the surface ("security surface, no security sweep configured — add one?"). On an `architect`-source run before plan approval you compose the routing yourself: enable the role with `sprintengine.roster.configure` (palette-valid `{cli, model}`) rather than asking. Headless fallback: if the user cannot answer, skip the sweep and record the skipped-for-no-configured-role rationale in `plan.md` — never silently drop it, never invent the role.
+The final architect sign-off task `dependsOn` **every** other task in the plan. When a task escalates a finding too large to fix in place, expand the plan with remediation tasks (bind strong models deliberately) and, when warranted, a re-review task depending on the remediation — then extend the sign-off dependency over them. No task ever moves backward in status; findings create new tasks, never reopen a done card.
 
 Competitor, analog, and platform-convention comparison is part of architect planning for new or materially user-facing work. If the product intake already covers it, summarize only the architectural implications and cite the artifact path; otherwise include a short proportional section in `plan.md`, extracting decisions affecting scope, UX structure, data/sync/auth, risk, and verification.
 
@@ -133,7 +105,7 @@ Every acceptance criterion must be satisfiable when this task runs: verifiable u
 
 For review-only tasks:
 
-- Require a concrete review evidence trail: direct task log evidence for small reviews, or the appropriate review artifact for formal sweeps and the final sign-off.
+- Require a concrete review evidence trail: direct task log evidence for small reviews, or the appropriate review artifact for formal reviews and the final sign-off.
 - Acceptance should require findings with severity, impact, recommended fix, owner role, and verification steps; if there are no findings, require an explicit approval verdict and residual-risk note.
 
 ## Reference-Sourced Sprints
