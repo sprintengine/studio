@@ -7,15 +7,15 @@
 
 import React from 'react'
 
-import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, type LifecycleState } from '../../ui'
+import { GhostButton, InlineNotice, LIFECYCLE_LABEL, LifecycleGlyph, PrimaryButton, type LifecycleState } from '../../ui'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import type {
   RoadmapBoardLane,
   RoadmapBoardUnit,
-  RoadmapBoardUnitChild,
   RoadmapUnitState,
 } from '../../../../../shared/sprintengine/roadmap-surface'
 import { RoadmapPullRequests } from './RoadmapPullRequests'
+import { roadmapMemberLifecycle, roadmapMembersDone } from './roadmapMemberLifecycle'
 import { useLaneRun } from './roadmapBoardData'
 
 const UNIT_LIFECYCLE: Record<RoadmapUnitState, LifecycleState> = {
@@ -36,6 +36,10 @@ const PARK_REASON_COPY: Record<string, string> = {
   merge_failed: 'A merge could not complete.',
   start_failed: 'The next sprint could not start.',
   eligibility_contradiction: 'This track points at an item that no longer exists.',
+  // Every reason the orchestrator can park with needs copy here; without it the row
+  // falls back to "This track is paused", which is the unactionable pause MC-1909
+  // is about.
+  unknown_project: 'This track points at a project this Multicode can’t find.',
   paused: 'You paused this track.',
 }
 
@@ -58,6 +62,7 @@ export function RoadmapLaneColumn({
   onReloadBoard,
   showProjectTag = false,
   readOnly = false,
+  wide = false,
 }: {
   lane: RoadmapBoardLane
   folderPath: string | null
@@ -70,11 +75,17 @@ export function RoadmapLaneColumn({
   /** A DRAFT's plan-at-a-glance: no steering controls, no per-step actions —
    *  nothing is orchestrated, so offering Pause/Skip would be dishonest. */
   readOnly?: boolean
+  /** The board is showing this track ALONE (MC-1905), so the column may widen past
+   *  the kanban cap toward a readable maximum. The 280px floor is unchanged, so a
+   *  narrow window reads exactly as it does in the multi-track board. */
+  wide?: boolean
 }): JSX.Element {
   const busy = callbacks.busyLane === lane.lane
   return (
     <section
-      className="flex min-w-[280px] max-w-[340px] flex-1 flex-col rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]"
+      className={`flex min-w-[280px] flex-1 flex-col rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] ${
+        wide ? 'max-w-[560px]' : 'max-w-[340px]'
+      }`}
       aria-label={`Track: ${lane.lane}`}
     >
       <header className="flex flex-col gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2.5">
@@ -96,6 +107,14 @@ export function RoadmapLaneColumn({
             {PARK_REASON_COPY[lane.parked.reason] ?? 'This track is paused.'}
             {lane.parked.reason !== 'paused' ? ' Resume to continue.' : ''}
           </span>
+          {/* What actually failed — the project, the branch, and the underlying
+              reason. A pause a person cannot act on is the defect MC-1909 records;
+              this is the reason itself, not added explanation of it. */}
+          {lane.parked.detail ? (
+            <span className="whitespace-pre-wrap break-words text-[11px] leading-4 text-[color:var(--text-subtle)]">
+              {lane.parked.detail}
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -193,7 +212,7 @@ function RoadmapUnitRow({
 }): JSX.Element {
   const isDone = unit.state === 'done'
   const canSkip = !readOnly && (unit.state === 'up_next' || unit.state === 'queued' || unit.state === 'unknown')
-  const childrenDone = unit.children?.filter((child) => child.done).length ?? 0
+  const childrenDone = roadmapMembersDone((unit.children ?? []).map((child) => child.status))
   return (
     <div className="group relative flex flex-col px-3 py-1.5">
       <div className="flex items-center gap-2">
@@ -273,34 +292,24 @@ function RoadmapUnitRow({
       </div>
       {unit.children && unit.children.length > 0 ? (
         <ul className="ml-[1.35rem] mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-2">
-          {unit.children.map((child, index) => (
+          {unit.children.map((child, index) => {
+            // The member's own lifecycle. Named for the reader too: the row's only
+            // other content is the title, which says nothing about state, so the
+            // glyph carries an accessible name rather than colour alone.
+            const memberState = roadmapMemberLifecycle(child.status)
+            return (
             <li key={`${child.ref}:${index}`} className="flex min-w-0 items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-              <LifecycleGlyph state={childLifecycle(child)} />
+              <LifecycleGlyph state={memberState} label={LIFECYCLE_LABEL[memberState]} />
               <span className="min-w-0 truncate" title={child.title}>
                 {child.title}
               </span>
             </li>
-          ))}
+            )
+          })}
         </ul>
       ) : null}
     </div>
   )
-}
-
-// A snapshotted epic member's glyph state, from its live backlog status. The
-// members of a step ride ONE sprint, so this is item-status truth, not run state.
-function childLifecycle(child: RoadmapBoardUnitChild): LifecycleState {
-  if (child.done) return 'done'
-  switch (child.status) {
-    case 'in_progress':
-      return 'in_progress'
-    case 'needs_input':
-      return 'blocked'
-    case 'ready':
-      return 'ready'
-    default:
-      return 'todo'
-  }
 }
 
 // The project tag's leading glyph — a small branch mark, matching the design's

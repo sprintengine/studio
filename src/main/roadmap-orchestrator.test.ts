@@ -5,6 +5,8 @@ import {
   createRoadmapOrchestrator,
   type RoadmapAuditEntry,
   type RoadmapBacklogItem,
+  type RoadmapItemOutcome,
+  type RoadmapMergeOutcome,
   type RoadmapOrchestratorPorts,
   type RoadmapRunRef,
   type RoadmapRunSnapshot,
@@ -35,8 +37,19 @@ type Harness = {
   starts: string[]
   startCalls: Array<{ root: string; rel: string }>
   merges: string[]
-  notices: Array<{ severity: string; title: string }>
+  notices: Array<{ severity: string; title: string; body?: string }>
   audits: RoadmapAuditEntry[]
+  // Every completed-on-merge write the orchestrator made (MC-1904), in order.
+  statusWrites: Array<{ root: string; rel: string; status: string }>
+  // Every abandonRun the orchestrator made — the path that must NEVER fire for the
+  // same run a delivery does.
+  abandons: Array<{ root: string; rel: string }>
+  // Injected merge refusal; null means the merge succeeds.
+  mergeFailure: RoadmapMergeOutcome | null
+  setMergeFailure: (outcome: RoadmapMergeOutcome | null) => void
+  // Per-run task→item mapping the delivered-on-merge write consults, keyed by
+  // state path (MC-1904's honesty constraint).
+  itemOutcomes: Map<string, Map<string, RoadmapItemOutcome>>
   getRoadmap: () => string
   setRoadmap: (content: string) => void
 }
@@ -68,8 +81,12 @@ function harness(
   const starts: string[] = []
   const startCalls: Array<{ root: string; rel: string }> = []
   const merges: string[] = []
-  const notices: Array<{ severity: string; title: string }> = []
+  const notices: Array<{ severity: string; title: string; body?: string }> = []
   const audits: RoadmapAuditEntry[] = []
+  const statusWrites: Array<{ root: string; rel: string; status: string }> = []
+  const abandons: Array<{ root: string; rel: string }> = []
+  const itemOutcomes = new Map<string, Map<string, RoadmapItemOutcome>>()
+  let mergeFailure: RoadmapMergeOutcome | null = null
 
   const statePathFor = (root: string, rel: string): string =>
     `${root}/.multi-code/sprintengine/team-${rel.replace(/[^a-z]/g, '')}/run.yaml`
@@ -94,9 +111,17 @@ function harness(
     observeRun: async (runRef) => runs.get(runRef.statePath) ?? null,
     mergePullRequest: async (statePath) => {
       merges.push(statePath)
+      if (mergeFailure) return mergeFailure
       const snapshot = runs.get(statePath)
       if (snapshot) runs.set(statePath, { ...snapshot, prAllMerged: true })
       return { ok: true }
+    },
+    readRunItemOutcomes: async (runRef) => new Map(itemOutcomes.get(runRef.statePath) ?? new Map()),
+    setBacklogStatus: async (root, rel, status) => {
+      statusWrites.push({ root, rel, status })
+      const projItems = itemsByRoot.get(root)
+      const item = projItems?.get(rel)
+      if (item && projItems) projItems.set(rel, { ...item, status })
     },
     startSprint: async ({ workspaceRoot, itemRelativePath }) => {
       starts.push(itemRelativePath)
@@ -111,6 +136,7 @@ function harness(
       return { ok: true }
     },
     abandonRun: async (root, rel) => {
+      abandons.push({ root, rel })
       links.delete(linkKey(root, rel))
       const projItems = itemsByRoot.get(root)
       const item = projItems?.get(rel)
@@ -120,7 +146,7 @@ function harness(
     writeLaneRuntime: async (roadmapRef, lanes) => {
       store.set(roadmapRef, new Map([...lanes].map(([k, v]) => [k, { ...v }])))
     },
-    notify: (input) => notices.push({ severity: input.severity, title: input.title }),
+    notify: (input) => notices.push({ severity: input.severity, title: input.title, ...(input.body ? { body: input.body } : {}) }),
     logDiagnostic: () => undefined,
     now: () => new Date('2026-07-18T00:00:00Z'),
   }
@@ -136,6 +162,15 @@ function harness(
     merges,
     notices,
     audits,
+    statusWrites,
+    abandons,
+    itemOutcomes,
+    get mergeFailure() {
+      return mergeFailure
+    },
+    setMergeFailure: (outcome) => {
+      mergeFailure = outcome
+    },
     getRoadmap: () => roadmapContent,
     setRoadmap: (content) => {
       roadmapContent = content
@@ -218,7 +253,7 @@ test('an alias whose path is not a known root parks the lane unknown_project', a
   await orchestrator.reconcile()
   assert.equal(lane(h, 'Ship')?.parked?.reason, 'unknown_project')
   assert.equal(h.starts.length, 0)
-  assert.ok(h.notices.some((n) => n.title === 'Roadmap paused'))
+  assert.ok(h.notices.some((n) => n.title === 'Horizon paused'))
 })
 
 test('idempotent start: a pre-existing live run is adopted, not duplicated', async () => {
@@ -245,7 +280,7 @@ test('run failure parks the lane with a notification; resume re-plans a NEW spri
 
   await orchestrator.reconcile()
   assert.equal(lane(h)?.parked?.reason, 'run_failed')
-  assert.ok(h.notices.some((n) => n.title === 'Roadmap paused'))
+  assert.ok(h.notices.some((n) => n.title === 'Horizon paused'))
 
   const startsBefore = h.starts.length
   await orchestrator.reconcile()
@@ -280,7 +315,7 @@ test('approve gate: queues approval, then a human approval starts', async () => 
   await orchestrator.reconcile()
   assert.equal(h.starts.length, 0)
   assert.equal(lane(h)?.pendingApprovalRef, qref('backlog/a.md'))
-  assert.ok(h.notices.some((n) => n.title === 'Roadmap ready to continue'))
+  assert.ok(h.notices.some((n) => n.title === 'Horizon ready to continue'))
 
   await orchestrator.approveStart(ROADMAP_REF, 'Backend')
   assert.deepEqual(h.starts, ['backlog/a.md'])
@@ -527,6 +562,8 @@ function mutationHarness(options: {
     resolveExecutionLink: async () => null,
     observeRun: async () => null,
     mergePullRequest: async () => ({ ok: true }),
+    readRunItemOutcomes: async () => new Map(),
+    setBacklogStatus: async () => undefined,
     startSprint: async () => ({ ok: true }),
     abandonRun: async () => undefined,
     readLaneRuntime: async () => new Map(),
@@ -613,4 +650,318 @@ test('createRoadmap writes a draft, refuses an overwrite, and validates the proj
   const rejected = await createRoadmapOrchestrator(noHome.ports).createRoadmap({ projectRoot: '/w/unopened', name: 'X' })
   assert.equal(rejected.ok, false)
   assert.ok(!noHome.exists('backlog/roadmaps/2026-07-18-x.md'))
+})
+
+// --- MC-1909: the lane merge path ------------------------------------------
+
+test('a merge refusal parks with the repo, branch and reason, and notifies', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+  h.setMergeFailure({ ok: false, message: 'gh: merge conflict with base branch', repo: 'multicode', branch: 'sprintengine/alpha' })
+
+  await orchestrator.reconcile()
+
+  const parked = lane(h)?.parked
+  assert.equal(parked?.reason, 'merge_failed')
+  assert.equal(parked?.detail, 'multicode (sprintengine/alpha): gh: merge conflict with base branch')
+  const notice = h.notices.find((n) => n.title === 'Horizon paused')
+  assert.ok(notice, 'a merge failure on an unwatched horizon must notify')
+  assert.match(notice?.body ?? '', /multicode \(sprintengine\/alpha\): gh: merge conflict with base branch/)
+})
+
+test('resume after a merge failure retries THE MERGE and never abandons the delivered run', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+  h.setMergeFailure({ ok: false, message: 'the main checkout was on another branch' })
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.parked?.reason, 'merge_failed')
+
+  const startsBefore = h.starts.length
+  const mergesBefore = h.merges.length
+  h.setMergeFailure(null)
+  const resumed = await orchestrator.resumeLane(ROADMAP_REF, 'Backend')
+
+  assert.equal(resumed.ok, true)
+  assert.equal(h.merges.length, mergesBefore + 1, 'resume must retry the merge')
+  assert.deepEqual(h.abandons, [], 'a delivered run is never abandoned')
+  assert.equal(h.starts.length, startsBefore, 'no fresh sprint is planned over a delivered run')
+  assert.equal(lane(h)?.parked, undefined)
+  // Still linked to the run it delivered — resume did not throw the run away.
+  assert.ok(h.links.has(linkKey(ROOT, 'backlog/a.md')))
+})
+
+test('a merge retry that fails again re-parks with THIS attempt’s reason', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+  h.setMergeFailure({ ok: false, message: 'first reason', repo: 'multicode', branch: 'b' })
+  await orchestrator.reconcile()
+
+  h.setMergeFailure({ ok: false, message: 'second reason', repo: 'multicode', branch: 'b' })
+  const resumed = await orchestrator.resumeLane(ROADMAP_REF, 'Backend')
+
+  assert.equal(resumed.ok, false)
+  assert.match(resumed.message ?? '', /second reason/)
+  assert.equal(lane(h)?.parked?.detail, 'multicode (b): second reason')
+  assert.deepEqual(h.abandons, [])
+})
+
+test('resume over a COMPLETED run asks first, then re-plans only when confirmed', async () => {
+  // A needs_input park whose run then completed: the abandon path, guarded.
+  const h = harness(roadmapFile('auto', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'needs_input_user' })
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.parked?.reason, 'needs_input')
+
+  // The run finished while parked — resuming would discard it.
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+  const refused = await orchestrator.resumeLane(ROADMAP_REF, 'Backend')
+  assert.equal(refused.ok, false)
+  assert.equal(refused.confirm, 'replan_delivered_run')
+  assert.deepEqual(h.abandons, [])
+  assert.equal(lane(h)?.parked?.reason, 'needs_input', 'a refused resume changes nothing')
+
+  const confirmed = await orchestrator.resumeLane(ROADMAP_REF, 'Backend', 'user', { replanDeliveredRun: true })
+  assert.equal(confirmed.ok, true)
+  assert.deepEqual(h.abandons, [{ root: ROOT, rel: 'backlog/a.md' }])
+})
+
+test('resume over a DEAD run still abandons without asking', async () => {
+  const h = harness(roadmapFile('auto', 'manual'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'failed' })
+  await orchestrator.reconcile()
+
+  const resumed = await orchestrator.resumeLane(ROADMAP_REF, 'Backend')
+  assert.equal(resumed.ok, true)
+  assert.equal(resumed.confirm, undefined)
+  assert.deepEqual(h.abandons, [{ root: ROOT, rel: 'backlog/a.md' }])
+})
+
+// --- MC-1904: delivered work reads completed --------------------------------
+
+// A roadmap whose single step is an epic with two snapshotted members.
+const EPIC_LANE = '## Backend\n- backlog/epics/auth.md\n  - backlog/login.md\n  - backlog/logout.md'
+const EPIC_ITEMS: RoadmapBacklogItem[] = [
+  { relativePath: 'backlog/epics/auth.md', status: 'ready', isEpic: true, title: 'Auth' },
+  { relativePath: 'backlog/login.md', status: 'ready', epic: 'auth', title: 'Login' },
+  { relativePath: 'backlog/logout.md', status: 'ready', epic: 'auth', title: 'Logout' },
+]
+
+test('an epic step that delivers flips its MEMBERS to completed, never the epic file', async () => {
+  const h = harness(roadmapFile('auto', 'auto', EPIC_LANE), { itemsByRoot: { [ROOT]: EPIC_ITEMS } })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/epics/auth.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+
+  await orchestrator.reconcile() // auto-merge → delivery
+
+  assert.deepEqual(
+    h.statusWrites.map((write) => write.rel).sort(),
+    ['backlog/login.md', 'backlog/logout.md'],
+  )
+  assert.ok(h.statusWrites.every((write) => write.status === 'completed' && write.root === ROOT))
+  // The epic derives its status from its members; writing it directly would paper
+  // over that derivation.
+  assert.ok(!h.statusWrites.some((write) => write.rel === 'backlog/epics/auth.md'))
+})
+
+test('a member the run did not deliver stays un-flipped', async () => {
+  const h = harness(roadmapFile('auto', 'auto', EPIC_LANE), { itemsByRoot: { [ROOT]: EPIC_ITEMS } })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/epics/auth.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+  h.itemOutcomes.set(statePath, new Map([['backlog/logout.md', 'skipped']]))
+
+  await orchestrator.reconcile()
+
+  assert.deepEqual(h.statusWrites.map((write) => write.rel), ['backlog/login.md'])
+  assert.equal(h.itemsByRoot.get(ROOT)?.get('backlog/logout.md')?.status, 'ready')
+})
+
+test('an ITEM step flips itself completed on merge', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+
+  await orchestrator.reconcile()
+
+  assert.deepEqual(h.statusWrites, [{ root: ROOT, rel: 'backlog/a.md', status: 'completed' }])
+})
+
+test('a shared run delivers on completion, with no PR to merge', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'shared', lifecycle: 'completed' })
+
+  await orchestrator.reconcile()
+
+  assert.equal(h.merges.length, 0)
+  assert.deepEqual(h.statusWrites, [{ root: ROOT, rel: 'backlog/a.md', status: 'completed' }])
+})
+
+test('a run that VANISHES marks nothing completed', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.delete(statePath)
+  h.links.delete(linkKey(ROOT, 'backlog/a.md'))
+
+  await orchestrator.reconcile()
+
+  assert.equal(lane(h)?.activeItemRef, undefined)
+  assert.deepEqual(h.statusWrites, [], 'nothing shipped, so nothing may read as shipped')
+})
+
+test('cancel/abandon and delivered-on-merge never both fire for one run', async () => {
+  const h = harness(roadmapFile('auto', 'auto'))
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/a.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'canceled' })
+
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.parked?.reason, 'run_canceled')
+  assert.deepEqual(h.statusWrites, [])
+
+  await orchestrator.resumeLane(ROADMAP_REF, 'Backend')
+  assert.deepEqual(h.abandons, [{ root: ROOT, rel: 'backlog/a.md' }])
+  assert.deepEqual(h.statusWrites, [], 'the abandoned run never marks its items completed')
+})
+
+// --- SEAM: MC-1909 x MC-1904 ------------------------------------------------
+
+test('SEAM: a lane merge — including one recovered by resume — flips the epic members', async () => {
+  // The two items meeting: 1909 owns the merge path, 1904 owns the write that
+  // follows a merge. This drives the whole recovery the owner had to do by hand —
+  // merge refused, lane parked, human resumes, merge lands, members read completed —
+  // through the orchestrator, and asserts the BACKLOG, not the lane runtime.
+  const h = harness(roadmapFile('auto', 'auto', EPIC_LANE), { itemsByRoot: { [ROOT]: EPIC_ITEMS } })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/epics/auth.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+  h.setMergeFailure({ ok: false, message: 'gh: base branch was modified', repo: 'multicode', branch: 'sprintengine/auth' })
+
+  // 1. The auto-merge is refused: the lane parks, saying what failed.
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.parked?.detail, 'multicode (sprintengine/auth): gh: base branch was modified')
+  assert.deepEqual(h.statusWrites, [], 'an unmerged step marks nothing completed')
+
+  // 2. The human resumes. The merge lands this time.
+  h.setMergeFailure(null)
+  const resumed = await orchestrator.resumeLane(ROADMAP_REF, 'Backend')
+  assert.equal(resumed.ok, true)
+
+  // 3. The members read completed in the backlog — the end of the manual rescue.
+  const items = h.itemsByRoot.get(ROOT)
+  assert.equal(items?.get('backlog/login.md')?.status, 'completed')
+  assert.equal(items?.get('backlog/logout.md')?.status, 'completed')
+  assert.deepEqual(h.abandons, [])
+
+  // 4. And the lane moves on: the epic derives completed from its members, so the
+  //    board reads the step done rather than still holding the frontier.
+  await orchestrator.reconcile()
+  assert.equal(lane(h)?.activeItemRef, undefined)
+  const board = await orchestrator.readBoard()
+  assert.equal(board?.lanes[0].units[0].state, 'done')
+  assert.deepEqual(board?.lanes[0].units[0].children?.map((child) => child.done), [true, true])
+  assert.equal(board?.lanes[0].doneCount, 1)
+})
+
+test('a lane still keyed on an epic MEMBER (pre-step-granularity) marks that member, not nothing', async () => {
+  // The migration case the substrate's own `isMerged` guard exists for: a lane
+  // runtime written when runs were keyed per member. Matching only top-level steps
+  // would mark nothing and say nothing — a delivery that quietly does not land.
+  const h = harness(roadmapFile('auto', 'auto', EPIC_LANE), { itemsByRoot: { [ROOT]: EPIC_ITEMS } })
+  const statePath = `${ROOT}/.multi-code/sprintengine/team-legacy/run.yaml`
+  h.store.set(
+    ROADMAP_REF,
+    new Map([
+      [
+        'Backend',
+        {
+          lane: 'Backend',
+          activeItemRef: qref('backlog/login.md'),
+          activeStatePath: statePath,
+          activeTeamSlug: 'team-legacy',
+          activeRepoId: ROOT,
+        },
+      ],
+    ]),
+  )
+  h.links.set(linkKey(ROOT, 'backlog/login.md'), { statePath, teamSlug: 'team-legacy' })
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed', prAllMerged: true })
+
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+
+  assert.deepEqual(h.statusWrites, [{ root: ROOT, rel: 'backlog/login.md', status: 'completed' }])
+})
+
+test('SEAM: a restart between the merge and the completion write still marks the members', async () => {
+  // The kill/restart property, applied to the new write. The merge lands, then the
+  // process dies before anything is recorded. A FRESH orchestrator re-derives from
+  // the persisted lane runtime + the run's own PR state and completes the job —
+  // which is why the delivery write lives on the reducer's `clear_active` and not
+  // only inside the merge action.
+  const h = harness(roadmapFile('auto', 'manual', EPIC_LANE), { itemsByRoot: { [ROOT]: EPIC_ITEMS } })
+  const first = createRoadmapOrchestrator(h.ports)
+  await first.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/epics/auth.md'))!.statePath
+
+  // The PR merged out-of-band (on GitHub, or by the merge that raced the crash);
+  // nothing was written to the backlog.
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed', prAllMerged: true })
+  assert.deepEqual(h.statusWrites, [])
+
+  const afterRestart = createRoadmapOrchestrator(h.ports)
+  await afterRestart.reconcile()
+
+  assert.deepEqual(
+    h.statusWrites.map((write) => write.rel).sort(),
+    ['backlog/login.md', 'backlog/logout.md'],
+  )
+  assert.equal(lane(h)?.activeItemRef, undefined)
+})
+
+test('SEAM: the completion write is idempotent — a second reconcile re-asserts, never double-counts', async () => {
+  const h = harness(roadmapFile('auto', 'auto', EPIC_LANE), { itemsByRoot: { [ROOT]: EPIC_ITEMS } })
+  const orchestrator = createRoadmapOrchestrator(h.ports)
+  await orchestrator.reconcile()
+  const statePath = h.links.get(linkKey(ROOT, 'backlog/epics/auth.md'))!.statePath
+  h.runs.set(statePath, { mode: 'worktree', lifecycle: 'completed' })
+
+  await orchestrator.reconcile() // merge → delivery recorded here
+  const afterMerge = h.statusWrites.length
+  await orchestrator.reconcile() // clear_active → delivery re-asserted, same values
+  await orchestrator.reconcile()
+
+  const items = h.itemsByRoot.get(ROOT)
+  assert.equal(items?.get('backlog/login.md')?.status, 'completed')
+  assert.equal(items?.get('backlog/logout.md')?.status, 'completed')
+  // Re-asserting is fine; changing its mind is not.
+  assert.ok(h.statusWrites.every((write) => write.status === 'completed'))
+  assert.ok(h.statusWrites.length >= afterMerge)
 })

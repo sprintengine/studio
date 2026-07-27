@@ -146,10 +146,39 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       void runLaneCommand(lane, () => window.api.mergeRoadmapLane(commandInput(roadmapRef, lane))),
     [commandInput, runLaneCommand],
   )
+  // Resume is the one steering control whose consequence depends on what the
+  // parked run did. Over a run that already DELIVERED it would discard finished
+  // work and plan the step again from scratch, so the orchestrator refuses until
+  // that is acknowledged in its own words (MC-1909) — never as a side effect of
+  // one click on a button labelled "Resume".
   const handleResume = useCallback(
-    (roadmapRef: string, lane: string) =>
-      void runLaneCommand(lane, () => window.api.resumeRoadmapLane(commandInput(roadmapRef, lane))),
-    [commandInput, runLaneCommand],
+    async (roadmapRef: string, lane: string) => {
+      setBusyLane(lane)
+      let result: { ok: boolean; message?: string; confirm?: string }
+      try {
+        result = await window.api.resumeRoadmapLane(commandInput(roadmapRef, lane))
+      } finally {
+        setBusyLane(null)
+        reload()
+      }
+      if (result.ok) return
+      if (result.confirm !== 'replan_delivered_run') {
+        if (result.message) setActionError(result.message)
+        return
+      }
+      const startOver = await dialog.confirm({
+        title: `Start ${lane} over?`,
+        body:
+          result.message ??
+          'This sprint finished its work. Starting over throws it away and plans a new sprint for the same step.',
+        confirmLabel: 'Throw it away and start over',
+      })
+      if (!startOver) return
+      void runLaneCommand(lane, () =>
+        window.api.resumeRoadmapLane({ ...commandInput(roadmapRef, lane), replanDeliveredRun: true }),
+      )
+    },
+    [commandInput, dialog, reload, runLaneCommand],
   )
   const handlePause = useCallback(
     async (roadmapRef: string, lane: string) => {
@@ -596,7 +625,7 @@ function RoadmapTracks({
   reload: () => void
   onApprove: (roadmapRef: string, lane: string) => void
   onPause: (roadmapRef: string, lane: string) => void
-  onResume: (roadmapRef: string, lane: string) => void
+  onResume: (roadmapRef: string, lane: string) => void | Promise<void>
   onMerge: (roadmapRef: string, lane: string) => void
   onSkip: (lane: string, unit: RoadmapBoardUnit) => void
   onEditPlan: (roadmapRef: string) => void
@@ -617,23 +646,24 @@ function RoadmapTracks({
   const callbacks: RoadmapLaneCallbacks = {
     onApprove: (lane) => onApprove(roadmap.roadmapRef, lane),
     onPause: (lane) => onPause(roadmap.roadmapRef, lane),
-    onResume: (lane) => onResume(roadmap.roadmapRef, lane),
+    onResume: (lane) => void onResume(roadmap.roadmapRef, lane),
     onMerge: (lane) => onMerge(roadmap.roadmapRef, lane),
     onSkip: (lane, unit) => onSkip(lane, unit),
     onEditPlan: () => onEditPlan(roadmap.roadmapRef),
     onOpenRun,
     busyLane,
   }
+  const single = roadmap.lanes.length === 1
   return (
     <div className="h-full overflow-auto p-4">
-      <div className="flex flex-wrap gap-3">
+      <div className={trackRowClass(roadmap.lanes.length)}>
         {roadmap.lanes.map((lane) => (
           <div
             key={lane.lane}
             ref={(node) => {
               laneRefs.current.set(`${roadmap.roadmapRef}:${lane.lane}`, node)
             }}
-            className="flex"
+            className={single ? SINGLE_TRACK_COLUMN_CLASS : 'flex'}
           >
             <RoadmapLaneColumn
               lane={lane}
@@ -641,6 +671,7 @@ function RoadmapTracks({
               callbacks={callbacks}
               onReloadBoard={reload}
               showProjectTag={spansProjects}
+              wide={single}
             />
           </div>
         ))}
@@ -648,6 +679,21 @@ function RoadmapTracks({
     </div>
   )
 }
+
+// How the tracks lay out on the canvas (MC-1905, mockup
+// `backlog/mockups/2026-07-26-horizon-single-track-layout.html`). Two or more
+// tracks are the multi-column kanban the wrap was written for and are unchanged.
+// ONE track — the normal case, every horizon authored so far — is its own designed
+// layout rather than the degenerate case of that one: the row centers so the lone
+// column stops hugging the left edge of an otherwise empty canvas.
+function trackRowClass(laneCount: number): string {
+  return laneCount === 1 ? 'flex flex-wrap justify-center gap-3' : 'flex flex-wrap gap-3'
+}
+
+// The lone column may widen toward a readable maximum (the lane column's own
+// 340px cap is a kanban width, not a reading width) while keeping its floor, so a
+// narrow window reads exactly as it does today.
+const SINGLE_TRACK_COLUMN_CLASS = 'flex w-full max-w-[560px]'
 
 // Inert callbacks for the read-only draft tracks — the column renders no
 // controls in readOnly mode, so none of these can fire.
@@ -697,9 +743,14 @@ function RoadmapDraftCanvas({
           </div>
         </div>
         {file.lanes.length > 0 ? (
-          <div className="flex flex-wrap gap-3">
+          // Same board for active and draft (MC-1905): both render through the same
+          // track columns, so the single-track layout is one rule, not two.
+          <div className={trackRowClass(file.lanes.length)}>
             {file.lanes.map((lane) => (
-              <div key={lane.lane} className="flex">
+              <div
+                key={lane.lane}
+                className={file.lanes.length === 1 ? SINGLE_TRACK_COLUMN_CLASS : 'flex'}
+              >
                 <RoadmapLaneColumn
                   lane={lane}
                   folderPath={null}
@@ -707,6 +758,7 @@ function RoadmapDraftCanvas({
                   onReloadBoard={() => undefined}
                   showProjectTag={spansProjects}
                   readOnly
+                  wide={file.lanes.length === 1}
                 />
               </div>
             ))}

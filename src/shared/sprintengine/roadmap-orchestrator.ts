@@ -135,9 +135,21 @@ export type RoadmapOrchestratorAction =
   // Park the lane with a machine-readable reason and notify. Terminal until a
   // human resume.
   | { kind: 'park'; lane: string; reason: RoadmapParkReason; itemRef: string; detail?: string }
-  // The frontier run merged/delivered; drop the active ref so the next reconcile
-  // advances to the following unit.
-  | { kind: 'clear_active'; lane: string }
+  // Drop the lane's active ref so the next reconcile advances to the following
+  // unit. Two very different things end a lane's hold on a run and both land here,
+  // so the action says which: `delivered` means the run DELIVERED (a shared run
+  // completed, or a worktree run whose pull request(s) merged) and carries the run
+  // that delivered it, which is what lets the driver record the step's backlog
+  // items as completed (MC-1904). Without it the run simply vanished from
+  // observations — nothing shipped, and nothing may be marked as if it had.
+  | {
+      kind: 'clear_active'
+      lane: string
+      itemRef?: string
+      delivered?: boolean
+      statePath?: string
+      teamSlug?: string
+    }
 
 export type RoadmapReconcileInput = {
   roadmap: Roadmap
@@ -330,12 +342,12 @@ function decideForCompletedRun(args: LaneReconcileArgs & { observation: RoadmapR
   // frontier item is now terminal, so clear the handle and let the next reconcile
   // advance to the following unit.
   if (observation.mode === 'shared') {
-    return { action: { kind: 'clear_active', lane }, runtime: clearedActive(runtime) }
+    return { action: delivered(lane, observation), runtime: clearedActive(runtime) }
   }
 
   // Worktree run: the PR merge state decides.
   if (observation.prAllMerged) {
-    return { action: { kind: 'clear_active', lane }, runtime: clearedActive(runtime) }
+    return { action: delivered(lane, observation), runtime: clearedActive(runtime) }
   }
   if (observation.prClosedUnmerged) {
     return park(lane, runtime, 'pr_closed', observation.itemRef, args.now)
@@ -424,6 +436,21 @@ function park(
   return {
     action: { kind: 'park', lane, reason, itemRef },
     runtime: { ...clearPending(runtime), parked: { reason, itemRef, at: now } },
+  }
+}
+
+// The clear a DELIVERED run earns: it names the unit and the run that delivered
+// it, so the driver can record the step's backlog items completed (MC-1904). The
+// bare `clear_active` (a run that vanished from observations) deliberately carries
+// none of this — nothing shipped there.
+function delivered(lane: string, observation: RoadmapRunObservation): RoadmapOrchestratorAction {
+  return {
+    kind: 'clear_active',
+    lane,
+    itemRef: observation.itemRef,
+    delivered: true,
+    statePath: observation.statePath,
+    teamSlug: observation.teamSlug,
   }
 }
 

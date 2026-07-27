@@ -85,11 +85,38 @@ run('renders a resolvable step by title', () => {
   assert.match(render(), /Foo/)
 })
 
-run('renders an epic entry with its snapshotted child and item count', () => {
+run('renders an epic entry with its snapshotted child and a done/total count', () => {
   const markup = render()
   assert.match(markup, /Auth/)
   assert.match(markup, /Login/)
-  assert.match(markup, /1 item/)
+  // done/total, not a bare member count (MC-1902): auth-login is `ready`, so none
+  // of the one snapshotted member is done yet.
+  assert.match(markup, /0\/1 item/)
+})
+
+run('an epic member carries its live lifecycle glyph, named for a reader', () => {
+  // auth-login is `ready` in the fixture, so the member row shows the ready glyph
+  // — item-status truth read straight off the backlog scan (MC-1902).
+  assert.match(render(), /aria-label="Ready"/)
+})
+
+run('a member that completed reads done, and the step count follows it', () => {
+  const completedLogin = backlogItem('backlog/auth-login.md', '---\nstatus: completed\nepic: auth\n---\n# Login\n')
+  const markup = renderToStaticMarkup(
+    <ConfirmDialogProvider>
+      <RoadmapEditorPanel
+        roadmapItem={roadmapItem}
+        items={items.map((item) => (item.relativePath === 'backlog/auth-login.md' ? completedLogin : item))}
+        onSaved={() => {}}
+        onOpenInEditor={() => {}}
+        onNavigate={() => {}}
+        showBack={false}
+        onBack={() => {}}
+      />
+    </ConfirmDialogProvider>,
+  )
+  assert.match(markup, /1\/1 item/)
+  assert.match(markup, /aria-label="Done"/)
 })
 
 run('surfaces the static-plan drift affordance when the epic gained members', () => {

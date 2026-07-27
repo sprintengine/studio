@@ -6,6 +6,8 @@ import {
   IconButton,
   InboxSearchInput,
   InlineNotice,
+  LIFECYCLE_LABEL,
+  LifecycleGlyph,
   Popover,
   SegmentedControl,
   Select,
@@ -67,6 +69,7 @@ import {
   type RoadmapRefDisplay,
 } from './roadmapAuthoring'
 import type { ProjectKey } from '../../../../shared/backlog/roadmap'
+import { roadmapMemberLifecycle, roadmapMembersDone } from '../panels/roadmapBoard/roadmapMemberLifecycle'
 
 // The roadmap authoring surface (MC-1618 / T4). It replaces the plain backlog
 // detail body when the selected item is a roadmap, turning the file's markdown
@@ -946,8 +949,17 @@ function StepRow({
               </span>
             ) : null}
             {entry.kind === 'epic' ? (
-              <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
-                {entry.children.length} {entry.children.length === 1 ? 'item' : 'items'}
+              // done/total, so a collapsed epic step reads its progress without
+              // expanding (MC-1902) — the same count the Horizon board shows,
+              // through the same predicate.
+              <span
+                className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]"
+                title={`One sprint delivers all ${entry.children.length} ${entry.children.length === 1 ? 'item' : 'items'} in this step`}
+              >
+                {roadmapMembersDone(
+                  entry.children.map((child) => refDisplay.get(child.includes(':') ? child : authoredRef(entry.projectKey, child))?.status),
+                )}
+                /{entry.children.length} {entry.children.length === 1 ? 'item' : 'items'}
               </span>
             ) : null}
           </button>
@@ -1020,6 +1032,14 @@ function EpicChildren({
                 onClick={() => onNavigate(resolvedRef)}
                 className="interactive flex min-w-0 items-center gap-1.5 rounded py-0.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
               >
+                {/* The member's LIVE lifecycle, from the backlog scan — glyphs,
+                    never tone dots (standing ruling), and the same mapping the
+                    Horizon board's track rows use (MC-1902). */}
+                <LifecycleGlyph
+                  state={roadmapMemberLifecycle(display?.status)}
+                  label={LIFECYCLE_LABEL[roadmapMemberLifecycle(display?.status)]}
+                  className="shrink-0"
+                />
                 {display?.displayId ? (
                   <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">{display.displayId}</span>
                 ) : null}

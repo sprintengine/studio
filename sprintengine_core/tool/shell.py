@@ -898,6 +898,28 @@ def _repo_has_run_commits(worktree: Path, base_ref: str) -> bool:
     return (counted.stdout.strip() or "0") != "0"
 
 
+def _lookup_repo_pull_request_url(worktree: Path, branch: str) -> Optional[str]:
+    """The url GitHub has for `branch`'s pull request, or None. Never raises.
+
+    The recovery path for a `gh pr create` that succeeded without printing a url:
+    the pull request is real, so it is asked for by branch rather than left unnamed.
+    Best-effort like every other `gh` call here — an unreachable GitHub yields None
+    and the caller records that as this repo's failure.
+    """
+    if not branch:
+        return None
+    try:
+        viewed = run_gh_checked(worktree, ["pr", "view", branch, "--json", "url"], allow_failure=True)
+    except SystemExit:
+        return None  # gh is not installed; the caller already reports that.
+    if viewed.returncode != 0:
+        return None
+    try:
+        return _optional_str(json.loads(viewed.stdout or "{}").get("url"))
+    except (ValueError, TypeError):
+        return None
+
+
 def _open_repo_pull_request(
     state: Dict[str, Any],
     vcs: Dict[str, Any],
@@ -938,14 +960,29 @@ def _open_repo_pull_request(
         set_repo_status(vcs, repo_id, "pushed")
 
     def opened(url: Optional[str], *, already_exists: bool) -> Dict[str, Any]:
+        # `gh pr create` normally prints the url it opened, but a wrapper that
+        # swallows stdout (or an older gh) leaves none to parse — and the pull request
+        # exists all the same. Ask GitHub for it rather than recording an OPEN pull
+        # request the run cannot name, which is the state that stalled the first
+        # horizon lane (MC-1909).
+        resolved = _optional_str(url)
+        if not resolved:
+            # Unreachable: every caller resolves the url (or fails) before it gets
+            # here. Kept because recording an OPEN pull request the run cannot name is
+            # exactly the state that stalled the first horizon lane (MC-1909), and the
+            # state layer refuses it — this fails with the reason instead.
+            return failed(
+                "The pull request was opened but GitHub returned no url for it, so this run cannot "
+                "name it. Re-run to adopt it, or open it on GitHub."
+            )
         set_repo_status(vcs, repo_id, "pr_opened")
         # A pull request that already merged or closed keeps the state it reached:
         # `vcs pr-status` owns merge state, and adopting an existing pull request must
         # never report it back open.
         stored_state = repo.get("pullRequestState")
         reached = stored_state if already_exists and stored_state in VALID_PULL_REQUEST_STATES else "open"
-        set_repo_pull_request(vcs, repo_id, url=url, state=reached, error=None)
-        return {**result, "ok": True, "pullRequestUrl": url, **({"alreadyExists": True} if already_exists else {})}
+        set_repo_pull_request(vcs, repo_id, url=resolved, state=reached, error=None)
+        return {**result, "ok": True, "pullRequestUrl": resolved, **({"alreadyExists": True} if already_exists else {})}
 
     stored_url = _optional_str(repo.get("pullRequestUrl"))
     if stored_url:
@@ -974,8 +1011,15 @@ def _open_repo_pull_request(
         # the real error and a Retry, instead of a silent "pending" forever.
         return failed(stderr or pr.stdout.strip() or "gh pr create failed")
 
-    url = parse_url_from_output(pr.stdout) or parse_url_from_output(pr.stderr)
-    append_event(state, "run_pull_request_opened", "sprintengine", f"Opened pull request for {branch}: {url or '(url unavailable)'}.")
+    url = parse_url_from_output(pr.stdout) or parse_url_from_output(pr.stderr) or _lookup_repo_pull_request_url(
+        worktree, branch
+    )
+    if not url:
+        return failed(
+            "The pull request was opened but GitHub returned no url for it, so this run cannot name it. "
+            "Re-run to adopt it, or open it on GitHub."
+        )
+    append_event(state, "run_pull_request_opened", "sprintengine", f"Opened pull request for {branch}: {url}.")
     return opened(url, already_exists=False)
 
 
@@ -1131,7 +1175,7 @@ def create_run_pull_request(
     }
 
 
-def _refresh_repo_pull_request_state(state_path: Path, repo: Dict[str, Any]) -> str:
+def _refresh_repo_pull_request_state(state_path: Path, repo: Dict[str, Any]) -> Optional[str]:
     """Resolve whether one repo's run branch has merged. Never raises.
 
     Merged if EITHER signal says so: the GitHub PR reports ``MERGED`` (authoritative,
@@ -1140,6 +1184,13 @@ def _refresh_repo_pull_request_state(state_path: Path, repo: Dict[str, Any]) -> 
     button — and a branch merged with no PR at all). A squash/rebase merge performed
     outside a PR rewrites history and is not detectable here; through a PR, ``gh``
     reports it. All git/gh calls are best-effort.
+
+    ``None`` when the repo has NO pull request and nothing says its branch landed.
+    That is the second route into MC-1909's stalled state: this used to start every
+    repo at ``"open"``, so probing a project that had never opened a pull request
+    stamped ``pullRequestState: open`` beside a null url and a null error — the
+    contradiction the lane's auto-merge could not act on — without `gh pr create`
+    being involved at all. A repo with no pull request now says so.
     """
     workspace_root = workspace_root_for_state_path(state_path)
     worktree = _repo_worktree(state_path, repo)
@@ -1149,7 +1200,9 @@ def _refresh_repo_pull_request_state(state_path: Path, repo: Dict[str, Any]) -> 
     base = str(repo.get("baseRef") or "").strip()
     url = _optional_str(repo.get("pullRequestUrl"))
 
-    pr_state = "open"
+    # A repo with a pull request is open until GitHub or git says otherwise; a repo
+    # with none has no state to report unless its branch turns out to have landed.
+    pr_state: Optional[str] = "open" if url else None
 
     # 1. Authoritative: the GitHub PR's own state.
     if url:
@@ -1173,7 +1226,7 @@ def _refresh_repo_pull_request_state(state_path: Path, repo: Dict[str, Any]) -> 
     #    commit is its own ancestor). `lastCommitSha` is set exactly when the repo
     #    committed, so a project the run never touched never reports itself merged.
     has_commits = bool(_optional_str(repo.get("lastCommitSha")))
-    if pr_state == "open" and has_commits and branch and base:
+    if pr_state in (None, "open") and has_commits and branch and base:
         run_git_checked(cwd, ["fetch", "origin", base], allow_failure=True)
         tip = run_git_checked(cwd, ["rev-parse", branch], allow_failure=True)
         branch_tip = tip.stdout.strip() if tip.returncode == 0 else ""

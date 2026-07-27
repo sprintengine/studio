@@ -7,7 +7,7 @@
 
 import type { IpcMain } from 'electron'
 
-import type { RoadmapOrchestrator, RoadmapView } from '../roadmap-orchestrator'
+import type { RoadmapConfirmation, RoadmapOrchestrator, RoadmapView } from '../roadmap-orchestrator'
 
 export const ROADMAP_STATES_READ_CHANNEL = 'roadmap:states:read'
 export const ROADMAP_LANE_APPROVE_CHANNEL = 'roadmap:lane:approve'
@@ -27,7 +27,11 @@ export const ROADMAP_CREATE_CHANNEL = 'roadmap:create'
 // carry a `workspaceRoot` — the driver derives the home project (D1). A command
 // names only the roadmap file + the lane it steers.
 export type RoadmapLaneCommandPayload = { roadmapRef: string; lane: string }
-export type RoadmapCommandResult = { ok: boolean; message?: string }
+// Resume carries one extra bit: the human's explicit acknowledgement that starting
+// over will discard a run that already delivered (MC-1909). Absent, the orchestrator
+// refuses that case with `confirm: 'replan_delivered_run'` instead of doing it.
+export type RoadmapResumePayload = RoadmapLaneCommandPayload & { replanDeliveredRun?: boolean }
+export type RoadmapCommandResult = { ok: boolean; message?: string; confirm?: RoadmapConfirmation }
 export type RoadmapStatesReadResult = { ok: true; roadmaps: RoadmapView[] } | { ok: false; message: string }
 export type RoadmapHomeResult = { path: string | null }
 export type RoadmapHomeSetPayload = { path: string | null }
@@ -87,8 +91,10 @@ export function registerRoadmapOrchestratorIpc(
 
   ipcMain.handle(
     ROADMAP_LANE_RESUME_CHANNEL,
-    async (_event, payload: RoadmapLaneCommandPayload): Promise<RoadmapCommandResult> =>
-      orchestrator.resumeLane(payload.roadmapRef, payload.lane),
+    async (_event, payload: RoadmapResumePayload): Promise<RoadmapCommandResult> =>
+      orchestrator.resumeLane(payload.roadmapRef, payload.lane, 'user', {
+        replanDeliveredRun: payload.replanDeliveredRun === true,
+      }),
   )
 
   ipcMain.handle(

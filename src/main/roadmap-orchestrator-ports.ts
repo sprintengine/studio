@@ -7,13 +7,14 @@
 // unit-inspectable in isolation.
 
 import { appendFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import type { AutomationRendererRequest, AutomationRendererResponse } from '../shared/automation'
 import { listBacklogItems, readBacklogObjectStore, removeBacklogLink, updateBacklogStatus } from './backlog-service'
 import { createRoadmapOrchestratorStore, roadmapRuntimePath } from './roadmap-orchestrator-store'
 import type {
   RoadmapBacklogItem,
+  RoadmapItemOutcome,
   RoadmapOrchestratorPorts,
   RoadmapRunRef,
   RoadmapRunSnapshot,
@@ -128,7 +129,18 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
 
     mergePullRequest: async (statePath) => {
       const result = await deps.frontDoors.mergePullRequest({ statePath })
-      return result.ok ? { ok: true } : { ok: false, message: result.message }
+      if (result.ok) return { ok: true }
+      // Name what could not merge. The engine's refusal already says WHY; a parked
+      // horizon also has to say WHICH project and WHICH branch, because the person
+      // reading the pause has no run open (MC-1909).
+      const target = await primaryMergeTarget(deps.frontDoors, statePath)
+      return { ok: false, ...(result.message ? { message: result.message } : {}), ...target }
+    },
+
+    readRunItemOutcomes: async (runRef) => readRunItemOutcomes(deps.frontDoors, runRef),
+
+    setBacklogStatus: async (workspaceRoot, relativePath, status) => {
+      await updateBacklogStatus({ workspaceRoot, relativePath, status })
     },
 
     startSprint: async ({ workspaceRoot, itemRelativePath, team }) => {
@@ -184,6 +196,66 @@ export function createRoadmapOrchestratorPorts(deps: RoadmapOrchestratorPortsDep
     },
     now: () => new Date(),
   }
+}
+
+// The project + branch a failed merge was refused for: the run's PRIMARY repo,
+// which is the one the lane's merge primitive targets. Best-effort — a projection
+// that will not read costs the park its "which repo", never the park itself.
+async function primaryMergeTarget(
+  frontDoors: SprintEngineAutomationFrontDoors,
+  statePath: string,
+): Promise<{ repo?: string; branch?: string }> {
+  const read = await frontDoors.readProjection({ statePath }).catch(() => null)
+  if (!read?.ok) return {}
+  const state = normalizeSprintEngineProjection(read.data, teamSlugFromStatePath(statePath) ?? undefined)
+  // `vcs.branchName` IS the primary repo's branch — the normalizer derives entry
+  // zero from the flat block and mirrors it back, so this needs no `repos` entry to
+  // exist. A run with no worktree vcs at all has no branch to name.
+  const branch = state?.vcs?.branchName
+  if (!branch) return {}
+  return {
+    // The repo's own root is workspace-relative ("." for the primary), so the
+    // project a person recognizes is the workspace folder's name.
+    repo: basename(workspaceRootForStatePath(statePath)) || undefined,
+    branch,
+  }
+}
+
+// The workspace root a run's state path lives under:
+// `<root>/.multi-code/sprintengine/<team>/run.yaml`. Mirrors the engine's
+// `workspace_root_for_state_path`.
+function workspaceRootForStatePath(statePath: string): string {
+  return dirname(dirname(dirname(dirname(statePath))))
+}
+
+// Which backlog items a delivered run's TERMINAL TASK STATE says it addressed
+// (MC-1904). The mapping is the architect's own: every task derived from a source
+// document carries that document's project-relative path in `sourceDocs`. An item
+// whose tasks all finished `done` delivered; an item with any non-`done` terminal
+// task (canceled work, a dropped member) reads `skipped` and is never marked
+// completed. Items no task names are simply absent — the caller's default (the
+// run's brief was the whole step) then applies.
+async function readRunItemOutcomes(
+  frontDoors: SprintEngineAutomationFrontDoors,
+  runRef: RoadmapRunRef,
+): Promise<Map<string, RoadmapItemOutcome>> {
+  const outcomes = new Map<string, RoadmapItemOutcome>()
+  const read = await frontDoors.readProjection({ statePath: runRef.statePath }).catch(() => null)
+  if (!read?.ok) return outcomes
+  const state = normalizeSprintEngineProjection(read.data, teamSlugFromStatePath(runRef.statePath) ?? runRef.teamSlug)
+  if (!state) return outcomes
+  for (const task of state.tasks) {
+    const shipped = task.status === 'done'
+    for (const doc of task.sourceDocs ?? []) {
+      const key = doc.replace(/\\/g, '/').replace(/^\/+/, '')
+      if (!key) continue
+      // One un-shipped task is enough to withhold the item: `skipped` never
+      // downgrades back to `delivered`.
+      if (!shipped) outcomes.set(key, 'skipped')
+      else if (!outcomes.has(key)) outcomes.set(key, 'delivered')
+    }
+  }
+  return outcomes
 }
 
 // The team slug on an item's execution link, read off the object store — the

@@ -160,25 +160,36 @@ test('active run needs_input(user) → park needs_input', () => {
   assert.equal(result.laneRuntimes.get('Backend')?.parked?.reason, 'needs_input')
 })
 
-test('shared run completed → clear_active (advances next tick)', () => {
+// A DELIVERED clear names the unit and the run that delivered it, which is what
+// lets the driver record the step's backlog items completed (MC-1904).
+const DELIVERED = {
+  kind: 'clear_active',
+  lane: 'Backend',
+  itemRef: qref('backlog/a.md'),
+  delivered: true,
+  statePath: '/w/.multi-code/sprintengine/team-a/run.yaml',
+  teamSlug: 'team-a',
+}
+
+test('shared run completed → clear_active, marked delivered (advances next tick)', () => {
   const result = reconcileRoadmap(
     baseInput({
       laneRuntimes: activeRuntime(),
       observations: new Map([[qref('backlog/a.md'), observation({ mode: 'shared', lifecycle: 'completed' })]]),
     }),
   )
-  assert.deepEqual(result.actions[0], { kind: 'clear_active', lane: 'Backend' })
+  assert.deepEqual(result.actions[0], DELIVERED)
   assert.equal(result.laneRuntimes.get('Backend')?.activeItemRef, undefined)
 })
 
-test('worktree run completed + PR merged → clear_active', () => {
+test('worktree run completed + PR merged → clear_active, marked delivered', () => {
   const result = reconcileRoadmap(
     baseInput({
       laneRuntimes: activeRuntime(),
       observations: new Map([[qref('backlog/a.md'), observation({ lifecycle: 'completed', prAllMerged: true })]]),
     }),
   )
-  assert.deepEqual(result.actions[0], { kind: 'clear_active', lane: 'Backend' })
+  assert.deepEqual(result.actions[0], DELIVERED)
 })
 
 test('worktree run completed + PR closed unmerged → park pr_closed', () => {
@@ -229,6 +240,8 @@ test('parked lane stays parked (never auto-unparks)', () => {
 
 test('active run vanished from observations → clear_active (recover, not park)', () => {
   const result = reconcileRoadmap(baseInput({ laneRuntimes: activeRuntime(), observations: new Map() }))
+  // Deliberately BARE: nothing shipped, so the driver has no run to credit and no
+  // item to mark completed (MC-1904's "leave it alone when in doubt").
   assert.deepEqual(result.actions[0], { kind: 'clear_active', lane: 'Backend' })
   assert.equal(result.laneRuntimes.get('Backend')?.activeItemRef, undefined)
 })
