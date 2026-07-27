@@ -58,12 +58,12 @@ const items: BacklogItem[] = [
   backlogItem('backlog/auth-logout.md', '---\nstatus: ready\nepic: auth\n---\n# Logout\n'),
 ]
 
-function render(): string {
+function render(item: BacklogItem = roadmapItem, scan: BacklogItem[] = items): string {
   return renderToStaticMarkup(
     <ConfirmDialogProvider>
       <RoadmapEditorPanel
-        roadmapItem={roadmapItem}
-        items={items}
+        roadmapItem={item}
+        items={scan}
         onSaved={() => {}}
         onOpenInEditor={() => {}}
         onNavigate={() => {}}
@@ -210,10 +210,54 @@ run('autosave replaces the Save button with a quiet state readout', () => {
   assert.doesNotMatch(markup, /Discard/)
 })
 
-run('renders the per-roadmap sprint team control with the last-used default', () => {
+// MC-1874 renamed the control off "team" (a roster is agent config; "team" is
+// the run dir slug). MC-1880 replaced the Select with a roster menu and removed
+// the "Last used roster" sentinel — it was the honest name for a dishonest
+// default, resolving through whatever the sprint wizard last touched.
+run('renders the per-horizon roster control labelled "Roster"', () => {
   const markup = render()
-  assert.match(markup, /Sprint team/)
-  assert.match(markup, /Last used roster/)
+  assert.match(markup, /Roster/)
+  assert.doesNotMatch(markup, /Sprint team/)
+})
+
+run('the roster control defaults to "No roles", with no last-used sentinel', () => {
+  const markup = render()
+  assert.match(markup, /No roles/)
+  assert.doesNotMatch(markup, /Last used roster/)
+  assert.doesNotMatch(markup, /Last used/)
+})
+
+// A roster named in frontmatter that no longer exists must keep its name and be
+// marked "(not found)" — never silently read as the default. The step start
+// then fails loudly (the epic's standing decision). Deleting a roster a horizon
+// references must not silently repoint that horizon.
+run('a horizon naming a deleted roster shows "(not found)" and does not fall back', () => {
+  const missingRosterRoadmap = backlogItem(
+    'backlog/roadmaps/missing-roster.md',
+    `---
+type: roadmap
+status: ready
+advance: approve
+merge: manual
+concurrency: 1
+roster: Mobile UI
+---
+# Missing roster
+
+## Backend
+- backlog/foo.md
+`,
+  )
+  const markup = render(missingRosterRoadmap, [missingRosterRoadmap, ...items.slice(1)])
+  assert.match(markup, /Mobile UI/, 'the named roster keeps its name')
+  assert.match(markup, /\(not found\)/, 'and is marked not found')
+  // The store has no saved rosters in this harness, so "No roles" must NOT be
+  // what the control reads as — that is the silent fallback this forbids.
+  assert.doesNotMatch(
+    markup,
+    /<span class="">No roles<\/span>/,
+    'the control does not silently read as the default',
+  )
 })
 
 if (failures > 0) {

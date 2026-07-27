@@ -23,6 +23,7 @@ async function main(): Promise<void> {
   await assertStartDelegatesPlanSourcedCreationOnRefreshedBase()
   await assertNonWorktreeStartSkipsFetchAndStartPoint()
   await assertBaseRefreshFailurePropagatesAsRunFailure()
+  await assertLegacyTeamConfigKeyStillStaffsTheRoster()
   await assertWatchedTeamRidesAsSelfTriggerGuard()
   await assertInvalidConfigsAreRefused()
   await assertRendererRefusalFailsTheRun()
@@ -72,7 +73,7 @@ async function assertStartDelegatesPlanSourcedCreationOnRefreshedBase(): Promise
   })
 
   const result = await provider.run(
-    { backlogItem: 'backlog/2026-07-02-next-item.md', team: 'Core Team', sprintName: 'Next Sprint' },
+    { backlogItem: 'backlog/2026-07-02-next-item.md', roster: 'Core Roster', sprintName: 'Next Sprint' },
     context(),
   )
 
@@ -85,11 +86,41 @@ async function assertStartDelegatesPlanSourcedCreationOnRefreshedBase(): Promise
   if (request.kind !== 'sprint.create') return
   assert.equal(request.folderPath, WORKSPACE_ROOT)
   assert.equal(request.sourceRelativePath, 'backlog/2026-07-02-next-item.md')
-  assert.equal(request.team, 'Core Team')
+  assert.equal(request.rosterName, 'Core Roster')
   assert.equal(request.name, 'Next Sprint')
   assert.equal(request.useWorktrees, true, 'worktree mode is the default')
   assert.equal(request.startRunner, true, 'a chained sprint starts its runner')
   assert.equal(request.baseStartPoint, 'origin/main', 'the chained run bases on the refreshed remote base')
+}
+
+// SEAM (MC-1874): automation configs are persisted per workspace with no
+// normalizer to migrate through, so `sprint-engine-start` is the ONE place the
+// pre-rename `team` spelling is still read. A user's saved chain automation
+// must keep staffing the roster it named — and the new `roster` key must win
+// when both are present, so a rewritten config is never overridden by a stale
+// one. This is the only legacy read left; if it disappears, so does this test.
+async function assertLegacyTeamConfigKeyStillStaffsTheRoster(): Promise<void> {
+  const legacy = harness()
+  await legacy.provider.run(
+    { backlogItem: 'backlog/item.md', team: 'Core Roster' },
+    context(),
+  )
+  const legacyRequest = legacy.requests[0]
+  if (legacyRequest.kind !== 'sprint.create') return assert.fail('expected sprint.create')
+  assert.equal(
+    legacyRequest.rosterName,
+    'Core Roster',
+    'a pre-rename automation config still staffs the roster it named',
+  )
+
+  const both = harness()
+  await both.provider.run(
+    { backlogItem: 'backlog/item.md', roster: 'New Roster', team: 'Stale Roster' },
+    context(),
+  )
+  const bothRequest = both.requests[0]
+  if (bothRequest.kind !== 'sprint.create') return assert.fail('expected sprint.create')
+  assert.equal(bothRequest.rosterName, 'New Roster', 'the new key wins over the legacy one')
 }
 
 async function assertNonWorktreeStartSkipsFetchAndStartPoint(): Promise<void> {

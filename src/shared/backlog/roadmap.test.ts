@@ -159,6 +159,30 @@ run('a no-op policy edit is byte-identical (backlog-service precedent)', () => {
   assert.equal(setRoadmapPolicy(ROADMAP_FILE, {}), ROADMAP_FILE)
 })
 
+// SEAM (MC-1880): the Horizon roster picker writes through this exact path —
+// setPolicy({ roster }) -> policyDiff -> setRoadmapPolicy. Picking a roster must
+// write `roster:` and NOTHING else, and must not touch the body.
+run('a roster pick writes only the roster key, body byte-identical', () => {
+  const picked = setRoadmapPolicy(ROADMAP_FILE, { roster: 'opus' })
+  assert.equal(bodyOf(picked), bodyOf(ROADMAP_FILE), 'the body is untouched')
+  const roadmap = parseRoadmap(picked)
+  assert.equal(roadmap.policy.roster, 'opus')
+  // Every other policy scalar is exactly what it was.
+  const before = parseRoadmap(ROADMAP_FILE).policy
+  assert.equal(roadmap.policy.advance, before.advance)
+  assert.equal(roadmap.policy.merge, before.merge)
+  assert.equal(roadmap.policy.concurrency, before.concurrency)
+  assert.deepEqual(roadmap.lanes, parseRoadmap(ROADMAP_FILE).lanes)
+
+  // Choosing "No roles" clears the key rather than writing a magic name, so an
+  // unset roster stays the honest representation of the default. Key PRESENCE
+  // (not definedness) is what decides removal.
+  const cleared = setRoadmapPolicy(picked, { roster: undefined })
+  assert.equal(parseRoadmap(cleared).policy.roster, undefined, 'No roles clears the key')
+  assert.doesNotMatch(cleared, /^roster:/m, 'and leaves no roster line behind')
+  assert.equal(bodyOf(cleared), bodyOf(ROADMAP_FILE), 'clearing also leaves the body alone')
+})
+
 run('setRoadmapPolicy rejects a non-positive concurrency', () => {
   assert.throws(() => setRoadmapPolicy(ROADMAP_FILE, { concurrency: 0 }))
 })

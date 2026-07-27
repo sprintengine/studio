@@ -9,7 +9,8 @@ import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
   resolveInitialSprintEngineRoster,
-} from '../workspace/newWorkspace/savedTeams'
+  sprintEngineLaunchRoleCounts,
+} from '../workspace/newWorkspace/savedRosters'
 import { SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS } from '../workspace/newWorkspace/controllers/sprintEngineController'
 import { markdownTitle, workspaceRelativePath } from '../workspace/newWorkspace/helpers'
 import {
@@ -111,12 +112,13 @@ export function useBacklogTrackerSeeding(params: {
         const store = useWorkspaceStore.getState()
         const roleSettings = store.appSettings.sprintEngineRoleSettings
         const roster = resolveInitialSprintEngineRoster({
-          savedTeams: roleSettings?.savedTeams ?? [],
-          lastSelectedTeamId: roleSettings?.lastSelectedTeamId ?? null,
+          savedRosters: roleSettings?.savedRosters ?? [],
+          lastSelectedRosterId: roleSettings?.lastSelectedRosterId ?? null,
           savedRoster: roleSettings?.savedRoster ?? null,
           defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
           defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
         })
+        const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
         const automationMode = sprintEngineAutomationModeForRunOptions({
           startRunner: true,
           autoApproveArtifacts: false,
@@ -130,10 +132,16 @@ export function useBacklogTrackerSeeding(params: {
           sourceRelativePath: item.relativePath,
           sourceContent: item.sourceContent,
           sourcePlanKind: 'unknown',
-          roleCounts: roster.roleCounts,
+          // Formation decides staffing here too (MC-1875/1876). This is the
+          // THIRD caller that resolves a roster and must honor the `mode` it
+          // gets back; the other two are sprint.create's goal-sourced and
+          // plan-sourced paths. Without this, a tracker-seeded sprint on a
+          // fresh install would resolve to "No roles" and then launch the
+          // specialist defaults anyway, seating an architect.
+          roleCounts: launchRoleCounts,
           roleCliDefaults: roster.roleCliDefaults,
           roleModelOverrides: roster.roleModelOverrides,
-          initialSpawnRoles: [sprintEnginePlannerRole(roster.roleCounts)],
+          initialSpawnRoles: [sprintEnginePlannerRole(launchRoleCounts)],
           sprintEngineAutoState: {
             ...sprintEngineAutomationInitialStateForMode(automationMode),
             cliPermissionPreset: 'default',

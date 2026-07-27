@@ -74,6 +74,15 @@ import {
 import { basename } from 'node:path'
 
 // A resolved handle to a run started for a roadmap item, from its execution link.
+//
+// TWO-CONCEPT SPLIT (MC-1874) — both live in this file, keep them apart:
+//   `teamSlug`  = RUN IDENTITY. The run directory name on disk
+//                 (`.multi-code/sprintengine/<teamSlug>/run.yaml`). Repointing it
+//                 orphans a real run; it is never user-chosen config.
+//   `roster`    = AGENT CONFIGURATION. The saved roster name a step is staffed
+//                 with (`RoadmapPolicy.roster`, `startSprint`'s input). Purely a
+//                 staffing choice; changing it starts a differently-staffed run.
+// Nothing may convert one into the other.
 export type RoadmapRunRef = { statePath: string; teamSlug: string }
 
 // The driver's read of a run's state, derived by the port from the projection +
@@ -228,13 +237,13 @@ export type RoadmapOrchestratorPorts = {
   setBacklogStatus(workspaceRoot: string, itemRelativePath: string, status: 'completed'): Promise<void>
   // Start a sprint from a backlog item OR epic (one sprint delivers a whole epic
   // step) through the shared plan-sourced flow (worktree mode, startRunner) in
-  // the item's own project root. Records the execution link. `team` names the
+  // the item's own project root. Records the execution link. `roster` names the
   // roadmap's saved roster; unset = the user's last-used roster.
   startSprint(input: {
     workspaceRoot: string
     itemRelativePath: string
     isEpic: boolean
-    team?: string
+    roster?: string
   }): Promise<{ ok: boolean; message?: string }>
   // Abandon a dead run when the human resumes a parked lane: remove the item's
   // execution link (so the reconcile does not re-adopt the dead run) and reset
@@ -519,7 +528,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
         const item = entry.items.find(
           (candidate) => candidate.projectKey === action.projectKey && candidate.relativePath === action.relativePath,
         )
-        const started = await executeStart(root, action.relativePath, item?.isEpic ?? false, entry.roadmap.policy.team)
+        const started = await executeStart(root, action.relativePath, item?.isEpic ?? false, entry.roadmap.policy.roster)
         if (!started.ok) {
           laneRuntimes.set(action.lane, parkedRuntime(runtime, 'start_failed', qualifiedRef(action.projectKey, action.relativePath), started.message, ports.now()))
           notifyPark('start_failed', started.message)
@@ -671,14 +680,14 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     workspaceRoot: string,
     itemRelativePath: string,
     isEpic: boolean,
-    team: string | undefined,
+    roster: string | undefined,
   ): Promise<{ ok: true; runRef: RoadmapRunRef } | { ok: false; message?: string }> {
     const existing = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (existing) {
       const snapshot = await ports.observeRun(existing)
       if (snapshot && isAdoptable(snapshot)) return { ok: true, runRef: existing }
     }
-    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic, ...(team ? { team } : {}) })
+    const created = await ports.startSprint({ workspaceRoot, itemRelativePath, isEpic, ...(roster ? { roster } : {}) })
     if (!created.ok) return { ok: false, message: created.message }
     const runRef = await ports.resolveExecutionLink(workspaceRoot, itemRelativePath)
     if (!runRef) {

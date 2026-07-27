@@ -10,7 +10,6 @@ import {
   LifecycleGlyph,
   Popover,
   SegmentedControl,
-  Select,
   StatusDot,
   Tooltip,
   TruncatedText,
@@ -69,6 +68,9 @@ import {
   type RoadmapRefDisplay,
 } from './roadmapAuthoring'
 import type { ProjectKey } from '../../../../shared/backlog/roadmap'
+import type { SprintEngineRoster } from '../../types/workspace'
+import { NO_ROLES_ROSTER_NAME, isNoRolesRosterRef } from '../workspace/newWorkspace/savedRosters'
+import { RosterManagerModal } from './RosterManagerModal'
 import { roadmapMemberLifecycle, roadmapMembersDone } from '../panels/roadmapBoard/roadmapMemberLifecycle'
 
 // The roadmap authoring surface (MC-1618 / T4). It replaces the plain backlog
@@ -295,9 +297,18 @@ export function RoadmapEditorPanel({
     return map
   }, [projectsInput])
 
-  const savedTeamNames = useWorkspaceStore(
-    useShallow((s) => (s.appSettings.sprintEngineRoleSettings?.savedTeams ?? []).map((team) => team.name)),
+  // MC-1880: the picker shows what each roster STAFFS, so it needs the records,
+  // not bare names — a name alone is not enough to choose between rosters. The
+  // useShallow treatment matters more with objects, not less: the array is
+  // rebuilt on every store read, so a shallow compare is what keeps the memo
+  // below (and the menu) referentially stable.
+  const savedRosters = useWorkspaceStore(
+    useShallow((s) => s.appSettings.sprintEngineRoleSettings?.savedRosters ?? []),
   )
+
+  // The roster manager is a modal over the door surface, not a nested panel in
+  // the scrolling editor.
+  const [rosterManagerOpen, setRosterManagerOpen] = useState(false)
 
   const title = draft.title ?? roadmapItem.title
   const statusLabel = BACKLOG_STATUS_LABEL[roadmapItem.status] ?? roadmapItem.status
@@ -346,7 +357,12 @@ export function RoadmapEditorPanel({
             </Tooltip>
           </div>
         </div>
-        <PolicyBar policy={draft.policy} teamNames={savedTeamNames} onChange={setPolicy} />
+        <PolicyBar
+          policy={draft.policy}
+          rosters={savedRosters}
+          onChange={setPolicy}
+          onManageRosters={() => setRosterManagerOpen(true)}
+        />
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -416,6 +432,23 @@ export function RoadmapEditorPanel({
           </div>
         </div>
       </div>
+
+      {rosterManagerOpen ? (
+        <RosterManagerModal
+          // The horizon's home project supplies the role registry. A horizon can
+          // span projects, but rosters are a global user preference, so the
+          // registry only decides which ROWS are offered.
+          workspaceRoot={projectsInput[0]?.path ?? null}
+          onClose={() => setRosterManagerOpen(false)}
+          onRosterChosen={(name) => {
+            // Creating or picking a roster here returns to Horizon with it
+            // selected and written to `policy.roster` through the same autosave
+            // + policyDiff path the menu uses — frontmatter only, body untouched.
+            setPolicy({ roster: name })
+            setRosterManagerOpen(false)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -434,35 +467,29 @@ function TitleField({ value, onChange }: { value: string; onChange: (next: strin
   )
 }
 
-// The sentinel Select value for "no saved team pinned" (Select items need a
-// non-empty string value).
-const TEAM_LAST_USED = ' last-used'
-
 // The execution policies, in plain human terms: what happens after a step
-// finishes, who merges delivered work, and which saved team staffs each sprint.
+// finishes, who merges delivered work, and which saved roster staffs each sprint.
 // (`policy.concurrency` is parsed and preserved but the orchestrator does not
 // honor it yet — it serializes to one active run per repo — so no editing
 // control is shown for it. See the backlog item for real per-repo concurrency.)
+//
+// MC-1880 removed the "Last used roster" sentinel entirely. It was the honest
+// name for a dishonest default: an unset roster resolved through whatever the
+// sprint wizard last touched, so a horizon could staff step 3 differently from
+// step 1 for reasons nothing on this screen showed. "No roles" (MC-1876) is the
+// deterministic replacement.
 function PolicyBar({
   policy,
-  teamNames,
+  rosters,
   onChange,
+  onManageRosters,
 }: {
   policy: RoadmapPolicy
-  // The user's saved teams (rosters), for the per-roadmap team pick.
-  teamNames: ReadonlyArray<string>
+  // The user's saved rosters, as records — the menu shows what each one staffs.
+  rosters: ReadonlyArray<SprintEngineRoster>
   onChange: (patch: Partial<RoadmapPolicy>) => void
+  onManageRosters: () => void
 }): JSX.Element {
-  const teamItems = useMemo<SelectItem<string>[]>(() => {
-    const items: SelectItem<string>[] = [{ value: TEAM_LAST_USED, label: 'Last used roster' }]
-    for (const name of teamNames) items.push({ value: name, label: name })
-    // A stored team that is no longer among the saved teams still shows (and
-    // warns) rather than silently reading as "Last used".
-    if (policy.team && !teamNames.includes(policy.team)) {
-      items.push({ value: policy.team, label: `${policy.team} (not found)` })
-    }
-    return items
-  }, [teamNames, policy.team])
   return (
     <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3">
       <PolicyControl label="After a step finishes">
@@ -487,15 +514,140 @@ function PolicyBar({
           ]}
         />
       </PolicyControl>
-      <PolicyControl label="Sprint team">
-        <Select
-          ariaLabel="Team for every sprint this horizon starts"
-          items={teamItems}
-          value={policy.team ?? TEAM_LAST_USED}
-          onChange={(value) => onChange({ team: value === TEAM_LAST_USED ? undefined : value })}
+      <PolicyControl label="Roster">
+        <RosterMenu
+          rosters={rosters}
+          selectedName={policy.roster ?? null}
+          onSelect={(name) => onChange({ roster: name })}
+          onManageRosters={onManageRosters}
         />
       </PolicyControl>
     </div>
+  )
+}
+
+// The horizon's roster picker. It PURELY picks: "Manage rosters…" is the only
+// action row (owner ruling 2026-07-26 — one door, no per-roster edit rows and
+// no separate create row). Built on the same Popover the wizard's saved-roster
+// menu uses rather than a lookalike.
+function RosterMenu({
+  rosters,
+  selectedName,
+  onSelect,
+  onManageRosters,
+}: {
+  rosters: ReadonlyArray<SprintEngineRoster>
+  selectedName: string | null
+  onSelect: (name: string | undefined) => void
+  onManageRosters: () => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const noRolesSelected = !selectedName || isNoRolesRosterRef(selectedName)
+  // A roster named in frontmatter that no longer exists keeps its name and is
+  // marked "(not found)". It must never silently read as the default — the step
+  // start fails loudly instead (the epic's standing decision).
+  const missing = Boolean(
+    selectedName
+    && !isNoRolesRosterRef(selectedName)
+    && !rosters.some((roster) => roster.name.trim().toLowerCase() === selectedName.trim().toLowerCase()),
+  )
+  const triggerLabel = noRolesSelected ? NO_ROLES_ROSTER_NAME : selectedName ?? NO_ROLES_ROSTER_NAME
+  const itemClass =
+    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+
+  const pick = (name: string | undefined) => {
+    onSelect(name)
+    setOpen(false)
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      ariaLabel="Roster for every sprint this horizon starts"
+      popupRole="menu"
+      placement="bottom-start"
+      surfaceClassName="w-[260px] p-1"
+      renderTrigger={({ ref, triggerProps, togglePopover }) => (
+        <button
+          ref={ref}
+          type="button"
+          {...triggerProps}
+          onClick={togglePopover}
+          className="interactive inline-flex h-[30px] items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+        >
+          <span className={missing ? 'text-[color:var(--status-danger)]' : undefined}>
+            {triggerLabel}
+            {missing ? ' (not found)' : ''}
+          </span>
+          <span aria-hidden="true" className="text-[color:var(--text-subtle)]">▾</span>
+        </button>
+      )}
+    >
+      {/* A missing roster leads, so the problem is the first thing read. */}
+      {missing && selectedName ? (
+        <>
+          <button type="button" role="menuitemradio" aria-checked className={itemClass}>
+            <span className="min-w-0 flex-1 truncate text-[color:var(--status-danger)]">
+              {selectedName} (not found)
+            </span>
+          </button>
+          <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+        </>
+      ) : null}
+      {/* "No roles" is the absence of a roster, so it is pinned first,
+          separated, and shows no staffing summary. */}
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={noRolesSelected}
+        className={itemClass}
+        onClick={() => pick(undefined)}
+      >
+        <span className="min-w-0 flex-1 truncate">
+          {NO_ROLES_ROSTER_NAME}
+          {noRolesSelected ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
+        </span>
+        <span className="shrink-0 text-[11px] text-[color:var(--text-subtle)]">default</span>
+      </button>
+      <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+      {rosters.map((roster) => {
+        const staffed = Object.values(roster.roleCounts).filter((count) => (count ?? 0) > 0).length
+        const checked = !noRolesSelected
+          && roster.name.trim().toLowerCase() === (selectedName ?? '').trim().toLowerCase()
+        return (
+          <button
+            key={roster.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={checked}
+            className={itemClass}
+            onClick={() => pick(roster.name)}
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {roster.name}
+              {checked ? <span className="text-[color:var(--accent-primary)]"> ✓</span> : null}
+            </span>
+            {/* A name alone is not enough to choose between rosters. */}
+            <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+              {staffed} role{staffed === 1 ? '' : 's'}
+            </span>
+          </button>
+        )
+      })}
+      <div className="my-1 border-t border-[color:var(--border-subtle)]" />
+      <button
+        type="button"
+        role="menuitem"
+        className={itemClass}
+        onClick={() => {
+          setOpen(false)
+          onManageRosters()
+        }}
+      >
+        <span className="min-w-0 flex-1 truncate">Manage rosters…</span>
+      </button>
+    </Popover>
   )
 }
 

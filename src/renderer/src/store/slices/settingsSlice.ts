@@ -1,4 +1,8 @@
 import { nanoid } from 'nanoid'
+import {
+  NO_ROLES_ROSTER_ID,
+  isNoRolesRosterRef,
+} from '../../../../shared/sprintengine/run-types'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
 import { isConnectorsFoldedSettingsTab } from '../../components/settings/extensionsRoute'
 import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
@@ -23,7 +27,8 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRunSettings,
   SprintEngineRoleSettings,
-  SprintEngineRosterTeam,
+  SprintEngineRoster,
+  SprintEngineRosterMode,
   SprintEngineSavedRoster,
   SkillPackEntry,
   SkillPackHarness,
@@ -682,7 +687,7 @@ export function normalizeModuleSettings(value: unknown): Record<string, Record<s
 const PROTECTED_SPRINT_ENGINE_ROLE_ID = 'architect'
 
 export function defaultSprintEngineRoleSettings(): SprintEngineRoleSettings {
-  return { enabled: {}, savedTeams: [], lastSelectedTeamId: null }
+  return { enabled: {}, savedRosters: [], lastSelectedRosterId: null }
 }
 
 function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, boolean> {
@@ -697,26 +702,44 @@ function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, 
   return result
 }
 
+// Pre-MC-1874 spellings of the roster keys. Declared only so the one-time
+// migration below can read them type-safely; nothing else may reference these.
+type LegacyRosterKeys = {
+  savedTeams?: unknown
+  lastSelectedTeamId?: unknown
+}
+
 export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineRoleSettings {
   if (!value || typeof value !== 'object') return defaultSprintEngineRoleSettings()
-  const candidate = value as Partial<SprintEngineRoleSettings>
+  const candidate = value as Partial<SprintEngineRoleSettings> & LegacyRosterKeys
   const savedRoster = normalizeSprintEngineSavedRoster(candidate.savedRoster)
-  const teams = normalizeSprintEngineRosterTeams(candidate.savedTeams)
-  // Migrate a legacy single saved roster into a named team so existing users
-  // keep their saved config as a selectable team the first time they load.
-  // Gate on the absence of a `savedTeams` key (the legacy signal) rather than an
-  // empty list, so a user who deletes their last team doesn't see it resurrected
-  // on the next normalize/reload.
-  let migratedTeamId: string | null = null
-  if (!Array.isArray(candidate.savedTeams) && teams.length === 0 && savedRoster) {
-    migratedTeamId = nanoid()
-    teams.push({
-      id: migratedTeamId,
+
+  // ONE-TIME KEY MIGRATION (MC-1874): `savedTeams`/`lastSelectedTeamId` were
+  // renamed to `savedRosters`/`lastSelectedRosterId` when "team" was reserved
+  // for the run slug. Read the legacy keys ONLY when the new key is absent —
+  // key absence, not emptiness, so a user who deletes their last roster does
+  // not see the pre-rename list resurrected. The normalizer's output is what
+  // gets persisted, so this runs once and the legacy keys are never read again.
+  const hasNewKey = Array.isArray(candidate.savedRosters)
+  const rosterSource = hasNewKey ? candidate.savedRosters : candidate.savedTeams
+  const legacyKeyMigrated = !hasNewKey && Array.isArray(candidate.savedTeams)
+  const rosters = normalizeSprintEngineRosters(rosterSource)
+
+  // Migrate a legacy single saved roster into a named roster so existing users
+  // keep their saved config as a selectable roster the first time they load.
+  // Gate on the absence of BOTH roster-list keys (the legacy signal) rather than
+  // an empty list, so a user who deletes their last roster doesn't see it
+  // resurrected on the next normalize/reload.
+  let migratedRosterId: string | null = null
+  if (!hasNewKey && !legacyKeyMigrated && rosters.length === 0 && savedRoster) {
+    migratedRosterId = nanoid()
+    rosters.push({
+      id: migratedRosterId,
       name: 'Saved roster',
       roleCounts: savedRoster.roleCounts,
       roleCliDefaults: savedRoster.roleCliDefaults,
-      // Carry a model-bearing legacy roster's overrides into the migrated team so
-      // the migration is lossless (older rosters simply have none).
+      // Carry a model-bearing legacy roster's overrides into the migrated roster
+      // so the migration is lossless (older rosters simply have none).
       ...(savedRoster.roleModelOverrides && Object.keys(savedRoster.roleModelOverrides).length > 0
         ? { roleModelOverrides: savedRoster.roleModelOverrides }
         : {}),
@@ -724,30 +747,48 @@ export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineR
       updatedAt: Date.now(),
     })
   }
-  const lastSelectedTeamId =
-    typeof candidate.lastSelectedTeamId === 'string'
-      && teams.some((team) => team.id === candidate.lastSelectedTeamId)
-      ? candidate.lastSelectedTeamId
-      // Pre-select the just-migrated team so legacy users open on their roster
-      // rather than a "Custom" entry.
-      : migratedTeamId
+
+  // Same key-absence rule for the selection pointer: only fall back to the
+  // legacy `lastSelectedTeamId` on the pass that migrates the legacy list.
+  const selectedCandidate =
+    typeof candidate.lastSelectedRosterId === 'string'
+      ? candidate.lastSelectedRosterId
+      : legacyKeyMigrated && typeof candidate.lastSelectedTeamId === 'string'
+        ? candidate.lastSelectedTeamId
+        : null
+  const lastSelectedRosterId =
+    // MC-1876: the built-in is a valid selection but is deliberately NOT in the
+    // list, so it has to be admitted explicitly or normalization would clear it
+    // on every load.
+    isNoRolesRosterRef(selectedCandidate)
+      ? NO_ROLES_ROSTER_ID
+      : selectedCandidate !== null && rosters.some((roster) => roster.id === selectedCandidate)
+        ? selectedCandidate
+        // Pre-select the just-migrated roster so legacy users open on their
+        // roster rather than a "Custom" entry.
+        : migratedRosterId
   return {
     enabled: normalizeRoleEnabledRecord(candidate.enabled),
     savedRoster,
-    savedTeams: teams,
-    lastSelectedTeamId,
+    savedRosters: rosters,
+    lastSelectedRosterId,
   }
 }
 
-function normalizeSprintEngineRosterTeams(value: unknown): SprintEngineRosterTeam[] {
+function normalizeSprintEngineRosters(value: unknown): SprintEngineRoster[] {
   if (!Array.isArray(value)) return []
-  const result: SprintEngineRosterTeam[] = []
+  const result: SprintEngineRoster[] = []
   const seenIds = new Set<string>()
   for (const rawEntry of value) {
     if (!rawEntry || typeof rawEntry !== 'object') continue
-    const candidate = rawEntry as Partial<SprintEngineRosterTeam>
+    const candidate = rawEntry as Partial<SprintEngineRoster>
     const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
     if (!name) continue
+    // MC-1876: drop any persisted roster wearing the built-in's reserved id or
+    // name. Nothing in the app writes one, but a hand-edited settings file (or
+    // a blob from a build where the name was not yet reserved) otherwise gets a
+    // user roster that shadows the default everywhere it is referenced by name.
+    if (isNoRolesRosterRef(name) || isNoRolesRosterRef(candidate.id as string | undefined)) continue
     let id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
     if (!id || seenIds.has(id)) id = nanoid()
     seenIds.add(id)
@@ -755,9 +796,14 @@ function normalizeSprintEngineRosterTeams(value: unknown): SprintEngineRosterTea
     const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt) ? candidate.createdAt : now
     const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : createdAt
     const roleModelOverrides = normalizeSprintEngineRoleModelOverrides(candidate.roleModelOverrides)
+    // MC-1875: only the two real formations survive normalization. An unknown
+    // or absent value drops the key entirely, which is the documented "legacy
+    // roster, fall back to the guess" state — never an invented default.
+    const mode = candidate.mode === 'roles' || candidate.mode === 'pool' ? candidate.mode : undefined
     result.push({
       id,
       name,
+      ...(mode ? { mode } : {}),
       roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
       roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
       // Omit the key entirely when empty so pre-model-persistence teams keep a
@@ -1123,18 +1169,20 @@ export interface SettingsSliceActions {
    * existing team, that team is updated in place; otherwise a new team is added.
    * Returns the team id (empty string if the name was blank).
    */
-  saveSprintEngineRosterTeam: (input: {
+  saveSprintEngineRoster: (input: {
     id?: string
     name: string
+    /** The formation the roster is saved in (MC-1875); absent keeps the legacy guess. */
+    mode?: SprintEngineRosterMode
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
     roleModelOverrides?: SprintEngineRoleModelOverrides
   }) => string
   /** Rename a saved team in place. Leaves its roster (counts + CLI defaults)
    *  untouched so renaming is orthogonal to saving roster edits. */
-  renameSprintEngineRosterTeam: (id: string, name: string) => void
-  deleteSprintEngineRosterTeam: (id: string) => void
-  setSprintEngineLastSelectedTeam: (id: string | null) => void
+  renameSprintEngineRoster: (id: string, name: string) => void
+  deleteSprintEngineRoster: (id: string) => void
+  setSprintEngineLastSelectedRoster: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
@@ -1540,9 +1588,14 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         }
       }),
 
-    saveSprintEngineRosterTeam: (input) => {
+    saveSprintEngineRoster: (input) => {
       const name = input.name.trim()
       if (!name) return ''
+      // MC-1876: the built-in "No roles" is synthetic and reserved. Refusing
+      // both its id and its name here — not just in the UI's validation — is
+      // what makes "it cannot be renamed, edited, or deleted" true rather than
+      // merely unreachable through the happy path.
+      if (isNoRolesRosterRef(name) || isNoRolesRosterRef(input.id)) return ''
       const roster = normalizeSprintEngineSavedRoster({
         roleCounts: input.roleCounts,
         roleCliDefaults: input.roleCliDefaults,
@@ -1552,12 +1605,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       const now = Date.now()
       set((state) => {
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teams = [...(current.savedTeams ?? [])]
+        const teams = [...(current.savedRosters ?? [])]
         const existingIndex = teams.findIndex((team) => team.id === id)
+        // MC-1875: an explicit formation is stored; omitting it leaves an
+        // existing roster's stored mode untouched rather than erasing it, and
+        // leaves a new roster on the legacy guess.
+        const modePatch = input.mode ? { mode: input.mode } : {}
         if (existingIndex >= 0) {
           teams[existingIndex] = {
             ...teams[existingIndex],
             name,
+            ...modePatch,
             roleCounts: roster.roleCounts,
             roleCliDefaults: roster.roleCliDefaults,
             // Explicitly overwrite (not spread-merge) so clearing every model
@@ -1569,6 +1627,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           teams.push({
             id,
             name,
+            ...modePatch,
             roleCounts: roster.roleCounts,
             roleCliDefaults: roster.roleCliDefaults,
             roleModelOverrides: roster.roleModelOverrides,
@@ -1578,8 +1637,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         }
         state.appSettings.sprintEngineRoleSettings = {
           ...current,
-          savedTeams: teams,
-          lastSelectedTeamId: id,
+          savedRosters: teams,
+          lastSelectedRosterId: id,
           // Keep the legacy default in sync so run-mount CLI defaults stay meaningful.
           savedRoster: roster,
         }
@@ -1587,48 +1646,62 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       return id
     },
 
-    renameSprintEngineRosterTeam: (id, name) => {
+    renameSprintEngineRoster: (id, name) => {
       const teamId = id.trim()
       const nextName = name.trim()
       if (!teamId || !nextName) return
       set((state) => {
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teams = current.savedTeams ?? []
+        const teams = current.savedRosters ?? []
         const index = teams.findIndex((team) => team.id === teamId)
         if (index < 0) return
         const updated = [...teams]
         updated[index] = { ...updated[index], name: nextName, updatedAt: Date.now() }
         state.appSettings.sprintEngineRoleSettings = {
           ...current,
-          savedTeams: updated,
+          savedRosters: updated,
         }
       })
     },
 
-    deleteSprintEngineRosterTeam: (id) =>
+    deleteSprintEngineRoster: (id) =>
       set((state) => {
         const teamId = id.trim()
         if (!teamId) return
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teams = (current.savedTeams ?? []).filter((team) => team.id !== teamId)
+        const teams = (current.savedRosters ?? []).filter((team) => team.id !== teamId)
         state.appSettings.sprintEngineRoleSettings = {
           ...current,
-          savedTeams: teams,
-          lastSelectedTeamId: current.lastSelectedTeamId === teamId ? null : current.lastSelectedTeamId,
+          savedRosters: teams,
+          lastSelectedRosterId: current.lastSelectedRosterId === teamId ? null : current.lastSelectedRosterId,
         }
       }),
 
-    setSprintEngineLastSelectedTeam: (id) =>
+    setSprintEngineLastSelectedRoster: (id) =>
       set((state) => {
         const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
         const teamId = id?.trim() || null
-        const team = teamId ? (current.savedTeams ?? []).find((entry) => entry.id === teamId) ?? null : null
+        // MC-1876: picking the built-in must STICK. It is not in savedRosters
+        // (by design), so without this branch the lookup below would fail, the
+        // pointer would clear, and the next resolve would fall through to the
+        // legacy savedRoster mirror — silently re-staffing "No roles" with the
+        // last specialist roster the user touched.
+        if (isNoRolesRosterRef(teamId)) {
+          state.appSettings.sprintEngineRoleSettings = {
+            ...current,
+            lastSelectedRosterId: NO_ROLES_ROSTER_ID,
+            // The legacy mirror is deliberately left alone: it is the run-mount
+            // CLI-default fallback, not a staffing source for the built-in.
+          }
+          return
+        }
+        const team = teamId ? (current.savedRosters ?? []).find((entry) => entry.id === teamId) ?? null : null
         state.appSettings.sprintEngineRoleSettings = {
           ...current,
-          lastSelectedTeamId: team ? team.id : null,
+          lastSelectedRosterId: team ? team.id : null,
           // Mirror the picked team into the legacy default for run-mount fallback,
           // including its model overrides so savedRoster stays a faithful mirror
-          // (matches what saveSprintEngineRosterTeam writes).
+          // (matches what saveSprintEngineRoster writes).
           savedRoster: team
             ? {
                 roleCounts: team.roleCounts,

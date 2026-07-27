@@ -89,6 +89,71 @@ function ports(options: {
 
 const runRef = { statePath: STATE_PATH, teamSlug: 'alpha' }
 
+// SEAM (MC-1874): roster-vs-teamSlug. `startSprint` is the one port where the
+// horizon's ROSTER choice (agent config) and the run's TEAM SLUG (identity on
+// disk) are both in scope. The rename's whole risk is that one silently becomes
+// the other: a roster name landing in `name` would seed the run directory from
+// it, and a roster name landing in `refuseTeamSlug` would make the run refuse
+// itself. This test is the proof they stay apart.
+test('SEAM: a horizon roster rides as rosterName and never touches run identity', async () => {
+  const requests: Array<Record<string, unknown>> = []
+  const built = createRoadmapOrchestratorPorts({
+    frontDoors: {
+      readProjection: async () => ({ ok: true as const, data: undefined }),
+      mergePullRequest: async () => ({ ok: true as const }),
+    } as unknown as SprintEngineAutomationFrontDoors,
+    delegateToRenderer: async (request) => {
+      requests.push(request as unknown as Record<string, unknown>)
+      return { ok: true } as never
+    },
+    getHomeProjectRoot: () => '/w/home',
+    getWorkspaceRoots: () => ['/w/home'],
+    notify: () => undefined,
+  })
+
+  await built.startSprint({
+    workspaceRoot: '/w/home',
+    itemRelativePath: 'backlog/epics/thing.md',
+    isEpic: true,
+    roster: 'opus',
+  })
+
+  assert.equal(requests.length, 1)
+  const request = requests[0]
+  assert.equal(request.kind, 'sprint.create')
+  assert.equal(request.rosterName, 'opus', 'the roster name is the staffing choice')
+  assert.equal(request.name, undefined, 'a roster name must NEVER seed the run directory slug')
+  assert.equal(request.refuseTeamSlug, undefined, 'a roster name must NEVER become a refused run slug')
+  assert.equal(request.sourceRelativePath, 'backlog/epics/thing.md')
+
+  // And with no roster on the horizon, no staffing key is sent at all — the
+  // renderer's own default resolution decides, rather than an empty string
+  // being mistaken for a named roster that does not exist.
+  const noRoster = await (async () => {
+    requests.length = 0
+    await built.startSprint({
+      workspaceRoot: '/w/home',
+      itemRelativePath: 'backlog/item.md',
+      isEpic: false,
+    })
+    return requests[0]
+  })()
+  assert.ok(!('rosterName' in noRoster), 'an unset horizon roster sends no rosterName key at all')
+})
+
+// SEAM (MC-1874): a run created BEFORE the rename must still resolve. Run
+// identity lives entirely in the statePath on disk, which the rename never
+// touched — this pins that `teamSlug` is still derived from the path and is
+// not confusable with any roster field.
+test('SEAM: a pre-rename run.yaml path still resolves its team slug', async () => {
+  const outcomes = await ports({
+    projectionData: projection({
+      tasks: [{ id: 'T1', role: 'developer', status: 'done', sourceDocs: ['backlog/login.md'] }],
+    }),
+  }).readRunItemOutcomes({ statePath: STATE_PATH, teamSlug: 'alpha' })
+  assert.ok(outcomes, 'a run store written before the rename still reads')
+})
+
 test('a member whose every task finished reads delivered', async () => {
   const outcomes = await ports({
     projectionData: projection({

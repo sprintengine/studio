@@ -24,12 +24,10 @@ import type {
   SprintEngineRoleRegistry,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
-  SprintEngineRoleModelOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourceBundleKind,
   SprintEngineSourcePlanKind,
   SprintEngineState,
-  SprintEngineSavedRoster,
   SprintEngineWorkspaceContext,
   WorkspaceMode,
   Workspace,
@@ -55,7 +53,6 @@ import { joinWorkspacePath as joinGuidedWorkspacePath } from './guidedBrief/path
 import {
   applyUserDisabledSprintEngineRoleCounts,
   countSprintEngineAgents,
-  buildSprintEngineRoleRegistry,
   getSprintEngineRoleLabel,
   getUserDisabledSprintEngineRoleIds,
   sprintEngineRoleOrder,
@@ -77,13 +74,12 @@ import AgentComposer, {
 } from './agentComposer/AgentComposer'
 import { RecentFolderRow, isSameFolder } from './newWorkspace/RecentFolderRow'
 import { type SprintEngineCliOption } from './newWorkspace/SprintEngineRosterTable'
-import { SprintEngineTeamPanel, type SprintEngineTeamMode } from './newWorkspace/SprintEngineTeamPanel'
+import { SprintEngineRosterPanel } from './newWorkspace/SprintEngineRosterPanel'
 import { SprintEngineToolsPanel } from './newWorkspace/SprintEngineToolsPanel'
 import { SprintEngineStartPanel } from './newWorkspace/SprintEngineStartPanel'
 import {
   listSprintEngineWizardRoles,
   sprintEngineRosterHasPlanningRole,
-  sprintEngineRosterRoleFloor,
 } from '../../utils/sprintengineRoleOptions'
 import { mcpServerDisplayName } from '../../utils/mcpDisplayName'
 import { useFolderHints, useFolderScan } from './newWorkspace/useNewWorkspaceFolder'
@@ -126,12 +122,12 @@ import {
   type SprintDeclaredRepo,
   type SprintProjectOption,
 } from './newWorkspace/sprintProjectSelection'
-import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatchesTeam, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedTeams'
+import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, PLAIN_AGENT_ROLE_COUNTS } from './newWorkspace/savedRosters'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
-  type AgentCliCatalogOption,
 } from './newWorkspace/cliRuntimeOptions'
+import { remapRoleCliDefaultsToAvailable, useRosterEditor } from './newWorkspace/useRosterEditor'
 import {
   DesignSystemScaffoldError,
   GuidedBriefScaffoldError,
@@ -255,53 +251,19 @@ const SOURCE_BUNDLE_KIND_OPTIONS: Array<{ value: SprintEngineSourceBundleKind; l
   { value: 'generic_context', label: SOURCE_BUNDLE_KIND_LABELS.generic_context },
 ]
 
-// Default first-run team + CLI map moved to newWorkspace/savedTeams.ts so the
+// Default first-run team + CLI map moved to newWorkspace/savedRosters.ts so the
 // automation server's sprint.create seeds the identical roster; these aliases
 // keep the wizard's local vocabulary.
-const initialSprintEngineRoleCounts = DEFAULT_SPRINT_ENGINE_ROLE_COUNTS
 const initialSprintEngineRoleCliDefaults = DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
 
 // The plain-agents create/spawn roster (MC-1585): a single `general` planner
-// seat. Module-level so its reference is stable across renders — the effective
-// roster derivations below hand it to memoized consumers (seInitialSpawnRoles).
-const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = { general: 1 }
+// seat. Module-level in savedRosters.ts (moved there by MC-1875) so its
+// reference is stable across renders — the effective roster derivations below
+// hand it to memoized consumers (seInitialSpawnRoles) — and so the wizard and
+// the plan-sourced launch path share one constant.
 
-function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
-  return { ...roleCounts }
-}
-
-function sprintEngineRoleCliDefaultsFromSavedRoster(
-  savedRoster: SprintEngineSavedRoster | null | undefined,
-): Required<SprintEngineRoleCliDefaults> {
-  return {
-    ...initialSprintEngineRoleCliDefaults,
-    ...(savedRoster?.roleCliDefaults ?? {}),
-  }
-}
-
-// Clamp every role's CLI default to an installed agent CLI. The catalog passed
-// in is already availability-filtered, so resolveAvailableAgentCli remaps any
-// role still pointing at an uninstalled CLI (e.g. a saved team's Claude Code on
-// a Codex-only machine) to an installed one. Returns the same object reference
-// when nothing changes so it is a no-op inside setState (no render thrash).
-function remapRoleCliDefaultsToAvailable<T extends Record<string, AgentCli | undefined>>(
-  defaults: T,
-  catalog: AgentCliCatalogOption[],
-): T {
-  if (catalog.length === 0) return defaults
-  let changed = false
-  const next = { ...defaults }
-  for (const role of Object.keys(defaults) as Array<keyof T>) {
-    const current = defaults[role]
-    if (current === undefined) continue
-    const resolved = resolveAvailableAgentCli(current, catalog, current) as T[keyof T]
-    if (resolved !== current) {
-      next[role] = resolved
-      changed = true
-    }
-  }
-  return changed ? next : defaults
-}
+// remapRoleCliDefaultsToAvailable moved to newWorkspace/useRosterEditor.ts
+// (MC-1879) with the roster state that is its primary consumer.
 
 const guidedBriefSprintEngineRoleCounts: SprintEngineRoleCounts = {
   architect: 1,
@@ -452,30 +414,12 @@ export default function NewWorkspacePanel({
     (s) => s.setLastAgentSpawnPermissionPreset,
   )
   const sprintEngineRoleSettings = useWorkspaceStore((s) => s.appSettings.sprintEngineRoleSettings)
-  const saveSprintEngineRosterTeam = useWorkspaceStore((s) => s.saveSprintEngineRosterTeam)
-  const renameSprintEngineRosterTeam = useWorkspaceStore((s) => s.renameSprintEngineRosterTeam)
-  const deleteSprintEngineRosterTeam = useWorkspaceStore((s) => s.deleteSprintEngineRosterTeam)
-  const setSprintEngineLastSelectedTeam = useWorkspaceStore((s) => s.setSprintEngineLastSelectedTeam)
-  const sprintEngineTeams = sprintEngineRoleSettings.savedTeams ?? []
+  // The roster CRUD store actions are consumed by useRosterEditor (MC-1879).
+  const sprintEngineRosters = sprintEngineRoleSettings.savedRosters ?? []
   const savedSprintEngineRoster = sprintEngineRoleSettings.savedRoster ?? null
-  // Seed the wizard from the most recently selected team when one exists, else
-  // the legacy single saved roster, else the built-in default — so the roster
-  // step opens pre-selected on a runnable team and is a single Continue.
-  const initialSprintEngineRoster = resolveInitialSprintEngineRoster({
-    savedTeams: sprintEngineTeams,
-    lastSelectedTeamId: sprintEngineRoleSettings.lastSelectedTeamId,
-    savedRoster: savedSprintEngineRoster,
-    defaultRoleCounts: initialSprintEngineRoleCounts,
-    defaultRoleCliDefaults: initialSprintEngineRoleCliDefaults,
-  })
-  // MC-1585: the roster step opens on plain agents. It opens pre-expanded on the
-  // specialist affordances only when a SAVED source (a selected team or the
-  // legacy roster) staffs specialists — a fresh install (the built-in default
-  // team) and a plain general-only saved team both open collapsed. Computed once
-  // for the initial state; the toggle owns it afterwards.
-  const initialUseSpecialistRoles =
-    (Boolean(initialSprintEngineRoster.selectedTeamId) || Boolean(savedSprintEngineRoster))
-    && sprintEngineRosterStaffsSpecialists(initialSprintEngineRoster.roleCounts)
+  // Seeding the wizard from the most recently selected roster (else the legacy
+  // single roster, else No roles) moved into useRosterEditor (MC-1879), which
+  // resolves it once at mount exactly as this did.
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -562,25 +506,9 @@ export default function NewWorkspacePanel({
   const [seTeamName, setSeTeamName] = useState(initialFuturePlan?.teamName ?? '')
   const [seTeamNameTouched, setSeTeamNameTouched] = useState(Boolean(initialFuturePlan))
   const [seGoal, setSeGoal] = useState(initialFuturePlan?.goal ?? '')
-  const [seRoleCounts, setSeRoleCounts] = useState<SprintEngineRoleCounts>(
-    () => cloneSprintEngineRoleCounts(initialSprintEngineRoster.roleCounts),
-  )
-  const [seRoleCliDefaults, setSeRoleCliDefaults] = useState<Required<SprintEngineRoleCliDefaults>>(
-    () => ({ ...initialSprintEngineRoster.roleCliDefaults }),
-  )
-  // Which saved team is currently loaded; null means a hand-tuned ("Custom") roster.
-  const [seSelectedTeamId, setSeSelectedTeamId] = useState<string | null>(
-    () => initialSprintEngineRoster.selectedTeamId,
-  )
+  // Roster editor state lives in useRosterEditor (MC-1879); the hook is called
+  // below, once the CLI catalog it needs exists.
   const [seAgentCliOverrides, setSeAgentCliOverrides] = useState<Record<AgentId, AgentCli>>({})
-  // Explicit per-role launch model (string = explicit id, null = explicit CLI
-  // default/no model flag). Seeded from the initially selected saved team so the
-  // roster opens on the model the team was saved with, not a blank override.
-  const [seRoleModelOverrides, setSeRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>(
-    () => ({ ...initialSprintEngineRoster.roleModelOverrides }),
-  )
-  const [seRoleRegistry, setSeRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
-  const [seRoleRegistryStatus, setSeRoleRegistryStatus] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle')
   // Automation defaults to the product default (run agents + approve eligible
   // artifacts), so an untouched or skipped run continues on its own. Manual
   // stays one click away on the run page.
@@ -594,10 +522,8 @@ export default function NewWorkspacePanel({
   // Why the last "Also works in" pick was refused, in the user's words.
   const [seRepoError, setSeRepoError] = useState<string | null>(null)
   // Workspace-level concurrent-session cap (MC-1450: replaces the roster-size
-  // ceiling). Clamped 1-10 at the input and again by the controller. Plain-agents
-  // runs default to 2 ("two agents claiming from one task graph", MC-1585);
-  // specialist runs keep the established default of 3.
-  const [seMaxParallelAgents, setSeMaxParallelAgents] = useState(() => (initialUseSpecialistRoles ? 3 : 2))
+  // ceiling) now lives in useRosterEditor as `poolAgentCount`, because the
+  // roster step's pool panel is where it is edited.
   const [sePlanError, setSePlanError] = useState<string | null>(null)
   const [cliPermissionPreset, setCliPermissionPreset] = useState<SprintEngineCliPermissionPreset>(
     lastSpawnPermissionPreset,
@@ -623,17 +549,8 @@ export default function NewWorkspacePanel({
     setSeStartRunner(mode !== 'manual')
     setSeAutoApproveArtifacts(mode === 'run_agents_and_approve_artifacts')
   }
-  // Specialist roles on/off (MC-1585). Off = plain agents (a pool of general
-  // agents sized by the concurrency cap). On = the specialist roster. Driven by
-  // the Team page's segmented control (MC-1646) through seTeamMode below.
-  const [seUseSpecialistRoles, setSeUseSpecialistRoles] = useState(initialUseSpecialistRoles)
-  // The Team page's segmented control (MC-1646) is a projection of that one
-  // stored axis. MC-1889 removed the third formation (architect staffs from a
-  // model palette), so specialist-roles on/off is the whole choice.
-  const seTeamMode: SprintEngineTeamMode = seUseSpecialistRoles ? 'roles' : 'pool'
-  const setSeTeamMode = (mode: SprintEngineTeamMode) => {
-    setSeUseSpecialistRoles(mode === 'roles')
-  }
+  // Specialist roles on/off (MC-1585) and the Team page's segmented control
+  // that projects it both live in useRosterEditor now (MC-1879).
 
   // Review workspace creation state (MC-1677). The source segment leads with
   // Pull request (per the accepted mockup); the GitHub provider (MC-1678) is
@@ -735,39 +652,84 @@ export default function NewWorkspacePanel({
     [pluginCatalogStatus, pluginCatalogEntries, appCliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   // Once detection is trustworthy, remap any role default seeded to an
-  // uninstalled CLI (e.g. the Claude Code seed, or a saved team's Claude Code on
+  // uninstalled CLI (e.g. the Claude Code seed, or a saved roster's Claude Code on
   // a Codex-only machine) to an installed agent so creation never deploys — or
   // even offers as the selected value — a CLI the user does not have. No-op when
   // the values are already installed (setState bails on the same reference).
-  // Depends on the current defaults too so loading a saved team (which sets new
+  // Depends on the current defaults too so loading a saved roster (which sets new
   // defaults without changing availability) is re-clamped. The remap is
   // idempotent — it returns the same object reference when nothing needs
   // changing, so setState bails and this converges without looping.
+  // The roster half of this remap moved into useRosterEditor with the roster
+  // state (MC-1879); the guided-brief half stays here with its own defaults.
   useEffect(() => {
     if (cliAvailabilityStatus !== 'ready') return
-    setSeRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
     setGuidedRoleCliDefaults((current) => remapRoleCliDefaultsToAvailable(current, sprintEngineCliOptions))
-  }, [cliAvailabilityStatus, sprintEngineCliOptions, seRoleCliDefaults, guidedRoleCliDefaults])
+  }, [cliAvailabilityStatus, sprintEngineCliOptions, guidedRoleCliDefaults])
+
+  // MC-1879: every roster-editing concern — counts, CLI defaults, per-role
+  // models, formation, the role registry, saved-roster load/save/rename/delete
+  // and dirty tracking — lives in this hook. The wizard keeps only what is
+  // about LAUNCHING a run (the effective create counts below).
+  const roster = useRosterEditor({
+    cliOptions: sprintEngineCliOptions,
+    cliAvailabilityStatus,
+    workspaceRoot: folderPath,
+    hasExistingRun: seExistingTeam != null,
+    rosterDisabled: seExistingTeam != null,
+    // Editing the roster means it is no longer the existing run's roster.
+    onDetachFromExistingRun: () => {
+      setSeExistingTeam(null)
+      setSeAgentCliOverrides({})
+    },
+    // A role's CLI changed: drop any per-agent override pinned to that role on
+    // the loaded run, so the run's agents pick up the new runtime.
+    onRoleCliChanged: (role) => {
+      setSeAgentCliOverrides((current) => {
+        if (!seExistingTeam) return current
+        let changed = false
+        const next = { ...current }
+        for (const [agentId, runtimeAgent] of Object.entries(seExistingTeam.state.sprintEngineAgents)) {
+          if (runtimeAgent.role !== role) continue
+          if (agentId in next) {
+            delete next[agentId]
+            changed = true
+          }
+        }
+        return changed ? next : current
+      })
+    },
+  })
+  const seRoleCliDefaults = roster.roleCliDefaults
+  const seRoleModelOverrides = roster.roleModelOverrides
+  const seRoleRegistry = roster.registry
+  const seRoleRegistryStatus = roster.registryStatus
+  const seSelectedRosterId = roster.selectedRosterId
+  const seUseSpecialistRoles = roster.useSpecialistRoles
+  const seRosterMode = roster.rosterMode
+  const seMaxParallelAgents = roster.poolAgentCount
+  const setSeMaxParallelAgents = roster.onChangePoolAgentCount
+  const setSeRoleCliDefaults = roster.setRoleCliDefaults
+  const setSeRoleCounts = roster.setRoleCounts
+  const setSeSelectedRosterId = roster.setSelectedRosterId
+  const setSeRosterMode = roster.onChangeRosterMode
+  const effectiveSprintEngineDisabledRoleIds = roster.disabledRoleIds
+  // The UNMASKED user-disabled set. `effectiveSprintEngineDisabledRoleIds`
+  // above is the wizard-view mask (null while an existing run is loaded); this
+  // one is the raw preference, still read by the settings-driven surfaces below.
   const sprintEngineDisabledRoleIds = useMemo(
     () => getUserDisabledSprintEngineRoleIds(sprintEngineRoleSettings),
     [sprintEngineRoleSettings],
   )
-  // Existing teams render canonical projection state; user settings must not
-  // hide roles already configured on the team. Only mask the wizard view for
-  // brand-new rosters.
-  const effectiveSprintEngineDisabledRoleIds = useMemo<ReadonlySet<SprintEngineRoleId> | null>(
-    () => (seExistingTeam ? null : sprintEngineDisabledRoleIds),
-    [seExistingTeam, sprintEngineDisabledRoleIds],
-  )
   const visibleSprintEngineRoleCounts = useMemo<SprintEngineRoleCounts>(
     () => (effectiveSprintEngineDisabledRoleIds && effectiveSprintEngineDisabledRoleIds.size > 0
-      ? applyUserDisabledSprintEngineRoleCounts(seRoleCounts, effectiveSprintEngineDisabledRoleIds)
-      : seRoleCounts),
-    [seRoleCounts, effectiveSprintEngineDisabledRoleIds],
+      ? applyUserDisabledSprintEngineRoleCounts(roster.rawRoleCounts, effectiveSprintEngineDisabledRoleIds)
+      : roster.rawRoleCounts),
+    [roster.rawRoleCounts, effectiveSprintEngineDisabledRoleIds],
   )
   // Role counts handed to CREATION (not the panel view): only roles the wizard
   // actually offers as roster rows. seRoleCounts can carry stale extras from a
-  // saved team — role ids the current registry doesn't know (e.g. the v1-era
+  // saved roster — role ids the current registry doesn't know (e.g. the v1-era
   // spec_reviewer) — which would silently ride into configuredRoles as phantom,
   // unseatable roster rows the user never chose. Existing teams never
   // re-create, so their canonical counts pass through untouched.
@@ -831,34 +793,8 @@ export default function NewWorkspacePanel({
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    if (!folderPath || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
-      setSeRoleRegistry(null)
-      setSeRoleRegistryStatus(folderPath ? 'unavailable' : 'idle')
-      return undefined
-    }
-    setSeRoleRegistryStatus('loading')
-    void window.api.readSprintEngineRegistryRoles({ workspaceRoot: folderPath, includeShadowed: true })
-      .then((result) => {
-        if (cancelled) return
-        if (result.ok) {
-          setSeRoleRegistry(buildSprintEngineRoleRegistry(result.data))
-          setSeRoleRegistryStatus('ready')
-        } else {
-          setSeRoleRegistry(null)
-          setSeRoleRegistryStatus('unavailable')
-        }
-      })
-      .catch(() => {
-        if (cancelled) return
-        setSeRoleRegistry(null)
-        setSeRoleRegistryStatus('unavailable')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [folderPath])
+  // The role-registry read moved into useRosterEditor with the rest of the
+  // roster state (MC-1879).
 
   const toggleMcpInWizard = (server: McpCatalogServer) => {
     const enabled = Boolean(mcpSettings?.servers[server.id]?.enabled)
@@ -1868,7 +1804,7 @@ export default function NewWorkspacePanel({
     setSeExistingTeam(team)
     // A canonical team's roster comes from projection state, not a saved preset;
     // detach the preset picker so its Update/Delete affordances aren't stale.
-    setSeSelectedTeamId(null)
+    setSeSelectedRosterId(null)
     setSeTeamName(team.displayName)
     setSeGoal(team.state.goal)
     setSeRoleCounts(team.state.roleCounts)
@@ -2013,55 +1949,11 @@ export default function NewWorkspacePanel({
     setSePlanError(null)
   }
 
-  const setRoleCount = (role: SprintEngineRoleId, count: number) => {
-    setSeExistingTeam(null)
-    setSeAgentCliOverrides({})
-    setSeRoleCliDefaults((current) => ({
-      ...current,
-      // Seed a newly surfaced role with an installed CLI rather than the raw
-      // Claude Code default, so bumping a role count never reintroduces an
-      // uninstalled agent on a machine that lacks it.
-      [role]: current[role] ?? resolveAvailableAgentCli('claude-code', sprintEngineCliOptions, 'claude-code'),
-    }))
-    setSeRoleCounts((current) => {
-      // Floor against the current counts so a planning role (architect/general)
-      // can only drop to 0 while the other planner is staffed — the roster
-      // never loses its last planning-capable agent. Counts are an enabled-set
-      // encoding (MC-1450): every role is 0 or 1; parallelism comes from the
-      // max-parallel-agents knob + mint-on-demand, not headcounts.
-      const min = sprintEngineRosterRoleFloor(role, current)
-      return {
-        ...current,
-        [role]: Math.max(min, Math.min(1, Math.floor(count))),
-      }
-    })
-  }
-
-  const setRoleCli = (role: SprintEngineRoleId, cli: AgentCli) => {
-    setSeRoleCliDefaults((current) => ({ ...current, [role]: cli }))
-    // A model picked for the previous CLI is meaningless on the new one;
-    // drop the override so the row falls back to the new CLI's remembered
-    // model default.
-    setSeRoleModelOverrides((current) => {
-      if (!(role in current)) return current
-      const next = { ...current }
-      delete next[role]
-      return next
-    })
-    setSeAgentCliOverrides((current) => {
-      if (!seExistingTeam) return current
-      let changed = false
-      const next = { ...current }
-      for (const [agentId, runtimeAgent] of Object.entries(seExistingTeam.state.sprintEngineAgents)) {
-        if (runtimeAgent.role !== role) continue
-        if (agentId in next) {
-          delete next[agentId]
-          changed = true
-        }
-      }
-      return changed ? next : current
-    })
-  }
+  // setRoleCount / setRoleCli moved into useRosterEditor (MC-1879), which keeps
+  // their side effects via the onDetachFromExistingRun / onRoleCliChanged
+  // callbacks the wizard passes in.
+  const setRoleCount = roster.onSetRoleCount
+  const setRoleCli = roster.onSetRoleCli
 
   const setGuidedRoleCli = (role: keyof GuidedBriefRoleCliDefaults, cli: AgentCli) => {
     setGuidedRoleCliDefaults((current) => ({ ...current, [role]: cli }))
@@ -2071,9 +1963,7 @@ export default function NewWorkspacePanel({
     setGuidedRoleModelOverrides((current) => ({ ...current, [role]: model }))
   }
 
-  const setRoleModel = (role: SprintEngineRoleId, model: string | null) => {
-    setSeRoleModelOverrides((current) => ({ ...current, [role]: model }))
-  }
+  const setRoleModel = roster.onSetRoleModel
 
   // Lazy roster: only the architect carries a start-at-launch intent (no
   // per-role "Start now" toggle). Worker/reviewer ids are minted on demand.
@@ -2128,78 +2018,14 @@ export default function NewWorkspacePanel({
     setLastAgentSpawnPermissionPreset(cliPermissionPreset)
   }
 
-  // Load a saved team into the wizard rows, or detach to a custom roster when
-  // id is null. Mirrors setRoleCount's resets so a freshly loaded team starts clean.
-  const handleSelectSprintEngineTeam = (id: string | null) => {
-    if (!id) {
-      setSeSelectedTeamId(null)
-      setSprintEngineLastSelectedTeam(null)
-      return
-    }
-    const team = sprintEngineTeams.find((entry) => entry.id === id)
-    if (!team) return
-    setSeExistingTeam(null)
-    setSeAgentCliOverrides({})
-    // Restore the team's saved per-role model overrides (absent = CLI default).
-    setSeRoleModelOverrides({ ...(team.roleModelOverrides ?? {}) })
-    setSeRoleCounts(cloneSprintEngineRoleCounts(team.roleCounts))
-    setSeRoleCliDefaults(sprintEngineRoleCliDefaultsFromSavedRoster(team))
-    setSeSelectedTeamId(team.id)
-    setSprintEngineLastSelectedTeam(team.id)
-  }
-
-  const handleSaveSprintEngineTeam = (name: string) => {
-    const id = saveSprintEngineRosterTeam({
-      name,
-      roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
-      roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
-      roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleSprintEngineRoleCounts, seRoleModelOverrides),
-    })
-    if (id) setSeSelectedTeamId(id)
-  }
-
-  // "Update" re-saves the current (edited) roster under the team's existing name.
-  const handleUpdateSprintEngineTeam = (id: string, name: string) => {
-    saveSprintEngineRosterTeam({
-      id,
-      name,
-      roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
-      roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
-      roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleSprintEngineRoleCounts, seRoleModelOverrides),
-    })
-    setSeSelectedTeamId(id)
-  }
-
-  // "Rename" changes only the name, leaving the saved roster intact — so renaming
-  // never silently overwrites a team with the current (possibly edited) rows.
-  const handleRenameSprintEngineTeam = (id: string, name: string) => {
-    renameSprintEngineRosterTeam(id, name)
-    setSeSelectedTeamId(id)
-  }
-
-  const handleDeleteSprintEngineTeam = (id: string) => {
-    deleteSprintEngineRosterTeam(id)
-    if (seSelectedTeamId === id) setSeSelectedTeamId(null)
-  }
-
-  // The saved team the roster was loaded from, and whether the current rows still
-  // match it. Drives the picker's truthful "edited" state (the rows no longer
-  // equal the named team) and gates the Update affordance.
-  const selectedSprintEngineTeam = useMemo(
-    () => (seSelectedTeamId ? sprintEngineTeams.find((team) => team.id === seSelectedTeamId) ?? null : null),
-    [seSelectedTeamId, sprintEngineTeams],
-  )
-  const selectedSprintEngineTeamDirty = useMemo(
-    () => (selectedSprintEngineTeam
-      ? !sprintEngineRosterMatchesTeam(
-          selectedSprintEngineTeam,
-          visibleSprintEngineRoleCounts,
-          seRoleCliDefaults,
-          seRoleModelOverrides,
-        )
-      : false),
-    [selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults, seRoleModelOverrides],
-  )
+  // Roster load/save/rename/delete and the dirty read all moved into
+  // useRosterEditor (MC-1879). These aliases keep the render tree unchanged.
+  const handleSelectSprintEngineRoster = roster.onSelectRoster
+  const handleSaveSprintEngineRoster = roster.onSaveRoster
+  const handleUpdateSprintEngineRoster = roster.onUpdateRoster
+  const handleRenameSprintEngineRoster = roster.onRenameRoster
+  const handleDeleteSprintEngineRoster = roster.onDeleteRoster
+  const selectedSprintEngineRosterDirty = roster.selectedRosterDirty
 
   const handleCreate = async () => {
     // 'chat' has no wizard create path: it is created by the embedded composer's
@@ -3155,11 +2981,11 @@ export default function NewWorkspacePanel({
                     {sePlanError}
                   </div>
                 ) : null}
-                <SprintEngineTeamPanel
-                  teamMode={seExistingTeam != null ? 'roles' : seTeamMode}
-                  // An existing team's formation is fixed, so the segmented
+                <SprintEngineRosterPanel
+                  rosterMode={seExistingTeam != null ? 'roles' : seRosterMode}
+                  // An existing run's formation is fixed, so the segmented
                   // control is withheld.
-                  onChangeTeamMode={seExistingTeam != null ? undefined : setSeTeamMode}
+                  onChangeRosterMode={seExistingTeam != null ? undefined : setSeRosterMode}
                   roleCounts={visibleSprintEngineRoleCounts}
                   roleCliDefaults={seRoleCliDefaults}
                   roleModelOverrides={seRoleModelOverrides}
@@ -3172,14 +2998,14 @@ export default function NewWorkspacePanel({
                   disabledRoleIds={effectiveSprintEngineDisabledRoleIds}
                   rosterDisabled={seExistingTeam != null}
                   hasExistingTeam={seExistingTeam != null}
-                  teams={sprintEngineTeams}
-                  selectedTeamId={seSelectedTeamId}
-                  selectedTeamDirty={selectedSprintEngineTeamDirty}
-                  onSelectTeam={handleSelectSprintEngineTeam}
-                  onSaveTeam={handleSaveSprintEngineTeam}
-                  onUpdateTeam={handleUpdateSprintEngineTeam}
-                  onRenameTeam={handleRenameSprintEngineTeam}
-                  onDeleteTeam={handleDeleteSprintEngineTeam}
+                  rosters={sprintEngineRosters}
+                  selectedRosterId={seSelectedRosterId}
+                  selectedRosterDirty={selectedSprintEngineRosterDirty}
+                  onSelectRoster={handleSelectSprintEngineRoster}
+                  onSaveRoster={handleSaveSprintEngineRoster}
+                  onUpdateRoster={handleUpdateSprintEngineRoster}
+                  onRenameRoster={handleRenameSprintEngineRoster}
+                  onDeleteRoster={handleDeleteSprintEngineRoster}
                   poolAgentCount={seMaxParallelAgents}
                   onChangePoolAgentCount={setSeMaxParallelAgents}
                 />
@@ -3225,7 +3051,7 @@ export default function NewWorkspacePanel({
                 workspaceName={name}
                 folderPath={folderPath}
                 objective={seGoal.trim()}
-                teamMode={seTeamMode}
+                rosterMode={seRosterMode}
                 hasExistingTeam={seExistingTeam != null}
                 existingTeamName={seExistingTeam?.displayName ?? null}
                 roleCounts={visibleSprintEngineRoleCounts}

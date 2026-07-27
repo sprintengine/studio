@@ -5,7 +5,7 @@
 //
 // MC-1646: the sprint wizard's own pages no longer render through
 // RosterAndRunSettings — its Team / Tools / Start pages live in
-// SprintEngineTeamPanel / SprintEngineToolsPanel / SprintEngineStartPanel.
+// SprintEngineRosterPanel / SprintEngineToolsPanel / SprintEngineStartPanel.
 // RosterAndRunSettings remains as the Guided Brief build handoff's
 // single-column roster + run-settings surface.
 

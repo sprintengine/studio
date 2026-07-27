@@ -1366,7 +1366,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'Create a Sprint Engine run in a new workspace, through the same creation path the app wizard uses '
       + '(CLI permissions stay at "default"). Roster precedence: an explicit `roster` map, else a named saved '
-      + '`team`, else the last saved team, else the built-in team. Pass `sourceRef` to plan the run FROM a '
+      + 'roster (`rosterName`), else the last saved roster, else the built-in roster. Pass `sourceRef` to plan the run FROM a '
       + 'backlog item or epic — the architect then plans against the item and its children, and the Backlog '
       + 'execution link is written; `goal` may be empty because it derives from the item heading. '
       + 'With startRunner the architect is launched and success is confirmed by its live terminal session; '
@@ -1377,19 +1377,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       properties: {
         folderPath: { type: 'string', description: 'Absolute project folder for the run workspace.' },
         goal: { type: 'string', description: 'The sprint goal the architect plans against. May be empty when sourceRef is given.' },
-        name: { type: 'string', description: 'Team/run display name.' },
+        name: { type: 'string', description: 'Run display name (seeds the run directory slug).' },
         sourceRef: {
           type: 'string',
           description:
             'Project-relative backlog item or epic to plan the run from, e.g. "backlog/epics/foo.md". '
             + 'Uses the shared plan-sourced creation path (epic children included), not the goal-only path.',
         },
-        team: { type: 'string', description: 'Saved team (roster) name. Unknown names fail loudly rather than falling back.' },
+        rosterName: { type: 'string', description: 'Saved roster name. Unknown names fail loudly rather than falling back.' },
         roster: {
           type: 'object',
           description:
             'Explicit roster as role id -> staffed flag, e.g. {"architect":1,"developer":1,"spec_reviewer":1}. '
-            + 'Wins over `team`. A role is ON (any count > 0) or OFF; the engine normalizes every count to 0 or 1, '
+            + 'Wins over `rosterName`. A role is ON (any count > 0) or OFF; the engine normalizes every count to 0 or 1, '
             + 'so this picks WHICH roles run, not how many agents — run parallelism is maxConcurrentAgents. '
             + 'A role omitted here is OFF, never defaulted on. Role ids are registry-driven, so roles outside the '
             + 'wizard default map (spec_reviewer, nuclear_reviewer) are accepted and get a CLI default seeded.',
@@ -1408,7 +1408,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (!isAbsolute(folderPath)) {
         return failure('invalid_arguments', '"folderPath" must be an absolute path.')
       }
-      const invalid = firstInvalidOptionalString(args, ['name', 'sourceRef', 'team', 'goal'])
+      const invalid = firstInvalidOptionalString(args, ['name', 'sourceRef', 'rosterName', 'goal'])
       if (invalid) return invalid
       const sourceRef = optionalString(args.sourceRef)
       const goal = optionalString(args.goal) ?? ''
@@ -1446,7 +1446,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         goal,
         name: optionalString(args.name),
         ...(sourceRef ? { sourceRelativePath: sourceRef } : {}),
-        ...(optionalString(args.team) ? { team: optionalString(args.team) } : {}),
+        ...(optionalString(args.rosterName) ? { rosterName: optionalString(args.rosterName) } : {}),
         ...(roster ? { roster } : {}),
         startRunner,
         autoApproveArtifacts: args.autoApproveArtifacts === true,

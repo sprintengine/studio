@@ -75,10 +75,10 @@ export type RoadmapPolicy = {
   // repoBusy guard). Real per-repo concurrency is a separate backlog item; until
   // then the editor shows no control for it.
   concurrency: number
-  // The saved team (roster) name every sprint this roadmap starts is staffed
+  // The saved ROSTER name every sprint this roadmap starts is staffed
   // with. Unset = the user's last-used roster (the sprint.create default). An
   // unknown name fails the start explicitly, never a silent fallback roster.
-  team?: string
+  roster?: string
 }
 
 export const DEFAULT_ROADMAP_POLICY: RoadmapPolicy = {
@@ -409,8 +409,8 @@ function parseRoadmapPolicy(fields: Record<string, string>): RoadmapPolicy {
   const advance = fields.advance === 'auto' ? 'auto' : 'approve'
   const merge = fields.merge === 'auto' ? 'auto' : 'manual'
   const concurrency = parsePositiveInt(fields.concurrency) ?? DEFAULT_ROADMAP_POLICY.concurrency
-  const team = fields.team?.trim()
-  return { advance, merge, concurrency, ...(team ? { team } : {}) }
+  const roster = fields.roster?.trim()
+  return { advance, merge, concurrency, ...(roster ? { roster } : {}) }
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {
@@ -456,9 +456,9 @@ export function setRoadmapPolicy(content: string, updates: Partial<RoadmapPolicy
     }
     frontmatterUpdates.concurrency = String(updates.concurrency)
   }
-  // Key presence (not definedness) decides: `{ team: undefined }` clears the
+  // Key presence (not definedness) decides: `{ roster: undefined }` clears the
   // frontmatter scalar, an absent key leaves it untouched.
-  if ('team' in updates) frontmatterUpdates.team = updates.team?.trim() ? updates.team.trim() : null
+  if ('roster' in updates) frontmatterUpdates.roster = updates.roster?.trim() ? updates.roster.trim() : null
   return serializeBacklogFrontmatterFields(content, frontmatterUpdates)
 }
 

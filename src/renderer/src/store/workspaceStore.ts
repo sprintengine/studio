@@ -26,6 +26,7 @@ import type {
   SprintEngineRosterSession,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
+  SprintEngineRosterMode,
   AgentCli,
   AgentCliModelSelection,
   AgentConfigAdoptionResult,
@@ -249,16 +250,18 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   setUsageTelemetrySettings: (update: Partial<UsageTelemetrySettings>) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
   setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
-  saveSprintEngineRosterTeam: (input: {
+  saveSprintEngineRoster: (input: {
     id?: string
     name: string
+    /** The formation the roster is saved in (MC-1875); absent keeps the legacy guess. */
+    mode?: SprintEngineRosterMode
     roleCounts: SprintEngineRoleCounts
     roleCliDefaults: SprintEngineRoleCliDefaults
     roleModelOverrides?: SprintEngineRoleModelOverrides
   }) => string
-  renameSprintEngineRosterTeam: (id: string, name: string) => void
-  deleteSprintEngineRosterTeam: (id: string) => void
-  setSprintEngineLastSelectedTeam: (id: string | null) => void
+  renameSprintEngineRoster: (id: string, name: string) => void
+  deleteSprintEngineRoster: (id: string) => void
+  setSprintEngineLastSelectedRoster: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void

@@ -19,8 +19,12 @@ import {
 import {
   DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
   DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+  NO_ROLES_ROSTER_ID,
+  findSavedSprintEngineRoster,
+  isNoRolesRosterRef,
   resolveInitialSprintEngineRoster,
-} from '../components/workspace/newWorkspace/savedTeams'
+  sprintEngineLaunchRoleCounts,
+} from '../components/workspace/newWorkspace/savedRosters'
 import {
   inferSourcePlanKind,
   joinPath,
@@ -97,15 +101,16 @@ async function handleAutomationRequest(request: AutomationRendererRequest): Prom
 }
 
 // Create + start a Sprint Engine run the way the wizard does: resolve the
-// roster (last saved team, else the built-in default), run the new-team
+// roster (last saved roster, else the built-in default), run the new-team
 // controller (main's one-shot Python init writes run.yaml), add the workspace,
 // then activate it so the board panel mounts — the mount effect is what
 // consumes initial spawns and launches the architect. Waiting for the layout
 // model here is the renderer-side half of that start guarantee; main confirms
 // the architect's live terminal session before reporting success.
 // Roster resolution for an externally-created run. Precedence: an explicit
-// `roster` (role id -> count) wins outright; else a named saved `team`; else the
-// wizard's own fallback (last selected, saved roster, built-in default).
+// `roster` (role id -> count) wins outright; else a named saved roster
+// (`rosterName`); else the wizard's own fallback (last selected, saved roster,
+// built-in default).
 //
 // The explicit path must seed `roleCliDefaults` for EVERY role it staffs.
 // `DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS` is derived from the built-in count
@@ -121,7 +126,7 @@ function resolveRequestedRoster(
 ): RosterResolution {
   const store = useWorkspaceStore.getState()
   const roleSettings = store.appSettings.sprintEngineRoleSettings
-  const savedTeams = roleSettings?.savedTeams ?? []
+  const savedRosters = roleSettings?.savedRosters ?? []
 
   const explicit = request.roster
   if (explicit && Object.keys(explicit).length > 0) {
@@ -157,7 +162,13 @@ function resolveRequestedRoster(
     return {
       ok: true,
       roster: {
-        selectedTeamId: null,
+        selectedRosterId: null,
+        // SEAM (MC-1876 x sprint.create): an EXPLICIT role map is the caller
+        // naming exact roles, so it is 'roles' formation by definition and wins
+        // over the No-roles default. Deliberate: a caller that went to the
+        // trouble of listing roles must not have them replaced by a plain-agent
+        // pool. To get No roles, send no roster at all.
+        mode: 'roles',
         roleCounts,
         roleModelOverrides: {},
         roleCliDefaults,
@@ -165,26 +176,51 @@ function resolveRequestedRoster(
     }
   }
 
-  // An unknown named team is an explicit failure — silently falling back would
-  // staff the run with a roster the caller never picked.
-  const requestedTeamName = request.team?.trim()
-  const namedTeam = requestedTeamName
-    ? savedTeams.find((team) => team.name.trim().toLowerCase() === requestedTeamName.toLowerCase()) ?? null
-    : null
-  if (requestedTeamName && !namedTeam) {
+  const requestedRosterName = request.rosterName?.trim()
+
+  // The built-in resolves by name or id, and is never "not found".
+  if (isNoRolesRosterRef(requestedRosterName)) {
     return {
-      ok: false,
-      response: { ok: false, code: 'sprint_unknown_team', message: `Saved team "${requestedTeamName}" was not found.` },
+      ok: true,
+      roster: resolveInitialSprintEngineRoster({
+        savedRosters,
+        lastSelectedRosterId: null,
+        savedRoster: null,
+        defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
+        defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+        explicitRosterRef: NO_ROLES_ROSTER_ID,
+      }),
     }
   }
+
+  // An unknown NAMED roster is an explicit failure — silently falling back
+  // would staff the run with a roster the caller never picked. This branch is
+  // deliberately unchanged by MC-1876: only an ABSENT roster gets the new
+  // default; a named-but-missing one must still fail loudly.
+  const namedRoster = findSavedSprintEngineRoster(savedRosters, requestedRosterName)
+  if (requestedRosterName && !namedRoster) {
+    return {
+      ok: false,
+      response: { ok: false, code: 'sprint_unknown_roster', message: `Saved roster "${requestedRosterName}" was not found.` },
+    }
+  }
+
+  // MC-1876 — THE DEFAULT FLIP. An externally-created run (a Horizon step with
+  // no `roster:`, an automation with no roster configured) used to resolve
+  // through `lastSelectedRosterId`: whatever roster the user last touched in
+  // the sprint WIZARD. A horizon running over days could therefore staff step 3
+  // differently from step 1 because someone opened the wizard in between, and
+  // nothing in the UI admitted it. Absent now means No roles — deterministic,
+  // and independent of unrelated UI state.
   return {
     ok: true,
     roster: resolveInitialSprintEngineRoster({
-      savedTeams,
-      lastSelectedTeamId: namedTeam?.id ?? roleSettings?.lastSelectedTeamId ?? null,
-      savedRoster: roleSettings?.savedRoster ?? null,
+      savedRosters,
+      lastSelectedRosterId: null,
+      savedRoster: null,
       defaultRoleCounts: DEFAULT_SPRINT_ENGINE_ROLE_COUNTS,
       defaultRoleCliDefaults: DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS,
+      explicitRosterRef: namedRoster?.id ?? NO_ROLES_ROSTER_ID,
     }),
   }
 }
@@ -200,6 +236,12 @@ async function createSprint(
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
+  // Formation decides staffing on THIS path too. Both sprint.create paths
+  // resolve a roster through `resolveRequestedRoster`, so both must honor the
+  // `mode` it returns — otherwise a "No roles" run created goal-sourced would
+  // silently staff the specialist defaults and seat an architect, which is the
+  // exact thing "no roles" excludes.
+  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
 
   let args: OnCreateArgs
   try {
@@ -208,14 +250,19 @@ async function createSprint(
         folderPath: request.folderPath,
         teamName: request.name?.trim() ?? '',
         goal: request.goal,
-        roleCounts: roster.roleCounts,
-        visibleRoleCounts: roster.roleCounts,
+        roleCounts: launchRoleCounts,
+        visibleRoleCounts: launchRoleCounts,
         maxParallelAgents: SPRINT_ENGINE_DEFAULT_MAX_PARALLEL_AGENTS,
         roleCliDefaults: roster.roleCliDefaults,
         roleModelOverrides: roster.roleModelOverrides,
         // Only a non-manual run carries a start-at-launch intent; a manual run
-        // deliberately sits idle until a person opens it.
-        initialSpawnRoles: request.startRunner === true ? ['architect'] : null,
+        // deliberately sits idle until a person opens it. The planner follows
+        // the staffed counts rather than being hardcoded to `architect`: for a
+        // roles roster that still resolves to the architect (byte-identical to
+        // before), and for a no-roles roster it is a plain `general`.
+        initialSpawnRoles: request.startRunner === true
+          ? [sprintEnginePlannerRole(launchRoleCounts)]
+          : null,
         startRunner: request.startRunner === true,
         autoApproveArtifacts: request.autoApproveArtifacts === true,
         useWorktrees: request.useWorktrees === true,
@@ -283,6 +330,13 @@ async function createPlanSourcedSprint(
   const resolved = resolveRequestedRoster(request)
   if (!resolved.ok) return resolved.response
   const roster = resolved.roster
+  // MC-1875: formation decides what actually staffs the run. A 'pool' ("no
+  // roles") roster launches the plain-agent seed — one `general` planner, then
+  // one agent minted per task up to the run's max-concurrency setting — NOT the
+  // specialist counts it may still be carrying behind the wizard's disclosure.
+  // Before this, Horizon could never start a pool run at all: it passed
+  // roleCounts and nothing else, so formation was unexpressible.
+  const launchRoleCounts = sprintEngineLaunchRoleCounts(roster.mode, roster.roleCounts)
 
   const absoluteSourcePath = joinPath(request.folderPath, normalizedSourcePath)
   if (!(await window.api.pathExists(absoluteSourcePath))) {
@@ -323,10 +377,13 @@ async function createPlanSourcedSprint(
       sourcePath: normalizedSourcePath,
       sourceContent,
       sourcePlanKind: inferSourcePlanKind(normalizedSourcePath, sourceContent),
-      roleCounts: roster.roleCounts,
+      roleCounts: launchRoleCounts,
       roleCliDefaults: roster.roleCliDefaults,
       roleModelOverrides: roster.roleModelOverrides,
-      initialSpawnRoles: startRunner ? [sprintEnginePlannerRole(roster.roleCounts)] : null,
+      // `sprintEnginePlannerRole` already prefers `general` over `architect`
+      // when general is staffed, so pool mode needs no special case here once
+      // the counts are right — pinned by a test rather than assumed.
+      initialSpawnRoles: startRunner ? [sprintEnginePlannerRole(launchRoleCounts)] : null,
       sprintEngineAutoState: {
         ...sprintEngineAutomationInitialStateForMode(automationMode),
         // Plan-sourced launches are horizon/automation-orchestrated: nobody is

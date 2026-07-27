@@ -135,7 +135,10 @@ export function createSprintEngineStartActionProvider(
       required: ['backlogItem'],
       properties: {
         backlogItem: { type: 'string', minLength: 1 },
-        team: { type: 'string', minLength: 1 },
+        // Saved ROSTER name (agent config). NOT the run's team dir slug — that
+        // is `sprint-engine-run`'s `team`, a different action with a different
+        // meaning for the same old word (MC-1874).
+        roster: { type: 'string', minLength: 1 },
         sprintName: { type: 'string', minLength: 1 },
         useWorktrees: { type: 'boolean' },
         autoApproveArtifacts: { type: 'boolean' },
@@ -166,7 +169,7 @@ export function createSprintEngineStartActionProvider(
         goal: '',
         name: parsed.sprintName,
         sourceRelativePath: parsed.backlogItem,
-        team: parsed.team,
+        rosterName: parsed.roster,
         useWorktrees,
         startRunner: true,
         autoApproveArtifacts: parsed.autoApproveArtifacts === true,
@@ -188,7 +191,7 @@ export function createSprintEngineStartActionProvider(
 
 function parseSprintEngineStartConfig(config: unknown): {
   backlogItem: string
-  team?: string
+  roster?: string
   sprintName?: string
   useWorktrees?: boolean
   autoApproveArtifacts?: boolean
@@ -215,9 +218,16 @@ function parseSprintEngineStartConfig(config: unknown): {
   if (autoApproveArtifacts !== undefined && typeof autoApproveArtifacts !== 'boolean') {
     throw new Error('sprint-engine-start autoApproveArtifacts must be a boolean.')
   }
+  // ONE-TIME LEGACY READ (MC-1874), and the ONLY surviving one. Automation
+  // configs are persisted per workspace and have no normalizer pass to migrate
+  // through, so the pre-rename `team` spelling is accepted here at parse time
+  // and rewritten nowhere. This is NOT a general pattern — every other roster
+  // rename migrates once through the settings normalizer and then stops reading
+  // the old key. Do not copy this shape elsewhere.
+  const roster = optionalString(config.roster) ?? optionalString((config as { team?: unknown }).team)
   return {
     backlogItem,
-    ...(optionalString(config.team) ? { team: optionalString(config.team) } : {}),
+    ...(roster ? { roster } : {}),
     ...(optionalString(config.sprintName) ? { sprintName: optionalString(config.sprintName) } : {}),
     ...(useWorktrees === undefined ? {} : { useWorktrees }),
     ...(autoApproveArtifacts === undefined ? {} : { autoApproveArtifacts }),

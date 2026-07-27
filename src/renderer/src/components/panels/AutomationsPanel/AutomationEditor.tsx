@@ -50,7 +50,7 @@ import {
 import { TriggerFields, selectedFamilyUnavailableReason } from './TriggerFields'
 import { BacklogItemSearchPicker, type BacklogItemSearchOption } from '../../backlog/BacklogItemSearchPicker'
 import { useBacklogScan } from '../../workspace/newWorkspace/useBacklogScan'
-import type { SprintEngineRosterTeam } from '../../../types/workspace'
+import type { SprintEngineRoster } from '../../../types/workspace'
 
 // Composes ScheduleCadenceForm (the authoritative cadence sub-state shape in
 // automationsFormat.ts) so a new cadence field is declared exactly once.
@@ -99,7 +99,7 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
 }
 
 // Stable empty fallback so the saved-teams selector doesn't churn refs per render.
-const EMPTY_SAVED_TEAMS: SprintEngineRosterTeam[] = []
+const EMPTY_SAVED_TEAMS: SprintEngineRoster[] = []
 
 // One control box vocabulary shared by every text input and the Select trigger
 // (h-7, 5px radius, --border-default on --bg-surface-raised) so inputs and
@@ -389,7 +389,7 @@ export function AutomationEditor({
       })),
   [backlogScan.result.items])
   const sprintSavedTeams = useWorkspaceStore(
-    (s) => s.appSettings.sprintEngineRoleSettings?.savedTeams ?? EMPTY_SAVED_TEAMS,
+    (s) => s.appSettings.sprintEngineRoleSettings?.savedRosters ?? EMPTY_SAVED_TEAMS,
   )
   const sprintTeamItems: SelectItem[] = useMemo(() => {
     // The empty option resolves like the sprint wizard does (the last team you

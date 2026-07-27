@@ -972,16 +972,64 @@ export type SprintEngineSavedRoster = {
   roleModelOverrides?: SprintEngineRoleModelOverrides
 }
 
-// A named, reusable roster preset ("team"). Lets users keep several rosters —
-// e.g. a lightweight two-agent team and a heavyweight full-review team — and
-// pick one when creating a workspace instead of reconfiguring every time.
-export type SprintEngineRosterTeam = {
+// A named, reusable roster preset. Lets users keep several rosters — e.g. a
+// lightweight two-agent roster and a heavyweight full-review one — and pick one
+// when creating a workspace instead of reconfiguring every time.
+//
+// NAMING (MC-1874): a ROSTER is agent CONFIGURATION — which roles, which CLIs,
+// which models. It is NOT a "team". In this codebase `team` means the run
+// directory slug (`.multi-code/sprintengine/<team>/run.yaml`) and appears as
+// `teamSlug` / `teamName` / `teamDirectoryPath`. The two used to share the word
+// and met in the same signatures; keep them apart.
+// How a roster is formed. 'roles' = the user staffs named specialist roles.
+// 'pool' = NO ROLES: no souls, no specialist prompts, no architect — one plain
+// agent per task up to the run's max-concurrency setting, with one of them
+// doing the planning. (MC-1889 removed a third formation where the architect
+// staffed from a model palette.)
+//
+// Lives in shared, not the renderer, because `src/shared` cannot import
+// renderer modules (tsconfig.web boundary) and both the wizard and the
+// plan-sourced launch path need it. SprintEngineRosterPanel re-exports it so
+// its call sites are unchanged.
+export type SprintEngineRosterMode = 'roles' | 'pool'
+
+// The built-in "No roles" (non-)roster: no souls, no specialists, no architect
+// — one plain agent per task up to the run's max-concurrency setting, with one
+// of them doing the planning. It is the zero-configuration DEFAULT (MC-1876).
+//
+// SYNTHETIC, never a row in `savedRosters`: a seeded row could be deleted,
+// renamed, or edited into something else, and then "the default" would mean
+// different things on different machines. Choosing it means "no roster".
+//
+// Lives in shared rather than beside the wizard helpers because the settings
+// store must recognise the id too (to let the selection stick without
+// persisting a phantom roster) and the store must not import renderer
+// components. `newWorkspace/savedRosters.ts` re-exports it.
+export const NO_ROLES_ROSTER_ID = 'builtin:no-roles'
+export const NO_ROLES_ROSTER_NAME = 'No roles'
+
+// True for the built-in, by id OR by name — a horizon may name it either way
+// (`roster: No roles` in frontmatter). Case- and space-insensitive on the name
+// so hand-authored frontmatter resolves.
+export function isNoRolesRosterRef(ref: string | null | undefined): boolean {
+  if (!ref) return false
+  const trimmed = ref.trim()
+  return trimmed === NO_ROLES_ROSTER_ID || trimmed.toLowerCase() === NO_ROLES_ROSTER_NAME.toLowerCase()
+}
+
+export type SprintEngineRoster = {
   id: string
   name: string
+  // The formation this roster was SAVED in, so reloading it restores what the
+  // user chose rather than re-deriving a guess from `roleCounts`. ABSENT is a
+  // documented state, not an accident: every roster saved before MC-1875 has no
+  // mode, and those fall back to the legacy staffs-specialists guess so they
+  // load exactly as they did before.
+  mode?: SprintEngineRosterMode
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
   // Per-role explicit launch model (see SprintEngineSavedRoster). Absent on
-  // teams saved before model persistence — those fall back to CLI default.
+  // rosters saved before model persistence — those fall back to CLI default.
   roleModelOverrides?: SprintEngineRoleModelOverrides
   createdAt: number
   updatedAt: number
@@ -990,12 +1038,12 @@ export type SprintEngineRosterTeam = {
 export type SprintEngineRoleSettings = {
   enabled: Record<SprintEngineRoleId, boolean>
   // Legacy single-roster default, retained for migration and as the run-mount
-  // CLI-default fallback. New saves go through `savedTeams`.
+  // CLI-default fallback. New saves go through `savedRosters`.
   savedRoster?: SprintEngineSavedRoster | null
   // Named roster presets the user can pick from.
-  savedTeams?: SprintEngineRosterTeam[]
-  // The team most recently selected/saved, used to seed the new-workspace wizard.
-  lastSelectedTeamId?: string | null
+  savedRosters?: SprintEngineRoster[]
+  // The roster most recently selected/saved, used to seed the new-workspace wizard.
+  lastSelectedRosterId?: string | null
 }
 
 export type SprintEngineRunSettings = {
