@@ -340,32 +340,6 @@ def test_merging_one_project_flips_and_cleans_up_only_that_project(tmp_path, mon
     assert fixture.state_path.exists()
 
 
-def test_run_completes_when_every_changed_project_has_a_pull_request(tmp_path, monkeypatch) -> None:
-    # The completion gate counts projects the run CHANGED: a project with no commits
-    # needs no pull request, and one with commits and no pull request is not delivered.
-    from sprintengine_core.store import normalize_runner_policy
-    from sprintengine_core.tool.commands.run import finalize_completed_run
-
-    fixture = _two_project_run(tmp_path)
-    fake = _fake_gh(monkeypatch, fixture)
-    state = read_state(fixture.state_path)
-
-    before = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
-    assert before["blocked"] is False
-    assert "alreadyExists" not in before
-
-    shell.create_run_pull_request(state, fixture.state_path)
-    after = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
-
-    assert after["alreadyExists"] is True
-    assert after["pullRequestUrls"] == [
-        {"repo": "primary", "pullRequestUrl": "https://github.com/acme/multicode/pull/1"},
-        {"repo": "mobile", "pullRequestUrl": "https://github.com/acme/multicode-mobile/pull/9"},
-    ]
-    assert "https://github.com/acme/multicode-mobile/pull/9" in after["message"]
-    assert fake.bodies  # the pull requests are the ones this run opened
-
-
 # --- the single-project control ----------------------------------------------
 
 

@@ -29,9 +29,9 @@ TOOL_NAME_PATTERN = re.compile(r"\bsprintengine\.[a-z_]+(?:\.[a-z_]+)?\b")
 GENERATED_TOOL_NAMES_PATH = "src/shared/sprintengineToolNames.generated.ts"
 
 # Managed-mode dispatch is claim-first by design: the runtime (renderer/main)
-# decides who runs and names the claim tool; agents never route through the
-# directive protocol. The directive tool survives only for the headless CLI
-# (`join --watch`), which lives in Python, not in these sources.
+# decides who runs and names the claim tool. The directive protocol and the
+# `join --watch` loop it served were deleted in MC-1827; this stays as the
+# regression pin that no prompt source reintroduces the hop.
 FORBIDDEN_TOOL_REFERENCES = {"sprintengine.agent.next_directive"}
 
 

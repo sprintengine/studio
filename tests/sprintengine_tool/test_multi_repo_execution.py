@@ -214,12 +214,10 @@ def test_owned_paths_excuse_the_same_path_in_another_project(tmp_path) -> None:
     assert shell.worktree_orphaned_dirty_paths(state, fixture.state_path, mobile) == ["app/stray.ts"]
 
 
-def test_run_completion_blocks_on_an_orphan_in_any_declared_project(tmp_path) -> None:
-    # AC3: the completion scan covers every declared tree and names the project the
-    # operator has to go look in.
-    from sprintengine_core.tool.commands.run import finalize_completed_run
-    from sprintengine_core.store import normalize_runner_policy
-
+def test_run_summary_names_the_project_an_orphan_sits_in(tmp_path) -> None:
+    # AC3: the run-level orphan scan covers every declared tree and names the
+    # project the operator has to go look in. It hangs off the run summary now
+    # that the join completion path is gone (MC-1827).
     fixture, _, _ = _two_project_run(tmp_path)
     fixture.cli.run(
         "plan", "add-task", "--title", "Mobile screen", "--role", "developer",
@@ -234,12 +232,9 @@ def test_run_completion_blocks_on_an_orphan_in_any_declared_project(tmp_path) ->
     # A change owned by no task, left behind in the SIBLING tree.
     _write(fixture.team_dir / "worktree-mobile", "app/orphan/extra.ts", "export const x = 1\n")
 
-    state = read_state(fixture.state_path)
-    result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
+    summary = fixture.cli.run("summary")
 
-    assert result["blocked"] is True
-    assert result["orphanedByRepo"] == [{"repo": "mobile", "path": "app/orphan/extra.ts"}]
-    assert "mobile: app/orphan/extra.ts" in result["message"]
+    assert summary["orphanedUncommittedPaths"] == [{"repo": "mobile", "path": "app/orphan/extra.ts"}]
 
 
 # --- lock isolation ---------------------------------------------------------

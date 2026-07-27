@@ -1,4 +1,4 @@
-"""Task, phase, merge, and workspace prompt builders.
+"""Task, phase, and workspace prompt builders.
 
 Phase directives are the MC-1542 replacement for gate review prompts. A task's
 owner implements, publishes, and then walks its `phases` in the SAME session; the
@@ -22,7 +22,7 @@ from sprintengine_core.role_registry import (
 )
 from sprintengine_core.tool.comments import *  # noqa: F403,F401
 from sprintengine_core.tool.paths import project_relative_path, workspace_root_for_state_path
-from sprintengine_core.tool.plans import plan_path_for_state, plan_prompt_path
+from sprintengine_core.tool.plans import plan_prompt_path
 from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
 from sprintengine_core.tool.tasks import ensure_evidence
 
@@ -89,67 +89,6 @@ def worker_execution_workspace_block(state: Dict[str, Any], state_path: Path) ->
             "- Do not push or open a pull request yourself. Each project the run changed gets its own pull request, opened after the run completes.",
         ],
     )
-
-def build_merge_start_prompt(state: Dict[str, Any], state_path: Path, actor_id: str, target: str) -> str:
-    sprintengine = state.get("sprintengine", {})
-    goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
-    plan_path = plan_path_for_state(state_path)
-    target_branch = target.strip()
-    # A worktree-mode run changes one branch per declared project (MC-1611), each in
-    # its own tree; a no-worktree run changes the single branch the architect is on.
-    # Name the branches explicitly so a multi-repo merge is not treated as one branch.
-    repos = vcs_repos(get_run_vcs(state))
-    multi_repo = len(repos) > 1
-    lines = [
-        "You are the architect responsible for the post-run sprintengine merge.",
-        f"Actor id: {actor_id}",
-        f"Goal: {goal}",
-        f"State file: {state_path}",
-        f"Plan file: {plan_path}",
-        f"Requested merge target: {target_branch}",
-    ]
-    if repos and (multi_repo or repos[0].get("branchName")):
-        header = (
-            "Projects this run changed, each on its OWN branch and worktree — merge each "
-            f"into `{target_branch}` independently:"
-            if multi_repo
-            else "This run changed one project:"
-        )
-        lines.extend([
-            "",
-            header,
-            *[
-                f"- `{repo['id']}`: branch `{repo.get('branchName') or ''}` in `{repo.get('worktreePath') or ''}`"
-                for repo in repos
-            ],
-        ])
-    lines.extend([
-        "",
-        "This command only returns instructions. It has not changed task cards and has not run Git.",
-        "",
-        "Hard rules:",
-        "- Confirm the sprintengine run is complete before merging.",
-        f"- Read the exact plan file `{plan_path}` and `sprintengine summary` before touching Git state.",
-        "- Do not use any other `plan.md` found elsewhere in the repo.",
-    ])
-    if multi_repo:
-        lines.extend([
-            "- Merge each project listed above independently: verify its branch is the intended source and its worktree `git status --short` is clean, then merge that branch into the requested target.",
-            "- A conflict or failed validation in one project does not block the others; resolve and record each project separately.",
-        ])
-    else:
-        lines.extend([
-            "- Verify the current branch is the intended source branch and `git status --short` is clean.",
-            "- Perform the merge to the requested target branch, resolving conflicts where reasonable.",
-        ])
-    lines.extend([
-        "- Verify the merge target branch and fetch or update only if the user has allowed network/remote operations.",
-        "- Run relevant validation after the merge.",
-        "- Record the result in run summary evidence or the user handoff; do not create, reopen, or edit task cards for merge work.",
-        "- Do not push unless explicitly instructed by the user.",
-        "- If the merge cannot be completed safely, document the blocker and stop.",
-    ])
-    return "\n".join(lines)
 
 def prompt_list(title: str, values: List[str], empty: str = "None.") -> List[str]:
     lines = [f"## {title}"]

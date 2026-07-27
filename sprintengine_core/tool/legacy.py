@@ -185,13 +185,12 @@ Entry points (CLI/human/headless compatibility; autonomous Multicode agents use 
   sprintengine init [--name "..."] [--goal "..."]                 # bootstraps the board; agents claim ready tasks separately
   sprintengine recover
   sprintengine projection
-  sprintengine join --role developer --id developer-1 --watch
-  sprintengine --backend mcp-local join --role developer --id developer-1 --watch
+  sprintengine join --role developer --id developer-1
+  sprintengine --backend mcp-local join --role developer --id developer-1
   sprintengine runner set --mode auto
   sprintengine runner set --mode off
   sprintengine triage needs-input --id architect
   sprintengine mcp serve --workspace . --extra-dir ./plugin/.sprintengine
-  sprintengine merge start --id architect --target main
 
 Roster commands (run-config only; MC-1591 removed membership add/retire/replenish/list — leases replace the roster, and MC-1889 removed `roster configure` with the architect-picks-the-team formation):
   sprintengine roster runtime --role developer --cli claude-code --model claude-haiku-4-5 --actor ui
@@ -246,10 +245,10 @@ MCP lifecycle compatibility:
   The local MCP server is the preferred agent operation boundary. The CLI remains
   a human/script/headless compatibility wrapper over the same core state
   mutations. Multicode-launched autonomous roster agents use the managed
-  Sprint Engine MCP server and runtime dispatch, not `join --watch`; Multicode
-  owns terminal wake/resume and restarts missing same-role capacity. Standalone
-  or headless CLI users may still use `sprintengine join --watch`, where the
-  CLI owns idle polling/backoff. Run the stdio server with
+  Sprint Engine MCP server and runtime dispatch, not the CLI; Multicode owns
+  terminal wake/resume and restarts missing same-role capacity. `sprintengine
+  join` remains a one-shot human/debug read of what a role would be handed
+  next; it does not poll. Run the stdio server with
   `sprintengine mcp serve --workspace <path>` or
   `python -m sprintengine_mcp --workspace <path>`; repeated `--extra-dir`
   values add plugin registry roots containing roles/ and skills/. Use
@@ -260,9 +259,6 @@ Cross-platform wrappers:
   POSIX shells: scripts/sprintengine --help
   Windows cmd.exe: scripts\\sprintengine.cmd --help
   Windows PowerShell fallback: & ".\\.venv\\Scripts\\python.exe" ".\\scripts\\sprintengine_tool.py" --help
-
-Post-run merge:
-  sprintengine merge start --id architect --target main
 """
 
 def add_handover_parser(sub: argparse._SubParsersAction, name: str, help_text: str) -> None:
@@ -498,8 +494,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("join", help="Join Sprint Engine as worker, returns full role prompt.")
     p.add_argument("--role", required=True)
     p.add_argument("--id", required=True, help="Stable agent id, e.g. developer-1.")
-    p.add_argument("--watch", action="store_true", help="Poll until work is available, Auto Mode is off, or the run is complete.")
-    p.add_argument("--max-wait-seconds", type=float, help="Maximum watch duration before returning idle; primarily useful for tests and diagnostics.")
     p.set_defaults(handler=run_commands.join)
 
     # runner
@@ -513,10 +507,10 @@ def build_parser() -> argparse.ArgumentParser:
     # `--mode auto|off` is the legacy spelling. New canonical flag is
     # `--cli-watch-polling enabled|disabled`. The handler accepts either.
     p.add_argument("--mode", choices=["auto", "off"], help="DEPRECATED alias for --cli-watch-polling. auto = enabled, off = disabled.")
-    p.add_argument("--cli-watch-polling", dest="cli_watch_polling", choices=["enabled", "disabled"], help="enabled = `join --watch` keeps polling for ready work; disabled = `join --watch` exits when no work is ready. CLI runtime only — Multicode supervisor ignores this flag.")
-    p.add_argument("--poll-interval-seconds", type=int, help="Initial idle poll delay for join --watch.")
-    p.add_argument("--idle-backoff-seconds", type=int, help="Base delay for subsequent idle join --watch polls.")
-    p.add_argument("--max-backoff-seconds", type=int, help="Maximum capped delay for progressive idle join --watch backoff.")
+    p.add_argument("--cli-watch-polling", dest="cli_watch_polling", choices=["enabled", "disabled"], help="Automation-mode hint recorded on the run. The CLI watch loop it once configured is gone (MC-1827); Multicode reads this back to derive the run's automation mode.")
+    p.add_argument("--poll-interval-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
+    p.add_argument("--idle-backoff-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
+    p.add_argument("--max-backoff-seconds", type=int, help="Retained runner-policy field; no engine behaviour reads it since the watch loop was retired.")
     p.add_argument("--stop-when-complete", dest="stop_when_complete", action="store_true", default=None)
     p.add_argument("--continue-when-complete", dest="stop_when_complete", action="store_false")
     p.add_argument("--actor", default="user")
@@ -840,14 +834,6 @@ def build_parser() -> argparse.ArgumentParser:
     # summary
     p = sub.add_parser("summary", help="Print final run summary.")
     p.set_defaults(handler=run_commands.summary)
-
-    # merge
-    merge_p = sub.add_parser("merge", help="Post-run merge instructions.")
-    merge_sub = merge_p.add_subparsers(dest="action", required=True)
-    p = merge_sub.add_parser("start", help="Return canonical architect merge instructions.")
-    p.add_argument("--id", required=True, help="Architect actor id.")
-    p.add_argument("--target", required=True, help="Target branch for the user-authorized merge.")
-    p.set_defaults(handler=run_commands.merge_start)
 
     # vcs (shared run worktree)
     vcs_p = sub.add_parser("vcs", help="Shared run-worktree git operations (worktree mode only).")

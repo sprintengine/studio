@@ -101,7 +101,6 @@ def test_mutation_tools_never_echo_the_task(tmp_path) -> None:
     assert "task" not in published["result"]
     assert published["result"]["taskId"] == "T1"
     assert published["result"]["nextStatus"]
-    assert "progression" in published["result"]
 
 
 def test_slim_card_excludes_bulk_evidence_and_activity(tmp_path) -> None:
@@ -209,22 +208,6 @@ def test_slim_card_caps_notes_and_needs_input_resolution(tmp_path) -> None:
     assert deep_card["needsInput"]["resolution"] == long_resolution
     assert "notesTruncated" not in deep_card
     assert "needsInputTruncated" not in deep_card
-
-
-def test_directive_returns_stubs_not_cards(tmp_path) -> None:
-    fixture = create_team(tmp_path, "shape-directive-stub", [seeded_in_progress_task()])
-    server = make_server(tmp_path)
-
-    directive = server.call_tool(
-        "sprintengine.agent.next_directive",
-        {"statePath": str(fixture.state_path), "role": "developer", "agentId": "developer-a"},
-        actor("developer-a", "developer"),
-    )
-
-    assert directive["ok"] is True
-    stub = directive["result"].get("task")
-    if stub is not None:
-        assert set(stub) <= {"id", "title", "status", "role"}
 
 
 def test_publish_returns_the_review_directive_inline_without_echoing_the_task(tmp_path) -> None:

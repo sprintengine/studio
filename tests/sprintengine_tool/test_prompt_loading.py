@@ -166,7 +166,7 @@ def test_join_returns_worker_prompt_and_resume_directive(tmp_path) -> None:
             "Only claim and work tasks whose Sprint Engine `task.role` exactly matches `developer`.",
             "interpret that as ready `developer` tasks only.",
             "Do not run `sprintengine task claim`, `sprintengine task status`, `sprintengine artifact ready`, `sprintengine plan`, or similar mutating commands for another role's task",
-            "After completion, run `sprintengine join --role developer --id developer-fixture --watch` again if Auto Mode is on; otherwise stop.",
+            "When the task is done, stop.",
             "# Project-Relative Paths",
             "Never use absolute or machine-specific file paths",
             "All file and directory references must be relative to the project root",
@@ -1038,51 +1038,39 @@ def test_product_intake_task_includes_handover_note_without_duplicates(tmp_path)
     assert second["productTask"]["implementationNotes"].count(expected_note) == 1
 
 
-def test_merge_start_returns_instruction_only_prompt(tmp_path) -> None:
-    fixture = create_team(tmp_path, "merge-start", [task("T1", "Done task", "developer", status="done")])
-    payload = fixture.cli.run("merge", "start", "--id", "architect", "--target", "main")
-
-    assert payload["ok"] is True
-    assert payload["action"] == "merge_start"
-    assert payload["target"] == "main"
-    assert_prompt_includes(
-        payload["prompt"],
-        [
-            "This command only returns instructions. It has not changed task cards and has not run Git.",
-            "Read the exact plan file",
-            "Do not use any other `plan.md` found elsewhere in the repo.",
-            "Do not push unless explicitly instructed by the user.",
-        ],
+def test_managed_agent_join_composes_the_role_prompt_file(tmp_path) -> None:
+    """MC-1827 protection: retiring the CLI join path must not touch the MANAGED
+    composition path. `PROMPTS_DIR` + `load_sprintengine_coordination_prompt` are
+    what put a role's own prose into every dispatched agent's brief, and a role
+    with no file falls back to `generic_role_swarm_prompt` rather than nothing."""
+    from sprintengine_mcp import SprintEngineMcpServer
+    from sprintengine_core.tool.paths import PROMPTS_DIR
+    from sprintengine_core.tool.prompts import (
+        generic_role_swarm_prompt,
+        load_sprintengine_coordination_prompt,
     )
 
+    role_prose = (PROMPTS_DIR / "developer.md").read_text(encoding="utf-8").strip()
+    assert role_prose
+    assert role_prose in load_sprintengine_coordination_prompt("developer")
 
-def test_merge_start_prompt_names_each_project_branch_in_a_multi_repo_run(tmp_path) -> None:
-    """A worktree-mode run changes one branch per declared project; the merge
-    prompt must name each so a multi-repo merge is not treated as one branch."""
-    from pathlib import Path
+    # A staffed role the registry has no prompt file for still gets a brief.
+    assert not (PROMPTS_DIR / "ui_ux_reviewer.md").exists()
+    assert "Ui Ux Reviewer" in generic_role_swarm_prompt("ui_ux_reviewer")
+    assert generic_role_swarm_prompt("ui_ux_reviewer") in load_sprintengine_coordination_prompt("ui_ux_reviewer")
 
-    from sprintengine_core.tool.phase_prompts import build_merge_start_prompt
-
-    state = {
-        "sprintengine": {
-            "name": "multi-merge",
-            "goal": "Span two projects",
-            "vcs": {
-                "mode": "run_worktree",
-                "repos": [
-                    {"id": "primary", "root": ".", "worktreePath": "wt-primary", "branchName": "sprintengine/alpha", "status": "ready"},
-                    {"id": "mobile", "root": "../mobile", "worktreePath": "wt-mobile", "branchName": "sprintengine/alpha", "status": "ready"},
-                ],
-            },
+    fixture = create_team(tmp_path, "managed-join-prose", [task("T1", "Implement", "developer")])
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path, swarm_helpers.REPO_ROOT])
+    response = server.call_tool(
+        "sprintengine.agent.join",
+        {
+            "statePath": str(fixture.state_path),
+            "workspaceRoot": str(swarm_helpers.REPO_ROOT),
+            "role": "developer",
+            "agentId": "developer-a",
         },
-    }
-    prompt = build_merge_start_prompt(state, Path(tmp_path) / "run.yaml", "architect-1", "main")
-
-    assert_prompt_includes(
-        prompt,
-        [
-            "`primary`: branch `sprintengine/alpha`",
-            "`mobile`: branch `sprintengine/alpha`",
-            "Merge each project listed above independently",
-        ],
+        {"id": "workspace-user", "role": "user", "mcpAuthorized": True},
     )
+
+    assert response["ok"] is True
+    assert role_prose in response["result"]["prompt"]

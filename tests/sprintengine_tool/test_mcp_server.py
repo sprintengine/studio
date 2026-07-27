@@ -165,7 +165,6 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         # MC-1889 deleted `roster.configure` with the architect-picks formation, so
         # no roster tool remains on the MCP surface at all.
         "sprintengine.agent.join",
-        "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
         "sprintengine.agent.leave",
         "sprintengine.join",
@@ -228,7 +227,6 @@ def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> 
         "sprintengine.handover": {"name": "Run"},
         "sprintengine.init": {},
         "sprintengine.recover": {},
-        "sprintengine.agent.next_directive": {"role": "developer", "agentId": "developer-1"},
         "sprintengine.join": {"role": "developer", "id": "developer-1"},
         "sprintengine.summary": {},
         "sprintengine.triage.needs_input": {"id": "architect"},
@@ -308,7 +306,6 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_tools() -> None:
         "sprintengine.help",
         "sprintengine.handover",
         "sprintengine.agent.join",
-        "sprintengine.agent.next_directive",
         "sprintengine.agent.heartbeat",
         "sprintengine.agent.leave",
         "sprintengine.triage.needs_input",
@@ -429,7 +426,7 @@ def test_mcp_valid_task_lifecycle_call_uses_core_and_emits_audit(tmp_path) -> No
     assert len(rows[0]["state_digest"]) == 64
 
 
-def test_mcp_run_tools_return_role_agnostic_progression_context(tmp_path) -> None:
+def test_mcp_run_tools_return_role_agnostic_dispatch_context(tmp_path) -> None:
     # MC-1591 deleted the dispatch.next/ack delivery tools. The run-level tools
     # stay role-agnostic; the claim response still carries the denormalized
     # currentDispatch mirror (removed in T4 when the roster is lease-derived).
@@ -492,7 +489,6 @@ def test_mcp_task_advance_uses_core_lifecycle_and_audit(tmp_path) -> None:
     # Terminal phase: no next phase, so no directive to hand back.
     assert "nextPhase" not in advanced["result"]
     assert "nextDirective" not in advanced["result"]
-    assert advanced["result"]["progression"]["state"] == "idle"
     assert [row["operation_name"] for row in audit_rows(fixture.team_dir)] == ["sprintengine.task.advance"]
 
     persisted = get_task(read_state(fixture.state_path), "T1")
@@ -633,7 +629,6 @@ def test_mcp_task_get_comment_publish_and_advance_cover_agent_paths(tmp_path) ->
     assert advanced["result"]["taskId"] == "T1"
     assert advanced["result"]["nextStatus"] == "done"
     assert advanced["result"]["comment"]["type"] == "implementation_summary"
-    assert advanced["result"]["progression"]["state"] == "idle"
     persisted = get_task(read_state(fixture.state_path), "T1")
     assert persisted["status"] == "done"
     assert "needsInput" not in persisted
@@ -832,118 +827,70 @@ def test_mcp_agent_join_injects_role_specific_runtime_skills_without_gate_contex
     assert "# Sprint Engine Architect Workflow" not in reviewer["result"]["prompt"]
 
 
-def assert_directive_has_no_shell_command(result: dict[str, object]) -> None:
-    encoded = json.dumps(result, sort_keys=True)
-    assert "sprintengine " not in encoded
-
-
-def next_directive(server: SprintEngineMcpServer, fixture, role: str, agent_id: str, *, attempts: int | None = None) -> dict[str, object]:
-    payload: dict[str, object] = {"statePath": str(fixture.state_path), "role": role, "agentId": agent_id}
-    if attempts is not None:
-        payload["attempts"] = attempts
-    response = server.call_tool("sprintengine.agent.next_directive", payload, actor("workspace-user", "user"))
-    assert response["ok"] is True
-    result = response["result"]
-    assert_directive_has_no_shell_command(result)
-    return result
-
-
-def test_mcp_next_directive_matches_join_for_active_and_ready_tasks(tmp_path) -> None:
-    fixture = create_team(tmp_path, "mcp-next-directive-task", [task("T1", "Implement MCP", "developer")])
+def test_join_routes_a_ready_task_then_resumes_the_same_agent(tmp_path) -> None:
+    fixture = create_team(tmp_path, "join-route-task", [task("T1", "Implement MCP", "developer")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    ready_join = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    ready = next_directive(server, fixture, "developer", "developer-a")
+    ready = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
     claim = server.call_tool(
         "sprintengine.task.next",
         {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"},
         actor("workspace-user", "user"),
     )
-    active_join = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    active = next_directive(server, fixture, "developer", "developer-a")
+    active = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
 
-    assert ready_join["action"] == "work"
-    assert ready["joinAction"] == ready_join["action"]
-    assert ready["directiveType"] == "task_work"
-    assert ready["nextMcpToolName"] == "sprintengine.task.next"
-    assert ready["nextMcpArguments"] == {"statePath": str(fixture.state_path), "role": "developer", "id": "developer-a"}
+    assert ready["action"] == "work"
+    assert ready["readyTaskCount"] == 1
     assert claim["ok"] is True
-    assert active_join["action"] == "resume"
-    assert active["joinAction"] == active_join["action"]
-    assert active["directiveType"] == "resume"
+    assert active["action"] == "resume"
     assert active["task"]["id"] == "T1"
 
 
-def test_mcp_next_directive_matches_join_for_a_task_in_review(tmp_path) -> None:
+def test_join_resumes_the_owner_of_a_task_in_review(tmp_path) -> None:
     """MC-1542 Flow 6: a task in `review` stays owned, so its owner rejoining is a
     plain resume — there is no separate reviewer to route a gate directive to."""
-    fixture = create_team(tmp_path, "mcp-next-directive-review", [reviewing_task()])
-    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    fixture = create_team(tmp_path, "join-route-review", [reviewing_task()])
 
     joined = fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    directive = next_directive(server, fixture, "developer", "developer-a")
 
     assert joined["action"] == "resume"
-    assert directive["joinAction"] == joined["action"]
-    assert directive["directiveType"] == "resume"
-    assert directive["task"]["id"] == "T1"
-    assert directive["task"]["status"] == "review"
-    assert "gate" not in directive
+    assert joined["task"]["id"] == "T1"
+    assert joined["task"]["status"] == "review"
+    assert "gate" not in joined
 
 
-def test_mcp_next_directive_matches_join_for_needs_input_idle_complete_blocked_and_error(tmp_path) -> None:
+def test_join_routes_needs_input_triage_blocked_idle_complete_and_unknown_role(tmp_path) -> None:
     needs_input_task = task("T1", "Needs architect triage", "developer", "needs_input", owner="developer-a")
     needs_input_task["needsInput"] = {
         "kind": "architect",
         "reason": "task_scope",
         "question": "Clarify the scope.",
     }
-    needs_fixture = create_team(tmp_path, "mcp-next-directive-needs-input", [needs_input_task])
-    idle_fixture = create_team(tmp_path, "mcp-next-directive-idle", [task("T1", "Tester work", "tester")])
-    idle_state = read_state(idle_fixture.state_path)
-    idle_state["runner"] = {
-        "cliWatchPolling": "enabled",
-        "pollIntervalSeconds": 10,
-        "idleBackoffSeconds": 30,
-        "maxBackoffSeconds": 120,
-        "stopWhenComplete": True,
-    }
-    write_state(idle_fixture.state_path, idle_state)
-    complete_fixture = create_team(tmp_path, "mcp-next-directive-complete", [task("T1", "Done work", "developer", "done")])
+    needs_fixture = create_team(tmp_path, "join-route-needs-input", [needs_input_task])
+    idle_fixture = create_team(tmp_path, "join-route-idle", [task("T1", "Tester work", "tester")])
+    complete_fixture = create_team(tmp_path, "join-route-complete", [task("T1", "Done work", "developer", "done")])
     server = SprintEngineMcpServer(allowed_roots=[tmp_path])
 
-    needs_join = needs_fixture.cli.run("join", "--role", "architect", "--id", "architect-a")
-    needs = next_directive(server, needs_fixture, "architect", "architect-a")
-    blocked_owner_join = needs_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    blocked_owner = next_directive(server, needs_fixture, "developer", "developer-a")
+    needs = needs_fixture.cli.run("join", "--role", "architect", "--id", "architect-a")
+    blocked_owner = needs_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
     triage = server.call_tool(
         "sprintengine.triage.needs_input",
         {"statePath": str(needs_fixture.state_path), "id": "architect-a"},
         actor("workspace-user", "user"),
     )
-    idle_join = idle_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    idle = next_directive(server, idle_fixture, "developer", "developer-a", attempts=2)
-    complete_join = complete_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
-    complete = next_directive(server, complete_fixture, "developer", "developer-a")
-    error = next_directive(server, idle_fixture, "not_a_role", "developer-a")
+    idle = idle_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    complete = complete_fixture.cli.run("join", "--role", "developer", "--id", "developer-a")
+    unknown_role = idle_fixture.cli.run_failure("join", "--role", "not_a_role", "--id", "developer-a")
 
-    assert needs_join["action"] == "needs_input_triage"
-    assert needs["directiveType"] == "needs_input_triage"
-    assert needs["nextMcpToolName"] == "sprintengine.triage.needs_input"
-    assert blocked_owner_join["action"] == "blocked"
-    assert blocked_owner["directiveType"] == "blocked"
-    assert blocked_owner["nextMcpToolName"] is None
+    assert needs["action"] == "needs_input_triage"
+    assert blocked_owner["action"] == "blocked"
     assert blocked_owner["blocker"]["reason"] == "needs_input"
     assert blocked_owner["task"]["id"] == "T1"
     assert triage["ok"] is True
     assert triage["result"]["tasks"][0]["id"] == "T1"
-    assert idle_join["action"] == "idle"
-    assert idle["directiveType"] == "idle"
-    assert idle["retryAfterMs"] == 30000
-    assert complete_join["action"] == "complete"
-    assert complete["directiveType"] == "complete"
-    assert error["directiveType"] == "error"
-    assert error["nextMcpToolName"] is None
+    assert idle["action"] == "idle"
+    assert complete["action"] == "complete"
+    assert "not_a_role" in unknown_role.stderr
 
 
 def test_mcp_plan_list_read_and_handover_bootstrap_cover_agent_workflows(tmp_path) -> None:

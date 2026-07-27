@@ -12,7 +12,6 @@ that claims a task owns it through `review` to `done`.
 """
 from __future__ import annotations
 
-import argparse
 import os
 import subprocess
 
@@ -33,8 +32,6 @@ from fixtures import (
     write_state,
 )
 from sprintengine_core import store
-from sprintengine_core.tool.commands.run import build_agent_next_directive
-from sprintengine_core.tool import runner_watch_delay_seconds
 from sprintengine_core.tool.tasks import normalize_task
 
 
@@ -110,7 +107,7 @@ def test_needs_triage_blocks_ready_dispatch_until_cleared(tmp_path) -> None:
     )
 
     assert_ready_tasks(fixture.cli, "developer", [])
-    joined = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture", "--watch", "--max-wait-seconds", "0")
+    joined = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture")
     assert joined["action"] == "idle"
     next_payload = fixture.cli.run("task", "next", "--role", "developer", "--id", "developer-fixture")
     assert next_payload["claimed"] is False
@@ -383,8 +380,7 @@ def test_task_publish_records_implementation_summary_and_enters_the_review_phase
     assert payload["nextDirective"]
     assert payload["committed"] is False
     assert payload["commitSha"] is None
-    assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
-    assert "Auto Mode is on" in payload["nextAction"]
+    assert "nextCommand" not in payload
     assert payload["comment"]["type"] == "implementation_summary"
     assert payload["comment"]["id"] == "C1"
     assert payload["comment"]["authorAgentId"] == "developer-fixture"
@@ -424,7 +420,7 @@ def test_task_advance_out_of_review_completes_the_task(tmp_path) -> None:
     assert payload["nextStatus"] == "done"
     assert "nextPhase" not in payload
     assert "nextDirective" not in payload
-    assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
+    assert "nextCommand" not in payload
     state = read_state(fixture.state_path)
     task_record = get_task(state, "T1")
     assert task_record["status"] == "done"
@@ -811,31 +807,43 @@ def test_runner_set_persists_policy_and_projection(tmp_path) -> None:
     assert read_state(fixture.state_path)["runner"]["cliWatchPolling"] == "disabled"
 
 
-def test_runner_watch_delay_progressively_caps() -> None:
-    policy = {"pollIntervalSeconds": 2, "idleBackoffSeconds": 3, "maxBackoffSeconds": 10}
+def test_join_returns_idle_once_when_no_work_is_ready_for_the_role(tmp_path) -> None:
+    # Join is one-shot (MC-1827): with another role's work queued it reports idle
+    # and returns, whatever the runner policy says. Nothing polls.
+    fixture = create_team(tmp_path, "join-idle", [task("T1", "Frontend work", "frontend", "todo")])
+    fixture.cli.run("runner", "set", "--mode", "auto")
 
-    assert [runner_watch_delay_seconds(policy, attempts) for attempts in range(1, 6)] == [2, 3, 6, 10, 10]
-
-
-def test_join_watch_returns_idle_when_auto_mode_is_off_without_work(tmp_path) -> None:
-    fixture = create_team(tmp_path, "join-watch-auto-off-idle", [task("T1", "Frontend work", "frontend", "todo")])
-
-    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1", "--watch", "--max-wait-seconds", "0")
+    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1")
 
     assert payload["action"] == "idle"
-    assert payload["runner"]["cliWatchPolling"] == "disabled"
-    assert "CLI watch polling is disabled" in payload["message"]
+    assert payload["message"] == "No tasks are currently ready for the 'developer' role."
+    assert "watch" not in payload
 
 
-def test_join_watch_resumes_an_owner_parked_in_its_review_phase(tmp_path) -> None:
+def test_join_reports_completion_when_every_task_is_terminal(tmp_path) -> None:
+    # The run already reached `completed` through recompute_phase; join only says
+    # so. It runs no backstop commit and opens no pull request.
+    fixture = create_team(
+        tmp_path,
+        "join-complete",
+        [task("T1", "Done work", "developer", "done"), task("T2", "Dropped work", "frontend", "canceled")],
+    )
+
+    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1")
+
+    assert payload["action"] == "complete"
+    assert payload["message"] == "All Sprint Engine tasks are done. Stop now."
+
+
+def test_join_resumes_an_owner_parked_in_its_review_phase(tmp_path) -> None:
     # `review` is owned, so its owner reconnects to it rather than being offered
     # the ready task queued behind it. A stranger sees no ready work at all.
     review_task = owned_task("review", owner="developer-fixture")
-    fixture = create_team(tmp_path, "join-watch-review-resume", [review_task])
+    fixture = create_team(tmp_path, "join-review-resume", [review_task])
     fixture.cli.run("runner", "set", "--mode", "auto")
 
-    owner = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture", "--watch", "--max-wait-seconds", "0")
-    stranger = fixture.cli.run("join", "--role", "developer", "--id", "developer-2", "--watch", "--max-wait-seconds", "0")
+    owner = fixture.cli.run("join", "--role", "developer", "--id", "developer-fixture")
+    stranger = fixture.cli.run("join", "--role", "developer", "--id", "developer-2")
 
     assert owner["action"] == "resume"
     assert owner["task"]["id"] == "T1"
@@ -878,7 +886,7 @@ def test_temporary_marketer_role_owns_a_task_through_its_review_phase(tmp_path) 
     assert_task_status(read_state(fixture.state_path), "T1", "done")
 
 
-def test_join_watch_routes_architect_needs_input_before_ready_task(tmp_path) -> None:
+def test_join_routes_architect_needs_input_before_ready_task(tmp_path) -> None:
     blocked = task("T1", "Needs architect decision", "developer", "needs_input", owner="developer-1")
     blocked["needsInput"] = {
         "kind": "architect",
@@ -886,16 +894,16 @@ def test_join_watch_routes_architect_needs_input_before_ready_task(tmp_path) -> 
         "question": "Should this task own the shared contract?",
     }
     ready_architect = task("T2", "Architect normal task", "architect")
-    fixture = create_team(tmp_path, "join-watch-architect-triage", [blocked, ready_architect])
+    fixture = create_team(tmp_path, "join-architect-triage", [blocked, ready_architect])
     fixture.cli.run("runner", "set", "--mode", "auto")
 
-    payload = fixture.cli.run("join", "--role", "architect", "--id", "architect", "--watch", "--max-wait-seconds", "0")
+    payload = fixture.cli.run("join", "--role", "architect", "--id", "architect")
 
     assert payload["action"] == "needs_input_triage"
     assert "triage needs-input" in payload["prompt"]
 
 
-def test_join_watch_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
+def test_join_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
     blocked = task("T1", "Needs product decision", "developer", "needs_input", owner="developer-1")
     blocked["needsInput"] = {
         "kind": "user",
@@ -904,42 +912,15 @@ def test_join_watch_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
         "reportedBy": "developer-1",
         "reportedAt": "2026-05-25T00:00:00Z",
     }
-    fixture = create_team(tmp_path, "join-watch-owner-needs-input-stops", [blocked])
+    fixture = create_team(tmp_path, "join-owner-needs-input-stops", [blocked])
     fixture.cli.run("runner", "set", "--mode", "auto")
 
-    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1", "--watch", "--max-wait-seconds", "0")
+    payload = fixture.cli.run("join", "--role", "developer", "--id", "developer-1")
 
     assert payload["action"] == "blocked"
     assert payload["blocker"]["reason"] == "needs_input"
     assert payload["blocker"]["kind"] == "user"
     assert "Stop until the blocker is resolved" in payload["message"]
-
-
-def test_agent_next_directive_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
-    blocked = task("T1", "Needs product decision", "developer", "needs_input", owner="developer-1")
-    blocked["needsInput"] = {
-        "kind": "user",
-        "reason": "product_decision",
-        "question": "Which export format should ship?",
-        "reportedBy": "developer-1",
-        "reportedAt": "2026-05-25T00:00:00Z",
-    }
-    fixture = create_team(tmp_path, "next-directive-owner-needs-input-stops", [blocked])
-    fixture.cli.run("runner", "set", "--mode", "auto")
-
-    payload = build_agent_next_directive(argparse.Namespace(
-        state=fixture.state_path,
-        role="developer",
-        id="developer-1",
-        attempts=1,
-    ))
-
-    assert payload["directiveType"] == "blocked"
-    assert payload["nextMcpToolName"] is None
-    assert payload["nextMcpArguments"] is None
-    assert payload["blocker"]["reason"] == "needs_input"
-    assert payload["blocker"]["kind"] == "user"
-    assert payload["task"]["id"] == "T1"
 
 
 def test_task_next_stops_owner_on_unresolved_needs_input(tmp_path) -> None:
@@ -980,8 +961,8 @@ def test_task_status_done_completes_an_owned_task_and_releases_its_owner(tmp_pat
     assert get_task(state, "T1")["ownerAgentId"] is None
     assert get_task(state, "T1")["lastImplementedByAgentId"] == "developer-fixture"
 
-    # Completing straight out of `review` is allowed too, and in Auto Mode the
-    # worker is handed its next command.
+    # Completing straight out of `review` is allowed too, and the ack never
+    # carries a continuation command — the worker stops (MC-1827).
     fixture = create_team(
         tmp_path,
         "status-done-auto-mode",
@@ -992,8 +973,7 @@ def test_task_status_done_completes_an_owned_task_and_releases_its_owner(tmp_pat
     payload = fixture.cli.run("task", "status", "--task-id", "T1", "--status", "done", "--id", "developer-fixture")
 
     assert payload["ok"] is True
-    assert payload["nextCommand"] == "sprintengine join --role developer --id developer-fixture --watch"
-    assert "Auto Mode is on" in payload["nextAction"]
+    assert "nextCommand" not in payload
     state = read_state(fixture.state_path)
     assert_task_status(state, "T1", "done")
     assert get_task(state, "T1")["ownerAgentId"] is None
@@ -1510,7 +1490,7 @@ def test_temporary_marketer_role_flows_through_core_cli(tmp_path) -> None:
     listed = cli.run("task", "list", "--role", "growth-marketer")
     assert [task["id"] for task in listed["readyTasks"]] == [accepted["task"]["id"]]
 
-    joined = cli.run("join", "--role", "growth-marketer", "--id", "marketer-1", "--watch", "--max-wait-seconds", "0")
+    joined = cli.run("join", "--role", "growth-marketer", "--id", "marketer-1")
     assert joined["action"] == "work"
     assert "sprintengine task next --role marketer --id marketer-1" in joined["prompt"]
 
@@ -1611,9 +1591,6 @@ def test_join_leaves_an_owned_review_task_with_its_owner(tmp_path) -> None:
         "frontend",
         "--id",
         "frontend-2",
-        "--watch",
-        "--max-wait-seconds",
-        "0",
     )
     assert other_agent["action"] == "idle"
     state = read_state(fixture.state_path)
@@ -1625,9 +1602,6 @@ def test_join_leaves_an_owned_review_task_with_its_owner(tmp_path) -> None:
         "frontend",
         "--id",
         "frontend-1",
-        "--watch",
-        "--max-wait-seconds",
-        "0",
     )
     assert owner["action"] == "resume"
     assert owner["task"]["id"] == "T1"
@@ -1646,9 +1620,6 @@ def test_join_ready_task_wake_candidate_does_not_create_dispatch(tmp_path) -> No
         "developer",
         "--id",
         "developer-fixture",
-        "--watch",
-        "--max-wait-seconds",
-        "0",
     )
 
     assert joined["action"] == "work"

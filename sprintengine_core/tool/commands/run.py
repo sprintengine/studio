@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -39,7 +38,7 @@ from sprintengine_core.tool.plans import (
 from sprintengine_core.skill_layers import run_is_backlog_sourced
 from sprintengine_core.tool.prompts import artifact_registration_instruction, completion_reality_instruction, load_prompt
 from sprintengine_core.tool.roles import require_configured_role
-from sprintengine_core.tool.phase_prompts import build_merge_start_prompt, worker_execution_workspace_block
+from sprintengine_core.tool.phase_prompts import worker_execution_workspace_block
 from sprintengine_core.tool.repo_model import get_run_vcs, parse_repo_declarations
 from sprintengine_core.tool.shell import ensure_run_worktree
 from sprintengine_core.tool.state import (
@@ -580,182 +579,15 @@ def cmd_init(args: argparse.Namespace) -> Dict[str, Any]:
         "planArtifact": plan_gate["artifact"],
         "vcs": init_state.get("vcs"),
     }
-def runner_watch_delay_seconds(policy: Dict[str, Any], attempts: int) -> int:
-    poll_interval = int(policy.get("pollIntervalSeconds") or 10)
-    idle_backoff = int(policy.get("idleBackoffSeconds") or 30)
-    max_backoff = int(policy.get("maxBackoffSeconds") or idle_backoff)
-    if attempts <= 1:
-        base_delay = poll_interval
-    else:
-        base_delay = idle_backoff * (2 ** max(0, attempts - 2))
-    return min(max(1, base_delay), max_backoff)
-
-
-def _next_mcp_arguments(state_path: Path, **values: Any) -> Dict[str, Any]:
-    return {"statePath": str(state_path), **values}
-
-
-def _directive_context(value: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(value, dict):
-        return None
-    return value
-
-
-def _directive_next_tool(
-    name: Optional[str],
-    arguments: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
-    if not name:
-        return None
-    return {"name": name, "arguments": arguments or {}}
-
-
-def _directive_retry_after_ms(policy: Dict[str, Any], attempts: int, action: str) -> Optional[int]:
-    if action != "idle" or policy.get("cliWatchPolling") != "enabled":
-        return None
-    return runner_watch_delay_seconds(policy, attempts) * 1000
-
-
-def agent_next_directive_from_join(
-    result: Dict[str, Any],
-    *,
-    state_path: Path,
-    role: str,
-    agent_id: str,
-    attempts: int = 1,
-) -> Dict[str, Any]:
-    """Convert the existing join routing result into an MCP-native directive."""
-    action = str(result.get("action") or "")
-    policy = folder_store.normalize_runner_policy(result.get("runner"))
-    base = {
-        "ok": True,
-        "role": role,
-        "agentId": agent_id,
-        "joinAction": action,
-        "runnerPolicy": policy,
-        "retryAfterMs": _directive_retry_after_ms(policy, attempts, action),
-        "releasedExpired": result.get("releasedExpired") or [],
-    }
-
-    if action in {"resume", "work"}:
-        next_args = _next_mcp_arguments(state_path, role=role, id=agent_id)
-        task = _directive_context(result.get("task"))
-        return {
-            **base,
-            "directiveType": "resume" if action == "resume" else "task_work",
-            "message": (
-                "Resume the active Sprint Engine task through the MCP task context tool."
-                if action == "resume"
-                else "Claim the next ready Sprint Engine task for this role through the MCP task context tool."
-            ),
-            "nextMcpToolName": "sprintengine.task.next",
-            "nextMcpArguments": next_args,
-            "nextTool": _directive_next_tool("sprintengine.task.next", next_args),
-            "readyTaskCount": result.get("readyTaskCount"),
-            "task": task,
-        }
-
-    if action == "needs_input_triage":
-        next_args = _next_mcp_arguments(state_path, id=agent_id)
-        return {
-            **base,
-            "directiveType": "needs_input_triage",
-            "message": "Triage planner-actionable needs_input blockers through the MCP triage tool.",
-            "nextMcpToolName": "sprintengine.triage.needs_input",
-            "nextMcpArguments": next_args,
-            "nextTool": _directive_next_tool("sprintengine.triage.needs_input", next_args),
-            "triage": {"kind": "architect_needs_input"},
-        }
-
-    if action == "idle":
-        return {
-            **base,
-            "directiveType": "idle",
-            "message": result.get("message") or "No Sprint Engine work is ready for this role.",
-            "nextMcpToolName": None,
-            "nextMcpArguments": None,
-            "nextTool": None,
-        }
-
-    if action == "complete":
-        return {
-            **base,
-            "directiveType": "complete",
-            "message": result.get("message") or "All Sprint Engine work is complete.",
-            "nextMcpToolName": None,
-            "nextMcpArguments": None,
-            "nextTool": None,
-        }
-
-    if action == "blocked":
-        task = _directive_context(result.get("task"))
-        return {
-            **base,
-            "directiveType": "blocked",
-            "message": result.get("message") or "This Sprint Engine task is blocked on input. Stop until input is resolved.",
-            "nextMcpToolName": None,
-            "nextMcpArguments": None,
-            "nextTool": None,
-            "task": task,
-            "blocker": result.get("blocker") or {"reason": "needs_input"},
-        }
-
-    return {
-        **base,
-        "directiveType": "error",
-        "message": f"Unsupported Sprint Engine join action: {action or '(missing)'}.",
-        "nextMcpToolName": None,
-        "nextMcpArguments": None,
-        "nextTool": None,
-        "error": {"reason": "unsupported_join_action", "joinAction": action},
-    }
-
-
-def build_agent_next_directive(args: argparse.Namespace) -> Dict[str, Any]:
-    role = str(getattr(args, "role", "") or "")
-    agent_id = str(getattr(args, "id", "") or getattr(args, "agent_id", "") or "")
-    attempts = max(1, int(getattr(args, "attempts", 1) or 1))
-    try:
-        join_result = cmd_join(argparse.Namespace(state=args.state, role=role, id=agent_id, watch=False, max_wait_seconds=None))
-    except SystemExit as exc:
-        return {
-            "ok": True,
-            "role": role,
-            "agentId": agent_id,
-            "joinAction": "error",
-            "directiveType": "error",
-            "message": str(exc) or "Sprint Engine join routing failed.",
-            "nextMcpToolName": None,
-            "nextMcpArguments": None,
-            "nextTool": None,
-            "runnerPolicy": folder_store.normalize_runner_policy(None),
-            "retryAfterMs": None,
-            "releasedExpired": [],
-            "error": {"reason": "join_routing_failed"},
-        }
-    return agent_next_directive_from_join(
-        join_result,
-        state_path=args.state,
-        role=str(join_result.get("role") or role),
-        agent_id=str(join_result.get("agentId") or agent_id),
-        attempts=attempts,
-    )
-
-
-def auto_mode_continuation(state: Dict[str, Any], role: str, agent_id: str) -> Optional[Dict[str, str]]:
-    policy = folder_store.normalize_runner_policy(state.get("runner"))
-    if policy.get("cliWatchPolling") != "enabled":
-        return None
-    command = f"sprintengine join --role {role} --id {agent_id} --watch"
-    return {
-        "nextCommand": command,
-        "nextAction": (
-            "Auto Mode is on. Run the join watch command again so the Sprint Engine CLI can keep polling, "
-            "resume active work, or claim the next task for this role."
-        ),
-    }
-
 def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
+    """One-shot routing + role prompt for a human or debug CLI operator.
+
+    Autonomous agents never come through here: the managed runtime dispatches them
+    with `sprintengine.agent.join` and they claim with `sprintengine.task.next`.
+    This reports what the run would hand this role right now and returns once —
+    the polling watch loop and its completion machinery were retired with the
+    CLI-runner era (MC-1827).
+    """
     import sys
     from sprintengine_core.tool.commands.task import planner_actionable_needs_input_tasks
 
@@ -799,18 +631,16 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
 
     def all_tasks_done(state: Dict[str, Any]) -> bool:
         # Done-or-canceled, matching recompute_phase's rollup exactly. A strict
-        # every-done here while the rollup tolerates canceled produces a run
-        # whose status says "completed" but whose finalization (backstop commit,
-        # PR creation, watch-loop exit) never fires — one canceled task wedges
-        # the run forever.
+        # every-done here while the rollup tolerates canceled would report "no work
+        # ready" on a run the board already calls completed — one canceled task
+        # would make the run look permanently stalled to an operator.
         tasks = [task for task in state.get("tasks", []) or [] if isinstance(task, dict)]
         return bool(tasks) and all(task.get("status") in {"done", "canceled"} for task in tasks)
 
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        # A canceled run is terminal: report it as canceled so the agent (and the
-        # watch loop) stops, rather than reading "No tasks are currently ready" as
-        # a transient idle and continuing to poll. Reported before roster/lease
-        # reconciliation so a canceled run does no dispatch bookkeeping.
+        # A canceled run is terminal: report it as canceled rather than letting
+        # "No tasks are currently ready" read as a transient idle. Reported before
+        # roster/lease reconciliation so a canceled run does no dispatch bookkeeping.
         if run_is_canceled(state):
             return {
                 "ok": True,
@@ -886,7 +716,7 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
                 f"{completion_instruction()}"
                 f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
                 f"Report concrete bugs, security issues, requirement violations, or test gaps you find and fix with repeatable `--finding-json`. "
-                f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
+                f"When the task is done, stop.\n\n"
                 "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
                 "All updates must go through the Sprint Engine tool.**"
             )
@@ -910,22 +740,21 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "needs_input_triage", "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         if not active and not ready:
-            if policy.get("stopWhenComplete") and all_tasks_done(state):
-                finalize = finalize_completed_run(state, args.state, policy)
-                completion = {
+            if all_tasks_done(state):
+                # Report only. The run reached `completed` through `recompute_phase`
+                # at its last publish, every task committed its own scope on the way
+                # there (MC-1753), and the user opens the pull request from the run
+                # summary. There is no backstop commit and no finalization here.
+                return {
                     "ok": True,
                     "role": args.role,
                     "agentId": args.id,
-                    "action": "completion_blocked" if finalize.get("blocked") else "complete",
+                    "action": "complete",
                     "runner": policy,
-                    "message": finalize["message"],
+                    "message": "All Sprint Engine tasks are done. Stop now.",
                     "releasedExpired": expired["released"],
-                    "write": True,
+                    "write": runtime["dirty"] or expired["dirty"],
                 }
-                for key in ("pullRequestUrl", "pullRequestError", "alreadyExists", "orphanedByRepo"):
-                    if key in finalize:
-                        completion[key] = finalize[key]
-                return completion
             return {"ok": True, "role": args.role, "agentId": args.id, "action": "idle", "runner": policy, "message": f"No tasks are currently ready for the '{args.role}' role.", "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
         directive = (
@@ -942,54 +771,13 @@ def cmd_join(args: argparse.Namespace) -> Dict[str, Any]:
             f"{completion_instruction()}"
             f"If you notice a prompt or process issue that would help improve future Sprint Engine runs, include it with repeatable `--issue-json` on your final feedback command. "
             f"If your role reviews work, report concrete bugs, security issues, requirement violations, or test gaps with repeatable `--finding-json`. "
-            f"After completion, run `sprintengine join --role {args.role} --id {args.id} --watch` again if Auto Mode is on; otherwise stop.\n\n"
+            f"When the task is done, stop.\n\n"
             "**IMPORTANT: Do not edit Sprint Engine run-store files directly. "
             "All updates must go through the Sprint Engine tool.**"
         )
         return {"ok": True, "role": args.role, "agentId": args.id, "action": "work", "readyTaskCount": len(ready), "runner": policy, "prompt": prompt + directive, "releasedExpired": expired["released"], "write": runtime["dirty"] or expired["dirty"]}
 
-    if not getattr(args, "watch", False):
-        return with_locked_state(args.state, run)
-
-    started_at = time.monotonic()
-    attempts = 0
-    delay_seconds = 0
-    max_wait_seconds = getattr(args, "max_wait_seconds", None)
-    while True:
-        if delay_seconds > 0:
-            time.sleep(delay_seconds)
-        attempts += 1
-        result = with_locked_state(args.state, run)
-        result["watch"] = {"attempts": attempts}
-        action = result.get("action")
-        policy = folder_store.normalize_runner_policy(result.get("runner"))
-        if action not in {"idle"}:
-            return result
-        if policy.get("cliWatchPolling") != "enabled":
-            result["message"] = f"{result.get('message', 'No work is ready')} CLI watch polling is disabled; stop now."
-            return result
-        elapsed = time.monotonic() - started_at
-        if max_wait_seconds is not None and elapsed >= float(max_wait_seconds):
-            result["message"] = f"{result.get('message', 'No work is ready')} Auto Mode is on; max wait elapsed."
-            return result
-        delay_seconds = runner_watch_delay_seconds(policy, attempts)
-        if max_wait_seconds is not None:
-            remaining = max(0.0, float(max_wait_seconds) - elapsed)
-            delay_seconds = min(delay_seconds, int(remaining) if remaining >= 1 else 1)
-
-def cmd_merge_start(args: argparse.Namespace) -> Dict[str, Any]:
-    state = load_mutation_state(args.state)
-    target = args.target.strip()
-    if not target:
-        raise SystemExit("--target is required.")
-    return {
-        "ok": True,
-        "role": "architect",
-        "action": "merge_start",
-        "id": args.id,
-        "target": target,
-        "prompt": build_merge_start_prompt(state, args.state, args.id, target),
-    }
+    return with_locked_state(args.state, run)
 
 
 def cmd_vcs_status(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1327,71 +1115,6 @@ def cmd_vcs_pr_status(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, write_result)
 
 
-def finalize_completed_run(state: Dict[str, Any], state_path: Path, policy: Dict[str, Any]) -> Dict[str, Any]:
-    """Commit leftover task-scoped changes at completion and report run state.
-
-    Pull requests are NOT opened automatically: the user opens one from the run
-    summary (the "Create pull request" action) when ready. This backstop-commits any
-    still-uncommitted task-scoped changes so the branch is PR-ready, then returns a
-    ``blocked`` flag and ``message``. If any declared project's worktree still has
-    changes owned by no task, the run is blocked rather than declared done over an
-    incomplete tree.
-    """
-    from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
-    from sprintengine_core.tool.shell import commit_task_changes_if_needed, run_orphaned_dirty_paths
-
-    vcs = get_run_vcs(state)
-    if not vcs:
-        return {"blocked": False, "message": "All Sprint Engine tasks are done. Stop now."}
-
-    # Backstop-commit any still-uncommitted task-scoped changes across all tasks so
-    # the branch is ready for a pull request whenever the user opens one.
-    for task in state.get("tasks", []) or []:
-        if isinstance(task, dict):
-            commit_task_changes_if_needed(state, state_path, task, "sprintengine")
-
-    # Every declared project, not just the primary one: an orphan in any tree the run
-    # spans is work no task's commit will carry, and the operator needs to be told
-    # which project to look in.
-    orphaned = run_orphaned_dirty_paths(state, state_path)
-    if orphaned:
-        orphan_list = ", ".join(f"{entry['repo']}: {entry['path']}" for entry in orphaned)
-        return {
-            "blocked": True,
-            "orphanedByRepo": orphaned,
-            "message": (
-                "All tasks are done but the run worktrees have changes owned by no task and uncommitted: "
-                f"{orphan_list}. These would be missing "
-                "from a pull request. Add them to a task's ownedPaths and commit (`sprintengine vcs commit`), "
-                "or remove them, then complete again."
-            ),
-        }
-
-    # A run spanning projects is PR-ready when every project it changed has a pull
-    # request — the projects it never committed to deliver nothing and need none.
-    # `lastCommitSha` is set exactly when a repo committed.
-    changed_repos = [repo for repo in vcs_repos(vcs) if str(repo.get("lastCommitSha") or "").strip()]
-    opened = [repo for repo in changed_repos if str(repo.get("pullRequestUrl") or "").strip()]
-    if opened and len(opened) == len(changed_repos):
-        urls = ", ".join(f"{repo['id']}: {repo['pullRequestUrl']}" for repo in opened)
-        return {
-            "blocked": False,
-            "pullRequestUrl": str(vcs.get("pullRequestUrl") or "").strip() or None,
-            "pullRequestUrls": [{"repo": repo["id"], "pullRequestUrl": repo["pullRequestUrl"]} for repo in opened],
-            "alreadyExists": True,
-            "message": f"All tasks are done. Pull request{'s' if len(opened) > 1 else ''} already open — {urls}. Stop now.",
-        }
-
-    return {
-        "blocked": False,
-        "message": (
-            "All Sprint Engine tasks are done and committed to the run worktree"
-            f"{'s' if len(changed_repos) > 1 else ''}. "
-            "Open a pull request from the run summary when ready. Stop now."
-        ),
-    }
-
-
 def build_recovery_prompt(state: Dict[str, Any], state_path: Path, backup_path: Path) -> str:
     sprintengine = state.get("sprintengine", {})
     goal = sprintengine.get("goal") or "(not set - read the codebase for context)"
@@ -1528,8 +1251,26 @@ def cmd_cancel(args: argparse.Namespace) -> Dict[str, Any]:
     return with_locked_state(args.state, run)
 
 def cmd_summary(args: argparse.Namespace) -> Dict[str, Any]:
+    """The run rollup, plus whatever the run's trees carry that no task owns.
+
+    The orphan scan is here because this is where the operator decides the run is
+    deliverable and opens its pull requests. Every task commits its own scope at
+    publish, so anything still dirty and owned by nobody is work that no pull
+    request will carry — reported per project, never silently dropped.
+    """
+    from sprintengine_core.tool.shell import run_orphaned_dirty_paths
+
+    # `git status` per declared tree runs on a snapshot, outside the run mutation
+    # lock, so a summary read never stalls a concurrent claim or commit (MC-1724).
+    orphaned = run_orphaned_dirty_paths(load_mutation_state(args.state), args.state)
+
     def run(state: Dict[str, Any]) -> Dict[str, Any]:
-        return {"ok": True, "summary": build_run_summary(state), "write": False}
+        return {
+            "ok": True,
+            "summary": build_run_summary(state),
+            "orphanedUncommittedPaths": orphaned,
+            "write": False,
+        }
     return with_locked_state(args.state, run)
 
 def cmd_projection(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1675,7 +1416,6 @@ cancel = cmd_cancel
 handover = cmd_handover
 init = cmd_init
 join = cmd_join
-merge_start = cmd_merge_start
 recover = cmd_recover
 summary = cmd_summary
 projection = cmd_projection

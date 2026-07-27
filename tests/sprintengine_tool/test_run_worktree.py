@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from helpers import SwarmCli, SwarmTeamFixture, base_state, read_state, write_state
+from helpers import SwarmCli, SwarmTeamFixture, base_state, get_task, read_state, write_state
 from sprintengine_mcp import SprintEngineMcpServer
 
 
@@ -446,75 +446,50 @@ def _completed_worktree_run(workspace: Path):
     return fixture, worktree
 
 
-def test_finalize_completed_run_does_not_open_pull_request(tmp_path, monkeypatch) -> None:
-    # PR creation is user-initiated (the run-summary button), never automatic on
-    # completion. Finalize only backstop-commits and reports.
+def test_run_completes_at_the_last_publish_with_no_backstop_commit(tmp_path, monkeypatch) -> None:
+    # MC-1827: the run-level finalize path is gone. Completion is whatever
+    # `recompute_phase` rolls up when the last task lands, the branch is already
+    # PR-ready because every task committed its own scope on the way through, and
+    # nothing commits or opens a pull request on the run's behalf.
     import sprintengine_core.tool.shell as shell_mod
-    from sprintengine_core.store import normalize_runner_policy
-    from sprintengine_core.tool.commands.run import finalize_completed_run
 
     workspace = tmp_path / "ws"
-    fixture, _ = _completed_worktree_run(workspace)
 
     def boom(*args, **kwargs):
-        raise AssertionError("finalize must not open a pull request automatically")
+        raise AssertionError("completion must not open a pull request automatically")
 
     monkeypatch.setattr(shell_mod, "create_run_pull_request", boom)
 
+    fixture, _ = _completed_worktree_run(workspace)
+
     state = read_state(fixture.state_path)
-    result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
+    assert state["sprintengine"]["status"] == "completed"
+    assert get_task(state, "T1")["status"] == "done"
+    # The owner committed under its own actor; no `sprintengine` backstop commit
+    # ever fired, and the feature file is on the branch regardless.
+    commit_actors = {
+        event.get("actor")
+        for event in state.get("events", [])
+        if event.get("type") == "task_changes_committed"
+    }
+    assert commit_actors == {"developer-1"}
+    assert fixture.cli.run("vcs", "status")["clean"] is True
 
-    assert result["blocked"] is False
-    assert "pullRequestUrl" not in result
-    assert "run summary" in result["message"].lower()
 
-
-def test_finalize_completed_run_blocks_on_orphaned_changes(tmp_path, monkeypatch) -> None:
-    import sprintengine_core.tool.shell as shell_mod
-    from sprintengine_core.store import normalize_runner_policy
-    from sprintengine_core.tool.commands.run import finalize_completed_run
-
+def test_run_summary_reports_orphaned_changes_no_task_owns(tmp_path) -> None:
+    # The run-level orphan scan outlived the join path it used to hang off: the
+    # summary is where the operator decides the run is deliverable, so that is
+    # where work no task will ever commit has to surface.
     workspace = tmp_path / "ws"
     fixture, worktree = _completed_worktree_run(workspace)
-    # A change owned by no task is left uncommitted in the worktree.
+
+    assert fixture.cli.run("summary")["orphanedUncommittedPaths"] == []
+
     (worktree / "src" / "orphan").mkdir(parents=True, exist_ok=True)
     (worktree / "src" / "orphan" / "extra.ts").write_text("export const x = 1\n", encoding="utf-8")
 
-    def boom(*args, **kwargs):
-        raise AssertionError("create_run_pull_request must not run when changes are orphaned")
-
-    monkeypatch.setattr(shell_mod, "create_run_pull_request", boom)
-
-    state = read_state(fixture.state_path)
-    result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
-
-    assert result["blocked"] is True
-    assert result["orphanedByRepo"] == [{"repo": "primary", "path": "src/orphan/extra.ts"}]
-    assert "src/orphan/extra.ts" in result["message"]
-
-
-def test_finalize_completed_run_is_idempotent_when_pr_exists(tmp_path, monkeypatch) -> None:
-    import sprintengine_core.tool.shell as shell_mod
-    from sprintengine_core.store import normalize_runner_policy
-    from sprintengine_core.tool.commands.run import finalize_completed_run
-
-    workspace = tmp_path / "ws"
-    fixture, _ = _completed_worktree_run(workspace)
-
-    def boom(*args, **kwargs):
-        raise AssertionError("create_run_pull_request must not run when a PR already exists")
-
-    monkeypatch.setattr(shell_mod, "create_run_pull_request", boom)
-
-    state = read_state(fixture.state_path)
-    shell_mod.set_repo_pull_request(
-        state["sprintengine"]["vcs"], "primary", url="https://github.com/acme/multicode/pull/3", state="open", error=None
-    )
-    result = finalize_completed_run(state, fixture.state_path, normalize_runner_policy({}))
-
-    assert result["blocked"] is False
-    assert result["alreadyExists"] is True
-    assert result["pullRequestUrl"] == "https://github.com/acme/multicode/pull/3"
+    summary = fixture.cli.run("summary")
+    assert summary["orphanedUncommittedPaths"] == [{"repo": "primary", "path": "src/orphan/extra.ts"}]
 
 
 def test_create_run_pull_request_records_failure_on_push_error(tmp_path) -> None:

@@ -127,8 +127,8 @@ def test_explicit_mcp_backend_preserves_success_shape_and_emits_audit(tmp_path) 
     assert rows[0]["backend_mode"] == "mcp-local"
 
 
-def test_mcp_backend_join_watch_preserves_cli_directive_shape(tmp_path) -> None:
-    fixture = create_team(tmp_path, "cli-mcp-join-watch", [task("T1", "Join watch route", "developer")])
+def test_mcp_backend_join_preserves_cli_directive_shape(tmp_path) -> None:
+    fixture = create_team(tmp_path, "cli-mcp-join", [task("T1", "Join route", "developer")])
 
     completed = run_swarm(
         [
@@ -141,9 +141,6 @@ def test_mcp_backend_join_watch_preserves_cli_directive_shape(tmp_path) -> None:
             "developer",
             "--id",
             "developer-a",
-            "--watch",
-            "--max-wait-seconds",
-            "1",
         ],
         env={
             "SPRINTENGINE_MCP_ALLOWED_ROOT": str(tmp_path),
@@ -156,7 +153,6 @@ def test_mcp_backend_join_watch_preserves_cli_directive_shape(tmp_path) -> None:
     assert payload["ok"] is True
     assert payload["action"] == "work"
     assert payload["readyTaskCount"] == 1
-    assert payload["watch"]["attempts"] == 1
     assert "sprintengine task next --role developer --id developer-a" in payload["prompt"]
     rows = audit_rows(fixture.team_dir)
     assert [row["operation_name"] for row in rows] == ["sprintengine.join"]
@@ -505,7 +501,7 @@ def test_top_level_help_documents_mcp_lifecycle_and_cross_platform_wrappers() ->
 
     assert completed.returncode == 0
     assert "MCP lifecycle compatibility:" in completed.stdout
-    assert "sprintengine --backend mcp-local join --role developer --id developer-1 --watch" in completed.stdout
+    assert "sprintengine --backend mcp-local join --role developer --id developer-1" in completed.stdout
     assert "scripts/sprintengine --help" in completed.stdout
     assert "scripts\\sprintengine.cmd --help" in completed.stdout
     assert '.\\.venv\\Scripts\\python.exe" ".\\scripts\\sprintengine_tool.py" --help' in completed.stdout
