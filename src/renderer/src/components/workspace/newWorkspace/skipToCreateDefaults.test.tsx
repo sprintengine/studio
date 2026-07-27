@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import type { AgentCli, SprintEngineRoleId } from '../../../types/workspace'
+import type { AgentCli } from '../../../types/workspace'
 import { buildSprintEngineNewTeamCreation } from './controllers'
 import { STEPS_BY_MODE } from './creationStepFlows'
 import {

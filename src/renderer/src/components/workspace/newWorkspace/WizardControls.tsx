@@ -4,10 +4,10 @@
 // presentation and have no closure ties to the wizard reducer.
 //
 // MC-1646: the sprint wizard's own pages no longer render through
-// RosterAndRunSettings — its Team / Reviews / Tools / Start pages live in
-// SprintEngineTeamPanel / SprintEngineReviewsPanel / SprintEngineToolsPanel /
-// SprintEngineStartPanel. RosterAndRunSettings remains as the Guided Brief
-// build handoff's single-column roster + run-settings surface.
+// RosterAndRunSettings — its Team / Tools / Start pages live in
+// SprintEngineTeamPanel / SprintEngineToolsPanel / SprintEngineStartPanel.
+// RosterAndRunSettings remains as the Guided Brief build handoff's
+// single-column roster + run-settings surface.
 
 import React from 'react'
 import type {
