@@ -15,6 +15,7 @@ import type {
   SprintEngineRoleModelOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
+  SprintEngineRosterMode,
 } from '../../../types/workspace'
 import { getSprintEngineRoleLabel } from '../../../utils/sprintengine'
 import {
@@ -28,10 +29,10 @@ import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, Segmen
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import { sprintEngineRosterNameTaken } from './savedRosters'
 
-// How the roster is formed. 'roles' = the user staffs the roster below; 'pool' =
-// no specialist roles, a pool of plain agents shares one task graph. (MC-1889
-// removed a third formation where the architect staffed from a model palette.)
-export type SprintEngineRosterMode = 'roles' | 'pool'
+// How the roster is formed. Defined in shared (MC-1875) because a saved roster
+// now persists it and `src/shared` cannot import renderer modules; re-exported
+// here so every existing call site's import is unchanged.
+export type { SprintEngineRosterMode }
 
 const ROSTER_MODE_HELP: Record<SprintEngineRosterMode, string> = {
   roles: 'You choose the roles and models below. The architect plans within them.',

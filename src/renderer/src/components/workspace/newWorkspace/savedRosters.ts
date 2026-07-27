@@ -7,6 +7,7 @@ import type {
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
   SprintEngineRoster,
+  SprintEngineRosterMode,
   SprintEngineSavedRoster,
 } from '../../../types/workspace'
 import { SPRINT_ENGINE_GENERAL_ROLE_ID } from '../../../utils/sprintengineRoleOptions'
@@ -43,6 +44,16 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_COUNTS: SprintEngineRoleCounts = {
   general: 0,
 }
 
+// What a NO-ROLES ('pool') run stages: one plain `general` planner seat. After
+// that, agents are minted PER TASK up to the run's max-concurrency setting —
+// this is a seed, never a headcount, and there is deliberately no roster-level
+// agent count anywhere (owner ruling 2026-07-26).
+//
+// Lives here rather than in NewWorkspacePanel so the wizard and the
+// plan-sourced launch path (useAutomationRequests) share one constant instead
+// of each spelling `{ general: 1 }` (MC-1875).
+export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = { general: 1 }
+
 // Every known role mapped to the stock CLI — the wizard's Required<> seed map.
 export const DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS: Required<SprintEngineRoleCliDefaults> = Object.fromEntries(
   Object.keys(DEFAULT_SPRINT_ENGINE_ROLE_COUNTS).map((role) => [role, DEFAULT_CLI])
@@ -50,6 +61,10 @@ export const DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS: Required<SprintEngineRoleC
 
 export type ResolvedInitialSprintEngineRoster = {
   selectedRosterId: string | null
+  // The formation to open in / launch with. This is the CONTRACT item 3 (No
+  // roles) and item 5 (Horizon picker) consume — a synthetic roster resolves
+  // through here exactly like a saved one.
+  mode: SprintEngineRosterMode
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
@@ -83,13 +98,13 @@ export function resolveInitialSprintEngineRoster(input: {
   defaultRoleCounts: SprintEngineRoleCounts
   defaultRoleCliDefaults: Required<SprintEngineRoleCliDefaults>
 }): ResolvedInitialSprintEngineRoster {
-  const selectedTeam =
-    input.savedRosters.find((team) => team.id === input.lastSelectedRosterId) ?? null
-  const sourceRoster: SprintEngineSavedRoster | null = selectedTeam
+  const selectedRoster =
+    input.savedRosters.find((roster) => roster.id === input.lastSelectedRosterId) ?? null
+  const sourceRoster: SprintEngineSavedRoster | null = selectedRoster
     ? {
-        roleCounts: selectedTeam.roleCounts,
-        roleCliDefaults: selectedTeam.roleCliDefaults,
-        roleModelOverrides: selectedTeam.roleModelOverrides,
+        roleCounts: selectedRoster.roleCounts,
+        roleCliDefaults: selectedRoster.roleCliDefaults,
+        roleModelOverrides: selectedRoster.roleModelOverrides,
       }
     : input.savedRoster
   const roleCounts = sourceRoster?.roleCounts
@@ -102,7 +117,47 @@ export function resolveInitialSprintEngineRoster(input: {
   const roleModelOverrides: SprintEngineRoleModelOverrides = {
     ...(sourceRoster?.roleModelOverrides ?? {}),
   }
-  return { selectedRosterId: selectedTeam?.id ?? null, roleCounts, roleCliDefaults, roleModelOverrides }
+  return {
+    selectedRosterId: selectedRoster?.id ?? null,
+    mode: resolveSprintEngineRosterMode(selectedRoster, Boolean(sourceRoster), roleCounts),
+    roleCounts,
+    roleCliDefaults,
+    roleModelOverrides,
+  }
+}
+
+// A roster's formation: what it was SAVED as when it says so, otherwise the
+// pre-MC-1875 guess, so legacy rosters open exactly as they did before.
+//
+// The guess is deliberately the old `initialUseSpecialistRoles` expression,
+// including its "only a SAVED source counts" clause: a fresh install with no
+// saved roster at all opens on 'pool' even though `defaultRoleCounts` staffs
+// specialists behind the collapsed disclosure (MC-1585). Changing that here
+// would silently flip every fresh install's formation.
+export function resolveSprintEngineRosterMode(
+  roster: SprintEngineRoster | null,
+  hasSavedSource: boolean,
+  roleCounts: SprintEngineRoleCounts,
+): SprintEngineRosterMode {
+  if (roster?.mode) return roster.mode
+  return hasSavedSource && sprintEngineRosterStaffsSpecialists(roleCounts) ? 'roles' : 'pool'
+}
+
+// What a resolved roster actually staffs at launch (MC-1875). The one place
+// formation turns into role counts, shared by the wizard's create path and the
+// plan-sourced (Horizon / automation) launch path so the two cannot diverge.
+//
+// A 'pool' roster launches the plain-agent seed, NOT the specialist counts it
+// may still be carrying behind the wizard's collapsed disclosure. That the seed
+// contains NO `architect` is load-bearing: `sprintEnginePlannerRole` prefers
+// architect over general whenever architect is staffed, so a pool run that
+// leaked an architect count would silently seat an architect as its planner —
+// the exact thing "no roles" means to exclude. Pinned in savedRosters.test.ts.
+export function sprintEngineLaunchRoleCounts(
+  mode: SprintEngineRosterMode,
+  roleCounts: SprintEngineRoleCounts,
+): SprintEngineRoleCounts {
+  return mode === 'pool' ? PLAIN_AGENT_ROLE_COUNTS : roleCounts
 }
 
 export function activeSprintEngineRoleIds(counts: SprintEngineRoleCounts): SprintEngineRoleId[] {
@@ -163,7 +218,18 @@ export function sprintEngineRosterMatches(
   counts: SprintEngineRoleCounts,
   cliDefaults: SprintEngineRoleCliDefaults,
   modelOverrides?: SprintEngineRoleModelOverrides,
+  // MC-1875: formation is part of what a roster IS, so switching it must mark
+  // the roster edited and let "Update" re-save the new mode. Omitted by callers
+  // that do not track formation, which then compare exactly as before.
+  mode?: SprintEngineRosterMode,
 ): boolean {
+  if (mode !== undefined) {
+    // An absent stored mode is the legacy 'roles'-or-'pool' guess, resolved the
+    // same way the loader resolved it — otherwise merely OPENING a legacy
+    // roster would read as edited.
+    const storedMode = resolveSprintEngineRosterMode(team, true, team.roleCounts)
+    if (storedMode !== mode) return false
+  }
   const roles = new Set<SprintEngineRoleId>([
     ...activeSprintEngineRoleIds(team.roleCounts),
     ...activeSprintEngineRoleIds(counts),

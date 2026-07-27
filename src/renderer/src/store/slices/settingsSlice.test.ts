@@ -841,6 +841,72 @@ assert.equal(
   'clearing every model override drops the stale map on update',
 )
 
+// --- MC-1875: a saved roster carries its formation -------------------------
+const poolRosterId = teamStore.saveSprintEngineRoster({
+  name: 'Pooled',
+  mode: 'pool',
+  // Specialists stay staffed behind the wizard's collapsed disclosure — this is
+  // precisely the shape the pre-MC-1875 guess mis-read as 'roles'.
+  roleCounts: { architect: 1, developer: 1 },
+  roleCliDefaults: { architect: 'claude-code' },
+})
+const afterPoolSave = useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+const savedPool = afterPoolSave.savedRosters?.find((roster) => roster.id === poolRosterId)
+assert.equal(savedPool?.mode, 'pool', 'the formation persists on the saved roster')
+
+// Switching formation and re-saving under the same id updates the mode in place.
+teamStore.saveSprintEngineRoster({
+  id: poolRosterId,
+  name: 'Pooled',
+  mode: 'roles',
+  roleCounts: { architect: 1, developer: 1 },
+  roleCliDefaults: { architect: 'claude-code' },
+})
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+    .savedRosters?.find((roster) => roster.id === poolRosterId)?.mode,
+  'roles',
+  '"Update" persists the switched formation',
+)
+
+// Omitting the mode does NOT erase a stored one — a caller that does not track
+// formation (or a legacy code path) must not silently downgrade the roster.
+teamStore.saveSprintEngineRoster({
+  id: poolRosterId,
+  name: 'Pooled',
+  roleCounts: { architect: 1, developer: 1 },
+  roleCliDefaults: { architect: 'claude-code' },
+})
+assert.equal(
+  useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings
+    .savedRosters?.find((roster) => roster.id === poolRosterId)?.mode,
+  'roles',
+  'saving without a mode leaves the stored formation intact',
+)
+
+// A roster saved before MC-1875 simply has no mode key, and an unknown value is
+// dropped rather than coerced — both resolve through the documented legacy guess.
+const modeNormalized = normalizeAppSettings(
+  {
+    sprintEngineRoleSettings: {
+      enabled: {},
+      savedRosters: [
+        { id: 'legacy', name: 'Legacy', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+        { id: 'bogus', name: 'Bogus', mode: 'architect', roleCounts: { architect: 1 }, roleCliDefaults: {}, createdAt: 1, updatedAt: 1 },
+      ],
+    },
+  },
+  [],
+).sprintEngineRoleSettings
+assert.ok(
+  !('mode' in (modeNormalized.savedRosters?.[0] ?? {})),
+  'a pre-MC-1875 roster keeps no mode key at all',
+)
+assert.ok(
+  !('mode' in (modeNormalized.savedRosters?.[1] ?? {})),
+  'an unknown formation (e.g. the removed "architect") is dropped, never coerced to a real one',
+)
+
 // --- Specialist menu ordering --------------------------------------------
 // Normalization keeps only known specialist ids, drops duplicates, and ignores
 // junk so a stale or hand-edited settings file is always safe to load.

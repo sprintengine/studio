@@ -32,6 +32,9 @@ import { SprintEngineStartPanel } from './SprintEngineStartPanel'
 const PANEL_PATH = join(process.cwd(), 'src/renderer/src/components/workspace/NewWorkspacePanel.tsx')
 const HERE = join(process.cwd(), 'src/renderer/src/components/workspace/newWorkspace')
 const panelSource = readFileSync(PANEL_PATH, 'utf8')
+// MC-1875 moved PLAIN_AGENT_ROLE_COUNTS out of the panel so the wizard and the
+// plan-sourced launch path share one constant. Its source pin moved with it.
+const savedRostersSource = readFileSync(join(HERE, 'savedRosters.ts'), 'utf8')
 
 // The pages a skip from the team page skips over (MC-1646 flow).
 const SKIPPED_PAGES = STEPS_BY_MODE.sprintengine.slice(
@@ -110,8 +113,10 @@ for (const [what, pattern] of [
   ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
   ['the specialist-roles axis opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
   ['the Team segment is that one axis projected — MC-1889 left no third formation', /const seRosterMode: SprintEngineRosterMode = seUseSpecialistRoles \? 'roles' : 'pool'/],
-  ['a fresh install computes the pool segment unless a saved source staffs specialists', /const initialUseSpecialistRoles =\n\s*\(Boolean\(initialSprintEngineRoster\.selectedRosterId\) \|\| Boolean\(savedSprintEngineRoster\)\)/],
-  ['plain-agents create stages a lone general planner', /const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/],
+  // MC-1875: the formation now comes from the resolved roster (which carries a
+  // SAVED mode, falling back to the old staffs-specialists guess), not from the
+  // guess computed inline here.
+  ['the opening formation comes from the resolved roster mode', /const initialUseSpecialistRoles = initialSprintEngineRoster\.mode === 'roles'/],
   ['plain-agents create swaps in that lone seat', /sprintEnginePlainAgents\n\s*\? PLAIN_AGENT_ROLE_COUNTS\n\s*: sprintEngineCreateRoleCounts/],
   ['agents-at-start is on', /const \[seStartRunner, setSeStartRunner\] = useState\(true\)/],
   ['artifact auto-approval is on', /const \[seAutoApproveArtifacts, setSeAutoApproveArtifacts\] = useState\(true\)/],
@@ -122,6 +127,14 @@ for (const [what, pattern] of [
 ] as const) {
   assert.match(panelSource, pattern, `panel default: ${what}`)
 }
+
+// The plain-agent seed itself, now shared (MC-1875). Pinned at its new home so
+// the wizard and the plan-sourced launch cannot drift to two different seeds.
+assert.match(
+  savedRostersSource,
+  /export const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = \{ general: 1 \}/,
+  'plain-agents create stages a lone general planner',
+)
 
 // The refinement pages can never block create — that is what lets skip appear
 // the moment the team page is answered, four pages early.

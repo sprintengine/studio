@@ -981,9 +981,27 @@ export type SprintEngineSavedRoster = {
 // directory slug (`.multi-code/sprintengine/<team>/run.yaml`) and appears as
 // `teamSlug` / `teamName` / `teamDirectoryPath`. The two used to share the word
 // and met in the same signatures; keep them apart.
+// How a roster is formed. 'roles' = the user staffs named specialist roles.
+// 'pool' = NO ROLES: no souls, no specialist prompts, no architect — one plain
+// agent per task up to the run's max-concurrency setting, with one of them
+// doing the planning. (MC-1889 removed a third formation where the architect
+// staffed from a model palette.)
+//
+// Lives in shared, not the renderer, because `src/shared` cannot import
+// renderer modules (tsconfig.web boundary) and both the wizard and the
+// plan-sourced launch path need it. SprintEngineRosterPanel re-exports it so
+// its call sites are unchanged.
+export type SprintEngineRosterMode = 'roles' | 'pool'
+
 export type SprintEngineRoster = {
   id: string
   name: string
+  // The formation this roster was SAVED in, so reloading it restores what the
+  // user chose rather than re-deriving a guess from `roleCounts`. ABSENT is a
+  // documented state, not an accident: every roster saved before MC-1875 has no
+  // mode, and those fall back to the legacy staffs-specialists guess so they
+  // load exactly as they did before.
+  mode?: SprintEngineRosterMode
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: SprintEngineRoleCliDefaults
   // Per-role explicit launch model (see SprintEngineSavedRoster). Absent on

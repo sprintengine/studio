@@ -126,7 +126,7 @@ import {
   type SprintDeclaredRepo,
   type SprintProjectOption,
 } from './newWorkspace/sprintProjectSelection'
-import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, sprintEngineRosterMatches, sprintEngineRosterStaffsSpecialists } from './newWorkspace/savedRosters'
+import { DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS, DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, PLAIN_AGENT_ROLE_COUNTS, pruneSprintEngineRoleCliDefaults, pruneSprintEngineRoleModelOverrides, resolveInitialSprintEngineRoster, resolveSprintEngineRosterMode, sprintEngineRosterMatches } from './newWorkspace/savedRosters'
 import {
   resolveAvailableAgentCli,
   selectAgentCliCatalog,
@@ -262,9 +262,10 @@ const initialSprintEngineRoleCounts = DEFAULT_SPRINT_ENGINE_ROLE_COUNTS
 const initialSprintEngineRoleCliDefaults = DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
 
 // The plain-agents create/spawn roster (MC-1585): a single `general` planner
-// seat. Module-level so its reference is stable across renders — the effective
-// roster derivations below hand it to memoized consumers (seInitialSpawnRoles).
-const PLAIN_AGENT_ROLE_COUNTS: SprintEngineRoleCounts = { general: 1 }
+// seat. Module-level in savedRosters.ts (moved there by MC-1875) so its
+// reference is stable across renders — the effective roster derivations below
+// hand it to memoized consumers (seInitialSpawnRoles) — and so the wizard and
+// the plan-sourced launch path share one constant.
 
 function cloneSprintEngineRoleCounts(roleCounts: SprintEngineRoleCounts): SprintEngineRoleCounts {
   return { ...roleCounts }
@@ -468,14 +469,12 @@ export default function NewWorkspacePanel({
     defaultRoleCounts: initialSprintEngineRoleCounts,
     defaultRoleCliDefaults: initialSprintEngineRoleCliDefaults,
   })
-  // MC-1585: the roster step opens on plain agents. It opens pre-expanded on the
-  // specialist affordances only when a SAVED source (a selected team or the
-  // legacy roster) staffs specialists — a fresh install (the built-in default
-  // team) and a plain general-only saved team both open collapsed. Computed once
-  // for the initial state; the toggle owns it afterwards.
-  const initialUseSpecialistRoles =
-    (Boolean(initialSprintEngineRoster.selectedRosterId) || Boolean(savedSprintEngineRoster))
-    && sprintEngineRosterStaffsSpecialists(initialSprintEngineRoster.roleCounts)
+  // MC-1875: the formation the roster was SAVED in decides how the step opens.
+  // `resolveInitialSprintEngineRoster` returns it, falling back to the old
+  // MC-1585 guess (a SAVED source that staffs specialists) only for rosters
+  // saved before formation was stored. Computed once for the initial state; the
+  // segmented control owns it afterwards.
+  const initialUseSpecialistRoles = initialSprintEngineRoster.mode === 'roles'
 
   const initialFuturePlan = initialState?.futurePlanSource ?? null
   const initialMode: CreationMode =
@@ -2144,6 +2143,12 @@ export default function NewWorkspacePanel({
     setSeRoleModelOverrides({ ...(team.roleModelOverrides ?? {}) })
     setSeRoleCounts(cloneSprintEngineRoleCounts(team.roleCounts))
     setSeRoleCliDefaults(sprintEngineRoleCliDefaultsFromSavedRoster(team))
+    // MC-1875: RESTORE the saved formation rather than re-deriving it from
+    // roleCounts. A pool roster that happens to have specialists parked behind
+    // the disclosure must come back as pool, which the old guess got wrong.
+    setSeUseSpecialistRoles(
+      resolveSprintEngineRosterMode(team, true, team.roleCounts) === 'roles',
+    )
     setSeSelectedRosterId(team.id)
     setSprintEngineLastSelectedRoster(team.id)
   }
@@ -2151,6 +2156,9 @@ export default function NewWorkspacePanel({
   const handleSaveSprintEngineRoster = (name: string) => {
     const id = saveSprintEngineRoster({
       name,
+      // MC-1875: the formation rides onto the roster, so reloading it restores
+      // what the user chose instead of a guess.
+      mode: seRosterMode,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
       roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
       roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleSprintEngineRoleCounts, seRoleModelOverrides),
@@ -2163,6 +2171,7 @@ export default function NewWorkspacePanel({
     saveSprintEngineRoster({
       id,
       name,
+      mode: seRosterMode,
       roleCounts: cloneSprintEngineRoleCounts(visibleSprintEngineRoleCounts),
       roleCliDefaults: pruneSprintEngineRoleCliDefaults(visibleSprintEngineRoleCounts, seRoleCliDefaults),
       roleModelOverrides: pruneSprintEngineRoleModelOverrides(visibleSprintEngineRoleCounts, seRoleModelOverrides),
@@ -2196,9 +2205,11 @@ export default function NewWorkspacePanel({
           visibleSprintEngineRoleCounts,
           seRoleCliDefaults,
           seRoleModelOverrides,
+          // MC-1875: switching formation is an edit, so "Update" can persist it.
+          seRosterMode,
         )
       : false),
-    [selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults, seRoleModelOverrides],
+    [selectedSprintEngineTeam, visibleSprintEngineRoleCounts, seRoleCliDefaults, seRoleModelOverrides, seRosterMode],
   )
 
   const handleCreate = async () => {
