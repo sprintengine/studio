@@ -1294,9 +1294,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
   // The live session as the runtime last reported it — adopted on start and
-  // re-adopted from every result that can change its preset. Its own
-  // permissionPreset is what the pill reads, so the pill moves when the provider
-  // accepts a change, never on an optimistic guess.
+  // re-adopted from every result that can change its preset, so the pill moves
+  // when the provider accepts a change, never on an optimistic guess. The pill
+  // reads the session's own preset first, then the agent record, then 'default'
+  // (`resolvePermissionPreset`).
   const [session, setSession] = useState<ConversationSessionSummary | null>(null)
   const sessionId = session?.sessionId ?? null
   const permissionPreset = resolvePermissionPreset(session, agent?.cliPermissionPreset)
