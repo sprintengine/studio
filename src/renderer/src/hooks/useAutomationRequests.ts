@@ -125,7 +125,15 @@ function resolveRequestedRoster(
 
   const explicit = request.roster
   if (explicit && Object.keys(explicit).length > 0) {
-    const roleCounts: Record<string, number> = { ...DEFAULT_SPRINT_ENGINE_ROLE_COUNTS }
+    // Zero-based, NOT seeded from the default counts: absent means off (owner,
+    // 2026-07-14). Seeding from `DEFAULT_SPRINT_ENGINE_ROLE_COUNTS` would carry
+    // its architect:1 / developer:1 into a roster that never asked for them —
+    // the same "a default team that overrides user config" bug the empty-counts
+    // base exists to prevent. The full key set is kept so the map stays the
+    // shape `Required<>` consumers expect.
+    const roleCounts: Record<string, number> = Object.fromEntries(
+      Object.keys(DEFAULT_SPRINT_ENGINE_ROLE_COUNTS).map((role) => [role, 0])
+    )
     for (const [role, count] of Object.entries(explicit)) {
       const trimmed = role.trim()
       if (!trimmed) {

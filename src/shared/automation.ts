@@ -106,13 +106,21 @@ export type AutomationRendererRequest =
       /** Saved team (roster) name to staff the run with; absent resolves like the wizard (last selected, else default). */
       team?: string
       /**
-       * Explicit roster: role id -> agent count. Wins over `team` and over the
+       * Explicit roster: role id -> staffed flag. Wins over `team` and over the
        * saved-roster fallback, so a caller with no saved team can still staff a
-       * run precisely. Role ids are registry-driven (`SprintEngineRoleId` is an
-       * open string), so roles outside the wizard's built-in default map —
-       * `spec_reviewer`, `nuclear_reviewer` — are accepted and get a CLI default
-       * seeded for them. Without that seed they resolve to no CLI and are
-       * silently skipped at spawn.
+       * run precisely. A role omitted here is OFF — the map is applied over a
+       * zero base, never over the default counts (owner, 2026-07-14: absent
+       * means off).
+       *
+       * Counts are effectively boolean: `normalizeSprintEngineRoleCounts`
+       * clamps every value to 0 or 1, so this selects WHICH roles run, not how
+       * many agents — parallelism is `maxConcurrentAgents`.
+       *
+       * Role ids are registry-driven (`SprintEngineRoleId` is an open string),
+       * so roles outside the wizard's built-in default map — `spec_reviewer`,
+       * `nuclear_reviewer` — are accepted and get a CLI default seeded for
+       * them. Without that seed they resolve to no CLI and are silently skipped
+       * at spawn.
        */
       roster?: Record<string, number>
       /**
