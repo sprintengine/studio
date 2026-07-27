@@ -35,6 +35,9 @@ const panelSource = readFileSync(PANEL_PATH, 'utf8')
 // MC-1875 moved PLAIN_AGENT_ROLE_COUNTS out of the panel so the wizard and the
 // plan-sourced launch path share one constant. Its source pin moved with it.
 const savedRostersSource = readFileSync(join(HERE, 'savedRosters.ts'), 'utf8')
+// MC-1879 lifted the roster editor's state out of the panel; its source-shape
+// pins moved with it.
+const rosterEditorSource = readFileSync(join(HERE, 'useRosterEditor.ts'), 'utf8')
 
 // The pages a skip from the team page skips over (MC-1646 flow).
 const SKIPPED_PAGES = STEPS_BY_MODE.sprintengine.slice(
@@ -110,22 +113,39 @@ assert.deepEqual(UNTOUCHED.effectiveCreateRoleCounts, { general: 1 }, 'and stage
 
 // Source contracts: each default is established at mount, in the panel body.
 for (const [what, pattern] of [
-  ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneSprintEngineRoleCounts\(initialSprintEngineRoster\.roleCounts\)/],
-  ['the specialist-roles axis opens collapsed for a fresh install', /const \[seUseSpecialistRoles, setSeUseSpecialistRoles\] = useState\(initialUseSpecialistRoles\)/],
-  ['the Team segment is that one axis projected — MC-1889 left no third formation', /const seRosterMode: SprintEngineRosterMode = seUseSpecialistRoles \? 'roles' : 'pool'/],
-  // MC-1875: the formation now comes from the resolved roster (which carries a
-  // SAVED mode, falling back to the old staffs-specialists guess), not from the
-  // guess computed inline here.
-  ['the opening formation comes from the resolved roster mode', /const initialUseSpecialistRoles = initialSprintEngineRoster\.mode === 'roles'/],
   ['plain-agents create swaps in that lone seat', /sprintEnginePlainAgents\n\s*\? PLAIN_AGENT_ROLE_COUNTS\n\s*: sprintEngineCreateRoleCounts/],
   ['agents-at-start is on', /const \[seStartRunner, setSeStartRunner\] = useState\(true\)/],
   ['artifact auto-approval is on', /const \[seAutoApproveArtifacts, setSeAutoApproveArtifacts\] = useState\(true\)/],
   ['automation starts untouched', /const \[seAutomationTouched, setSeAutomationTouched\] = useState\(false\)/],
   ['untouched automation follows the create path: manual only for an existing team', /: seExistingTeam\n\s*\? 'manual'\n\s*: 'run_agents_and_approve_artifacts'/],
   ['worktrees are off', /const \[seUseWorktrees, setSeUseWorktrees\] = useState\(false\)/],
-  ['plain-agents runs default to 2 agents, specialist runs to 3', /const \[seMaxParallelAgents, setSeMaxParallelAgents\] = useState\(\(\) => \(initialUseSpecialistRoles \? 3 : 2\)\)/],
 ] as const) {
   assert.match(panelSource, pattern, `panel default: ${what}`)
+}
+
+// MC-1879 moved the roster editor's state into useRosterEditor. These are the
+// SAME source-shape contracts, repointed at their new home — the pins below
+// establish that each roster default is still set once at mount, from the
+// resolved roster, rather than drifting into an effect. (Every BEHAVIOURAL
+// assertion in this file passed unchanged across that move, which is the real
+// evidence the extraction changed nothing.)
+for (const [what, pattern] of [
+  ['the roster is seeded from the resolved initial roster', /useState<SprintEngineRoleCounts>\(\s*\(\) => cloneRoleCounts\(initial\.roleCounts\),/],
+  ['the resolved roster is itself computed once, at mount', /const \[initial\] = useState\(\(\) => resolveInitialSprintEngineRoster\(\{/],
+  ['the specialist-roles axis opens from the resolved formation', /const \[useSpecialistRoles, setUseSpecialistRoles\] = useState\(\(\) => initial\.mode === 'roles'\)/],
+  ['the formation segment is that one axis projected — MC-1889 left no third formation', /const rosterMode: SprintEngineRosterMode = useSpecialistRoles \? 'roles' : 'pool'/],
+  ['plain-agents runs default to 2 agents, specialist runs to 3', /const \[poolAgentCount, setPoolAgentCount\] = useState\(\(\) => \(initial\.mode === 'roles' \? 3 : 2\)\)/],
+] as const) {
+  assert.match(rosterEditorSource, pattern, `roster editor default: ${what}`)
+}
+
+// And the panel must not have kept a second copy of any of it.
+for (const [what, pattern] of [
+  ['no roster counts state', /useState<SprintEngineRoleCounts>/],
+  ['no specialist-roles axis', /setSeUseSpecialistRoles/],
+  ['no role registry state', /setSeRoleRegistry\(/],
+] as const) {
+  assert.doesNotMatch(panelSource, pattern, `panel kept no duplicate: ${what}`)
 }
 
 // The plain-agent seed itself, now shared (MC-1875). Pinned at its new home so
