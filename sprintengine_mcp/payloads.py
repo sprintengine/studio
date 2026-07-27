@@ -20,7 +20,7 @@ def command_payload_to_namespace(
 ) -> SimpleNamespace:
     base: dict[str, Any] = {"state": state_path}
     if tool_name == "sprintengine.init":
-        base.update(goal=payload.get("goal"), use_worktrees=bool(payload.get("useWorktrees", False)), agent=list(payload.get("agent") or []))
+        base.update(goal=payload.get("goal"), use_worktrees=bool(payload.get("useWorktrees", False)), agent=_string_list(payload.get("agent")))
     elif tool_name == "sprintengine.handover":
         base.update(
             name=payload["name"],
@@ -28,7 +28,7 @@ def command_payload_to_namespace(
             handover=payload.get("handoverPath"),
             handover_text=payload.get("handoverText"),
             handover_stdin=False,
-            source=list(payload.get("source") or []),
+            source=_string_list(payload.get("source")),
             source_plan_kind=payload.get("sourcePlanKind") or "unknown",
             reference=bool(payload.get("reference", False)),
             actor=payload.get("actor") or _actor_id(actor, "sprintengine"),
@@ -53,6 +53,7 @@ def command_payload_to_namespace(
             needs_input_kind=payload.get("needsInputKind"),
             needs_input_reason=payload.get("needsInputReason"),
             needs_input_artifact_id=payload.get("needsInputArtifactId"),
+            needs_input_finding_id=payload.get("needsInputFindingId"),
             needs_input_question=payload.get("needsInputQuestion"),
             needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
         )
@@ -66,10 +67,10 @@ def command_payload_to_namespace(
             task_id=payload["taskId"],
             id=payload["id"],
             summary=payload.get("summary"),
-            file=list(payload.get("file") or []),
-            command=list(payload.get("command") or []),
-            result=list(payload.get("result") or []),
-            scope_expansion_json=list(payload.get("scopeExpansionJson") or payload.get("scopeExpansion") or []),
+            file=_string_list(payload.get("file")),
+            command=_string_list(payload.get("command")),
+            result=_string_list(payload.get("result")),
+            scope_expansion_json=_string_list(payload.get("scopeExpansionJson") or payload.get("scopeExpansion")),
         )
         add_feedback_defaults(base, payload)
     elif tool_name == "sprintengine.task.publish":
@@ -77,7 +78,7 @@ def command_payload_to_namespace(
             task_id=payload["taskId"],
             id=payload["id"],
             summary=payload["summary"],
-            path=list(payload.get("path") or payload.get("file") or []),
+            path=_string_list(payload.get("path") or payload.get("file")),
             summary_data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("summaryDataJson"),
             no_changes_ok=bool(payload.get("noChangesOk", False)),
         )
@@ -91,6 +92,7 @@ def command_payload_to_namespace(
             summary=payload["summary"],
             needs_input_kind=payload.get("needsInputKind"),
             needs_input_reason=payload.get("needsInputReason"),
+            needs_input_finding_id=payload.get("needsInputFindingId"),
             needs_input_question=payload.get("needsInputQuestion"),
             needs_input_suggested_resolution=payload.get("needsInputSuggestedResolution"),
         )
@@ -104,7 +106,7 @@ def command_payload_to_namespace(
             body=payload["body"],
             source=payload.get("source") or "user",
             comment_type=payload.get("commentType"),
-            path=list(payload.get("paths") or payload.get("path") or []),
+            path=_string_list(payload.get("paths") or payload.get("path")),
             data_json=json.dumps(payload.get("data")) if isinstance(payload.get("data"), dict) else payload.get("dataJson"),
         )
     elif tool_name == "sprintengine.task.comment.list":
@@ -118,14 +120,15 @@ def command_payload_to_namespace(
             title=payload["title"],
             description=payload.get("description", ""),
             role=payload["role"],
-            depends_on=list(payload.get("dependsOn") or []),
-            path=list(payload.get("path") or []),
-            acceptance=list(payload.get("acceptance") or []),
-            note=list(payload.get("note") or []),
-            source_doc=list(payload.get("sourceDocs") or []),
-            task_note=list(payload.get("taskNote") or []),
+            depends_on=_string_list(payload.get("dependsOn")),
+            path=_string_list(payload.get("path")),
+            acceptance=_string_list(payload.get("acceptance")),
+            note=_string_list(payload.get("note")),
+            source_doc=_string_list(payload.get("sourceDocs")),
+            task_note=_string_list(payload.get("taskNote")),
             produces_implementation=bool(payload.get("producesImplementation", False)),
             kind=payload.get("kind"),
+            **_from_finding_fields(payload.get("fromFinding")),
             needs_triage=bool(payload.get("needsTriage", False)),
             # `[]` is an explicit "no phases", so presence — not truthiness — decides
             # whether the task overrides the run default.
@@ -165,11 +168,11 @@ def command_payload_to_namespace(
     elif tool_name == "sprintengine.plan.delete_task":
         base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], unlink_dependents=bool(payload.get("unlinkDependents", False)), force=bool(payload.get("force", False)))
     elif tool_name in {"sprintengine.plan.add_dependency", "sprintengine.plan.remove_dependency"}:
-        base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], depends_on=list(payload.get("dependsOn") or []), force=bool(payload.get("force", False)))
+        base.update(actor=payload.get("actor") or _actor_id(actor, "architect"), task_id=payload["taskId"], depends_on=_string_list(payload.get("dependsOn")), force=bool(payload.get("force", False)))
     elif tool_name == "sprintengine.plan.list":
         pass
     elif tool_name == "sprintengine.artifact.add":
-        base.update(actor=payload.get("actor") or _actor_id(actor, "agent"), artifact_id=payload.get("artifactId"), task_id=payload["taskId"], kind=payload["kind"], title=payload["title"], path=payload["path"], created_by=payload.get("createdBy"), recommended_task=list(payload.get("recommendedTask") or []), ready=bool(payload.get("ready", False)))
+        base.update(actor=payload.get("actor") or _actor_id(actor, "agent"), artifact_id=payload.get("artifactId"), task_id=payload["taskId"], kind=payload["kind"], title=payload["title"], path=payload["path"], created_by=payload.get("createdBy"), recommended_task=_string_list(payload.get("recommendedTask")), ready=bool(payload.get("ready", False)))
     elif tool_name == "sprintengine.artifact.list":
         base.update(task_id=payload.get("taskId"), kind=payload.get("kind"), status=payload.get("status"))
     elif tool_name == "sprintengine.artifact.ready":
@@ -186,7 +189,7 @@ def command_payload_to_namespace(
             task_id=payload["taskId"],
             id=payload["id"],
             summary=payload.get("summary"),
-            path=list(payload.get("path") or payload.get("paths") or []),
+            path=_string_list(payload.get("path") or payload.get("paths")),
         )
     elif tool_name == "sprintengine.vcs.request_repo":
         base.update(root=payload["root"], repo_id=payload.get("repoId"), id=payload["id"])
@@ -234,8 +237,47 @@ def add_reviewer_difficulty_defaults(target: dict[str, Any], payload: dict[str, 
     target["reviewed_difficulty_reason"] = payload.get("reviewedDifficultyReason", payload.get("reviewed_difficulty_reason", ""))
 
 
+def _from_finding_fields(raw: Any) -> dict[str, Any]:
+    """`fromFinding: {taskId, findingId}` -> the CLI's two flat arguments."""
+    if not isinstance(raw, dict):
+        return {"from_finding_task_id": None, "from_finding_id": None}
+    return {
+        "from_finding_task_id": raw.get("taskId"),
+        "from_finding_id": raw.get("findingId"),
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    """Coerce a list-shaped payload field, WRAPPING a bare string.
+
+    `list("ok - suite green")` is `["o","k"," ","-", ...]`. T15's evidence
+    `results` array was char-by-char corrupted exactly this way — the audit
+    trail of the audit task itself — because a client sent a string where the
+    schema says array and `list()` spread it silently. Every list field here
+    goes through this, so a bare string becomes a one-element list instead of
+    shredding into characters, and a non-list scalar is wrapped rather than
+    raising deep inside a command handler.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (list, tuple)):
+        return [item if isinstance(item, str) else json.dumps(item) for item in value]
+    return [json.dumps(value)]
+
+
 def _json_list(values: Any) -> list[str]:
-    return [value if isinstance(value, str) else json.dumps(value) for value in values or []]
+    # Same bare-string hazard: a client sending one finding object (or one
+    # pre-encoded finding string) rather than an array must not have it spread.
+    if values is None:
+        return []
+    if isinstance(values, str):
+        return [values] if values.strip() else []
+    if isinstance(values, dict):
+        return [json.dumps(values)]
+    return [value if isinstance(value, str) else json.dumps(value) for value in values]
 
 
 def _actor_id(actor: ActorContext | None, default: str) -> str:

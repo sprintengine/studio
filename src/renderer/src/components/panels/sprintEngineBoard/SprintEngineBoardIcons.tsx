@@ -63,9 +63,12 @@ export function SprintEngineSummaryNavIcon({ className }: { className?: string }
   )
 }
 
-// Two branches converging into one node: the integration-review task card
-// marker (kind: integration_review) — the terminal task that proves the run's
-// pieces work together.
+// Two branches converging into one node: the review task card marker. It
+// badges BOTH charter kinds (MC-1818) — `integration_review`, the terminal
+// task that proves the run's pieces work together, and `review`, a planned
+// review of other tasks' work. One glyph deliberately, rather than a second
+// asset for a distinction the tooltip and accessible name already carry;
+// what the badge says on the board is "someone planned a review here".
 export function SprintEngineIntegrationIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden="true">

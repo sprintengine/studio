@@ -1331,6 +1331,7 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "- Inspect the blocked task card, notes, evidence, owned paths, and current code before changing the plan.",
             "- `needsInput.kind` routes who acts next: architect for automatic architect triage or user for human/operator input. Use `reason` for artifact, tooling, verification, product, and task-scope classification.",
             "- Resolve planning defects by updating task cards or adding follow-up tasks; do not edit application source in this triage mode.",
+            "- A blocker carrying a Finding id is a reviewer task-filing request: file the follow-up with `sprintengine plan add-task --from-finding-task-id <task> --from-finding-id <finding>` so the finding chain survives the run. Done stays terminal — never reopen the card the finding was found on.",
             "- For reason=artifact_review, read the referenced artifact, adjudicate recommended follow-up tasks, wire blockers before validation when needed, then approve/request changes or resolve the blocked task.",
             "- Use `sprintengine plan update-task --force` for active task-card corrections.",
             "- Use `sprintengine plan add-task`, `sprintengine plan add-dependency`, or `sprintengine plan remove-dependency` only when the task graph really needs repair.",
@@ -1341,12 +1342,38 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
             "- When the worker can continue, say so clearly in the note. The original worker still owns implementation and completion evidence.",
             "",
         ]
+        # Hot-seam signals (MC-1822) ride the same planner-routed lane as
+        # needs_input: they are addressed to whoever plans this run, and the
+        # decision they ask for — plan a checkpoint review task over this seam,
+        # or note why not — is a planning decision only the architect makes.
+        # They are reported here as INFORMATION; nothing about the plan changes
+        # unless the architect changes it.
+        seam_lines: List[str] = []
+        for entry in state.get("seamSignals", []) or []:
+            if not isinstance(entry, dict):
+                continue
+            seam_lines.append(
+                f"- Seam `{entry.get('seam')}`: {entry.get('landedCount')} tasks have published "
+                f"changes to it ({', '.join(entry.get('ownerTaskIds') or [])}). Compare against the "
+                "plan's `## Seams` map: if this seam went unmapped or has more owners than "
+                "predicted, consider adding a checkpoint review task depending on those tasks. "
+                "Record the decision either way."
+            )
+        if seam_lines:
+            prompt_lines.extend(["Hot seams (information — you decide, the engine never adds tasks):", *seam_lines, ""])
+
         if not tasks:
             prompt_lines.extend([
                 "No planner-actionable needs_input tasks are currently queued.",
-                "Stop now.",
+                "Stop now." if not seam_lines else "Act on the hot-seam signals above, then stop.",
             ])
-            return {"ok": True, "tasks": [], "prompt": "\n".join(prompt_lines), "write": False}
+            return {
+                "ok": True,
+                "tasks": [],
+                **({"seamSignals": list(state.get("seamSignals") or [])} if seam_lines else {}),
+                "prompt": "\n".join(prompt_lines),
+                "write": False,
+            }
 
         prompt_lines.append("Architect-actionable blockers:")
         for task in tasks:
@@ -1365,6 +1392,11 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
                 f"  Role/owner: {task.get('role')} / {task.get('ownerAgentId') or 'unowned'}",
                 f"  Route/reason: {needs_input.get('kind') or '(none)'} / {needs_input.get('reason') or '(unspecified)'}",
                 f"  Artifact id: {needs_input.get('artifactId') or '(not provided)'}",
+                # A reviewer task-filing request names the structured finding it
+                # is about. File the follow-up task with
+                # `--from-finding-task-id <task> --from-finding-id <finding>` so
+                # the finding chain survives the run instead of dying in prose.
+                f"  Finding id: {needs_input.get('findingId') or '(not provided)'}",
                 f"  Question: {needs_input.get('question') or '(not provided)'}",
                 f"  Suggested resolution: {needs_input.get('suggestedResolution') or '(not provided)'}",
                 f"  Artifacts: {' | '.join(artifact_lines) or '(none)'}",
@@ -1397,6 +1429,7 @@ def cmd_triage_needs_input(args: argparse.Namespace) -> Dict[str, Any]:
                 }
                 for task in tasks
             ],
+            **({"seamSignals": list(state.get("seamSignals") or [])} if seam_lines else {}),
             "prompt": "\n".join(prompt_lines),
             "write": False,
         }

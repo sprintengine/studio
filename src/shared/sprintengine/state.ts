@@ -65,6 +65,7 @@ import type {
   SprintEngineTaskFeedbackIssueCategory,
   SprintEngineTaskFeedbackIssueSeverity,
   SprintEngineTaskFeedbackIssueStatus,
+  SprintEngineTaskKind,
   SprintEngineTaskNeedsInput,
   SprintEngineTaskPhase,
   SprintEngineTaskSource,
@@ -74,7 +75,7 @@ import type {
   SprintEngineTaskTriage,
   SprintEngineWorker,
 } from './run-types'
-import { DEFAULT_SPRINTENGINE_TASK_REPO } from './run-types'
+import { DEFAULT_SPRINTENGINE_TASK_REPO, SPRINTENGINE_TASK_KINDS } from './run-types'
 import type { AgentState } from './agent-state'
 // The VCS seam (merge rollup + `vcs` normalization) lives in ./vcs; state.ts
 // re-exports the public surface below so existing import sites keep resolving
@@ -172,6 +173,12 @@ const AUTOMATION_RUN_GLYPH: Partial<Record<SprintEngineAutomationRuntimeState, S
 // A `needs_input` task that is NOT user-routed also counts as active work (it
 // fell through the user-needs_input check below, so it's blocked on the
 // architect, not the user) and is handled inline rather than via this set.
+const SPRINT_ENGINE_TASK_KIND_SET: ReadonlySet<string> = new Set(SPRINTENGINE_TASK_KINDS)
+
+/** Narrow an unknown run-store `kind` to a charter marker the board can badge. */
+const isSprintEngineTaskKind = (value: unknown): value is SprintEngineTaskKind =>
+  typeof value === 'string' && SPRINT_ENGINE_TASK_KIND_SET.has(value)
+
 const SPRINT_ENGINE_ACTIVE_TASK_STATUSES: ReadonlySet<SprintEngineTaskStatus> = new Set([
   'in_progress',
   'review',
@@ -2286,7 +2293,11 @@ export function normalizeSprintEngineState(input: SprintEngineState | null | und
       role: taskRole,
       repo: optionalTrimmedString(task.repo) ?? DEFAULT_SPRINTENGINE_TASK_REPO,
       status,
-      ...(task.kind === 'integration_review' ? { kind: 'integration_review' as const } : {}),
+      // Both charter markers survive projection. Whitelisting only
+      // `integration_review` would silently drop `review` on the way to the
+      // board, so a planned review would look like ordinary work in the one
+      // surface a human uses to check that reviews were planned at all.
+      ...(isSprintEngineTaskKind(task.kind) ? { kind: task.kind } : {}),
       ...(semanticStatus ? { stateStatus: semanticStatus } : {}),
       ...(boardColumn ? { boardColumn } : {}),
       ...(folderStatus ? { folderStatus } : {}),

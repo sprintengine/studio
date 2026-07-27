@@ -441,6 +441,31 @@ function testCategoricalFindingsSurviveNormalization(): void {
   assert.equal(findings[1].title, 'label only')
 }
 
+function testBothReviewCharterMarkersSurviveProjection(): void {
+  // MC-1818 added `review` alongside `integration_review`. The projection used
+  // to whitelist only `integration_review`, so a planned review would reach the
+  // board looking like ordinary work — in the one surface a human uses to check
+  // that reviews were planned at all. Both markers must survive; anything else
+  // must not become one.
+  const state = normalizeSprintEngineProjection(
+    v3Projection({
+      tasks: [
+        { id: 'T1', title: 'Build', role: 'developer', status: 'done' },
+        { id: 'T2', title: 'Review T1', role: 'developer', status: 'todo', kind: 'review' },
+        { id: 'T3', title: 'Prove the seams', role: 'developer', status: 'todo', kind: 'integration_review' },
+        { id: 'T4', title: 'Explicit work', role: 'developer', status: 'todo', kind: 'work' },
+        { id: 'T5', title: 'Nonsense marker', role: 'developer', status: 'todo', kind: 'sweep' },
+      ],
+    })
+  )
+  const kinds = (state?.tasks ?? []).map((task) => task.kind)
+  assert.deepEqual(
+    kinds,
+    [undefined, 'review', 'integration_review', undefined, undefined],
+    'both review markers survive; work and unknown markers carry no kind'
+  )
+}
+
 // Completion is done-or-canceled, mirroring the engine's recompute_phase
 // rollup exactly. Strict every-done here while Python tolerates canceled
 // produced a run whose state said "completed" but whose TS consumers
@@ -459,6 +484,7 @@ function testCompletionToleratesCanceledTasks(): void {
 
 testCompletionToleratesCanceledTasks()
 testCategoricalFindingsSurviveNormalization()
+testBothReviewCharterMarkersSurviveProjection()
 testWorkersViewPopulatedFromProjectionWorkers()
 testWorkersFallBackToRosterBridgeWhenAbsent()
 testRosterBuilderDerivesFromWorkers()

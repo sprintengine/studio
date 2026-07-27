@@ -91,6 +91,11 @@ DEFAULT_RUN_PHASES = ("review",)
 # The run's phase ceiling, written once at init. Optional: absent means the engine
 # default. Round-trips through run.yaml + projection like RUN_SOURCE_KEYS.
 RUN_PHASE_KEYS = ("defaultPhases",)
+# Hot-seam signals already reported to the planner (MC-1822). Run-level, and it
+# must PERSIST: the whole point is that the third landing on a seam is reported
+# once, so an in-memory-only log would re-raise the same seam on every publish
+# after it. Round-trips through run.yaml like RUN_SOURCE_KEYS.
+RUN_SEAM_KEYS = ("seamSignals",)
 
 # Task comment vocabulary — defined here once and imported by
 # sprintengine_core/tool/constants.py and sprintengine_core/tool/comments.py, so the
@@ -650,7 +655,7 @@ def sync_run_yaml_from_state(team_dir: Path, state: dict[str, Any]) -> None:
             "updatedAt": now_iso(),
         }
     )
-    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_SEAM_KEYS:
         if key in state:
             run[key] = state[key]
     if configured_roles is not None:
@@ -900,7 +905,7 @@ def state_from_folder_store(team_dir: Path) -> dict[str, Any]:
     # one stays absent (its roster boundary then no-ops).
     if isinstance(run.get("configuredRoles"), list):
         state["configuredRoles"] = run["configuredRoles"]
-    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS:
+    for key in RUN_SOURCE_KEYS + RUN_PHASE_KEYS + RUN_SEAM_KEYS:
         if key in run:
             state[key] = run[key]
     return state

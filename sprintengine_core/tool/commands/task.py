@@ -61,6 +61,7 @@ from sprintengine_core.tool.tasks import (
     add_unique_scope_expansions,
     add_unique_values,
     advance_task,
+    coerce_evidence_values,
     ensure_evidence,
     normalize_needs_input_kind,
     publish_task,
@@ -69,8 +70,32 @@ from sprintengine_core.tool.tasks import (
     refresh_materialized_ready_queue,
     refresh_task_diff_evidence,
     reject_absolute_path_values,
+    task_diff_capture_cwd,
     task_is_ready,
 )
+
+
+def _task_checkout_roots(state: Dict[str, Any], state_path: Any, task: Dict[str, Any]) -> List[Any]:
+    """Checkouts a task's changes live in, most specific first.
+
+    Worktree mode puts the task's diff in its own repo worktree, so that tree is
+    where its `package.json` lives; the workspace root is the fallback (and the
+    only tree a non-worktree run has). Both are offered because a worktree for a
+    secondary repo need not declare `verify:app` while the primary does.
+    """
+    from pathlib import Path as _Path
+
+    from sprintengine_core.tool.paths import workspace_root_for_state_path
+
+    roots: List[Any] = []
+    for candidate in (
+        task_diff_capture_cwd(state, _Path(state_path), task),
+        workspace_root_for_state_path(_Path(state_path)),
+    ):
+        if candidate is not None and candidate not in roots:
+            roots.append(candidate)
+    return roots
+
 
 def cmd_task_list(args: argparse.Namespace) -> Dict[str, Any]:
     if getattr(args, "role", None):
@@ -338,6 +363,7 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
             getattr(args, "needs_input_kind", None)
             or getattr(args, "needs_input_reason", None)
             or getattr(args, "needs_input_artifact_id", None)
+            or getattr(args, "needs_input_finding_id", None)
             or getattr(args, "needs_input_question", None)
             or getattr(args, "needs_input_suggested_resolution", None)
         )
@@ -357,6 +383,9 @@ def cmd_task_status(args: argparse.Namespace) -> Dict[str, Any]:
                 "question": (args.needs_input_question or "").strip(),
                 "suggestedResolution": (args.needs_input_suggested_resolution or "").strip(),
                 "artifactId": (args.needs_input_artifact_id or "").strip(),
+                # The reviewer task-filing request: which structured finding
+                # this escalation is about, so triage files against a record.
+                "findingId": (getattr(args, "needs_input_finding_id", "") or "").strip(),
                 "reportedBy": actor,
                 "reportedAt": now_iso(),
             }
@@ -593,11 +622,14 @@ def cmd_task_log(args: argparse.Namespace) -> Dict[str, Any]:
         ev = ensure_evidence(task)
         if getattr(args, "summary", None):
             ev["summary"] = args.summary
-        reject_absolute_path_values(args.file or [], "--file")
-        add_unique_values(ev, "touchedFiles", args.file or [])
+        # Coerce BEFORE extend: a bare string spreads into characters otherwise
+        # (MC-1823 — how T15's `results` array became "o","k"," ","-",...).
+        files = coerce_evidence_values(getattr(args, "file", None))
+        reject_absolute_path_values(files, "--file")
+        add_unique_values(ev, "touchedFiles", files)
         add_unique_scope_expansions(ev, parse_scope_expansion_args(args, args.task_id))
-        ev["commandsRan"].extend(args.command or [])
-        ev["results"].extend(args.result or [])
+        ev["commandsRan"].extend(coerce_evidence_values(getattr(args, "command", None)))
+        ev["results"].extend(coerce_evidence_values(getattr(args, "result", None)))
         append_task_activity(task, "evidence", args.id, f"{args.id} logged evidence for {args.task_id}.")
         event = append_event(state, "task_evidence_appended", args.id, f"{args.id} logged evidence for {args.task_id}.")
 
@@ -637,12 +669,16 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
         actor = args.id or task.get("ownerAgentId") or task.get("role") or "agent"
         summary_data = parse_json_object_arg(getattr(args, "summary_data_json", None), "--summary-data-json")
         refresh_task_diff_evidence(state, args.state, task, str(actor), args.path or [])
-        # Guard BEFORE the backstop commit: an orphan is owned by no task, so this
-        # task's commit never stages it and the orphan set is identical either way.
-        # Checking first means a blocked publish commits nothing and aborts cleanly
-        # (a raised SystemExit discards the state write in with_locked_state, so a
-        # commit made here would otherwise persist in git but go unrecorded in the
-        # run store).
+        # Guard BEFORE the backstop commit, same window and same reasoning as the
+        # orphan guard below: a refused publish must commit nothing, because a
+        # raised SystemExit discards the state write in with_locked_state while a
+        # commit made here would already be in git and go unrecorded in the run
+        # store. A test nothing runs is not coverage — 3 of 3 sprints shipped one.
+        from sprintengine_core.tool.test_wiring import unwired_test_publish_error
+        wiring_error = unwired_test_publish_error(task, _task_checkout_roots(state, args.state, task))
+        if wiring_error:
+            raise SystemExit(wiring_error)
+
         from sprintengine_core.tool.repo_model import get_run_vcs
         from sprintengine_core.tool.shell import task_scoped_orphaned_dirty_paths
         if get_run_vcs(state):
@@ -668,6 +704,22 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             no_changes_ok=bool(getattr(args, "no_changes_ok", False)),
         )
         recompute_phase(state)
+        # Hot-seam signal (MC-1822): this publish may be the third landing on a
+        # file or IPC contract. Tell the ARCHITECT and stop — the signal is
+        # routed to the planner's triage queue, and the architect decides
+        # whether a checkpoint review task is worth it or notes why not. The
+        # engine adds no task, reorders nothing, and never blocks the publish;
+        # the architect alone decides what tasks are needed.
+        from sprintengine_core.tool.seams import hot_seam_signals, record_seam_signals
+        seam_signals = record_seam_signals(state, hot_seam_signals(state), now_iso())
+        for signal in seam_signals:
+            append_event(
+                state,
+                "seam_signal_raised",
+                str(actor),
+                f"Seam {signal['seam']} reached {signal['landedCount']} publishing tasks.",
+                {"seam": signal["seam"], "ownerTaskIds": signal["ownerTaskIds"]},
+            )
         # The analysis-only exit is loud everywhere it surfaces (MC-1753): the
         # event says so, and a feedback row still lands so the metrics stream
         # keeps one row per completed task.
@@ -739,6 +791,7 @@ def cmd_task_publish(args: argparse.Namespace) -> Dict[str, Any]:
             "committed": bool(commit_sha),
             "commitSha": commit_sha,
             "event": event,
+            **({"seamSignals": seam_signals} if seam_signals else {}),
             "_noChangesFeedbackRecord": no_changes_record,
         }
 
@@ -767,6 +820,7 @@ def cmd_task_advance(args: argparse.Namespace) -> Dict[str, Any]:
                 "reason": getattr(args, "needs_input_reason", None) or NEEDS_INPUT_KIND_DEFAULT_REASONS.get(kind, "blocked_other"),
                 "question": (getattr(args, "needs_input_question", None) or "").strip(),
                 "suggestedResolution": (getattr(args, "needs_input_suggested_resolution", None) or "").strip(),
+                "findingId": (getattr(args, "needs_input_finding_id", None) or "").strip(),
             }
         result = advance_task(state, task, actor, args.phase, args.outcome, args.summary, needs_input=needs_input)
 
