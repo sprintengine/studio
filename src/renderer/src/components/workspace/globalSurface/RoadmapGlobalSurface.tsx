@@ -76,7 +76,7 @@ import {
   type HorizonStepUnresolved,
 } from '../../panels/roadmapBoard/HorizonDetailPane'
 import { HorizonBacklogSource } from '../../panels/roadmapBoard/HorizonBacklogSource'
-import { useAllProjectsBacklog } from '../../../hooks/useAllProjectsBacklog'
+import { deriveBacklogProjectDerived, useAllProjectsBacklog } from '../../../hooks/useAllProjectsBacklog'
 import { refreshSharedBacklogScan } from '../../../hooks/useSharedBacklogScan'
 import { useRelativeNow } from '../../../hooks/useRelativeNow'
 import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlog/backlogDoorActions'
@@ -86,7 +86,7 @@ import type { BacklogLinkProvider } from '../../../modules/renderer-host'
 import { validateRoadmap, type ProjectKey, type RoadmapPolicy } from '../../../../../shared/backlog/roadmap'
 import type { SprintEngineRoster } from '../../../types/workspace'
 import type { BacklogItem } from '../../../utils/backlog'
-import type { BacklogProjectRef } from '../../../hooks/useAllProjectsBacklog'
+import type { BacklogProjectFeed, BacklogProjectRef } from '../../../hooks/useAllProjectsBacklog'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from './GlobalSurfaceShell'
 
 export default function RoadmapGlobalSurface(): JSX.Element {
@@ -642,7 +642,39 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   )
   // --- The detail pane ------------------------------------------------------
 
-  const { projects: backlogFeeds } = useAllProjectsBacklog()
+  const { projects: openProjectFeeds } = useAllProjectsBacklog()
+
+  // `useAllProjectsBacklog` scans OPEN workspaces; `useHorizonLibrary` scans the
+  // home project too, because a horizon lives there whether or not a workspace
+  // happens to be open on it. Without bridging the two, closing the home
+  // project's workspace left every step resolvable in the plan column and
+  // unresolvable in the detail pane — which then told the operator to "re-map
+  // the alias" for the home project, which has no alias.
+  const backlogFeeds = useMemo<BacklogProjectFeed[]>(() => {
+    const covered = new Set(openProjectFeeds.map((feed) => normalizeRelativePath(feed.root).toLowerCase()))
+    const extra: BacklogProjectFeed[] = []
+    for (const project of library.projects) {
+      const rootKey = normalizeRelativePath(project.path).toLowerCase()
+      if (!project.path || covered.has(rootKey)) continue
+      const items = [...project.items]
+      const ref: BacklogProjectRef = {
+        key: '',
+        name: project.projectName,
+        root: project.path,
+        rootKey,
+      }
+      extra.push({
+        projectKey: '',
+        projectName: project.projectName,
+        root: project.path,
+        rootKey,
+        items: items.map((item) => ({ project: ref, item })),
+        derived: deriveBacklogProjectDerived(items),
+        loading: false,
+      })
+    }
+    return extra.length > 0 ? [...openProjectFeeds, ...extra] : openProjectFeeds
+  }, [openProjectFeeds, library.projects])
   const now = useRelativeNow()
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
   const openFile = useWorkspaceStore((state) => state.openFile)
