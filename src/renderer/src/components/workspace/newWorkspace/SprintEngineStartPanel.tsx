@@ -41,7 +41,7 @@ export function SprintEngineStartPanel({
   workspaceName,
   folderPath,
   objective,
-  teamMode,
+  rosterMode,
   hasExistingTeam,
   existingTeamName,
   roleCounts,
@@ -70,7 +70,7 @@ export function SprintEngineStartPanel({
   workspaceName: string
   folderPath: string | null
   objective: string
-  teamMode: SprintEngineRosterMode
+  rosterMode: SprintEngineRosterMode
   hasExistingTeam: boolean
   existingTeamName: string | null
   roleCounts: SprintEngineRoleCounts
@@ -109,7 +109,7 @@ export function SprintEngineStartPanel({
   const sharedRuntime = runtimeLabels.size === 1 ? [...runtimeLabels][0] : null
   const teamSummary = hasExistingTeam
     ? { text: existingTeamName ?? 'Existing team', crumb: 'loads with its saved roster' }
-    : teamMode === 'pool'
+    : rosterMode === 'pool'
       ? {
           text: `Agent pool · ${poolAgentCount} agent${poolAgentCount === 1 ? '' : 's'}`,
           crumb: runtimeLabelFor(
@@ -161,7 +161,7 @@ export function SprintEngineStartPanel({
         </SummaryRow>
         <SummaryRow label="Team" onEdit={() => onEditStep('sprintengine-roster')}>
           <span className="flex items-center gap-2">
-            {(!hasExistingTeam && teamMode === 'roles') || hasExistingTeam ? (
+            {(!hasExistingTeam && rosterMode === 'roles') || hasExistingTeam ? (
               <span className="flex pl-1" aria-hidden="true">
                 {onRoles.map((role) => (
                   <span key={role} className="-ml-1 inline-flex rounded-full ring-2 ring-[color:var(--bg-app)]">

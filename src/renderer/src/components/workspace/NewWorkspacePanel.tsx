@@ -3225,7 +3225,7 @@ export default function NewWorkspacePanel({
                 workspaceName={name}
                 folderPath={folderPath}
                 objective={seGoal.trim()}
-                teamMode={seRosterMode}
+                rosterMode={seRosterMode}
                 hasExistingTeam={seExistingTeam != null}
                 existingTeamName={seExistingTeam?.displayName ?? null}
                 roleCounts={visibleSprintEngineRoleCounts}
