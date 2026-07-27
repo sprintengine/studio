@@ -1,6 +1,7 @@
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { LifecycleGlyph } from '../../../ui'
-import { SurfaceRail, type SurfaceRailRow } from '../surfaceSubstrate'
+import { basename } from '../../../../utils/paths'
+import { SurfaceRail, type SurfaceRailRow, type SurfaceRailScope } from '../surfaceSubstrate'
 import {
   buildSprintRailGroups,
   deriveSprintProjectChips,
@@ -13,8 +14,11 @@ import {
 // The Sprints surface rail (MC-1838): the list IS the inbox. Runs group under
 // "Needs you" (waiting on a person, honest since-dates), "Active" (genuinely
 // live), and "Recent" (everything else) — there is no separate waiting strip
-// pinned above the canvas. "New sprint" leads the rail, then the search field
-// with the project filter behind the filter glyph (the Backlog toolbar idiom).
+// pinned above the canvas. "New sprint" leads the rail, then the project lens,
+// then the search field with the sort axis behind the filter glyph — the
+// Backlog door's toolbar order (MC-1816), so the project filter sits in the
+// same place on both doors instead of leading the toolbar there and hiding
+// behind a glyph here.
 //
 // A thin adapter over the shared SurfaceRail (backlog 1731 / T20) — list
 // semantics, ↑/↓ + j/k navigation, and row layout are the substrate's. Row
@@ -72,27 +76,39 @@ export function SprintsRail({
   const rawGroups = buildSprintRailGroups(searched, projectFilter, sort)
   const groups = rawGroups.map((group) => ({ ...group, rows: withGlyphIcons(group.rows) }))
   const rows = groups.flatMap((group) => group.rows)
-  // Sort is always offered (the Backlog idiom); the project lens only when there
-  // is a second project to choose between — a lone option beside "All projects"
-  // filters nothing.
+  // A lens narrowed to a project whose last run has since been deleted: the
+  // chips are derived from the runs, so that project is no longer among them.
+  // Keep its option — the trigger must name the lens that is actually applied
+  // (never the Select's placeholder), and it is the only way back to All
+  // projects (the Backlog door's rule for a project it can no longer count).
+  const strandedFilter =
+    projectFilter && !chips.some((chip) => chip.projectRoot === projectFilter) ? projectFilter : null
+  // The project lens, leading the rail exactly as it leads the Backlog toolbar.
+  // Offered only when there is a second project to choose between — a lone
+  // option beside "All projects" narrows nothing. Options carry their run count,
+  // and `deriveSprintProjectChips` derives them from the runs themselves, so a
+  // project with no run is never listed.
+  const projectScope: SurfaceRailScope | undefined =
+    chips.length > 1 || strandedFilter
+      ? {
+          ariaLabel: 'Filter by project',
+          items: [
+            { value: ALL_PROJECTS, label: `All projects · ${runs.length}` },
+            ...chips.map((chip) => ({
+              value: chip.projectRoot,
+              label: `${chip.label} · ${chip.runCount}`,
+            })),
+            ...(strandedFilter
+              ? [{ value: strandedFilter, label: `${basename(strandedFilter)} · no sprints` }]
+              : []),
+          ],
+          value: projectFilter ?? ALL_PROJECTS,
+          onChange: (next: string) => onFilter(next === ALL_PROJECTS ? null : next),
+        }
+      : undefined
+  // Sort is always offered (the Backlog idiom), and it is the only axis behind
+  // the glyph now that the project lens leads the rail.
   const filterGroups = [
-    ...(chips.length > 1
-      ? [
-          {
-            label: 'Project',
-            items: [
-              { value: ALL_PROJECTS, label: `All projects · ${runs.length}` },
-              ...chips.map((chip) => ({
-                value: chip.projectRoot,
-                label: `${chip.label} · ${chip.runCount}`,
-              })),
-            ],
-            value: projectFilter ?? ALL_PROJECTS,
-            defaultValue: ALL_PROJECTS,
-            onChange: (next: string) => onFilter(next === ALL_PROJECTS ? null : next),
-          },
-        ]
-      : []),
     {
       label: 'Sort',
       items: SPRINT_SORT_ITEMS.map((item) => ({ value: item.value as string, label: item.label })),
@@ -110,6 +126,7 @@ export function SprintsRail({
         selectedId={selectedStatePath}
         onSelect={onSelect}
         newAffordance={{ label: 'New sprint', onActivate: onCreate }}
+        scope={projectScope}
         search={{
           value: search,
           onChange: onSearch,

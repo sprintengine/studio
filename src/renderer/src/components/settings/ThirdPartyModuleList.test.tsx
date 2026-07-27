@@ -182,8 +182,10 @@ function testPermissionChipsDiscloseTiersAndFlagBroadAndUnknown(): void {
   )
   // Tiered scope renders its consent description without a warning tint.
   assert.ok(html.includes('Launch and control agents and terminals'), 'tier description shown')
-  // The legacy broad scope is retained but flagged: wording + warn tint.
-  assert.match(html, /broad legacy scope/i, 'broad legacy scope named in copy, not color-only')
+  // The broad scope is retained but flagged: wording + warn tint. The assertion
+  // is on the words, not the tint — the guarantee is that the flag is never
+  // color-only, so it must survive any wording the copy settles on.
+  assert.match(html, /broad scope/i, 'the broad scope is named in copy, not color-only')
   assert.ok(html.includes('tone-warn'), 'broad/unknown chips carry the warn tint')
   // Unknown scopes surface verbatim as unrecognized (forward-compatible).
   assert.ok(html.includes('Unrecognized capability: totally-made-up'))

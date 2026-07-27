@@ -15,7 +15,10 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 })
 
 const anyGlobal = globalThis as unknown as Record<string, unknown>
-anyGlobal.window = dom.window
+// The jsdom window also carries the preload bridge (`window.api`); assignments go
+// through this typed alias so they stay checked instead of landing on `unknown`.
+const domWindow = dom.window as unknown as Record<string, unknown>
+anyGlobal.window = domWindow
 anyGlobal.document = dom.window.document
 anyGlobal.navigator = dom.window.navigator
 anyGlobal.HTMLElement = dom.window.HTMLElement
@@ -45,7 +48,7 @@ anyGlobal.ResizeObserver = NoopResizeObserver
 dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 // Handlers touch window.api only on interaction we do not exercise here; a stub
 // keeps any incidental reads from throwing at mount.
-anyGlobal.window.api = { platform: 'darwin' }
+domWindow.api = { platform: 'darwin' }
 
 async function main(): Promise<void> {
   const React = await import('react')

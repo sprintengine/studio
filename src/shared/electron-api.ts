@@ -1893,6 +1893,16 @@ export type SprintEngineAutomationHydrateInput = {
   mode: SprintEngineAutomationIntentMode
 }
 
+// MC-1799: the CLI permission preset is an engine-level control like the mode,
+// so it is written by statePath and never by workspace id — the Sprints door
+// mounts a run with no resident workspace and must still be able to set it.
+export type SprintEngineCliPermissionPresetSetInput = {
+  statePath: string
+  preset: SprintEngineCliPermissionPreset
+  /** Echoed on the broadcast so the pushing window drops its own echo. */
+  clientToken?: string
+}
+
 export type SprintEngineAutomationReadResult =
   | { ok: true; record: SprintEngineAutomationIntentRecord | null }
   | { ok: false; message: string }
@@ -2882,6 +2892,8 @@ export type ElectronApi = {
   setSprintEngineAutomationMode: (input: SprintEngineAutomationSetModeInput) => Promise<SprintEngineAutomationWriteResult>
   /** One-time seed of the main-owned intent from the legacy renderer value; no-op when a record exists. */
   hydrateSprintEngineAutomationMode: (input: SprintEngineAutomationHydrateInput) => Promise<SprintEngineAutomationWriteResult>
+  /** Write the CLI permission preset agents spawn with, by statePath — works without a resident workspace. */
+  setSprintEngineCliPermissionPreset: (input: SprintEngineCliPermissionPresetSetInput) => Promise<SprintEngineAutomationWriteResult>
   /** Authoritative automation-intent changes pushed from main (any writer: UI, phone, system). */
   onSprintEngineAutomationChanged: (cb: (event: SprintEngineAutomationChangedEvent) => void) => () => void
   /** Mirror the renderer's agent-launch settings to main for scheduler spawns (Phase 2). */

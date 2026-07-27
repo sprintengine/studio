@@ -7,6 +7,8 @@ import {
   invalidateSprintRunSummary,
   listSprintRuns,
   readSprintRunSummary,
+  watchSprintRunProjections,
+  watchedSprintRunProjectionPaths,
 } from './sprintengine-run-index'
 import { SPRINT_ENGINE_RUN_SCHEMA_VERSION } from '../shared/sprintengine/store-schema'
 
@@ -19,6 +21,7 @@ async function main(): Promise<void> {
   await assertUnsupportedSchemaRejected()
   await assertMemoKeyedOnMtimeAndSize()
   await assertDedupeAndSortAcrossRoots()
+  await assertProjectionWriteNotifiesAndWatchesFollowRuns()
 }
 
 // --- Fixtures ----------------------------------------------------------------
@@ -79,6 +82,18 @@ const worktreeVcs = (repos: Array<{ id: string; pr: 'merged' | 'open' | null }>)
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), 'multicode-run-index-'))
   return fn(root).finally(() => rmSync(root, { recursive: true, force: true }))
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Poll `predicate` until it holds or the budget runs out; the caller asserts. */
+async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!predicate() && Date.now() < deadline) {
+    await delay(20)
+  }
 }
 
 function summaryFor(summaries: Awaited<ReturnType<typeof listSprintRuns>>, teamSlug: string) {
@@ -240,6 +255,71 @@ async function assertMemoKeyedOnMtimeAndSize(): Promise<void> {
     const fourth = await readSprintRunSummary(run.statePath)
     assert.notEqual(fourth, third)
     assert.equal(fourth.runtimeState, 'completed')
+  })
+}
+
+// MC-1801: a run advancing with no runtime op (the engine writing projection.json
+// on disk) must still invalidate the index, and the watches must live and die
+// with the enumeration.
+async function assertProjectionWriteNotifiesAndWatchesFollowRuns(): Promise<void> {
+  await withRoot(async (root) => {
+    const notified: string[] = []
+    watchSprintRunProjections((statePath) => notified.push(statePath))
+    try {
+      const engineRun = writeRun(root, 'engine-run', {
+        projection: projectionWith({}, [{ id: 'T1', status: 'in_progress' }]),
+      })
+      const idleRun = writeRun(root, 'idle-run', { projection: projectionWith({}, []) })
+
+      await listSprintRuns([root])
+      assert.deepEqual(
+        watchedSprintRunProjectionPaths().sort(),
+        [engineRun.statePath, idleRun.statePath].sort(),
+      )
+
+      // The engine advances the run on disk with no runtime op. Retried until a
+      // notification lands: arming an fs watch is asynchronous, so the first
+      // write after `listSprintRuns` can precede the armed watcher.
+      const projectionPath = join(engineRun.teamDirectory, 'projection.json')
+      const writeProjection = (): void => {
+        writeFileSync(projectionPath, `${JSON.stringify(projectionWith({}, [{ id: 'T1', status: 'done' }]))}\n`, 'utf8')
+      }
+      await waitUntil(() => {
+        if (notified.includes(engineRun.statePath)) return true
+        writeProjection()
+        return false
+      })
+      assert.ok(notified.includes(engineRun.statePath), 'expected a runs-changed notification for the projection write')
+
+      // The refetch the event triggers sees the state the engine wrote.
+      assert.equal(summaryFor(await listSprintRuns([root]), 'engine-run').runtimeState, 'completed')
+
+      // With the watcher armed, a burst of writes coalesces instead of firing
+      // one event per write, and a sibling file in the same directory is not a
+      // projection write at all.
+      await delay(400)
+      notified.length = 0
+      for (let write = 0; write < 10; write += 1) writeProjection()
+      writeFileSync(engineRun.statePath, 'sprintengine: {}\n', 'utf8')
+      await waitUntil(() => notified.length > 0)
+      await delay(400)
+      assert.ok(notified.length <= 3, `expected the write burst to coalesce, got ${notified.length} events`)
+      assert.deepEqual([...new Set(notified)], [engineRun.statePath])
+
+      // A quiet period with only run.yaml written stays quiet.
+      notified.length = 0
+      writeFileSync(engineRun.statePath, 'sprintengine: {}\n# again\n', 'utf8')
+      await delay(400)
+      assert.deepEqual(notified, [])
+
+      // A run whose directory is gone closes its watcher on the next enumeration.
+      rmSync(engineRun.teamDirectory, { recursive: true, force: true })
+      await listSprintRuns([root])
+      assert.deepEqual(watchedSprintRunProjectionPaths(), [idleRun.statePath])
+    } finally {
+      watchSprintRunProjections(null)
+    }
+    assert.deepEqual(watchedSprintRunProjectionPaths(), [])
   })
 }
 

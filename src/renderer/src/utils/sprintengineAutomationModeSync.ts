@@ -27,6 +27,8 @@
  *    window can never be left showing a stale mode.
  */
 import type { SprintEngineAutomationChangedEvent } from '../../../shared/electron-api'
+import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
+import type { SprintEngineCliPermissionPreset } from '../types/workspace'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
 import {
@@ -55,22 +57,53 @@ function findWorkspaceIdForStatePath(statePath: string): string | null {
 }
 
 /**
- * Adopt an authoritative mode into the local store. `suppressMainSync` stops
- * the store action from pushing the value straight back to main (the no-echo
- * rule); the manual audit is main's job on the original write, never the
- * subscriber's. Same-mode records only advance the applied-revision floor.
+ * Adopt an authoritative record into the local store: the mode, and the CLI
+ * permission preset that shares it. `suppressMainSync` stops the store action
+ * from pushing the mode straight back to main (the no-echo rule); the manual
+ * audit is main's job on the original write, never the subscriber's. Same-mode
+ * records only advance the applied-revision floor.
  */
 function adoptAuthoritativeRecord(workspaceId: string, event: SprintEngineAutomationChangedEvent): void {
   const store = useWorkspaceStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === workspaceId)
   if (!workspace) return
   noteAppliedSprintEngineAutomationRevision(event.statePath, event.record.revision)
+  adoptAuthoritativeCliPermissionPreset(store, workspaceId, workspace, event.record)
   const currentMode = deriveSprintEngineAutomationMode(workspace.sprintEngineAutoState)
   if (currentMode === event.record.desiredMode) return
   store.setSprintEngineAutomationMode(workspaceId, event.record.desiredMode, {
     suppressMainSync: true,
     suppressManualAudit: true,
   })
+}
+
+/**
+ * The preset half of the same record (MC-1799). It is written by statePath —
+ * from the Sprints door, which has no workspace to write through, or from
+ * another window — but it is read at spawn from this window's workspace record
+ * (`buildRegistration` in `sprintengineRuntimeBridge.ts`). Without this the
+ * door's control would persist a preset that nothing ever spawns with, and a
+ * workspace attaching afterwards would silently keep its own stale value.
+ *
+ * Ahead of the mode's early return on purpose: a preset write does not change
+ * the mode, so a same-mode record is exactly the shape this arrives in.
+ *
+ * The store action pushes the adopted value back to main; that write is the
+ * value main already holds, and `setCliPermissionPreset` answers a same-preset
+ * write with no revision bump and no broadcast, so the echo dies there.
+ */
+function adoptAuthoritativeCliPermissionPreset(
+  store: Pick<ReturnType<typeof useWorkspaceStore.getState>, 'setSprintEngineCliPermissionPreset'>,
+  workspaceId: string,
+  workspace: { sprintEngineAutoState?: { cliPermissionPreset?: SprintEngineCliPermissionPreset } },
+  record: SprintEngineAutomationIntentRecord,
+): void {
+  // Absent means "never set" (every record written before MC-1799, and every
+  // run whose preset was never touched) — the workspace's own value stands.
+  const preset = record.cliPermissionPreset
+  if (!preset) return
+  if (workspace.sprintEngineAutoState?.cliPermissionPreset === preset) return
+  store.setSprintEngineCliPermissionPreset(workspaceId, preset)
 }
 
 /** Returns true when the statePath is fully hydrated (stop retrying). */
@@ -99,11 +132,13 @@ async function hydrateStatePath(ref: SprintWorkspaceRef): Promise<boolean> {
     mode: localMode,
   }).catch(() => null)
   if (!hydrated?.ok) return false
-  noteAppliedSprintEngineAutomationRevision(ref.statePath, hydrated.record.revision)
-  if (hydrated.record.desiredMode !== localMode) {
-    // Another window hydrated first with a different value; adopt it.
-    adoptAuthoritativeRecord(ref.workspaceId, { statePath: ref.statePath, record: hydrated.record })
-  }
+  // Adopt unconditionally: main returns the existing record when one appeared
+  // between the read above and this call, and that record can differ from our
+  // seed in EITHER half — a different mode from a window that hydrated first,
+  // or a preset from a Sprints-door write. Adoption is a no-op per half when
+  // that half already matches, so the old same-mode short-circuit only risked
+  // dropping the other one.
+  adoptAuthoritativeRecord(ref.workspaceId, { statePath: ref.statePath, record: hydrated.record })
   return true
 }
 

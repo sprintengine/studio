@@ -5,8 +5,8 @@ import { conversationAgentRuntimePatch } from '../workspace/conversationSpawnOpt
 import type { AgentState, PluginCatalogEntry } from '../../types/workspace'
 
 const installedPlugins: PluginCatalogEntry[] = [
-  { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex' },
-  { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
+  { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false },
+  { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude', resumeSession: true, sessionIdFromCaller: true },
 ]
 
 assert.equal(

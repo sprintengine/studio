@@ -12,6 +12,17 @@ Use this checklist for every preview or stable desktop release.
 - Confirm `.github/workflows/release.yml` can write GitHub Releases in repository settings.
 - Confirm signing credentials are configured for any stable release.
 
+## Retirements To State In Release Notes
+
+Removals an installed profile cannot be migrated through. State each in the notes
+of the first release that ships it, then delete the line.
+
+- Sprint Engines panel shortcut (item 1813): the Sprint Engines panel became the
+  Sprints door, and the `panel.sprint-engines.toggle` command went with it. A
+  custom shortcut saved for that command stopped firing when the panel was
+  removed; opening Settings -> Shortcuts now drops the saved binding. There is no
+  replacement shortcut - the Sprints door opens from the sidebar.
+
 ## Tag And Build
 
 - Create a tag matching `package.json`, for example `v0.2.0` or `v0.2.0-preview.1`.

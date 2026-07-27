@@ -224,7 +224,7 @@ async function testTriageActingDoesNotSuppressPoolSpawning(): Promise<void> {
     artifacts: [],
     tasks: [
       task({
-        id: 'T-blocked', title: 'Needs planner input', status: 'needs_input', boardColumn: 'blocked',
+        id: 'T-blocked', title: 'Needs planner input', status: 'needs_input', boardColumn: 'needs_input',
         needsInput: { kind: 'architect', reason: 'plan ambiguity' },
       }),
       task({ id: 'T-open', title: 'Ready developer work' }),

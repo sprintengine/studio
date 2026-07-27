@@ -11,7 +11,13 @@ import type {
 } from '../../../../shared/conversation-runtime'
 import type { ConversationProviderListEntry } from '../../../../shared/plugin-manifest'
 import {
+  ATTACHABLE_IMAGE_TYPES as SHARED_ATTACHABLE_IMAGE_TYPES,
+  MAX_ATTACHMENTS_PER_TURN as SHARED_MAX_ATTACHMENTS_PER_TURN,
+  MAX_ATTACHMENT_BYTES as SHARED_MAX_ATTACHMENT_BYTES,
+} from '../../../../shared/conversation-attachments'
+import {
   activeConversationStage,
+  ATTACHABLE_IMAGE_TYPES,
   attachmentCountLabel,
   attachmentPreviewUrl,
   attachmentRejection,
@@ -46,6 +52,7 @@ import {
   readinessLabel,
   ResolvedDecisions,
   resolvedDecisionGroupLabel,
+  resolvePermissionPreset,
   scaledImageDimensions,
   splitImageDataUrl,
   stopDisabledForPending,
@@ -902,6 +909,33 @@ assert.equal(
   'with no session yet the preset is simply what the session will start on'
 )
 
+// Which preset the pill reports (1809). The store used to be the only source,
+// so a session running on a different preset than the agent record rendered a
+// pill that misstated what the child would do on its next tool call.
+const liveSession = (permissionPreset?: 'default' | 'auto_workspace' | 'bypass_all') =>
+  permissionPreset ? { permissionPreset } : {}
+assert.equal(
+  resolvePermissionPreset(liveSession('bypass_all'), 'default'),
+  'bypass_all',
+  'a live session running on Bypass is reported as Bypass, whatever the agent record says'
+)
+assert.equal(
+  resolvePermissionPreset(liveSession('default'), 'bypass_all'),
+  'default',
+  'the session wins in the safe direction too — the pill never overstates the child’s freedom'
+)
+assert.equal(
+  resolvePermissionPreset(null, 'auto_workspace'),
+  'auto_workspace',
+  'with no session yet the agent record is what the next session will start on'
+)
+assert.equal(
+  resolvePermissionPreset(liveSession(), 'auto_workspace'),
+  'auto_workspace',
+  'a session that never recorded a preset falls through to the record, not past it'
+)
+assert.equal(resolvePermissionPreset(null, undefined), 'default', 'an agent record predating the field asks per tool')
+
 const pillMarkup = (preset: 'default' | 'auto_workspace' | 'bypass_all'): string =>
   renderToStaticMarkup(
     createElement(PermissionPresetPill, {
@@ -939,9 +973,19 @@ assert.equal(providerAcceptsImages('claude-agent'), true, 'the agent harness com
 assert.equal(providerAcceptsImages('openrouter'), false, 'a model provider does not read attachments yet')
 assert.equal(providerAcceptsImages(undefined), false, 'an unknown provider is never assumed vision-capable')
 
-// The accepted set mirrors the IPC boundary's; offering anything else would
-// only buy the user a rejection one layer down.
-for (const mediaType of ['image/png', 'image/jpeg', 'image/webp', 'image/gif']) {
+// The three boundary limits are the shared declaration, not a second copy that
+// can drift from the one the IPC boundary enforces (1810). Identity, not
+// equality: a re-typed array here would pass a deepEqual today and drift
+// tomorrow. The other half of the pairing — that the boundary accepts exactly
+// these values — is asserted against the real handler in
+// src/main/ipc/conversation-ipc.test.ts.
+assert.equal(ATTACHABLE_IMAGE_TYPES, SHARED_ATTACHABLE_IMAGE_TYPES, 'the composer offers the shared media-type set')
+assert.equal(MAX_ATTACHMENT_BYTES, SHARED_MAX_ATTACHMENT_BYTES, 'the composer sizes against the shared ceiling')
+assert.equal(MAX_ATTACHMENTS_PER_TURN, SHARED_MAX_ATTACHMENTS_PER_TURN, 'the composer trims to the shared cap')
+
+// The composer accepts exactly the shared set — nothing narrower (a silently
+// unattachable format) and nothing wider (a rejection one layer down).
+for (const mediaType of SHARED_ATTACHABLE_IMAGE_TYPES) {
   assert.equal(isAttachableImageType(mediaType), true, `${mediaType} is attachable`)
 }
 assert.equal(isAttachableImageType('image/svg+xml'), false, 'SVG is not in the SDK image set')
@@ -1177,8 +1221,8 @@ const workspaceManagerSource = readFileSync(
 )
 assert.match(
   chatViewSource,
-  /const permissionPreset: SprintEngineCliPermissionPreset = agent\?\.cliPermissionPreset \?\? 'default'/,
-  'the pill and the session start read one persisted field, and an unset one asks per tool'
+  /const permissionPreset = resolvePermissionPreset\(session, agent\?\.cliPermissionPreset\)/,
+  'the pill and the session start read one resolved preset, live session first'
 )
 assert.match(
   chatViewSource.slice(chatViewSource.indexOf('conversationSessionStart({')),
@@ -1202,6 +1246,28 @@ assert.equal(
   (chatViewSource.match(/cliPermissionPreset: previous/g) ?? []).length,
   3,
   'all three failure branches roll the optimistic write back'
+)
+// An accepted change the provider cannot apply to the streaming turn comes back
+// with a sentence saying when it starts applying (1808). Produced-and-dropped is
+// the failure mode here, so the success path is pinned to show it — as
+// information, never through the error line's tone.
+assert.match(
+  chatViewSource,
+  /setSession\(result\.session\)\n\s+setPermissionNotice\(result\.notice \?\? null\)/,
+  'an accepted permission change adopts the session’s reported preset and surfaces its notice'
+)
+const noticeRenderIndex = chatViewSource.indexOf('{permissionNotice ? (')
+assert.notEqual(noticeRenderIndex, -1, 'the notice has a render site at all')
+const noticeRender = chatViewSource.slice(noticeRenderIndex)
+assert.match(
+  noticeRender.slice(0, 300),
+  /--text-muted[\s\S]*?\{permissionNotice\}/,
+  'the notice renders in the muted information tone, not as an error'
+)
+assert.doesNotMatch(
+  noticeRender.slice(0, 300),
+  /tone-error/,
+  'a recorded change is information; the error line stays for actual failures'
 )
 
 // The composer's attach wiring is window/DOM-bound (FileReader, canvas, the

@@ -33,6 +33,11 @@ import type {
   ConversationTranscriptResult,
 } from '../../shared/conversation-runtime'
 import { CONVERSATION_PERMISSION_PRESETS } from '../../shared/conversation-runtime'
+import {
+  ATTACHABLE_IMAGE_TYPES,
+  MAX_ATTACHMENTS_PER_TURN,
+  MAX_ATTACHMENT_BYTES,
+} from '../../shared/conversation-attachments'
 import { ConversationRuntime } from '../conversation-runtime'
 import { detectCli } from '../cli-runtime-install'
 import { getConversationProviderById, listConversationProviderRegistryEntries } from '../plugin-registry-instance'
@@ -468,17 +473,13 @@ function parseTranscriptInput(input: unknown):
   return { ok: true, input: { workspaceRoot, workspaceId, agentId } }
 }
 
-// Image attachments accepted on a send-turn. The set mirrors the base64 image
-// media types the Claude Agent SDK (and the Anthropic API) accept; anything
-// else is rejected at the boundary rather than failing deep in the provider.
-const ALLOWED_IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-// Per-image decoded-byte ceiling (matches the Anthropic API's ~5 MB image
-// limit). The renderer downscales before sending; oversized images are
-// rejected here with a clear error so nothing silently truncates.
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024
-// A generous per-turn cap so a runaway paste cannot push an unbounded payload
-// through IPC; well above any realistic manual attach count.
-const MAX_ATTACHMENTS_PER_TURN = 16
+// Image attachments accepted on a send-turn. The media-type set, the per-image
+// byte ceiling and the per-turn cap are the shared boundary limits the composer
+// stages against (src/shared/conversation-attachments.ts) — one declaration, so
+// the composer can never stage an image this boundary then refuses (1810).
+// Anything outside them is rejected here rather than failing deep in the
+// provider.
+const ALLOWED_IMAGE_MEDIA_TYPES = new Set<string>(ATTACHABLE_IMAGE_TYPES)
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/
 
 // Decoded byte length of a base64 string without allocating the buffer.
@@ -510,7 +511,7 @@ function parseImageAttachments(raw: unknown):
     }
     // Trust the decoded length over the client-supplied byteLength for the guard.
     const decodedBytes = base64ByteLength(dataBase64)
-    if (decodedBytes > MAX_IMAGE_BYTES) {
+    if (decodedBytes > MAX_ATTACHMENT_BYTES) {
       return { ok: false, message: 'Each attached image must be 5 MB or smaller.' }
     }
     if (byteLength !== undefined && typeof byteLength !== 'number') {

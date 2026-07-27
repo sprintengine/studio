@@ -10,8 +10,13 @@ import type { SprintEngineAutoRunDisableReason } from '../../../shared/sprinteng
 
 export type { SprintEngineAutoRunDisableReason } from '../../../shared/sprintengine/auto-run-executor'
 
+// The audit sentence for a user-driven switch to Manual. Exported because the
+// Sprints door writes that intent by statePath rather than through this
+// workspace-keyed path (MC-1799), and both must record the same reason.
+export const SPRINT_ENGINE_MANUAL_MODE_REASON = 'Switched to manual mode by the user.'
+
 const REASON_MESSAGES: Record<SprintEngineAutoRunDisableReason, string> = {
-  user_manual_toggle: 'Switched to manual mode by the user.',
+  user_manual_toggle: SPRINT_ENGINE_MANUAL_MODE_REASON,
   folder_missing: 'Workspace folder is no longer available.',
   blocked_on_external_input: 'A task needs user input before agents can continue.',
   all_tasks_done: 'All tasks are complete.',

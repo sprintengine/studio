@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 
 import { registerConversationIpc } from './conversation-ipc'
+import {
+  ATTACHABLE_IMAGE_TYPES,
+  MAX_ATTACHMENTS_PER_TURN,
+  MAX_ATTACHMENT_BYTES,
+} from '../../shared/conversation-attachments'
 import type { ConversationIpcHandlers } from './conversation-ipc'
 import type {
   ConversationProviderListResult,
@@ -32,6 +37,7 @@ async function main(): Promise<void> {
   await testRegistersSecretChannels()
   await testRegistersSessionChannelsAndEventSubscription()
   await testSendTurnValidatesImageAttachments()
+  await testAttachmentLimitsAreTheSharedOnes()
   await testSetPermissionValidatesThePreset()
   await testFailureIsExplicit()
 
@@ -383,6 +389,69 @@ async function testSendTurnValidatesImageAttachments(): Promise<void> {
     const result = (await sendTurn?.(null, { sessionId: 'conv_1', message: 'hi', attachments })) as { ok: boolean }
     assert.equal(result.ok, false, `expected rejection: ${label}`)
   }
+}
+
+// The boundary's accepted set is the shared declaration the composer stages
+// against (1810), not a second copy of the same values. Asserted through the
+// real handler: every shared media type passes, the cap admits exactly
+// MAX_ATTACHMENTS_PER_TURN, and the ceiling admits exactly MAX_ATTACHMENT_BYTES
+// — so a limit raised on one side and not the other fails here rather than
+// mid-send in front of the user.
+async function testAttachmentLimitsAreTheSharedOnes(): Promise<void> {
+  const ipcMain = createIpcMain()
+  registerConversationIpc(ipcMain as unknown as Parameters<typeof registerConversationIpc>[0], {
+    listProviders: async () => ({ ok: true, providers: [] }),
+    testProvider: async () => ({ ok: false, status: { providerId: 'mock', state: 'missing_key', message: 'unused' } }),
+    getSecretStatus: async () => ({ ok: false, message: 'unused' }),
+    setSecret: async () => ({ ok: false, message: 'unused' }),
+    clearSecret: async () => ({ ok: false, message: 'unused' }),
+    ...runtimeHandlerStubs(),
+    sendTurn: async () => ({ ok: true, session: SENT_SESSION }),
+  })
+  const sendTurn = ipcMain.handlers.get('conversation:sessions:send-turn')
+  const send = async (attachments: unknown): Promise<boolean> =>
+    ((await sendTurn?.(null, { sessionId: 'conv_1', message: 'hi', attachments })) as { ok: boolean }).ok
+
+  for (const mediaType of ATTACHABLE_IMAGE_TYPES) {
+    assert.equal(await send([{ id: 'x', mediaType, dataBase64: 'Zm9v' }]), true, `${mediaType} is accepted`)
+  }
+  assert.equal(
+    await send([{ id: 'x', mediaType: 'image/svg+xml', dataBase64: 'Zm9v' }]),
+    false,
+    'a type outside the shared set is refused, so the composer must not offer it'
+  )
+
+  const image = (i: number) => ({ id: `x${i}`, mediaType: 'image/png', dataBase64: 'Zm9v' })
+  assert.equal(
+    await send(Array.from({ length: MAX_ATTACHMENTS_PER_TURN }, (_, i) => image(i))),
+    true,
+    'a turn filled exactly to the shared cap passes'
+  )
+  assert.equal(
+    await send(Array.from({ length: MAX_ATTACHMENTS_PER_TURN + 1 }, (_, i) => image(i))),
+    false,
+    'one past the shared cap is refused'
+  )
+
+  assert.equal(
+    await send([{ id: 'x', mediaType: 'image/png', dataBase64: base64OfBytes(MAX_ATTACHMENT_BYTES) }]),
+    true,
+    'an image exactly at the shared ceiling fits'
+  )
+  assert.equal(
+    await send([{ id: 'x', mediaType: 'image/png', dataBase64: base64OfBytes(MAX_ATTACHMENT_BYTES + 1) }]),
+    false,
+    'one byte past the shared ceiling is refused'
+  )
+}
+
+// Well-formed base64 that decodes to exactly `bytes`: 4 chars per 3 bytes, with
+// '=' padding dropping the remainder. Derived rather than hardcoded so the byte
+// assertions stay exact if the ceiling moves.
+function base64OfBytes(bytes: number): string {
+  const groups = Math.ceil(bytes / 3)
+  const padding = groups * 3 - bytes
+  return 'A'.repeat(groups * 4 - padding) + '='.repeat(padding)
 }
 
 const SENT_SESSION = {

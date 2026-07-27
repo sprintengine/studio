@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     const conversation = classifyChildProcess({
       pid: 200,
       ppid: 100,
-      rssBytes: 1,
+      rssKb: 1,
       cpuPercent: 0,
       command: '/Users/someone/.local/bin/claude',
       args: 'claude --output-format stream-json --verbose --input-format stream-json',
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
     const terminal = classifyChildProcess({
       pid: 201,
       ppid: 100,
-      rssBytes: 1,
+      rssKb: 1,
       cpuPercent: 0,
       command: '/Users/someone/.local/bin/claude',
       args: 'claude --resume abc',

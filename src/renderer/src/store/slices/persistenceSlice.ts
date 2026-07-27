@@ -57,7 +57,7 @@ import {
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 66
+export const WORKSPACE_STORE_VERSION = 67
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1023,6 +1023,19 @@ export function migratePersistedWorkspaceState(
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
+  }
+  if (version < 67) {
+    // The Design Wizard conversation transport became opt-in only, but the
+    // pre-flip default was `true` and persist had already written it to every
+    // existing profile — so the whole installed base kept taking the
+    // Claude-only conversation path without ever choosing it. Reset the
+    // persisted opt-in once and stamp the profile: a stored `true` cannot be
+    // told apart from the old default, and re-enabling it is a single toggle.
+    // normalizeAppSettings owns the rule (persist merge runs it on every
+    // hydration, which is what catches current-version envelopes this ladder
+    // never revisits); this step just gives clean upgrades the same result.
+    const current = migrationState
+    current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
 
   return state as never

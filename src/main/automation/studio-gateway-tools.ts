@@ -102,6 +102,12 @@ export function isStudioGatewayMutation(toolName: string): boolean {
 // so the tool code stays free of the workspace store, os, and BrowserWindow, and
 // so contract tests drive each one directly.
 export interface ReviewGatewayBackends {
+  /**
+   * Whether the `review` capability module is enabled right now. Resolved per
+   * call, never captured, so switching the module off in Settings takes effect
+   * on the next tool call rather than at the next app start.
+   */
+  isReviewModuleEnabled: () => boolean
   /** Absolute folder paths of the projects currently open in the app. */
   listOpenProjectRoots: () => string[]
   /** The user's home directory, for the outgoing-payload leak guard. */
@@ -117,6 +123,10 @@ export interface ReviewGatewayBackends {
 // A review id is the on-disk directory name; it must satisfy the same constraint
 // changeset-service enforces so a crafted value can never escape the review root.
 const REVIEW_ID_PATTERN = /^[A-Za-z0-9._-]+$/
+
+// The one sentence a disabled Review module answers with (owner ruling, MC-1805).
+const REVIEW_MODULE_DISABLED =
+  'The Review module is disabled. Enable it in Settings → Modules to use review tools.'
 
 const REVIEW_TARGET_SCHEMA = {
   type: 'object',
@@ -266,7 +276,21 @@ export function createReviewGatewayTools(backends: ReviewGatewayBackends): McpTo
     },
   }
 
-  return [reviewListPending, reviewGetChangeset, reviewGetBrief, reviewSubmitBrief]
+  // The user's module switch reaches the MCP surface too (MC-1805). Registration
+  // stays static — the tools are still listed, so an agent learns the capability
+  // exists and why it is refusing rather than that the tool vanished — but a
+  // disabled module means every handler answers with the same plain sentence
+  // before it reads or writes anything. Applied by wrapping the whole set, so a
+  // tool added here later cannot forget the check.
+  return [reviewListPending, reviewGetChangeset, reviewGetBrief, reviewSubmitBrief].map(
+    (registration) => ({
+      ...registration,
+      handler: async (args: Record<string, unknown>, context?: McpConnectionContext) =>
+        backends.isReviewModuleEnabled()
+          ? registration.handler(args, context)
+          : toolError('review_module_disabled', REVIEW_MODULE_DISABLED),
+    })
+  )
 }
 
 // Strip the one absolute machine path a change set carries — a branch source's

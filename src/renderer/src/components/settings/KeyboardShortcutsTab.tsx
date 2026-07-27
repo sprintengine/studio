@@ -7,7 +7,7 @@
 // The view-model helpers below are pure and exported so the focused test can
 // cover search, conflict text, disable/reset, and recorder key parsing without
 // a DOM. The component wires them to the workspace store and the recorder.
-import React, { useCallback, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
   collapseDuplicateKeybindings,
@@ -99,6 +99,30 @@ export function buildShortcutRows(
       customized: Boolean(overrides) || disabled,
     }
   })
+}
+
+// Command ids the shell has retired for good. The keybindings normalizer keeps
+// ids it does not recognize on purpose — a disabled module's customizations have
+// to survive re-enable — so nothing downstream can tell "gone for now" from
+// "gone for good". A retired id therefore gets no row here and no dispatch
+// (the dispatcher matches the live registry), leaving the user holding a stored
+// binding they can neither see nor clear. This tab drops it on open. Every
+// entry added here is a user-visible retirement and belongs in the release notes
+// (`docs/release-checklist.md`).
+export const RETIRED_COMMAND_IDS: readonly string[] = [
+  // The Sprint Engines panel became the Sprints door surface (item 1767); the
+  // toggle command that opened the panel went with it.
+  'panel.sprint-engines.toggle',
+]
+
+/** Retired ids that still carry a persisted override or disable flag. */
+export function retiredKeybindingIds(
+  keybindings: KeybindingSettings,
+  retired: readonly string[] = RETIRED_COMMAND_IDS,
+): string[] {
+  return retired.filter(
+    (id) => Boolean(keybindings.overrides[id]) || keybindings.disabled[id] === true,
+  )
 }
 
 function toCandidate(row: ShortcutRow): KeybindingConflictCandidate {
@@ -232,6 +256,13 @@ export function KeyboardShortcutsTab() {
     [moduleEnablement],
   )
   const rows = useMemo(() => buildShortcutRows(commands, keybindings), [commands, keybindings])
+  // Retired commands never come back, so their stored deltas are dead weight no
+  // row can reach. Clearing them here is the honest end of the retirement: the
+  // reset is per id and idempotent, so the second pass finds nothing.
+  const retiredIds = useMemo(() => retiredKeybindingIds(keybindings), [keybindings])
+  useEffect(() => {
+    for (const commandId of retiredIds) resetCommandKeybindings(commandId)
+  }, [retiredIds, resetCommandKeybindings])
   const conflicts = useMemo(() => computeConflicts(rows), [rows])
   const visibleRows = useMemo(
     () => rows.filter((row) => rowMatchesQuery(row, query, platform)),

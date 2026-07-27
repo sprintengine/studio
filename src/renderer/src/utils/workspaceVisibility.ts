@@ -1,8 +1,9 @@
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
+  isModeHiddenFromRail,
   SPRINT_ENGINE_WORKSPACE_MODE,
   type WorkspaceMode,
-} from '../types/workspace'
+} from '../../../shared/workspace-mode'
 
 // Pure, dependency-free workspace-mode predicates so the executor, sidebar rail,
 // and tests can all import them without dragging in store/module deps. Callers
@@ -42,11 +43,21 @@ export function isSprintRunWorkspace(workspace: WorkspaceModeInput): boolean {
 // consults (sidebar, WorkspaceManager, command palette), so reverting this one
 // predicate restores the rows — nothing about a sprint workspace is migrated or
 // deleted to hide it.
+//
+// The rule itself lives in `shared/workspace-mode.ts` (`isModeHiddenFromRail`)
+// because main needs the same answer and cannot import the renderer — the
+// review guide's workspace fallback consults it (item 1807). This stays the
+// renderer's chokepoint and delegates, so there is one definition, not two.
 export function isHiddenFromRail(workspace: WorkspaceModeInput): boolean {
-  return isAutomationsHostWorkspace(workspace) || isSprintRunWorkspace(workspace)
+  return isModeHiddenFromRail(workspace.mode)
 }
 
-// True when the user archived the workspace (Sprints aside row action).
+// True when the workspace is archived. The only writer today is the startup
+// staleness sweep (`archiveStaleWorkspaces`, once per WorkspaceManager mount);
+// typing into one of its terminals clears it again
+// (`recordWorkspaceTerminalActivity`). The Sprints aside row action that used to
+// set it by hand went with the aside (item 1767), leaving `setWorkspaceArchived`
+// as the manual path with no caller.
 // Deliberately separate from isHiddenFromRail: rail lists filter archived rows
 // out, but the command palette / search keeps them findable and window
 // assignment never consults this.

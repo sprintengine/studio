@@ -1323,6 +1323,9 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
           created.push(input)
           return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
         },
+        // No MCP tool edits a definition (create + run only), so an update here
+        // would mean the surface grew: refuse rather than fake a success.
+        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
         runNow: async (input) => {
           ran.push(input)
           return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
@@ -1383,6 +1386,7 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       getAutomationsFrontDoor: () => ({
         createDefinition: async () => ({ ok: false, code: 'workspace_root_untrusted', message: 'Folder is not an open workspace.' }),
+        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
         runNow: async () => ({ ok: false, code: 'unsupported_trigger', message: 'Run now needs a schedule trigger.' }),
       }),
     })
@@ -2273,18 +2277,30 @@ function reviewHarness(): {
   projectRoot: string
   reviewDir: string
   emitted: BriefRunEvent[]
+  /** Flip the Review module the way Settings does, mid-session. */
+  setModuleEnabled: (enabled: boolean) => void
 } {
   const projectRoot = mkdtempSync(join(tmpdir(), 'review-gw-'))
   const reviewDir = reviewChangeSetDir(projectRoot, REVIEW_ID)
   mkdirSync(reviewDir, { recursive: true })
   writeFileSync(join(reviewDir, 'changeset.json'), `${JSON.stringify(reviewFixtureChangeSet(projectRoot), null, 2)}\n`)
   const emitted: BriefRunEvent[] = []
+  let moduleEnabled = true
   const tools = createReviewGatewayTools({
+    isReviewModuleEnabled: () => moduleEnabled,
     listOpenProjectRoots: () => [projectRoot],
     homeDir: () => homedir(),
     emitBriefRunEvent: (event) => emitted.push(event),
   })
-  return { tools, projectRoot, reviewDir, emitted }
+  return {
+    tools,
+    projectRoot,
+    reviewDir,
+    emitted,
+    setModuleEnabled: (enabled) => {
+      moduleEnabled = enabled
+    },
+  }
 }
 
 async function testReviewSubmitBriefHappyPathWritesAtomicallyAndEmits(): Promise<void> {
@@ -2412,6 +2428,61 @@ async function testReviewToolsRejectUnknownTargetAndStripAbsolutePaths(): Promis
   }
 }
 
+// MC-1805: a disabled Review module makes review unreachable in BOTH processes.
+// The tools stay registered — an agent still sees the capability, and learns why
+// it is refusing — but every one of them refuses before touching a file.
+async function testReviewToolsRefuseWhileTheModuleIsDisabled(): Promise<void> {
+  const { tools, projectRoot, reviewDir, emitted, setModuleEnabled } = reviewHarness()
+  try {
+    setModuleEnabled(false)
+    assert.deepEqual(
+      tools.map((registration) => registration.name),
+      ['review_list_pending', 'review_get_changeset', 'review_get_brief', 'review_submit_brief'],
+      'registration is static: a disabled module still lists its tools'
+    )
+
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ['review_list_pending', {}],
+      ['review_get_changeset', { reviewId: REVIEW_ID, projectRoot }],
+      ['review_get_brief', { reviewId: REVIEW_ID, projectRoot }],
+      [
+        'review_submit_brief',
+        { reviewId: REVIEW_ID, projectRoot, brief: reviewValidBrief() as unknown as Record<string, unknown> },
+      ],
+    ]
+    for (const [name, args] of calls) {
+      const refused = await tool(tools, name).handler(args)
+      assert.equal(refused.isError, true, `${name} refuses`)
+      const error = (refused.structuredContent as { error: { code: string; message: string } }).error
+      assert.equal(error.code, 'review_module_disabled', `${name} names the reason`)
+      assert.equal(
+        error.message,
+        'The Review module is disabled. Enable it in Settings → Modules to use review tools.',
+        `${name} returns the module-disabled sentence verbatim`
+      )
+    }
+
+    // No read and no write happened on behalf of a disabled capability.
+    assert.equal(existsSync(join(reviewDir, 'brief.json')), false, 'no brief was written')
+    assert.deepEqual(emitted, [], 'nothing was announced to open windows')
+
+    // Enablement is read per call, off the same registrations: switching the
+    // module back on in Settings works on the next call, not the next restart.
+    setModuleEnabled(true)
+    const listed = await tool(tools, 'review_list_pending').handler({})
+    assert.equal(listed.isError, undefined, 'an enabled module answers normally')
+    const submitted = await tool(tools, 'review_submit_brief').handler({
+      reviewId: REVIEW_ID,
+      projectRoot,
+      brief: reviewValidBrief() as unknown as Record<string, unknown>,
+    })
+    assert.equal(submitted.structuredContent?.ok, true, 'and the one mutation works again')
+    assert.deepEqual(emitted, [{ workspaceId: REVIEW_ID, phase: 'done' }])
+  } finally {
+    rmSync(projectRoot, { recursive: true, force: true })
+  }
+}
+
 const tests = [
   testSettingsDefaultOnAndRoundTrip,
   testStudioGatewayStartsDespiteLegacyDisabledSetting,
@@ -2452,6 +2523,7 @@ const tests = [
   testReviewSubmitBriefInvalidReturnsEveryErrorAndWritesNothing,
   testReviewSubmitBriefRejectsSeverityAnnotationKind,
   testReviewToolsRejectUnknownTargetAndStripAbsolutePaths,
+  testReviewToolsRefuseWhileTheModuleIsDisabled,
 ]
 
 async function main(): Promise<void> {

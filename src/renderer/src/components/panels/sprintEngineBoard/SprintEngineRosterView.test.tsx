@@ -252,4 +252,106 @@ assert.ok(!configuredHtml.includes('Add a role'), 'no enable-a-role control when
 assert.ok(configuredHtml.includes('Add an agent'), 'the raise-the-count control still renders')
 assert.ok(!/\b(seat|lease|worker|roster)/i.test(configuredHtml), 'no seat/lease/worker/roster copy renders')
 
+// ── No resident workspace: the door mount (MC-1800) ─────────────────────────
+// The run's terminals live in a workspace that is gone. Every control that would
+// need one is disabled and names the reason where it sits; the run-level control
+// (add a role) is untouched, because it writes to the run.
+const CLOSED = 'this sprint’s workspace is closed, so its agent terminals aren’t running'
+const doorHtml = renderToStaticMarkup(
+  <SprintEngineRosterView
+    sprintEngineState={sprintEngineState}
+    roster={roster}
+    agents={agents}
+    runtimeAgents={runtimeAgents}
+    onEnableRole={() => {}}
+    onAddAgent={() => {}}
+    addMemberOptions={[
+      { role: 'architect', label: 'Architect', summary: 'Plans.', activeForRole: 1, openTasksForRole: 0 },
+      { role: 'developer', label: 'Developer', summary: 'Builds.', activeForRole: 3, openTasksForRole: 1 },
+      { role: 'product', label: 'Product', summary: 'Shapes scope.', activeForRole: 0, openTasksForRole: 0 },
+    ]}
+    isAgentTerminalLive={(agentId) => liveAgentIds.has(agentId)}
+    willResumeAgent={(agentId) => willResumeIds.has(agentId)}
+    cliOptions={cliOptions}
+    roleRuntimeCli={() => 'claude-code' as AgentCli}
+    roleRuntimeModel={() => undefined}
+    onSelectRoleCli={() => {}}
+    onSelectRoleModel={() => {}}
+    agentRuntimeCli={(agentId) => (agents[agentId]?.cli ?? 'claude-code') as AgentCli}
+    effectiveModelForAgent={(agentId) => agents[agentId]?.cliModel}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
+    onOpenAgent={() => {}}
+    onSpawnAgent={() => {}}
+    onRestartAgent={() => {}}
+    onKillAgent={() => {}}
+    terminalActionsUnavailable={CLOSED}
+  />,
+)
+assert.ok(
+  doorHtml.includes(`aria-label="Open Architect terminal — unavailable: ${CLOSED}"`),
+  'a live agent’s Open action is disabled and says why',
+)
+assert.ok(
+  doorHtml.includes(`aria-label="Spawn Tester 1 — unavailable: ${CLOSED}"`),
+  'a never-run agent’s Spawn action is disabled and says why',
+)
+assert.ok(
+  doorHtml.includes(`aria-label="Resume Developer 3 — unavailable: ${CLOSED}"`),
+  'and so is a departed agent’s Resume',
+)
+assert.equal(
+  (doorHtml.match(/disabled=""/g) ?? []).length,
+  roster.length + 1,
+  'every row action plus Add an agent is disabled — and nothing else',
+)
+assert.ok(
+  doorHtml.includes(`aria-label="Add an agent — unavailable: ${CLOSED}"`),
+  'Add an agent is disabled: both its halves need the workspace',
+)
+assert.ok(!doorHtml.includes('actions"'), 'no row offers its ⋮ menu — every entry needs the workspace')
+assert.ok(!doorHtml.includes('Restart'), 'and no restart offer, which would need a terminal to restart')
+assert.ok(doorHtml.includes('Add a role'), 'adding a role is run-level, so it stays available')
+assert.ok(
+  !/Add a role — unavailable/.test(doorHtml),
+  'and it is not disabled by the closed workspace',
+)
+
+// The narrower case: a run that keeps its whole team in the workspace record has
+// nowhere to write a role either, and says so on that control too.
+const legacyDoorHtml = renderToStaticMarkup(
+  <SprintEngineRosterView
+    sprintEngineState={sprintEngineState}
+    roster={roster}
+    agents={agents}
+    runtimeAgents={runtimeAgents}
+    onEnableRole={() => {}}
+    onAddAgent={() => {}}
+    addMemberOptions={[
+      { role: 'product', label: 'Product', summary: 'Shapes scope.', activeForRole: 0, openTasksForRole: 0 },
+    ]}
+    isAgentTerminalLive={() => false}
+    willResumeAgent={() => false}
+    cliOptions={cliOptions}
+    roleRuntimeCli={() => 'claude-code' as AgentCli}
+    roleRuntimeModel={() => undefined}
+    onSelectRoleCli={() => {}}
+    onSelectRoleModel={() => {}}
+    agentRuntimeCli={() => 'claude-code' as AgentCli}
+    effectiveModelForAgent={() => undefined}
+    onSelectAgentCli={() => {}}
+    onSelectAgentModel={() => {}}
+    onOpenAgent={() => {}}
+    onSpawnAgent={() => {}}
+    onRestartAgent={() => {}}
+    onKillAgent={() => {}}
+    terminalActionsUnavailable={CLOSED}
+    roleConfigUnavailable="this sprint keeps its team in its workspace, and that workspace is closed"
+  />,
+)
+assert.ok(
+  legacyDoorHtml.includes('aria-label="Add a role — unavailable: this sprint keeps its team in its workspace'),
+  'the run-level control explains its own, narrower reason',
+)
+
 console.log('SprintEngineRosterView.test.tsx: ok')

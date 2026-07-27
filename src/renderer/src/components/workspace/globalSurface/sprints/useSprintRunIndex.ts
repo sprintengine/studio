@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
+import { dropDeletedSprintRunDebris } from './sprintRunTombstones'
 
 // The Sprints door's data source (item 1763): every run across every known
 // project, from the run index (T1). Shared by the surface (its rail and canvas)
@@ -12,8 +13,10 @@ import { listAutomationProjectFolders } from '../../../../utils/automationsEntry
 // Runs are discovered by scanning each known project root's
 // `.multi-code/sprintengine/` tree, so a run whose sprint workspace was closed
 // long ago still lists — the index reads disk, not the workspace rail. Main
-// pushes a change event per run projection write, so this refetches on the event
-// rather than polling.
+// pushes a change event per run projection write — from its own runtime ops, and
+// from the run index's per-run directory watch for the writes the Python engine
+// makes on its own (MC-1801) — so this refetches on the event rather than
+// polling.
 
 export type SprintRunIndexLoadState = 'loading' | 'ready' | 'error'
 
@@ -44,7 +47,9 @@ export function useSprintRunIndex(): SprintRunIndex {
   const load = useCallback(async () => {
     try {
       const listed = await window.api.listSprintRuns(roots)
-      setRuns(listed)
+      // A run the operator deleted can be recreated on disk by a writer that
+      // outlived it; that folder is debris, not a run (item 1812).
+      setRuns(dropDeletedSprintRunDebris(listed))
       setError(null)
       setLoadState('ready')
     } catch (cause) {

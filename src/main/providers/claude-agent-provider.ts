@@ -82,6 +82,14 @@ type PermissionDecision = {
 
 type PendingPermissionResolve = (decision: PermissionDecision) => void
 
+// A permission callback the child is blocked on, tagged with the turn whose
+// card carries it — ending that turn must resolve it, or the child waits
+// forever on a card nobody can answer.
+type PendingPermission = {
+  turnId: string
+  resolve: PendingPermissionResolve
+}
+
 type ActiveTurn = {
   turnId: string
   requestId: string
@@ -108,7 +116,11 @@ type SessionState = {
   turn: ActiveTurn | null
   // Claude Code can hold several permission callbacks open at once (parallel
   // tool_use blocks), so pending permissions are keyed by requestId.
-  pendingPermissions: Map<string, PendingPermissionResolve>
+  pendingPermissions: Map<string, PendingPermission>
+  // Whether the live child was spawned with the bypass opt-in. Claude Code
+  // refuses `bypassPermissions` over the control channel on a child that was
+  // not, so switching to it is a respawn, not a mode change.
+  queryAllowsBypass: boolean
   // Session-level events (resume cursor updates) that arrived while no turn
   // stream was open to carry them; flushed at the next turn start.
   pendingSessionEvents: ConversationEvent[]
@@ -229,12 +241,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     try {
       for await (const event of turn.queue) state.onSessionEvent?.(event)
     } finally {
-      if (state.turn === turn) {
-        state.turn = null
-        // A permission still open when the continuation ends must not leave the
-        // child blocked forever.
-        resolveAllPendingPermissions(state, { approved: false })
-      }
+      if (state.turn === turn) state.turn = null
+      // A permission still open when the continuation ends must not leave the
+      // child blocked forever — including when the turn ended because a send
+      // took the session over.
+      resolvePendingPermissionsForTurn(state, turn.turnId, { approved: false })
       state.lastActivityAt = now()
     }
   }
@@ -247,7 +258,15 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   function resolveAllPendingPermissions(state: SessionState, decision: PermissionDecision): void {
     const pending = Array.from(state.pendingPermissions.values())
     state.pendingPermissions.clear()
-    for (const resolve of pending) resolve(decision)
+    for (const { resolve } of pending) resolve(decision)
+  }
+
+  function resolvePendingPermissionsForTurn(state: SessionState, turnId: string, decision: PermissionDecision): void {
+    for (const [requestId, pending] of Array.from(state.pendingPermissions)) {
+      if (pending.turnId !== turnId) continue
+      state.pendingPermissions.delete(requestId)
+      pending.resolve(decision)
+    }
   }
 
   function disposeChild(state: SessionState): boolean {
@@ -260,9 +279,17 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state.abort?.abort()
     state.abort = null
     state.query = null
+    state.queryAllowsBypass = false
     state.childPid = null
     state.spawnedAt = null
     return hadChild
+  }
+
+  // Whether the live child can honor the session's recorded preset. Only bypass
+  // is gated: Claude Code takes it solely from the flag it was spawned with, so
+  // a child spawned Default or Auto can never be talked into it.
+  function childHonorsPreset(state: SessionState): boolean {
+    return state.permissionPreset !== 'bypass_all' || state.queryAllowsBypass
   }
 
   async function pump(state: SessionState, q: Query): Promise<void> {
@@ -302,6 +329,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
   }
 
   async function ensureQuery(state: SessionState): Promise<void> {
+    // A preset the live child cannot honor (bypass chosen after it spawned) is
+    // reconciled here, so the turn about to start runs under the preset the
+    // session actually recorded. The respawn below resumes the same provider
+    // session, so the conversation continues rather than restarting.
+    if (state.query && !childHonorsPreset(state)) disposeChild(state)
     if (state.query) return
     if (state.cliRuntimes?.['claude-code']?.useWsl) {
       throw new Error('Claude conversation agents are not supported for WSL-configured CLI runtimes yet.')
@@ -338,6 +370,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     }
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
     state.query = q
+    state.queryAllowsBypass = permissionMode === 'bypassPermissions'
     state.inputQueue = inputQueue
     state.abort = abort
     void pump(state, q)
@@ -379,7 +412,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     turn.queue.push(eventFor(state, 'approval_requested', requestPayload))
 
     const decision = await new Promise<PermissionDecision>((resolve) => {
-      state.pendingPermissions.set(requestId, resolve)
+      state.pendingPermissions.set(requestId, { turnId: turn.turnId, resolve })
       signal?.addEventListener(
         'abort',
         () => {
@@ -439,6 +472,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         spawnedAt: null,
         turn: null,
         pendingPermissions: new Map(),
+        queryAllowsBypass: false,
         pendingSessionEvents: [],
         onSessionEvent: input.onSessionEvent ?? null,
         continuationSequence: 0,
@@ -478,6 +512,11 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         approvalSequence: 0,
         queue: new PushStream<ConversationEvent>(),
       }
+      // Taking the session's turn over (a continuation opened in the window
+      // before the runtime's busy guard could see it): end the queue being
+      // replaced first, so its drain stops instead of awaiting an iterator
+      // nobody will ever end.
+      state.turn?.queue.end()
       state.turn = turn
       state.lastActivityAt = now()
       for (const pendingEvent of state.pendingSessionEvents.splice(0)) turn.queue.push(pendingEvent)
@@ -504,12 +543,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         for await (const event of turn.queue) yield event
       } finally {
         input.signal?.removeEventListener('abort', onAbort)
-        if (state.turn === turn) {
-          state.turn = null
-          // A permission that never resolved (turn torn down first) must not
-          // leave the child blocked forever.
-          resolveAllPendingPermissions(state, { approved: false })
-        }
+        if (state.turn === turn) state.turn = null
+        // A permission that never resolved (turn torn down first) must not
+        // leave the child blocked forever.
+        resolvePendingPermissionsForTurn(state, turn.turnId, { approved: false })
         state.lastActivityAt = now()
       }
     },
@@ -517,10 +554,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     resolveApproval(input: MockAdapterApprovalInput) {
       const state = sessions.get(input.sessionId)
       if (!state) return []
-      const resolve = state.pendingPermissions.get(input.requestId)
-      if (!resolve) return []
+      const pending = state.pendingPermissions.get(input.requestId)
+      if (!pending) return []
       state.pendingPermissions.delete(input.requestId)
-      resolve({ approved: input.approved, answers: input.answers })
+      pending.resolve({ approved: input.approved, answers: input.answers })
       // approval_resolved is emitted through the still-open turn stream so the
       // transcript stays ordered; nothing to return here.
       return []
@@ -531,9 +568,33 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     // also carries into any later respawn (idle disposal keeps the session).
     // With no child yet the recorded preset is the whole job — ensureQuery reads
     // it at spawn, including the bypass opt-in flag.
+    //
+    // Bypass is the one mode the control channel cannot deliver: Claude Code
+    // takes it from the flag its child was spawned with. So a child spawned
+    // Default or Auto is replaced rather than asked — the preset is recorded and
+    // the child disposed, and the next turn respawns with `resume`, keeping the
+    // conversation. Mid-turn the disposal waits (it would drop the reply the
+    // user is reading); ensureQuery makes the swap at the next turn instead.
     async setPermissionPreset(input: MockAdapterPermissionInput): Promise<ConversationProviderPermissionResult> {
       const state = sessions.get(input.sessionId)
       if (!state) return { ok: false, message: 'Conversation session is not registered with the Claude provider.' }
+      if (state.query && input.permissionPreset === 'bypass_all' && !state.queryAllowsBypass) {
+        state.permissionPreset = input.permissionPreset
+        state.lastActivityAt = now()
+        if (state.turn) {
+          return {
+            ok: true,
+            // Not "the current permissions": the chip has already moved to
+            // Bypass by the time this is read, so "current" would name the mode
+            // that is NOT in force for the reply on screen. The permissions the
+            // reply started under is the one phrase that stays true either way.
+            notice:
+              'Bypass starts with your next message — this reply finishes under the permissions it started with.',
+          }
+        }
+        disposeChild(state)
+        return { ok: true }
+      }
       if (state.query) {
         try {
           await state.query.setPermissionMode(SDK_PERMISSION_MODE_BY_PRESET[input.permissionPreset])

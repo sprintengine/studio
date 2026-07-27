@@ -18,6 +18,7 @@ import type {
   AutomationDefinitionDraft,
 } from '../../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../../shared/workspace-sync'
+import type { Workspace } from '../../../renderer/src/types/workspace'
 import { createAutomationsEngine } from '../../automations/engine'
 import { createBuiltInAutomationProviderRegistry } from '../../automations/provider-registry'
 import { AutomationsStore } from '../../automations/store'
@@ -505,14 +506,15 @@ function automationsWorkspaceSnapshot(workspaceRoot: string): WorkspaceSyncSnaps
       activeWorkspaceId: 'ws-1',
       primaryWorkspaceWindowId: 'primary',
       workspaceWindows: [],
+      // Only the id/name/folderPath are read here; the rest of Workspace is a
+      // renderer-owned shape this snapshot never carries.
       workspaces: [{
         id: 'ws-1',
         name: 'Automations',
         folderPath: workspaceRoot,
-        windowId: 'primary',
-      }],
+      } as Workspace],
     },
-  } as WorkspaceSyncSnapshot
+  }
 }
 
 async function assertSetAutomationModeRoutesToDesktopSession(): Promise<void> {
@@ -1681,7 +1683,7 @@ async function assertBacklogStartLaunchesAnEpicWithItsChildren(): Promise<void> 
   assert.equal(argValue(args, '--handover'), join(workspaceRoot, 'backlog', 'goal-runs.md'))
   assert.equal(argValue(args, '--source-plan-kind'), 'epic')
 
-  const sources = args.filter((arg, index) => args[index - 1] === '--source').sort()
+  const sources = args.filter((_arg, index) => args[index - 1] === '--source').sort()
   assert.deepEqual(sources, [
     `generic_context:${join(workspaceRoot, 'backlog', 'child-a.md')}`,
     `generic_context:${join(workspaceRoot, 'backlog', 'child-done.md')}`,
