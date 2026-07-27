@@ -145,15 +145,6 @@ import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, 
 // lists, and the row context menu live in ../backlog/BacklogItemContextMenu so
 // the panel composes them rather than hosting another ~250 lines of menu UI.
 
-// Only states past capture earn a visible lifecycle word in the detail; rough
-// pre-work states (idea / ready / the legacy needs_structure) read as plain
-// "open" with no marker, so an unestimated note never looks like a defect.
-const LIFECYCLE_LABEL: Partial<Record<BacklogItemStatus, string>> = {
-  in_progress: 'In progress',
-  needs_input: 'Needs input',
-  completed: 'Completed',
-  archived: 'Archived',
-}
 
 // Lenses double as filters: the named views express the difficulty/criticality
 // ranges a single-value dropdown can't (XS/S, L/XL), and the terminal Completed
@@ -2196,6 +2187,7 @@ export function BacklogDetail({
   onOpenMockup,
   onCloseMockupPreview,
   onPopOutMockup,
+  headerExtra,
 }: {
   scan: BacklogScanResult | null
   loading: boolean
@@ -2251,6 +2243,8 @@ export function BacklogDetail({
   // Pop the previewed mockup out into a source editor tab (the FilePreviewPane
   // "Open in editor" jump-out), wired to the workspace openFile bridge.
   onPopOutMockup: () => void
+  /** Host-supplied band rendered directly under the title (MC-1923). */
+  headerExtra?: React.ReactNode
 }): JSX.Element {
   if (!folderPath) {
     return (
@@ -2417,26 +2411,17 @@ export function BacklogDetail({
               <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
             </>
           ) : null}
-          {(selectedRunGlyph?.label ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : LIFECYCLE_LABEL[selected.status])) ? (
-            <>
-              <span className="shrink-0 whitespace-nowrap">
-                {selectedRunGlyph?.label
-                  ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : LIFECYCLE_LABEL[selected.status])}
-              </span>
-              <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
-            </>
-          ) : null}
+          {/* The status WORD is gone (MC-1923): the glyph beside it already says
+              the state, and its tooltip names it — so the crumb reads
+              `MC-1824 · 4m ago` and nothing it says twice. The path went with it;
+              it is long, truncated, and not identity — the id is. It stays
+              readable from the menu ("Copy path") and from Reveal in Files. */}
           <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex shrink-0">
             <span className="whitespace-nowrap tabular-nums">
               {formatRelativeMsAgo(selected.modifiedAt, now) || 'unknown'}
             </span>
           </Tooltip>
-          <span aria-hidden="true" className="shrink-0 text-[color:var(--text-disabled)]">·</span>
-          <TruncatedText
-            as="span"
-            text={selected.relativePath}
-            className="min-w-0 flex-1 font-mono tabular-nums"
-          />
+          <span className="min-w-0 flex-1" />
         </div>
         {/* The title is the header's one clear priority: a full-width line of its
             own (no glyph, no back button) that wraps to two lines and reveals the
@@ -2463,6 +2448,13 @@ export function BacklogDetail({
           </button>
         ) : null}
 
+        {/* A host's own band, directly under the title — the loudest thing in
+            the pane when it is present. The Horizon door puts the run that is
+            delivering this step here (MC-1923): the one fact about a backlog
+            item that Backlog itself cannot know. Absent everywhere else, so the
+            panel and the Backlog door render byte-identically without it. */}
+        {headerExtra}
+
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           {externalActions.map(({ action, disabled, run }, index) => {
             const Button = index === 0 ? PrimaryButton : GhostButton
@@ -2484,6 +2476,15 @@ export function BacklogDetail({
               // here they free the row down to the primary action + this menu.
               { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
               { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
+              // Where the path went when it left the crumb (MC-1923). The
+              // shortcut slot carries the path itself, so it is READABLE here,
+              // not just copyable.
+              {
+                id: 'copy-path',
+                label: 'Copy path',
+                shortcut: selected.relativePath,
+                onSelect: () => void navigator.clipboard?.writeText(selected.relativePath),
+              },
               // Same Send-to-agent flyout as the row's right-click menu (shared
               // choice list, liveness refresh on open, shared send path), so an
               // item can be handed off from inside its detail too.

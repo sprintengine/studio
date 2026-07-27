@@ -19,7 +19,6 @@ import {
 import type { Tone } from '../ui/tokens'
 import type { BacklogItem } from '../../utils/backlog'
 import {
-  isRoadmapContent,
   nextEligible,
   validateRoadmap,
   type Roadmap,
@@ -33,12 +32,8 @@ import { BacklogFilterMenu } from './BacklogFilterMenu'
 import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
 import {
   epicProgressBySlug,
-  groupItemsByEpic,
-  type BacklogEpicGroup,
 } from '../../utils/backlogEpics'
 import {
-  compareBacklogItems,
-  matchesBacklogView,
   type BacklogSort,
   type BacklogView,
 } from '../../utils/backlogTriage'
@@ -68,6 +63,9 @@ import { resolveEntryRoster, type ProjectKey } from '../../../../shared/backlog/
 import type { SprintEngineRoster } from '../../types/workspace'
 import { NO_ROLES_ROSTER_NAME } from '../workspace/newWorkspace/savedRosters'
 import { RosterMenu } from './RosterMenu'
+// The rail's group model moved to the Horizon backlog source (MC-1923); the
+// editor renders the same models until MC-1926 deletes it.
+import { buildLibraryGroupModels, type LibraryGroupModel } from '../panels/roadmapBoard/HorizonBacklogSource'
 import { RosterManagerModal } from './RosterManagerModal'
 import { roadmapMemberLifecycle, roadmapMembersDone } from '../panels/roadmapBoard/roadmapMemberLifecycle'
 
@@ -1167,75 +1165,6 @@ const LIBRARY_SORT_ITEMS: SelectItem<BacklogSort>[] = [
   { value: 'largest', label: 'Largest first' },
   { value: 'smallest', label: 'Smallest first' },
 ]
-
-// One epic (or loose-items) group of a project's library, resolved for the rail:
-// the shared BacklogEpicGroup plus each row's authored ref + planned flag.
-type LibraryGroupModel = {
-  key: string
-  group: BacklogEpicGroup
-  // The epic header's authored ref (an epic is added as ONE step), null for the
-  // loose-items bucket and dangling-slug groups.
-  headerRef: string | null
-  headerPlanned: boolean
-  children: Array<{ item: BacklogItem; ref: string; planned: boolean }>
-}
-
-// Build one project's library groups: roadmap files out, the lens + search
-// applied, epic grouping via the shared groupItemsByEpic, children sorted by the
-// shared comparator. Pure so it stays unit-testable without a DOM.
-export function buildLibraryGroupModels(
-  project: RoadmapProjectItems,
-  plannedRefs: ReadonlySet<string>,
-  query: string,
-  view: BacklogView,
-  sort: BacklogSort,
-): LibraryGroupModel[] {
-  const items = project.items.filter((item) => !isRoadmapContent(item.relativePath, item.rawType))
-  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  const matchesQuery = (item: BacklogItem): boolean =>
-    terms.every((term) =>
-      `${item.title} ${item.displayId ?? ''} ${item.relativePath}`.toLowerCase().includes(term),
-    )
-  const refOf = (item: BacklogItem): string => authoredRef(project.projectKey, item.relativePath)
-
-  const models: LibraryGroupModel[] = []
-  for (const group of groupItemsByEpic(items)) {
-    const epic = group.epic
-    const headerRef = epic ? refOf(epic) : null
-    const headerPlanned = headerRef !== null && plannedRefs.has(headerRef)
-    const epicVisible = epic !== null && matchesBacklogView(epic, view)
-    const epicMatchesQuery = epic !== null && matchesQuery(epic)
-    // A matching epic shows all its (lens-visible) members; otherwise members
-    // must match the query themselves.
-    let children = group.children.filter((child) => matchesBacklogView(child, view))
-    if (terms.length > 0 && !epicMatchesQuery) children = children.filter(matchesQuery)
-    children.sort((a, b) => compareBacklogItems(a, b, sort))
-    const keepHeader = epicVisible && (terms.length === 0 || epicMatchesQuery || children.length > 0)
-    if (!keepHeader && children.length === 0) continue
-    models.push({
-      key: `${project.projectKey ?? '(home)'}::${group.slug ?? '(none)'}::${group.kind}`,
-      group,
-      headerRef,
-      headerPlanned,
-      children: children.map((item) => ({
-        item,
-        ref: refOf(item),
-        // A member of a planned epic rides that step — it dims with its epic.
-        planned: plannedRefs.has(refOf(item)) || headerPlanned,
-      })),
-    })
-  }
-  // Epic groups order by their epic item under the same sort; the loose-items
-  // bucket always trails so named work leads the scan.
-  models.sort((a, b) => {
-    const aNone = a.group.kind === 'none' ? 1 : 0
-    const bNone = b.group.kind === 'none' ? 1 : 0
-    if (aNone !== bNone) return aNone - bNone
-    if (a.group.epic && b.group.epic) return compareBacklogItems(a.group.epic, b.group.epic, sort)
-    return a.group.title.localeCompare(b.group.title)
-  })
-  return models
-}
 
 // The planning rail: every project's backlog through the SAME components the
 // Backlog surfaces use — InboxSearchInput + BacklogFilterMenu on top, epic

@@ -467,6 +467,12 @@ export type LaneRunData = {
   vcs: SprintEngineVcs | null
   tasks: SprintEngineTask[]
   blockers: RepoMergeBlockers
+  /** Workers holding a task right now — the honest "N agents" (MC-1923). A seat
+   *  with no current task is staffing, not work in progress. */
+  agentsWorking: number
+  /** Tasks that are neither done nor canceled — completion is done-or-canceled
+   *  everywhere in the engine, so a canceled task is not "left". */
+  tasksLeft: number
   loading: boolean
   error: string | null
   reload: () => void
@@ -479,6 +485,7 @@ export type LaneRunData = {
 export function useLaneRun(statePath: string | null): LaneRunData {
   const [vcs, setVcs] = useState<SprintEngineVcs | null>(null)
   const [tasks, setTasks] = useState<SprintEngineTask[]>([])
+  const [agentsWorking, setAgentsWorking] = useState(0)
   const [loading, setLoading] = useState<boolean>(Boolean(statePath))
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
@@ -489,6 +496,7 @@ export function useLaneRun(statePath: string | null): LaneRunData {
     if (!statePath) {
       setVcs(null)
       setTasks([])
+      setAgentsWorking(0)
       setLoading(false)
       return
     }
@@ -512,6 +520,10 @@ export function useLaneRun(statePath: string | null): LaneRunData {
         setError(null)
         setVcs(state?.vcs ?? null)
         setTasks(state?.tasks ?? [])
+        // Lease-derived workers when the projection carries them, else the seat
+        // ledger; either way only a worker HOLDING a task counts as working.
+        const workers = Object.values(state?.workers ?? state?.sprintEngineAgents ?? {})
+        setAgentsWorking(workers.filter((worker) => Boolean(worker.currentTaskId)).length)
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
       } finally {
@@ -529,5 +541,10 @@ export function useLaneRun(statePath: string | null): LaneRunData {
     [tasks, vcs],
   )
 
-  return { vcs, tasks, blockers, loading, error, reload }
+  const tasksLeft = useMemo(
+    () => tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled').length,
+    [tasks],
+  )
+
+  return { vcs, tasks, blockers, agentsWorking, tasksLeft, loading, error, reload }
 }

@@ -63,6 +63,7 @@ export function BacklogItemDetailPane({
   showBack,
   onBack,
   onNavigate,
+  headerExtra,
 }: {
   item: BacklogItem
   project: BacklogProjectRef
@@ -79,6 +80,9 @@ export function BacklogItemDetailPane({
   showBack: boolean
   onBack: () => void
   onNavigate: (itemId: string) => void
+  /** A host band rendered directly under the title — the Horizon door's run
+   *  strip (MC-1923). Omitted by the Backlog door, which has no run to show. */
+  headerExtra?: React.ReactNode
 }): JSX.Element {
   // Inline mockup preview: clicking an attached/detected mockup swaps this pane
   // for the rendered file (the panel's behaviour). Resolution re-runs across BOTH
@@ -188,6 +192,7 @@ export function BacklogItemDetailPane({
       onOpenMockup={openMockup}
       onCloseMockupPreview={() => {}}
       onPopOutMockup={() => {}}
+      headerExtra={headerExtra}
     />
   )
 }

@@ -57,8 +57,24 @@ import {
 } from '../../backlog/roadmapAuthoring'
 import { RosterManagerModal } from '../../backlog/RosterManagerModal'
 import { NO_ROLES_ROSTER_NAME } from '../newWorkspace/savedRosters'
+import {
+  HorizonDetailPane,
+  resolveStepItem,
+  useHorizonDetailChoices,
+  type HorizonStepRun,
+  type HorizonStepUnresolved,
+} from '../../panels/roadmapBoard/HorizonDetailPane'
+import { HorizonBacklogSource } from '../../panels/roadmapBoard/HorizonBacklogSource'
+import { useAllProjectsBacklog } from '../../../hooks/useAllProjectsBacklog'
+import { refreshSharedBacklogScan } from '../../../hooks/useSharedBacklogScan'
+import { useRelativeNow } from '../../../hooks/useRelativeNow'
+import { createBacklogDoorActions, type BacklogDoorMutationApi } from './backlog/backlogDoorActions'
+import { getRendererHost, selectModuleEnabled } from '../../../modules'
+import { focusOrAddFileTab } from '../../../utils/modelRegistry'
+import type { BacklogLinkProvider } from '../../../modules/renderer-host'
 import type { ProjectKey } from '../../../../../shared/backlog/roadmap'
 import type { BacklogItem } from '../../../utils/backlog'
+import type { BacklogProjectRef } from '../../../hooks/useAllProjectsBacklog'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from './GlobalSurfaceShell'
 
 export default function RoadmapGlobalSurface(): JSX.Element {
@@ -95,6 +111,13 @@ export default function RoadmapGlobalSurface(): JSX.Element {
   // The selected STEP, by authored ref — the one selection driving the detail.
   const [selectedStepRef, setSelectedStepRef] = useState<string | null>(null)
   const [rosterManagerOpen, setRosterManagerOpen] = useState(false)
+  // The detail pane's second mode: the backlog you drag work from. One slot,
+  // two modes — never a fourth column.
+  const [backlogOpen, setBacklogOpen] = useState(false)
+  // A backlog row is being dragged, shared so a track can accept the drop. Both
+  // panes live in one tree, so React state is the transport — no dataTransfer
+  // round-trip needed for the payload.
+  const [libraryDrag, setLibraryDrag] = useState<string | null>(null)
 
   const runLaneCommand = useCallback(
     async (lane: string, action: () => Promise<{ ok: boolean; message?: string }>) => {
@@ -560,6 +583,145 @@ export default function RoadmapGlobalSurface(): JSX.Element {
       ),
     [isActiveSelected, activeRoadmap],
   )
+  // --- The detail pane ------------------------------------------------------
+
+  const { projects: backlogFeeds } = useAllProjectsBacklog()
+  const now = useRelativeNow()
+  const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
+  const openFile = useWorkspaceStore((state) => state.openFile)
+  const linkProviders = useMemo<BacklogLinkProvider[]>(
+    () => getRendererHost().getBacklogLinkProviders((moduleId) => selectModuleEnabled(moduleOverrides, moduleId)),
+    [moduleOverrides],
+  )
+
+  // The step whose detail is showing, resolved out of the plan (which already
+  // joined the file to the live runtime) rather than re-derived from the draft.
+  const selectedStep = useMemo(() => {
+    if (!selectedStepRef) return null
+    const rows = [...horizonPlan.bands.flatMap((band) => band.rows), ...horizonPlan.delivered.rows]
+    return rows.find((row) => row.ref === selectedStepRef) ?? null
+  }, [horizonPlan, selectedStepRef])
+
+  const selectedStepProjectRoot = useMemo(() => {
+    if (!selectedStep) return null
+    return projectByKey(selectedStep.projectKey)?.path ?? null
+  }, [selectedStep, projectByKey])
+
+  const resolvedStep = useMemo(() => {
+    if (!selectedStep) return null
+    const { relativePath } = splitAuthoredRef(selectedStep.ref)
+    return resolveStepItem(backlogFeeds, selectedStepProjectRoot, relativePath)
+  }, [selectedStep, selectedStepProjectRoot, backlogFeeds])
+
+  // WHY a step has no item: its project is not open, its project's scan has not
+  // reported, or the file is genuinely gone. Decided against the step's OWN
+  // project's feed — "some other project has finished scanning" says nothing
+  // about this one, and would report a still-loading step as missing.
+  const stepUnresolved = useMemo<HorizonStepUnresolved>(() => {
+    if (!selectedStepProjectRoot) return 'project_unavailable'
+    const feed = backlogFeeds.find((candidate) => samePath(candidate.root, selectedStepProjectRoot))
+    if (!feed) return 'project_unavailable'
+    return feed.loading && feed.items.length === 0 ? 'loading' : 'missing'
+  }, [selectedStepProjectRoot, backlogFeeds])
+
+  // A workspace mounted on the run's own state file, so "Open sprint" can land.
+  const openRunStatePaths = useWorkspaceStore(
+    useShallow((state) =>
+      state.workspaces
+        .map((workspace) => workspace.sprintEngineContext?.statePath)
+        .filter((statePath): statePath is string => Boolean(statePath)),
+    ),
+  )
+
+  // item -> project by OBJECT IDENTITY across every feed: two projects can hold
+  // the same relativePath (and so the same item id), so identity — never the
+  // path — is what routes a mutation to the right backlog.
+  const projectByItem = useMemo(() => {
+    const map = new Map<BacklogItem, BacklogProjectRef>()
+    for (const feed of backlogFeeds) for (const entry of feed.items) map.set(entry.item, entry.project)
+    return map
+  }, [backlogFeeds])
+
+  const { epicChoices, dependencyChoices } = useHorizonDetailChoices(resolvedStep?.feed ?? null)
+
+  const runAction = useCallback(async (fn: () => Promise<void>) => {
+    setActionError(null)
+    try {
+      await fn()
+    } catch (mutationError) {
+      setActionError(mutationError instanceof Error ? mutationError.message : String(mutationError))
+    }
+  }, [])
+
+  // The SAME mutation factory the Backlog door uses, so a status change made
+  // from a Horizon step behaves exactly as it does from the Backlog.
+  const detailActions = useMemo(
+    () =>
+      createBacklogDoorActions({
+        api: window.api as unknown as BacklogDoorMutationApi,
+        resolveProject: (item) => projectByItem.get(item) ?? null,
+        itemsForProject: (rootKey) =>
+          backlogFeeds.find((feed) => feed.rootKey === rootKey)?.items.map((entry) => entry.item) ?? [],
+        refreshProject: (root) => void refreshSharedBacklogScan(root),
+        runAction,
+        confirmDialog: dialog.confirm,
+        promptDialog: dialog.prompt,
+        openInEditor: (item, project) =>
+          void runAction(async () => {
+            const workspace = useWorkspaceStore
+              .getState()
+              .workspaces.find((candidate) => candidate.folderPath === project.root)
+            if (!workspace) {
+              await window.api.showItemInFolder(item.path)
+              return
+            }
+            const name = basename(item.relativePath)
+            openFile(workspace.id, item.path, name, item.sourceContent)
+            focusOrAddFileTab(workspace.id, item.path, name)
+          }),
+        revealInFiles: (item) =>
+          void runAction(async () => {
+            await window.api.showItemInFolder(item.path)
+          }),
+        // Creating an item is the Backlog door's job; a horizon plans work that
+        // already exists, so this offers nothing rather than a dead control.
+        openCreate: () => undefined,
+      }),
+    [projectByItem, backlogFeeds, runAction, dialog, openFile],
+  )
+
+  // The run delivering the selected step, from the track that holds it.
+  const selectedRun = useMemo<HorizonStepRun | null>(() => {
+    if (!selectedStep || !isActiveSelected || !activeRoadmap) return null
+    const lane = activeRoadmap.lanes.find((candidate) => candidate.lane === selectedStep.laneTitle)
+    if (!lane?.activeStatePath) return null
+    // The run belongs to the step it is executing — a track's run strip must not
+    // appear on a queued step further down the same track.
+    if (lane.activeItemRef && lane.activeItemRef !== selectedStep.ref) return null
+    return {
+      statePath: lane.activeStatePath,
+      lane: lane.lane,
+      attention: lane.attention,
+      busy: busyLane === lane.lane,
+    }
+  }, [selectedStep, isActiveSelected, activeRoadmap, busyLane])
+
+  // Focus the running sprint's own workspace, when it is open. An autonomous run
+  // may not be mounted as a workspace; the affordance is then inert, never a
+  // broken link.
+  const handleOpenRun = useCallback((statePath: string) => {
+    const workspace = useWorkspaceStore
+      .getState()
+      .workspaces.find((candidate) => candidate.sprintEngineContext?.statePath === statePath)
+    if (workspace) setActiveWorkspace(workspace.id)
+  }, [setActiveWorkspace])
+
+  const plannedRefs = useMemo(() => {
+    const set = new Set<string>()
+    for (const lane of plan.draft.lanes) for (const entry of lane.entries) set.add(entry.ref)
+    return set
+  }, [plan.draft.lanes])
+
   const steering = useMemo(
     () => ({
       busyLane,
@@ -735,7 +897,12 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                 plan={horizonPlan}
                 lanes={plan.draft.lanes}
                 selectedRef={selectedStepRef}
-                onSelect={setSelectedStepRef}
+                onSelect={(ref) => {
+                  setSelectedStepRef(ref)
+                  // Selecting a step is a request to SEE it, so it returns the
+                  // pane from the backlog to the step's own detail.
+                  setBacklogOpen(false)
+                }}
                 showProjectTag={spansProjects}
                 rosters={savedRosters}
                 policyRoster={plan.draft.policy.roster}
@@ -744,18 +911,57 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                 onAddRef={addRef}
                 onResyncEpic={handleResyncEpic}
                 onOpenItem={handleOpenStep}
-                onAddWork={() => handleEditPlan(selectedFile.roadmapRef)}
-                addWorkActive={false}
-                libraryDragRef={null}
+                onAddWork={() => setBacklogOpen((open) => !open)}
+                addWorkActive={backlogOpen}
+                libraryDragRef={libraryDrag}
                 steering={steering}
                 onRenameTrack={(laneIndex) => void handleRenameTrack(laneIndex)}
                 onRemoveTrack={(laneIndex) => void handleRemoveTrack(laneIndex)}
               />
-              {/* The step's own detail lands in MC-1923; until then the pane says
-                  what it is for rather than rendering an empty frame. */}
-              <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center text-[12px] text-[color:var(--text-muted)]">
-                {selectedStepRef ?? 'Select a step to see it.'}
-              </div>
+              {/* Two modes, ONE slot — never a fourth column. */}
+              {backlogOpen ? (
+                <HorizonBacklogSource
+                  projects={library.projects}
+                  plannedRefs={plannedRefs}
+                  canAdd={plan.draft.lanes.length > 0}
+                  onClose={() => setBacklogOpen(false)}
+                  onAdd={(ref) => addRef(0, ref)}
+                  onDragStart={setLibraryDrag}
+                  onDragEnd={() => setLibraryDrag(null)}
+                />
+              ) : (
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[color:var(--bg-surface)]">
+                  <HorizonDetailPane
+                    step={selectedStep}
+                    resolved={resolvedStep}
+                    unresolved={stepUnresolved}
+                    canOpenRun={selectedRun !== null && openRunStatePaths.includes(selectedRun.statePath)}
+                    run={selectedRun}
+                    homePath={homePath}
+                    now={now}
+                    actions={detailActions}
+                    linkProviders={linkProviders}
+                    epicChoices={epicChoices}
+                    dependencyChoices={dependencyChoices}
+                    onNavigate={(itemId) => {
+                      // Navigating inside an item's detail (epic ⇄ child, a
+                      // prerequisite) may land on work that is not a step in this
+                      // horizon, so it opens in the item's own project Backlog
+                      // rather than pretending the plan column can select it.
+                      const target =
+                        resolvedStep?.feed.items.find((entry) => entry.item.id === itemId)
+                        ?? backlogFeeds.flatMap((feed) => feed.items).find((entry) => entry.item.id === itemId)
+                      if (target) openInProject(target.project.root, target.item.relativePath)
+                    }}
+                    onReload={reload}
+                    onPause={steering.onPause}
+                    onResume={steering.onResume}
+                    onApprove={steering.onApprove}
+                    onMerge={steering.onMerge}
+                    onOpenRun={handleOpenRun}
+                  />
+                </div>
+              )}
             </div>
           )}
         </div>
