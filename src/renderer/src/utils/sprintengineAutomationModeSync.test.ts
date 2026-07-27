@@ -12,9 +12,16 @@ type PushCall = {
   clientToken?: string
 }
 
+type PresetPushCall = {
+  statePath: string
+  preset: string
+  clientToken?: string
+}
+
 type FakeApi = {
   hydrateCalls: Array<{ statePath: string; mode: SprintEngineAutomationMode }>
   pushCalls: PushCall[]
+  presetPushCalls: PresetPushCall[]
   records: Map<string, SprintEngineAutomationIntentRecord>
   broadcast: (event: SprintEngineAutomationChangedEvent) => void
   failReads: boolean
@@ -40,6 +47,7 @@ function installFakeApi(): FakeApi {
   const fake: FakeApi = {
     hydrateCalls: [],
     pushCalls: [],
+    presetPushCalls: [],
     records: new Map(),
     broadcast: () => undefined,
     failReads: false,
@@ -76,6 +84,27 @@ function installFakeApi(): FakeApi {
       if (fake.holdPushResponses) {
         await new Promise<void>((resolvePush) => heldPushResolvers.push(resolvePush))
       }
+      return { ok: true as const, record: created, changed: true }
+    },
+    // Main answers a same-preset write with no revision bump and no broadcast,
+    // which is what makes adopting a record safe to push back.
+    setSprintEngineCliPermissionPreset: async (input: PresetPushCall) => {
+      fake.presetPushCalls.push(input)
+      const current = fake.records.get(input.statePath)
+      if (current?.cliPermissionPreset === input.preset) {
+        return { ok: true as const, record: current, changed: false }
+      }
+      const created = {
+        ...(current ?? record('manual', nextRevision)),
+        revision: nextRevision++,
+        cliPermissionPreset: input.preset,
+      } as SprintEngineAutomationIntentRecord
+      fake.records.set(input.statePath, created)
+      fake.broadcast({
+        statePath: input.statePath,
+        record: created,
+        ...(input.clientToken ? { sourceClientToken: input.clientToken } : {}),
+      })
       return { ok: true as const, record: created, changed: true }
     },
     onSprintEngineAutomationChanged: (cb: (event: SprintEngineAutomationChangedEvent) => void) => {
@@ -243,6 +272,55 @@ async function main(): Promise<void> {
   await settle()
   assert.ok(fakeApi.hydrateCalls.some((call) => call.statePath === retry.statePath),
     'hydration retried after the read succeeds')
+
+  // ── The CLI permission preset rides the same record (MC-1799). It is written
+  // by statePath — the Sprints door has no workspace to write through — but it
+  // is READ at spawn from the workspace record (`buildRegistration`), so a
+  // workspace attaching after a door write must pick it up or the door's control
+  // sets a preset nothing ever spawns with.
+  // Reads fail for the probe so its statePath is never marked hydrated — the
+  // re-added workspace then takes the real first-attach path.
+  fakeApi.failReads = true
+  const presetRun = addSprintWorkspace('Preset Sync', '/repo/preset')
+  await settle()
+  useWorkspaceStore.getState().removeWorkspace(presetRun.workspaceId)
+  fakeApi.failReads = false
+  fakeApi.records.set(presetRun.statePath, {
+    ...record('run_agents', 12),
+    cliPermissionPreset: 'bypass_all',
+  })
+  const attached = addSprintWorkspace('Preset Sync', '/repo/preset')
+  assert.equal(attached.statePath, presetRun.statePath, 'fixture statePath is deterministic')
+  await settle()
+  const attachedWorkspace = () =>
+    useWorkspaceStore.getState().workspaces.find((ws) => ws.id === attached.workspaceId)
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'bypass_all',
+    'a workspace attaching later adopts the preset the door persisted')
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.desiredMode, 'run_agents',
+    'the mode on the same record still lands')
+
+  // A preset change from another writer arrives as a same-mode broadcast — the
+  // shape the mode's own early return drops — and must still be adopted.
+  fakeApi.broadcast({
+    statePath: attached.statePath,
+    record: { ...record('run_agents', 13), cliPermissionPreset: 'auto_workspace' },
+  })
+  await settle()
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto_workspace',
+    'a same-mode record that only moves the preset is still adopted')
+  assert.ok(
+    fakeApi.presetPushCalls.every((call) => call.statePath === attached.statePath),
+    'adoption only ever writes back the run it adopted',
+  )
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto_workspace',
+    'and the echo of that write-back settles rather than ping-ponging')
+
+  // A record with no preset (every one written before MC-1799) leaves the
+  // workspace's own value alone rather than resetting it to the default.
+  fakeApi.broadcast({ statePath: attached.statePath, record: record('manual', 14) })
+  await settle()
+  assert.equal(attachedWorkspace()?.sprintEngineAutoState?.cliPermissionPreset, 'auto_workspace',
+    'an absent preset means "never set", not "default"')
 
   dispose()
   console.log('sprintengine automation-mode-sync tests passed')
