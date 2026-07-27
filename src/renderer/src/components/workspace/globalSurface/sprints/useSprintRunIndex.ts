@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
+import { dropDeletedSprintRunDebris } from './sprintRunTombstones'
 
 // The Sprints door's data source (item 1763): every run across every known
 // project, from the run index (T1). Shared by the surface (its rail and canvas)
@@ -46,7 +47,9 @@ export function useSprintRunIndex(): SprintRunIndex {
   const load = useCallback(async () => {
     try {
       const listed = await window.api.listSprintRuns(roots)
-      setRuns(listed)
+      // A run the operator deleted can be recreated on disk by a writer that
+      // outlived it; that folder is debris, not a run (item 1812).
+      setRuns(dropDeletedSprintRunDebris(listed))
       setError(null)
       setLoadState('ready')
     } catch (cause) {

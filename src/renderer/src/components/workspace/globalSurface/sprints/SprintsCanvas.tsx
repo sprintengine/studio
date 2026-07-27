@@ -74,6 +74,7 @@ import {
 } from '../../../panels/sprintEngineBoard/repoMergeSurface'
 import { sprintRunShortDate } from './railState'
 import { requestCloseSprintWorkspace } from './sprintDoorRequests'
+import { noteSprintRunDeleted } from './sprintRunTombstones'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
 
 const SprintRunBoard = React.lazy(async () => ({
@@ -585,7 +586,9 @@ function SprintRunDisposalMenu({
       confirmLabel: 'Close workspace',
       tone: 'danger',
     })
-    if (confirmed) requestCloseSprintWorkspace(workspaceId)
+    // Nothing on disk follows a plain close, so this one does not wait on the
+    // teardown it starts — the menu closes and the terminals stop behind it.
+    if (confirmed) void requestCloseSprintWorkspace(workspaceId)
   }, [dialog, model.residentWorkspaceId, runName])
 
   // Type-to-confirm, the same bar the Projects row's "Delete workspace" set: this
@@ -609,8 +612,17 @@ function SprintRunDisposalMenu({
     if (typed === null) return
     setBusy(true)
     try {
-      if (model.residentWorkspaceId) requestCloseSprintWorkspace(model.residentWorkspaceId)
+      // Teardown first, and waited for (item 1812): the run's agents write into
+      // this directory, so trashing it while they are still alive lets a surviving
+      // writer recreate it and the door re-lists a run the operator just deleted.
+      // A run with no resident workspace has nothing to tear down and waits for
+      // nothing.
+      if (model.residentWorkspaceId) await requestCloseSprintWorkspace(model.residentWorkspaceId)
       await window.api.deletePath(runDirectory)
+      // The kills are acknowledged, but a process that outlives its pty can still
+      // land a write after the trash move. The tombstone is what keeps that debris
+      // out of the door until it parses as a real run again.
+      noteSprintRunDeleted(model.statePath)
       onRunDeleted()
     } catch (error) {
       publishDiagnosticSync({
@@ -623,7 +635,7 @@ function SprintRunDisposalMenu({
     } finally {
       setBusy(false)
     }
-  }, [dialog, runName, model.residentWorkspaceId, runDirectory, onRunDeleted])
+  }, [dialog, runName, model.residentWorkspaceId, model.statePath, runDirectory, onRunDeleted])
 
   // "Close workspace" drops out entirely for a run with no workspace, rather than
   // sitting there greyed: there is nothing to close, the canvas already says so on
