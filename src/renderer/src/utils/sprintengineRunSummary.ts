@@ -938,10 +938,16 @@ const roleWorkType: Record<string, SprintEngineWorkType> = {
 }
 
 export function agentWorkType(row: SprintEngineAgentRow): SprintEngineWorkType {
-  // A reviewer role that also did review work stays review; an agent with only
-  // reviewer activity (no implementation role) is review too. Otherwise fall
-  // back to the role map, defaulting unknown/custom roles to implementation.
-  return roleWorkType[row.role] ?? (row.metrics?.peerReview ? 'review' : 'implementation')
+  // Recorded peer-review activity is evidence, and it outranks the static map
+  // for any role the map calls an implementer. Only the Reviews table renders
+  // `peerReview`, so a reviewer bucketed as an implementer loses its audit
+  // counts outright — which is what the map did to `performance`, a reviewer by
+  // its own manifest that the map has always called a builder.
+  // A planner is never re-bucketed: the Planning table is about the plan, not
+  // the diff, and the architect's estimation accuracy has nowhere else to go.
+  const mapped = roleWorkType[row.role]
+  if (row.metrics?.peerReview && mapped !== 'planning') return 'review'
+  return mapped ?? 'implementation'
 }
 
 export function bucketAgentRowsByWorkType(rows: SprintEngineAgentRow[]): Record<

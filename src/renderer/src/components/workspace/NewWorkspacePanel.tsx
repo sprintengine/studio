@@ -3137,8 +3137,8 @@ export default function NewWorkspacePanel({
             </ConfigStepSection>
           ) : null}
 
-          {/* The sprint's rebuilt config pages (MC-1646): Team, Reviews,
-              Tools & skills, and Review & start — one reading column each. */}
+          {/* The sprint's rebuilt config pages (MC-1646): Team, Tools & skills,
+              and Review & start — one reading column each. */}
           {step === 'sprintengine-roster' ? (
             <ConfigStepSection stepId="sprintengine-roster" headingRef={headingRef}>
             {!sprintEngineAccess.allowed ? (

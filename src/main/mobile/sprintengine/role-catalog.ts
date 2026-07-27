@@ -125,10 +125,10 @@ export function normalizeRoleCatalog(input: unknown): MobileControlRoleDescripto
     const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : humanizeRoleId(roleId)
     // MC-1831 renamed the manifest's one-line `summary` to a fuller `description`.
     // The wire field stays `summary` — protocol.ts is a byte-identical mirror of
-    // the mobile app's copy — so the picker gets the description, truncated to the
+    // the mobile app's copy — so the picker gets the description, reduced to the
     // same budget. A manifest read by an older engine simply has no description
     // and the picker renders the label alone.
-    const summary = typeof raw.description === 'string' ? truncate(raw.description.trim()) : ''
+    const summary = typeof raw.description === 'string' ? summarize(raw.description.trim()) : ''
     // MC-1886 removed the sweep concept, so no descriptor carries `sweep` any
     // more. The wire field stays declared in protocol.ts (a byte-identical
     // mirror of the mobile app's copy) for one release, so a phone build that
@@ -161,8 +161,22 @@ function roleSource(input: unknown): MobileControlRoleSource | undefined {
   return undefined
 }
 
-function truncate(value: string): string {
+// Below this a leading "sentence" is an abbreviation ("Ships e.g. ..."), not a
+// description of the role, so the hard slice is the honest reduction.
+const MIN_LEAD_SENTENCE_CHARS = 40
+
+// One line for the phone's role picker. A manifest `description` is written as
+// "<what the role does>. Staff this role when <situation>." — two sentences that
+// together overrun the wire budget for every shipped role, so slicing at the
+// budget cut every one of them mid-word ("...the run changes a user-visible
+// sc…"). Prefer the leading sentence: it is the one-liner the picker wants and
+// it fits with room to spare.
+function summarize(value: string): string {
   if (value.length <= sprintEngineRoleSummaryMaxChars) return value
+  const lead = /^.*?[.!?](?=\s|$)/u.exec(value)?.[0]
+  if (lead && lead.length >= MIN_LEAD_SENTENCE_CHARS && lead.length <= sprintEngineRoleSummaryMaxChars) {
+    return lead
+  }
   return `${value.slice(0, sprintEngineRoleSummaryMaxChars - 1).trimEnd()}…`
 }
 

@@ -1381,6 +1381,30 @@ async function assertRoleCatalogReducesRegistryPayload(): Promise<void> {
   assert.equal(truncated?.summary?.length, 160)
   assert.equal(truncated?.summary?.endsWith('…'), true)
 
+  // Every shipped description is "<what it does>. Staff this role when <when>."
+  // and overruns the budget, so a plain slice cut every role mid-word. The
+  // picker gets the leading sentence whole instead.
+  const [twoSentence] = normalizeRoleCatalog({
+    roles: [{
+      id: 'x',
+      label: 'X',
+      description:
+        'Reviews UX flow, UI consistency, brand alignment, responsive behavior, accessibility, and visual polish.'
+        + ' Staff this role when the run changes a user-visible screen, component, or interaction.',
+    }],
+  }) ?? []
+  assert.equal(
+    twoSentence?.summary,
+    'Reviews UX flow, UI consistency, brand alignment, responsive behavior, accessibility, and visual polish.',
+    'the leading sentence rides whole instead of a mid-word slice',
+  )
+  // A leading "sentence" too short to describe anything is not a summary; the
+  // hard slice still bounds the field.
+  const [abbreviated] = normalizeRoleCatalog({
+    roles: [{ id: 'x', label: 'X', description: `Ships e.g. ${'w'.repeat(300)}` }],
+  }) ?? []
+  assert.equal(abbreviated?.summary?.length, 160)
+
   // A manifest read by an engine that has no description yet simply carries none.
   const [descriptionless] = normalizeRoleCatalog({ roles: [{ id: 'x', label: 'X' }] }) ?? []
   assert.equal('summary' in (descriptionless ?? {}), false)

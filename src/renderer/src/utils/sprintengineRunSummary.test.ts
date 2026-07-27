@@ -896,6 +896,30 @@ function testPeerReviewDrivesTheReviewBucketForUnmappedRoles(): void {
   assert.equal(agentWorkType(auditor), 'review', 'peer-review activity puts an unmapped role in the review table')
   assert.equal(agentWorkType(builder), 'implementation', 'the same role with no peer-review activity stays an implementer')
   assert.equal(auditor.metrics?.peerReview?.tasksAudited, 3, 'the table renders real audit counts, not N/A')
+
+  // ...and it outranks a MAPPED implementer too. `performance` is a reviewer by
+  // its own manifest ("Reviews hot paths, algorithmic complexity, ...") but the
+  // work-type map still called it an implementer, so its audits landed in the
+  // implementation table — the only table that never renders `peerReview`.
+  const mappedAuditor: SprintEngineAgentRow = {
+    ...auditor,
+    agentId: 'performance-1',
+    role: 'performance',
+    metrics: { ...auditor.metrics!, role: 'performance' },
+  }
+  assert.equal(agentWorkType(mappedAuditor), 'review', 'a mapped implementer that audited others reports its audits')
+  assert.equal(
+    agentWorkType({ ...builder, agentId: 'performance-2', role: 'performance' }),
+    'implementation',
+    'the same role with no audits keeps its mapped table',
+  )
+  // A planner is never re-bucketed: the planning table is the only home for the
+  // architect's estimation accuracy.
+  assert.equal(
+    agentWorkType({ ...mappedAuditor, agentId: 'architect-1', role: 'architect' }),
+    'planning',
+    'an architect that recorded review activity stays in the planning table',
+  )
 }
 
 

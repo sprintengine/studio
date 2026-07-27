@@ -108,6 +108,9 @@ export function SprintEngineTeamPanel({
   // meaning for a reviewer as for a builder.
   const roles = listSprintEngineWizardRoles(registry, disabledRoleIds)
   const onRoles = roles.filter((role) => (roleCounts[role] ?? 0) > 0)
+  // The help line below the segments is the only place either formation is
+  // explained, so it is the control's description, not loose copy near it.
+  const formationHelpId = React.useId()
 
   return (
     <div className="flex flex-col gap-1">
@@ -115,6 +118,7 @@ export function SprintEngineTeamPanel({
         <>
           <SegmentedControl<SprintEngineTeamMode>
             ariaLabel="How the team is formed"
+            ariaDescribedBy={formationHelpId}
             className="self-start"
             items={[
               { value: 'roles', label: 'Pick roles yourself' },
@@ -123,7 +127,7 @@ export function SprintEngineTeamPanel({
             value={teamMode}
             onChange={onChangeTeamMode}
           />
-          <p className="mt-2 min-h-[18px] text-[12px] leading-4 text-[color:var(--text-subtle)]">
+          <p id={formationHelpId} className="mt-2 min-h-[18px] text-[12px] leading-4 text-[color:var(--text-subtle)]">
             {TEAM_MODE_HELP[teamMode]}
           </p>
         </>

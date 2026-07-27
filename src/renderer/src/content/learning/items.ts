@@ -217,10 +217,14 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     showWhen: [{ kind: 'workspace-mode', value: 'sprintengine' }],
   },
   {
+    // Id kept from the gate era so a lesson someone already completed does not
+    // resurface. The copy is current: quality gates became phases in the
+    // single-owner redesign, and MC-1828 retired the plan-review flow this card
+    // used to tell people to run.
     id: 'sprintengine.roster-before-gates',
-    title: 'Check the team before requesting gates',
-    summary: 'A missing role can turn review or testing into an unclaimable queue.',
-    body: 'Open the Agents view before requesting plan reviews or adding quality gates. Sprint Engine preserves custom gate ids, but each required phase still needs a matching enabled role to claim the work.',
+    title: 'Check the team before the work needs it',
+    summary: 'A task whose role is unstaffed sits in the queue with no one to claim it.',
+    body: 'Every task carries a role, and only an agent of that role can claim it. Open the Agents view when you add work mid-run and confirm the roles that work needs are staffed — a review task with no reviewer on the team waits instead of running.',
     category: 'sprintengine',
     difficulty: 'advanced',
     showWhen: [{ kind: 'workspace-mode', value: 'sprintengine' }],
