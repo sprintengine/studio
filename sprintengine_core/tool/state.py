@@ -52,7 +52,7 @@ def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
             reasoning = str(raw_entry.get("reasoning") or "").strip()
         else:
             recorded = runtimes.get(role)
-            reasoning = str((recorded or {}).get("reasoning") or "").strip() if isinstance(recorded, dict) else ""
+            reasoning = str(recorded.get("reasoning") or "").strip() if isinstance(recorded, dict) else ""
         entry: Dict[str, Any] = {}
         if model:
             entry["model"] = model
