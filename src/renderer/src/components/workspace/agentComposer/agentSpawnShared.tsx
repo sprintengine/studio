@@ -153,6 +153,7 @@ export function ReasoningLevelPicker({
 }): JSX.Element | null {
   const [open, setOpen] = React.useState(false)
   const surfaceRef = React.useRef<HTMLElement | null>(null)
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   if (levels.length === 0) return null
 
   const costliest = costliestReasoningLevel(levels)
@@ -163,7 +164,21 @@ export function ReasoningLevelPicker({
   const focusChecked = (surface: HTMLElement) => {
     surfaceRef.current = surface
     const checked = surface.querySelector<HTMLButtonElement>(`${REASONING_OPTION_SELECTOR}[data-checked="true"]`)
-    ;(checked ?? surface.querySelector<HTMLButtonElement>(REASONING_OPTION_SELECTOR))?.focus()
+    const target = checked ?? surface.querySelector<HTMLButtonElement>(REASONING_OPTION_SELECTOR)
+    if (!target) return
+    target.focus()
+    // Popover paints its surface `visibility: hidden` until it has measured and
+    // anchored it, and a hidden element cannot take focus — so in a real browser
+    // the call above lands nowhere and focus stays stranded on the trigger, where
+    // the menu's arrow keys do nothing and Tab leaves for the next row (the
+    // surface is portaled to the end of <body>). Retrying on the next frame,
+    // once the surface is visible, is what makes the menu keyboard-operable.
+    // Only jsdom focuses a hidden element, which is why a passing unit test
+    // could not see this.
+    if (document.activeElement === target) return
+    requestAnimationFrame(() => {
+      if (surfaceRef.current === surface && surface.isConnected) target.focus()
+    })
   }
   const focusByOffset = (current: HTMLElement, offset: 1 | -1) => {
     const nodes = Array.from(
@@ -174,6 +189,14 @@ export function ReasoningLevelPicker({
     nodes[(index + offset + nodes.length) % nodes.length]?.focus()
   }
   const onOptionKey = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    // The menu surface is portaled to <body>, but React still bubbles its events
+    // through the REACT tree — which runs back through the model row hosting this
+    // picker. That row treats Enter/Space as "select this row": it preventDefaults
+    // the key (so the focused level's button never activates) and re-selects the
+    // model, which in the composer also closes the runtime popover. Keeping the
+    // menu's keys to itself is what lets a level be chosen from the keyboard at
+    // all. Escape is the exception: the Popover listens for it on `window`.
+    if (event.key !== 'Escape') event.stopPropagation()
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       focusByOffset(event.currentTarget, 1)
@@ -197,7 +220,10 @@ export function ReasoningLevelPicker({
       onOpenAutoFocus={focusChecked}
       renderTrigger={({ ref, togglePopover, triggerProps }) => (
         <button
-          ref={ref}
+          ref={(node) => {
+            ref.current = node
+            triggerRef.current = node
+          }}
           type="button"
           {...triggerProps}
           data-reasoning-picker="true"
@@ -218,11 +244,21 @@ export function ReasoningLevelPicker({
               ? isCostliest
                 ? 'font-medium text-[color:var(--tone-warn-on-tint)]'
                 : 'font-medium text-[color:var(--text-strong)]'
-              : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]',
+              : // At-rest ink is --text-default, not the mockup's --text-subtle:
+                // the mockup was drawn against two themes, and measured over the
+                // selected row's accent tint --text-subtle falls to 1.34:1 on the
+                // app's 19 themes (worst: ayu-mirage) — below even the 3:1 that
+                // identifies a control. --text-default is the only rung that
+                // clears 3:1 on every theme (worst 4.08:1), and the blank state
+                // still reads quiet: it is the row label's ink one size smaller,
+                // against a --text-strong label, with hover lifting it further.
+                'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
           ].join(' ')}
         >
           <span aria-hidden="true">{selectedLabel ?? '—'}</span>
-          <span aria-hidden="true" className="text-[8px] text-[color:var(--text-disabled)]">
+          {/* The caret inherits the control's ink, as the mockup draws it. Its
+              own --text-disabled measured 1.03:1 at 8px — invisible. */}
+          <span aria-hidden="true" className="text-[8px]">
             ▾
           </span>
         </button>
@@ -248,6 +284,11 @@ export function ReasoningLevelPicker({
               // chooses and un-chooses, so blank needs no separate control.
               onSelect(checked ? null : level.id)
               setOpen(false)
+              // Choosing unmounts the menu, and with it the focused item — focus
+              // would fall to <body>, stranding a keyboard user outside the
+              // control they were just operating. Hand it back to the trigger,
+              // which is where Escape already returns it.
+              triggerRef.current?.focus()
             }}
             className={[
               'flex w-full items-center gap-1.5 rounded-[3px] px-2 py-1 text-left text-[11px]',
@@ -258,7 +299,11 @@ export function ReasoningLevelPicker({
               warn ? 'text-[color:var(--tone-warn-on-tint)]' : 'text-[color:var(--text-default)]',
             ].join(' ')}
           >
-            <span className="flex shrink-0 items-center justify-center text-[color:var(--accent-primary)]">
+            {/* The check column is reserved on every row (w-3 = the glyph's own
+                12px), as the mockup reserves it. Collapsing it when unchecked
+                indents the checked label past its neighbours and shuffles every
+                label sideways each time the checked level moves. */}
+            <span className="flex w-3 shrink-0 items-center justify-center text-[color:var(--accent-primary)]">
               {checked ? <ReasoningCheckGlyph /> : null}
             </span>
             <span className="min-w-0 flex-1 truncate">{level.label ?? level.id}</span>
