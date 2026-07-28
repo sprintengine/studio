@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { SkillFileRef } from '../../../shared/skills'
+import {
+  describeDeadSkillLink,
+  resolveSkillLink,
+} from '../components/workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import type { GitLineChange } from './gitDiff'
 import { renderMarkdown, type MarkdownLinkResolver } from './markdown'
 
@@ -8,20 +13,29 @@ function render(markdown: string, lineChanges: GitLineChange[] = []): string {
 }
 
 /**
- * The skill reader's shape: a resolver that owns a corpus. It exists here so
- * hostile content is rendered through the *same* branch the reader uses —
- * a resolver makes `urlTransform` conditional, which is exactly the branch an
- * injected href would have to get through.
+ * The skill reader's own wiring, not a stand-in for it: the resolver below is
+ * the production one from the skills surface. A hand-rolled copy would let this
+ * suite keep passing while the real resolver drifted, which is the one way a
+ * guard test can lie.
+ *
+ * It matters that hostile content is rendered through *this* path as well as the
+ * plain one, because a resolver makes `urlTransform` conditional — that branch
+ * is exactly what an injected href would have to get through.
  */
-function renderWithCorpus(markdown: string, files: string[]): string {
+function renderWithCorpus(markdown: string, paths: string[]): string {
+  const files: SkillFileRef[] = paths.map((path) => ({
+    path,
+    size: 1,
+    blobSha: '',
+    isEntry: path === 'SKILL.md',
+  }))
   const links: MarkdownLinkResolver = {
     resolve: (href) => {
-      const raw = href.trim()
-      if (!raw || raw.startsWith('#')) return null
-      if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return null
-      const bare = raw.split('#')[0].split('?')[0].replace(/^\.\//, '').replace(/^\/+/, '')
-      const hit = files.find((path) => path === bare)
-      return hit ? { kind: 'file', path: hit } : { kind: 'dead', reason: `${bare} is not one of this skill's files.` }
+      const target = resolveSkillLink(files, 'SKILL.md', href)
+      if (!target) return null
+      return target.kind === 'file'
+        ? { kind: 'file', path: target.path }
+        : { kind: 'dead', reason: describeDeadSkillLink(target.target) }
     },
     open: () => undefined,
   }
@@ -167,6 +181,15 @@ function testCorpusLinksOnlyOpenFilesTheSkillActuallyCarries(): void {
     assert.doesNotMatch(html, /<button/, `no control for ${href}`)
     assert.match(html, /<span[^>]*>x/, `${href} renders as inert text`)
   }
+
+  // Traversal is *normalised back into* the corpus rather than followed out of
+  // it: `../../../scripts/run.sh` collapses to `scripts/run.sh`, which the skill
+  // does carry, so it opens. Recorded because it looks like an escape and is
+  // not — the resolver can only ever name a file the manifest already lists,
+  // which is the property that makes the reader safe.
+  const collapsed = renderWithCorpus('[run](../../../scripts/run.sh)', [...files, 'scripts/run.sh'])
+  assert.match(collapsed, /<button[^>]*>run<\/button>/)
+  assert.doesNotMatch(collapsed, /href=/)
 
   // An external https link still works, and still leaves no opener handle.
   const external = renderWithCorpus('[Docs](https://example.com/docs)', files)

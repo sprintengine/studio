@@ -62,8 +62,8 @@ function skill(paths: string[], id = 'skills/prototype'): ScannedSkill {
   }
 }
 
-function jsonResponse(body: string, init: { url?: string; redirected?: boolean } = {}): Response {
-  const bytes = Buffer.from(body, 'utf8')
+/** The one Response fake. `url`/`redirected` carry what a followed redirect reports. */
+function bytesResponse(bytes: Buffer, init: { url?: string; redirected?: boolean } = {}): Response {
   return {
     ok: true,
     status: 200,
@@ -71,6 +71,10 @@ function jsonResponse(body: string, init: { url?: string; redirected?: boolean }
     redirected: init.redirected ?? false,
     arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
   } as unknown as Response
+}
+
+function jsonResponse(body: string, init: { url?: string; redirected?: boolean } = {}): Response {
+  return bytesResponse(Buffer.from(body, 'utf8'), init)
 }
 
 // ---------------------------------------------------------------------------
@@ -104,8 +108,11 @@ async function refusesEveryTraversalShape(): Promise<void> {
     const planned = planSkillInstall(workspace, skill(['SKILL.md', path]), ['claude'])
     assert.equal(planned.ok, false, `plan refuses ${JSON.stringify(path)}`)
 
-    // The plan is not the only gate: installSkill re-resolves against the
-    // staging dir, so it must refuse independently.
+    // installSkill plans first, so this asserts the refusal survives the whole
+    // entry point — no staging dir, no partial write. It does not exercise the
+    // second resolve inside the staging loop: that check shares
+    // resolveSkillFilePath with the plan, so a path the plan admits it admits
+    // too. It is unreachable defence-in-depth, kept, not relied on.
     const installed = await installSkill({
       workspaceRoot: workspace,
       skill: skill(['SKILL.md', path]),
@@ -327,13 +334,7 @@ async function refusesATruncatedOrOversizedTree(): Promise<void> {
 
 async function refusesAnOversizedFile(): Promise<void> {
   const oversized = Buffer.alloc(DEFAULT_SKILL_MAX_FILE_BYTES + 1)
-  const fetcher: SkillFetch = async () =>
-    ({
-      ok: true,
-      status: 200,
-      arrayBuffer: async () =>
-        oversized.buffer.slice(oversized.byteOffset, oversized.byteOffset + oversized.byteLength),
-    }) as unknown as Response
+  const fetcher: SkillFetch = async () => bytesResponse(oversized)
   await assert.rejects(
     () => fetchSkillRepoFile(REF, COMMIT, 'writer/big.bin', { fetcher }),
     new RegExp(`larger than ${DEFAULT_SKILL_MAX_FILE_BYTES} bytes`),
@@ -353,12 +354,7 @@ async function limitsAreCheckedAfterTheBodyIsMaterialised(): Promise<void> {
     // memory once `fetch` has inflated it.
     const inflated = Buffer.alloc(DEFAULT_SKILL_MAX_LISTING_BYTES + 1024)
     allocatedBytes = inflated.byteLength
-    return {
-      ok: true,
-      status: 200,
-      arrayBuffer: async () =>
-        inflated.buffer.slice(inflated.byteOffset, inflated.byteOffset + inflated.byteLength),
-    } as unknown as Response
+    return bytesResponse(inflated)
   }
   await assert.rejects(
     () => fetchSkillRepoTree(REF, COMMIT, { fetcher }),
