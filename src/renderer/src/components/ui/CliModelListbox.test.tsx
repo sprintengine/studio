@@ -353,6 +353,32 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  await run('a row near the bottom edge opens its menu upward', async () => {
+    // Two mounts, identical but for where the trigger sits in the viewport.
+    // Anything else staying equal is what makes the flip attributable.
+    const openAt = async (top: number): Promise<CSSStyleDeclaration> => {
+      const view = mount({})
+      const trigger = view.pickers()[0]
+      trigger.getBoundingClientRect = () =>
+        ({ top, bottom: top + 18, left: 100, right: 220, width: 120, height: 18, x: 100, y: top }) as DOMRect
+      await view.click(trigger)
+      const menu = dom.window.document.body.querySelector('[role="menu"]') as HTMLElement
+      const style = menu.style
+      view.unmount()
+      return style as unknown as CSSStyleDeclaration
+    }
+
+    const roomy = await openAt(40)
+    assert.ok(roomy.top && !roomy.bottom, 'with room below, the menu hangs off the trigger’s bottom edge')
+
+    // jsdom's viewport is 768 tall, so a trigger at 758 has no room beneath it.
+    const cramped = await openAt(dom.window.innerHeight - 10)
+    assert.ok(
+      cramped.bottom && !cramped.top,
+      'against the bottom edge it anchors by its own bottom instead — it opens upward rather than off-screen or into a scroll',
+    )
+  })
+
   await run('rows and the picker are keyboard operable', async () => {
     const picked: Array<string | null> = []
     const view = mount({ onSelectModel: (_cli: string, model: string | null) => picked.push(model) })
