@@ -349,13 +349,24 @@ async function refusesAnOversizedFile(): Promise<void> {
 // decompresses, so a small gzipped body expands unbounded before this check.
 async function limitsAreCheckedAfterTheBodyIsMaterialised(): Promise<void> {
   let allocatedBytes = 0
-  const fetcher: SkillFetch = async () => {
-    // Stands in for a decompression bomb: a few KB on the wire, this much in
-    // memory once `fetch` has inflated it.
-    const inflated = Buffer.alloc(DEFAULT_SKILL_MAX_LISTING_BYTES + 1024)
-    allocatedBytes = inflated.byteLength
-    return bytesResponse(inflated)
-  }
+  // The allocation happens inside arrayBuffer(), not before it, so this counter
+  // stays 0 unless the code under test actually materialises the whole body.
+  // Allocating eagerly would let the assertion below keep passing after a
+  // streaming fix landed, which is the one thing a pin must not do.
+  const fetcher: SkillFetch = async () =>
+    ({
+      ok: true,
+      status: 200,
+      url: '',
+      redirected: false,
+      arrayBuffer: async () => {
+        // Stands in for a decompression bomb: a few KB on the wire, this much
+        // in memory once `fetch` has inflated it.
+        const inflated = Buffer.alloc(DEFAULT_SKILL_MAX_LISTING_BYTES + 1024)
+        allocatedBytes = inflated.byteLength
+        return inflated.buffer.slice(inflated.byteOffset, inflated.byteOffset + inflated.byteLength)
+      },
+    }) as unknown as Response
   await assert.rejects(
     () => fetchSkillRepoTree(REF, COMMIT, { fetcher }),
     /file listing is larger than/,
