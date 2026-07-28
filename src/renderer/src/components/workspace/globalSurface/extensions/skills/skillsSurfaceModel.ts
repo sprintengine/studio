@@ -17,6 +17,7 @@ import {
   sourceLayout,
   type ScanResult,
   type ScannedSkill,
+  type SkillFileRef,
   type SkillSource,
   type SkillSourceLayout,
 } from '../../../../../../../shared/skills'
@@ -320,6 +321,43 @@ export function summarizeInstallRun(installed: number, failures: readonly SkillI
   return `Installed ${installed} of ${total}. ${skillDirName(failures[0].skillId)} did not install: ${failures[0].message}`
 }
 
+// ── Syncing ──────────────────────────────────────────────────────────────────
+
+export type SkillSyncReport = {
+  added: number
+  removed: number
+  refreshed: number
+  failures: readonly SkillInstallFailure[]
+}
+
+/**
+ * One line for what a sync actually did, in counts.
+ *
+ * Counts are the whole of it, deliberately. Describing what changed *inside* a
+ * skill needs a human or a model guess, and a guess about someone else's diff
+ * presented as fact is the thing this design ruled out — the repository's own
+ * commit history answers that question better than anything rendered here.
+ */
+export function summarizeSyncRun(report: SkillSyncReport): string {
+  const parts: string[] = []
+  if (report.added > 0) parts.push(`${report.added} new ${report.added === 1 ? 'skill' : 'skills'}`)
+  if (report.removed > 0) parts.push(`${report.removed} removed upstream`)
+  if (parts.length === 0) parts.push('no new skills')
+  if (report.refreshed > 0) {
+    parts.push(`${report.refreshed} installed ${report.refreshed === 1 ? 'skill' : 'skills'} updated`)
+  }
+  const line = `Synced · ${parts.join(' · ')}`
+  if (report.failures.length === 0) return line
+  const first = report.failures[0]
+  return `${line} · ${skillDirName(first.skillId)} did not update: ${first.message}`
+}
+
+/** The repository's own commit history — the answer to "what changed?". */
+export function skillSourceCommitsUrl(source: SkillSource): string | null {
+  if (source.kind !== 'github' || !source.repo) return null
+  return `https://github.com/${source.repo}/commits/${source.commitSha || 'HEAD'}`
+}
+
 // ── Header facts ─────────────────────────────────────────────────────────────
 
 /** The pinned commit, short. '' for a source with no git identity. */
@@ -335,6 +373,95 @@ export function formatSkillFileSize(bytes: number): string {
   if (kib < 1024) return `${kib < 100 ? kib.toFixed(1) : Math.round(kib)} KB`
   const mib = kib / 1024
   return `${mib < 100 ? mib.toFixed(1) : Math.round(mib)} MB`
+}
+
+// ── The reader ───────────────────────────────────────────────────────────────
+
+/**
+ * Reading order: the entry first, then the skill's own documents, then what
+ * sits in its subdirectories (`agents/`, `scripts/`). A skill is read from
+ * SKILL.md outwards, and the files it ships to be run are the tail of that
+ * read, not the head of it.
+ */
+export function orderSkillFiles(files: readonly SkillFileRef[]): SkillFileRef[] {
+  return [...files].sort((a, b) => {
+    if (a.isEntry !== b.isEntry) return a.isEntry ? -1 : 1
+    const depthA = a.path.includes('/') ? 1 : 0
+    const depthB = b.path.includes('/') ? 1 : 0
+    if (depthA !== depthB) return depthA - depthB
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+  })
+}
+
+/** The file the reader opens on: the declared entry, else the first file. */
+export function defaultSkillFilePath(files: readonly SkillFileRef[]): string {
+  const ordered = orderSkillFiles(files)
+  return ordered.length > 0 ? ordered[0].path : ''
+}
+
+export function isMarkdownSkillFile(path: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(path)
+}
+
+/**
+ * Frontmatter is the briefing, and the page already states its `description`
+ * above the document, so the document itself starts at its first heading
+ * rather than at a block of YAML.
+ */
+export function stripSkillFrontmatter(content: string): string {
+  const block = content.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
+  return block ? content.slice(block[0].length) : content
+}
+
+export type SkillLinkTarget =
+  | { kind: 'file'; path: string }
+  | { kind: 'dead'; target: string }
+
+/**
+ * Resolve one markdown href against the skill's own manifest.
+ *
+ * A relative href in a SKILL.md points at a sibling file of the same skill, so
+ * it is resolved against what the scan actually carried — never fetched, and
+ * never guessed. Anything carrying a scheme (`https:`, and equally
+ * `javascript:`) or a bare fragment is not this skill's to own: null hands it
+ * back to the renderer's protocol guard.
+ */
+export function resolveSkillLink(
+  files: readonly SkillFileRef[],
+  currentPath: string,
+  href: string,
+): SkillLinkTarget | null {
+  const raw = href.trim()
+  if (!raw || raw.startsWith('#')) return null
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return null
+
+  const target = raw.split('#')[0].split('?')[0].replace(/^\.\//, '')
+  if (!target) return null
+  const bare = target.replace(/^\/+/, '')
+  const dir = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/') + 1) : ''
+  const relative = normalizeSkillPath(target.startsWith('/') ? bare : dir + target)
+
+  const hit =
+    files.find((file) => file.path === relative)
+    ?? files.find((file) => file.path === bare)
+    ?? files.find((file) => file.path.endsWith(`/${bare}`))
+  return hit ? { kind: 'file', path: hit.path } : { kind: 'dead', target: bare }
+}
+
+/** What a dead link says on hover. States the fact, not a failure. */
+export function describeDeadSkillLink(target: string): string {
+  return `${target} is not one of this skill's files.`
+}
+
+/** Collapse `.` and `..` so `../scripts/run.sh` resolves the way a reader reads it. */
+function normalizeSkillPath(path: string): string {
+  const out: string[] = []
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') out.pop()
+    else out.push(segment)
+  }
+  return out.join('/')
 }
 
 /**

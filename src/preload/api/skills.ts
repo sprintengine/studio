@@ -12,6 +12,8 @@ import type {
   SkillScanInput,
   SkillScanOutcome,
   SkillSourcesResult,
+  SkillSyncSourceInput,
+  SkillSyncSourceOutcome,
 } from '../../shared/electron-api'
 
 export const skillsApi = {
@@ -26,6 +28,8 @@ export const skillsApi = {
     ipcRenderer.invoke('skills:read-file', input),
   skillsInstall: (input: SkillInstallInput): Promise<SkillInstallOutcome> =>
     ipcRenderer.invoke('skills:install', input),
+  skillsSyncSource: (input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome> =>
+    ipcRenderer.invoke('skills:sync-source', input),
 } satisfies Pick<
   ElectronApi,
   | 'skillsListSources'
@@ -34,4 +38,5 @@ export const skillsApi = {
   | 'skillsGetScan'
   | 'skillsReadFile'
   | 'skillsInstall'
+  | 'skillsSyncSource'
 >

@@ -25,10 +25,14 @@ import {
   deriveInstallAvailability,
   deriveSourceRailRows,
   findSkill,
+  skillSourceCommitsUrl,
   sourceDisplayName,
   summarizeInstallRun,
+  summarizeSyncRun,
   type SkillInstallFailure,
 } from './skillsSurfaceModel'
+
+const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
 
 type SkillsView =
   | { kind: 'source'; sourceId: string }
@@ -53,6 +57,13 @@ export function SkillsSurface({
   const [addOpen, setAddOpen] = useState(false)
   const [installing, setInstalling] = useState<string | null>(null)
   const [installReport, setInstallReport] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null)
+  const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null)
+  // Kept per source, so opening another one does not show it that source's line.
+  const [syncReport, setSyncReport] = useState<{
+    sourceId: string
+    outcome: string | null
+    error: string | null
+  } | null>(null)
 
   // Land on the first source rather than an index the rail already replaces.
   useEffect(() => {
@@ -74,6 +85,7 @@ export function SkillsSurface({
     [sources.sources, activeSourceId],
   )
   const activeScan = activeSourceId ? sources.scans[activeSourceId] : undefined
+  const commitsUrl = activeSource ? skillSourceCommitsUrl(activeSource) : null
 
   const toggleSelect = useCallback((skillId: string) => {
     setSelected((current) => {
@@ -92,7 +104,7 @@ export function SkillsSurface({
     async (sourceId: string, skillIds: string[]): Promise<void> => {
       if (!workspaceRoot || skillIds.length === 0) return
       if (typeof window.api.skillsInstall !== 'function') {
-        setInstallReport({ tone: 'error', message: 'Skills need an app restart before they are available.' })
+        setInstallReport({ tone: 'error', message: MISSING_API_MESSAGE })
         return
       }
       setInstallReport(null)
@@ -127,6 +139,51 @@ export function SkillsSurface({
         message: summarizeInstallRun(installed, failures),
       })
       sources.refreshInstalled()
+    },
+    [sources, workspaceRoot],
+  )
+
+  /**
+   * Sync: re-read the source at its current head, take the scan it returns, and
+   * let it report what came in. A failure leaves the list on screen alone and
+   * says so — a stale list wearing a fresh timestamp is the one outcome a sync
+   * must never produce.
+   */
+  const syncSource = useCallback(
+    async (source: SkillSource): Promise<void> => {
+      if (typeof window.api.skillsSyncSource !== 'function') {
+        setSyncReport({ sourceId: source.id, outcome: null, error: MISSING_API_MESSAGE })
+        return
+      }
+      setSyncingSourceId(source.id)
+      setSyncReport(null)
+      try {
+        const result = await window.api.skillsSyncSource({ sourceId: source.id, workspaceRoot })
+        if (!result.ok) {
+          setSyncReport({ sourceId: source.id, outcome: null, error: result.message })
+          return
+        }
+        sources.applySync(result.source, result.scan)
+        sources.refreshInstalled()
+        setSyncReport({
+          sourceId: source.id,
+          outcome: summarizeSyncRun({
+            added: result.added,
+            removed: result.removed,
+            refreshed: result.refreshed,
+            failures: result.failures,
+          }),
+          error: null,
+        })
+      } catch (error) {
+        setSyncReport({
+          sourceId: source.id,
+          outcome: null,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        setSyncingSourceId(null)
+      }
     },
     [sources, workspaceRoot],
   )
@@ -283,6 +340,13 @@ export function SkillsSurface({
                 availability={deriveInstallAvailability(workspaceRoot, selected.size)}
                 installing={installing}
                 onInstallSelected={() => void installSkills(activeSource.id, [...selected])}
+                sync={{
+                  onSync: activeSource.kind === 'github' ? () => void syncSource(activeSource) : null,
+                  syncing: syncingSourceId === activeSource.id,
+                  outcome: syncReport?.sourceId === activeSource.id ? syncReport.outcome : null,
+                  error: syncReport?.sourceId === activeSource.id ? syncReport.error : null,
+                  onOpenHistory: commitsUrl ? () => void window.api.openExternal(commitsUrl) : null,
+                }}
                 onBrowseMcpServers={onBrowseMcpServers}
                 renderSkillPage={renderSkillPage}
               />

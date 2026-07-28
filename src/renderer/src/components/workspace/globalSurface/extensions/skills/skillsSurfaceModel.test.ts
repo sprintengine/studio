@@ -1,17 +1,30 @@
 import assert from 'node:assert/strict'
 
-import type { ScanResult, ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
+import type {
+  ScanResult,
+  ScannedSkill,
+  SkillFileRef,
+  SkillSource,
+} from '../../../../../../../shared/skills'
 import {
+  defaultSkillFilePath,
   deriveGroupTabs,
   deriveInstallAvailability,
   deriveSkillsKindStateLine,
   deriveSourceRailRows,
   deriveSourceView,
+  describeDeadSkillLink,
   describeSourceMeta,
   formatSkillFileSize,
+  isMarkdownSkillFile,
+  orderSkillFiles,
+  resolveSkillLink,
   skillCountLine,
   skillGroupLabel,
+  stripSkillFrontmatter,
+  skillSourceCommitsUrl,
   summarizeInstallRun,
+  summarizeSyncRun,
   type SkillScanLoad,
 } from './skillsSurfaceModel'
 
@@ -337,6 +350,39 @@ run('a batch install reports what actually happened, failures named', () => {
   )
 })
 
+// ── Syncing ──────────────────────────────────────────────────────────────────
+
+run('a sync reports counts, and only counts', () => {
+  assert.equal(summarizeSyncRun({ added: 3, removed: 0, refreshed: 0, failures: [] }), 'Synced · 3 new skills')
+  assert.equal(summarizeSyncRun({ added: 1, removed: 0, refreshed: 0, failures: [] }), 'Synced · 1 new skill')
+  // A sync that brought nothing in says so, rather than reading as an outcome
+  // it did not have.
+  assert.equal(summarizeSyncRun({ added: 0, removed: 0, refreshed: 0, failures: [] }), 'Synced · no new skills')
+  assert.equal(
+    summarizeSyncRun({ added: 2, removed: 1, refreshed: 4, failures: [] }),
+    'Synced · 2 new skills · 1 removed upstream · 4 installed skills updated',
+  )
+})
+
+run('a sync that could not update an installed skill names it', () => {
+  const line = summarizeSyncRun({
+    added: 0,
+    removed: 0,
+    refreshed: 1,
+    failures: [{ skillId: 'skills/engineering/tdd', message: 'GitHub rate-limited this request.' }],
+  })
+  assert.match(line, /tdd did not update: GitHub rate-limited this request\.$/)
+})
+
+run('the source links out to the history that says what changed', () => {
+  assert.equal(
+    skillSourceCommitsUrl(source()),
+    'https://github.com/owner/repo/commits/b81f77abcdef0123',
+  )
+  // Nothing to link to for a source that is not a repository.
+  assert.equal(skillSourceCommitsUrl(source({ id: 'builtin', kind: 'builtin', repo: '' })), null)
+})
+
 // ── Header facts ─────────────────────────────────────────────────────────────
 
 run('a source header states only facts the scan produced', () => {
@@ -358,6 +404,82 @@ run('file sizes read in the units of the file', () => {
   assert.equal(formatSkillFileSize(900), '900 B')
   assert.equal(formatSkillFileSize(2048), '2.0 KB')
   assert.equal(formatSkillFileSize(5 * 1024 * 1024), '5.0 MB')
+})
+
+// ── The reader ───────────────────────────────────────────────────────────────
+
+function file(path: string, over: Partial<SkillFileRef> = {}): SkillFileRef {
+  return { path, size: 1200, blobSha: '', isEntry: path === 'SKILL.md', ...over }
+}
+
+run('a skill is read entry first, then its own documents, then its subdirectories', () => {
+  const ordered = orderSkillFiles([
+    file('scripts/block-dangerous-git.sh'),
+    file('UI.md'),
+    file('SKILL.md'),
+    file('agents/openai.yaml'),
+    file('LOGIC.md'),
+  ]).map((entry) => entry.path)
+  assert.deepEqual(ordered, [
+    'SKILL.md',
+    'LOGIC.md',
+    'UI.md',
+    'agents/openai.yaml',
+    'scripts/block-dangerous-git.sh',
+  ])
+  assert.equal(defaultSkillFilePath([file('UI.md'), file('SKILL.md')]), 'SKILL.md')
+  // A skill whose scan carried no entry still opens on something readable.
+  assert.equal(defaultSkillFilePath([file('UI.md'), file('LOGIC.md')]), 'LOGIC.md')
+  assert.equal(defaultSkillFilePath([]), '')
+})
+
+run('a relative link resolves against the skill it came from', () => {
+  const files = [file('SKILL.md'), file('LOGIC.md'), file('UI.md'), file('scripts/run.sh')]
+  assert.deepEqual(resolveSkillLink(files, 'SKILL.md', 'LOGIC.md'), { kind: 'file', path: 'LOGIC.md' })
+  assert.deepEqual(resolveSkillLink(files, 'SKILL.md', './UI.md'), { kind: 'file', path: 'UI.md' })
+  // Back the other way, and out of a subdirectory.
+  assert.deepEqual(resolveSkillLink(files, 'UI.md', 'SKILL.md'), { kind: 'file', path: 'SKILL.md' })
+  assert.deepEqual(resolveSkillLink(files, 'scripts/run.sh', '../SKILL.md'), {
+    kind: 'file',
+    path: 'SKILL.md',
+  })
+  assert.deepEqual(resolveSkillLink(files, 'SKILL.md', 'scripts/run.sh'), {
+    kind: 'file',
+    path: 'scripts/run.sh',
+  })
+  // A fragment on a resolvable file still opens the file.
+  assert.deepEqual(resolveSkillLink(files, 'SKILL.md', 'LOGIC.md#state'), {
+    kind: 'file',
+    path: 'LOGIC.md',
+  })
+})
+
+run('a link to a file the scan never carried is dead, and says which file', () => {
+  const files = [file('SKILL.md')]
+  assert.deepEqual(resolveSkillLink(files, 'SKILL.md', 'LOGIC.md'), { kind: 'dead', target: 'LOGIC.md' })
+  assert.equal(describeDeadSkillLink('LOGIC.md'), "LOGIC.md is not one of this skill's files.")
+})
+
+run('anything carrying a scheme is not the skill’s to resolve', () => {
+  const files = [file('SKILL.md'), file('LOGIC.md')]
+  // Handed back to the renderer's protocol guard: https opens, javascript dies
+  // there. Resolving either one here would route it around that guard.
+  assert.equal(resolveSkillLink(files, 'SKILL.md', 'https://example.com/LOGIC.md'), null)
+  assert.equal(resolveSkillLink(files, 'SKILL.md', 'javascript:steal()'), null)
+  assert.equal(resolveSkillLink(files, 'SKILL.md', 'JavaScript:steal()'), null)
+  assert.equal(resolveSkillLink(files, 'SKILL.md', 'mailto:matt@example.com'), null)
+  assert.equal(resolveSkillLink(files, 'SKILL.md', '#a-heading'), null)
+  assert.equal(resolveSkillLink(files, 'SKILL.md', '   '), null)
+})
+
+run('frontmatter is the briefing, so the document starts after it', () => {
+  const withMeta = '---\nname: tdd\ndescription: Write the test first\n---\n\n# TDD\n\nBody.\n'
+  assert.equal(stripSkillFrontmatter(withMeta), '\n# TDD\n\nBody.\n')
+  // A rule that is not frontmatter is left exactly where the author put it.
+  assert.equal(stripSkillFrontmatter('# TDD\n\n---\n\nBody.\n'), '# TDD\n\n---\n\nBody.\n')
+  assert.equal(isMarkdownSkillFile('SKILL.md'), true)
+  assert.equal(isMarkdownSkillFile('agents/openai.yaml'), false)
+  assert.equal(isMarkdownSkillFile('scripts/block-dangerous-git.sh'), false)
 })
 
 console.log('skills surface model tests passed')

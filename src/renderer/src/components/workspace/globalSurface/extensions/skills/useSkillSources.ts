@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { SkillSource } from '../../../../../../../shared/skills'
+import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
 import type { SkillScanLoad, SkillSourcesLoad } from './skillsSurfaceModel'
 
 const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
@@ -31,6 +31,8 @@ export type SkillSourcesState = {
   refreshScan: (sourceId: string) => void
   /** Re-read the workspace's installed skills (after an install). */
   refreshInstalled: () => void
+  /** Take a synced source's refreshed scan, which sync already returned. */
+  applySync: (source: SkillSource, scan: ScanResult) => void
 }
 
 export function useSkillSources(workspaceRoot: string | null): SkillSourcesState {
@@ -153,6 +155,17 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
     setInstalledNonce((value) => value + 1)
   }, [])
 
+  // Sync already carries back the source and the scan it just wrote, so the
+  // surface takes them directly. Re-reading the list instead would blank the
+  // canvas to its loading state to arrive at bytes already in hand.
+  const applySync = useCallback((synced: SkillSource, scan: ScanResult) => {
+    requestedScans.current.add(synced.id)
+    setSources((current) =>
+      current.map((source) => (source.id === synced.id ? synced : source)),
+    )
+    setScans((current) => ({ ...current, [synced.id]: { status: 'ready', scan } }))
+  }, [])
+
   return useMemo(
     () => ({
       sources,
@@ -163,6 +176,7 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
       refreshSources,
       refreshScan,
       refreshInstalled,
+      applySync,
     }),
     [
       sources,
@@ -173,6 +187,7 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
       refreshSources,
       refreshScan,
       refreshInstalled,
+      applySync,
     ],
   )
 }

@@ -4,24 +4,21 @@
 // so everything the scan knows about it is disclosed before Install: the
 // frontmatter description an agent matches on, the declared `allowed-tools`,
 // whether it ships executables, and every file that would be written into the
-// workspace. Reading the file contents is the reader's job (T3) and lands in
-// this same page — this is the frame it fills, not a placeholder for it.
+// workspace — each of which opens in the reader below, so nothing here is
+// offered on trust alone.
 
 import React, { useState } from 'react'
 
 import type { ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
 import { PrimaryButton } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { SkillReader } from './SkillReader'
 import { SourceMonogram } from './SourceMonogram'
 import {
-  formatSkillFileSize,
   sourceDisplayMonogram,
   sourceDisplayName,
   type SkillInstallAvailability,
 } from './skillsSurfaceModel'
-
-// A skill of 128 files would otherwise push everything after it off the page.
-const FILE_PREVIEW_COUNT = 10
 
 export function SkillPage({
   source,
@@ -46,10 +43,7 @@ export function SkillPage({
   embedded?: boolean
 }): JSX.Element {
   const [descriptionOpen, setDescriptionOpen] = useState(false)
-  const [allFiles, setAllFiles] = useState(false)
-  const files = [...skill.files].sort((a, b) =>
-    a.isEntry === b.isEntry ? comparePaths(a.path, b.path) : a.isEntry ? -1 : 1,
-  )
+  const fileCount = skill.files.length
   const longDescription = skill.description.length > 200
 
   return (
@@ -73,7 +67,7 @@ export function SkillPage({
           <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">{skill.name}</h3>
           {embedded ? null : (
             <p className="mt-0.5 text-[11px] text-[color:var(--text-muted)]">
-              {[sourceDisplayName(source), `${files.length} file${files.length === 1 ? '' : 's'}`].join(' · ')}
+              {[sourceDisplayName(source), `${fileCount} file${fileCount === 1 ? '' : 's'}`].join(' · ')}
             </p>
           )}
         </div>
@@ -142,44 +136,14 @@ export function SkillPage({
         </section>
       ) : null}
 
-      <div className="mt-4 flex items-baseline gap-2 border-b border-[color:var(--border-subtle)] pb-1.5">
-        <h4 className="text-[12px] font-medium text-[color:var(--text-default)]">Files</h4>
-        <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{files.length}</span>
-      </div>
-      {/* A file row states what would be written, and nothing more: opening a
-          file to read it is the reader's affordance and arrives with it. */}
-      <ul role="list" className="mt-1.5 flex flex-col gap-px">
-        {(allFiles ? files : files.slice(0, FILE_PREVIEW_COUNT)).map((file) => (
-          <li key={file.path} className="flex items-center gap-2 px-2 py-1">
-            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-muted)]">
-              {file.path}
-            </span>
-            {file.isEntry ? (
-              <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">Entry</span>
-            ) : null}
-            <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-disabled)]">
-              {formatSkillFileSize(file.size)}
-            </span>
-          </li>
-        ))}
-      </ul>
-      {files.length > FILE_PREVIEW_COUNT ? (
-        <button
-          type="button"
-          onClick={() => setAllFiles((open) => !open)}
-          className={`mt-1.5 rounded px-2 text-[11px] text-[color:var(--text-muted)] underline underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
-        >
-          {allFiles ? 'Show fewer' : `Show all ${files.length} files`}
-        </button>
-      ) : null}
-      <p className="mt-3 text-[11px] text-[color:var(--text-subtle)]">
-        Installing copies these files into the skills directory of every agent CLI on this machine, inside
-        the open workspace.
+      {/* The file list is the reader's own rail: every file that would be
+          written is listed, and each one opens. */}
+      <SkillReader key={`${source.id}::${skill.id}`} source={source} skill={skill} />
+
+      <p className="mt-5 border-t border-[color:var(--border-subtle)] pt-3 text-[11px] text-[color:var(--text-subtle)]">
+        Installing copies this skill's files into the skills directory of every agent CLI on this machine,
+        inside the open workspace.
       </p>
     </div>
   )
-}
-
-function comparePaths(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
 }

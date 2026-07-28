@@ -1025,6 +1025,32 @@ export type SkillInstallOutcome =
   | { ok: true; dirName: string; harnesses: SkillPackHarness[]; paths: string[]; fileCount: number }
   | { ok: false; message: string }
 
+/** The workspace whose installed copies get re-copied; null with no workspace open. */
+export type SkillSyncSourceInput = { sourceId: string; workspaceRoot: string | null }
+
+export type SkillSyncFailure = { skillId: string; message: string }
+
+/**
+ * What a sync did, in counts. What changed *inside* a skill is not derivable
+ * here and is not guessed at: the repository's own commit history answers that,
+ * which is why the surface links to it instead of rendering a diff.
+ */
+export type SkillSyncSourceOutcome =
+  | {
+      ok: true
+      source: SkillSource
+      scan: ScanResult
+      /** Skills the refreshed scan holds that the cached one did not. */
+      added: number
+      /** Skills the cached scan held that the repository no longer does. */
+      removed: number
+      /** Installed skills re-copied from the refreshed scan. */
+      refreshed: number
+      /** Installed skills whose re-copy failed; the list still refreshed. */
+      failures: SkillSyncFailure[]
+    }
+  | { ok: false; message: string }
+
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
 export type AgentSessionSystem = 'switchboard' | 'watchtower' | 'sprintengine' | 'manual'
@@ -2914,6 +2940,7 @@ export type ElectronApi = {
   skillsGetScan: (input: SkillScanInput) => Promise<SkillScanOutcome>
   skillsReadFile: (input: SkillReadFileInput) => Promise<SkillReadFileResult>
   skillsInstall: (input: SkillInstallInput) => Promise<SkillInstallOutcome>
+  skillsSyncSource: (input: SkillSyncSourceInput) => Promise<SkillSyncSourceOutcome>
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>

@@ -33,6 +33,8 @@ import type {
   SkillScanInput,
   SkillScanOutcome,
   SkillSourcesResult,
+  SkillSyncSourceInput,
+  SkillSyncSourceOutcome,
 } from '../../shared/electron-api'
 import { findMarketplaceResourcePath } from '../marketplace/resources'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
@@ -49,6 +51,7 @@ import { installSkill } from './install'
 import { scanLocalSkillSource } from './local-source'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
+import { diffScannedSkills, installedSkillHarnesses, refreshInstalledSkills } from './sync'
 
 // How many entry documents a scan reads to fill in names and descriptions. The
 // listing is what makes a source browsable, so this runs at scan time and the
@@ -73,6 +76,7 @@ export type SkillsService = {
   getScan(input: SkillScanInput): Promise<SkillScanOutcome>
   readFile(input: SkillReadFileInput): Promise<SkillReadFileResult>
   install(input: SkillInstallInput): Promise<SkillInstallOutcome>
+  syncSource(input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome>
 }
 
 export function createSkillsService(
@@ -185,6 +189,61 @@ export function createSkillsService(
         readFile: (file) => readSkillBytes(located.source, located.skill, file),
       })
       return result
+    },
+
+    /**
+     * Re-read a source at its current head, replace its cached scan, and copy
+     * the skills this workspace already holds out of the new one.
+     *
+     * The store is written only once the whole scan succeeded, so a failed sync
+     * leaves the list exactly as it was rather than half-refreshed with a
+     * timestamp that says otherwise.
+     */
+    async syncSource(input) {
+      const source = await store.getSource(input.sourceId ?? '')
+      if (!source) return { ok: false, message: 'That source is not in your list.' }
+      if (source.kind !== 'github') {
+        return { ok: false, message: `${source.name} ships with Multicode and refreshes with the app.` }
+      }
+      const ref = parseSkillRepoRef(source.repo)
+      if (!ref) {
+        return { ok: false, message: `${source.repo} is not a repository that can be re-read.` }
+      }
+
+      const previous = await store.getScan(source.id)
+      let rescan: { source: SkillSource; scan: ScanResult }
+      try {
+        const github = { ...deps.github, token: await deps.resolveToken() }
+        rescan = await scanGithubSource(ref, source.id, github)
+        await store.putSource(rescan.source, rescan.scan)
+      } catch (error) {
+        return { ok: false, message: describeFetchError(error) }
+      }
+
+      const changes = diffScannedSkills(previous, rescan.scan)
+      const workspaceRoot = input.workspaceRoot?.trim() ?? ''
+      // Sources are app-level and the door opens without a workspace, so a sync
+      // with none refreshes the list and copies nothing — there is nowhere for
+      // a skill to be installed.
+      const copied =
+        workspaceRoot && existsSync(workspaceRoot)
+          ? await refreshInstalledSkills({
+              workspaceRoot,
+              scan: rescan.scan,
+              installedHarnesses: await installedSkillHarnesses(workspaceRoot),
+              readFile: (skill, file) => readSkillBytes(rescan.source, skill, file),
+            })
+          : { refreshed: [], failures: [] }
+
+      return {
+        ok: true,
+        source: rescan.source,
+        scan: rescan.scan,
+        added: changes.added.length,
+        removed: changes.removed.length,
+        refreshed: copied.refreshed.length,
+        failures: copied.failures,
+      }
     },
   }
 

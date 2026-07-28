@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import type { ScanResult, ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
+import { SkillDocument, SkillReader } from './SkillReader'
 import { SkillSourceCanvas, type SkillSourceCanvasProps } from './SkillSourceCanvas'
 import { SkillsSurface } from './SkillsSurface'
 
@@ -78,6 +79,7 @@ function canvas(over: Partial<SkillSourceCanvasProps> = {}): string {
       availability={{ enabled: true, reason: null }}
       installing={null}
       onInstallSelected={() => {}}
+      sync={{ onSync: () => {}, syncing: false, outcome: null, error: null, onOpenHistory: () => {} }}
       onBrowseMcpServers={() => {}}
       renderSkillPage={(skillId) => <div data-skill-page={skillId} />}
       {...over}
@@ -197,6 +199,7 @@ run('the surface opens on a nested source rail that keeps Add and Discover', () 
         refreshSources: () => {},
         refreshScan: () => {},
         refreshInstalled: () => {},
+        applySync: () => {},
       }}
     />,
   )
@@ -206,6 +209,156 @@ run('the surface opens on a nested source rail that keeps Add and Discover', () 
   assert.ok(markup.includes('>Multicode<') && markup.includes('>mattpocock/skills<'))
   // The rail states each source's own read state; a pending scan is not a zero.
   assert.ok(markup.includes('>Loading…<') && markup.includes('>2 skills<'))
+})
+
+// ── The reader ───────────────────────────────────────────────────────────────
+
+const READER_SKILL = skill('skills/engineering/prototype', {
+  files: [
+    { path: 'SKILL.md', size: 2400, blobSha: '', isEntry: true },
+    { path: 'LOGIC.md', size: 1800, blobSha: '', isEntry: false },
+    { path: 'scripts/run.sh', size: 320, blobSha: '', isEntry: false },
+  ],
+})
+
+function document(content: string, path = 'SKILL.md'): string {
+  const file = READER_SKILL.files.find((candidate) => candidate.path === path) ?? READER_SKILL.files[0]
+  return renderToStaticMarkup(
+    <SkillDocument
+      file={file}
+      files={READER_SKILL.files}
+      read={{ status: 'ready', content }}
+      onOpenFile={() => {}}
+      onRetry={() => {}}
+    />,
+  )
+}
+
+run('the reader lists every file, opens on SKILL.md, and marks it as the entry', () => {
+  const markup = renderToStaticMarkup(<SkillReader source={SOURCE} skill={READER_SKILL} />)
+  assert.ok(markup.includes('aria-label="Files in this skill"'))
+  assert.ok(markup.includes('>SKILL.md<') && markup.includes('>LOGIC.md<'))
+  assert.ok(markup.includes('>scripts/run.sh<'), 'the files it would run are listed too')
+  assert.ok(markup.includes('>Entry<'), 'SKILL.md is marked as the entry')
+  // The entry row is the current one, and the reader is already reading it.
+  const entryRow = markup.slice(markup.indexOf('<button'), markup.indexOf('>SKILL.md<'))
+  assert.ok(entryRow.includes('aria-current="true"'))
+  assert.ok(markup.includes('Reading SKILL.md…'))
+  assert.equal(hasNestedButton(markup), false)
+})
+
+run('a skill file cannot inject markup', () => {
+  const markup = document(
+    '# Heading\n\n<script>steal()</script>\n\n<img src=x onerror="steal()">\n\n'
+      + '[run it](javascript:steal()) and [ok](https://example.com)\n',
+  )
+  assert.ok(!markup.includes('<script'), 'a script tag is text, never a tag')
+  assert.ok(markup.includes('&lt;script&gt;'))
+  assert.ok(!markup.includes('<img'), 'and neither is an img that carries a handler')
+  assert.ok(markup.includes('&lt;img'), 'it is shown as the text the file actually contains')
+  assert.ok(!markup.includes('javascript:'), 'a javascript: href never reaches the DOM')
+  assert.ok(markup.includes('href="https://example.com"'), 'a real link still opens')
+  assert.ok(markup.includes('<h1'), 'and the document still renders')
+})
+
+run('markdown renders as a document, at the surface’s own scale', () => {
+  const markup = document(
+    '---\nname: prototype\n---\n\n# Prototype\n\n## Why\n\n- one\n- two\n\n1. first\n\n'
+      + '> a quote\n\n`inline/path.ts` and\n\n```ts\nconst x = 1\n```\n',
+  )
+  assert.ok(!markup.includes('name: prototype'), 'frontmatter is stated above the document, not in it')
+  assert.ok(markup.includes('<h1') && markup.includes('<h2'))
+  assert.ok(markup.includes('<ul') && markup.includes('<ol') && markup.includes('<blockquote'))
+  assert.ok(markup.includes('<pre') && markup.includes('const x = 1'))
+  // Inline code sits inside running text: it takes that text's size and wraps.
+  assert.ok(markup.includes('text-[0.92em]') && markup.includes('[overflow-wrap:anywhere]'))
+  assert.ok(!markup.includes('text-3xl'), 'the document scale would dwarf the page it sits in')
+})
+
+run('a relative link opens its file; one the scan never carried is dead, not broken', () => {
+  const markup = document('See [the logic](LOGIC.md) and [the shape](SHAPE.md).\n')
+  const live = markup.slice(markup.indexOf('<button'), markup.indexOf('the logic'))
+  assert.ok(live.includes('type="button"'), 'a sibling file opens in the reader')
+  const dead = markup.slice(markup.lastIndexOf('<span', markup.indexOf('the shape')), markup.indexOf('the shape'))
+  assert.ok(dead.includes('decoration-dotted'), 'a missing companion is muted and dotted')
+  assert.ok(dead.includes('text-[color:var(--text-muted)]'), 'never the danger colour')
+  assert.ok(dead.includes("SHAPE.md is not one of this skill&#x27;s files."), 'and it says why on hover')
+})
+
+run('a non-markdown file is shown as its own text, not rendered as markdown', () => {
+  const markup = document('#!/bin/sh\n# not a heading\nexit 0\n', 'scripts/run.sh')
+  assert.ok(markup.includes('<pre'))
+  assert.ok(!markup.includes('<h1'), 'a shell comment is not a heading')
+  assert.ok(markup.includes('# not a heading'))
+})
+
+run('a file that could not be read says so and offers the read again', () => {
+  const markup = renderToStaticMarkup(
+    <SkillDocument
+      file={READER_SKILL.files[0]}
+      files={READER_SKILL.files}
+      read={{ status: 'error', message: 'GitHub rate limit reached.' }}
+      onOpenFile={() => {}}
+      onRetry={() => {}}
+    />,
+  )
+  assert.ok(markup.includes('SKILL.md could not be read.'))
+  assert.ok(markup.includes('GitHub rate limit reached.'), 'the real reason, not a generic failure')
+  assert.ok(markup.includes('Try again'))
+})
+
+run('a source offers Sync and the history that says what changed', () => {
+  const markup = canvas()
+  assert.ok(markup.includes('>Sync<'))
+  assert.ok(markup.includes('>Commit history<'), 'what changed is answered by the repository, not by us')
+  assert.ok(!/added|removed|changelog/i.test(markup), 'no diff or changelog view exists here')
+  assert.equal(hasNestedButton(markup), false)
+})
+
+run('a sync in flight says so on the control that started it', () => {
+  const markup = canvas({
+    sync: { onSync: () => {}, syncing: true, outcome: null, error: null, onOpenHistory: () => {} },
+  })
+  const sync = markup.slice(markup.lastIndexOf('<button', markup.indexOf('Syncing')))
+  assert.ok(sync.includes('disabled'), 'a second sync cannot be started over the first')
+})
+
+run('the sync outcome is one line of plain text in the header', () => {
+  const markup = canvas({
+    sync: {
+      onSync: () => {},
+      syncing: false,
+      outcome: 'Synced · 3 new skills',
+      error: null,
+      onOpenHistory: () => {},
+    },
+  })
+  assert.ok(markup.includes('Synced · 3 new skills'))
+  assert.ok(!markup.includes('role="dialog"'), 'the outcome is a line, never a modal')
+})
+
+run('a failed sync states the failure instead of looking freshly synced', () => {
+  const markup = canvas({
+    sync: {
+      onSync: () => {},
+      syncing: false,
+      outcome: null,
+      error: 'GitHub rate-limited this request.',
+      onOpenHistory: () => {},
+    },
+  })
+  assert.ok(markup.includes('mattpocock/skills could not be synced.'))
+  assert.ok(markup.includes('GitHub rate-limited this request.'), 'the real reason, not a generic failure')
+  assert.ok(!markup.includes('Synced ·'), 'nothing claims a sync that did not happen')
+})
+
+run('a source with nothing to re-read offers no Sync', () => {
+  const markup = canvas({
+    source: { ...SOURCE, id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '' },
+    sync: { onSync: null, syncing: false, outcome: null, error: null, onOpenHistory: null },
+  })
+  assert.ok(!markup.includes('>Sync<'))
+  assert.ok(!markup.includes('>Commit history<'))
 })
 
 run('the closed modal renders nothing', () => {

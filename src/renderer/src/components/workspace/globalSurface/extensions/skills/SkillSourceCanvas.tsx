@@ -13,7 +13,7 @@
 import React from 'react'
 
 import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InboxSearchInput, InlineNotice, PrimaryButton } from '../../../../ui'
+import { GhostButton, InboxSearchInput, InlineNotice, OutlineButton, PrimaryButton } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { formatRelativeTime } from '../../../../../utils/time'
 import { SkillRow } from './SkillRow'
@@ -28,6 +28,24 @@ import {
   type SkillListItem,
   type SkillScanLoad,
 } from './skillsSurfaceModel'
+
+/**
+ * Sync, as the header sees it. The outcome is one line of plain text next to
+ * the source's other facts — never a modal, and never a diff: what changed
+ * inside a skill is the repository's commit history to answer, which is what
+ * `onOpenHistory` opens.
+ */
+export type SkillSourceSyncState = {
+  /** Null for a source with no repository to re-read. */
+  onSync: (() => void) | null
+  syncing: boolean
+  /** What the last sync did, in one line. Null until one has run. */
+  outcome: string | null
+  /** Set when the last sync failed — the list on screen is the old one. */
+  error: string | null
+  /** Opens the repository's own commit history. Null for non-repository sources. */
+  onOpenHistory: (() => void) | null
+}
 
 export type SkillSourceCanvasProps = {
   source: SkillSource
@@ -48,6 +66,7 @@ export type SkillSourceCanvasProps = {
   availability: SkillInstallAvailability
   installing: string | null
   onInstallSelected: () => void
+  sync: SkillSourceSyncState
   onBrowseMcpServers: () => void
   /** A source of one skill IS that skill's page — a list of one is not a list.
    *  The page is wired once, by the surface, and rendered here; `embedded`
@@ -78,7 +97,18 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
 
   return (
     <div className="min-w-0">
-      <SourceHeader source={props.source} scanLoad={props.scanLoad} />
+      <SourceHeader source={props.source} scanLoad={props.scanLoad} sync={props.sync} />
+
+      {props.sync.error ? (
+        <div className="mt-3">
+          <InlineNotice
+            tone="error"
+            title={`${sourceDisplayName(props.source)} could not be synced.`}
+            hint="Nothing changed — the skills below are the ones from the last successful read."
+            detail={props.sync.error}
+          />
+        </div>
+      ) : null}
 
       {props.installedError ? (
         <div className="mt-3">
@@ -199,7 +229,15 @@ export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
   )
 }
 
-function SourceHeader({ source, scanLoad }: { source: SkillSource; scanLoad: SkillScanLoad }): JSX.Element {
+function SourceHeader({
+  source,
+  scanLoad,
+  sync,
+}: {
+  source: SkillSource
+  scanLoad: SkillScanLoad
+  sync: SkillSourceSyncState
+}): JSX.Element {
   const meta = describeSourceMeta(source, scanLoad)
   const scanned = source.scannedAt ? formatRelativeTime(source.scannedAt) : ''
   return (
@@ -209,9 +247,13 @@ function SourceHeader({ source, scanLoad }: { source: SkillSource; scanLoad: Ski
         <h3 className={`text-[15px] font-semibold text-[color:var(--text-strong)] ${source.repo ? 'font-mono' : ''}`}>
           {sourceDisplayName(source)}
         </h3>
-        <p className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+        {/* The sync outcome joins the facts the source already states, rather
+            than arriving as a modal over them. It is allowed to wrap: a line
+            that names a skill which failed to update must not be clipped. */}
+        <p className="mt-0.5 max-w-[74ch] text-[11px] text-[color:var(--text-muted)]">
           {meta.join(' · ')}
           {scanned ? `${meta.length > 0 ? ' · ' : ''}scanned ${scanned}` : ''}
+          {sync.outcome ? `${meta.length > 0 || scanned ? ' · ' : ''}${sync.outcome}` : ''}
         </p>
         {/* A repository source's blurb is generated from the same counts the
             line above already states, so it would only repeat them. */}
@@ -219,6 +261,20 @@ function SourceHeader({ source, scanLoad }: { source: SkillSource; scanLoad: Ski
           <p className="mt-1.5 max-w-[74ch] text-[11px] text-[color:var(--text-muted)]">{source.blurb}</p>
         ) : null}
       </div>
+      {sync.onSync || sync.onOpenHistory ? (
+        <div className="flex shrink-0 items-center gap-2">
+          {/* What changed inside a skill is the repository's history to answer,
+              and it answers it better than anything rendered here would. */}
+          {sync.onOpenHistory ? (
+            <GhostButton onClick={sync.onOpenHistory}>Commit history</GhostButton>
+          ) : null}
+          {sync.onSync ? (
+            <OutlineButton onClick={sync.onSync} disabled={sync.syncing}>
+              {sync.syncing ? 'Syncing…' : 'Sync'}
+            </OutlineButton>
+          ) : null}
+        </div>
+      ) : null}
     </header>
   )
 }
