@@ -1,4 +1,5 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
+import type { ScanResult, SkillSource } from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
@@ -980,6 +981,48 @@ export type WorkspaceSkillsListInput = {
 
 export type WorkspaceSkillsListResult =
   | { ok: true; skills: WorkspaceSkill[] }
+  | { ok: false; message: string }
+
+// Skill sources (src/shared/skills.ts owns the shapes; these are the IPC
+// envelopes). Sources are app-level; installing is workspace-level, so
+// skillsInstall is the only call here that needs a workspace root.
+export type SkillSourcesResult =
+  | { ok: true; sources: SkillSource[] }
+  | { ok: false; message: string }
+
+export type SkillAddSourceInput = {
+  /** `owner/name`, a github.com URL, or a /tree/<ref> deep link. */
+  repo: string
+  /** Re-scan a source already in the list instead of refusing it. */
+  replace?: boolean
+}
+
+export type SkillAddSourceResult =
+  | { ok: true; source: SkillSource; scan: ScanResult }
+  | { ok: false; message: string }
+
+export type SkillRemoveSourceInput = { sourceId: string }
+
+export type SkillRemoveSourceResult =
+  | { ok: true; sourceId: string }
+  | { ok: false; message: string }
+
+export type SkillScanInput = { sourceId: string }
+
+export type SkillScanOutcome =
+  | { ok: true; source: SkillSource; scan: ScanResult }
+  | { ok: false; message: string }
+
+export type SkillReadFileInput = { sourceId: string; skillId: string; path: string }
+
+export type SkillReadFileResult =
+  | { ok: true; path: string; content: string }
+  | { ok: false; message: string }
+
+export type SkillInstallInput = { sourceId: string; skillId: string; workspaceRoot: string }
+
+export type SkillInstallOutcome =
+  | { ok: true; dirName: string; harnesses: SkillPackHarness[]; paths: string[]; fileCount: number }
   | { ok: false; message: string }
 
 export type TerminalKind = 'agent' | 'terminal'
@@ -2865,6 +2908,12 @@ export type ElectronApi = {
   skillPackInstall: (input: SkillPackInstallInput) => Promise<SkillPackInstallResult>
   skillPackRemove: (input: SkillPackRemoveInput) => Promise<SkillPackRemoveResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
+  skillsListSources: () => Promise<SkillSourcesResult>
+  skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
+  skillsRemoveSource: (input: SkillRemoveSourceInput) => Promise<SkillRemoveSourceResult>
+  skillsGetScan: (input: SkillScanInput) => Promise<SkillScanOutcome>
+  skillsReadFile: (input: SkillReadFileInput) => Promise<SkillReadFileResult>
+  skillsInstall: (input: SkillInstallInput) => Promise<SkillInstallOutcome>
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>

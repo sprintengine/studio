@@ -1,0 +1,167 @@
+// Skill sources: the shapes the whole Skills surface is built on.
+//
+// A *source* is somewhere skills come from — the skills Multicode ships
+// (`builtin`), the skills its connector catalogue ships (`connectors`), or any
+// public GitHub repository the user adds (`github`). Scanning a source turns it
+// into a list of skills; a skill is a directory containing SKILL.md, taken
+// whole.
+//
+// Renderer-safe on purpose (no node imports): the Extensions surface, the
+// reader, and the main-process scanner all speak these types.
+
+export type SkillSourceKind = 'builtin' | 'connectors' | 'github'
+
+/** A place skills come from. `repo` is `owner/name` for github, '' otherwise. */
+export type SkillSource = {
+  id: string
+  kind: SkillSourceKind
+  name: string
+  repo: string
+  /** 1-2 character badge shown in the source rail. */
+  monogram: string
+  blurb: string
+  /** Commit the cached scan was taken at; '' for sources with no git identity. */
+  commitSha: string
+  /** ISO timestamp of the cached scan; '' when never scanned. */
+  scannedAt: string
+}
+
+/**
+ * One file inside a skill. `path` is skill-relative with forward slashes, so
+ * `agents/openai.yaml` keeps its shape when installed. `blobSha` is the git
+ * blob id from the tree listing, and is '' for sources with no git identity.
+ */
+export type SkillFileRef = {
+  path: string
+  size: number
+  blobSha: string
+  isEntry: boolean
+}
+
+export type ScannedSkill = {
+  /** Source-relative directory path — the skill's identity within its source. */
+  id: string
+  name: string
+  description: string
+  /** Group name, or '' when the source carries no grouping signal. */
+  group: string
+  files: SkillFileRef[]
+  allowedTools: string[]
+  hasExecutables: boolean
+}
+
+export type SkillGroupingSignal = 'manifest' | 'folders' | 'none'
+
+export type ScanResult = {
+  skills: ScannedSkill[]
+  groups: string[]
+  groupingSignal: SkillGroupingSignal
+  fileCount: number
+  commitSha: string
+}
+
+export type SkillSourceLayout = 'solo' | 'flat' | 'grouped' | 'search' | 'none'
+
+export const SKILL_ENTRY_FILE = 'SKILL.md'
+
+/** Group name for skills that sit directly at a source's root. */
+export const SKILL_REPO_ROOT_GROUP = '(repo root)'
+
+export const BUILTIN_SKILL_SOURCE_ID = 'builtin'
+export const CONNECTORS_SKILL_SOURCE_ID = 'connectors'
+
+/**
+ * How a source's skill list should be presented. Derived on read, never
+ * persisted: the same scan renders differently as a repository grows, and a
+ * stored layout would go stale the moment Sync moved the commit.
+ *
+ * A grouped source stays browsable much further than a flat one, because the
+ * groups do the narrowing a search box would otherwise have to do.
+ */
+export function sourceLayout(result: ScanResult): SkillSourceLayout {
+  const count = result.skills.length
+  if (count === 0) return 'none'
+  if (count === 1) return 'solo'
+  if (result.groupingSignal !== 'none' && result.groups.length > 0) {
+    return count <= 60 ? 'grouped' : 'search'
+  }
+  return count <= 24 ? 'flat' : 'search'
+}
+
+export type SkillFrontmatter = {
+  name: string
+  description: string
+  allowedTools: string[]
+}
+
+/**
+ * Read the SKILL.md frontmatter fields the surface discloses. Deliberately not
+ * a YAML parser: skill frontmatter is a flat block of scalars plus the one
+ * `allowed-tools` sequence, and a real YAML dependency would buy nothing but a
+ * larger parse surface for third-party bytes.
+ */
+export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
+  const block = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  const result: SkillFrontmatter = { name: '', description: '', allowedTools: [] }
+  if (!block) return result
+
+  const lines = block[1].split(/\r?\n/)
+  for (let index = 0; index < lines.length; index += 1) {
+    const scalar = lines[index].match(/^(name|description):\s*(.*)$/)
+    if (scalar) {
+      const value = unquoteYamlScalar(scalar[2])
+      if (scalar[1] === 'name' && !result.name) result.name = value
+      if (scalar[1] === 'description' && !result.description) result.description = value
+      continue
+    }
+    const tools = lines[index].match(/^allowed-tools:\s*(.*)$/)
+    if (!tools || result.allowedTools.length > 0) continue
+    const inline = unquoteYamlScalar(tools[1])
+    if (inline) {
+      result.allowedTools = splitToolList(inline)
+      continue
+    }
+    // Block sequence: `allowed-tools:` followed by indented `- ` items.
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      const item = lines[cursor].match(/^\s+-\s*(.+?)\s*$/)
+      if (!item) break
+      const value = unquoteYamlScalar(item[1])
+      if (value) result.allowedTools.push(value)
+    }
+  }
+  return result
+}
+
+function splitToolList(value: string): string[] {
+  const inner = value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value
+  return inner
+    .split(',')
+    .map((token) => unquoteYamlScalar(token))
+    .filter((token) => token.length > 0)
+}
+
+function unquoteYamlScalar(value: string): string {
+  const trimmed = value.trim()
+  if (
+    trimmed.length >= 2
+    && ((trimmed.startsWith('"') && trimmed.endsWith('"'))
+      || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim()
+  }
+  return trimmed
+}
+
+/** Directory name a skill installs under — the last segment of its id. */
+export function skillDirName(skillId: string): string {
+  const segments = skillId.split('/').filter((segment) => segment.length > 0)
+  return segments.length > 0 ? segments[segments.length - 1] : ''
+}
+
+/** Up to two uppercase letters for the source rail badge. */
+export function skillSourceMonogram(name: string): string {
+  const words = name.split(/[^A-Za-z0-9]+/).filter((word) => word.length > 0)
+  if (words.length === 0) return '?'
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return `${words[0][0]}${words[1][0]}`.toUpperCase()
+}

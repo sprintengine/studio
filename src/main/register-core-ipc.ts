@@ -27,6 +27,7 @@ import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
 import { registerModuleEnablementIpc, type ModuleEnablementLiveApplier } from './ipc/module-enablement-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillPackIpc } from './ipc/skill-pack-ipc'
+import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
 import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
@@ -82,6 +83,7 @@ export function registerCoreIpc(
   registerMcpIpc(ipcMain, services.mcpConfigService)
   registerAgentConfigImportIpc(ipcMain, services.agentConfigImportService)
   registerSkillPackIpc(ipcMain, services.skillPackService)
+  registerSkillsIpc(ipcMain, services.skillsService)
   registerWorkspaceSkillsIpc(ipcMain, services.workspaceSkillsService)
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
   registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
