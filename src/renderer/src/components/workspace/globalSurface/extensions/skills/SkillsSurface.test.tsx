@@ -10,7 +10,9 @@ import type {
   SkillSearchHit,
   SkillSource,
 } from '../../../../../../../shared/skills'
+import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
+import { SkillPage } from './SkillPage'
 import { SkillDocument, SkillReader } from './SkillReader'
 import {
   DiscoverRepoList,
@@ -300,6 +302,9 @@ run('a relative link opens its file; one the scan never carried is dead, not bro
   const markup = document('See [the logic](LOGIC.md) and [the shape](SHAPE.md).\n')
   const live = markup.slice(markup.indexOf('<button'), markup.indexOf('the logic'))
   assert.ok(live.includes('type="button"'), 'a sibling file opens in the reader')
+  // It is the one control in the reader the surface does not render itself, and
+  // it must not be the one control wearing a different focus ring.
+  assert.ok(live.includes(FOCUS_RING_CLASS), 'and it carries the surface’s own focus ring')
   const dead = markup.slice(markup.lastIndexOf('<span', markup.indexOf('the shape')), markup.indexOf('the shape'))
   assert.ok(dead.includes('decoration-dotted'), 'a missing companion is muted and dotted')
   assert.ok(dead.includes('text-[color:var(--text-muted)]'), 'never the danger colour')
@@ -309,6 +314,29 @@ run('a relative link opens its file; one the scan never carried is dead, not bro
     markup.includes('<span class="sr-only"> — SHAPE.md is not one of this skill&#x27;s files.</span>'),
     'the reason reaches a screen reader as well',
   )
+})
+
+run('a skill page opened from a listing names its source once, on the way back', () => {
+  const one = skill('skills/tdd')
+  const page = (onBack?: () => void): string =>
+    renderToStaticMarkup(
+      <SkillPage
+        source={SOURCE}
+        skill={one}
+        installed={false}
+        installing={false}
+        availability={{ enabled: true, reason: null }}
+        onInstall={() => {}}
+        onBack={onBack}
+      />,
+    )
+  const occurrences = (markup: string): number =>
+    markup.split(SOURCE.repo).length - 1
+  // The crumb carries it; the line under the title would only say it again.
+  assert.equal(occurrences(page(() => {})), 1, 'the crumb states the source, and nothing restates it')
+  assert.ok(page(() => {}).includes('1 file'), 'the file count stays on that line')
+  // A source that IS one skill has no crumb, so the line is where it is stated.
+  assert.equal(occurrences(page(undefined)), 1, 'with no crumb the line names the source')
 })
 
 run('a non-markdown file is shown as its own text, not rendered as markdown', () => {
