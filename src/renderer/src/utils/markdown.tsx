@@ -2,6 +2,7 @@ import React from 'react'
 import type { Element } from 'hast'
 import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { FOCUS_RING_CLASS } from '../components/ui/tokens'
 import type { GitLineChange } from './gitDiff'
 
 /**
@@ -206,7 +207,10 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
           <button
             type="button"
             onClick={() => links?.open(path)}
-            className={joinClasses(className, LINK_CLASS, 'cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] leading-[inherit]')}
+            // It is the one control on the reader rendered by this module
+            // rather than by the surface, so it carries the surface's own focus
+            // ring — a keyboard reader must not meet a different ring here.
+            className={joinClasses(className, LINK_CLASS, FOCUS_RING_CLASS, 'rounded-sm cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] leading-[inherit]')}
           >
             {children}
           </button>
