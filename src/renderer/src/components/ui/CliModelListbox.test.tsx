@@ -416,6 +416,67 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // The picker's menu is portaled to <body>, which puts it OUTSIDE the surface
+  // of any popover hosting the listbox. Popover dismisses on a mousedown its
+  // surface does not contain, so without a guard the parent would close on the
+  // way down and the click would never reach the level — the pick silently
+  // lost. CliModelPickerButton is that exact composition, so it is tested
+  // through the real wrapper rather than a mock of it.
+  await run('picking a level inside a hosting popover does not dismiss the popover', async () => {
+    const { CliModelPickerButton } = await import('./CliModelListbox')
+    const written: Array<string | null> = []
+    const container = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        React.createElement(CliModelPickerButton, {
+          ariaLabel: 'Agent runtime',
+          options: OPTIONS,
+          cli: 'codex',
+          effectiveModelFor: () => 'gpt-5.6-sol',
+          effectiveReasoningFor: () => undefined,
+          onSelectReasoning: (_cli: string, reasoning: string | null) => written.push(reasoning),
+          onSelectCli: () => {},
+          onSelectModel: () => {},
+        } as never),
+      )
+    })
+    const press = async (element: Element) => {
+      // mousedown and click in SEPARATE act() flushes, because that is how a
+      // browser delivers them: both are discrete events, so React commits the
+      // dismissal from mousedown before the click is dispatched. Batching the
+      // pair into one act() hides exactly the bug this test exists to catch.
+      await act(async () => {
+        element.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }))
+      })
+      await act(async () => {
+        element.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+    }
+
+    await press(container.querySelector('button') as Element)
+    const listbox = dom.window.document.body.querySelector('[role="listbox"]')
+    assert.ok(listbox, 'the runtime popover is open')
+
+    const trigger = dom.window.document.body.querySelector('[data-reasoning-picker="true"]') as HTMLElement
+    assert.ok(trigger, 'the selected row carries the picker')
+    await press(trigger)
+    assert.ok(
+      dom.window.document.body.querySelector('[role="listbox"]'),
+      'opening the effort menu must not dismiss the runtime popover underneath it',
+    )
+
+    const high = [...dom.window.document.body.querySelectorAll('[data-reasoning-option="true"]')].find((item) =>
+      item.textContent?.includes('High'),
+    )
+    await press(high as Element)
+    assert.deepEqual(written, ['high'], 'the level is actually written — the pick is not swallowed by dismissal')
+
+    act(() => root.unmount())
+    container.remove()
+  })
+
   await run('no hard-coded color is introduced — every color is a theme token', () => {
     for (const path of [
       'src/renderer/src/components/ui/CliModelListbox.tsx',
