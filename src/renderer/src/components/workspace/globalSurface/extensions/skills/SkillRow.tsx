@@ -36,7 +36,10 @@ export function SkillRow({
         aria-checked={selected}
         aria-label={`Select ${item.name}`}
         onClick={onToggleSelect}
-        className={`grid w-8 shrink-0 place-items-center ${FOCUS_RING_CLASS}`}
+        // The row clips its children to its own rounded corners, so both
+        // targets draw their focus ring INSIDE their box — an outset ring would
+        // survive as a 1px sliver on the row's edge and read as no ring at all.
+        className={`grid w-8 shrink-0 place-items-center ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
       >
         <span
           aria-hidden="true"
@@ -54,7 +57,7 @@ export function SkillRow({
       <button
         type="button"
         onClick={onOpen}
-        className={`group/skill-row flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2.5 text-left ${FOCUS_RING_CLASS}`}
+        className={`group/skill-row flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2.5 text-left ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
       >
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">{item.name}</span>
