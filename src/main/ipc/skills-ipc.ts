@@ -4,12 +4,15 @@ import type {
   SkillAddSourceResult,
   SkillInstallInput,
   SkillInstallOutcome,
+  SkillPopularReposOutcome,
   SkillReadFileInput,
   SkillReadFileResult,
   SkillRemoveSourceInput,
   SkillRemoveSourceResult,
   SkillScanInput,
   SkillScanOutcome,
+  SkillSearchInput,
+  SkillSearchOutcome,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
@@ -41,5 +44,13 @@ export function registerSkillsIpc(ipcMain: IpcMain, service: SkillsService): voi
   ipcMain.handle(
     'skills:sync-source',
     (_, input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome> => service.syncSource(input)
+  )
+  ipcMain.handle(
+    'skills:search',
+    (_, input: SkillSearchInput): Promise<SkillSearchOutcome> => service.search(input)
+  )
+  ipcMain.handle(
+    'skills:list-popular-repos',
+    (): Promise<SkillPopularReposOutcome> => service.listPopularRepos()
   )
 }

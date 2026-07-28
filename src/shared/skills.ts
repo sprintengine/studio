@@ -88,6 +88,73 @@ export function sourceLayout(result: ScanResult): SkillSourceLayout {
   return count <= 24 ? 'flat' : 'search'
 }
 
+// Discover: finding a skill you do not already have the repository for.
+//
+// Repository search matches a repo's name, description and README, so it finds
+// repos that *mention* a capability. Code search matches inside `SKILL.md`, so
+// it finds skills that *do* it — including skills vendored inside repos that are
+// not skill collections at all. Discover produces candidates; scanning one is
+// the existing add-a-source path.
+
+/**
+ * Why a Discover query could not answer in full. Always stated: an empty list
+ * with no condition means "GitHub has no match", and nothing else may borrow
+ * that meaning.
+ */
+export type SkillDiscoveryCondition = {
+  reason: 'needs_token' | 'rate_limited' | 'query_too_short' | 'unavailable'
+  message: string
+  /** Seconds until the limit resets; 0 when GitHub did not say, or not a limit. */
+  retryAfterSeconds: number
+}
+
+/** What GitHub reported about the budget the query spent from. */
+export type SkillRateLimit = {
+  limit: number
+  remaining: number
+  /** ISO timestamp the window resets at; '' when GitHub did not say. */
+  resetAt: string
+}
+
+/** One skill found inside a repository — a candidate to scan, not a source. */
+export type SkillSearchHit = {
+  /** `owner/name`. */
+  repo: string
+  /** Repo-relative path of the matched SKILL.md. */
+  path: string
+  /** Directory holding the skill — its id once the repo is scanned; '' at the root. */
+  skillId: string
+  /** From the matched frontmatter, falling back to the directory name. */
+  name: string
+  /** From the matched frontmatter; '' when the fragment carried none. */
+  description: string
+  htmlUrl: string
+}
+
+/**
+ * A repository Discover offers to scan. It carries no skill count on purpose:
+ * the count is unknown until the repo is scanned, and stars do not predict it —
+ * one 52k-star repo holds a single skill while a 4.9k-star one holds 103.
+ */
+export type SkillRepoHit = {
+  repo: string
+  description: string
+  /** null when the result did not come with a star count — never shown as 0. */
+  stars: number | null
+  htmlUrl: string
+  /** Carries `.claude-plugin/marketplace.json`: someone curated the contents. */
+  curated: boolean
+}
+
+export type SkillDiscoveryResult<T> = {
+  results: T[]
+  rateLimit: SkillRateLimit | null
+  degraded: SkillDiscoveryCondition | null
+}
+
+/** Shortest query code search is asked to run; below it GitHub matches everything. */
+export const MIN_SKILL_SEARCH_QUERY_LENGTH = 3
+
 export type SkillFrontmatter = {
   name: string
   description: string
@@ -130,6 +197,43 @@ export function parseSkillFrontmatter(raw: string): SkillFrontmatter {
     }
   }
   return result
+}
+
+/**
+ * Name and description out of a code-search text-match fragment.
+ *
+ * The fragment is a window into SKILL.md rather than the whole file, so the
+ * `---` fences are usually missing and `parseSkillFrontmatter` would return
+ * nothing. Fields it cannot find come back empty: the row then shows the path
+ * it did find, never invented copy.
+ */
+export function parseSkillFragment(fragment: string): { name: string; description: string } {
+  const lines = fragment.split(/\r?\n/)
+  const found = { name: '', description: '' }
+  for (let index = 0; index < lines.length; index += 1) {
+    const field = lines[index].match(/^(name|description):\s*(.*)$/)
+    if (!field) continue
+    const key = field[1] as 'name' | 'description'
+    if (found[key]) continue
+    const inline = unquoteYamlScalar(field[2])
+    found[key] = isYamlBlockMarker(inline) ? foldedBlockValue(lines, index + 1) : inline
+  }
+  return found
+}
+
+function isYamlBlockMarker(value: string): boolean {
+  return value === '' || /^[|>][+-]?$/.test(value)
+}
+
+/** The indented lines under a folded or empty scalar, joined the way YAML folds them. */
+function foldedBlockValue(lines: readonly string[], start: number): string {
+  const collected: string[] = []
+  for (let cursor = start; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor]
+    if (!/^\s+\S/.test(line)) break
+    collected.push(line.trim())
+  }
+  return collected.join(' ')
 }
 
 function splitToolList(value: string): string[] {

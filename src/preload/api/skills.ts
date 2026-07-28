@@ -5,12 +5,15 @@ import type {
   SkillAddSourceResult,
   SkillInstallInput,
   SkillInstallOutcome,
+  SkillPopularReposOutcome,
   SkillReadFileInput,
   SkillReadFileResult,
   SkillRemoveSourceInput,
   SkillRemoveSourceResult,
   SkillScanInput,
   SkillScanOutcome,
+  SkillSearchInput,
+  SkillSearchOutcome,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
@@ -30,6 +33,10 @@ export const skillsApi = {
     ipcRenderer.invoke('skills:install', input),
   skillsSyncSource: (input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome> =>
     ipcRenderer.invoke('skills:sync-source', input),
+  skillsSearch: (input: SkillSearchInput): Promise<SkillSearchOutcome> =>
+    ipcRenderer.invoke('skills:search', input),
+  skillsListPopularRepos: (): Promise<SkillPopularReposOutcome> =>
+    ipcRenderer.invoke('skills:list-popular-repos'),
 } satisfies Pick<
   ElectronApi,
   | 'skillsListSources'
@@ -39,4 +46,6 @@ export const skillsApi = {
   | 'skillsReadFile'
   | 'skillsInstall'
   | 'skillsSyncSource'
+  | 'skillsSearch'
+  | 'skillsListPopularRepos'
 >

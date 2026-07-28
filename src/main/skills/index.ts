@@ -26,18 +26,22 @@ import type {
   SkillAddSourceResult,
   SkillInstallInput,
   SkillInstallOutcome,
+  SkillPopularReposOutcome,
   SkillReadFileInput,
   SkillReadFileResult,
   SkillRemoveSourceInput,
   SkillRemoveSourceResult,
   SkillScanInput,
   SkillScanOutcome,
+  SkillSearchInput,
+  SkillSearchOutcome,
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
 } from '../../shared/electron-api'
 import { findMarketplaceResourcePath } from '../marketplace/resources'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
+import { createSkillDiscoveryClient, type SkillDiscoveryOptions } from './discover'
 import {
   fetchSkillRepoFile,
   fetchSkillRepoTree,
@@ -67,6 +71,7 @@ export type SkillsServiceDeps = {
   connectorSkillsRoot?: () => string | null
   listHarnesses?: () => Promise<SkillPackHarness[]>
   github?: SkillGithubOptions
+  discovery?: SkillDiscoveryOptions
 }
 
 export type SkillsService = {
@@ -77,6 +82,8 @@ export type SkillsService = {
   readFile(input: SkillReadFileInput): Promise<SkillReadFileResult>
   install(input: SkillInstallInput): Promise<SkillInstallOutcome>
   syncSource(input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome>
+  search(input: SkillSearchInput): Promise<SkillSearchOutcome>
+  listPopularRepos(): Promise<SkillPopularReposOutcome>
 }
 
 export function createSkillsService(
@@ -88,6 +95,7 @@ export function createSkillsService(
   const connectorRoot = deps.connectorSkillsRoot ?? (() => findMarketplaceResourcePath('skills'))
   const listHarnesses = deps.listHarnesses ?? (() => resolveInstalledSkillHarnesses())
   const localScans = new Map<string, ScanResult>()
+  const discovery = createSkillDiscoveryClient(deps.discovery)
 
   const localRootFor = (id: string): string | null =>
     id === BUILTIN_SKILL_SOURCE_ID ? builtinRoot() : id === CONNECTORS_SKILL_SOURCE_ID ? connectorRoot() : null
@@ -244,6 +252,18 @@ export function createSkillsService(
         refreshed: copied.refreshed.length,
         failures: copied.failures,
       }
+    },
+
+    /**
+     * Discover finds candidates; it does not add anything. A chosen result is
+     * handed to `addSource`, which is the one path that scans a repository.
+     */
+    async search(input) {
+      return discovery.searchSkills(input.query ?? '', await deps.resolveToken())
+    },
+
+    async listPopularRepos() {
+      return discovery.listPopularSkillRepos(await deps.resolveToken())
     },
   }
 

@@ -1,5 +1,11 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
-import type { ScanResult, SkillSource } from './skills'
+import type {
+  ScanResult,
+  SkillDiscoveryResult,
+  SkillRepoHit,
+  SkillSearchHit,
+  SkillSource,
+} from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
@@ -1050,6 +1056,17 @@ export type SkillSyncSourceOutcome =
       failures: SkillSyncFailure[]
     }
   | { ok: false; message: string }
+
+/**
+ * Discover. Both calls answer with `{ results, rateLimit, degraded }` and no
+ * ok flag: a failed or limited query is a stated condition on the same shape,
+ * so a caller can never mistake it for "GitHub had no match".
+ */
+export type SkillSearchInput = { query: string }
+
+export type SkillSearchOutcome = SkillDiscoveryResult<SkillSearchHit>
+
+export type SkillPopularReposOutcome = SkillDiscoveryResult<SkillRepoHit>
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
@@ -2941,6 +2958,8 @@ export type ElectronApi = {
   skillsReadFile: (input: SkillReadFileInput) => Promise<SkillReadFileResult>
   skillsInstall: (input: SkillInstallInput) => Promise<SkillInstallOutcome>
   skillsSyncSource: (input: SkillSyncSourceInput) => Promise<SkillSyncSourceOutcome>
+  skillsSearch: (input: SkillSearchInput) => Promise<SkillSearchOutcome>
+  skillsListPopularRepos: () => Promise<SkillPopularReposOutcome>
   cliDetect: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliDetectResult>
   cliInstallMethods: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallMethodInfo[]>
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
