@@ -16,7 +16,7 @@ import { installJsdomEnvironment } from './jsdomEnvironment'
 // This suite closes that gap by composing the real halves in order:
 //
 //   useRosterEditor (the wizard's own state)
-//     → buildSprintEngineRoleRuntimes (what run init records)
+//     → runSprintEngineNewTeamCreation (the real creation path, init captured)
 //     → normalizeSprintEngineRoleRuntimes (the projection read)
 //     → resolveSprintEngineAgentRuntime (the seat's effective runtime)
 //     → renderAgentLaunchArgv against the REAL bundled manifests (argv)
@@ -44,8 +44,8 @@ async function main(): Promise<void> {
   const { SprintEngineRosterTable } = await import(
     '../renderer/src/components/workspace/newWorkspace/SprintEngineRosterTable'
   )
-  const { buildSprintEngineRoleRuntimes } = await import(
-    '../renderer/src/utils/sprintengineWorkspaceCreation'
+  const { runSprintEngineNewTeamCreation } = await import(
+    '../renderer/src/components/workspace/newWorkspace/controllers/sprintEngineController'
   )
   const { normalizeSprintEngineRoleRuntimes, resolveSprintEngineAgentRuntime } = await import(
     '../shared/sprintengine/state'
@@ -119,21 +119,48 @@ async function main(): Promise<void> {
     }
   }
 
-  // The wizard's own launch step, in the order the wizard performs it: the run
-  // init records `roleRuntimes`, the projection reads them back, and the seat
-  // resolves its effective runtime from them.
-  const seatRuntimeFor = (editor: Editor, role: string) => {
-    const roleRuntimes = buildSprintEngineRoleRuntimes(
-      editor.roleModelOverrides,
-      editor.roleCliDefaults,
-      editor.roleReasoningOverrides,
+  // The wizard's own launch step, driven through the REAL creation controller
+  // rather than by calling `buildSprintEngineRoleRuntimes` here: the question is
+  // whether the map the wizard holds is the one that reaches run init, and a
+  // direct call to the builder would answer a question nobody asked. The init
+  // port is a capture, so what is asserted is the payload the engine receives.
+  const roleRuntimesFromWizardLaunch = async (editor: Editor): Promise<Record<string, unknown>> => {
+    let captured: Record<string, unknown> | null = null
+    await runSprintEngineNewTeamCreation(
+      {
+        folderPath: '/tmp/seam-effort-project',
+        teamName: 'Effort seam',
+        goal: 'prove the level reaches init',
+        roleCounts: editor.roleCounts,
+        visibleRoleCounts: editor.roleCounts,
+        maxParallelAgents: 2,
+        roleCliDefaults: editor.roleCliDefaults,
+        roleModelOverrides: editor.roleModelOverrides,
+        roleReasoningOverrides: editor.roleReasoningOverrides,
+        startRunner: false,
+        autoApproveArtifacts: false,
+        cliPermissionPreset: 'default',
+      } as never,
+      {
+        pathExists: () => false,
+        initializeSprintEngineState: async (input: Record<string, unknown>) => {
+          captured = input
+          return {
+            ok: true,
+            data: { projectionContent: JSON.stringify({ name: 'Effort seam', agents: {}, tasks: [] }) },
+          }
+        },
+      } as never,
     )
+    assert.ok(captured, 'the creation path called run init')
+    return (captured as Record<string, unknown>).roleRuntimes as Record<string, unknown>
+  }
+
+  // From the init payload onward: the projection reads `roleRuntimes` back and
+  // the seat resolves its effective runtime from them.
+  const seatRuntimeFrom = (roleRuntimes: unknown, role: string) => {
     const projected = normalizeSprintEngineRoleRuntimes(roleRuntimes)
-    return resolveSprintEngineAgentRuntime(
-      projected ?? undefined,
-      role as never,
-      undefined,
-    )
+    return resolveSprintEngineAgentRuntime(projected ?? undefined, role as never, undefined)
   }
 
   await check('SEAM: a level picked in the wizard reaches the spawned argv as the CLI’s own flag', async () => {
@@ -152,7 +179,14 @@ async function main(): Promise<void> {
       'the wizard state holds the picked level (this is the map MC-1885 built and nothing populated)',
     )
 
-    const seat = seatRuntimeFor(editor(), 'developer')
+    const roleRuntimes = await roleRuntimesFromWizardLaunch(editor())
+    assert.deepEqual(
+      roleRuntimes.developer,
+      { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' },
+      'the level rides the seat’s own roleRuntimes entry in the payload run init receives',
+    )
+
+    const seat = seatRuntimeFrom(roleRuntimes, 'developer')
     assert.equal(seat.cli, 'claude-code', 'the seat keeps its CLI')
     assert.equal(seat.cliModel, 'claude-opus-5', 'and its model')
     assert.equal(seat.cliReasoning, 'high', 'and the level survives init → projection → seat resolve')
@@ -182,7 +216,7 @@ async function main(): Promise<void> {
     await act(async () => {
       editor().onSetRoleModel('developer' as never, 'claude-opus-5')
     })
-    const seat = seatRuntimeFor(editor(), 'developer')
+    const seat = seatRuntimeFrom(await roleRuntimesFromWizardLaunch(editor()), 'developer')
     assert.equal(seat.cliReasoning, undefined, 'no level picked means no level resolved')
 
     await usingBundledRegistry(() => {
@@ -233,7 +267,7 @@ async function main(): Promise<void> {
       'and the model override still drops with it (unchanged behaviour)',
     )
 
-    const seat = seatRuntimeFor(editor(), 'developer')
+    const seat = seatRuntimeFrom(await roleRuntimesFromWizardLaunch(editor()), 'developer')
     assert.equal(seat.cliReasoning, undefined, 'so the launch carries no level either')
   })
 
