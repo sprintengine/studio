@@ -57,7 +57,9 @@ export function SkillsSurface({
   const [addOpen, setAddOpen] = useState(false)
   const [installing, setInstalling] = useState<string | null>(null)
   const [installReport, setInstallReport] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null)
-  const [syncingSourceId, setSyncingSourceId] = useState<string | null>(null)
+  // A set, not one id: syncing one source and opening another must not leave
+  // the second one's button saying it is idle while it is still running.
+  const [syncingSourceIds, setSyncingSourceIds] = useState<ReadonlySet<string>>(new Set())
   // Kept per source, so opening another one does not show it that source's line.
   const [syncReport, setSyncReport] = useState<{
     sourceId: string
@@ -155,7 +157,8 @@ export function SkillsSurface({
         setSyncReport({ sourceId: source.id, outcome: null, error: MISSING_API_MESSAGE })
         return
       }
-      setSyncingSourceId(source.id)
+      if (syncingSourceIds.has(source.id)) return
+      setSyncingSourceIds((current) => new Set(current).add(source.id))
       setSyncReport(null)
       try {
         const result = await window.api.skillsSyncSource({ sourceId: source.id, workspaceRoot })
@@ -165,6 +168,12 @@ export function SkillsSurface({
         }
         sources.applySync(result.source, result.scan)
         sources.refreshInstalled()
+        // A selection made before the sync can name a skill the source has
+        // stopped carrying; installing it would fail with "not in this source".
+        setSelected((current) => {
+          const present = new Set(result.scan.skills.map((skill) => skill.id))
+          return new Set([...current].filter((skillId) => present.has(skillId)))
+        })
         setSyncReport({
           sourceId: source.id,
           outcome: summarizeSyncRun({
@@ -182,10 +191,14 @@ export function SkillsSurface({
           error: error instanceof Error ? error.message : String(error),
         })
       } finally {
-        setSyncingSourceId(null)
+        setSyncingSourceIds((current) => {
+          const next = new Set(current)
+          next.delete(source.id)
+          return next
+        })
       }
     },
-    [sources, workspaceRoot],
+    [sources, syncingSourceIds, workspaceRoot],
   )
 
   // The skill page, wired once: the source's own page renders it for a solo
@@ -342,7 +355,7 @@ export function SkillsSurface({
                 onInstallSelected={() => void installSkills(activeSource.id, [...selected])}
                 sync={{
                   onSync: activeSource.kind === 'github' ? () => void syncSource(activeSource) : null,
-                  syncing: syncingSourceId === activeSource.id,
+                  syncing: syncingSourceIds.has(activeSource.id),
                   outcome: syncReport?.sourceId === activeSource.id ? syncReport.outcome : null,
                   error: syncReport?.sourceId === activeSource.id ? syncReport.error : null,
                   onOpenHistory: commitsUrl ? () => void window.api.openExternal(commitsUrl) : null,
