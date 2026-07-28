@@ -1,0 +1,660 @@
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import type { SkillTreeEntry } from '../main/skills/scan'
+import type { ScanResult, ScannedSkill, SkillSource } from '../shared/skills'
+import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
+
+// ── Seam: a skill source, end to end (T1 → T2 → T3 → T4 → T7, item MC-1932ff) ─
+//
+// Every task in this run owns one hop of one chain: T1 turns a repository tree
+// into skills and writes them into a workspace, T2 picks the shape that list is
+// browsed in, T3 opens a skill's files and resolves the links between them, T4
+// re-reads a source and re-copies what the workspace holds, T7 keeps the retired
+// skill-packs deep link landing on Skills. Each suite proves its own hop against
+// inputs it supplies itself, and none of them can show that the hops meet:
+//
+//  * the scan suite asserts counts and grouping off recorded trees, but stops
+//    before `sourceLayout()` and never renders a row;
+//  * the surface suite renders every layout from hand-built scans, so nothing
+//    there would notice if a real repository stopped producing the scan that
+//    layout was written for;
+//  * the install and sync suites drive their own `readFile`, so neither crosses
+//    the IPC channel names the renderer actually calls, nor the file bytes a
+//    real repository would hand back.
+//
+// So this suite composes the real halves: the real main-process service behind
+// the real IPC registration, reached through the real preload passthrough by a
+// real mounted surface, over recorded GitHub responses and a real workspace
+// directory on disk. The only fake is the network — the fetcher below, which
+// answers from `src/main/skills/__fixtures__` and refuses every other host.
+//
+// FIXTURE FIDELITY. The four trees are complete `git/trees?recursive=1`
+// responses at pinned commits. The file bytes are the real bytes at those same
+// commits, and `assertRecordedBytes()` re-derives each one's git blob SHA and
+// checks it against the SHA the tree recorded — a fixture that drifted from the
+// repository it claims to come from fails here rather than quietly passing.
+// Only mattpocock/skills carries file bytes (its manifest, and two of its
+// skills); every other path answers 404, which is what the scan's enrichment
+// already treats as "keep the directory name", so the other sources list under
+// their directory names by design rather than by accident.
+
+const dom = installJsdomEnvironment()
+const domWindow = dom.window as unknown as Record<string, unknown>
+
+const FIXTURES = join(process.cwd(), 'src', 'main', 'skills', '__fixtures__')
+const MANIFEST_PATH = '.claude-plugin/marketplace.json'
+const PROTOTYPE_ID = 'skills/engineering/prototype'
+const RESEARCH_ID = 'skills/engineering/research'
+
+type RecordedTree = { repo: string; commitSha: string; truncated: boolean; tree: SkillTreeEntry[] }
+type RecordedFiles = { repo: string; commitSha: string; files: Record<string, string> }
+
+/** One state of one repository: the tree the scan reads, and the bytes behind it. */
+type Revision = { commitSha: string; entries: SkillTreeEntry[]; files: Map<string, string> }
+
+const temporaryDirs: string[] = []
+
+function temporaryDir(prefix: string): string {
+  const path = mkdtempSync(join(tmpdir(), prefix))
+  temporaryDirs.push(path)
+  return path
+}
+
+function recordedTree(name: string): RecordedTree {
+  const tree = JSON.parse(readFileSync(join(FIXTURES, `${name}.tree.json`), 'utf8')) as RecordedTree
+  assert.equal(tree.truncated, false, `${name} fixture must be a complete tree`)
+  return tree
+}
+
+/** The git blob id for some bytes — `sha1("blob <len>\0" + bytes)`. */
+function blobSha(content: string): string {
+  const bytes = Buffer.from(content, 'utf8')
+  return createHash('sha1')
+    .update(Buffer.concat([Buffer.from(`blob ${bytes.byteLength}\0`, 'utf8'), bytes]))
+    .digest('hex')
+}
+
+/**
+ * Every recorded byte must still be the byte the recorded tree names. Without
+ * this the suite could run for years against a file somebody edited by hand and
+ * report it as what GitHub returns.
+ */
+function assertRecordedBytes(tree: RecordedTree, files: Map<string, string>): void {
+  const byPath = new Map(tree.tree.map((entry) => [entry.path, entry]))
+  for (const [path, content] of files) {
+    const entry = byPath.get(path)
+    assert.ok(entry, `${tree.repo}:${path} is not in the recorded tree`)
+    assert.equal(blobSha(content), entry.sha, `${tree.repo}:${path} bytes do not match the recorded blob SHA`)
+  }
+}
+
+function loadRevision(treeName: string, extraFiles: Record<string, string> = {}): Revision {
+  const tree = recordedTree(treeName)
+  const files = new Map<string, string>(Object.entries(extraFiles))
+  assertRecordedBytes(tree, files)
+  return { commitSha: tree.commitSha, entries: tree.tree, files }
+}
+
+function readFixture(name: string): string {
+  return readFileSync(join(FIXTURES, name), 'utf8')
+}
+
+// ── The repositories, as recorded ────────────────────────────────────────────
+
+const prototypeFiles = JSON.parse(readFixture('mattpocock-skills.files.json')) as RecordedFiles
+
+const REPOS = new Map<string, Revision[]>([
+  ['mattpocock/skills', [loadRevision('mattpocock-skills', prototypeFiles.files)]],
+  [
+    'anthropics/skills',
+    [loadRevision('anthropics-skills', { [MANIFEST_PATH]: readFixture('anthropics-skills.marketplace.json') })],
+  ],
+  ['browser-act/skills', [loadRevision('browser-act-skills')]],
+  [
+    'pbakaus/impeccable',
+    [loadRevision('pbakaus-impeccable', { [MANIFEST_PATH]: readFixture('pbakaus-impeccable.marketplace.json') })],
+  ],
+])
+
+/**
+ * A second state of mattpocock/skills, derived from the recorded one: the
+ * prototype's entry document is edited, and the `research` skill is gone. Both
+ * halves of what a sync has to survive, and neither is available as a second
+ * recording — the repository has one head at a time.
+ */
+function nextMattpocockRevision(head: Revision): Revision {
+  const editedEntry = `${head.files.get(`${PROTOTYPE_ID}/SKILL.md`) ?? ''}\n<!-- edited upstream -->\n`
+  const files = new Map(head.files)
+  files.set(`${PROTOTYPE_ID}/SKILL.md`, editedEntry)
+  for (const path of [...files.keys()]) {
+    if (path.startsWith(`${RESEARCH_ID}/`)) files.delete(path)
+  }
+  const entries = head.entries
+    .filter((entry) => entry.path !== RESEARCH_ID && !entry.path.startsWith(`${RESEARCH_ID}/`))
+    .map((entry) =>
+      entry.path === `${PROTOTYPE_ID}/SKILL.md`
+        ? { ...entry, sha: blobSha(editedEntry), size: Buffer.byteLength(editedEntry) }
+        : entry,
+    )
+  // A commit id nothing recorded, so it can never be mistaken for one that was.
+  return { commitSha: blobSha(`mattpocock-next:${editedEntry}`), entries, files }
+}
+
+// ── The network, answered from the fixtures ──────────────────────────────────
+
+const requestedUrls: string[] = []
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
+function notFound(): Response {
+  return new Response('Not Found', { status: 404 })
+}
+
+function headOf(repo: string): Revision | null {
+  const revisions = REPOS.get(repo)
+  return revisions && revisions.length > 0 ? revisions[revisions.length - 1] : null
+}
+
+function revisionOf(repo: string, commitSha: string): Revision | null {
+  return REPOS.get(repo)?.find((revision) => revision.commitSha === commitSha) ?? null
+}
+
+/**
+ * The fixture network. It speaks the two hosts the scan is allowed to reach and
+ * nothing else; an unknown path is a 404, never an invented success.
+ */
+async function fixtureFetch(url: string): Promise<Response> {
+  requestedUrls.push(url)
+  const parsed = new URL(url)
+
+  if (parsed.hostname === 'api.github.com') {
+    const segments = parsed.pathname.split('/').filter(Boolean)
+    const repo = `${segments[1]}/${segments[2]}`
+    if (!headOf(repo)) return notFound()
+    if (segments.length === 3) return jsonResponse({ default_branch: 'main' })
+    if (segments[3] === 'commits') return jsonResponse({ sha: headOf(repo)?.commitSha })
+    if (segments[3] === 'git' && segments[4] === 'trees') {
+      const revision = revisionOf(repo, decodeURIComponent(segments[5]))
+      return revision ? jsonResponse({ truncated: false, tree: revision.entries }) : notFound()
+    }
+    return notFound()
+  }
+
+  if (parsed.hostname === 'raw.githubusercontent.com') {
+    const segments = parsed.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const revision = revisionOf(`${segments[0]}/${segments[1]}`, segments[2])
+    const content = revision?.files.get(segments.slice(3).join('/'))
+    return content === undefined ? notFound() : new Response(content, { status: 200 })
+  }
+
+  throw new Error(`the seam fetcher was asked for a host it does not serve: ${parsed.hostname}`)
+}
+
+// ── The suite ────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const workspaceRoot = temporaryDir('multicode-seam-skills-ws-')
+  const userDataDir = temporaryDir('multicode-seam-skills-userdata-')
+
+  const { createSkillsService } = await import('../main/skills')
+  const { createWorkspaceSkillsService } = await import('../main/workspace-skills-service')
+  const { registerSkillsIpc } = await import('../main/ipc/skills-ipc')
+  const { registerWorkspaceSkillsIpc } = await import('../main/ipc/workspace-skills-ipc')
+  const { skillsApi } = await import('../preload/api/skills')
+  const { workspaceSkillsApi } = await import('../preload/api/workspace-skills')
+  const { ipcMain } = await import('electron')
+
+  const service = createSkillsService(userDataDir, {
+    resolveToken: async () => '',
+    // The two agent CLIs this machine is pretending to have. Real detection
+    // probes binaries, which a test machine cannot be asked to have installed.
+    listHarnesses: async () => ['claude', 'agents'],
+    builtinSkillsRoot: () => join(process.cwd(), 'resources', 'skills'),
+    connectorSkillsRoot: () => null,
+    listWorkspaceRoots: () => [],
+    github: { fetcher: (url) => fixtureFetch(url) },
+  })
+
+  // The real registrations, on the stub `electron` that wires `ipcMain.handle`
+  // to `ipcRenderer.invoke`: a channel the preload spells differently from the
+  // one main registers fails here rather than in production.
+  registerSkillsIpc(ipcMain, service)
+  registerWorkspaceSkillsIpc(ipcMain, createWorkspaceSkillsService())
+  domWindow.api = withInertPreloadFallback({ platform: 'darwin', ...skillsApi, ...workspaceSkillsApi })
+
+  await testScanBrowseReadInstallSync(workspaceRoot)
+  await testLayoutBoundaries()
+  await testRetiredSkillPacksDeepLinkStillOpensSkills()
+
+  console.log('all skill-source seam tests passed')
+}
+
+// --- 1932/1933/1934/1935: the chain, through the mounted surface -------------
+
+async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<void> {
+  const React = await import('react')
+  const { act } = React
+  const { createRoot } = await import('react-dom/client')
+  const { sourceLayout } = await import('../shared/skills')
+  const { SkillsSurface } = await import(
+    '../renderer/src/components/workspace/globalSurface/extensions/skills/SkillsSurface'
+  )
+  const { useSkillSources } = await import(
+    '../renderer/src/components/workspace/globalSurface/extensions/skills/useSkillSources'
+  )
+
+  const api = domWindow.api as {
+    skillsAddSource: (input: { repo: string }) => Promise<{ ok: boolean; message?: string }>
+    skillsGetScan: (input: { sourceId: string }) => Promise<{ ok: boolean; scan: ScanResult }>
+    workspaceSkillsList: (input: { workspaceRoot: string }) => Promise<{
+      ok: boolean
+      skills: Array<{ id: string; name: string; source: string; harnesses: string[]; installState: string }>
+    }>
+  }
+
+  // Add every source the way the Add-a-source modal does — one scan each.
+  for (const repo of REPOS.keys()) {
+    const added = await api.skillsAddSource({ repo })
+    assert.ok(added.ok, `${repo} could not be added: ${added.message ?? ''}`)
+  }
+
+  const container = dom.window.document.createElement('div')
+  dom.window.document.body.appendChild(container)
+  const root = createRoot(container)
+
+  function Host(): JSX.Element {
+    const sources = useSkillSources(workspaceRoot)
+    return (
+      <SkillsSurface
+        sources={sources}
+        workspaceRoot={workspaceRoot}
+        onBrowseMcpServers={() => {}}
+        onConfigureGitHubToken={() => {}}
+      />
+    )
+  }
+
+  const settle = async (rounds = 6): Promise<void> => {
+    for (let round = 0; round < rounds; round += 1) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+  }
+
+  const markup = (): string => container.innerHTML
+  /** Let a real round trip finish — install and sync read and write real files. */
+  const settleUntil = async (what: string, ready: () => boolean): Promise<void> => {
+    for (let round = 0; round < 200; round += 1) {
+      if (ready()) return
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      })
+    }
+    assert.fail(`${what} never finished: ${installLine(markup())}`)
+  }
+  const buttons = (): HTMLButtonElement[] =>
+    [...container.querySelectorAll('button')] as unknown as HTMLButtonElement[]
+  const buttonWith = (text: string): HTMLButtonElement => {
+    const found = buttons().find((button) => (button.textContent ?? '').includes(text))
+    assert.ok(found, `no button reading "${text}" is on screen`)
+    return found
+  }
+  const buttonLabelled = (label: string): HTMLButtonElement => {
+    const found = container.querySelector(`button[aria-label="${label}"]`)
+    assert.ok(found, `no button labelled "${label}" is on screen`)
+    return found as unknown as HTMLButtonElement
+  }
+  const click = async (button: HTMLButtonElement): Promise<void> => {
+    await act(async () => {
+      button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+    })
+    await settle(3)
+  }
+  const openSource = async (railName: string): Promise<void> => {
+    await click(buttonWith(railName))
+  }
+
+  await act(async () => {
+    root.render(<Host />)
+  })
+  await settle()
+
+  // ── Each repository shape, scan input through to the rendered layout ──────
+
+  const scanOf = async (sourceId: string): Promise<ScanResult> => {
+    const result = await api.skillsGetScan({ sourceId })
+    assert.ok(result.ok, `${sourceId} has no scan`)
+    return result.scan
+  }
+
+  // 41 skills in six folders: a grouped, two-pane page that opens on the
+  // largest group rather than on the alphabetically first one.
+  const mattpocock = await scanOf('github:mattpocock/skills')
+  assert.equal(mattpocock.skills.length, 41)
+  assert.equal(mattpocock.groupingSignal, 'folders')
+  assert.equal(sourceLayout(mattpocock), 'grouped')
+  await openSource('mattpocock/skills')
+  assert.ok(markup().includes('aria-label="Groups"'), 'the grouped layout renders its group pane')
+  assert.ok(markup().includes('>Engineering<') && markup().includes('>Deprecated<'))
+  assert.ok(markup().includes('aria-label="Select prototype"'), 'the largest group is the one listed')
+  assert.equal(
+    markup().includes('aria-label="Select qa"'),
+    false,
+    'a grouped source lists one group at a time, never all 41 rows',
+  )
+
+  // 17 skills the repository's own manifest authors three groups for — the
+  // manifest wins over the (flat) folders, and drops the template the manifest
+  // does not list.
+  const anthropics = await scanOf('github:anthropics/skills')
+  assert.equal(anthropics.skills.length, 17)
+  assert.equal(anthropics.groupingSignal, 'manifest')
+  assert.deepEqual(anthropics.groups, ['document-skills', 'example-skills', 'claude-api'])
+  assert.equal(sourceLayout(anthropics), 'grouped')
+  await openSource('anthropics/skills')
+  assert.ok(markup().includes('>Document skills<') && markup().includes('>Claude api<'))
+
+  // 103 skills: search-first, and empty until it is asked.
+  const browserAct = await scanOf('github:browser-act/skills')
+  assert.equal(browserAct.skills.length, 103)
+  assert.equal(sourceLayout(browserAct), 'search')
+  await openSource('browser-act/skills')
+  assert.ok(markup().includes('placeholder="Search 103 skills"'))
+  assert.ok(markup().includes('Pick a category, or search.'))
+  assert.equal(markup().includes('role="checkbox"'), false, 'no rows are rendered until it is asked')
+
+  // One skill across 3,143 tree entries, mirrored per harness and collapsed to
+  // one: a source that IS a skill renders as the skill's page.
+  const impeccable = await scanOf('github:pbakaus/impeccable')
+  assert.equal(impeccable.skills.length, 1)
+  assert.equal(sourceLayout(impeccable), 'solo')
+  await openSource('pbakaus/impeccable')
+  assert.equal(markup().includes('role="checkbox"'), false, 'a list of one is not a list')
+  assert.ok(markup().includes('>impeccable<'), 'the solo skill has the page to itself')
+
+  // The skills Multicode ships, read off disk by the same service: 12 skills at
+  // one level, so one flat list.
+  const builtin = await scanOf('builtin')
+  assert.equal(sourceLayout(builtin), 'flat')
+  await openSource('Multicode')
+  assert.ok(markup().includes('aria-label="Select prototype"'), 'the builtin source lists its skills flat')
+  assert.equal(markup().includes('aria-label="Groups"'), false)
+
+  // ── The reader: a multi-file skill, and the links between its files ────────
+
+  await openSource('mattpocock/skills')
+  const prototype = mattpocock.skills.find((skill) => skill.id === PROTOTYPE_ID)
+  assert.ok(prototype, 'the prototype skill is in the scan')
+  assert.deepEqual(
+    prototype.files.map((file) => file.path),
+    ['LOGIC.md', 'SKILL.md', 'UI.md', 'agents/openai.yaml'],
+    'the whole skill directory is the skill — companions and subdirectory alike',
+  )
+  // Its entry document was fetched at scan time, so the row states what the
+  // frontmatter says rather than the directory name.
+  assert.equal(prototype.name, 'prototype')
+  assert.ok(prototype.description.startsWith('Build a throwaway prototype'))
+
+  await click(buttonWith('prototype'))
+  await settleUntil('the entry document read', () => markup().includes('Pick a branch'))
+  assert.ok(markup().includes('aria-label="Files in this skill"'), 'the reader lists the files')
+  for (const path of ['SKILL.md', 'LOGIC.md', 'UI.md', 'agents/openai.yaml']) {
+    assert.ok(markup().includes(`>${path}<`), `${path} reached the reader's file list`)
+  }
+  assert.ok(markup().includes('>Entry<'), 'and SKILL.md is marked as the one an agent reads first')
+
+  // The entry document's own bytes, rendered: its two relative links point at
+  // files this skill actually ships, so both are live targets in the reader.
+  const documentMarkup = markup()
+  assert.equal(
+    documentMarkup.includes('is not one of this skill'),
+    false,
+    'no link in the real SKILL.md is dead',
+  )
+  for (const target of ['LOGIC.md', 'UI.md']) {
+    const anchor = documentMarkup.indexOf(`>${target}</button>`)
+    assert.ok(anchor > 0, `${target} renders as a control that opens it in the reader`)
+  }
+  // Following the link inside the document — not the file-list row beside it —
+  // opens that file in place, without leaving the skill.
+  const linkInDocument = buttons().find(
+    (button) =>
+      (button.textContent ?? '').trim() === 'LOGIC.md'
+      && button.closest('nav[aria-label="Files in this skill"]') === null,
+  )
+  assert.ok(linkInDocument, 'the entry document carries LOGIC.md as a link, not as prose')
+  await click(linkInDocument)
+  await settleUntil(
+    'the companion document read',
+    () => markup().includes('A tiny interactive terminal app'),
+  )
+
+  // ── Install: the whole directory, into every harness dir ──────────────────
+
+  await openSource('mattpocock/skills')
+  await click(buttonLabelled('Select prototype'))
+  await click(buttonLabelled('Select research'))
+  await click(buttonWith('Install 2'))
+  await settleUntil('the install', () => markup().includes('Installed 2 skills.'))
+
+  const installed = (harness: string, ...rest: string[]): string =>
+    join(workspaceRoot, harness, 'skills', ...rest)
+  for (const harness of ['.claude', '.agents']) {
+    for (const path of ['SKILL.md', 'LOGIC.md', 'UI.md', join('agents', 'openai.yaml')]) {
+      assert.ok(
+        existsSync(installed(harness, 'prototype', path)),
+        `${harness}/skills/prototype/${path} was not written`,
+      )
+    }
+    assert.equal(
+      readFileSync(installed(harness, 'prototype', 'agents', 'openai.yaml'), 'utf8'),
+      prototypeFiles.files[`${PROTOTYPE_ID}/agents/openai.yaml`],
+      `${harness} received the repository's own bytes, in its own subdirectory`,
+    )
+  }
+  assert.ok(markup().includes('>Installed<'), 'and the row it came from says so')
+
+  // The installed copy is the one the agent-facing inventory reads, so a skill
+  // installed from a source is a skill an agent can be handed.
+  const inventory = await api.workspaceSkillsList({ workspaceRoot })
+  assert.ok(inventory.ok)
+  const research = inventory.skills.find((skill) => skill.id === 'research')
+  assert.ok(research, 'the installed skill is listed by the workspace inventory')
+  assert.deepEqual(research.harnesses.sort(), ['agents', 'claude'])
+  assert.equal(research.installState, 'installed')
+  assert.equal(research.source, 'custom')
+  // FINDING (filed, not fixed here): a source skill whose directory name
+  // collides with one Multicode ships is reported as `source: 'builtin'` — the
+  // inventory keys provenance on the directory name alone. `prototype` is such
+  // a name, and the bytes on disk are mattpocock's.
+  const inventoryPrototype = inventory.skills.find((skill) => skill.id === 'prototype')
+  assert.ok(inventoryPrototype)
+  assert.equal(inventoryPrototype.source, 'builtin', 'observed today: the collision is reported as builtin')
+
+  // ── Sync: the source moves, and the workspace moves with it ───────────────
+
+  const head = headOf('mattpocock/skills')
+  assert.ok(head)
+  REPOS.get('mattpocock/skills')?.push(nextMattpocockRevision(head))
+
+  await click(buttonWith('Sync'))
+  await settleUntil('the sync', () => markup().includes('Synced ·'))
+
+  const synced = await scanOf('github:mattpocock/skills')
+  assert.equal(synced.skills.length, 40, 'the refreshed list is the repository as it is now')
+  assert.equal(
+    synced.skills.some((skill) => skill.id === RESEARCH_ID),
+    false,
+    'a skill removed upstream leaves the source listing',
+  )
+  assert.ok(
+    markup().includes('Synced · 1 removed upstream · 1 installed skill updated'),
+    `the sync line states what changed, in counts: ${installLine(markup())}`,
+  )
+
+  // Re-copied, not merely re-listed: the bytes under both harness dirs are the
+  // ones the new commit carries.
+  for (const harness of ['.claude', '.agents']) {
+    const onDisk = readFileSync(installed(harness, 'prototype', 'SKILL.md'), 'utf8')
+    assert.ok(onDisk.includes('<!-- edited upstream -->'), `${harness} still holds the pre-sync bytes`)
+  }
+  // The skill that disappeared upstream keeps the copy the workspace already
+  // had. Dropping out of a listing is not a reason to take a working skill away
+  // from the agents reading it.
+  assert.ok(
+    existsSync(installed('.claude', 'research', 'SKILL.md')),
+    'an upstream removal must not delete an installed skill',
+  )
+
+  // Everything above ran against the two hosts the source policy allows, and
+  // one tree request per scan — the property that makes a repository of any
+  // size one call, and this suite offline.
+  assert.ok(requestedUrls.length > 0)
+  for (const url of requestedUrls) {
+    const host = new URL(url).hostname
+    assert.ok(
+      host === 'api.github.com' || host === 'raw.githubusercontent.com',
+      `the run reached a host outside the allowlist: ${host}`,
+    )
+  }
+  const treeRequests = requestedUrls.filter((url) => url.includes('/git/trees/'))
+  assert.equal(treeRequests.length, 5, 'four sources scanned, and one re-scanned by the sync')
+
+  await act(async () => {
+    root.unmount()
+  })
+  container.remove()
+}
+
+/** The install/sync line the header states, for a failure message worth reading. */
+function installLine(markup: string): string {
+  return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 600)
+}
+
+// --- 1933 D4: the layout thresholds, at their edges --------------------------
+
+async function testLayoutBoundaries(): Promise<void> {
+  const { sourceLayout } = await import('../shared/skills')
+  const { deriveSourceView } = await import(
+    '../renderer/src/components/workspace/globalSurface/extensions/skills/skillsSurfaceModel'
+  )
+
+  const source: SkillSource = {
+    id: 'github:example/skills',
+    kind: 'github',
+    name: 'skills',
+    repo: 'example/skills',
+    monogram: 'ES',
+    blurb: '',
+    commitSha: 'a'.repeat(40),
+    scannedAt: '2026-07-28T00:00:00Z',
+  }
+
+  const scanOf = (count: number, groupCount: number): ScanResult => {
+    const groups = Array.from({ length: groupCount }, (_, index) => `group-${index}`)
+    const skills: ScannedSkill[] = Array.from({ length: count }, (_, index) => ({
+      id: groupCount > 0 ? `skills/${groups[index % groupCount]}/skill-${index}` : `skills/skill-${index}`,
+      name: `skill-${index}`,
+      description: '',
+      group: groupCount > 0 ? groups[index % groupCount] : '',
+      files: [{ path: 'SKILL.md', size: 100, blobSha: 'b'.repeat(40), isEntry: true }],
+      allowedTools: [],
+      hasExecutables: false,
+    }))
+    return {
+      skills,
+      groups,
+      groupingSignal: groupCount > 0 ? 'folders' : 'none',
+      fileCount: count,
+      commitSha: source.commitSha,
+    }
+  }
+
+  const viewKind = (scan: ScanResult): string =>
+    deriveSourceView({ source, scan, installedDirNames: new Set(), activeGroup: null, query: '' }).kind
+
+  // Ungrouped: one list stays browsable to 24, and past it the page is
+  // search-first (D4 — the gap the backlog table left undefined).
+  for (const [count, layout] of [
+    [24, 'flat'],
+    [25, 'search'],
+  ] as const) {
+    const scan = scanOf(count, 0)
+    assert.equal(sourceLayout(scan), layout, `${count} ungrouped skills is the ${layout} layout`)
+    assert.equal(viewKind(scan), layout, `and the surface renders it as ${layout}`)
+  }
+
+  // Grouped: the groups do the narrowing, so a grouped source stays browsable
+  // to 60 and turns search-first at 61.
+  for (const [count, layout] of [
+    [60, 'grouped'],
+    [61, 'search'],
+  ] as const) {
+    const scan = scanOf(count, 4)
+    assert.equal(sourceLayout(scan), layout, `${count} grouped skills is the ${layout} layout`)
+    assert.equal(viewKind(scan), layout, `and the surface renders it as ${layout}`)
+  }
+}
+
+// --- 1936: the retired skill-packs deep link still opens Skills --------------
+
+async function testRetiredSkillPacksDeepLinkStillOpensSkills(): Promise<void> {
+  const { createSettingsSlice, defaultAppSettings } = await import(
+    '../renderer/src/store/slices/settingsSlice'
+  )
+  const { EXTENSIONS_BROWSE_DEEPLINK } = await import('../renderer/src/components/settings/extensionsRoute')
+  const { consumePendingExtensionsSurfaceTarget } = await import(
+    '../renderer/src/components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
+  )
+
+  const carrier = {
+    workspaces: [],
+    appSettings: defaultAppSettings(),
+    settingsOverlay: { open: false, initialTab: null as string | null, checkForUpdatesRequestId: null },
+    activeGlobalSurface: null as string | null,
+  }
+  const slice = createSettingsSlice(((mutator: (state: unknown) => void) => mutator(carrier)) as never)
+
+  // Skill packs are gone (T7 swept them, and this suite's `window.api` carries
+  // no `skillPack*` member at all), but the deep links that named them are on
+  // disk in older installs. Each must still land somewhere real.
+  for (const [tab, expected] of [
+    ['skill-packs', 'skills'],
+    [EXTENSIONS_BROWSE_DEEPLINK, 'browse'],
+  ] as const) {
+    carrier.activeGlobalSurface = null
+    carrier.settingsOverlay = { open: false, initialTab: null, checkForUpdatesRequestId: null }
+    consumePendingExtensionsSurfaceTarget()
+
+    slice.openSettingsOverlay({ initialTab: tab })
+
+    assert.equal(carrier.activeGlobalSurface, 'extensions', `${tab} opens the Extensions door`)
+    assert.equal(carrier.settingsOverlay.open, false, `${tab} does not open a settings tab that no longer exists`)
+    assert.equal(
+      consumePendingExtensionsSurfaceTarget(),
+      expected,
+      `${tab} lands on the rail row it was asking for`,
+    )
+  }
+
+  const api = domWindow.api as Record<string, unknown>
+  assert.equal('skillPackList' in api, false, 'the retired skill-pack preload surface is gone')
+}
+
+main()
+  .then(() => {
+    for (const path of temporaryDirs) rmSync(path, { recursive: true, force: true })
+    process.exit(0)
+  })
+  .catch((error: unknown) => {
+    console.error(error)
+    for (const path of temporaryDirs) rmSync(path, { recursive: true, force: true })
+    process.exit(1)
+  })
