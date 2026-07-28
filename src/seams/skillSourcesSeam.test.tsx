@@ -630,17 +630,9 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     'an upstream removal must not delete an installed skill',
   )
 
-  // Everything above ran against the two hosts the source policy allows, and
-  // one tree request per scan — the property that makes a repository of any
-  // size one call, and this suite offline.
-  assert.ok(requestedUrls.length > 0)
-  for (const url of requestedUrls) {
-    const host = new URL(url).hostname
-    assert.ok(
-      host === 'api.github.com' || host === 'raw.githubusercontent.com',
-      `the run reached a host outside the allowlist: ${host}`,
-    )
-  }
+  // One tree request per scan — the property that makes a repository of any
+  // size one call, and this suite offline. (The host allowlist is checked once
+  // for the whole run, at the end of `main`.)
   const treeRequests = requestedUrls.filter((url) => url.includes('/git/trees/'))
   assert.equal(treeRequests.length, 5, 'four sources scanned, and one re-scanned by the sync')
 
@@ -720,7 +712,6 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   await install('builtin', idOfSkillNamed(builtinScan, 'prototype'))
 
   const shippedRoot = join(process.cwd(), 'resources', 'skills', 'prototype')
-  const shippedPrototype = readFileSync(join(shippedRoot, 'SKILL.md'), 'utf8')
   /**
    * Every file of the installed copy, against the directory Multicode ships —
    * the marker aside, which install writes and the source never had. Compares
@@ -728,19 +719,21 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
    * prototype ships files Multicode's does not, so a partial overwrite shows up
    * as an extra file even when SKILL.md happens to match.
    */
+  const shippedFiles = filesUnder(shippedRoot)
+  assert.ok(shippedFiles.length > 1, 'the shipped prototype is more than one file, so a partial copy is visible')
   const assertHoldsShippedPrototype = (harness: string, when: string): void => {
-    for (const path of ['SKILL.md', join('agents', 'openai.yaml')]) {
+    assert.deepEqual(
+      filesUnder(installedPath(harness, 'prototype')).filter((path) => path !== SKILL_PROVENANCE_FILE),
+      shippedFiles,
+      `${harness}/skills/prototype holds exactly the shipped directory ${when}`,
+    )
+    for (const path of shippedFiles) {
       assert.equal(
-        bytesAt(harness, 'prototype', path),
-        readFileSync(join(shippedRoot, path), 'utf8'),
+        bytesAt(harness, 'prototype', ...path.split('/')),
+        readFileSync(join(shippedRoot, ...path.split('/')), 'utf8'),
         `${harness}/skills/prototype/${path} ${when}`,
       )
     }
-    assert.deepEqual(
-      filesUnder(installedPath(harness, 'prototype')).filter((path) => path !== SKILL_PROVENANCE_FILE),
-      filesUnder(shippedRoot),
-      `${harness}/skills/prototype holds exactly the shipped directory ${when}`,
-    )
   }
   for (const harness of HARNESS_DIRS) assertHoldsShippedPrototype(harness, 'as installed')
   assert.equal(
