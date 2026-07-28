@@ -8,7 +8,16 @@ const AGENT_TAB_SPAWN_FLASH_PANEL_CLASS = 'agent-tab-spawn-flash-panel'
 const AGENT_TAB_SPAWN_FLASH_CLEAR_MS = 13200
 
 export type AgentTerminalRevealPolicy = 'background' | 'focus-if-open' | 'reveal'
-export type AgentTabRevealTarget = { workspaceId: string; agentId: string; name?: string }
+export type AgentTabRevealTarget = {
+  workspaceId: string
+  agentId: string
+  name?: string
+  // Tab config to write alongside the reveal (the live `sessionId` a caller
+  // already resolved). Only the mounted-model path carries it; the fallback
+  // through the persisted layout seeds a plain tab, which reattaches from the
+  // AgentState instead.
+  config?: Record<string, unknown>
+}
 export type AgentTabRevealWorkspace = {
   id: string
   layoutModel: IJsonModel
@@ -384,7 +393,7 @@ export function revealAgentTab(
   ports.setActiveWorkspace(workspace.id)
   // Flash the revealed tab green so "Open agent" calls out which terminal it
   // surfaced, matching the Backlog "Open agent" action (agent-runtime-module).
-  if (focusOrAddAgentTab(workspace.id, target.agentId, name)) {
+  if (focusOrAddAgentTab(workspace.id, target.agentId, name, target.config)) {
     flashAgentTab(workspace.id, target.agentId)
     return true
   }

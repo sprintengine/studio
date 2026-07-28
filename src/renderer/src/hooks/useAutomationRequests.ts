@@ -7,7 +7,8 @@ import type {
 import { LAYOUT_TEMPLATES } from '../layouts/templates'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { pickRandomAgentName } from '../utils/agentNames'
-import { getModel, removeAgentTab, revealAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
+import { getModel, removeAgentTab, type AgentTabRevealTarget } from '../utils/modelRegistry'
+import { revealAgentTerminalTab } from '../utils/agentTabReveal'
 import { buildSpecialistDirectiveStartupPrompt, getSpecialistAction } from '../specialists/specialistActions'
 import { isAutomationsHostWorkspace } from '../utils/workspaceVisibility'
 import { resolveConnectorLaunch } from '../utils/connectorLaunch'
@@ -54,12 +55,7 @@ const LAYOUT_MODEL_WAIT_MS = 5_000
 const LAYOUT_MODEL_POLL_MS = 100
 
 export function revealAutomationAgent(target: AgentTabRevealTarget): boolean {
-  return revealAgentTab(target, {
-    getWorkspace: (workspaceId) =>
-      useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId) ?? null,
-    setActiveWorkspace: (workspaceId) => useWorkspaceStore.getState().setActiveWorkspace(workspaceId),
-    updateLayout: (workspaceId, layoutModel) => useWorkspaceStore.getState().updateLayout(workspaceId, layoutModel),
-  })
+  return revealAgentTerminalTab(target)
 }
 
 export function useAutomationRequests(workspaceWindowId: WorkspaceWindowId): void {

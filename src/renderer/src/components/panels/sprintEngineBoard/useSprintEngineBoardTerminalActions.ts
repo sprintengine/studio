@@ -8,7 +8,8 @@ import type {
   Workspace,
   WorkspaceId,
 } from '../../../types/workspace'
-import { addAgentTabTiled, focusOrAddAgentTab, hasAgentTab } from '../../../utils/modelRegistry'
+import { addAgentTabTiled, hasAgentTab } from '../../../utils/modelRegistry'
+import { revealAgentTerminalTab } from '../../../utils/agentTabReveal'
 import { resumeCapabilitiesForCli } from '../../../store/slices/pluginsSlice'
 import { getSprintEngineRoleLabel, willResumeRecordedRosterSession, type SprintEngineAgentRosterItem } from '../../../utils/sprintengine'
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
@@ -80,6 +81,10 @@ export type SprintEngineBoardTerminalActions = {
     options?: StartAgentTerminalOptions,
   ) => Promise<boolean>
   ensureWorkspaceFolderReadyForLaunch: (agentId: string, label: string) => Promise<boolean>
+  // Shows the agent's terminal: activates its workspace (which leaves the door
+  // the board may be mounted on) and focuses — or adds — its tab. Activation is
+  // load-bearing, not a nicety: a door paints over the workspace layers, so a
+  // reveal that only touches the layout model selects a tab nobody can see.
   openAgentTerminal: (agentId: string) => void
   // Kills the live app-owned terminal process and clears local launch flags.
   // Canonical roster membership is untouched; the main-process teardown sends
@@ -175,7 +180,7 @@ export function useSprintEngineBoardTerminalActions(
         cliLastExitedAt: undefined,
         kind: 'sprintengine',
       })
-      focusOrAddAgentTab(workspaceId, agentId, label)
+      revealAgentTerminalTab({ workspaceId, agentId, name: label })
       return true
     }
 
@@ -225,7 +230,11 @@ export function useSprintEngineBoardTerminalActions(
         addAgentTabTiled(workspaceId, agentId, label, undefined, false)
       }
     } else {
-      focusOrAddAgentTab(workspaceId, agentId, label)
+      // Foreground: an explicit launch the operator is waiting to see, so it
+      // activates the workspace — without that the tab opens behind whatever
+      // door the board was launched from. Background docks silently and must
+      // NOT pull the operator off the surface they are on.
+      revealAgentTerminalTab({ workspaceId, agentId, name: label })
     }
     return true
   }
@@ -286,7 +295,12 @@ export function useSprintEngineBoardTerminalActions(
         ...(effectiveCli ? { cli: effectiveCli } : {}),
         kind: 'sprintengine',
       })
-      focusOrAddAgentTab(workspaceId, agentId, label, { sessionId: liveSession.sessionId })
+      revealAgentTerminalTab({
+        workspaceId,
+        agentId,
+        name: label,
+        config: { sessionId: liveSession.sessionId },
+      })
       return
     }
     updateAgent(workspaceId, agentId, {
@@ -298,7 +312,7 @@ export function useSprintEngineBoardTerminalActions(
       cliResumeAvailable: false,
       kind: 'sprintengine',
     })
-    focusOrAddAgentTab(workspaceId, agentId, label)
+    revealAgentTerminalTab({ workspaceId, agentId, name: label })
   }
 
   const stopAgentTerminal: SprintEngineBoardTerminalActions['stopAgentTerminal'] = async (agentId) => {

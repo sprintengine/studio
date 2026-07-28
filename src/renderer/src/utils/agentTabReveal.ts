@@ -1,0 +1,28 @@
+import { useWorkspaceStore } from '../store/workspaceStore'
+import { revealAgentTab, type AgentTabRevealTarget } from './modelRegistry'
+
+// The one store-bound "show me this agent's terminal" path.
+//
+// Revealing an agent terminal is never just a layout mutation. A door-routed
+// full-page surface (the Sprints/Reviews/Automations doors, epic 1704) paints an
+// opaque layer OVER the workspace layers, which stay mounted and inert beneath
+// it. So a caller that only asks the layout model to focus a tab succeeds — the
+// tab really is selected — and the operator sees nothing at all, because the
+// door is still on top. Activating the workspace is what clears
+// `activeGlobalSurface` (workspacesSlice.setActiveWorkspace), and it is the step
+// every working reveal already takes: the session manager's `openSession`, the
+// Backlog "Open agent" action, the Reviews guide terminal.
+//
+// `revealAgentTab` then handles the second half — the live model when the
+// workspace layer is mounted, the persisted layout plus a latched green flash
+// when it is not (a workspace beyond the layer-retention window has no
+// registered Model to mutate).
+export function revealAgentTerminalTab(target: AgentTabRevealTarget): boolean {
+  return revealAgentTab(target, {
+    getWorkspace: (workspaceId) =>
+      useWorkspaceStore.getState().workspaces.find((candidate) => candidate.id === workspaceId) ?? null,
+    setActiveWorkspace: (workspaceId) => useWorkspaceStore.getState().setActiveWorkspace(workspaceId),
+    updateLayout: (workspaceId, layoutModel) =>
+      useWorkspaceStore.getState().updateLayout(workspaceId, layoutModel),
+  })
+}
