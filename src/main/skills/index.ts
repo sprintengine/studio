@@ -59,7 +59,7 @@ import { installSkill, uninstallSkill } from './install'
 import { scanLocalSkillSource } from './local-source'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
-import { diffScannedSkills, installedSkillHarnesses, refreshInstalledSkills } from './sync'
+import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills } from './sync'
 
 // How many entry documents a scan reads to fill in names and descriptions. The
 // listing is what makes a source browsable, so this runs at scan time and the
@@ -231,6 +231,11 @@ export function createSkillsService(
         skill: located.skill,
         harnesses,
         readFile: (file) => readSkillBytes(located.source, located.skill, file),
+        provenance: {
+          sourceId: located.source.id,
+          skillId: located.skill.id,
+          commitSha: located.source.commitSha,
+        },
       })
       return result
     },
@@ -261,7 +266,8 @@ export function createSkillsService(
 
     /**
      * Re-read a source at its current head, replace its cached scan, and copy
-     * the skills this workspace already holds out of the new one.
+     * out of the new one the skills this workspace holds *from this source* —
+     * a directory installed from somewhere else keeps its bytes.
      *
      * The store is written only once the whole scan succeeded, so a failed sync
      * leaves the list exactly as it was rather than half-refreshed with a
@@ -297,8 +303,9 @@ export function createSkillsService(
         workspaceRoot && existsSync(workspaceRoot)
           ? await refreshInstalledSkills({
               workspaceRoot,
+              sourceId: source.id,
               scan: rescan.scan,
-              installedHarnesses: await installedSkillHarnesses(workspaceRoot),
+              installedCopies: await installedSkillCopies(workspaceRoot),
               readFile: (skill, file) => readSkillBytes(rescan.source, skill, file),
             })
           : { refreshed: [], failures: [] }

@@ -8,10 +8,16 @@ import type { ScannedSkill, SkillFileRef } from '../../shared/skills'
 import {
   installSkill,
   installSkillDirectory,
+  PLUGIN_BUNDLE_SKILL_SOURCE_ID,
   planSkillInstall,
+  readSkillProvenance,
   resolveSkillFilePath,
+  SKILL_PROVENANCE_FILE,
   uninstallSkill,
 } from './install'
+import { scanLocalSkillSource } from './local-source'
+
+const PROVENANCE = { sourceId: 'github:acme/skills', skillId: 'skills/prototype', commitSha: 'b81f77a' }
 
 function file(path: string): SkillFileRef {
   return { path, size: 1, blobSha: '', isEntry: path === 'SKILL.md' }
@@ -45,6 +51,7 @@ async function installsWholeDirectory(): Promise<void> {
     skill: skill(paths),
     harnesses: ['agents', 'claude'],
     readFile: async (target) => CONTENT(target.path),
+    provenance: PROVENANCE,
   })
   assert.equal(result.ok, true)
   if (!result.ok) return
@@ -63,7 +70,12 @@ async function installsWholeDirectory(): Promise<void> {
     for (const dir of ['agents', 'scripts', 'reference', join('reference', 'nested')]) {
       assert.equal((await stat(join(root, dir))).isDirectory(), true, `${harnessDir}/${dir}`)
     }
-    assert.deepEqual((await readdir(root)).sort(), ['SKILL.md', 'agents', 'reference', 'scripts'])
+    assert.deepEqual(
+      (await readdir(root)).sort(),
+      [SKILL_PROVENANCE_FILE, 'SKILL.md', 'agents', 'reference', 'scripts'],
+      'the copy carries the provenance marker alongside the skill it installed'
+    )
+    assert.deepEqual(await readSkillProvenance(root), PROVENANCE)
   }
 }
 
@@ -75,6 +87,7 @@ async function reinstallReplacesRatherThanMerges(): Promise<void> {
       skill: skill(paths),
       harnesses: ['agents'],
       readFile: async (target) => CONTENT(target.path),
+      provenance: PROVENANCE,
     })
   await install(['SKILL.md', 'reference/old.md'])
   await install(['SKILL.md', 'reference/new.md'])
@@ -108,6 +121,7 @@ async function rejectsEscapingPaths(): Promise<void> {
         read += 1
         return CONTENT(target.path)
       },
+      provenance: PROVENANCE,
     })
     assert.equal(result.ok, false, `installing must refuse ${JSON.stringify(path)}`)
     assert.equal(read, 0, 'a refused install must not fetch a single byte')
@@ -135,6 +149,7 @@ async function refusesWithoutAHarness(): Promise<void> {
     skill: skill(['SKILL.md']),
     harnesses: [],
     readFile: async () => Buffer.alloc(0),
+    provenance: PROVENANCE,
   })
   assert.equal(result.ok, false)
   if (!result.ok) assert.match(result.message, /No agent CLI/)
@@ -163,6 +178,16 @@ async function installsALocalDirectory(): Promise<void> {
   assert.equal(result.fileCount, 2)
   assert.ok(existsSync(join(workspace, '.agents', 'skills', 'my-skill', 'scripts', 'run.sh')), 'subdirectories survive')
   assert.ok(existsSync(join(workspace, '.claude', 'skills', 'my-skill', 'SKILL.md')), 'every harness gets a copy')
+
+  // A bundle is not a skill source, so the copy names one no source sync can
+  // match — and the marker was written into the copy, never back into the
+  // bundle the bytes were read from.
+  assert.deepEqual(await readSkillProvenance(join(workspace, '.agents', 'skills', 'my-skill')), {
+    sourceId: PLUGIN_BUNDLE_SKILL_SOURCE_ID,
+    skillId: 'my-skill',
+    commitSha: '',
+  })
+  assert.equal(await readSkillProvenance(source), null, 'the source directory is left exactly as it was')
 
   const empty = await installSkillDirectory({
     workspaceRoot: workspace,
@@ -201,6 +226,11 @@ async function uninstallSweepsEveryHarness(): Promise<void> {
   assert.equal(removed.removedPaths.length, 2, 'only the harnesses that held a copy are reported')
   assert.ok(!existsSync(join(workspace, '.agents', 'skills', 'my-skill')))
   assert.ok(!existsSync(join(workspace, '.claude', 'skills', 'my-skill')))
+  // The provenance marker goes with the directory. One left behind would claim
+  // a source still owns a skill that is no longer installed.
+  for (const harnessDir of ['.agents', '.claude']) {
+    assert.ok(!existsSync(join(workspace, harnessDir, 'skills', 'my-skill', SKILL_PROVENANCE_FILE)))
+  }
 
   // Already gone is an empty sweep, not a failure — each caller decides what
   // that means to it.
@@ -216,6 +246,36 @@ async function uninstallSweepsEveryHarness(): Promise<void> {
   }
 }
 
+// The marker is written into the installed copy and never into the source the
+// bytes came from, so it cannot reach the file list the skill reader renders —
+// the list is the scan's, and the scan reads the source.
+async function theProvenanceMarkerStaysOutOfTheReadersFileList(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-skill-reader-'))
+  const workspace = join(temp, 'ws')
+  const sourceRoot = join(temp, 'source')
+  await mkdir(workspace, { recursive: true })
+  await mkdir(join(sourceRoot, 'writer'), { recursive: true })
+  await writeFile(join(sourceRoot, 'writer', 'SKILL.md'), '---\nname: writer\n---\n')
+
+  const before = await scanLocalSkillSource(sourceRoot)
+  await installSkillDirectory({
+    workspaceRoot: workspace,
+    sourceDir: join(sourceRoot, 'writer'),
+    dirName: 'writer',
+    harnesses: ['agents'],
+  })
+  const after = await scanLocalSkillSource(sourceRoot)
+
+  for (const scan of [before, after]) {
+    assert.deepEqual(
+      scan.skills.map((entry) => entry.files.map((skillFile) => skillFile.path)),
+      [['SKILL.md']],
+      'the source lists the skill it holds, and the marker is not one of its files'
+    )
+  }
+  assert.ok(existsSync(join(workspace, '.agents', 'skills', 'writer', SKILL_PROVENANCE_FILE)))
+}
+
 async function main(): Promise<void> {
   await installsWholeDirectory()
   await reinstallReplacesRatherThanMerges()
@@ -223,6 +283,7 @@ async function main(): Promise<void> {
   resolvesOnlyInsideTheSkill()
   await refusesWithoutAHarness()
   await installsALocalDirectory()
+  await theProvenanceMarkerStaysOutOfTheReadersFileList()
   await uninstallSweepsEveryHarness()
   console.log('skills install: ok')
 }

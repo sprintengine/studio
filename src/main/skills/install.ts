@@ -6,6 +6,10 @@
 // Where skills go is unchanged from before sources existed — the harness dirs
 // resolved by src/shared/skill-harnesses.ts. What changed is *what* is copied:
 // the whole directory, not the entry document alone.
+//
+// Every copy carries a provenance marker naming the source that wrote it. Sync
+// reads it to decide what it may overwrite; without it, two sources shipping a
+// directory of the same name are indistinguishable on disk.
 
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -26,6 +30,59 @@ export type SkillFileReader = (file: SkillFileRef) => Promise<Buffer>
 
 export const DEFAULT_SKILL_INSTALL_MAX_FILES = 1_000
 export const DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES = 50 * 1024 * 1024
+
+/**
+ * The provenance marker, written into each installed copy and never into the
+ * source it was read from — so it cannot appear in the file list the skill
+ * reader renders.
+ *
+ * Same filename as the manifest src/main/builtin-skills.ts writes for the
+ * skills the app ships, deliberately: one convention for "Multicode put this
+ * here", not two. The shapes differ and each reader recognises only its own —
+ * a bundled skill's manifest names no `sourceId`, so no sync claims it, and a
+ * source's marker fails the built-in reader's `source: 'multicode-builtin'`
+ * check, so the built-in installer treats that directory as local and refuses
+ * to overwrite it.
+ */
+export const SKILL_PROVENANCE_FILE = '.multicode-skill.json'
+
+/** Which source an installed copy was taken from, and at which commit. */
+export type SkillInstallProvenance = {
+  sourceId: string
+  skillId: string
+  /** '' for sources with no git identity. */
+  commitSha: string
+}
+
+/** Provenance for a copy that came from a plugin bundle, not from a skill source. */
+export const PLUGIN_BUNDLE_SKILL_SOURCE_ID = 'plugin-bundle'
+
+type SkillProvenanceRecord = SkillInstallProvenance & { installedAt: string }
+
+/**
+ * What installed the copy in `skillDir`, or null when nothing did — a bundled
+ * skill, a hand-made directory, or a copy installed before markers existed.
+ * Absent means "not ours", which is the reading that never overwrites someone
+ * else's bytes.
+ */
+export async function readSkillProvenance(skillDir: string): Promise<SkillInstallProvenance | null> {
+  const raw = await readFile(join(skillDir, SKILL_PROVENANCE_FILE), 'utf8').catch(() => null)
+  if (raw === null) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const record = parsed as Partial<SkillProvenanceRecord>
+  if (typeof record.sourceId !== 'string' || record.sourceId === '') return null
+  return {
+    sourceId: record.sourceId,
+    skillId: typeof record.skillId === 'string' ? record.skillId : '',
+    commitSha: typeof record.commitSha === 'string' ? record.commitSha : '',
+  }
+}
 
 export type SkillInstallTarget = { harness: SkillHarness; path: string }
 
@@ -127,6 +184,8 @@ export type InstallSkillOptions = {
   skill: ScannedSkill
   harnesses: readonly SkillHarness[]
   readFile: SkillFileReader
+  /** Recorded in the installed copy; what a later sync checks before overwriting it. */
+  provenance: SkillInstallProvenance
   stagingRoot?: string
   maxTotalBytes?: number
 }
@@ -169,6 +228,14 @@ export async function installSkill(options: InstallSkillOptions): Promise<SkillI
       await mkdir(dirname(destination), { recursive: true })
       await writeFile(destination, bytes)
     }
+
+    // Written last, so a source shipping a file of this name cannot forge the
+    // provenance of its own copy.
+    const record: SkillProvenanceRecord = {
+      ...options.provenance,
+      installedAt: new Date().toISOString(),
+    }
+    await writeFile(join(stage, SKILL_PROVENANCE_FILE), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
 
     for (const target of plan.targets) {
       await rm(target.path, { recursive: true, force: true })
@@ -225,6 +292,12 @@ export async function installSkillDirectory(options: {
     skill,
     harnesses: options.harnesses,
     readFile: (file) => readFile(join(options.sourceDir, ...file.path.split('/'))),
+    // A bundle is not a skill source, so no source sync ever owns this copy.
+    provenance: {
+      sourceId: PLUGIN_BUNDLE_SKILL_SOURCE_ID,
+      skillId: options.dirName,
+      commitSha: '',
+    },
   })
 }
 
@@ -237,6 +310,9 @@ export type SkillUninstallResult =
  * name across every harness that could hold a copy, because that is how the
  * install wrote it — and a copy left behind in one harness dir is a skill the
  * user believes they removed and an agent still reads.
+ *
+ * The whole directory goes, provenance marker included: a marker outliving its
+ * skill would claim a source still owns a directory that is no longer there.
  *
  * Removing nothing is not a failure here: `removedPaths` says what went, and
  * each caller decides what an empty sweep means to it. A plugin uninstall wants
