@@ -28,6 +28,17 @@
     ],
     "allowCustomId": true
   },
+  "reasoningSelection": {
+    "$comment": "claude --effort <level>, documented in --help on CLI 2.1.220. No default is declared: the CLI's own default effort is undocumented, so declaring one would have to be a guess, and an incorrect guess silently changes launches. Omitting it means a blank selection passes no flag and every explicitly picked level does.",
+    "args": ["--effort", "{{reasoning}}"],
+    "levels": [
+      { "id": "low", "label": "Low" },
+      { "id": "medium", "label": "Medium" },
+      { "id": "high", "label": "High" },
+      { "id": "xhigh", "label": "Extra high" },
+      { "id": "max", "label": "Max" }
+    ]
+  },
   "themeSelection": {
     "args": ["--settings", "{\"theme\":\"{{colorScheme}}\"}"]
   },
@@ -36,6 +47,7 @@
       "{{binary}}",
       { "spreadIf": "permissionArgs" },
       { "spreadIf": "modelArgs" },
+      { "spreadIf": "reasoningArgs" },
       { "spreadIf": "themeArgs" },
       "--session-id",
       "{{sessionId}}",

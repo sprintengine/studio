@@ -71,6 +71,7 @@ export type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistrySourceLayer,
@@ -437,6 +438,7 @@ export type VoiceDictationSettings = {
 import type { AppearanceSettings } from './appTheme'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
+import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 
 export type PluginCatalogStatus = 'loading' | 'ready' | 'error'
 
@@ -457,9 +459,21 @@ export type KeybindingSettings = {
 
 // A model choice scoped to the CLI it was made for. Model ids are only
 // meaningful per-CLI; pairing them prevents cross-CLI leakage.
+//
+// `reasoning` is the selected reasoning-effort level, and it is a property of
+// the CLI rather than of the model (owner ruling 2026-07-26): switching model
+// within a CLI leaves it untouched, and switching CLI drops it, because the
+// levels a CLI accepts are manifest knowledge that does not transfer. Absent
+// means "the CLI's own default effort", which passes no flag.
+//
+// `model` may therefore be empty while `reasoning` is set: choosing the CLI's
+// default model is a model switch, not a reason to forget the level. Readers
+// resolve through resolveCliModel / resolveCliReasoning, which treat an empty
+// value as "no flag".
 export type AgentCliModelSelection = {
   cli: AgentCli
   model: string
+  reasoning?: string
 }
 
 // The agent the sidebar's "New chat in project" item spawns on a plain click,
@@ -473,6 +487,16 @@ export type NewChatAgentChoice =
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
+  /**
+   * What each agent CLI last reported about its own models, keyed by plugin id.
+   * A sibling of `cliRuntimes[id].models`, never the same store: that list is
+   * the user's own escape hatch and must survive a refresh, while this one is
+   * replaced wholesale every time the CLI is re-probed. No code path writes
+   * both. Pickers merge manifest ∪ this ∪ the user's list (mergeModelCatalog);
+   * absent means "never probed", and an entry with no models means "probed and
+   * the CLI listed nothing".
+   */
+  cliModelCatalog?: Partial<Record<AgentCli, DiscoveredCliModelCatalog>>
   keybindings: KeybindingSettings
   mcp: McpSettings
   skillPacks: SkillPackSettings

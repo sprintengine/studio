@@ -312,6 +312,8 @@ export default function AgentComposerPopover({
                         options={row.kind === 'general' ? composer.generalCliOptions : composer.agentCliOptions}
                         currentCli={composer.cliForSelection(target)}
                         effectiveModelFor={(cli) => composer.modelForSelection(target, cli)}
+                        effectiveReasoningFor={(cli) => composer.reasoningForSelection(target, cli)}
+                        onSelectReasoning={(cli, reasoning) => composer.setEngineReasoning(target, cli, reasoning)}
                         onSelectCli={(cli) => {
                           composer.setEngineCli(target, cli)
                           setEngineFlyoutRowKey(null)

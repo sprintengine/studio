@@ -10,6 +10,7 @@ import {
   defaultKeybindingSettings,
   normalizeAppearanceSettings,
   normalizeAppSettings,
+  normalizeCliModelCatalogs,
   normalizeCliModelSelections,
   normalizeCliPermissionPreset,
   normalizeKeybindingSettings,
@@ -273,6 +274,22 @@ assert.deepEqual(
   }),
   { architect: { cli: 'claude-code', model: 'opus' } },
 )
+// The reasoning-effort level rides the same selection. A level with no model is
+// a real choice ("the CLI's default model at high effort") and survives; a
+// selection with neither is not an override at all.
+assert.deepEqual(
+  normalizeCliModelSelections({
+    architect: { cli: 'claude-code', model: 'opus', reasoning: ' high ' },
+    developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
+    tester: { cli: 'codex', model: '', reasoning: '   ' },
+    reviewer: { cli: 'codex', model: 'gpt-5.5', reasoning: 42 } as never,
+  }),
+  {
+    architect: { cli: 'claude-code', model: 'opus', reasoning: 'high' },
+    developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
+    reviewer: { cli: 'codex', model: 'gpt-5.5' },
+  },
+)
 const modelNormalized = normalizeAppSettings(
   {
     cliRuntimes: {
@@ -286,6 +303,86 @@ assert.deepEqual(modelNormalized.cliRuntimes.codex.models, ['gpt-5-codex', 'o4-m
 assert.equal(modelNormalized.cliRuntimes['claude-code'].models, undefined)
 assert.equal('cliModelDefaults' in modelNormalized, false)
 assert.deepEqual(modelNormalized.specialistModelDefaults, { architect: { cli: 'claude-code', model: 'opus' } })
+// cliModelCatalog: what each CLI reported about itself, app-owned and kept
+// strictly apart from the user's own ids in cliRuntimes[cli].models.
+assert.equal(normalizeCliModelCatalogs(undefined), undefined)
+assert.equal(normalizeCliModelCatalogs('not an object'), undefined)
+assert.equal(
+  normalizeCliModelCatalogs({ codex: { models: [{ id: 'gpt-5.6' }], source: 'argv-probe' } }),
+  undefined,
+  'an entry with no fetch timestamp is dropped rather than repaired',
+)
+assert.equal(
+  normalizeCliModelCatalogs({
+    codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'guessed' },
+  }),
+  undefined,
+  'an entry whose source is not a known probe kind is dropped',
+)
+assert.equal(
+  normalizeCliModelCatalogs({
+    codex: { models: 'gpt-5.6', fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+  }),
+  undefined,
+  'an entry whose models is not an array is dropped',
+)
+assert.deepEqual(
+  normalizeCliModelCatalogs({
+    codex: {
+      models: [
+        { id: ' gpt-5.6 ', displayName: ' GPT-5.6 ', contextWindow: 272000, effortLevels: ['low', '', 'high'], supportsFastMode: true },
+        { id: 'gpt-5.6' },
+        { id: '   ' },
+        'not a model',
+        { id: 'gpt-5.4', contextWindow: -1, effortLevels: [], displayName: '   ', supportsFastMode: 'yes' },
+      ],
+      fetchedAt: ' 2026-07-26T00:00:00Z ',
+      source: 'argv-probe',
+      cliVersion: ' 0.60.0 ',
+    },
+    '  ': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+  }),
+  {
+    codex: {
+      models: [
+        { id: 'gpt-5.6', displayName: 'GPT-5.6', contextWindow: 272000, effortLevels: ['low', 'high'], supportsFastMode: true },
+        { id: 'gpt-5.4' },
+      ],
+      fetchedAt: '2026-07-26T00:00:00Z',
+      source: 'argv-probe',
+      cliVersion: '0.60.0',
+    },
+  },
+  'rows are trimmed and deduped by id; wrong-typed fields drop to absent, not to a coerced value',
+)
+assert.deepEqual(
+  normalizeCliModelCatalogs({
+    'claude-code': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' },
+  }),
+  { 'claude-code': { models: [], fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' } },
+  'a CLI that answered with no models keeps its entry — "listed nothing" is not "never probed"',
+)
+const catalogNormalized = normalizeAppSettings(
+  {
+    cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+    cliModelCatalog: {
+      codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+      grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' },
+    },
+  } as never,
+  [],
+)
+assert.deepEqual(
+  catalogNormalized.cliModelCatalog,
+  { codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' } },
+  'normalizeAppSettings carries a well-formed catalog and drops a malformed one',
+)
+assert.deepEqual(
+  catalogNormalized.cliRuntimes.codex.models,
+  ['o4-mini'],
+  'the discovered catalog never leaks into the user list for the same CLI',
+)
+
 assert.deepEqual(normalizeSearchExcludes(['!build', 'build', 'src\\gen']), ['build', 'src/gen'])
 assert.deepEqual(
   normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']),
@@ -462,6 +559,45 @@ assert.deepEqual(useWorkspaceStore.getState().appSettings.searchExcludes, ['dist
 store.setLastSelectedCli('codex')
 assert.equal(useWorkspaceStore.getState().appSettings.lastSelectedCli, 'codex')
 
+store.setCliRuntime('codex', { command: 'codex', useWsl: false, models: ['o4-mini'] })
+store.setCliModelCatalog('codex', {
+  models: [{ id: 'gpt-5.6' }, { id: 'gpt-5.4' }],
+  fetchedAt: '2026-07-26T00:00:00Z',
+  source: 'argv-probe',
+})
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog?.codex?.models,
+  [{ id: 'gpt-5.6' }, { id: 'gpt-5.4' }],
+  'setCliModelCatalog records what the CLI reported',
+)
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliRuntimes.codex.models,
+  ['o4-mini'],
+  'writing the discovered catalog leaves the user list for that CLI untouched',
+)
+store.setCliModelCatalog('codex', {
+  models: [{ id: 'gpt-5.6' }],
+  fetchedAt: '2026-07-27T00:00:00Z',
+  source: 'argv-probe',
+})
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog?.codex?.models,
+  [{ id: 'gpt-5.6' }],
+  'a second probe replaces that CLI entry wholesale — a model it stopped listing is gone',
+)
+store.setCliModelCatalog('codex', { models: [{ id: 'gpt-5.6' }], fetchedAt: '', source: 'argv-probe' })
+assert.deepEqual(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog?.codex?.models,
+  [{ id: 'gpt-5.6' }],
+  'an unusable payload leaves the last good catalog in place instead of wiping it',
+)
+store.setCliModelCatalog('codex', null)
+assert.equal(
+  useWorkspaceStore.getState().appSettings.cliModelCatalog,
+  undefined,
+  'clearing the only entry leaves no empty catalog behind',
+)
+
 store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'opus' })
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.specialistModelDefaults,
@@ -469,6 +605,63 @@ assert.deepEqual(
 )
 store.setSpecialistModelDefault('architect', null)
 assert.deepEqual(useWorkspaceStore.getState().appSettings.specialistModelDefaults, {})
+
+// Reasoning effort is per-CLI (owner ruling 2026-07-26): it outlives a model
+// change within the CLI — including a switch to the CLI's own default model —
+// and is dropped when the CLI changes, because level sets do not transfer.
+const specialistModelDefaults = (): Record<string, unknown> =>
+  useWorkspaceStore.getState().appSettings.specialistModelDefaults as Record<string, unknown>
+store.setSpecialistReasoningDefault('architect', 'codex', 'high')
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: '', reasoning: 'high' } },
+  'a level can be set before any model is chosen',
+)
+store.setSpecialistModelDefault('architect', { cli: 'codex', model: 'gpt-5.6-sol' })
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' } },
+  'choosing a model within the same CLI keeps the level',
+)
+store.setSpecialistModelDefault('architect', { cli: 'codex', model: '' })
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: '', reasoning: 'high' } },
+  'choosing the CLI default model keeps the level',
+)
+store.setSpecialistModelDefault('architect', { cli: 'claude-code', model: 'claude-opus-5' })
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'claude-code', model: 'claude-opus-5' } },
+  'switching CLI drops a level chosen for the previous CLI',
+)
+store.setSpecialistReasoningDefault('architect', 'codex', 'ultra')
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: '', reasoning: 'ultra' } },
+  'a level for another CLI starts that CLI on its own default model',
+)
+store.setSpecialistReasoningDefault('architect', 'codex', null)
+assert.deepEqual(
+  specialistModelDefaults(),
+  {},
+  'clearing the only remaining choice leaves no empty selection behind',
+)
+store.setSpecialistModelDefault('architect', { cli: 'codex', model: 'gpt-5.5' })
+store.setSpecialistReasoningDefault('architect', 'codex', 'xhigh')
+store.setSpecialistReasoningDefault('architect', 'codex', '   ')
+assert.deepEqual(
+  specialistModelDefaults(),
+  { architect: { cli: 'codex', model: 'gpt-5.5' } },
+  'clearing the level keeps the model',
+)
+store.setSpecialistReasoningDefault('architect', 'codex', 'high')
+store.setSpecialistModelDefault('architect', null)
+assert.deepEqual(
+  specialistModelDefaults(),
+  {},
+  'an explicit null clears the whole selection, level included',
+)
 store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
 assert.deepEqual(
   useWorkspaceStore.getState().appSettings.keybindings.overrides['commandPalette.open'],

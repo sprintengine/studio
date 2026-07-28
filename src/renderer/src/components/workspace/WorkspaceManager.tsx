@@ -11,7 +11,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { shouldOpenStartupTipOnComplete } from '../../store/onboardingState'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
-import { resolveAvailableAgentCli, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
+import { resolveAvailableAgentCli, resolveCliReasoning, resolveSurfaceModel, resolveTemplateAgentCli, selectAgentCliCatalog } from './newWorkspace/cliRuntimeOptions'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
 import type { ConversationCliRuntimeOverrides } from '../../../../shared/conversation-runtime'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -337,6 +337,7 @@ export default function WorkspaceManager() {
   const rememberedConversationModel = useWorkspaceStore((s) => s.appSettings.lastSelectedConversationModel)
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -796,8 +797,15 @@ export default function WorkspaceManager() {
       selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
-      }),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
+      }, cliModelCatalog),
+    [
+      pluginCatalogStatus,
+      pluginCatalogEntries,
+      cliRuntimes,
+      cliAvailability,
+      cliAvailabilityStatus,
+      cliModelCatalog,
+    ],
   )
   // First available catalog entry used to rescue new spawns whose remembered CLI
   // (lastSelectedCli / specialist default) is no longer installed.
@@ -926,12 +934,14 @@ export default function WorkspaceManager() {
     // permission preset and debug mode: a General chat honors the picked
     // Default/Auto/Bypass exactly like a specialist chat does.
     const cliModel = resolveSurfaceModel(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+    const cliReasoning = resolveCliReasoning(templateAgentCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
     createSoloChatWorkspace({
       folderPath,
       templateAgentCli,
       seedAgent: {
         agentPatch: {
           ...(cliModel ? { cliModel } : {}),
+          ...(cliReasoning ? { cliReasoning } : {}),
           cliPermissionPreset: agentSpawnPermissionPreset,
           debugMode: agentSpawnDebugMode,
           ...(skill
@@ -1024,6 +1034,7 @@ export default function WorkspaceManager() {
       agentCliCatalog,
     )
     const cliModel = resolveSurfaceModel(cli, specialistModelDefaults[engineKey])
+    const cliReasoning = resolveCliReasoning(cli, specialistModelDefaults[engineKey])
     const invocation = skillId
       ? resolveSkillInvocation(
           pluginCatalogEntries.find((entry) => entry.id === cli)?.skillIntegration,
@@ -1065,6 +1076,7 @@ export default function WorkspaceManager() {
               }
             : {}),
           ...(cliModel ? { cliModel } : {}),
+          ...(cliReasoning ? { cliReasoning } : {}),
           // The composer surfaces the permission preset + debug controls, so a
           // composed launch honors them like every other new-chat spawn; the
           // preset-less legacy entry points keep their behavior.
@@ -1927,6 +1939,7 @@ export default function WorkspaceManager() {
       name: tabName,
       cli: cliForSpawn,
       cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
+      cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
       ...(execution ? { execution } : {}),
       cliPermissionPreset: agentSpawnPermissionPreset,
       debugMode: agentSpawnDebugMode,
@@ -1971,6 +1984,7 @@ export default function WorkspaceManager() {
       name: tabName,
       cli: spawnCli,
       cliModel: resolveSurfaceModel(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
+      cliReasoning: resolveCliReasoning(spawnCli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY]),
       ...(execution ? { execution } : {}),
       cliPermissionPreset: agentSpawnPermissionPreset,
       debugMode: agentSpawnDebugMode,
@@ -2076,6 +2090,7 @@ export default function WorkspaceManager() {
           name: tabName,
           cli: cliForSpawn,
           cliModel: resolveSurfaceModel(cliForSpawn, specialistModelDefaults[specialist.id]),
+          cliReasoning: resolveCliReasoning(cliForSpawn, specialistModelDefaults[specialist.id]),
           cliPermissionPreset: agentSpawnPermissionPreset,
           debugMode: agentSpawnDebugMode,
           kind: 'specialist',

@@ -46,9 +46,10 @@ export type AgentLaunchRenderInput = {
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   cliModel?: string
   // Selected reasoning-effort level. Consumed only by manifests declaring
-  // reasoningSelection (today: Codex); rendered as `reasoningArgs` only when it
-  // differs from the manifest's declared default, so unset/default levels leave
-  // the launch argv unchanged.
+  // reasoningSelection (today: Codex and Claude Code); rendered as
+  // `reasoningArgs` only when it differs from the manifest's declared default,
+  // so unset/default levels leave the launch argv unchanged. Claude Code
+  // declares no default, so every explicitly picked level renders there.
   cliReasoning?: string
   // Orthogonal Debug Mode flag. When true the launch boundary prepends the debug
   // directive to the initial prompt; it never affects permission/session/model

@@ -270,8 +270,10 @@ export default function AgentComposer({
             agentCliOptions={composer.agentCliOptions}
             generalCliOptions={composer.generalCliOptions}
             modelFor={(cli) => composer.modelForSelection(selection, cli)}
+            reasoningFor={(cli) => composer.reasoningForSelection(selection, cli)}
             onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
             onSelectModel={(cli, model) => composer.setEngineModel(selection, cli, model)}
+            onSelectReasoning={(cli, reasoning) => composer.setEngineReasoning(selection, cli, reasoning)}
             permissionPreset={permissionPreset}
             onChangePermissionPreset={onChangePermissionPreset}
             debugMode={debugMode}
@@ -549,8 +551,10 @@ function ComposerConfig({
   agentCliOptions,
   generalCliOptions,
   modelFor,
+  reasoningFor,
   onSelectCli,
   onSelectModel,
+  onSelectReasoning,
   permissionPreset,
   onChangePermissionPreset,
   debugMode,
@@ -562,8 +566,10 @@ function ComposerConfig({
   agentCliOptions: ReturnType<typeof selectAgentCliCatalog>
   generalCliOptions: ReturnType<typeof selectAgentCliCatalog>
   modelFor: (cli: AgentCli) => string | undefined
+  reasoningFor: (cli: AgentCli) => string | undefined
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
+  onSelectReasoning: (cli: AgentCli, reasoning: string | null) => void
   permissionPreset: SprintEngineCliPermissionPreset
   onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
   debugMode: boolean
@@ -612,6 +618,8 @@ function ComposerConfig({
           options={isSpecialist ? agentCliOptions : generalCliOptions}
           currentCli={selectionCli}
           effectiveModelFor={modelFor}
+          effectiveReasoningFor={reasoningFor}
+          onSelectReasoning={onSelectReasoning}
           onSelectCli={onSelectCli}
           onSelectModel={onSelectModel}
           // The config column owns the scrolling (one scrollbar per column);

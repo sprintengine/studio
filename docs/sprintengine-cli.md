@@ -181,7 +181,9 @@ sprintengine roster runtime --role developer --cli claude-code --model claude-ha
   model); omitting `--model` pins the CLI's own default (no `--model` flag at
   launch).
 - Merges the one role into `roleRuntimes` in a locked transaction and appends a
-  `role_runtime_changed` event carrying the previous value.
+  `role_runtime_changed` event carrying the previous value. The merge replaces
+  the role's entry, so a `reasoning` level the command does not mention is
+  preserved rather than dropped (MC-1885) — this command is cli/model-scoped.
 - Deliberately **not** an MCP tool: a role's execution runtime is user config.
   The role must resolve in the registry and, on configured rosters, be in
   `configuredRoles` (`role_not_enabled_for_run`).

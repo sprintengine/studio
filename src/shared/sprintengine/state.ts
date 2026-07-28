@@ -2204,9 +2204,11 @@ export function getSprintEngineArtifactDependencyBlockers(
 }
 
 // Tolerant read of the run.yaml/projection `roleRuntimes` map. Keeps only
-// registry-valid roles with an object value; trims cli/model and drops empty
-// strings (absent and null both mean "CLI default" — no `--model` flag).
-// Returns null when nothing valid remains so callers can omit the field.
+// registry-valid roles with an object value; trims cli/model/reasoning and drops
+// empty strings (absent and null both mean "CLI default" — no `--model` flag, and
+// for reasoning no effort flag). A level never keeps an entry alive on its own:
+// without a cli or model there is no seat to launch. Returns null when nothing
+// valid remains so callers can omit the field.
 export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineRoleRuntimes | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const result: SprintEngineRoleRuntimes = {}
@@ -2216,8 +2218,15 @@ export function normalizeSprintEngineRoleRuntimes(value: unknown): SprintEngineR
     const record = runtime as Record<string, unknown>
     const cli = typeof record.cli === 'string' && record.cli.trim() ? record.cli.trim() : undefined
     const model = typeof record.model === 'string' && record.model.trim() ? record.model.trim() : undefined
+    const reasoning = typeof record.reasoning === 'string' && record.reasoning.trim()
+      ? record.reasoning.trim()
+      : undefined
     if (!cli && !model) continue
-    result[role] = { ...(model ? { model } : {}), ...(cli ? { cli } : {}) }
+    result[role] = {
+      ...(model ? { model } : {}),
+      ...(cli ? { cli } : {}),
+      ...(reasoning ? { reasoning } : {}),
+    }
   }
   return Object.keys(result).length > 0 ? result : null
 }
@@ -3117,13 +3126,14 @@ export function resolveSprintEngineArtifactEditorPath(
 }
 
 /**
- * Resolve a roster role's CLI + model from the run's `roleRuntimes` map
- * (run.yaml via the projection — the single source of truth for what every
- * spawn of that role must launch with, MC-1450). Returns null when the role
- * is not in the map (legacy runs mid-flight, pre-first-projection window):
- * callers must then preserve what they already have — never substitute.
- * An entry without a model resolves `cliModel: undefined` = no `--model`
- * flag (the CLI's own default, deliberately).
+ * Resolve a roster role's CLI + model + reasoning effort from the run's
+ * `roleRuntimes` map (run.yaml via the projection — the single source of truth
+ * for what every spawn of that role must launch with, MC-1450). Returns null
+ * when the role is not in the map (legacy runs mid-flight, pre-first-projection
+ * window): callers must then preserve what they already have — never
+ * substitute. An entry without a model resolves `cliModel: undefined` = no
+ * `--model` flag (the CLI's own default, deliberately), and an entry without a
+ * reasoning level resolves `cliReasoning: undefined` = no effort flag.
  *
  * Moved verbatim from `store/slices/runStateSlice.ts` (which re-exports it)
  * so the shared auto-run planner path can resolve runtimes without the store.
@@ -3131,12 +3141,15 @@ export function resolveSprintEngineArtifactEditorPath(
 export function resolveSprintEngineRoleRuntime(
   roleRuntimes: SprintEngineRoleRuntimes | undefined,
   role: SprintEngineRoleId
-): { cli?: AgentCli; cliModel?: string } | null {
+): { cli?: AgentCli; cliModel?: string; cliReasoning?: string } | null {
   const runtime = roleRuntimes?.[role]
   if (!runtime) return null
   return {
     cli: typeof runtime.cli === 'string' && runtime.cli.trim() ? runtime.cli.trim() : undefined,
     cliModel: typeof runtime.model === 'string' && runtime.model.trim() ? runtime.model.trim() : undefined,
+    cliReasoning: typeof runtime.reasoning === 'string' && runtime.reasoning.trim()
+      ? runtime.reasoning.trim()
+      : undefined,
   }
 }
 
@@ -3149,14 +3162,19 @@ export function resolveSprintEngineRoleRuntime(
  * CLI's own default even when the role configures a model; a role config with
  * no model resolves `cliModel: undefined` = no `--model` flag.
  *
+ * The reasoning-effort level (MC-1885) layers identically: an override
+ * `reasoning: null` pins the CLI's own default effort even when the role
+ * configures a level, and a role config with no level resolves
+ * `cliReasoning: undefined` = no effort flag.
+ *
  * Moved verbatim from `store/slices/runStateSlice.ts` (which re-exports it)
  * so the shared auto-run planner path can resolve runtimes without the store.
  */
 export function resolveSprintEngineAgentRuntime(
   roleRuntimes: SprintEngineRoleRuntimes | undefined,
   role: SprintEngineRoleId,
-  current: Pick<AgentState, 'cli' | 'cliModel' | 'cliRuntimeOverride'> | undefined,
-): { cli?: AgentCli; cliModel?: string } {
+  current: Pick<AgentState, 'cli' | 'cliModel' | 'cliReasoning' | 'cliRuntimeOverride'> | undefined,
+): { cli?: AgentCli; cliModel?: string; cliReasoning?: string } {
   const config = resolveSprintEngineRoleRuntime(roleRuntimes, role)
   const override = current?.cliRuntimeOverride
   const overrideCli = typeof override?.cli === 'string' && override.cli.trim() ? override.cli.trim() : undefined
@@ -3168,5 +3186,10 @@ export function resolveSprintEngineAgentRuntime(
     : config
       ? config.cliModel
       : current?.cliModel
-  return { cli, cliModel }
+  const cliReasoning = override !== undefined && override.reasoning !== undefined
+    ? (typeof override.reasoning === 'string' && override.reasoning.trim() ? override.reasoning.trim() : undefined)
+    : config
+      ? config.cliReasoning
+      : current?.cliReasoning
+  return { cli, cliModel, cliReasoning }
 }

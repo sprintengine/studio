@@ -205,8 +205,13 @@ export async function runSprintEngineNewTeamCreation(
         ? { repos: input.repos }
         : {}),
       // Record the roster's per-role model selection so claimed tasks get
-      // stamped with the model that worked them (same as the plan-sourced path).
-      roleRuntimes: buildSprintEngineRoleRuntimes(input.roleModelOverrides, input.roleCliDefaults),
+      // stamped with the model that worked them, and its effort level so every
+      // spawn of the role launches at it (same as the plan-sourced path).
+      roleRuntimes: buildSprintEngineRoleRuntimes(
+        input.roleModelOverrides,
+        input.roleCliDefaults,
+        input.roleReasoningOverrides,
+      ),
       // Persist the enabled role set (init `configuredRoles`, the run's legal
       // role set for plan.add_task/seating) covering the configured-but-not-
       // yet-seated roles under the lazy roster.
@@ -280,6 +285,7 @@ export async function runSprintEnginePlanSourcedCreation(
       roleCounts: input.visibleRoleCounts,
       roleCliDefaults: input.roleCliDefaults,
       roleModelOverrides: input.roleModelOverrides ?? null,
+      roleReasoningOverrides: input.roleReasoningOverrides ?? null,
       initialSpawnRoles: input.initialSpawnRoles ?? null,
       // The run's phase list — forwarded exactly like the new-team path.
       ...(input.defaultPhases !== undefined ? { defaultPhases: input.defaultPhases } : {}),
