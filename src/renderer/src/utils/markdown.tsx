@@ -4,8 +4,33 @@ import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } fr
 import remarkGfm from 'remark-gfm'
 import type { GitLineChange } from './gitDiff'
 
+/**
+ * A document renders at `document` scale; a document read inside a dense
+ * surface (the skill reader) renders at `compact`, where the heading scale is
+ * the surface's own and body copy stays at its body size.
+ */
+export type MarkdownDensity = 'document' | 'compact'
+
+/**
+ * What a link that is not a web URL points at. A renderer that owns a local
+ * corpus — the files of one skill — resolves relative hrefs against it: a hit
+ * opens in place, a miss is stated as a miss rather than rendered as if it
+ * would work.
+ */
+export type MarkdownLinkTarget =
+  | { kind: 'file'; path: string }
+  | { kind: 'dead'; reason: string }
+
+export type MarkdownLinkResolver = {
+  /** null when the href is not this corpus's to own (a scheme, a fragment). */
+  resolve: (href: string) => MarkdownLinkTarget | null
+  open: (path: string) => void
+}
+
 type MarkdownRenderOptions = {
   lineChanges?: GitLineChange[]
+  density?: MarkdownDensity
+  links?: MarkdownLinkResolver
 }
 
 type MarkdownNode = Element | undefined
@@ -13,7 +38,70 @@ type MarkdownComponentProps<TagName extends keyof JSX.IntrinsicElements> =
   React.ComponentPropsWithoutRef<TagName> & ExtraProps
 
 const baseTextClass = 'text-[15px] leading-7 text-[color:var(--text-default)]'
+const compactTextClass = 'text-[12px] leading-[1.65] text-[color:var(--text-default)]'
 const SAFE_MARKDOWN_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
+const LINK_CLASS =
+  'text-[color:var(--accent-primary)] underline underline-offset-2 hover:text-[color:var(--accent-primary-hover)]'
+
+/**
+ * Per-element classes for each density. Hierarchy is carried by weight, colour
+ * and space — no rules under headings — so the two scales differ only in size
+ * and rhythm.
+ */
+type MarkdownScale = {
+  h1: string
+  h2: string
+  h3: string
+  h4: string
+  h5: string
+  h6: string
+  p: string
+  list: string
+  pre: string
+  code: string
+  blockquote: string
+  hr: string
+  table: string
+}
+
+const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
+  document: {
+    h1: 'mt-7 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
+    h2: 'mt-7 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
+    h3: 'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
+    h4: 'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[color:var(--text-strong)]',
+    h5: 'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[color:var(--text-strong)]',
+    h6: 'mt-5 first:mt-0 mb-2 text-sm font-semibold uppercase leading-snug tracking-[0.08em] text-[color:var(--text-default)]',
+    p: `${baseTextClass} mb-4`,
+    list: `mb-4 ml-6 space-y-2 ${baseTextClass}`,
+    pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-[13px] leading-6 text-[color:var(--terminal-fg)]',
+    // A long path wraps instead of pushing the line box wider than the column;
+    // `break-words` keeps a short token whole and moves it down instead.
+    code: 'rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
+    blockquote:
+      'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
+    hr: 'my-6 border-0 border-t border-[color:var(--border-default)]',
+    table: 'w-full border-collapse text-left text-[13px] text-[color:var(--text-default)]',
+  },
+  compact: {
+    h1: 'mt-6 first:mt-0 mb-3.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-[color:var(--text-strong)]',
+    h2: 'mt-[30px] first:mt-0 mb-2.5 text-[13px] font-semibold leading-tight text-[color:var(--text-strong)]',
+    h3: 'mt-[22px] first:mt-0 mb-2 text-[12px] font-semibold leading-snug text-[color:var(--text-strong)]',
+    h4: 'mt-[18px] first:mt-0 mb-1.5 text-[12px] font-semibold leading-snug text-[color:var(--text-default)]',
+    h5: 'mt-[18px] first:mt-0 mb-1.5 text-[12px] font-medium leading-snug text-[color:var(--text-default)]',
+    h6: 'mt-[18px] first:mt-0 mb-1.5 text-[11px] font-semibold uppercase leading-snug tracking-[0.08em] text-[color:var(--text-muted)]',
+    p: `${compactTextClass} mb-3`,
+    list: `mb-3 ml-[18px] space-y-1.5 ${compactTextClass}`,
+    pre: 'my-3.5 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-[11px] leading-[1.7] text-[color:var(--text-default)]',
+    // Inline code sits inside running text, so it matches that text's size;
+    // inside a fence it takes the fence's, which is already set on the <pre>.
+    code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
+    blockquote:
+      'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-3.5 text-[color:var(--text-muted)]',
+    hr: 'my-[22px] border-0 border-t border-[color:var(--border-subtle)]',
+    table: 'w-full border-collapse text-left text-[11px] text-[color:var(--text-default)]',
+  },
+}
 
 function joinClasses(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(' ')
@@ -70,83 +158,74 @@ function changedBlockClass(
 }
 
 export function renderMarkdown(markdown: string, options: MarkdownRenderOptions = {}): React.ReactNode {
-  const { lineChanges } = options
+  const { lineChanges, links } = options
+  const scale = MARKDOWN_SCALE[options.density ?? 'document']
 
   const components: Components = {
     h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
-      <h1
-        className={joinClasses(
-          className,
-          'mt-7 first:mt-0 mb-4 text-3xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <h1 className={joinClasses(className, scale.h1, changedBlockClass(node, lineChanges))}>
         {children}
       </h1>
     ),
     h2: ({ node, children, className }: MarkdownComponentProps<'h2'>) => (
-      <h2
-        className={joinClasses(
-          className,
-          'mt-7 first:mt-0 mb-3 text-2xl font-semibold leading-tight tracking-tight text-[color:var(--text-strong)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <h2 className={joinClasses(className, scale.h2, changedBlockClass(node, lineChanges))}>
         {children}
       </h2>
     ),
     h3: ({ node, children, className }: MarkdownComponentProps<'h3'>) => (
-      <h3
-        className={joinClasses(
-          className,
-          'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <h3 className={joinClasses(className, scale.h3, changedBlockClass(node, lineChanges))}>
         {children}
       </h3>
     ),
     h4: ({ node, children, className }: MarkdownComponentProps<'h4'>) => (
-      <h4
-        className={joinClasses(
-          className,
-          'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[color:var(--text-strong)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <h4 className={joinClasses(className, scale.h4, changedBlockClass(node, lineChanges))}>
         {children}
       </h4>
     ),
     h5: ({ node, children, className }: MarkdownComponentProps<'h5'>) => (
-      <h5
-        className={joinClasses(
-          className,
-          'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[color:var(--text-strong)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <h5 className={joinClasses(className, scale.h5, changedBlockClass(node, lineChanges))}>
         {children}
       </h5>
     ),
     h6: ({ node, children, className }: MarkdownComponentProps<'h6'>) => (
-      <h6
-        className={joinClasses(
-          className,
-          'mt-5 first:mt-0 mb-2 text-sm font-semibold uppercase leading-snug tracking-[0.08em] text-[color:var(--text-default)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <h6 className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>
         {children}
       </h6>
     ),
     p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
-      <p
-        className={joinClasses(className, baseTextClass, 'mb-4', changedBlockClass(node, lineChanges))}
-      >
+      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>
         {children}
       </p>
     ),
     a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
+      const target = links && typeof href === 'string' ? links.resolve(href) : null
+
+      if (target?.kind === 'file') {
+        const path = target.path
+        return (
+          <button
+            type="button"
+            onClick={() => links?.open(path)}
+            className={joinClasses(className, LINK_CLASS, 'cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] leading-[inherit]')}
+          >
+            {children}
+          </button>
+        )
+      }
+
+      // Not an error — the file is simply not here. Muted and dotted, never the
+      // danger colour, and it says why on hover rather than looking clickable.
+      if (target?.kind === 'dead') {
+        return (
+          <span
+            title={target.reason}
+            className={joinClasses(className, 'cursor-help text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2')}
+          >
+            {children}
+          </span>
+        )
+      }
+
       if (!isSafeMarkdownUrl(href)) {
         return <span className={joinClasses(className, 'text-[color:var(--text-default)]')}>{children}</span>
       }
@@ -156,7 +235,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
           href={href}
           target="_blank"
           rel="noreferrer"
-          className={joinClasses(className, 'text-[color:var(--accent-primary)] underline underline-offset-2 hover:text-[color:var(--accent-primary-hover)]')}
+          className={joinClasses(className, LINK_CLASS)}
         >
           {children}
         </a>
@@ -173,44 +252,23 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       </em>
     ),
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
-      <code
-        className={joinClasses(
-          className,
-          'rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)]'
-        )}
-      >
-        {children}
-      </code>
+      <code className={joinClasses(className, scale.code)}>{children}</code>
     ),
     pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => (
-      <pre
-        className={joinClasses(
-          className,
-          'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-[13px] leading-6 text-[color:var(--terminal-fg)]',
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>
         {children}
       </pre>
     ),
     blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => (
       <blockquote
-        className={joinClasses(
-          className,
-          'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
-          changedBlockClass(node, lineChanges)
-        )}
+        className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}
       >
         {children}
       </blockquote>
     ),
     ul: ({ node, children, className }: MarkdownComponentProps<'ul'>) => (
       <ul
-        className={joinClasses(
-          className,
-          'mb-4 ml-6 list-disc space-y-2 text-[15px] leading-7 text-[color:var(--text-default)]',
-          changedBlockClass(node, lineChanges)
-        )}
+        className={joinClasses(className, scale.list, 'list-disc', changedBlockClass(node, lineChanges))}
       >
         {children}
       </ul>
@@ -220,11 +278,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
         start={start}
         reversed={reversed}
         type={type}
-        className={joinClasses(
-          className,
-          'mb-4 ml-6 list-decimal space-y-2 text-[15px] leading-7 text-[color:var(--text-default)]',
-          changedBlockClass(node, lineChanges)
-        )}
+        className={joinClasses(className, scale.list, 'list-decimal', changedBlockClass(node, lineChanges))}
       >
         {children}
       </ol>
@@ -255,11 +309,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     ),
     table: ({ node, children, className }: MarkdownComponentProps<'table'>) => (
       <div className={joinClasses('my-4 overflow-x-auto', changedBlockClass(node, lineChanges))}>
-        <table
-          className={joinClasses(className, 'w-full border-collapse text-left text-[13px] text-[color:var(--text-default)]')}
-        >
-          {children}
-        </table>
+        <table className={joinClasses(className, scale.table)}>{children}</table>
       </div>
     ),
     th: ({ children, className, align }: MarkdownComponentProps<'th'>) => (
@@ -276,15 +326,20 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       </td>
     ),
     hr: ({ node, className }: MarkdownComponentProps<'hr'>) => (
-      <hr
-        className={joinClasses(className, 'my-6 border-0 border-t border-[color:var(--border-default)]', changedBlockClass(node, lineChanges))}
-      />
+      <hr className={joinClasses(className, scale.hr, changedBlockClass(node, lineChanges))} />
     ),
   }
 
+  // A resolver's own hrefs survive the protocol guard so the `a` component can
+  // see them; everything else still has to be http, https or mailto to keep
+  // its href at all.
+  const urlTransform: UrlTransform = links
+    ? (url, key, node) => (links.resolve(url) ? url : safeMarkdownUrlTransform(url, key, node))
+    : safeMarkdownUrlTransform
+
   return (
     <div className="markdown-rendered">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={safeMarkdownUrlTransform}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
         {markdown}
       </ReactMarkdown>
     </div>

@@ -12,7 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ScannedSkill, SkillFileRef, SkillSource } from '../../../../../../../shared/skills'
-import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
+import { GhostButton, InlineNotice, Spinner, Tooltip } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { renderMarkdown, type MarkdownLinkResolver } from '../../../../../utils/markdown'
 import {
@@ -44,10 +44,27 @@ export function SkillReader({
   const active = files.find((file) => file.path === activePath) ?? files[0] ?? null
   const { read, retry } = useSkillFile(source.id, skill.id, active?.path ?? '')
 
+  // A link followed from three screens down would otherwise open the next file
+  // already scrolled past its own beginning. Only when it is above the fold —
+  // a reader that has not scrolled stays exactly where it is.
+  const documentPane = useRef<HTMLDivElement>(null)
+  const firstFile = useRef(true)
+  useEffect(() => {
+    if (firstFile.current) {
+      firstFile.current = false
+      return
+    }
+    const pane = documentPane.current
+    if (pane && pane.getBoundingClientRect().top < 0) pane.scrollIntoView({ block: 'start' })
+  }, [activePath])
+
   return (
     <div className="mt-5 grid min-w-0 items-start gap-0 lg:grid-cols-[196px_minmax(0,1fr)]">
       <SkillFileList files={files} activePath={active?.path ?? ''} onOpen={setActivePath} />
-      <div className="min-w-0 border-t border-[color:var(--border-subtle)] pt-4 lg:border-l lg:border-t-0 lg:pl-7 lg:pt-0">
+      <div
+        ref={documentPane}
+        className="min-w-0 border-t border-[color:var(--border-subtle)] pt-4 lg:border-l lg:border-t-0 lg:pl-7 lg:pt-0"
+      >
         <div className="max-w-[74ch] min-w-0">
           {!active ? (
             <p className="text-[12px] text-[color:var(--text-subtle)]">This skill lists no files.</p>
@@ -85,31 +102,34 @@ function SkillFileList({
           const current = file.path === activePath
           return (
             <li key={file.path} className="min-w-0">
-              <button
-                type="button"
-                onClick={() => onOpen(file.path)}
-                aria-current={current ? 'true' : undefined}
-                title={file.path}
-                className={`flex w-full items-center gap-2 rounded-md border-l-2 px-2 py-1 text-left transition-colors ${FOCUS_RING_CLASS} ${
-                  current
-                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-selected)]'
-                    : 'border-transparent hover:bg-[color:var(--bg-hover)]'
-                }`}
-              >
-                <span
-                  className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
-                    current ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
+              {/* The rail is 196px, so `scripts/block-dangerous-git.sh` reads
+                  truncated: hover or focus carries the path it would install. */}
+              <Tooltip content={file.path} placement="right" wrapperClassName="block w-full">
+                <button
+                  type="button"
+                  onClick={() => onOpen(file.path)}
+                  aria-current={current ? 'true' : undefined}
+                  className={`flex w-full items-center gap-2 rounded-md border-l-2 px-2 py-1 text-left transition-colors ${FOCUS_RING_CLASS} ${
+                    current
+                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--bg-selected)]'
+                      : 'border-transparent hover:bg-[color:var(--bg-hover)]'
                   }`}
                 >
-                  {file.path}
-                </span>
-                {file.isEntry ? (
-                  <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">Entry</span>
-                ) : null}
-                <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-disabled)]">
-                  {formatSkillFileSize(file.size)}
-                </span>
-              </button>
+                  <span
+                    className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
+                      current ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
+                    }`}
+                  >
+                    {file.path}
+                  </span>
+                  {file.isEntry ? (
+                    <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">Entry</span>
+                  ) : null}
+                  <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-disabled)]">
+                    {formatSkillFileSize(file.size)}
+                  </span>
+                </button>
+              </Tooltip>
             </li>
           )
         })}
@@ -198,20 +218,15 @@ function useSkillFile(
 ): { read: SkillFileRead; retry: () => void } {
   const [read, setRead] = useState<SkillFileRead>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
+  // Keyed by source AND skill, not by path alone: two skills both have a
+  // SKILL.md, and serving one skill's bytes under the other's name is the one
+  // way a cache here could lie.
   const cache = useRef<Map<string, string>>(new Map())
-
-  // Cached bytes belong to one skill of one source; anything else is a
-  // different corpus and starts empty.
-  const corpus = `${sourceId}::${skillId}`
-  const cachedCorpus = useRef(corpus)
-  if (cachedCorpus.current !== corpus) {
-    cachedCorpus.current = corpus
-    cache.current = new Map()
-  }
+  const key = `${sourceId}::${skillId}::${path}`
 
   useEffect(() => {
     if (!path) return
-    const cached = cache.current.get(path)
+    const cached = cache.current.get(key)
     if (cached !== undefined) {
       setRead({ status: 'ready', content: cached })
       return
@@ -230,7 +245,7 @@ function useSkillFile(
           setRead({ status: 'error', message: result.message })
           return
         }
-        cache.current.set(path, result.content)
+        cache.current.set(key, result.content)
         setRead({ status: 'ready', content: result.content })
       })
       .catch((error: unknown) => {
@@ -240,12 +255,12 @@ function useSkillFile(
     return () => {
       cancelled = true
     }
-  }, [sourceId, skillId, path, nonce])
+  }, [key, sourceId, skillId, path, nonce])
 
   const retry = useCallback(() => {
-    cache.current.delete(path)
+    cache.current.delete(key)
     setNonce((value) => value + 1)
-  }, [path])
+  }, [key])
 
   return { read, retry }
 }

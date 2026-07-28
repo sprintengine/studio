@@ -271,7 +271,8 @@ run('markdown renders as a document, at the surface’s own scale', () => {
   assert.ok(markup.includes('<ul') && markup.includes('<ol') && markup.includes('<blockquote'))
   assert.ok(markup.includes('<pre') && markup.includes('const x = 1'))
   // Inline code sits inside running text: it takes that text's size and wraps.
-  assert.ok(markup.includes('text-[0.92em]') && markup.includes('[overflow-wrap:anywhere]'))
+  const code = markup.slice(markup.indexOf('<code'), markup.indexOf('inline/path.ts'))
+  assert.ok(code.includes('text-[0.92em]') && code.includes('break-words'))
   assert.ok(!markup.includes('text-3xl'), 'the document scale would dwarf the page it sits in')
 })
 
