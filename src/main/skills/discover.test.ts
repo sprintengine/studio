@@ -190,6 +190,39 @@ async function statesRateLimitExhaustion(): Promise<void> {
   console.log('ok - rate-limit exhaustion is stated, and not cached past its window')
 }
 
+async function statesAnAbandonedSearch(): Promise<void> {
+  const github = stubGitHub(() => ({ body: { total_count: 0, incomplete_results: true, items: [] } }))
+  const client = createSkillDiscoveryClient({ fetcher: github.fetcher })
+
+  const found = await client.searchSkills('extract text from PDFs', 'ghp_token')
+  assert.deepEqual(found.results, [])
+  assert.equal(
+    found.degraded?.reason,
+    'unavailable',
+    'GitHub gives up on a slow search with HTTP 200 and a short list — unstated, that reads as no matches',
+  )
+
+  // A partial answer is not the answer, so it is not what the next query gets.
+  await client.searchSkills('extract text from PDFs', 'ghp_token')
+  assert.equal(github.calls.length, 2)
+  console.log('ok - a search GitHub abandoned says so instead of reading as no matches')
+}
+
+async function keepsARejectedCredentialApartFromAnExhaustedBudget(): Promise<void> {
+  const github = stubGitHub(() => ({
+    status: 403,
+    body: { message: 'Bad credentials' },
+    // The budget is only half-reported, so it must not be read as 0 remaining.
+    headers: { 'x-ratelimit-limit': '10' },
+  }))
+  const client = createSkillDiscoveryClient({ fetcher: github.fetcher })
+
+  const found = await client.searchSkills('extract text from PDFs', 'ghp_expired')
+  assert.equal(found.rateLimit, null)
+  assert.equal(found.degraded?.reason, 'needs_token', 'a rejected token is a credential problem, not a spent budget')
+  console.log('ok - a rejected credential is not reported as a used-up limit')
+}
+
 async function repeatsWithinTheCacheWindowMakeNoRequest(): Promise<void> {
   let clock = 1_000_000
   const github = stubGitHub(() => ({ body: codeSearchBody([PDF_HIT]) }))
@@ -247,6 +280,8 @@ async function main(): Promise<void> {
   await browsesUnauthenticatedAndStillFlagsTheMissingToken()
   await putsCuratedRepositoriesFirstWithoutInventingStars()
   await statesRateLimitExhaustion()
+  await statesAnAbandonedSearch()
+  await keepsARejectedCredentialApartFromAnExhaustedBudget()
   await repeatsWithinTheCacheWindowMakeNoRequest()
   await refusesAQueryTooShortToSearch()
   await reportsAnUnreachableGitHub()

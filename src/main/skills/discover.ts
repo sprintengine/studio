@@ -52,7 +52,7 @@ export type SkillDiscoveryClient = {
   listPopularSkillRepos(token: string): Promise<SkillDiscoveryResult<SkillRepoHit>>
 }
 
-type CacheEntry = { at: number; value: SkillDiscoveryResult<never> }
+type CacheEntry = { at: number; value: SkillDiscoveryResult<unknown> }
 
 export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}): SkillDiscoveryClient {
   const now = options.now ?? Date.now
@@ -66,7 +66,7 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
       cache.delete(key)
       return null
     }
-    return entry.value as unknown as SkillDiscoveryResult<T>
+    return entry.value as SkillDiscoveryResult<T>
   }
 
   /**
@@ -80,7 +80,7 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
       const oldest = cache.keys().next()
       if (!oldest.done) cache.delete(oldest.value)
     }
-    cache.set(key, { at: now(), value: value as unknown as SkillDiscoveryResult<never> })
+    cache.set(key, { at: now(), value })
     return value
   }
 
@@ -121,7 +121,7 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
       return remember(key, {
         results: response.items.map(toSearchHit).filter(isPresent),
         rateLimit: response.rateLimit,
-        degraded: null,
+        degraded: response.condition,
       })
     },
 
@@ -162,11 +162,9 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
 
       const responses = [...byStars, curated]
       const results = [...merged.values()].sort(curatedThenStars)
-      const failures = responses.filter((response) => !response.ok)
-      const degraded =
-        failures.length === responses.length && results.length === 0
-          ? (failures[0].condition ?? condition('unavailable', 'GitHub did not answer the search.'))
-          : (failures.find((response) => response.condition !== null)?.condition ?? null)
+      // Partial answers still ship their results; the condition says what is
+      // missing from them, which is the whole reason it travels alongside.
+      const degraded = responses.find((response) => response.condition !== null)?.condition ?? null
 
       return remember(key, { results, rateLimit: tightestLimit(responses), degraded })
     },
@@ -199,8 +197,14 @@ function searchUrl(
 
 type SearchItem = Record<string, unknown>
 
+/**
+ * `ok` is whether GitHub answered at all; `condition` is what to say about the
+ * answer. They are separate because a search GitHub abandoned answers 200 with
+ * a partial list — results worth showing, and a condition that must travel with
+ * them.
+ */
 type SearchResponse =
-  | { ok: true; items: SearchItem[]; rateLimit: SkillRateLimit | null; condition: null }
+  | { ok: true; items: SearchItem[]; rateLimit: SkillRateLimit | null; condition: SkillDiscoveryCondition | null }
   | { ok: false; items: never[]; rateLimit: SkillRateLimit | null; condition: SkillDiscoveryCondition }
 
 function unauthenticated(): SearchResponse {
@@ -225,13 +229,16 @@ async function fetchSearch(
         signal: controller.signal,
       })
     } catch (error) {
+      const timedOut = error instanceof Error && error.name === 'AbortError'
       return {
         ok: false,
         items: [],
         rateLimit: null,
         condition: condition(
           'unavailable',
-          `Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`
+          timedOut
+            ? 'GitHub did not answer the search in time.'
+            : `Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`
         ),
       }
     }
@@ -241,9 +248,9 @@ async function fetchSearch(
       return { ok: false, items: [], rateLimit, condition: await failureCondition(response, rateLimit) }
     }
 
-    let body: { items?: unknown }
+    let body: { items?: unknown; incomplete_results?: unknown }
     try {
-      body = (await response.json()) as { items?: unknown }
+      body = (await response.json()) as { items?: unknown; incomplete_results?: unknown }
     } catch {
       return {
         ok: false,
@@ -255,6 +262,17 @@ async function fetchSearch(
     const items = Array.isArray(body.items)
       ? body.items.filter((item): item is SearchItem => typeof item === 'object' && item !== null)
       : []
+    // GitHub gives up on a search that takes too long and answers 200 with a
+    // short — sometimes empty — list. Unstated, that is exactly the silent
+    // "no matches" this surface must never show.
+    if (body.incomplete_results === true) {
+      return {
+        ok: true,
+        items,
+        rateLimit,
+        condition: condition('unavailable', 'GitHub stopped this search early, so these results are partial.'),
+      }
+    }
     return { ok: true, items, rateLimit, condition: null }
   } finally {
     clearTimeout(timeout)
@@ -291,18 +309,28 @@ async function githubMessage(response: Response): Promise<string | null> {
   }
 }
 
+/**
+ * A budget is reported only when GitHub sent both halves of it. A missing
+ * `remaining` header must not read as 0, which is the value that decides
+ * whether a 403 was exhaustion or a rejected credential.
+ */
 function readRateLimit(response: Response): SkillRateLimit | null {
-  const limit = Number(response.headers.get('x-ratelimit-limit'))
-  const remaining = Number(response.headers.get('x-ratelimit-remaining'))
-  if (!Number.isFinite(limit) || !Number.isFinite(remaining) || response.headers.get('x-ratelimit-limit') === null) {
-    return null
-  }
-  const reset = Number(response.headers.get('x-ratelimit-reset'))
+  const limit = numericHeader(response, 'x-ratelimit-limit')
+  const remaining = numericHeader(response, 'x-ratelimit-remaining')
+  if (limit === null || remaining === null) return null
+  const reset = numericHeader(response, 'x-ratelimit-reset')
   return {
     limit,
     remaining,
-    resetAt: Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000).toISOString() : '',
+    resetAt: reset !== null && reset > 0 ? new Date(reset * 1000).toISOString() : '',
   }
+}
+
+function numericHeader(response: Response, name: string): number | null {
+  const raw = response.headers.get(name)
+  if (raw === null || raw.trim() === '') return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
 }
 
 function retryAfterFrom(response: Response, rateLimit: SkillRateLimit | null): number {
