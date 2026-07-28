@@ -4,7 +4,7 @@ import {
   isNoRolesRosterRef,
 } from '../../../../shared/sprintengine/run-types'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
-import { isConnectorsFoldedSettingsTab } from '../../components/settings/extensionsRoute'
+import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import { dispatchExtensionsSurfaceTarget } from '../../components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import type {
   AgentCli,
@@ -1315,12 +1315,13 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     openSettingsOverlay: (opts) => {
       // The MCPs / Skill packs / Extensions settings tabs folded into the
       // connectors surface (T3), which is the Extensions door now (MC-1847).
-      // Deep-links that once opened one of those tabs land on the door's
-      // marketplace grid, so no caller has to know either move happened. The
-      // latch dispatch stays outside the producer — its listeners run
-      // synchronously and must never observe a mid-update store.
+      // Deep-links that once opened one of those tabs land on the door, so no
+      // caller has to know either move happened; the old skill-packs tab lands
+      // on Skills, which is what it was asking for (MC-1936). The latch
+      // dispatch stays outside the producer — its listeners run synchronously
+      // and must never observe a mid-update store.
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
-        dispatchExtensionsSurfaceTarget('browse')
+        dispatchExtensionsSurfaceTarget(opts?.initialTab === SKILLS_SETTINGS_TAB ? 'skills' : 'browse')
         set((state) => {
           state.activeGlobalSurface = 'extensions'
           // The door mounts in the card region UNDER the settings overlay, so

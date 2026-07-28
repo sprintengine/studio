@@ -250,8 +250,12 @@ export async function uninstallSkill(options: {
 }): Promise<SkillUninstallResult> {
   const root = resolve(options.workspaceRoot)
   const dirName = options.dirName.trim()
-  if (dirName.length === 0 || !isSafeSegment(dirName)) {
-    return { ok: false, message: 'That is not a skill directory name.' }
+  // One path segment, or nothing: a name carrying a separator is refused
+  // outright rather than resolved and then found to point outside the
+  // workspace, so the refusal is stated instead of looking like a sweep that
+  // happened to remove nothing.
+  if (dirName.length === 0 || dirName.includes('/') || !isSafeSegment(dirName)) {
+    return { ok: false, message: `"${options.dirName}" is not a skill directory name.` }
   }
 
   const removedPaths: string[] = []

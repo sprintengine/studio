@@ -72,8 +72,8 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
 
   const applyTargetView = useCallback(
     (view: ExtensionsSurfaceView) => {
-      if (view === 'installed') {
-        setSection('installed')
+      if (view === 'installed' || view === 'skills') {
+        setSection(view)
         return
       }
       // The old modal's Browse deep-link landed on the full grid, not Featured.

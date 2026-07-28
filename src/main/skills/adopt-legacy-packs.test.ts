@@ -61,6 +61,18 @@ async function main(): Promise<void> {
     assert.deepEqual((await store.listSources()).filter((source) => source.kind === 'github'), [])
   }
 
+  // With no workspace open there is nowhere to look, so the migration stays
+  // pending rather than marking itself done against an empty search.
+  {
+    const { store } = await storeInTemp()
+    assert.deepEqual(await adoptLegacySkillPackSources({ store, workspaceRoots: [] }), [])
+    assert.equal(await store.hasAdoptedLegacyPacks(), false)
+
+    const workspaceRoot = await workspaceHolding(['ui-ux-pro-max'])
+    const later = await adoptLegacySkillPackSources({ store, workspaceRoots: [workspaceRoot] })
+    assert.deepEqual(later.map((source) => source.repo), ['nextlevelbuilder/ui-ux-pro-max-skill'])
+  }
+
   // Every workspace is searched, and a pack present in any of them is adopted.
   {
     const { store } = await storeInTemp()

@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, stat } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { ScannedSkill, SkillFileRef } from '../../shared/skills'
-import { installSkill, planSkillInstall, resolveSkillFilePath } from './install'
+import {
+  installSkill,
+  installSkillDirectory,
+  planSkillInstall,
+  resolveSkillFilePath,
+  uninstallSkill,
+} from './install'
 
 function file(path: string): SkillFileRef {
   return { path, size: 1, blobSha: '', isEntry: path === 'SKILL.md' }
@@ -133,12 +140,90 @@ async function refusesWithoutAHarness(): Promise<void> {
   if (!result.ok) assert.match(result.message, /No agent CLI/)
 }
 
+// A skill that is already a directory on this machine — a plugin bundle's skill
+// component — installs by the same copy, subdirectories and all.
+async function installsALocalDirectory(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-skill-localdir-'))
+  const workspace = join(temp, 'ws')
+  const source = join(temp, 'bundle', 'my-skill')
+  await mkdir(workspace, { recursive: true })
+  await mkdir(join(source, 'scripts'), { recursive: true })
+  await writeFile(join(source, 'SKILL.md'), '---\nname: my-skill\n---\n')
+  await writeFile(join(source, 'scripts', 'run.sh'), 'echo hi\n')
+
+  const result = await installSkillDirectory({
+    workspaceRoot: workspace,
+    sourceDir: source,
+    dirName: 'my-skill',
+    harnesses: ['agents', 'claude'],
+  })
+  assert.equal(result.ok, true, result.ok ? '' : result.message)
+  if (!result.ok) return
+  assert.deepEqual(result.harnesses, ['agents', 'claude'])
+  assert.equal(result.fileCount, 2)
+  assert.ok(existsSync(join(workspace, '.agents', 'skills', 'my-skill', 'scripts', 'run.sh')), 'subdirectories survive')
+  assert.ok(existsSync(join(workspace, '.claude', 'skills', 'my-skill', 'SKILL.md')), 'every harness gets a copy')
+
+  const empty = await installSkillDirectory({
+    workspaceRoot: workspace,
+    sourceDir: join(temp, 'bundle', 'nothing-here'),
+    dirName: 'nothing-here',
+    harnesses: ['agents'],
+  })
+  assert.equal(empty.ok, false, 'a directory with no files is refused, not silently installed')
+}
+
+// Removal sweeps every harness that could hold a copy: one left behind is a
+// skill the user believes they removed and an agent still reads.
+async function uninstallSweepsEveryHarness(): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'multicode-skill-uninstall-'))
+  const workspace = join(temp, 'ws')
+  const source = join(temp, 'my-skill')
+  await mkdir(workspace, { recursive: true })
+  await mkdir(source, { recursive: true })
+  await writeFile(join(source, 'SKILL.md'), '---\nname: my-skill\n---\n')
+  await installSkillDirectory({
+    workspaceRoot: workspace,
+    sourceDir: source,
+    dirName: 'my-skill',
+    harnesses: ['agents', 'claude'],
+  })
+
+  const removed = await uninstallSkill({
+    workspaceRoot: workspace,
+    dirName: 'my-skill',
+    // Includes a harness that never held a copy: it must not be reported as one
+    // this call cleaned up.
+    harnesses: ['agents', 'claude', 'codex'],
+  })
+  assert.equal(removed.ok, true)
+  if (!removed.ok) return
+  assert.equal(removed.removedPaths.length, 2, 'only the harnesses that held a copy are reported')
+  assert.ok(!existsSync(join(workspace, '.agents', 'skills', 'my-skill')))
+  assert.ok(!existsSync(join(workspace, '.claude', 'skills', 'my-skill')))
+
+  // Already gone is an empty sweep, not a failure — each caller decides what
+  // that means to it.
+  const again = await uninstallSkill({ workspaceRoot: workspace, dirName: 'my-skill', harnesses: ['agents'] })
+  assert.equal(again.ok, true)
+  if (again.ok) assert.deepEqual(again.removedPaths, [])
+
+  // A name that is not one path segment is refused outright, never resolved
+  // and quietly found to point outside the workspace.
+  for (const dirName of ['../../etc', 'a/b', '..', '']) {
+    const refused = await uninstallSkill({ workspaceRoot: workspace, dirName, harnesses: ['agents'] })
+    assert.equal(refused.ok, false, `"${dirName}" is refused by name`)
+  }
+}
+
 async function main(): Promise<void> {
   await installsWholeDirectory()
   await reinstallReplacesRatherThanMerges()
   await rejectsEscapingPaths()
   resolvesOnlyInsideTheSkill()
   await refusesWithoutAHarness()
+  await installsALocalDirectory()
+  await uninstallSweepsEveryHarness()
   console.log('skills install: ok')
 }
 

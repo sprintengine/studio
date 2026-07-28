@@ -17,6 +17,11 @@ export const EXTENSIONS_BROWSE_DEEPLINK = 'extensions:browse'
 // somewhere real rather than on nothing.
 export const CONNECTORS_FOLDED_SETTINGS_TABS = ['mcps', 'skill-packs', 'extensions'] as const
 
+// The folded tab that asked for skills. It routes to the Skills rail row rather
+// than the marketplace grid the other two land on: the packs it named are gone,
+// but what it was asking for is exactly what Skills shows.
+export const SKILLS_SETTINGS_TAB = 'skill-packs'
+
 // True when a settings-overlay `initialTab` targets one of the folded tabs (or
 // the legacy Extensions browse deep-link); such callers route to the Connectors
 // surface rather than a Settings tab that no longer exists.

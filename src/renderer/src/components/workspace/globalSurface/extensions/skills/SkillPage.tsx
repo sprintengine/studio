@@ -66,8 +66,12 @@ export function SkillPage({
         <div className="min-w-0 flex-1">
           <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">{skill.name}</h3>
           {embedded ? null : (
+            /* The back crumb above already names the source, so repeating it
+               here would state the same repository twice, two lines apart. */
             <p className="mt-0.5 text-[11px] text-[color:var(--text-muted)]">
-              {[sourceDisplayName(source), `${fileCount} file${fileCount === 1 ? '' : 's'}`].join(' · ')}
+              {[onBack ? null : sourceDisplayName(source), `${fileCount} file${fileCount === 1 ? '' : 's'}`]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           )}
         </div>

@@ -1,3 +1,4 @@
+import { SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import type { LearningItem } from './types'
 
 export const LEARNING_ITEMS: readonly LearningItem[] = [
@@ -360,7 +361,8 @@ export const LEARNING_ITEMS: readonly LearningItem[] = [
     action: {
       label: 'Open Extensions',
       kind: 'open-settings-tab',
-      args: { tab: 'extensions' },
+      // Routes to the door's Skills row, which is what this lesson is about.
+      args: { tab: SKILLS_SETTINGS_TAB },
     },
   },
   {

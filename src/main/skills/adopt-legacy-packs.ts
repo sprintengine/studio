@@ -46,6 +46,10 @@ export async function adoptLegacySkillPackSources(
   options: AdoptLegacySkillPacksOptions
 ): Promise<SkillSource[]> {
   if (await options.store.hasAdoptedLegacyPacks()) return []
+  // Nowhere to look is not "looked and found nothing": the door opens with no
+  // workspace, and marking the migration done there would mean the workspace
+  // holding a pack is never checked at all.
+  if (options.workspaceRoots.length === 0) return []
 
   const installed = options.isInstalled ?? isSkillInstalled
   const adopted: SkillSource[] = []
