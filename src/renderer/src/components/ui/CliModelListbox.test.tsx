@@ -416,6 +416,38 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
+  // Portaling the menu to <body> moves it out of the row in the DOM, but NOT in
+  // the React tree — React still bubbles the menu's events through the row that
+  // hosts the picker. The row reads Enter/Space as "select this row", so before
+  // the menu kept its keys to itself the browser saw: the row's handler
+  // preventDefault()s the key (the focused level's button never activates) and
+  // re-selects the model, which in the composer also closes the runtime popover.
+  // A keyboard user could open the menu and never choose from it.
+  await run('a key pressed inside the menu never reaches the row underneath it', async () => {
+    const models: Array<string | null> = []
+    const view = mount({ onSelectModel: (_cli: string, model: string | null) => models.push(model) })
+    await view.click(view.pickers()[0])
+    const items = view.menuItems()
+    assert.ok(items.length > 0, 'the menu is open')
+    for (const key of ['Enter', ' ', 'ArrowDown', 'ArrowUp']) {
+      await view.key(items[0], key)
+    }
+    assert.deepEqual(models, [], 'no key inside the menu re-selects the row that hosts the picker')
+    view.unmount()
+  })
+
+  await run('choosing a level hands focus back to the trigger', async () => {
+    const view = mount({ effectiveReasoningFor: () => 'high' })
+    const trigger = view.pickers()[0]
+    await view.click(trigger)
+    await view.click(view.menuItems().find((item) => item.textContent?.includes('Low')))
+    // Choosing unmounts the menu, and with it the focused item. Without the
+    // hand-back, focus falls to <body> and the keyboard user is stranded
+    // outside the control they were just operating.
+    assert.equal(dom.window.document.activeElement, trigger, 'focus returns to the picker trigger')
+    view.unmount()
+  })
+
   // The picker's menu is portaled to <body>, which puts it OUTSIDE the surface
   // of any popover hosting the listbox. Popover dismisses on a mousedown its
   // surface does not contain, so without a guard the parent would close on the
