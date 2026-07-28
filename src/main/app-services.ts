@@ -33,6 +33,7 @@ import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillPackService } from './skill-pack-service'
+import { createSkillsService } from './skills'
 import { createWorkspaceSkillsService } from './workspace-skills-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
 import { createSprintEngineAutomationService } from './sprintengine-automation-service'
@@ -423,6 +424,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     builtinSkillManager,
   })
   const githubTokenStore = new GitHubTokenStore()
+  const skillsService = createSkillsService(app.getPath('userData'), {
+    resolveToken: () => githubTokenStore.resolveToken(),
+  })
 
   // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard
   // session spawner/stopper/inventory/exit-recording wiring moved to their
@@ -630,6 +634,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     mcpConfigService,
     multicodeAuth,
     skillPackService,
+    skillsService,
     sprintEngineArtifacts,
     sprintEngineAutomation,
     sprintEngineLaunchSettings,
