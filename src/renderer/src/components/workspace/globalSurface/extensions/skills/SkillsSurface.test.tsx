@@ -284,6 +284,11 @@ run('a relative link opens its file; one the scan never carried is dead, not bro
   assert.ok(dead.includes('decoration-dotted'), 'a missing companion is muted and dotted')
   assert.ok(dead.includes('text-[color:var(--text-muted)]'), 'never the danger colour')
   assert.ok(dead.includes("SHAPE.md is not one of this skill&#x27;s files."), 'and it says why on hover')
+  // A dead link is not focusable, so the reason is spoken too, not hover-only.
+  assert.ok(
+    markup.includes('<span class="sr-only"> — SHAPE.md is not one of this skill&#x27;s files.</span>'),
+    'the reason reaches a screen reader as well',
+  )
 })
 
 run('a non-markdown file is shown as its own text, not rendered as markdown', () => {

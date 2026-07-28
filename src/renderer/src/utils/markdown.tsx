@@ -214,7 +214,9 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       }
 
       // Not an error — the file is simply not here. Muted and dotted, never the
-      // danger colour, and it says why on hover rather than looking clickable.
+      // danger colour, and it says why rather than looking clickable. The
+      // reason is spoken as well as hovered: a dead link is not focusable, so a
+      // tooltip alone would leave it reading as ordinary prose.
       if (target?.kind === 'dead') {
         return (
           <span
@@ -222,6 +224,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
             className={joinClasses(className, 'cursor-help text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2')}
           >
             {children}
+            <span className="sr-only">{` — ${target.reason}`}</span>
           </span>
         )
       }
