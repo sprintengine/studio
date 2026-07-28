@@ -428,7 +428,8 @@ export function SectionHead({
   )
 }
 
-function EmptyState({
+/** The one "there is nothing to list, and here is why" block on this surface. */
+export function EmptyState({
   title,
   body,
   action,

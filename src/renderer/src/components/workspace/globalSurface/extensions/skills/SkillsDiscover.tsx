@@ -37,7 +37,7 @@ import {
   StarGlyph,
 } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
-import { SectionHead } from './SkillSourceCanvas'
+import { EmptyState, SectionHead } from './SkillSourceCanvas'
 import {
   createSkillSearchScheduler,
   describeSearchBudget,
@@ -258,7 +258,7 @@ export function DiscoverRepoList({
         }
       />
       {results.length === 0 ? (
-        <EmptyLine text={degraded ? 'Nothing was returned for this list.' : POPULAR_REPOS_EMPTY_LINE} />
+        <EmptyState title={degraded ? 'Nothing was returned for this list.' : POPULAR_REPOS_EMPTY_LINE} />
       ) : (
         <div role="list" className="mt-1.5 flex flex-col gap-0.5">
           {results.map((hit) => (
@@ -296,11 +296,11 @@ export function DiscoverSearchResults({
 }): JSX.Element {
   if (intent.kind === 'empty') {
     return (
-      <EmptyLine text="Code search reads inside SKILL.md, so “extract text from PDFs” finds the skills that do it." />
+      <EmptyState title="Code search reads inside SKILL.md, so “extract text from PDFs” finds the skills that do it." />
     )
   }
   if (intent.kind === 'too_short') {
-    return <EmptyLine text={`Type at least ${intent.minLength} characters.`} />
+    return <EmptyState title={`Type at least ${intent.minLength} characters.`} />
   }
   // Armed but not yet sent is still "about to search" from here; the request
   // follows within the quiet window, and a second state for it would flicker.
@@ -337,8 +337,8 @@ export function DiscoverSearchResults({
             }
           />
           {results.length === 0 ? (
-            <EmptyLine
-              text={degraded ? 'Nothing was returned for this search.' : skillSearchEmptyLine(load.query)}
+            <EmptyState
+              title={degraded ? 'Nothing was returned for this search.' : skillSearchEmptyLine(load.query)}
             />
           ) : (
             <div role="list" className="mt-1.5 flex flex-col gap-0.5">
@@ -368,12 +368,16 @@ export function DiscoverSearchResults({
 function HitRow({
   href,
   openLabel,
+  repo,
   body,
   added,
   onScan,
 }: {
   href: string
   openLabel: string
+  /** Names both trailing states, so a row of identical "Scan" buttons is not
+   *  what a screen reader hears. */
+  repo: string
   body: React.ReactNode
   added: boolean
   onScan: () => void
@@ -392,9 +396,11 @@ function HitRow({
       </button>
       <div className="flex shrink-0 items-center pr-1.5">
         {added ? (
-          <span className="px-2 text-[11px] text-[color:var(--text-muted)]">Added</span>
+          <span className="px-2 text-[11px] text-[color:var(--text-muted)]">
+            Added<span className="sr-only">{` — ${repo} is already one of your sources`}</span>
+          </span>
         ) : (
-          <OutlineButton size="xs" onClick={onScan}>
+          <OutlineButton size="xs" aria-label={`Scan ${repo}`} onClick={onScan}>
             Scan
           </OutlineButton>
         )}
@@ -416,6 +422,7 @@ function RepoHitRow({
     <HitRow
       href={hit.htmlUrl}
       openLabel={`Open ${hit.repo} on GitHub`}
+      repo={hit.repo}
       added={added}
       onScan={onScan}
       body={
@@ -442,6 +449,7 @@ function RepoHitRow({
             <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
               <StarGlyph filled className="h-2.5 w-2.5" />
               {formatStars(hit.stars)}
+              <span className="sr-only"> stars</span>
             </span>
           )}
         </>
@@ -463,6 +471,7 @@ function SearchHitRow({
     <HitRow
       href={hit.htmlUrl}
       openLabel={`Open ${hit.path} in ${hit.repo} on GitHub`}
+      repo={hit.repo}
       added={added}
       onScan={onScan}
       body={
@@ -532,9 +541,6 @@ function Loading({ label }: { label: string }): JSX.Element {
   )
 }
 
-function EmptyLine({ text }: { text: string }): JSX.Element {
-  return <p className="px-3 py-10 text-center text-[12px] text-[color:var(--text-muted)]">{text}</p>
-}
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

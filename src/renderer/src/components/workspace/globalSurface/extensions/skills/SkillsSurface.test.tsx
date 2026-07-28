@@ -468,6 +468,10 @@ run('a result row states what GitHub returned, and never a skill count', () => {
   assert.ok(markup.includes('>4.9k<') && markup.includes('>52k<'), 'stars, as GitHub reported them')
   assert.equal(/\d+\s+skills?</.test(markup), false, 'a count needs a scan; stars do not predict one')
   assert.ok(markup.includes('>Scan<'), 'and the row hands the repository to the scan')
+  // A column of identical "Scan" buttons is unnavigable by ear; each names its
+  // own repository, as the star count names its unit.
+  assert.ok(markup.includes('aria-label="Scan browser-act/skills"'))
+  assert.ok(markup.includes('<span class="sr-only"> stars</span>'))
   assert.equal(hasNestedButton(markup), false)
 })
 
