@@ -1,0 +1,202 @@
+/* List row — the pick-an-item worklist row, and the most repeated surface in
+ * the product: rails, sources, inboxes, categories, search results.
+ *
+ * Family contract: neutral selection (never the accent), two selection tiers
+ * so a multi-pane surface has one focused selection, background-only hover,
+ * and trailing actions that stay hidden until pointed at or focused. */
+
+.ds-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow, and no
+ * border that would shift the row's geometry. */
+.ds-list-row:hover {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-default);
+}
+
+.ds-list-row:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-list-row:disabled,
+.ds-list-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * Two tiers. `--selected` is the pane the user is driving; `--resting` is
+ * every other pane's remembered choice. Selection is neutral in both: the
+ * accent is reserved for the primary action, so a chosen row never outranks
+ * the one thing worth clicking. */
+.ds-list-row--selected {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-list-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-list-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-default);
+}
+
+/* ── Leading ─────────────────────────────────────────────────────────────
+ * A status glyph, monogram, or type icon. Never a decorative avatar. */
+.ds-list-row-leading {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-list-row-leading svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-list-row--selected .ds-list-row-leading {
+  color: var(--sem-color-text-default);
+}
+
+/* ── Text ────────────────────────────────────────────────────────────────
+ * Title is the row's one priority and claims the width; everything else is
+ * demoted to the supporting line or the trailing slot. */
+.ds-list-row-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.ds-list-row-title {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-normal);
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-list-row-supporting {
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Identifiers are mono, tabular, and optically opened at this size. */
+.ds-list-row-id {
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * Display-only: a count, a timestamp, a status word. Never interactive —
+ * the row itself renders as the button, and nesting a control inside it is
+ * invalid HTML. Row actions go in the actions slot instead. */
+.ds-list-row-trailing {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────
+ * Withheld until the row is pointed at or focused. The slot reserves its
+ * width at rest so revealing never reflows the row, and the actions appear
+ * on keyboard focus as well as hover — hover-only is a bug, not a style.
+ * Ceiling: two actions. Anything more belongs in an overflow menu. */
+.ds-list-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-list-row:hover .ds-list-row-actions,
+.ds-list-row:focus-visible .ds-list-row-actions,
+.ds-list-row-actions:focus-within {
+  opacity: 1;
+}
+
+/* The row is a button, so its actions live in a sibling wrapper rather than
+ * inside it. This is the wrapper's contract. */
+.ds-list-row-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ds-list-row-host .ds-list-row-actions {
+  position: absolute;
+  right: var(--sem-space-sm);
+}
+
+.ds-list-row-action {
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-hit-target-min);
+  min-height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+}
+
+.ds-list-row-action:hover {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-list-row-action:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-list-row-action svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* Reduced motion removes the fade, never the reveal itself — the actions
+ * must still become available. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-list-row,
+  .ds-list-row-actions {
+    transition: none;
+  }
+}

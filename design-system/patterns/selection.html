@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Selection</title>
+<link rel="stylesheet" href="../foundations/tokens.css" />
+<link rel="stylesheet" href="../components/list-row/component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+  .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+  .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+  .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+  .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+  .pat-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+  .pat-pane {
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    padding: var(--sem-space-sm);
+  }
+  .pat-pane-title {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
+  .pat-pane-title em {
+    font-style: normal;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    color: var(--sem-color-accent-primary);
+  }
+  .pat-verdict {
+    display: inline-block;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    padding: var(--sem-space-3xs) var(--sem-space-xs);
+    border-radius: var(--sem-radius-chip);
+    border: 1px solid var(--sem-color-border-default);
+    color: var(--sem-color-text-muted);
+    margin-bottom: var(--sem-space-sm);
+  }
+  /* The wrong-way example, drawn only here so the anti-pattern is visible.
+     Never copy these rules into a component. */
+  .pat-wrong .ds-list-row--selected {
+    background: var(--sem-color-accent-soft);
+    border-left: 3px solid var(--sem-color-accent-primary);
+    border-radius: var(--sem-radius-control);
+    padding-left: var(--sem-space-sm);
+    color: var(--sem-color-text-primary);
+  }
+</style>
+</head>
+<body>
+
+<div class="pat-stage" data-mode="dark">
+  <p class="pat-title">Selection</p>
+  <p class="pat-lede">
+    Selection answers “what did I pick?”. Focus answers “where am I typing?”.
+    They are different questions and never share a treatment. Selection is a
+    neutral fill in two tiers — the accent is reserved for the primary action,
+    so a chosen row never outranks the one thing worth clicking.
+  </p>
+
+  <p class="pat-heading">The rule: one focused selection per surface</p>
+  <p class="pat-verdict">DO</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Featured</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Skills</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Modules</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Sources</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">browser-act</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Categories</span></p>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Engineering</span></span>
+        <span class="ds-list-row-trailing">17</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Productivity</span></span>
+        <span class="ds-list-row-trailing">5</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">In progress</span></span>
+        <span class="ds-list-row-trailing">9</span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    One pane has focus and shows <code>--selected</code>. The other two show
+    <code>--resting</code>: they remember the choice without competing, so the
+    eye lands on the list the keyboard is driving.
+  </p>
+
+  <p class="pat-heading">The failure this prevents</p>
+  <p class="pat-verdict">DO NOT</p>
+  <div class="pat-panes pat-wrong">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Marketplace</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Featured</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Skills</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Modules</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Sources</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">browser-act</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Categories</span></p>
+      <button type="button" class="ds-list-row ds-list-row--selected">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Engineering</span></span>
+        <span class="ds-list-row-trailing">17</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Productivity</span></span>
+        <span class="ds-list-row-trailing">5</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">In progress</span></span>
+        <span class="ds-list-row-trailing">9</span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    Three panes shouting at once, each with an accent fill and a left bar.
+    Nothing says which list has focus, three signals carry one state, and the
+    accent no longer means “this is the action”. Selection never uses the
+    accent, and never carries a left bar.
+  </p>
+
+  <p class="pat-heading">Where a left bar is still correct</p>
+  <p class="pat-caption">
+    Only on a collapsed icon rail, where rows are too narrow for a fill to
+    read. Everywhere else — every content list — selection is a fill.
+  </p>
+</div>
+
+<div class="pat-stage" data-mode="light">
+  <p class="pat-title">Selection — light</p>
+  <p class="pat-lede">The same two tiers, from the same tokens.</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Featured</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Skills</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Modules</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Sources</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">browser-act</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Categories</span></p>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Engineering</span></span>
+        <span class="ds-list-row-trailing">17</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Productivity</span></span>
+        <span class="ds-list-row-trailing">5</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">In progress</span></span>
+        <span class="ds-list-row-trailing">9</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

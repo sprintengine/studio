@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>List row</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-sm);
+  }
+  .demo-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+  .demo-pane {
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    padding: var(--sem-space-sm);
+  }
+  .demo-pane-title {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a rail → list → detail surface. Only the focused pane carries the strong selection.</p>
+  <div class="demo-panes">
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Marketplace — focused</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L7 10.2 3.6 12l.7-3.8L1.5 5.5l3.8-.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Featured</span>
+          <span class="ds-list-row-supporting">2 ready to launch</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1.5" width="9" height="11" rx="1.4" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h4M5 7.5h4M5 10h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Skills</span>
+          <span class="ds-list-row-supporting">6 sources · 368 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.8l4.5 2.6v5.2L7 12.2 2.5 9.6V4.4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Modules</span>
+          <span class="ds-list-row-supporting">0 available</span>
+        </span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Sources — resting</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Multicode</span>
+          <span class="ds-list-row-supporting">12 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">2m</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Matt Pocock</span>
+          <span class="ds-list-row-supporting">41 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">14m</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">browser-act</span>
+          <span class="ds-list-row-supporting">103 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">1h</span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
+      <div class="ds-list-row-host">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">Engineering</span>
+            <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1931</span> · 17 skills</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal Engineering in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove Engineering">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Productivity</span>
+          <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1928</span> · 5 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row" disabled>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Deprecated</span>
+          <span class="ds-list-row-supporting">Unavailable while the source reindexes</span>
+        </span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same three panes.</p>
+  <div class="demo-panes">
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Marketplace — focused</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L7 10.2 3.6 12l.7-3.8L1.5 5.5l3.8-.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Featured</span>
+          <span class="ds-list-row-supporting">2 ready to launch</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1.5" width="9" height="11" rx="1.4" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h4M5 7.5h4M5 10h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Skills</span>
+          <span class="ds-list-row-supporting">6 sources · 368 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.8l4.5 2.6v5.2L7 12.2 2.5 9.6V4.4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Modules</span>
+          <span class="ds-list-row-supporting">0 available</span>
+        </span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Sources — resting</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Multicode</span>
+          <span class="ds-list-row-supporting">12 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">2m</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Matt Pocock</span>
+          <span class="ds-list-row-supporting">41 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">14m</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">browser-act</span>
+          <span class="ds-list-row-supporting">103 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">1h</span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
+      <div class="ds-list-row-host">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">Engineering</span>
+            <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1931</span> · 17 skills</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal Engineering in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove Engineering">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Productivity</span>
+          <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1928</span> · 5 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row" disabled>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Deprecated</span>
+          <span class="ds-list-row-supporting">Unavailable while the source reindexes</span>
+        </span>
+      </button>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

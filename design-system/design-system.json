@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "name": "multicode",
-  "version": "0.1.0",
-  "summary": "I want you to generate a design system from the current application.",
+  "version": "0.2.0",
+  "summary": "Multicode design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.",
   "modes": [
     "light",
     "dark"
@@ -21,9 +21,12 @@
     "components": [
       "button",
       "input",
+      "list-row",
       "task-card"
     ],
-    "patterns": [],
+    "patterns": [
+      "patterns/selection.html"
+    ],
     "glyphs": [
       "glyphs/close.svg",
       "glyphs/multicode-mark.svg",

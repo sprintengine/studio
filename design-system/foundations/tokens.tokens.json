@@ -53,8 +53,8 @@
       },
       "paper-600": {
         "$type": "color",
-        "$value": "#5c5c64",
-        "$description": "Disabled text ink on dark surfaces. Source: dark --text-disabled."
+        "$value": "#626269",
+        "$description": "Disabled text ink on dark surfaces. Tuned to clear the 3:1 non-text contrast floor (3.23:1 on bg.surface)."
       },
       "white": {
         "$type": "color",
@@ -95,11 +95,6 @@
         "$type": "color",
         "$value": "#646c78",
         "$description": "Muted text ink on light surfaces. Source: light --text-muted."
-      },
-      "slate-550": {
-        "$type": "color",
-        "$value": "#5f6772",
-        "$description": "Subtle text ink on light surfaces, darkened to clear AA body. Source: light --text-subtle."
       },
       "slate-400": {
         "$type": "color",
@@ -165,6 +160,16 @@
         "$type": "color",
         "$value": "#6b7280",
         "$description": "Neutral status grey for light surfaces. Source: light --tone-neutral."
+      },
+      "mist-225": {
+        "$type": "color",
+        "$value": "#e4e8ec",
+        "$description": "Resting-selection surface in light mode."
+      },
+      "slate-450": {
+        "$type": "color",
+        "$value": "#6e7682",
+        "$description": "Subtle text ink on light surfaces. Sits between slate-500 (muted) and slate-400 (disabled) so the ramp orders identically in both modes."
       }
     }
   },
@@ -181,7 +186,10 @@
               "role": "surface",
               "use": "Root and page background, the base layer of every view.",
               "doNotUse": "Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.",
-              "modes": { "light": "{ref.color.mist-100}", "dark": "{ref.color.ink-950}" }
+              "modes": {
+                "light": "{ref.color.mist-100}",
+                "dark": "{ref.color.ink-950}"
+              }
             }
           }
         },
@@ -194,7 +202,10 @@
               "seeded": true,
               "role": "surface",
               "use": "Panels, sections, cards — the default working surface.",
-              "modes": { "light": "{ref.color.white}", "dark": "{ref.color.ink-900}" }
+              "modes": {
+                "light": "{ref.color.white}",
+                "dark": "{ref.color.ink-900}"
+              }
             }
           }
         },
@@ -207,7 +218,10 @@
               "seeded": true,
               "role": "surface",
               "use": "Inputs, popovers, drawers, and other chrome raised above the panel surface.",
-              "modes": { "light": "{ref.color.white}", "dark": "{ref.color.ink-875}" }
+              "modes": {
+                "light": "{ref.color.white}",
+                "dark": "{ref.color.ink-875}"
+              }
             }
           }
         },
@@ -220,7 +234,10 @@
               "seeded": true,
               "role": "interaction",
               "use": "Hover background on any interactive row, button, or list item.",
-              "modes": { "light": "{ref.color.mist-150}", "dark": "{ref.color.ink-850}" }
+              "modes": {
+                "light": "{ref.color.mist-150}",
+                "dark": "{ref.color.ink-850}"
+              }
             }
           }
         },
@@ -233,21 +250,42 @@
               "seeded": true,
               "role": "interaction",
               "use": "Pressed state background on interactive surfaces.",
-              "modes": { "light": "{ref.color.mist-200}", "dark": "{ref.color.ink-825}" }
+              "modes": {
+                "light": "{ref.color.mist-200}",
+                "dark": "{ref.color.ink-825}"
+              }
             }
           }
         },
         "selected": {
           "$type": "color",
           "$value": "{ref.color.mist-250}",
-          "$description": "Neutral selection background where the accent soft fill would be too strong.",
+          "$description": "Selection in the pane that currently has focus.",
           "$extensions": {
             "com.multicode": {
-              "seeded": true,
               "role": "interaction",
-              "use": "Neutral selected-row background in dense chrome.",
-              "doNotUse": "Primary selection — that pairs accent.soft with a left accent bar.",
-              "modes": { "light": "{ref.color.mist-250}", "dark": "{ref.color.ink-800}" }
+              "use": "The selected row of the focused pane or list. Pair with text.primary.",
+              "doNotUse": "A second simultaneous strong selection elsewhere on screen — every other pane drops to bg.selected-resting.",
+              "modes": {
+                "light": "{ref.color.mist-250}",
+                "dark": "{ref.color.ink-800}"
+              }
+            }
+          }
+        },
+        "selected-resting": {
+          "$type": "color",
+          "$value": "{ref.color.mist-225}",
+          "$description": "Selection in a pane that does not have focus — it remembers, quietly.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "interaction",
+              "use": "The selected row of every pane except the focused one, so a three-pane surface has exactly one strong selection.",
+              "doNotUse": "The focused pane — that is bg.selected.",
+              "modes": {
+                "light": "{ref.color.mist-225}",
+                "dark": "{ref.color.ink-825}"
+              }
             }
           }
         }
@@ -262,7 +300,10 @@
               "seeded": true,
               "role": "text",
               "use": "Panel titles, primary content, selected-row foreground.",
-              "modes": { "light": "{ref.color.slate-900}", "dark": "{ref.color.paper-100}" }
+              "modes": {
+                "light": "{ref.color.slate-900}",
+                "dark": "{ref.color.paper-100}"
+              }
             }
           }
         },
@@ -275,7 +316,10 @@
               "seeded": true,
               "role": "text",
               "use": "Body copy, row labels, field labels.",
-              "modes": { "light": "{ref.color.slate-700}", "dark": "{ref.color.paper-200}" }
+              "modes": {
+                "light": "{ref.color.slate-700}",
+                "dark": "{ref.color.paper-200}"
+              }
             }
           }
         },
@@ -288,13 +332,16 @@
               "seeded": true,
               "role": "text",
               "use": "Secondary copy, counts, meta rows, ghost-button labels.",
-              "modes": { "light": "{ref.color.slate-500}", "dark": "{ref.color.paper-400}" }
+              "modes": {
+                "light": "{ref.color.slate-500}",
+                "dark": "{ref.color.paper-400}"
+              }
             }
           }
         },
         "subtle": {
           "$type": "color",
-          "$value": "{ref.color.slate-550}",
+          "$value": "{ref.color.slate-450}",
           "$description": "Tertiary ink: identifiers, de-emphasized meta.",
           "$extensions": {
             "com.multicode": {
@@ -302,7 +349,10 @@
               "role": "text",
               "use": "Identifiers, placeholders, tertiary meta.",
               "doNotUse": "Actionable copy on its own — pair with primary text or an affordance.",
-              "modes": { "light": "{ref.color.slate-550}", "dark": "{ref.color.paper-500}" }
+              "modes": {
+                "light": "{ref.color.slate-450}",
+                "dark": "{ref.color.paper-500}"
+              }
             }
           }
         },
@@ -316,7 +366,10 @@
               "role": "text",
               "use": "Disabled control labels, empty-state hints.",
               "doNotUse": "Body copy — this step is below the AA body-contrast floor by design.",
-              "modes": { "light": "{ref.color.slate-400}", "dark": "{ref.color.paper-600}" }
+              "modes": {
+                "light": "{ref.color.slate-400}",
+                "dark": "{ref.color.paper-600}"
+              }
             }
           }
         },
@@ -329,7 +382,10 @@
               "seeded": true,
               "role": "text",
               "use": "Text and icons sitting on accent.primary fills (primary buttons).",
-              "modes": { "light": "{ref.color.white}", "dark": "{ref.color.ink-950}" }
+              "modes": {
+                "light": "{ref.color.white}",
+                "dark": "{ref.color.ink-950}"
+              }
             }
           }
         }
@@ -344,7 +400,10 @@
               "seeded": true,
               "role": "border",
               "use": "Section dividers and quiet card edges — borders carry the structure, not shadows.",
-              "modes": { "light": "rgba(32, 36, 40, 0.10)", "dark": "rgba(252, 252, 252, 0.06)" }
+              "modes": {
+                "light": "rgba(32, 36, 40, 0.10)",
+                "dark": "rgba(252, 252, 252, 0.06)"
+              }
             }
           }
         },
@@ -357,7 +416,10 @@
               "seeded": true,
               "role": "border",
               "use": "Input borders, popover edges, clear hairlines.",
-              "modes": { "light": "rgba(32, 36, 40, 0.20)", "dark": "rgba(252, 252, 252, 0.08)" }
+              "modes": {
+                "light": "rgba(32, 36, 40, 0.20)",
+                "dark": "rgba(252, 252, 252, 0.08)"
+              }
             }
           }
         },
@@ -370,7 +432,10 @@
               "seeded": true,
               "role": "border",
               "use": "Hover-emphasized edges, structural separators, ghost-button borders.",
-              "modes": { "light": "rgba(32, 36, 40, 0.30)", "dark": "rgba(252, 252, 252, 0.12)" }
+              "modes": {
+                "light": "rgba(32, 36, 40, 0.30)",
+                "dark": "rgba(252, 252, 252, 0.12)"
+              }
             }
           }
         },
@@ -384,7 +449,10 @@
               "role": "border",
               "use": "The 2px focus-visible ring on every focusable primitive.",
               "doNotUse": "Resting borders or dividers — focus only.",
-              "modes": { "light": "rgba(47, 106, 74, 0.55)", "dark": "rgba(63, 148, 104, 0.6)" }
+              "modes": {
+                "light": "rgba(47, 106, 74, 0.55)",
+                "dark": "rgba(63, 148, 104, 0.6)"
+              }
             }
           }
         }
@@ -400,7 +468,10 @@
               "role": "accent",
               "use": "Primary CTA fill, active selection chrome, active-tab underline.",
               "doNotUse": "Decoration, category coding, or a second accent hue anywhere in a view.",
-              "modes": { "light": "{ref.color.green-700}", "dark": "{ref.color.green-500}" }
+              "modes": {
+                "light": "{ref.color.green-700}",
+                "dark": "{ref.color.green-500}"
+              }
             }
           }
         },
@@ -413,7 +484,10 @@
               "seeded": true,
               "role": "accent",
               "use": "Hover state of accent.primary fills.",
-              "modes": { "light": "{ref.color.green-800}", "dark": "{ref.color.green-400}" }
+              "modes": {
+                "light": "{ref.color.green-800}",
+                "dark": "{ref.color.green-400}"
+              }
             }
           }
         },
@@ -426,7 +500,10 @@
               "seeded": true,
               "role": "accent",
               "use": "Selected-row fill, paired with a 2px left bar of accent.primary.",
-              "modes": { "light": "rgba(47, 106, 74, 0.10)", "dark": "rgba(63, 148, 104, 0.14)" }
+              "modes": {
+                "light": "rgba(47, 106, 74, 0.10)",
+                "dark": "rgba(63, 148, 104, 0.14)"
+              }
             }
           }
         },
@@ -439,7 +516,10 @@
               "seeded": true,
               "role": "accent",
               "use": "Selected-card border fill where soft is too faint.",
-              "modes": { "light": "rgba(47, 106, 74, 0.18)", "dark": "rgba(63, 148, 104, 0.22)" }
+              "modes": {
+                "light": "rgba(47, 106, 74, 0.18)",
+                "dark": "rgba(63, 148, 104, 0.22)"
+              }
             }
           }
         }
@@ -455,7 +535,10 @@
               "role": "status",
               "use": "Idle or unknown status dots and inline status copy.",
               "doNotUse": "Button fills, chrome tints, or category coding — status only.",
-              "modes": { "light": "{ref.color.gray-500}", "dark": "{ref.color.paper-400}" }
+              "modes": {
+                "light": "{ref.color.gray-500}",
+                "dark": "{ref.color.paper-400}"
+              }
             }
           }
         },
@@ -469,7 +552,10 @@
               "role": "status",
               "use": "Completion and health marks: done discs, success dots.",
               "doNotUse": "Anything decorative; never retune toward the accent green.",
-              "modes": { "light": "{ref.color.emerald-700}", "dark": "{ref.color.emerald-400}" }
+              "modes": {
+                "light": "{ref.color.emerald-700}",
+                "dark": "{ref.color.emerald-400}"
+              }
             }
           }
         },
@@ -483,7 +569,10 @@
               "role": "status",
               "use": "Needs-input and warning marks.",
               "doNotUse": "Button fills or chrome tints — status only.",
-              "modes": { "light": "{ref.color.amber-800}", "dark": "{ref.color.amber-400}" }
+              "modes": {
+                "light": "{ref.color.amber-800}",
+                "dark": "{ref.color.amber-400}"
+              }
             }
           }
         },
@@ -496,7 +585,10 @@
               "seeded": true,
               "role": "status",
               "use": "Error marks, failed states, destructive-button fills, invalid-field borders.",
-              "modes": { "light": "{ref.color.red-600}", "dark": "{ref.color.coral-400}" }
+              "modes": {
+                "light": "{ref.color.red-600}",
+                "dark": "{ref.color.coral-400}"
+              }
             }
           }
         },
@@ -522,7 +614,10 @@
               "role": "status",
               "use": "Neutral banner and chip fills in inspectors and drawers.",
               "doNotUse": "Default panel chrome.",
-              "modes": { "light": "rgba(100, 108, 120, 0.14)", "dark": "rgba(156, 156, 164, 0.18)" }
+              "modes": {
+                "light": "rgba(100, 108, 120, 0.14)",
+                "dark": "rgba(156, 156, 164, 0.18)"
+              }
             }
           }
         },
@@ -536,7 +631,10 @@
               "role": "status",
               "use": "Success banner and chip fills in inspectors and drawers.",
               "doNotUse": "Default panel chrome.",
-              "modes": { "light": "rgba(21, 127, 55, 0.20)", "dark": "rgba(48, 208, 88, 0.18)" }
+              "modes": {
+                "light": "rgba(21, 127, 55, 0.20)",
+                "dark": "rgba(48, 208, 88, 0.18)"
+              }
             }
           }
         },
@@ -550,7 +648,10 @@
               "role": "status",
               "use": "Warning banner and chip fills in inspectors and drawers.",
               "doNotUse": "Default panel chrome.",
-              "modes": { "light": "rgba(204, 132, 0, 0.20)", "dark": "rgba(252, 192, 48, 0.18)" }
+              "modes": {
+                "light": "rgba(204, 132, 0, 0.20)",
+                "dark": "rgba(252, 192, 48, 0.18)"
+              }
             }
           }
         },
@@ -564,7 +665,10 @@
               "role": "status",
               "use": "Error banner and chip fills in inspectors and drawers.",
               "doNotUse": "Default panel chrome.",
-              "modes": { "light": "rgba(220, 40, 40, 0.16)", "dark": "rgba(252, 120, 124, 0.18)" }
+              "modes": {
+                "light": "rgba(220, 40, 40, 0.16)",
+                "dark": "rgba(252, 120, 124, 0.18)"
+              }
             }
           }
         }
@@ -580,7 +684,10 @@
               "role": "overlay",
               "use": "The backdrop layer behind modals, dialogs, and drawers.",
               "doNotUse": "Combining with backdrop-filter blur — full-viewport blur re-renders every frame and tanks pointer framerate.",
-              "modes": { "light": "rgba(20, 24, 28, 0.42)", "dark": "rgba(8, 8, 12, 0.7)" }
+              "modes": {
+                "light": "rgba(20, 24, 28, 0.42)",
+                "dark": "rgba(8, 8, 12, 0.7)"
+              }
             }
           }
         }
@@ -603,13 +710,53 @@
             }
           }
         }
+      },
+      "popover": {
+        "$type": "shadow",
+        "$value": "0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)",
+        "$description": "Elevation for trigger-anchored surfaces: popovers, menus, tooltips.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "Popover, ContextMenu, Select listbox, and Tooltip shells.",
+            "doNotUse": "Cards, rows, or hover states — structure comes from hairline borders.",
+            "modes": {
+              "light": "0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)",
+              "dark": "0 4px 12px -6px rgba(0, 0, 0, 0.55)"
+            }
+          }
+        }
+      },
+      "modal": {
+        "$type": "shadow",
+        "$value": "0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)",
+        "$description": "Elevation for centred modal shells sitting over a scrim.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "elevation",
+            "use": "Modal and ConfirmDialog shells only.",
+            "doNotUse": "Anchored surfaces — those use shadow.popover.",
+            "modes": {
+              "light": "0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)",
+              "dark": "0 16px 48px -16px rgba(0, 0, 0, 0.72)"
+            }
+          }
+        }
       }
     },
     "font": {
       "family": {
         "ui": {
           "$type": "fontFamily",
-          "$value": ["Inter", "SF Pro Text", "Segoe UI", "Roboto", "Helvetica", "Arial", "sans-serif"],
+          "$value": [
+            "Inter",
+            "SF Pro Text",
+            "Segoe UI",
+            "Roboto",
+            "Helvetica",
+            "Arial",
+            "sans-serif"
+          ],
           "$description": "Default UI face for prose, labels, and chrome. Load Inter with font-feature-settings 'cv11', 'ss01', 'ss03'.",
           "$extensions": {
             "com.multicode": {
@@ -621,7 +768,16 @@
         },
         "mono": {
           "$type": "fontFamily",
-          "$value": ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "SF Mono", "Cascadia Code", "Menlo", "Consolas", "monospace"],
+          "$value": [
+            "JetBrains Mono",
+            "ui-monospace",
+            "SFMono-Regular",
+            "SF Mono",
+            "Cascadia Code",
+            "Menlo",
+            "Consolas",
+            "monospace"
+          ],
           "$description": "Monospace face for identifiers, code, kbd, and terminals. Load with font-feature-settings 'tnum', 'zero'.",
           "$extensions": {
             "com.multicode": {
@@ -766,6 +922,43 @@
               "seeded": true,
               "role": "typography",
               "use": "Long-form prose in inspectors and docs."
+            }
+          }
+        }
+      },
+      "tracking": {
+        "tight": {
+          "$type": "dimension",
+          "$value": "-0.01em",
+          "$description": "Optical tightening for titles at 13px and up.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "typography",
+              "use": "font.size.heading and font.size.title, which read loose at their default metrics.",
+              "doNotUse": "Body or meta text — tightening small text costs legibility."
+            }
+          }
+        },
+        "normal": {
+          "$type": "dimension",
+          "$value": "0",
+          "$description": "Default tracking: body, labels, and every row title.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "typography",
+              "use": "All UI text that is not a title or a micro label."
+            }
+          }
+        },
+        "wide": {
+          "$type": "dimension",
+          "$value": "0.02em",
+          "$description": "Optical opening for mono identifiers and micro labels.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "typography",
+              "use": "font.family.mono identifiers and font.size.micro labels, which jam at their default metrics.",
+              "doNotUse": "Uppercase-tracked section headings — the system has none."
             }
           }
         }
@@ -925,6 +1118,289 @@
               "use": "Every transition and animation — one ease, no exceptions.",
               "doNotUse": "Introducing a second easing curve."
             }
+          }
+        }
+      }
+    },
+    "space": {
+      "3xs": {
+        "$type": "dimension",
+        "$value": "2px",
+        "$description": "Hairline gap: a glyph from its label, stacked meta lines.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "2xs": {
+        "$type": "dimension",
+        "$value": "4px",
+        "$description": "Tight inset: chip padding, icon-button breathing room.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "xs": {
+        "$type": "dimension",
+        "$value": "6px",
+        "$description": "Dense row gap — the most common gap in list chrome.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "sm": {
+        "$type": "dimension",
+        "$value": "8px",
+        "$description": "Default gap between siblings in a row or toolbar.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "md": {
+        "$type": "dimension",
+        "$value": "10px",
+        "$description": "Row inset: horizontal padding on list rows and cards.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "lg": {
+        "$type": "dimension",
+        "$value": "12px",
+        "$description": "Panel inset: the standard horizontal padding of panel chrome.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "xl": {
+        "$type": "dimension",
+        "$value": "16px",
+        "$description": "Group separation between related blocks in a panel.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "2xl": {
+        "$type": "dimension",
+        "$value": "20px",
+        "$description": "Section separation inside a scrolling surface.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "3xl": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": "Overlay inset: modal and drawer body padding.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      },
+      "4xl": {
+        "$type": "dimension",
+        "$value": "32px",
+        "$description": "Page-level gutter on wide door surfaces.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "spacing",
+            "use": "Padding, gap, and margin. Every spacing value in a component comes from this scale.",
+            "doNotUse": "Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*)."
+          }
+        }
+      }
+    },
+    "size": {
+      "control": {
+        "xs": {
+          "$type": "dimension",
+          "$value": "24px",
+          "$description": "Dense control height: icon buttons and in-row triggers.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "sizing",
+              "use": "Height of icon buttons and controls that sit inside a list row.",
+              "doNotUse": "Any control carrying a text label — those start at sm."
+            }
+          }
+        },
+        "sm": {
+          "$type": "dimension",
+          "$value": "28px",
+          "$description": "Default control height: buttons, inputs, selects.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "sizing",
+              "use": "The default height for every labelled control. An input and a select side by side must share it."
+            }
+          }
+        },
+        "md": {
+          "$type": "dimension",
+          "$value": "32px",
+          "$description": "Comfortable control height for primary actions in overlays.",
+          "$extensions": {
+            "com.multicode": {
+              "role": "sizing",
+              "use": "Modal and drawer primary actions, where density relaxes."
+            }
+          }
+        }
+      },
+      "hit-target-min": {
+        "$type": "dimension",
+        "$value": "24px",
+        "$description": "The smallest permitted pointer target, matching the IconButton contract.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "sizing",
+            "use": "Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area.",
+            "doNotUse": "Shrinking a target below this because the glyph inside is small."
+          }
+        }
+      }
+    },
+    "focus": {
+      "ring-width": {
+        "$type": "dimension",
+        "$value": "2px",
+        "$description": "Thickness of the focus ring.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "focus",
+            "use": "The one focus-ring thickness, everywhere."
+          }
+        }
+      },
+      "ring": {
+        "$type": "shadow",
+        "$value": "0 0 0 2px var(--sem-color-border-focus)",
+        "$description": "The single composite focus ring, applied on :focus-visible.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "focus",
+            "use": "Keyboard focus on every interactive element. Apply on :focus-visible with outline:none, never on :focus.",
+            "doNotUse": "Hover, selection, or validation — focus is its own signal and never shares a treatment."
+          }
+        }
+      }
+    },
+    "z": {
+      "base": {
+        "$type": "number",
+        "$value": 0,
+        "$description": "Default in-flow content.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
+          }
+        }
+      },
+      "sticky": {
+        "$type": "number",
+        "$value": 10,
+        "$description": "Sticky panel headers and column headers.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
+          }
+        }
+      },
+      "drawer": {
+        "$type": "number",
+        "$value": 40,
+        "$description": "Drawers and their scrim.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
+          }
+        }
+      },
+      "popover": {
+        "$type": "number",
+        "$value": 50,
+        "$description": "Popover, Select listbox, and Tooltip.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
+          }
+        }
+      },
+      "menu": {
+        "$type": "number",
+        "$value": 60,
+        "$description": "ContextMenu and PointerPopover — above an open popover.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
+          }
+        }
+      },
+      "modal": {
+        "$type": "number",
+        "$value": 70,
+        "$description": "Modal dialogs and their scrim.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
+          }
+        }
+      },
+      "toast": {
+        "$type": "number",
+        "$value": 80,
+        "$description": "Transient notifications — above everything.",
+        "$extensions": {
+          "com.multicode": {
+            "role": "layering",
+            "use": "The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error.",
+            "doNotUse": "Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind."
           }
         }
       }

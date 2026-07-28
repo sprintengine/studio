@@ -24,9 +24,16 @@ node scripts/build-catalog.mjs  # regenerate catalog/index.html after component/
   properties. The `--ref-*` variables are internal plumbing for the token file
   itself — component and pattern CSS never references them (the lint enforces
   this).
-- Never hard-code a color. Every color comes from a `--sem-*` variable; each
-  token's meaning (`role`, `use`, `doNotUse`) is documented in
+- Never hard-code a color, a space, a control height, a radius, a duration, or
+  a z-index. Every one comes from a `--sem-*` variable; each token's meaning
+  (`role`, `use`, `doNotUse`) is documented in
   `foundations/tokens.tokens.json`, so pick by meaning, not by looks.
+- Spacing is `--sem-space-*` on every padding, margin, and gap. A value the
+  scale does not have is a missing step: add it to the token source rather
+  than writing a local pixel value.
+- The system ships **two font families, permanently** — `--sem-font-family-ui`
+  and `--sem-font-family-mono`. There is no third family and no serif; adding
+  one is a system change, not a styling choice.
 - Dark mode: set `data-mode="dark"` on the document element or any container.
   Light is the default (`:root`). Never write per-mode style overrides —
   consume the semantic variables and both modes come for free.
@@ -85,9 +92,10 @@ done.
    `namingGrammar` — it defines token paths, CSS variable names, component
    directory names, and glyph names. Do not introduce a second dialect.
 6. **Run the lint**: `node scripts/lint.mjs`. It fails on raw hex or other
-   untokenized color values in `components/` and `patterns/`, on any
-   `var(--ref-*)` use outside the token file, and on tokens missing the
-   semantic metadata above. For a legitimately un-tokenizable component value,
+   untokenized color values in `components/` and `patterns/`, on raw
+   px/rem/em spacing on `padding`/`margin`/`gap`, on a `font-family` that is
+   not one of the two family tokens, on any `var(--ref-*)` use outside the
+   token file, and on tokens missing the semantic metadata above. For a legitimately un-tokenizable component value,
    add a `ds-lint-allow: <reason>` comment on the same line or one of the two
    lines above it — the reason is mandatory, and token metadata has no such
    escape hatch.

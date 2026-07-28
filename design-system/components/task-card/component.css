@@ -1,16 +1,16 @@
 /* Task card — extracted from the source product's TaskCard primitive
  * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
  * inbox-row surface. Family contract: 6px status dot, mono identifier,
- * medium title, accent-soft + left-bar selection, background-only hover. */
+ * medium title, neutral two-tier selection, background-only hover.
+ * Prefer components/list-row for list surfaces; this is the board card. */
 
 .ds-task-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-md);
   background: var(--sem-color-bg-surface);
   border: 1px solid var(--sem-color-border-subtle);
-  border-left: 2px solid transparent;
   border-radius: var(--sem-radius-control);
   font-family: var(--sem-font-family-ui);
   text-align: left;
@@ -26,20 +26,26 @@
 
 .ds-task-card:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
-/* Selection: accent-soft fill plus the 2px left accent bar. */
+/* Selection is neutral: the accent is reserved for the primary action, so a
+ * chosen card never outranks the one thing worth clicking. Two tiers, so a
+ * multi-pane surface shows exactly one focused selection. */
 .ds-task-card--selected {
-  background: var(--sem-color-accent-soft);
-  border-left-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-bg-selected);
+  border-color: var(--sem-color-border-default);
+}
+
+.ds-task-card--resting {
+  background: var(--sem-color-bg-selected-resting);
 }
 
 /* 6px status dot. Status only — never decoration or category coding. */
 .ds-task-card-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
   border-radius: 999px;
   background: var(--sem-color-status-neutral);
 }

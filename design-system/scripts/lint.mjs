@@ -12,6 +12,12 @@
 //   no-untokenized-color  rgb()/hsl()/oklch()/color-mix()/hwb() literals
 //   no-ref-variables      var(--ref-*): the ref tier is internal to the token
 //                         file; components and patterns consume --sem-* only
+//   no-raw-spacing        raw px/rem/em on padding, margin, or gap — spacing
+//                         comes from sem.space.*; add a step rather than a
+//                         local value
+//   no-untokenized-font-family
+//                         a font-family that is not sem.font.family.ui or
+//                         .mono — the system ships two families, permanently
 //
 // Rules over foundations/tokens.tokens.json (every token, so new tokens cannot
 // land without full semantic metadata):
@@ -46,10 +52,24 @@ const COLOR_FUNCTION = /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color-mix)\s*\(
 // The ref tier is plumbing internal to foundations/tokens.css.
 const REF_VARIABLE = /var\(\s*--ref-/g
 
+// Spacing comes from sem.space.*. A raw px on padding/margin/gap means the
+// scale is missing a step — add it to the tokens rather than locally. `0` is
+// unitless and always allowed; so is any value that resolves through a var().
+const RAW_SPACING =
+  /\b(?:padding|margin|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?\s*:\s*[^;{}]*?\d+(?:\.\d+)?(?:px|rem|em)/g
+
+// Two families, permanently: sem.font.family.ui and sem.font.family.mono.
+// A third family — a serif especially — is a system change, not a style
+// choice. `inherit` and `initial` are allowed; anything else must be a token.
+const UNTOKENIZED_FONT_FAMILY =
+  /font-family\s*:\s*(?!\s*(?:var\(\s*--sem-font-family-|inherit|initial|unset)\b)[^;{}]+/g
+
 const SOURCE_RULES = [
   { name: 'no-raw-hex', regex: HEX_LITERAL },
   { name: 'no-untokenized-color', regex: COLOR_FUNCTION },
   { name: 'no-ref-variables', regex: REF_VARIABLE },
+  { name: 'no-raw-spacing', regex: RAW_SPACING },
+  { name: 'no-untokenized-font-family', regex: UNTOKENIZED_FONT_FAMILY },
 ]
 
 const SCAN_EXTENSIONS = new Set(['.css', '.html'])
@@ -215,12 +235,16 @@ function main() {
 
   if (totalViolations > 0) {
     process.stdout.write(
-      '\nFix by reading colors from the --sem-* custom properties in\n' +
-        'foundations/tokens.css, and by giving every token an explicit $type, a\n' +
-        '$description, and (for sem.* tokens) $extensions["com.multicode"] with\n' +
-        'role and use — see USAGE.md. Document a legitimately un-tokenizable\n' +
-        'component value with a `ds-lint-allow: <reason>` marker on the same\n' +
-        'line or one of the two lines above it.\n',
+      '\nFix by reading every value from the --sem-* custom properties in\n' +
+        'foundations/tokens.css: colors from --sem-color-*, padding/margin/gap\n' +
+        'from --sem-space-*, and font-family from --sem-font-family-ui or\n' +
+        '--sem-font-family-mono (the system ships two families, permanently).\n' +
+        'A missing spacing step belongs in the token source, not in a component.\n' +
+        'Give every token an explicit $type, a $description, and (for sem.*\n' +
+        'tokens) $extensions["com.multicode"] with role and use — see USAGE.md.\n' +
+        'Document a legitimately un-tokenizable component value with a\n' +
+        '`ds-lint-allow: <reason>` marker on the same line or one of the two\n' +
+        'lines above it.\n',
     )
   }
 

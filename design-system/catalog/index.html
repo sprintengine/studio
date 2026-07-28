@@ -26,7 +26,7 @@
   --ref-color-paper-200: #c8c8d0;
   --ref-color-paper-400: #9c9ca4;
   --ref-color-paper-500: #707078;
-  --ref-color-paper-600: #5c5c64;
+  --ref-color-paper-600: #626269;
   --ref-color-white: #ffffff;
   --ref-color-mist-100: #eaeef2;
   --ref-color-mist-150: #f0f0f4;
@@ -35,7 +35,6 @@
   --ref-color-slate-900: #202428;
   --ref-color-slate-700: #3c444c;
   --ref-color-slate-500: #646c78;
-  --ref-color-slate-550: #5f6772;
   --ref-color-slate-400: #838b97;
   --ref-color-green-400: #4daf7d;
   --ref-color-green-500: #3f9468;
@@ -49,16 +48,19 @@
   --ref-color-red-600: #d92d2d;
   --ref-color-violet-500: #8957e5;
   --ref-color-gray-500: #6b7280;
+  --ref-color-mist-225: #e4e8ec;
+  --ref-color-slate-450: #6e7682;
   --sem-color-bg-app: var(--ref-color-mist-100);
   --sem-color-bg-surface: var(--ref-color-white);
   --sem-color-bg-surface-raised: var(--ref-color-white);
   --sem-color-bg-hover: var(--ref-color-mist-150);
   --sem-color-bg-active: var(--ref-color-mist-200);
   --sem-color-bg-selected: var(--ref-color-mist-250);
+  --sem-color-bg-selected-resting: var(--ref-color-mist-225);
   --sem-color-text-primary: var(--ref-color-slate-900);
   --sem-color-text-default: var(--ref-color-slate-700);
   --sem-color-text-muted: var(--ref-color-slate-500);
-  --sem-color-text-subtle: var(--ref-color-slate-550);
+  --sem-color-text-subtle: var(--ref-color-slate-450);
   --sem-color-text-disabled: var(--ref-color-slate-400);
   --sem-color-text-on-accent: var(--ref-color-white);
   --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
@@ -80,6 +82,8 @@
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
+  --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
+  --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
   --sem-font-family-ui: Inter, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --sem-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --sem-font-size-micro: 10.5px;
@@ -93,6 +97,9 @@
   --sem-font-line-tight: 1.25;
   --sem-font-line-default: 1.4;
   --sem-font-line-relaxed: 1.5;
+  --sem-font-tracking-tight: -0.01em;
+  --sem-font-tracking-normal: 0;
+  --sem-font-tracking-wide: 0.02em;
   --sem-icon-size-xs: 12px;
   --sem-icon-size-sm: 14px;
   --sem-icon-size-md: 16px;
@@ -105,6 +112,29 @@
   --sem-motion-duration-normal: 180ms;
   --sem-motion-duration-deliberate: 260ms;
   --sem-motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --sem-space-3xs: 2px;
+  --sem-space-2xs: 4px;
+  --sem-space-xs: 6px;
+  --sem-space-sm: 8px;
+  --sem-space-md: 10px;
+  --sem-space-lg: 12px;
+  --sem-space-xl: 16px;
+  --sem-space-2xl: 20px;
+  --sem-space-3xl: 24px;
+  --sem-space-4xl: 32px;
+  --sem-size-control-xs: 24px;
+  --sem-size-control-sm: 28px;
+  --sem-size-control-md: 32px;
+  --sem-size-hit-target-min: 24px;
+  --sem-focus-ring-width: 2px;
+  --sem-focus-ring: 0 0 0 2px var(--sem-color-border-focus);
+  --sem-z-base: 0;
+  --sem-z-sticky: 10;
+  --sem-z-drawer: 40;
+  --sem-z-popover: 50;
+  --sem-z-menu: 60;
+  --sem-z-modal: 70;
+  --sem-z-toast: 80;
 }
 [data-mode="dark"] {
   --sem-color-bg-app: var(--ref-color-ink-950);
@@ -113,6 +143,7 @@
   --sem-color-bg-hover: var(--ref-color-ink-850);
   --sem-color-bg-active: var(--ref-color-ink-825);
   --sem-color-bg-selected: var(--ref-color-ink-800);
+  --sem-color-bg-selected-resting: var(--ref-color-ink-825);
   --sem-color-text-primary: var(--ref-color-paper-100);
   --sem-color-text-default: var(--ref-color-paper-200);
   --sem-color-text-muted: var(--ref-color-paper-400);
@@ -137,6 +168,8 @@
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
+  --sem-shadow-modal: 0 16px 48px -16px rgba(0, 0, 0, 0.72);
 }
 </style>
 <style>
@@ -148,6 +181,7 @@
   --sem-color-bg-hover: var(--ref-color-ink-850);
   --sem-color-bg-active: var(--ref-color-ink-825);
   --sem-color-bg-selected: var(--ref-color-ink-800);
+  --sem-color-bg-selected-resting: var(--ref-color-ink-825);
   --sem-color-text-primary: var(--ref-color-paper-100);
   --sem-color-text-default: var(--ref-color-paper-200);
   --sem-color-text-muted: var(--ref-color-paper-400);
@@ -172,6 +206,8 @@
   --sem-color-status-danger-soft: rgba(252, 120, 124, 0.18);
   --sem-color-overlay-scrim: rgba(8, 8, 12, 0.7);
   --sem-shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --sem-shadow-popover: 0 4px 12px -6px rgba(0, 0, 0, 0.55);
+  --sem-shadow-modal: 0 16px 48px -16px rgba(0, 0, 0, 0.72);
 }
 #ds-mode-dark:checked ~ .ds-catalog [data-mode="light"] {
   --sem-color-bg-app: var(--ref-color-mist-100);
@@ -180,10 +216,11 @@
   --sem-color-bg-hover: var(--ref-color-mist-150);
   --sem-color-bg-active: var(--ref-color-mist-200);
   --sem-color-bg-selected: var(--ref-color-mist-250);
+  --sem-color-bg-selected-resting: var(--ref-color-mist-225);
   --sem-color-text-primary: var(--ref-color-slate-900);
   --sem-color-text-default: var(--ref-color-slate-700);
   --sem-color-text-muted: var(--ref-color-slate-500);
-  --sem-color-text-subtle: var(--ref-color-slate-550);
+  --sem-color-text-subtle: var(--ref-color-slate-450);
   --sem-color-text-disabled: var(--ref-color-slate-400);
   --sem-color-text-on-accent: var(--ref-color-white);
   --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
@@ -204,6 +241,8 @@
   --sem-color-status-danger-soft: rgba(220, 40, 40, 0.16);
   --sem-color-overlay-scrim: rgba(20, 24, 28, 0.42);
   --sem-shadow-drawer: 0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10);
+  --sem-shadow-popover: 0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12);
+  --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
 }
 </style>
 <style>
@@ -448,6 +487,8 @@ code {
 #ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
 #ds-view-component-input:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-input:checked ~ .ds-catalog #component-input { display: block; }
+#ds-view-component-list-row:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-list-row:checked ~ .ds-catalog #component-list-row { display: block; }
 #ds-view-component-task-card:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-task-card:checked ~ .ds-catalog #component-task-card { display: block; }
 #ds-view-components:checked ~ .ds-catalog .catalog-nav label[for="ds-view-components"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -456,12 +497,18 @@ code {
 #ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-input:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-input:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-list-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-list-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-task-card:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-task-card:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
+#ds-view-pattern-selection:checked ~ .ds-catalog #patterns { display: block; }
+#ds-view-pattern-selection:checked ~ .ds-catalog #pattern-selection { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-patterns:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-pattern-selection:checked ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-pattern-selection:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
 <style>
 /* components/button/component.css */
@@ -472,9 +519,9 @@ code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
+  gap: var(--sem-space-xs);
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-lg);
   border: none;
   border-radius: var(--sem-radius-control);
   font-family: var(--sem-font-family-ui);
@@ -494,7 +541,7 @@ code {
 
 .ds-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
 .ds-button:disabled {
@@ -525,13 +572,15 @@ code {
 
 /* Sizes: sm (28px, default) and md (32px). */
 .ds-button--md {
-  height: 32px;
+  height: var(--sem-size-control-md);
 }
 
 /* Icon — square, borderless; requires an accessible name on the button. */
 .ds-button--icon {
-  width: 24px;
-  height: 24px;
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-hit-target-min);
+  min-height: var(--sem-size-hit-target-min);
   padding: 0;
   background: transparent;
   color: var(--sem-color-text-muted);
@@ -563,7 +612,7 @@ code {
 .ds-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sem-space-xs);
   font-family: var(--sem-font-family-ui);
 }
 
@@ -574,13 +623,13 @@ code {
 }
 
 .ds-field-required {
-  margin-left: 4px;
+  margin-left: var(--sem-space-2xs);
   color: var(--sem-color-status-danger);
 }
 
 .ds-input {
-  height: 28px;
-  padding: 0 8px;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-control);
   background: var(--sem-color-bg-surface-raised);
@@ -602,7 +651,7 @@ code {
 }
 
 .ds-input:focus-visible {
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
 .ds-input[aria-invalid='true'] {
@@ -634,20 +683,224 @@ code {
   }
 }
 
+/* components/list-row/component.css */
+/* List row — the pick-an-item worklist row, and the most repeated surface in
+ * the product: rails, sources, inboxes, categories, search results.
+ *
+ * Family contract: neutral selection (never the accent), two selection tiers
+ * so a multi-pane surface has one focused selection, background-only hover,
+ * and trailing actions that stay hidden until pointed at or focused. */
+
+.ds-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow, and no
+ * border that would shift the row's geometry. */
+.ds-list-row:hover {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-default);
+}
+
+.ds-list-row:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-list-row:disabled,
+.ds-list-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * Two tiers. `--selected` is the pane the user is driving; `--resting` is
+ * every other pane's remembered choice. Selection is neutral in both: the
+ * accent is reserved for the primary action, so a chosen row never outranks
+ * the one thing worth clicking. */
+.ds-list-row--selected {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-list-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-list-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-default);
+}
+
+/* ── Leading ─────────────────────────────────────────────────────────────
+ * A status glyph, monogram, or type icon. Never a decorative avatar. */
+.ds-list-row-leading {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-list-row-leading svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-list-row--selected .ds-list-row-leading {
+  color: var(--sem-color-text-default);
+}
+
+/* ── Text ────────────────────────────────────────────────────────────────
+ * Title is the row's one priority and claims the width; everything else is
+ * demoted to the supporting line or the trailing slot. */
+.ds-list-row-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.ds-list-row-title {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-normal);
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-list-row-supporting {
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Identifiers are mono, tabular, and optically opened at this size. */
+.ds-list-row-id {
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * Display-only: a count, a timestamp, a status word. Never interactive —
+ * the row itself renders as the button, and nesting a control inside it is
+ * invalid HTML. Row actions go in the actions slot instead. */
+.ds-list-row-trailing {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────
+ * Withheld until the row is pointed at or focused. The slot reserves its
+ * width at rest so revealing never reflows the row, and the actions appear
+ * on keyboard focus as well as hover — hover-only is a bug, not a style.
+ * Ceiling: two actions. Anything more belongs in an overflow menu. */
+.ds-list-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-list-row:hover .ds-list-row-actions,
+.ds-list-row:focus-visible .ds-list-row-actions,
+.ds-list-row-actions:focus-within {
+  opacity: 1;
+}
+
+/* The row is a button, so its actions live in a sibling wrapper rather than
+ * inside it. This is the wrapper's contract. */
+.ds-list-row-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ds-list-row-host .ds-list-row-actions {
+  position: absolute;
+  right: var(--sem-space-sm);
+}
+
+.ds-list-row-action {
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-hit-target-min);
+  min-height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+}
+
+.ds-list-row-action:hover {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-list-row-action:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-list-row-action svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* Reduced motion removes the fade, never the reveal itself — the actions
+ * must still become available. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-list-row,
+  .ds-list-row-actions {
+    transition: none;
+  }
+}
+
 /* components/task-card/component.css */
 /* Task card — extracted from the source product's TaskCard primitive
  * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
  * inbox-row surface. Family contract: 6px status dot, mono identifier,
- * medium title, accent-soft + left-bar selection, background-only hover. */
+ * medium title, neutral two-tier selection, background-only hover.
+ * Prefer components/list-row for list surfaces; this is the board card. */
 
 .ds-task-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-md);
   background: var(--sem-color-bg-surface);
   border: 1px solid var(--sem-color-border-subtle);
-  border-left: 2px solid transparent;
   border-radius: var(--sem-radius-control);
   font-family: var(--sem-font-family-ui);
   text-align: left;
@@ -663,20 +916,26 @@ code {
 
 .ds-task-card:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
-/* Selection: accent-soft fill plus the 2px left accent bar. */
+/* Selection is neutral: the accent is reserved for the primary action, so a
+ * chosen card never outranks the one thing worth clicking. Two tiers, so a
+ * multi-pane surface shows exactly one focused selection. */
 .ds-task-card--selected {
-  background: var(--sem-color-accent-soft);
-  border-left-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-bg-selected);
+  border-color: var(--sem-color-border-default);
+}
+
+.ds-task-card--resting {
+  background: var(--sem-color-bg-selected-resting);
 }
 
 /* 6px status dot. Status only — never decoration or category coding. */
 .ds-task-card-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
   border-radius: 999px;
   background: var(--sem-color-status-neutral);
 }
@@ -737,16 +996,16 @@ code {
     font-family: var(--sem-font-family-ui);
   }
 .ds-embed-component-button .demo-stage {
-    padding: 24px;
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
   }
 .ds-embed-component-button .demo-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--sem-space-md);
     flex-wrap: wrap;
-    margin: 0 0 12px;
+    margin: 0 0 var(--sem-space-lg);
   }
 .ds-embed-component-button .demo-row:last-child {
     margin-bottom: 0;
@@ -761,12 +1020,12 @@ code {
     font-family: var(--sem-font-family-ui);
   }
 .ds-embed-component-input .demo-stage {
-    padding: 24px;
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--sem-space-xl);
     max-width: 340px;
   }
 .ds-embed-component-input .demo-label {
@@ -774,23 +1033,133 @@ code {
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-subtle);
   }
+.ds-embed-component-list-row {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-list-row .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-list-row .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-sm);
+  }
+.ds-embed-component-list-row .demo-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+.ds-embed-component-list-row .demo-pane {
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    padding: var(--sem-space-sm);
+  }
+.ds-embed-component-list-row .demo-pane-title {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
 .ds-embed-component-task-card {
     margin: 0;
     font-family: var(--sem-font-family-ui);
   }
 .ds-embed-component-task-card .demo-stage {
-    padding: 24px;
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--sem-space-xs);
     max-width: 380px;
   }
 .ds-embed-component-task-card .demo-label {
-    margin: 0 0 4px;
+    margin: 0 0 var(--sem-space-2xs);
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-subtle);
+  }
+.ds-embed-pattern-selection {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+.ds-embed-pattern-selection .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-pattern-selection .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+.ds-embed-pattern-selection .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+.ds-embed-pattern-selection .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+.ds-embed-pattern-selection .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+.ds-embed-pattern-selection .pat-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+.ds-embed-pattern-selection .pat-pane {
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    padding: var(--sem-space-sm);
+  }
+.ds-embed-pattern-selection .pat-pane-title {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
+.ds-embed-pattern-selection .pat-pane-title em {
+    font-style: normal;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    color: var(--sem-color-accent-primary);
+  }
+.ds-embed-pattern-selection .pat-verdict {
+    display: inline-block;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    padding: var(--sem-space-3xs) var(--sem-space-xs);
+    border-radius: var(--sem-radius-chip);
+    border: 1px solid var(--sem-color-border-default);
+    color: var(--sem-color-text-muted);
+    margin-bottom: var(--sem-space-sm);
+  }
+.ds-embed-pattern-selection .pat-wrong .ds-list-row--selected {
+    background: var(--sem-color-accent-soft);
+    border-left: 3px solid var(--sem-color-accent-primary);
+    border-radius: var(--sem-radius-control);
+    padding-left: var(--sem-space-sm);
+    color: var(--sem-color-text-primary);
   }
 </style>
 </head>
@@ -806,14 +1175,16 @@ code {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-list-row" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-selection" />
 <div class="ds-catalog">
 <header class="catalog-header">
 <h1>multicode</h1>
-<span class="catalog-version">v0.1.0</span>
+<span class="catalog-version">v0.2.0</span>
 <label class="catalog-mode-toggle" for="ds-mode-dark"><span class="catalog-mode-when-light">Light mode — switch to dark</span><span class="catalog-mode-when-dark">Dark mode — switch to light</span></label>
-<p class="catalog-summary">I want you to generate a design system from the current application.</p>
+<p class="catalog-summary">Multicode design system: neutral two-tier selection, one accent reserved for the primary action, a 2px-grid spacing scale, and progressive disclosure of row actions.</p>
 </header>
 <div class="catalog-layout">
 <nav class="catalog-nav" aria-label="Catalog">
@@ -827,9 +1198,10 @@ code {
 <label class="catalog-nav-group" for="ds-view-components">Components</label>
 <label class="catalog-nav-item" for="ds-view-component-button">Button</label>
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
+<label class="catalog-nav-item" for="ds-view-component-list-row">List row</label>
 <label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
-<span class="catalog-nav-empty">none yet</span>
+<label class="catalog-nav-item" for="ds-view-pattern-selection">Selection</label>
 </nav>
 <main class="catalog-main">
 <section id="foundations" class="catalog-group">
@@ -846,7 +1218,7 @@ code {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-200)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-200</code><code class="catalog-token-value">#c8c8d0</code></p><p class="catalog-token-meta">Body text ink on dark surfaces. Source: dark --text-default.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-400</code><code class="catalog-token-value">#9c9ca4</code></p><p class="catalog-token-meta">Muted text ink on dark surfaces. Source: dark --text-muted / --tone-neutral.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-500</code><code class="catalog-token-value">#707078</code></p><p class="catalog-token-meta">Subtle text ink on dark surfaces. Source: dark --text-subtle.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-600</code><code class="catalog-token-value">#5c5c64</code></p><p class="catalog-token-meta">Disabled text ink on dark surfaces. Source: dark --text-disabled.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-paper-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.paper-600</code><code class="catalog-token-value">#626269</code></p><p class="catalog-token-meta">Disabled text ink on dark surfaces. Tuned to clear the 3:1 non-text contrast floor (3.23:1 on bg.surface).</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-white)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.white</code><code class="catalog-token-value">#ffffff</code></p><p class="catalog-token-meta">Pure white. Source: light --bg-surface / light --text-on-accent.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-100)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-100</code><code class="catalog-token-value">#eaeef2</code></p><p class="catalog-token-meta">Cool near-white canvas, a step greyer than white cards. Source: light --bg-app.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-150)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-150</code><code class="catalog-token-value">#f0f0f4</code></p><p class="catalog-token-meta">Light hover step. Source: light --bg-hover.</p></div></div>
@@ -855,7 +1227,6 @@ code {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-900)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-900</code><code class="catalog-token-value">#202428</code></p><p class="catalog-token-meta">Near-black text ink on light surfaces. Source: light --text-strong.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-700)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-700</code><code class="catalog-token-value">#3c444c</code></p><p class="catalog-token-meta">Body text ink on light surfaces. Source: light --text-default.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-500</code><code class="catalog-token-value">#646c78</code></p><p class="catalog-token-meta">Muted text ink on light surfaces. Source: light --text-muted.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-550)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-550</code><code class="catalog-token-value">#5f6772</code></p><p class="catalog-token-meta">Subtle text ink on light surfaces, darkened to clear AA body. Source: light --text-subtle.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-400</code><code class="catalog-token-value">#838b97</code></p><p class="catalog-token-meta">Disabled text ink on light surfaces (3.44:1 on white, AA-large). Source: light --text-disabled.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green-400</code><code class="catalog-token-value">#4daf7d</code></p><p class="catalog-token-meta">Signature green, hover step on dark. Source: dark --accent-primary-hover.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-green-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.green-500</code><code class="catalog-token-value">#3f9468</code></p><p class="catalog-token-meta">Signature green on dark surfaces. Source: dark --accent-primary.</p></div></div>
@@ -868,16 +1239,19 @@ code {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-coral-400)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.coral-400</code><code class="catalog-token-value">#fc787c</code></p><p class="catalog-token-meta">Luminous error coral for dark surfaces. Source: dark --tone-error.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-red-600)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.red-600</code><code class="catalog-token-value">#d92d2d</code></p><p class="catalog-token-meta">Deep error red for light surfaces, carries white ink. Source: light --tone-error.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-violet-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.violet-500</code><code class="catalog-token-value">#8957e5</code></p><p class="catalog-token-meta">Merged-branch purple, constant across modes (GitHub-family semantic). Source: --tone-merged.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-gray-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.gray-500</code><code class="catalog-token-value">#6b7280</code></p><p class="catalog-token-meta">Neutral status grey for light surfaces. Source: light --tone-neutral.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-gray-500)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.gray-500</code><code class="catalog-token-value">#6b7280</code></p><p class="catalog-token-meta">Neutral status grey for light surfaces. Source: light --tone-neutral.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-mist-225)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.mist-225</code><code class="catalog-token-value">#e4e8ec</code></p><p class="catalog-token-meta">Resting-selection surface in light mode.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" style="background: var(--ref-color-slate-450)"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>ref.color.slate-450</code><code class="catalog-token-value">#6e7682</code></p><p class="catalog-token-meta">Subtle text ink on light surfaces. Sits between slate-500 (muted) and slate-400 (disabled) so the ramp orders identically in both modes.</p></div></div><h4 class="catalog-tier-heading"><code>sem</code> colors</h4><div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-app)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-app)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.app</code><code class="catalog-token-value">{ref.color.mist-100}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Root/page background — the canvas every panel sits on. Root and page background, the base layer of every view. <strong>Do not:</strong> Cards or raised chrome — use bg.surface / bg.surface-raised so panels read as elevated.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Panel, section, and default card surface — one step above the app canvas. Panels, sections, cards — the default working surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-surface-raised)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-surface-raised)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.surface-raised</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">surface</span></p><p class="catalog-token-meta">Raised chrome: tab strips, inputs, popovers, drawers. Inputs, popovers, drawers, and other chrome raised above the panel surface.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.hover</code><code class="catalog-token-value">{ref.color.mist-150}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Hover fill on rows, buttons, and list items — the only hover treatment (no shadow, scale, or glow). Hover background on any interactive row, button, or list item.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-active)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-active)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.active</code><code class="catalog-token-value">{ref.color.mist-200}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Pressed / active background. Pressed state background on interactive surfaces.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-selected)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-selected)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.selected</code><code class="catalog-token-value">{ref.color.mist-250}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Neutral selection background where the accent soft fill would be too strong. Neutral selected-row background in dense chrome. <strong>Do not:</strong> Primary selection — that pairs accent.soft with a left accent bar.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-selected)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-selected)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.selected</code><code class="catalog-token-value">{ref.color.mist-250}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Selection in the pane that currently has focus. The selected row of the focused pane or list. Pair with text.primary. <strong>Do not:</strong> A second simultaneous strong selection elsewhere on screen — every other pane drops to bg.selected-resting.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-bg-selected-resting)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-bg-selected-resting)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.bg.selected-resting</code><code class="catalog-token-value">{ref.color.mist-225}</code><span class="catalog-badge">interaction</span></p><p class="catalog-token-meta">Selection in a pane that does not have focus — it remembers, quietly. The selected row of every pane except the focused one, so a three-pane surface has exactly one strong selection. <strong>Do not:</strong> The focused pane — that is bg.selected.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.primary</code><code class="catalog-token-value">{ref.color.slate-900}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Primary content ink: titles, selected-row foreground, headings. Panel titles, primary content, selected-row foreground.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.default</code><code class="catalog-token-value">{ref.color.slate-700}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Body text and default row labels. Body copy, row labels, field labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-muted)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-muted)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.muted</code><code class="catalog-token-value">{ref.color.slate-500}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Secondary and supporting copy, meta text. Secondary copy, counts, meta rows, ghost-button labels.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-subtle)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-subtle)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.subtle</code><code class="catalog-token-value">{ref.color.slate-550}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Tertiary ink: identifiers, de-emphasized meta. Identifiers, placeholders, tertiary meta. <strong>Do not:</strong> Actionable copy on its own — pair with primary text or an affordance.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-subtle)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-subtle)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.subtle</code><code class="catalog-token-value">{ref.color.slate-450}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Tertiary ink: identifiers, de-emphasized meta. Identifiers, placeholders, tertiary meta. <strong>Do not:</strong> Actionable copy on its own — pair with primary text or an affordance.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-disabled)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-disabled)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.disabled</code><code class="catalog-token-value">{ref.color.slate-400}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Disabled controls and empty-state copy. Disabled control labels, empty-state hints. <strong>Do not:</strong> Body copy — this step is below the AA body-contrast floor by design.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-text-on-accent)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-text-on-accent)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.text.on-accent</code><code class="catalog-token-value">{ref.color.white}</code><span class="catalog-badge">text</span></p><p class="catalog-token-meta">Label ink on the accent fill. Flips by mode: white on the deep light-mode green, near-black on the brighter dark-mode green. Text and icons sitting on accent.primary fills (primary buttons).</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-subtle)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-subtle)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.subtle</code><code class="catalog-token-value">rgba(32, 36, 40, 0.10)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Default panel/section divider hairline. Section dividers and quiet card edges — borders carry the structure, not shadows.</p></div></div>
@@ -914,14 +1288,28 @@ code {
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.tight</code><code class="catalog-token-value">1.25</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Display and panel-title line height. Titles and single-line labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-default)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.default</code><code class="catalog-token-value">1.4</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Body and row-label line height. Body copy and row labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-relaxed)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.relaxed</code><code class="catalog-token-value">1.5</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Long-form prose line height. Long-form prose in inspectors and docs.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.tight</code><code class="catalog-token-value">-0.01em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical tightening for titles at 13px and up. font.size.heading and font.size.title, which read loose at their default metrics. <strong>Do not:</strong> Body or meta text — tightening small text costs legibility.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-normal)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.normal</code><code class="catalog-token-value">0</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default tracking: body, labels, and every row title. All UI text that is not a title or a micro label.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-wide)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.wide</code><code class="catalog-token-value">0.02em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical opening for mono identifiers and micro labels. font.family.mono identifiers and font.size.micro labels, which jam at their default metrics. <strong>Do not:</strong> Uppercase-tracked section headings — the system has none.</p></div></div>
 </div>
 <div id="foundations-spacing" class="catalog-view">
 <h3>Spacing</h3>
-<p class="catalog-empty">This system defines no spacing tokens.</p>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-3xs)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.3xs</code><code class="catalog-token-value">2px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Hairline gap: a glyph from its label, stacked meta lines. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-2xs)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.2xs</code><code class="catalog-token-value">4px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Tight inset: chip padding, icon-button breathing room. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-xs)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.xs</code><code class="catalog-token-value">6px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Dense row gap — the most common gap in list chrome. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-sm)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.sm</code><code class="catalog-token-value">8px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Default gap between siblings in a row or toolbar. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-md)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.md</code><code class="catalog-token-value">10px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Row inset: horizontal padding on list rows and cards. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-lg)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.lg</code><code class="catalog-token-value">12px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Panel inset: the standard horizontal padding of panel chrome. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-xl)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.xl</code><code class="catalog-token-value">16px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Group separation between related blocks in a panel. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-2xl)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.2xl</code><code class="catalog-token-value">20px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Section separation inside a scrolling surface. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-3xl)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.3xl</code><code class="catalog-token-value">24px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Overlay inset: modal and drawer body padding. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
+<div class="catalog-token-row"><span class="catalog-space-bar" style="width: var(--sem-space-4xl)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.space.4xl</code><code class="catalog-token-value">32px</code><span class="catalog-badge">spacing</span></p><p class="catalog-token-meta">Page-level gutter on wide door surfaces. Padding, gap, and margin. Every spacing value in a component comes from this scale. <strong>Do not:</strong> Control heights or icon sizes — those have their own scales (sem.size.control.*, sem.icon.size.*).</p></div></div>
 </div>
 <div id="foundations-other-tokens" class="catalog-view">
 <h3>Other tokens</h3>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.xs</code><code class="catalog-token-value">12px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Inline glyphs next to body/meta copy. Inline glyphs beside meta copy and inside chips.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.sm</code><code class="catalog-token-value">14px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Default list-row and toolbar icons. The default icon size for rows, toolbars, and close glyphs.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.md</code><code class="catalog-token-value">16px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Button-pair icons and panel-header chrome. Icons paired with button labels and panel-header affordances.</p></div></div>
@@ -934,6 +1322,19 @@ code {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.ease.standard</code><code class="catalog-token-value">cubic-bezier(0.2, 0.8, 0.2, 1)</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">The single easing curve for all UI motion. Every transition and animation — one ease, no exceptions. <strong>Do not:</strong> Introducing a second easing curve.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons and controls that sit inside a list row. <strong>Do not:</strong> Any control carrying a text label — those start at sm.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">28px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">32px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target, matching the IconButton contract. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-width</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">Thickness of the focus ring. The one focus-ring thickness, everywhere.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">0 0 0 2px var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single composite focus ring, applied on :focus-visible. Keyboard focus on every interactive element. Apply on :focus-visible with outline:none, never on :focus. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.base</code><code class="catalog-token-value">0</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Default in-flow content. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.sticky</code><code class="catalog-token-value">10</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Sticky panel headers and column headers. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.drawer</code><code class="catalog-token-value">40</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Drawers and their scrim. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.popover</code><code class="catalog-token-value">50</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Popover, Select listbox, and Tooltip. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.menu</code><code class="catalog-token-value">60</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">ContextMenu and PointerPopover — above an open popover. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.modal</code><code class="catalog-token-value">70</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Modal dialogs and their scrim. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.toast</code><code class="catalog-token-value">80</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Transient notifications — above everything. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
 </div>
 <div id="foundations-glyphs" class="catalog-view">
 <h3>Glyphs</h3>
@@ -957,23 +1358,46 @@ code {
 </div>
 <div id="foundations-doc-principles" class="catalog-view catalog-doc-card">
 <h3>Principles</h3>
-<p>Extracted from the Multicode app's documented design language (<code>knowledge/brand/</code> and <code>src/renderer/src/assets/index.css</code> in the source product). These are the source's de-facto rules restated for this bundle; each is a proposal until confirmed in review.</p>
-<h4>One accent</h4>
-<ul><li>One accent hue per view: the signature green (<code>sem.color.accent.primary</code>). Active selection and primary action share it; hover lifts to <code>accent.hover</code>.</li><li>Boxed selection is a 2px left bar of <code>accent.primary</code> over an <code>accent.soft</code> fill — never a full accent-filled row.</li><li>Status colors are not accents: never use <code>sem.color.status.*</code> as button backgrounds, section borders, chrome tints, or category coding.</li></ul>
+<p>The rules this system enforces that tokens alone cannot. Tokens decide what a value is; these decide when you are allowed to reach for it.</p>
+<p>This file is the authority on how Multicode looks. Where it and your instincts disagree, it wins. Where it is silent, decide, and add the rule here.</p>
+<h4>Restraint</h4>
+<p>Restraint is the whole craft. The default failure of a generated interface is not ugliness — it is genericness: many accents, decorative chrome, a happy-path-only screen. Density is bought by removing elements, words, and chrome, never by shrinking type or crushing rhythm.</p>
+<p><strong>The accent budget.</strong> Solid, saturated color is the strongest signal the system has, so it is spent on almost nothing:</p>
+<ul><li><code>accent.primary</code> as a <strong>solid fill</strong> appears on the <strong>primary action</strong> and nowhere else. One per view — an inspector aside counts as its own view.</li><li><code>accent.primary</code> as <strong>ink or a hairline</strong> may mark focus (<code>focus.ring</code>) and a genuinely live process.</li><li>Everything else earns its weight from the neutral ink and surface ramps.</li></ul>
+<p>If a surface needs a second accent, it is missing hierarchy, not color. Status hues (<code>status.*</code>) are not accents: never a button background, section border, chrome tint, or category code.</p>
+<p><strong>Selection is neutral.</strong> A selected row uses <code>bg.selected</code> — a neutral fill — and lifts its title to <code>text.primary</code>. It does not use the accent, and it does not carry a left bar, a border box, or a glow. A row that is merely *chosen* must never outrank the one action worth taking.</p>
+<h4>Quantified restraint</h4>
+<p>Ceilings, not guidelines. Exceeding one signals missing hierarchy; when a view exceeds one, model the domain again rather than adding chrome.</p>
+<p>| Ceiling | Limit | |---|---| | Product accents visible per view | 1 | | Status idioms | 1 — the 6px dot or a lifecycle glyph, never both | | Font families | 2 — <code>font.family.ui</code>, <code>font.family.mono</code> | | Font weights per view | 3 | | Font sizes per view | 3, repeating title / body / meta | | Border radii per view | 2 | | Controls above the first content row of a panel | 5 | | Visual elements per repeated row at rest | 4 | | Trailing actions a row may reveal on hover | 2 | | Motion treatments animating at any moment | 1 |</p>
+<h4>Selection and focus</h4>
+<p>Selection answers &quot;what did I pick?&quot;. Focus answers &quot;where am I typing?&quot;. They are different questions and never share a treatment.</p>
+<ul><li><strong>Focused selection</strong> — <code>bg.selected</code>, title at <code>text.primary</code>. The list the user is driving right now.</li><li><strong>Resting selection</strong> — <code>bg.selected-resting</code>, title at <code>text.default</code>. Every other pane's selection: it remembers the choice without competing.</li><li><strong>A multi-pane surface has exactly one focused selection.</strong> In a rail → list → detail layout, two of the three panes are always resting. Three panes rendering a full-strength selection at once is the defect this rule exists to prevent.</li><li><strong>Focus</strong> is <code>focus.ring</code> on <code>:focus-visible</code>, with <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring. Never suppressed.</li><li><strong>Hover</strong> is a background change to <code>bg.hover</code>. No shadow, no scale, no glow, no border appearing on hover and shifting the layout.</li></ul>
+<h4>Progressive disclosure</h4>
+<p>What you withhold is as deliberate as what you show. No screen confronts a person with everything at once.</p>
+<ul><li>Each screen gets one visual priority. High-signal status and the default reading path are visible; secondary detail and lower-frequency configuration are revealed as the user reaches for them, behind nearby disclosure.</li><li><strong>Prefer per-row and per-cell actions revealed on hover or focus over always-on controls.</strong> Delete, roll back, close, reveal-in-folder, and the rest belong to the row you are pointing at — not to every row simultaneously.</li><li>Anything revealed on hover <strong>must also appear on keyboard focus</strong>, and must have a non-hover path (an overflow menu, a context menu, or the detail pane). Hover-only is a bug, not a style.</li><li>Revealing an action must not resize or reflow the row. Reserve its space, or reveal it over the row's trailing padding.</li><li>Disclosure is not concealment: destructive or state-changing actions stay discoverable, and a state a person must act on is never hidden behind hover.</li></ul>
 <h4>Hairlines carry the structure</h4>
-<ul><li>Borders do the structural work. Cards, badges, and shadows do not.</li><li>The only drop shadow is <code>sem.shadow.drawer</code>, on drawers and overlay panels.</li><li>Hover is a background change (<code>sem.color.bg.hover</code>) only — no shadow, no scale, no glow.</li></ul>
-<h4>Coarse, deliberate scales</h4>
-<ul><li>The surface ramp (<code>bg.app</code> → <code>bg.selected</code>) is intentionally coarse; do not invent intermediate steps or blue-shifted variants.</li><li>At most 2 border radii per view; <code>radius.control</code> (5px) is the default, larger radii belong to overlays and modal shells only.</li><li>At most 3 text sizes per view; the rhythm repeats title / body / meta.</li></ul>
+<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li></ul>
+<h4>Space and size</h4>
+<ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (24px) for icon buttons and in-row triggers, <code>sm</code> (28px) as the default for anything with a label, <code>md</code> (32px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li></ul>
 <h4>Type</h4>
-<ul><li>Inter for UI, JetBrains Mono for identifiers, code, and <code>kbd</code>.</li><li>Sentence case everywhere except keyboard shortcuts. No uppercase-tracking chrome.</li><li>Tabular numerals on every numeric column; identifiers use mono at <code>font.size.meta</code> in <code>text.subtle</code>.</li></ul>
+<p><strong>Two families, permanently.</strong> <code>font.family.ui</code> (Inter) for everything a person reads; <code>font.family.mono</code> (JetBrains Mono) for identifiers, paths, hashes, code, and <code>kbd</code>. There is no third family, and no serif anywhere in the product. Introducing one is a system change, not a styling choice.</p>
+<ul><li>Sentence case everywhere except real keyboard shortcuts. No uppercase letter-spaced labels as hierarchy — not on section headers, metadata, breadcrumbs, or chips.</li><li>The scale repeats title / body / meta. Primary content does not go below <code>font.size.body</code> (12px).</li><li>Tracking is optical, not decorative: <code>tracking.tight</code> on titles at 13px and up, <code>tracking.wide</code> on mono identifiers and micro labels, <code>tracking.normal</code> everywhere else.</li><li>Line height by context: <code>line.tight</code> for display, <code>line.default</code> for UI, <code>line.relaxed</code> for prose. Not a single default applied everywhere.</li></ul>
+<p><strong>The micro-typography pass</strong> — run before any surface is called done:</p>
+<ul><li><code>tabular-nums</code> on every numeric column: counts, ids, timestamps, durations.</li><li>Mono for identifiers only, never for prose.</li><li>Numbers, ids, and percentages right-align in columns; titles left-align. Dense data is never centre-aligned.</li><li>Curly quotes and em-dashes in copy, no double spaces. Code is exempt.</li></ul>
 <h4>Status is earned</h4>
-<ul><li>Status reads by shape first, color second — every state must survive grayscale. Done/healthy items render no mark by default.</li><li>Only genuinely live work animates (a single spinner or pulsing dot); nothing ambient.</li><li>The accent green (forest) and the success green (bright emerald) are kept apart by brightness and saturation; do not retune one toward the other.</li></ul>
-<h4>Motion is rare and earned</h4>
-<ul><li>One easing curve (<code>motion.ease.standard</code>), three durations. Hover/focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from the scrim tone plus the drawer shadow.</li></ul>
+<ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
+<h4>Motion</h4>
+<ul><li>One easing curve (<code>motion.ease.standard</code>) and three durations. Hover and focus at <code>fast</code>, popovers at <code>normal</code>, drawers at <code>deliberate</code>.</li><li>At most one thing animates at a time, and it means one of exactly two things: *alive right now* (a streaming or running pulse) or *just changed* (a reorder, a just-moved flash). Ambient decoration is not motion, it is noise.</li><li>Motion is never the sole signal of a state change — the accessible name and the visible label carry it too.</li><li>Every animation honors <code>prefers-reduced-motion: reduce</code>, including the <code>:active</code> press scale.</li><li>Never put <code>backdrop-filter</code> on a full-viewport scrim; separation comes from <code>overlay.scrim</code> plus the shell's shadow.</li></ul>
+<h4>Accessibility</h4>
+<p>A gate, not a preference. No design system supplies it for you.</p>
+<ul><li>WCAG 2.1 AA, semantic HTML, and full keyboard operation on every surface.</li><li>Body text clears AA on its own surface. <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone. The ink ramp orders identically in both modes — <code>default</code> darker than <code>muted</code> darker than <code>subtle</code> darker than <code>disabled</code> — so a token means the same thing in either theme.</li><li>Visible focus on everything focusable, in a sensible order, never removed.</li><li>Status conveyed by shape or label, never by color alone.</li><li>Real labels on controls; <code>aria-label</code> on every icon-only button. Icons that duplicate adjacent text are <code>aria-hidden</code>.</li><li>Overlays: Escape closes the topmost surface only, focus is restored to the trigger, and a modal traps focus while open.</li><li>Design the states, not the happy path. Every data surface distinguishes populated, empty, loading, error, unavailable, and permission-denied. A failed dependency must never render identically to an empty list.</li></ul>
 <h4>Modes</h4>
-<ul><li>Light and dark ship from the same semantic tokens; consumers style with <code>--sem-*</code> only and never write per-mode overrides.</li><li>Contrast floors are load-bearing: body text clears AA on its surface; <code>text.subtle</code> and <code>text.disabled</code> never carry actionable copy alone.</li><li>Dark-mode values keep the source's anti-dither discipline (solid channel values on multiples of 4, no pure black surfaces).</li></ul>
+<ul><li>Light and dark ship from the same semantic tokens. Consumers style with <code>--sem-*</code> only and never write a per-mode override.</li><li>Dark surfaces are neutral to slightly warm. Blue-shifted darks (<code>#0a0d18</code>, <code>#0c1020</code>) read as generated-dashboard defaults and are out.</li><li>Dark values keep the anti-dither discipline: solid channel values, no pure black surfaces.</li></ul>
 <h4>Tokens or nothing</h4>
-<ul><li>Never hard-code a color. Every color resolves from a <code>--sem-*</code> variable; pick tokens by their documented role and use, not by their looks.</li></ul>
+<ul><li>Never hard-code a color, space, size, radius, duration, or z-index the system defines. Pick by the token's documented <code>role</code> and <code>use</code>, not by its looks.</li><li>The <code>--ref-*</code> tier is internal plumbing for the token file. Components and patterns consume <code>--sem-*</code> only.</li><li>Layering comes from <code>sem.z.*</code>. A surface that needs to sit between two defined layers is the wrong kind of surface.</li></ul>
+<h4>Reject on sight</h4>
+<p>Each of these is a restart signal, not a fix-it-later note. Rebuild the surface rather than patching it.</p>
+<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product.</li><li>A badge or tinted pill where a status dot carries the same meaning.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a gradient fill, inset highlight, or blurred shadow.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
 </div>
 </section>
 <section id="components" class="catalog-group">
@@ -1034,9 +1458,9 @@ code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
+  gap: var(--sem-space-xs);
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-lg);
   border: none;
   border-radius: var(--sem-radius-control);
   font-family: var(--sem-font-family-ui);
@@ -1056,7 +1480,7 @@ code {
 
 .ds-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
 .ds-button:disabled {
@@ -1087,13 +1511,15 @@ code {
 
 /* Sizes: sm (28px, default) and md (32px). */
 .ds-button--md {
-  height: 32px;
+  height: var(--sem-size-control-md);
 }
 
 /* Icon — square, borderless; requires an accessible name on the button. */
 .ds-button--icon {
-  width: 24px;
-  height: 24px;
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-hit-target-min);
+  min-height: var(--sem-size-hit-target-min);
   padding: 0;
   background: transparent;
   color: var(--sem-color-text-muted);
@@ -1132,16 +1558,16 @@ code {
     font-family: var(--sem-font-family-ui);
   }
   .demo-stage {
-    padding: 24px;
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
   }
   .demo-row {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--sem-space-md);
     flex-wrap: wrap;
-    margin: 0 0 12px;
+    margin: 0 0 var(--sem-space-lg);
   }
   .demo-row:last-child {
     margin-bottom: 0;
@@ -1247,7 +1673,7 @@ code {
 .ds-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sem-space-xs);
   font-family: var(--sem-font-family-ui);
 }
 
@@ -1258,13 +1684,13 @@ code {
 }
 
 .ds-field-required {
-  margin-left: 4px;
+  margin-left: var(--sem-space-2xs);
   color: var(--sem-color-status-danger);
 }
 
 .ds-input {
-  height: 28px;
-  padding: 0 8px;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-control);
   background: var(--sem-color-bg-surface-raised);
@@ -1286,7 +1712,7 @@ code {
 }
 
 .ds-input:focus-visible {
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
 .ds-input[aria-invalid='true'] {
@@ -1332,12 +1758,12 @@ code {
     font-family: var(--sem-font-family-ui);
   }
   .demo-stage {
-    padding: 24px;
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--sem-space-xl);
     max-width: 340px;
   }
   .demo-label {
@@ -1380,6 +1806,659 @@ code {
   &lt;div class=&quot;ds-field&quot;&gt;
     &lt;label class=&quot;ds-field-label&quot; for=&quot;ws-locked-dark&quot;&gt;Locked field&lt;/label&gt;
     &lt;input class=&quot;ds-input&quot; id=&quot;ws-locked-dark&quot; type=&quot;text&quot; value=&quot;read-only value&quot; disabled /&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-list-row" class="catalog-view catalog-component">
+<h3>List row</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-list-row">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a rail → list → detail surface. Only the focused pane carries the strong selection.</p>
+  <div class="demo-panes">
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Marketplace — focused</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L7 10.2 3.6 12l.7-3.8L1.5 5.5l3.8-.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Featured</span>
+          <span class="ds-list-row-supporting">2 ready to launch</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1.5" width="9" height="11" rx="1.4" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h4M5 7.5h4M5 10h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Skills</span>
+          <span class="ds-list-row-supporting">6 sources · 368 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.8l4.5 2.6v5.2L7 12.2 2.5 9.6V4.4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Modules</span>
+          <span class="ds-list-row-supporting">0 available</span>
+        </span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Sources — resting</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Multicode</span>
+          <span class="ds-list-row-supporting">12 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">2m</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Matt Pocock</span>
+          <span class="ds-list-row-supporting">41 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">14m</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">browser-act</span>
+          <span class="ds-list-row-supporting">103 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">1h</span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
+      <div class="ds-list-row-host">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">Engineering</span>
+            <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1931</span> · 17 skills</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal Engineering in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove Engineering">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Productivity</span>
+          <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1928</span> · 5 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row" disabled>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Deprecated</span>
+          <span class="ds-list-row-supporting">Unavailable while the source reindexes</span>
+        </span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the same three panes.</p>
+  <div class="demo-panes">
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Marketplace — focused</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L7 10.2 3.6 12l.7-3.8L1.5 5.5l3.8-.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Featured</span>
+          <span class="ds-list-row-supporting">2 ready to launch</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><rect x="2.5" y="1.5" width="9" height="11" rx="1.4" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h4M5 7.5h4M5 10h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Skills</span>
+          <span class="ds-list-row-supporting">6 sources · 368 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-leading" aria-hidden="true">
+          <svg viewBox="0 0 14 14" fill="none"><path d="M7 1.8l4.5 2.6v5.2L7 12.2 2.5 9.6V4.4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Modules</span>
+          <span class="ds-list-row-supporting">0 available</span>
+        </span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Sources — resting</p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Multicode</span>
+          <span class="ds-list-row-supporting">12 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">2m</span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Matt Pocock</span>
+          <span class="ds-list-row-supporting">41 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">14m</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">browser-act</span>
+          <span class="ds-list-row-supporting">103 skills</span>
+        </span>
+        <span class="ds-list-row-trailing">1h</span>
+      </button>
+    </div>
+
+    <div class="demo-pane">
+      <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
+      <div class="ds-list-row-host">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">Engineering</span>
+            <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1931</span> · 17 skills</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal Engineering in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove Engineering">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Productivity</span>
+          <span class="ds-list-row-supporting"><span class="ds-list-row-id">MC-1928</span> · 5 skills</span>
+        </span>
+      </button>
+      <button type="button" class="ds-list-row" disabled>
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">Deprecated</span>
+          <span class="ds-list-row-supporting">Unavailable while the source reindexes</span>
+        </span>
+      </button>
+    </div>
+
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The pick-an-item worklist row: rails, source lists, inboxes, categories, search results. The most repeated surface in the product, and the default answer for any list of things a person chooses between.</p>
+<p>Use <code>task-card</code> instead when the item is a card on a board. Use this when the item is a row in a list.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — |</p>
+<p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, title stays at <code>text.default</code>.</li></ul>
+<p>A surface has <strong>exactly one <code>--selected</code> row on screen</strong>. In a rail → list → detail layout the other two panes use <code>--resting</code>, so the person can always see which list their keyboard is driving.</p>
+<p>Selection is never the accent colour, and never carries a left bar, a border box, or a glow. See <code>patterns/selection</code>.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
+<h4>Usage</h4>
+<p><strong>Actions are withheld until reached for.</strong> Per-row actions — remove, reveal in folder, roll back, close — live in <code>.ds-list-row-actions</code> and are invisible at rest. They appear on hover and on keyboard focus. Ceiling: two. A third action belongs in an overflow menu or the detail pane.</p>
+<p>The row itself is the <code>&lt;button&gt;</code>, so an action cannot be nested inside it — that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions in <code>.ds-list-row-host</code> instead, which positions the actions over the row's trailing padding. The slot reserves its space, so revealing never reflows.</p>
+<p>Do not put anything interactive in <code>.ds-list-row-trailing</code>. It is for a count, a timestamp, or a status word.</p>
+<p>Titles truncate to one line. If the full value matters, attach a tooltip that appears only when the text actually overflows — never a native <code>title</code> attribute on a control.</p>
+<h4>Accessibility</h4>
+<ul><li>Interactive rows render as <code>&lt;button type=&quot;button&quot;&gt;</code>. A row that only displays information renders as a <code>&lt;div&gt;</code> and takes no focus.</li><li>The selected row carries <code>aria-current=&quot;true&quot;</code>. A single-select list may instead use <code>role=&quot;listbox&quot;</code> with <code>role=&quot;option&quot;</code> and <code>aria-selected</code>; pick one model and hold to it for the whole list.</li><li>Every action button has an <code>aria-label</code> naming both the verb and the item (&quot;Remove Engineering&quot;), because the label is read out of the row's context.</li><li>Leading glyphs are <code>aria-hidden=&quot;true&quot;</code> when the title already carries the meaning.</li><li><strong>Revealed actions must be keyboard-reachable.</strong> They are in the tab order and become visible on <code>:focus-within</code> — an action that only exists on hover is unreachable for keyboard and touch users.</li><li>Status shown by a leading glyph reads by shape, not colour alone, and carries an accessible name when no adjacent text states it.</li><li>Disabled rows use the <code>disabled</code> attribute (or <code>aria-disabled=&quot;true&quot;</code> when they must stay focusable to explain why).</li><li>Reduced motion removes the reveal fade but never the reveal itself.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/list-row/component.css</summary><pre><code>/* List row — the pick-an-item worklist row, and the most repeated surface in
+ * the product: rails, sources, inboxes, categories, search results.
+ *
+ * Family contract: neutral selection (never the accent), two selection tiers
+ * so a multi-pane surface has one focused selection, background-only hover,
+ * and trailing actions that stay hidden until pointed at or focused. */
+
+.ds-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  width: 100%;
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  border: 0;
+  border-radius: var(--sem-radius-control);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-body);
+  line-height: var(--sem-font-line-default);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow, and no
+ * border that would shift the row's geometry. */
+.ds-list-row:hover {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-default);
+}
+
+.ds-list-row:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-list-row:disabled,
+.ds-list-row[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Selection ───────────────────────────────────────────────────────────
+ * Two tiers. `--selected` is the pane the user is driving; `--resting` is
+ * every other pane's remembered choice. Selection is neutral in both: the
+ * accent is reserved for the primary action, so a chosen row never outranks
+ * the one thing worth clicking. */
+.ds-list-row--selected {
+  background: var(--sem-color-bg-selected);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-list-row--selected:hover {
+  background: var(--sem-color-bg-selected);
+}
+
+.ds-list-row--resting {
+  background: var(--sem-color-bg-selected-resting);
+  color: var(--sem-color-text-default);
+}
+
+/* ── Leading ─────────────────────────────────────────────────────────────
+ * A status glyph, monogram, or type icon. Never a decorative avatar. */
+.ds-list-row-leading {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--sem-icon-size-lg);
+  height: var(--sem-icon-size-lg);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-list-row-leading svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+.ds-list-row--selected .ds-list-row-leading {
+  color: var(--sem-color-text-default);
+}
+
+/* ── Text ────────────────────────────────────────────────────────────────
+ * Title is the row's one priority and claims the width; everything else is
+ * demoted to the supporting line or the trailing slot. */
+.ds-list-row-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.ds-list-row-title {
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-normal);
+  color: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-list-row-supporting {
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Identifiers are mono, tabular, and optically opened at this size. */
+.ds-list-row-id {
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  letter-spacing: var(--sem-font-tracking-wide);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Trailing ────────────────────────────────────────────────────────────
+ * Display-only: a count, a timestamp, a status word. Never interactive —
+ * the row itself renders as the button, and nesting a control inside it is
+ * invalid HTML. Row actions go in the actions slot instead. */
+.ds-list-row-trailing {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────
+ * Withheld until the row is pointed at or focused. The slot reserves its
+ * width at rest so revealing never reflows the row, and the actions appear
+ * on keyboard focus as well as hover — hover-only is a bug, not a style.
+ * Ceiling: two actions. Anything more belongs in an overflow menu. */
+.ds-list-row-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-3xs);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-list-row:hover .ds-list-row-actions,
+.ds-list-row:focus-visible .ds-list-row-actions,
+.ds-list-row-actions:focus-within {
+  opacity: 1;
+}
+
+/* The row is a button, so its actions live in a sibling wrapper rather than
+ * inside it. This is the wrapper's contract. */
+.ds-list-row-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ds-list-row-host .ds-list-row-actions {
+  position: absolute;
+  right: var(--sem-space-sm);
+}
+
+.ds-list-row-action {
+  display: grid;
+  place-items: center;
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-hit-target-min);
+  min-height: var(--sem-size-hit-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--sem-radius-chip);
+  background: transparent;
+  color: var(--sem-color-text-muted);
+  cursor: pointer;
+}
+
+.ds-list-row-action:hover {
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-list-row-action:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-list-row-action svg {
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+}
+
+/* Reduced motion removes the fade, never the reveal itself — the actions
+ * must still become available. */
+@media (prefers-reduced-motion: reduce) {
+  .ds-list-row,
+  .ds-list-row-actions {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/list-row/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;List row&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    margin: 0 0 var(--sem-space-sm);
+  }
+  .demo-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+  .demo-pane {
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    padding: var(--sem-space-sm);
+  }
+  .demo-pane-title {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a rail → list → detail surface. Only the focused pane carries the strong selection.&lt;/p&gt;
+  &lt;div class=&quot;demo-panes&quot;&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Marketplace — focused&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-leading&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M7 1.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L7 10.2 3.6 12l.7-3.8L1.5 5.5l3.8-.5z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Featured&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;2 ready to launch&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-leading&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;rect x=&quot;2.5&quot; y=&quot;1.5&quot; width=&quot;9&quot; height=&quot;11&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/&gt;&lt;path d=&quot;M5 5h4M5 7.5h4M5 10h2.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Skills&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;6 sources · 368 skills&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-leading&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M7 1.8l4.5 2.6v5.2L7 12.2 2.5 9.6V4.4z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Modules&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;0 available&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Sources — resting&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;12 skills&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;2m&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;41 skills&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;14m&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;browser-act&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;103 skills&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;1h&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
+      &lt;div class=&quot;ds-list-row-host&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;&lt;span class=&quot;ds-list-row-id&quot;&gt;MC-1931&lt;/span&gt; · 17 skills&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Reveal Engineering in folder&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove Engineering&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Productivity&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;&lt;span class=&quot;ds-list-row-id&quot;&gt;MC-1928&lt;/span&gt; · 5 skills&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot; disabled&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Deprecated&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Unavailable while the source reindexes&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same three panes.&lt;/p&gt;
+  &lt;div class=&quot;demo-panes&quot;&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Marketplace — focused&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-leading&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M7 1.5l1.7 3.5 3.8.5-2.8 2.7.7 3.8L7 10.2 3.6 12l.7-3.8L1.5 5.5l3.8-.5z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Featured&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;2 ready to launch&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-leading&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;rect x=&quot;2.5&quot; y=&quot;1.5&quot; width=&quot;9&quot; height=&quot;11&quot; rx=&quot;1.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot;/&gt;&lt;path d=&quot;M5 5h4M5 7.5h4M5 10h2.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Skills&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;6 sources · 368 skills&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-leading&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M7 1.8l4.5 2.6v5.2L7 12.2 2.5 9.6V4.4z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Modules&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;0 available&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Sources — resting&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;12 skills&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;2m&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;41 skills&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;14m&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;browser-act&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;103 skills&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;1h&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
+      &lt;div class=&quot;ds-list-row-host&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;&lt;span class=&quot;ds-list-row-id&quot;&gt;MC-1931&lt;/span&gt; · 17 skills&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Reveal Engineering in folder&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove Engineering&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Productivity&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;&lt;span class=&quot;ds-list-row-id&quot;&gt;MC-1928&lt;/span&gt; · 5 skills&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot; disabled&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;Deprecated&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Unavailable while the source reindexes&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;
@@ -1448,26 +2527,27 @@ code {
 <h4>Variants</h4>
 <ul><li>Row (shown): one line, identifier and title share the baseline.</li><li>Card: identifier above the title, title clamps to two lines — same tokens, different stacking; rebuild per layout need.</li><li>Dot tones: default neutral, <code>--good</code>, <code>--warn</code>, <code>--danger</code>.</li></ul>
 <h4>States</h4>
-<ul><li>Hover: <code>bg.hover</code> only — no shadow, scale, or glow.</li><li>Selected: <code>accent.soft</code> fill plus a 2px left bar of <code>accent.primary</code>; title ink lifts to <code>text.primary</code>.</li><li>Focus-visible: 2px <code>border.focus</code> ring.</li></ul>
+<ul><li>Hover: <code>bg.hover</code> only — no shadow, scale, or glow.</li><li>Selected (focused pane): <code>bg.selected</code> neutral fill, border lifts to <code>border.default</code>, title ink lifts to <code>text.primary</code>.</li><li>Selected (resting pane): <code>bg.selected-resting</code>. A board that is not the focused pane shows its selection at this tier — see <code>patterns/selection</code>.</li><li>Focus-visible: <code>focus.ring</code>.</li></ul>
+<p>Selection is neutral, never the accent, and carries no left bar. The accent is reserved for the primary action.</p>
 <h4>Usage</h4>
 <ul><li>The dot is a status signal, not decoration or category color; done/healthy rows usually carry no mark at all.</li><li>Do not add a second interactive element inside the card; actions live in a context menu or the detail surface.</li><li>Keep the trailing slot to short meta (relative age, a count).</li></ul>
 <h4>Accessibility</h4>
-<ul><li>The card exposes one accessible name combining identifier and title.</li><li>Selection is conveyed with <code>aria-pressed</code> (or <code>aria-selected</code> in list semantics), not color alone — the left bar doubles as the non-color cue.</li><li>Status dots are <code>aria-hidden</code> when adjacent text already carries the state; otherwise give them a <code>role=&quot;img&quot;</code> label.</li></ul>
+<ul><li>The card exposes one accessible name combining identifier and title.</li><li>Selection is conveyed with <code>aria-pressed</code> (or <code>aria-selected</code> in list semantics), never by the fill alone — assistive technology reads the state from the attribute, and the ink lift to <code>text.primary</code> carries it visually.</li><li>Status dots are <code>aria-hidden</code> when adjacent text already carries the state; otherwise give them a <code>role=&quot;img&quot;</code> label.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/task-card/component.css</summary><pre><code>/* Task card — extracted from the source product's TaskCard primitive
  * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
  * inbox-row surface. Family contract: 6px status dot, mono identifier,
- * medium title, accent-soft + left-bar selection, background-only hover. */
+ * medium title, neutral two-tier selection, background-only hover.
+ * Prefer components/list-row for list surfaces; this is the board card. */
 
 .ds-task-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-md);
   background: var(--sem-color-bg-surface);
   border: 1px solid var(--sem-color-border-subtle);
-  border-left: 2px solid transparent;
   border-radius: var(--sem-radius-control);
   font-family: var(--sem-font-family-ui);
   text-align: left;
@@ -1483,20 +2563,26 @@ code {
 
 .ds-task-card:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
-/* Selection: accent-soft fill plus the 2px left accent bar. */
+/* Selection is neutral: the accent is reserved for the primary action, so a
+ * chosen card never outranks the one thing worth clicking. Two tiers, so a
+ * multi-pane surface shows exactly one focused selection. */
 .ds-task-card--selected {
-  background: var(--sem-color-accent-soft);
-  border-left-color: var(--sem-color-accent-primary);
+  background: var(--sem-color-bg-selected);
+  border-color: var(--sem-color-border-default);
+}
+
+.ds-task-card--resting {
+  background: var(--sem-color-bg-selected-resting);
 }
 
 /* 6px status dot. Status only — never decoration or category coding. */
 .ds-task-card-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
   border-radius: 999px;
   background: var(--sem-color-status-neutral);
 }
@@ -1563,16 +2649,16 @@ code {
     font-family: var(--sem-font-family-ui);
   }
   .demo-stage {
-    padding: 24px;
+    padding: var(--sem-space-3xl);
     background: var(--sem-color-bg-app);
     color: var(--sem-color-text-default);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--sem-space-xs);
     max-width: 380px;
   }
   .demo-label {
-    margin: 0 0 4px;
+    margin: 0 0 var(--sem-space-2xs);
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-subtle);
   }
@@ -1636,7 +2722,430 @@ code {
 </section>
 <section id="patterns" class="catalog-group">
 <h2>Patterns</h2>
-<p class="catalog-view catalog-empty">No patterns yet. Add <code>patterns/&lt;name&gt;.html</code> and re-run <code>node scripts/build-catalog.mjs</code>.</p>
+<div id="pattern-selection" class="catalog-view catalog-pattern">
+<h3>Selection</h3>
+<div class="catalog-stage ds-embed-pattern-selection">
+<div class="pat-stage" data-mode="dark">
+  <p class="pat-title">Selection</p>
+  <p class="pat-lede">
+    Selection answers “what did I pick?”. Focus answers “where am I typing?”.
+    They are different questions and never share a treatment. Selection is a
+    neutral fill in two tiers — the accent is reserved for the primary action,
+    so a chosen row never outranks the one thing worth clicking.
+  </p>
+
+  <p class="pat-heading">The rule: one focused selection per surface</p>
+  <p class="pat-verdict">DO</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Featured</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Skills</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Modules</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Sources</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">browser-act</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Categories</span></p>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Engineering</span></span>
+        <span class="ds-list-row-trailing">17</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Productivity</span></span>
+        <span class="ds-list-row-trailing">5</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">In progress</span></span>
+        <span class="ds-list-row-trailing">9</span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    One pane has focus and shows <code>--selected</code>. The other two show
+    <code>--resting</code>: they remember the choice without competing, so the
+    eye lands on the list the keyboard is driving.
+  </p>
+
+  <p class="pat-heading">The failure this prevents</p>
+  <p class="pat-verdict">DO NOT</p>
+  <div class="pat-panes pat-wrong">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Marketplace</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Featured</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Skills</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Modules</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Sources</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">browser-act</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Categories</span></p>
+      <button type="button" class="ds-list-row ds-list-row--selected">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Engineering</span></span>
+        <span class="ds-list-row-trailing">17</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Productivity</span></span>
+        <span class="ds-list-row-trailing">5</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">In progress</span></span>
+        <span class="ds-list-row-trailing">9</span>
+      </button>
+    </div>
+  </div>
+  <p class="pat-caption">
+    Three panes shouting at once, each with an accent fill and a left bar.
+    Nothing says which list has focus, three signals carry one state, and the
+    accent no longer means “this is the action”. Selection never uses the
+    accent, and never carries a left bar.
+  </p>
+
+  <p class="pat-heading">Where a left bar is still correct</p>
+  <p class="pat-caption">
+    Only on a collapsed icon rail, where rows are too narrow for a fill to
+    read. Everywhere else — every content list — selection is a fill.
+  </p>
+</div>
+
+<div class="pat-stage" data-mode="light">
+  <p class="pat-title">Selection — light</p>
+  <p class="pat-lede">The same two tiers, from the same tokens.</p>
+  <div class="pat-panes">
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Marketplace</span><em>focus</em></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Featured</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--selected" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Skills</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Modules</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Sources</span></p>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+      </button>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">browser-act</span></span>
+      </button>
+    </div>
+    <div class="pat-pane">
+      <p class="pat-pane-title"><span>Categories</span></p>
+      <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Engineering</span></span>
+        <span class="ds-list-row-trailing">17</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">Productivity</span></span>
+        <span class="ds-list-row-trailing">5</span>
+      </button>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text"><span class="ds-list-row-title">In progress</span></span>
+        <span class="ds-list-row-trailing">9</span>
+      </button>
+    </div>
+  </div>
+</div>
+</div>
+<details class="catalog-source"><summary>patterns/selection.html</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Selection&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../components/list-row/component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+  .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+  .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+  .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+  .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+  .pat-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--sem-space-lg);
+  }
+  .pat-pane {
+    background: var(--sem-color-bg-surface);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    padding: var(--sem-space-sm);
+  }
+  .pat-pane-title {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
+  .pat-pane-title em {
+    font-style: normal;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    color: var(--sem-color-accent-primary);
+  }
+  .pat-verdict {
+    display: inline-block;
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+    letter-spacing: var(--sem-font-tracking-wide);
+    padding: var(--sem-space-3xs) var(--sem-space-xs);
+    border-radius: var(--sem-radius-chip);
+    border: 1px solid var(--sem-color-border-default);
+    color: var(--sem-color-text-muted);
+    margin-bottom: var(--sem-space-sm);
+  }
+  /* The wrong-way example, drawn only here so the anti-pattern is visible.
+     Never copy these rules into a component. */
+  .pat-wrong .ds-list-row--selected {
+    background: var(--sem-color-accent-soft);
+    border-left: 3px solid var(--sem-color-accent-primary);
+    border-radius: var(--sem-radius-control);
+    padding-left: var(--sem-space-sm);
+    color: var(--sem-color-text-primary);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+
+&lt;div class=&quot;pat-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;pat-title&quot;&gt;Selection&lt;/p&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;
+    Selection answers “what did I pick?”. Focus answers “where am I typing?”.
+    They are different questions and never share a treatment. Selection is a
+    neutral fill in two tiers — the accent is reserved for the primary action,
+    so a chosen row never outranks the one thing worth clicking.
+  &lt;/p&gt;
+
+  &lt;p class=&quot;pat-heading&quot;&gt;The rule: one focused selection per surface&lt;/p&gt;
+  &lt;p class=&quot;pat-verdict&quot;&gt;DO&lt;/p&gt;
+  &lt;div class=&quot;pat-panes&quot;&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Marketplace&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Featured&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Skills&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Modules&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Sources&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;browser-act&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Categories&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;17&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Productivity&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;5&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;In progress&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;9&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    One pane has focus and shows &lt;code&gt;--selected&lt;/code&gt;. The other two show
+    &lt;code&gt;--resting&lt;/code&gt;: they remember the choice without competing, so the
+    eye lands on the list the keyboard is driving.
+  &lt;/p&gt;
+
+  &lt;p class=&quot;pat-heading&quot;&gt;The failure this prevents&lt;/p&gt;
+  &lt;p class=&quot;pat-verdict&quot;&gt;DO NOT&lt;/p&gt;
+  &lt;div class=&quot;pat-panes pat-wrong&quot;&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Marketplace&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Featured&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Skills&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Modules&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Sources&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;browser-act&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Categories&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;17&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Productivity&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;5&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;In progress&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;9&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    Three panes shouting at once, each with an accent fill and a left bar.
+    Nothing says which list has focus, three signals carry one state, and the
+    accent no longer means “this is the action”. Selection never uses the
+    accent, and never carries a left bar.
+  &lt;/p&gt;
+
+  &lt;p class=&quot;pat-heading&quot;&gt;Where a left bar is still correct&lt;/p&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    Only on a collapsed icon rail, where rows are too narrow for a fill to
+    read. Everywhere else — every content list — selection is a fill.
+  &lt;/p&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;pat-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;pat-title&quot;&gt;Selection — light&lt;/p&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;The same two tiers, from the same tokens.&lt;/p&gt;
+  &lt;div class=&quot;pat-panes&quot;&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Marketplace&lt;/span&gt;&lt;em&gt;focus&lt;/em&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Featured&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Skills&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Modules&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Sources&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;browser-act&lt;/span&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+    &lt;div class=&quot;pat-pane&quot;&gt;
+      &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Categories&lt;/span&gt;&lt;/p&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;17&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Productivity&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;5&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;In progress&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-trailing&quot;&gt;9&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 </section>
 </main>
 </div>

@@ -5,9 +5,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
+  gap: var(--sem-space-xs);
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-lg);
   border: none;
   border-radius: var(--sem-radius-control);
   font-family: var(--sem-font-family-ui);
@@ -27,7 +27,7 @@
 
 .ds-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
 .ds-button:disabled {
@@ -58,13 +58,15 @@
 
 /* Sizes: sm (28px, default) and md (32px). */
 .ds-button--md {
-  height: 32px;
+  height: var(--sem-size-control-md);
 }
 
 /* Icon — square, borderless; requires an accessible name on the button. */
 .ds-button--icon {
-  width: 24px;
-  height: 24px;
+  width: var(--sem-size-control-xs);
+  height: var(--sem-size-control-xs);
+  min-width: var(--sem-size-hit-target-min);
+  min-height: var(--sem-size-hit-target-min);
   padding: 0;
   background: transparent;
   color: var(--sem-color-text-muted);

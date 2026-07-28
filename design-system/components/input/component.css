@@ -4,7 +4,7 @@
 .ds-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sem-space-xs);
   font-family: var(--sem-font-family-ui);
 }
 
@@ -15,13 +15,13 @@
 }
 
 .ds-field-required {
-  margin-left: 4px;
+  margin-left: var(--sem-space-2xs);
   color: var(--sem-color-status-danger);
 }
 
 .ds-input {
-  height: 28px;
-  padding: 0 8px;
+  height: var(--sem-size-control-sm);
+  padding: 0 var(--sem-space-sm);
   border: 1px solid var(--sem-color-border-default);
   border-radius: var(--sem-radius-control);
   background: var(--sem-color-bg-surface-raised);
@@ -43,7 +43,7 @@
 }
 
 .ds-input:focus-visible {
-  box-shadow: 0 0 0 2px var(--sem-color-border-focus);
+  box-shadow: var(--sem-focus-ring);
 }
 
 .ds-input[aria-invalid='true'] {

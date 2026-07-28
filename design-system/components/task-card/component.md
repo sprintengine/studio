@@ -26,9 +26,14 @@ in the product reading as one system.
 ## States
 
 - Hover: `bg.hover` only — no shadow, scale, or glow.
-- Selected: `accent.soft` fill plus a 2px left bar of `accent.primary`;
-  title ink lifts to `text.primary`.
-- Focus-visible: 2px `border.focus` ring.
+- Selected (focused pane): `bg.selected` neutral fill, border lifts to
+  `border.default`, title ink lifts to `text.primary`.
+- Selected (resting pane): `bg.selected-resting`. A board that is not the
+  focused pane shows its selection at this tier — see `patterns/selection`.
+- Focus-visible: `focus.ring`.
+
+Selection is neutral, never the accent, and carries no left bar. The accent is
+reserved for the primary action.
 
 ## Usage
 
@@ -42,6 +47,7 @@ in the product reading as one system.
 
 - The card exposes one accessible name combining identifier and title.
 - Selection is conveyed with `aria-pressed` (or `aria-selected` in list
-  semantics), not color alone — the left bar doubles as the non-color cue.
+  semantics), never by the fill alone — assistive technology reads the state
+  from the attribute, and the ink lift to `text.primary` carries it visually.
 - Status dots are `aria-hidden` when adjacent text already carries the state;
   otherwise give them a `role="img"` label.
