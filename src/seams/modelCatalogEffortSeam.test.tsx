@@ -409,17 +409,22 @@ async function main(): Promise<void> {
 
     // Round trip: the control reads back what it wrote rather than only writing.
     view.render({})
-    assert.equal(
-      view.pickers()[0]?.textContent?.includes('Extra high'),
-      true,
-      'and the picker reads the stored level back',
-    )
+    const trigger = view.pickers()[0]
+    assert.ok(trigger, 'the picker is still rendered after the write')
+    assert.match(trigger.textContent ?? '', /Extra high/, 'and it reads the stored level back')
     view.unmount()
   })
 
   await check('SEAM: clearing the level clears the flag, and the model survives the clearing', async () => {
     const specialistId = 'reviewer' as never
     const store = () => useWorkspaceStore.getState()
+    // Self-contained: set the state this check clears, rather than inheriting it
+    // from the check above, so a failure here names its own cause.
+    store().setSpecialistModelDefault(specialistId, {
+      cli: 'claude-code',
+      model: 'claude-opus-5',
+      reasoning: 'xhigh',
+    } as never)
     store().setSpecialistReasoningDefault(specialistId, 'claude-code' as never, null)
     const stored = store().appSettings.specialistModelDefaults?.[specialistId]
     assert.deepEqual(
