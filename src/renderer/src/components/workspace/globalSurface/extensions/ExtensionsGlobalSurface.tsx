@@ -25,16 +25,14 @@ import {
   launchableConnectors,
   registryEntriesForKinds,
 } from '../../../panels/ConnectorsPanel/connectorsFacets'
-import {
-  SkillPackCatalogList,
-  useSkillPackCatalog,
-} from '../../../panels/ConnectorsPanel/skillPackCatalog'
 import { useConnectorSources } from '../../../panels/ConnectorsPanel/useConnectorSources'
-import { InlineNotice, Spinner } from '../../../ui'
 import { GlobalSurfaceShell, type GlobalSurfaceBar } from '../GlobalSurfaceShell'
 import { BarStatusChip, SurfaceRail, type SurfaceRailGroup } from '../surfaceSubstrate'
 import { useSurfaceBackNav } from '../surfaceBackNav'
 import { getExtensionsSurfaceHost } from './extensionsSurfaceHost'
+import { SkillsSurface } from './skills/SkillsSurface'
+import { deriveSkillsKindStateLine } from './skills/skillsSurfaceModel'
+import { useSkillSources } from './skills/useSkillSources'
 import {
   consumePendingExtensionsSurfaceTarget,
   subscribeExtensionsSurfaceTarget,
@@ -45,11 +43,11 @@ import {
 // browse state: its two rail rows (Featured, MCP servers) are projections of
 // the canvas's facet — selecting a row sets the facet, and changing the facet
 // tab moves the rail highlight — so the rail and the facet tabs can never
-// contradict each other. Skill packs, Modules, and Agent CLIs (MC-1847 C2)
-// are their own kind canvases over the same registry source.
+// contradict each other. Skills owns its own sources and their nested rail;
+// Modules and Agent CLIs (MC-1847 C2) are kind canvases over the registry.
 type ExtensionsSection =
   | 'marketplace'
-  | 'skill-packs'
+  | 'skills'
   | 'modules'
   | 'agent-clis'
   | 'installed'
@@ -67,9 +65,9 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // as the marketplace rail-row selection.
   const browse = useConnectorsBrowseState('Featured')
   const { facet, setFacet } = browse
-  // The skill-pack ecosystem catalog (shared hook with ConnectorsManage) — the
-  // Skill packs rail row browses it full-page.
-  const skillPacks = useSkillPackCatalog(activeWorkspaceRoot)
+  // Skill sources are read here, not inside the Skills canvas, so the rail row
+  // states the same counts the surface does instead of a second opinion.
+  const skillSources = useSkillSources(activeWorkspaceRoot)
 
   const applyTargetView = useCallback(
     (view: ExtensionsSurfaceView) => {
@@ -142,12 +140,11 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       : sources.registryLoad.status === 'error'
         ? 'Marketplace unavailable'
         : `${count} available`
-  const skillPacksStateLine =
-    skillPacks.status === 'loading'
-      ? 'Loading…'
-      : skillPacks.status === 'error'
-        ? 'Catalog unavailable'
-        : `${skillPacks.catalog.length} available`
+  const skillsStateLine = deriveSkillsKindStateLine(
+    skillSources.sourcesLoad,
+    skillSources.sources,
+    skillSources.scans,
+  )
 
   // ── Bar ────────────────────────────────────────────────────────────────────
   const bar: GlobalSurfaceBar = {
@@ -190,10 +187,10 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
           icon: <McpGlyph />,
         },
         {
-          id: 'skill-packs',
-          title: 'Skill packs',
-          stateLine: skillPacksStateLine,
-          icon: <SkillPackGlyph />,
+          id: 'skills',
+          title: 'Skills',
+          stateLine: skillsStateLine,
+          icon: <SkillsGlyph />,
         },
         {
           id: 'modules',
@@ -257,29 +254,6 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
     [facet, setFacet],
   )
 
-  // The kind canvases (C2): the skill-pack ecosystem catalog full-page, with
-  // its own loading/unavailable/empty states so a failed read never renders as
-  // an empty catalog.
-  const skillPacksCanvas =
-    skillPacks.status === 'loading' ? (
-      <div className="flex items-center gap-2 py-8 text-[12px] text-[color:var(--text-muted)]">
-        <Spinner size={14} />
-        Loading skill packs…
-      </div>
-    ) : skillPacks.status === 'error' ? (
-      <div className="py-4">
-        <InlineNotice tone="error">
-          {skillPacks.message ?? 'The skill-pack catalog is unavailable.'}
-        </InlineNotice>
-      </div>
-    ) : skillPacks.catalog.length === 0 ? (
-      <p className="px-1 py-10 text-center text-[12px] text-[color:var(--text-muted)]">
-        No skill packs are in the catalog yet.
-      </p>
-    ) : (
-      <SkillPackCatalogList state={skillPacks} />
-    )
-
   const rail = (
     <SurfaceRail
       label="Extensions"
@@ -306,8 +280,17 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
             onUseInAutomation={useInAutomation}
           />
         )
-      case 'skill-packs':
-        return skillPacksCanvas
+      case 'skills':
+        return (
+          <SkillsSurface
+            sources={skillSources}
+            workspaceRoot={activeWorkspaceRoot}
+            onBrowseMcpServers={() => {
+              setSection('marketplace')
+              setFacet('All')
+            }}
+          />
+        )
       case 'modules':
         return <ExtensionKindCanvas kind="module" sources={sources} workspaceRoot={activeWorkspaceRoot} />
       case 'agent-clis':
@@ -338,10 +321,18 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       {/* Each section remounts its scroll container so scroll position never
           leaks between sections; browse state itself persists above, and the
           Featured ↔ MCP servers switch is a facet change inside one mounted
-          canvas, not a remount. */}
-      <div key={section} className="h-full min-h-0 overflow-y-auto px-5 py-4">
-        {canvas}
-      </div>
+          canvas, not a remount. Skills brings its own nested rail and scrolls
+          beside it, so it takes the region whole rather than sitting inside
+          this padded scrollport. */}
+      {section === 'skills' ? (
+        <div key={section} className="h-full min-h-0">
+          {canvas}
+        </div>
+      ) : (
+        <div key={section} className="h-full min-h-0 overflow-y-auto px-5 py-4">
+          {canvas}
+        </div>
+      )}
     </GlobalSurfaceShell>
   )
 }
@@ -384,7 +375,7 @@ function InstalledGlyph(): JSX.Element {
   )
 }
 
-function SkillPackGlyph(): JSX.Element {
+function SkillsGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-muted)]" aria-hidden="true">
       <path

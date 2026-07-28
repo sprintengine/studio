@@ -1,0 +1,393 @@
+// A source, listed in the shape its own scan earned.
+//
+// One skill is a skill page — a list of one is not a list. A couple of dozen
+// ungrouped skills are one list. A grouped source is two panes, one group at a
+// time, so a 41-skill repository never lands 41 rows at once. Past the browsing
+// threshold the page is search-first and stays empty until it is asked, because
+// nobody reads 103 rows. The connector skills are not listed here at all: they
+// belong to the MCP servers they ship with, and that is where they are browsed.
+//
+// Which of those applies is `sourceLayout()`'s decision (src/shared/skills.ts);
+// this file only renders it.
+
+import React from 'react'
+
+import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
+import { GhostButton, InboxSearchInput, InlineNotice, PrimaryButton } from '../../../../ui'
+import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
+import { formatRelativeTime } from '../../../../../utils/time'
+import { SkillRow } from './SkillRow'
+import { SourceMonogram } from './SourceMonogram'
+import {
+  deriveSourceView,
+  describeSourceMeta,
+  sourceDisplayMonogram,
+  sourceDisplayName,
+  type SkillGroupTab,
+  type SkillInstallAvailability,
+  type SkillListItem,
+  type SkillScanLoad,
+} from './skillsSurfaceModel'
+
+export type SkillSourceCanvasProps = {
+  source: SkillSource
+  scan: ScanResult
+  scanLoad: SkillScanLoad
+  installedDirNames: ReadonlySet<string>
+  /** Non-null when the workspace's installed skills could not be read. */
+  installedError: string | null
+  activeGroup: string | null
+  onActiveGroupChange: (group: string | null) => void
+  query: string
+  onQueryChange: (query: string) => void
+  selected: ReadonlySet<string>
+  onToggleSelect: (skillId: string) => void
+  onSelectAll: (skillIds: string[]) => void
+  onClearSelection: () => void
+  onOpenSkill: (skillId: string) => void
+  availability: SkillInstallAvailability
+  installing: string | null
+  onInstallSelected: () => void
+  onBrowseMcpServers: () => void
+  /** A source of one skill IS that skill's page — a list of one is not a list.
+   *  The page is wired once, by the surface, and rendered here; `embedded`
+   *  renders it under this canvas's own source header. */
+  renderSkillPage: (skillId: string, options?: { embedded?: boolean }) => React.ReactNode
+}
+
+export function SkillSourceCanvas(props: SkillSourceCanvasProps): JSX.Element {
+  const rowProps = {
+    selected: props.selected,
+    onToggleSelect: props.onToggleSelect,
+    onOpenSkill: props.onOpenSkill,
+  }
+  const batchProps = {
+    selected: props.selected,
+    availability: props.availability,
+    installing: props.installing,
+    onClearSelection: props.onClearSelection,
+    onInstallSelected: props.onInstallSelected,
+  }
+  const view = deriveSourceView({
+    source: props.source,
+    scan: props.scan,
+    installedDirNames: props.installedDirNames,
+    activeGroup: props.activeGroup,
+    query: props.query,
+  })
+
+  return (
+    <div className="min-w-0">
+      <SourceHeader source={props.source} scanLoad={props.scanLoad} />
+
+      {props.installedError ? (
+        <div className="mt-3">
+          <InlineNotice tone="warn">
+            {`Installed skills in this workspace could not be read, so nothing is marked as installed: ${props.installedError}`}
+          </InlineNotice>
+        </div>
+      ) : null}
+
+      {view.kind === 'connectors' ? (
+        <EmptyState
+          title={`These ${view.count} skills are paired with their MCP connectors.`}
+          body="Browse them from MCP servers, where the server each one belongs to is visible."
+          action={
+            <GhostButton
+              onClick={props.onBrowseMcpServers}
+              className="border border-[color:var(--border-default)]"
+            >
+              Browse MCP servers
+            </GhostButton>
+          }
+        />
+      ) : view.kind === 'empty' ? (
+        <EmptyState
+          title="Nothing in this source scanned as a skill."
+          body="A skill is a directory containing SKILL.md. This source has none."
+        />
+      ) : view.kind === 'solo' ? (
+        <div className="mt-5">{props.renderSkillPage(view.skill.skillId, { embedded: true })}</div>
+      ) : view.kind === 'flat' ? (
+        <>
+          <SectionHead
+            label="Skills"
+            count={view.items.length}
+            action={
+              <GhostButton size="xs" onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}>
+                Select all
+              </GhostButton>
+            }
+          />
+          <SkillRows items={view.items} {...rowProps} />
+          <BatchBar {...batchProps} />
+        </>
+      ) : view.kind === 'grouped' ? (
+        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[196px_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <SectionHead label="Groups" count={view.groups.length} />
+            <GroupTree
+              groups={view.groups}
+              activeGroup={view.activeGroup}
+              onSelect={props.onActiveGroupChange}
+            />
+          </div>
+          <div className="min-w-0">
+            <SectionHead
+              label={groupLabelOf(view.groups, view.activeGroup)}
+              count={view.items.length}
+              action={
+                view.items.length > 0 ? (
+                  <GhostButton
+                    size="xs"
+                    onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}
+                  >
+                    Select all
+                  </GhostButton>
+                ) : null
+              }
+            />
+            <SkillRows items={view.items} {...rowProps} />
+            <BatchBar {...batchProps} />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* The header already states the count; the chips already enumerate
+              the categories. The search box says nothing they do not. */}
+          <div className="mt-3 max-w-[340px]">
+            <InboxSearchInput
+              value={props.query}
+              onChange={props.onQueryChange}
+              ariaLabel={`Search the ${props.scan.skills.length} skills in ${sourceDisplayName(props.source)}`}
+              placeholder={`Search ${props.scan.skills.length} skills`}
+            />
+          </div>
+          {view.groups.length > 0 ? (
+            <GroupChips
+              groups={view.groups}
+              activeGroup={view.activeGroup}
+              onSelect={(group) => {
+                props.onQueryChange('')
+                props.onActiveGroupChange(group)
+              }}
+            />
+          ) : null}
+          {view.prompt ? (
+            <EmptyState title={view.prompt} />
+          ) : (
+            <>
+              <SectionHead
+                label={view.query.trim() ? 'Results' : groupLabelOf(view.groups, view.activeGroup ?? '')}
+                count={view.items.length}
+                action={
+                  <GhostButton
+                    size="xs"
+                    onClick={() => props.onSelectAll(view.items.map((item) => item.skillId))}
+                  >
+                    Select all
+                  </GhostButton>
+                }
+              />
+              <SkillRows items={view.items} showGroup={Boolean(view.query.trim())} {...rowProps} />
+              <BatchBar {...batchProps} />
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function SourceHeader({ source, scanLoad }: { source: SkillSource; scanLoad: SkillScanLoad }): JSX.Element {
+  const meta = describeSourceMeta(source, scanLoad)
+  const scanned = source.scannedAt ? formatRelativeTime(source.scannedAt) : ''
+  return (
+    <header className="flex items-start gap-3">
+      <SourceMonogram monogram={sourceDisplayMonogram(source)} size="lg" />
+      <div className="min-w-0 flex-1">
+        <h3 className={`text-[15px] font-semibold text-[color:var(--text-strong)] ${source.repo ? 'font-mono' : ''}`}>
+          {sourceDisplayName(source)}
+        </h3>
+        <p className="mt-0.5 truncate text-[11px] text-[color:var(--text-muted)]">
+          {meta.join(' · ')}
+          {scanned ? `${meta.length > 0 ? ' · ' : ''}scanned ${scanned}` : ''}
+        </p>
+        {/* A repository source's blurb is generated from the same counts the
+            line above already states, so it would only repeat them. */}
+        {source.blurb && !(source.repo && source.blurb.includes(source.repo)) ? (
+          <p className="mt-1.5 max-w-[74ch] text-[11px] text-[color:var(--text-muted)]">{source.blurb}</p>
+        ) : null}
+      </div>
+    </header>
+  )
+}
+
+function SkillRows({
+  items,
+  showGroup,
+  selected,
+  onToggleSelect,
+  onOpenSkill,
+}: {
+  items: SkillListItem[]
+  showGroup?: boolean
+} & Pick<SkillSourceCanvasProps, 'selected' | 'onToggleSelect' | 'onOpenSkill'>): JSX.Element {
+  return (
+    <div role="list" className="mt-1.5 flex flex-col gap-0.5">
+      {items.map((item) => (
+        <div role="listitem" key={item.skillId}>
+          <SkillRow
+            item={item}
+            selected={selected.has(item.skillId)}
+            showGroup={showGroup}
+            onToggleSelect={() => onToggleSelect(item.skillId)}
+            onOpen={() => onOpenSkill(item.skillId)}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BatchBar({
+  selected,
+  availability,
+  installing,
+  onClearSelection,
+  onInstallSelected,
+}: Pick<
+  SkillSourceCanvasProps,
+  'selected' | 'availability' | 'installing' | 'onClearSelection' | 'onInstallSelected'
+>): JSX.Element {
+  const count = selected.size
+  return (
+    <div className="sticky bottom-0 mt-2.5 flex flex-wrap items-center gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2">
+      <span className="text-[12px] font-medium text-[color:var(--text-strong)]">
+        {count > 0 ? `${count} selected` : 'Nothing selected'}
+      </span>
+      {availability.reason ? (
+        <span className="min-w-0 flex-1 text-[11px] text-[color:var(--text-subtle)]">{availability.reason}</span>
+      ) : (
+        <span className="flex-1" />
+      )}
+      <GhostButton onClick={onClearSelection} disabled={count === 0}>
+        Clear
+      </GhostButton>
+      <PrimaryButton
+        onClick={onInstallSelected}
+        disabled={!availability.enabled || count === 0 || installing !== null}
+      >
+        {installing ?? `Install${count > 0 ? ` ${count}` : ''}`}
+      </PrimaryButton>
+    </div>
+  )
+}
+
+function GroupTree({
+  groups,
+  activeGroup,
+  onSelect,
+}: {
+  groups: SkillGroupTab[]
+  activeGroup: string
+  onSelect: (group: string) => void
+}): JSX.Element {
+  return (
+    <ul role="list" aria-label="Groups" className="flex flex-col gap-px">
+      {groups.map((group) => (
+        <li key={group.name}>
+          <button
+            type="button"
+            aria-current={group.name === activeGroup ? 'true' : undefined}
+            onClick={() => onSelect(group.name)}
+            className={`flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors ${FOCUS_RING_CLASS} ${
+              group.name === activeGroup
+                ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
+                : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
+            }`}
+          >
+            <span className="min-w-0 flex-1 truncate text-[12px]">{group.label}</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+              {group.count}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function GroupChips({
+  groups,
+  activeGroup,
+  onSelect,
+}: {
+  groups: SkillGroupTab[]
+  activeGroup: string | null
+  onSelect: (group: string | null) => void
+}): JSX.Element {
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {groups.map((group) => {
+        const pressed = group.name === activeGroup
+        return (
+          <button
+            key={group.name}
+            type="button"
+            aria-pressed={pressed}
+            onClick={() => onSelect(pressed ? null : group.name)}
+            className={`inline-flex h-6 items-center gap-1.5 rounded-[5px] border px-2 text-[11px] transition-colors ${FOCUS_RING_CLASS} ${
+              pressed
+                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+            }`}
+          >
+            {group.label}
+            <span className="tabular-nums text-[color:var(--text-subtle)]">{group.count}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function SectionHead({
+  label,
+  count,
+  action,
+}: {
+  label: string
+  count: number
+  action?: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="mt-4 flex items-baseline gap-2 border-b border-[color:var(--border-subtle)] pb-1.5">
+      <h4 className="text-[12px] font-medium text-[color:var(--text-default)]">{label}</h4>
+      <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{count}</span>
+      {action ? <span className="ml-auto">{action}</span> : null}
+    </div>
+  )
+}
+
+function EmptyState({
+  title,
+  body,
+  action,
+}: {
+  title: string
+  body?: string
+  action?: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="px-3 py-10 text-center">
+      <p className="text-[12px] text-[color:var(--text-muted)]">{title}</p>
+      {body ? <p className="mt-1 text-[11px] text-[color:var(--text-subtle)]">{body}</p> : null}
+      {action ? <div className="mt-3 flex justify-center">{action}</div> : null}
+    </div>
+  )
+}
+
+function groupLabelOf(groups: SkillGroupTab[], name: string): string {
+  return groups.find((group) => group.name === name)?.label ?? name
+}
