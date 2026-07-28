@@ -3,7 +3,7 @@ import CliIcon from '../CliIcon'
 import { Popover } from './Popover'
 import { Tooltip } from './Tooltip'
 import { TruncatedText } from './TruncatedText'
-import { SegmentedControl } from './SegmentedControl'
+import { ReasoningLevelPicker } from '../workspace/agentComposer/agentSpawnShared'
 import type { AgentCli } from '../../types/workspace'
 import type { PluginModelCatalog, PluginReasoningCatalog } from '../../../../shared/plugin-manifest'
 
@@ -159,92 +159,103 @@ export function CliModelPickerButton({
   )
 }
 
+// A model's raw id, shown beside its friendly label only when it adds
+// information the label does not already carry — `opus[1m]` beside "Opus"
+// stays, `gpt-5.5` beside "GPT-5.5" goes. The test is one-directional: the id
+// is dropped when the LABEL already spells out everything the id says, ignoring
+// case and separators. It is kept whenever the id carries something the name
+// does not, because that something (a context-window variant, a vendor
+// namespace) is exactly what a person needs to tell two rows apart.
+export function meaningfulModelId(id: string, label: string | undefined): string | undefined {
+  if (!label) return undefined // the row already renders the bare id in the mono face
+  const normalize = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const normalizedId = normalize(id)
+  const normalizedLabel = normalize(label)
+  if (!normalizedId || !normalizedLabel) return undefined
+  return normalizedLabel.includes(normalizedId) ? undefined : id
+}
+
+const CLI_MODEL_ROW_SELECTOR = '[data-cli-model-row="true"]'
+
 // One selectable runtime row: CLI brand icon + label, with a check when active.
-// `mono` renders raw model ids (no friendly label) in the mono face. `note` is a
-// muted trailing annotation — used to flag a persisted model id that is no longer
-// in the CLI's model list, so it reads as deliberate rather than a normal choice.
-// `indent` marks the row as a model nested under its CLI header: the label is
-// indented to align under the header's label and the redundant repeated brand
-// icon is dropped, so models read as children of the CLI rather than peer CLIs.
+// `mono` renders raw model ids (no friendly label) in the mono face. `monoId` is
+// the trailing raw id beside a friendly label (see meaningfulModelId). `note` is
+// a muted trailing annotation — used to flag a persisted model id that is no
+// longer in the CLI's model list, so it reads as deliberate rather than a normal
+// choice. `indent` marks the row as a model nested under its CLI header: the
+// label is indented to align under the header's label and the redundant repeated
+// brand icon is dropped, so models read as children of the CLI rather than peer
+// CLIs. `picker` is the inline reasoning-effort control, rendered on the
+// selected row only.
+//
+// The row is a `div[role=option]` rather than a `<button>` because it hosts the
+// picker's own button, and a button inside a button is invalid. Selection keeps
+// full keyboard operation: the row is a tab stop with Enter/Space selecting,
+// arrows roving between rows (handled by the listbox), and ArrowRight reaching
+// the picker.
 function CliModelRow({
   icon,
   label,
   selected,
+  tabbable,
   mono,
+  monoId,
   note,
   indent,
+  picker,
   onClick,
 }: {
   icon: AgentCli
   label: string
   selected: boolean
+  tabbable: boolean
   mono?: boolean
+  monoId?: string
   note?: string
   indent?: boolean
+  picker?: React.ReactNode
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
+    <div
       role="option"
       aria-selected={selected}
+      data-cli-model-row="true"
+      tabIndex={tabbable ? 0 : -1}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 rounded py-1.5 pr-2 text-left text-[12px] transition-colors ${
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onClick()
+        }
+      }}
+      // Never wraps and never grows: the label is the only flexible cell, every
+      // trailing cell is shrink-0, so the row stays exactly one line tall
+      // whatever combination of id, note, picker and check it carries.
+      className={`interactive flex w-full cursor-pointer items-center gap-2 rounded py-1.5 pr-2 text-left text-[12px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
         indent ? 'pl-8' : 'pl-2'
       } ${
         mono ? 'font-mono text-[11px]' : ''
       } ${
         selected
           ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
-          : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
+          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >
       {indent ? null : (
         <CliIcon cli={icon} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
       )}
       <TruncatedText as="span" text={label} className="min-w-0 flex-1" />
-      {note ? (
-        <span className="shrink-0 font-sans text-[10px] text-[color:var(--text-muted)]">{note}</span>
+      {monoId ? (
+        <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-[color:var(--text-subtle)]">
+          {monoId}
+        </span>
       ) : null}
+      {note ? (
+        <span className="shrink-0 whitespace-nowrap font-sans text-[10px] text-[color:var(--text-muted)]">{note}</span>
+      ) : null}
+      {picker ?? null}
       {selected ? <span className="shrink-0 text-[color:var(--accent-primary)]">✓</span> : null}
-    </button>
-  )
-}
-
-// Reasoning-effort segmented control, rendered directly under the selected
-// runtime row when its manifest declares reasoningSelection and the host wires
-// effort persistence. One control per listbox — effort is a property of the
-// current selection, never a per-row multiplier. Picking the declared default
-// clears the override (null), so ordinary launches pass no effort flag.
-function ReasoningSegment({
-  cli,
-  levels,
-  defaultLevel,
-  value,
-  onSelect,
-}: {
-  cli: AgentCli
-  levels: { id: string; label?: string }[]
-  defaultLevel?: string
-  value: string | undefined
-  onSelect: (cli: AgentCli, reasoning: string | null) => void
-}) {
-  const active = value ?? defaultLevel ?? levels[0]?.id
-  if (active === undefined) return null
-  return (
-    <div className="mb-1.5 ml-8 mr-2">
-      <div className="pb-1 pt-1.5 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
-        Reasoning effort
-      </div>
-      <SegmentedControl
-        ariaLabel="Reasoning effort"
-        size="sm"
-        items={levels.map((level) => ({ value: level.id, label: level.label ?? level.id }))}
-        value={active}
-        // Picking the CLI's declared default clears the override (null) so
-        // ordinary launches pass no effort flag; any other level persists.
-        onChange={(next) => onSelect(cli, next === defaultLevel ? null : next)}
-      />
     </div>
   )
 }
@@ -289,24 +300,61 @@ export function CliModelListbox({
 }) {
   const cliOptions = options.filter((option) => !option.hostedVia)
   const hostedOptions = options.filter((option) => option.hostedVia)
+  // Roving tab stop: the checked row owns it, so Tab lands on the current
+  // choice and arrows move from there. With nothing checked anywhere, the very
+  // first row takes it so the list is still reachable by keyboard.
+  const hasSelection = options.some((option) => option.value === currentCli)
+  let rowIndex = -1
+  const nextTabbable = (selected: boolean): boolean => {
+    rowIndex += 1
+    return selected || (!hasSelection && rowIndex === 0)
+  }
+
+  // Arrows rove between rows across every group. Events from the effort
+  // picker's trigger stop there, and its menu is portaled to <body>, so neither
+  // reaches this handler.
+  const onListboxKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'ArrowRight') return
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>(CLI_MODEL_ROW_SELECTOR)
+    if (!row) return
+    if (event.key === 'ArrowRight') {
+      const picker = row.querySelector<HTMLButtonElement>('[data-reasoning-picker="true"]')
+      if (!picker) return
+      event.preventDefault()
+      picker.focus()
+      return
+    }
+    const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(CLI_MODEL_ROW_SELECTOR))
+    const index = rows.indexOf(row)
+    if (index < 0 || rows.length === 0) return
+    event.preventDefault()
+    rows[(index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length]?.focus()
+  }
+
   const renderGroup = (option: CliModelListboxOption, groupIndex: number) => {
     const models = option.modelSelection
     const effectiveModel = option.value === currentCli ? effectiveModelFor(option.value) : undefined
     const hasStaleModel =
       Boolean(effectiveModel) && !models?.options.some((model) => model.id === effectiveModel)
+    // Effort is opt-in on BOTH accessors and on the CLI declaring levels: a host
+    // that wires neither, or a CLI with no reasoningSelection, renders no picker
+    // at all — never a greyed one, never an empty menu.
     const reasoningLevels =
       option.value === currentCli && option.reasoningSelection && effectiveReasoningFor && onSelectReasoning
-        ? option.reasoningSelection
+        ? option.reasoningSelection.levels
         : undefined
-    const reasoningSegment = reasoningLevels ? (
-      <ReasoningSegment
-        cli={option.value}
-        levels={reasoningLevels.levels}
-        defaultLevel={reasoningLevels.default}
-        value={effectiveReasoningFor!(option.value)}
-        onSelect={onSelectReasoning!}
-      />
-    ) : null
+    // One picker instance per rendered row: it belongs to the selected row's
+    // right edge, and only one row of a group is ever selected.
+    const renderPicker = (): React.ReactNode =>
+      reasoningLevels ? (
+        <ReasoningLevelPicker
+          levels={reasoningLevels}
+          value={effectiveReasoningFor!(option.value)}
+          onSelect={(reasoning) => onSelectReasoning!(option.value, reasoning)}
+        />
+      ) : null
+
+    const headerSelected = option.value === currentCli && !effectiveModel
     return (
       <div
         key={option.value}
@@ -317,45 +365,54 @@ export function CliModelListbox({
         <CliModelRow
           icon={option.value}
           label={option.label}
-          selected={option.value === currentCli && !effectiveModel}
+          selected={headerSelected}
+          tabbable={nextTabbable(headerSelected)}
+          picker={headerSelected ? renderPicker() : null}
           onClick={() => (models ? onSelectModel(option.value, null) : onSelectCli(option.value))}
         />
-        {option.value === currentCli && !effectiveModel ? reasoningSegment : null}
-        {models?.options.map((model) => (
-          <React.Fragment key={model.id}>
+        {models?.options.map((model) => {
+          const modelSelected = option.value === currentCli && effectiveModel === model.id
+          return (
             <CliModelRow
+              key={model.id}
               icon={option.value}
               label={model.label ?? model.id}
               mono={!model.label}
+              monoId={meaningfulModelId(model.id, model.label)}
               indent
-              selected={option.value === currentCli && effectiveModel === model.id}
+              selected={modelSelected}
+              tabbable={nextTabbable(modelSelected)}
+              picker={modelSelected ? renderPicker() : null}
               onClick={() => onSelectModel(option.value, model.id)}
             />
-            {option.value === currentCli && effectiveModel === model.id ? reasoningSegment : null}
-          </React.Fragment>
-        ))}
+          )
+        })}
         {/* A persisted model no longer in the catalog still launches with
             that id; surface it as the checked entry, marked "Not listed" so
             the user knows it is active but not one of the configured ids. */}
         {models && hasStaleModel && effectiveModel ? (
-          <>
-            <CliModelRow
-              icon={option.value}
-              label={effectiveModel}
-              mono
-              indent
-              selected
-              note="Not listed"
-              onClick={() => onSelectModel(option.value, effectiveModel)}
-            />
-            {reasoningSegment}
-          </>
+          <CliModelRow
+            icon={option.value}
+            label={effectiveModel}
+            mono
+            indent
+            selected
+            tabbable={nextTabbable(true)}
+            note="Not listed"
+            picker={renderPicker()}
+            onClick={() => onSelectModel(option.value, effectiveModel)}
+          />
         ) : null}
       </div>
     )
   }
   return (
-    <div role="listbox" aria-label={ariaLabel} className={`overflow-y-auto ${className ?? 'max-h-[280px]'}`}>
+    <div
+      role="listbox"
+      aria-label={ariaLabel}
+      onKeyDown={onListboxKeyDown}
+      className={`overflow-y-auto ${className ?? 'max-h-[280px]'}`}
+    >
       {cliOptions.map(renderGroup)}
       {hostedOptions.length > 0 ? (
         <>

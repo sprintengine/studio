@@ -1504,6 +1504,7 @@ export async function spawnAutoRunCandidate(
   )
   const selectedCli = resolvedRuntime.cli
   const selectedCliModel = resolvedRuntime.cliModel
+  const selectedCliReasoning = resolvedRuntime.cliReasoning
   const sessionId = ports.randomUUID()
   const spawnKey = `${workspace.id}:${nextRun.agentId}`
   if (inFlightSpawns.current.has(spawnKey)) return 'skipped'
@@ -1730,6 +1731,10 @@ export async function spawnAutoRunCandidate(
       ...(executionMode === 'worktree' ? { worktreePath: executionCwd } : {}),
       cliPermissionPreset: getSprintEngineAutoState(workspace).cliPermissionPreset,
       cliModel: selectedCliModel,
+      // The seat's reasoning-effort level (MC-1885), resolved from the same
+      // runtime hierarchy as the model. Undefined renders no effort flag, so a
+      // seat with no level spawns byte-identical argv to before.
+      cliReasoning: selectedCliReasoning,
       memoryRootPath: memoryStatus?.ok ? memoryStatus.rootPath : undefined,
       memoryRelativeRoot: memoryRelativeRoot ?? undefined,
       mcpSettings,

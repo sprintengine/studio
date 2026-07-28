@@ -1025,6 +1025,10 @@ export type TerminalSpawnMetadata = {
   // Model id passed to the agent CLI when its plugin declares modelSelection;
   // undefined means the CLI's own default model.
   cliModel?: string
+  // Reasoning-effort level passed to the agent CLI when its plugin declares
+  // reasoningSelection; undefined means the CLI's own default effort, which
+  // passes no flag. Travels with cliModel from the spawning surface.
+  cliReasoning?: string
   memoryRootPath?: string
   memoryRelativeRoot?: string
   agentSession?: AgentSessionMetadata
@@ -1824,8 +1828,9 @@ export type SprintEngineStateInitializeInput = {
   baseStartPoint?: string
   // The roster's per-role CLI model selection, recorded into run state at init
   // so each claimed task can be stamped with the model that worked it. A role
-  // with no explicit model (CLI default) is omitted / left null.
-  roleRuntimes?: Record<string, { model?: string | null; cli?: string | null }>
+  // with no explicit model (CLI default) is omitted / left null. `reasoning` is
+  // the seat's reasoning-effort level (MC-1885), absent for the CLI's own default.
+  roleRuntimes?: Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }>
   // The enabled role ids (architect always included) the user turned on for
   // this run. Written to run.yaml `configuredRoles` at init so Python knows
   // which roles the architect may seat under the lazy (architect-only) roster.

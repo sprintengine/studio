@@ -88,21 +88,42 @@ function computeSurfacePosition(
   return { ...vertical, ...horizontal, triggerWidth: trigger.width }
 }
 
-const openPopoverStack: string[] = []
+// Open popovers in stacking order, each with its own surface. The surface is
+// carried (not just the id) so a popover can tell whether a pointer landed in
+// one stacked ABOVE it — see the outside-click guard below.
+type OpenPopoverEntry = { id: string; surface: React.MutableRefObject<HTMLElement | null> }
 
-function pushOpenPopover(id: string): void {
-  const existing = openPopoverStack.indexOf(id)
+const openPopoverStack: OpenPopoverEntry[] = []
+
+function indexOfOpenPopover(id: string): number {
+  return openPopoverStack.findIndex((entry) => entry.id === id)
+}
+
+function pushOpenPopover(id: string, surface: React.MutableRefObject<HTMLElement | null>): void {
+  const existing = indexOfOpenPopover(id)
   if (existing >= 0) openPopoverStack.splice(existing, 1)
-  openPopoverStack.push(id)
+  openPopoverStack.push({ id, surface })
 }
 
 function removeOpenPopover(id: string): void {
-  const existing = openPopoverStack.indexOf(id)
+  const existing = indexOfOpenPopover(id)
   if (existing >= 0) openPopoverStack.splice(existing, 1)
 }
 
 function isTopmostPopover(id: string): boolean {
-  return openPopoverStack[openPopoverStack.length - 1] === id
+  return openPopoverStack[openPopoverStack.length - 1]?.id === id
+}
+
+// Every surface is portaled to <body>, so a popover opened FROM inside another
+// one is not a DOM descendant of it — `surface.contains(target)` reads a click
+// on the nested surface as an outside click. Dismissing on that mousedown
+// unmounts the nested popover before its own click lands, so the choice the
+// user just made is silently dropped. Anything stacked above this popover
+// therefore counts as inside it.
+function pointerLandedInPopoverAbove(id: string, target: Node): boolean {
+  const index = indexOfOpenPopover(id)
+  if (index < 0) return false
+  return openPopoverStack.slice(index + 1).some((entry) => entry.surface.current?.contains(target))
 }
 
 export function Popover({
@@ -178,12 +199,13 @@ export function Popover({
 
   useEffect(() => {
     if (!open) return
-    pushOpenPopover(popoverId)
+    pushOpenPopover(popoverId, surfaceRef)
     const onPointer = (event: MouseEvent) => {
       const target = event.target as Node | null
       if (!target) return
       if (surfaceRef.current?.contains(target)) return
       if (triggerRef.current?.contains(target)) return
+      if (pointerLandedInPopoverAbove(popoverId, target)) return
       onOpenChange(false)
     }
     const onKey = (event: KeyboardEvent) => {

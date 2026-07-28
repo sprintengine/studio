@@ -78,8 +78,11 @@ commands.
   any legacy `agents` key on write and `state_from_folder_store` reconstructs
   none. The live "who is doing what" view is derived from task leases into
   `projection.workers` (and a `projection.roster` bridge). See "Task Leases".
-- `roles`, `roleRuntimes`: the run's role metadata and per-role `{model, cli}`
-  execution runtime map.
+- `roles`, `roleRuntimes`: the run's role metadata and per-role
+  `{model, cli, reasoning}` execution runtime map. `reasoning` (the seat's
+  reasoning-effort level, MC-1885) is optional and additive: it took no
+  `RUN_SCHEMA_VERSION` bump, and an entry carrying only a level is dropped —
+  without a cli or model there is no seat to launch.
 - `configuredRoles`: the run's enabled role set — the roles a task may be tagged
   with, enforced by `plan.add_task`. Absent when the run recorded none.
 - `creation`: run creation metadata such as source and timestamp.

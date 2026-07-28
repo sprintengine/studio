@@ -13,6 +13,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
   SprintEngineRosterMode,
@@ -55,15 +56,28 @@ function effectiveRoleModel(
   return override || undefined
 }
 
+// Effective effort level for a role: an explicit level, otherwise undefined —
+// the CLI's own default effort, which passes no flag. Same shape as the model.
+function effectiveRoleReasoning(
+  role: SprintEngineRoleId,
+  roleReasoningOverrides: SprintEngineRoleReasoningOverrides | undefined,
+): string | undefined {
+  const override = roleReasoningOverrides?.[role]
+  if (override === null) return undefined
+  return override || undefined
+}
+
 export function SprintEngineRosterPanel({
   rosterMode,
   onChangeRosterMode,
   roleCounts,
   roleCliDefaults,
   roleModelOverrides,
+  roleReasoningOverrides,
   onSetRoleCount,
   onSetRoleCli,
   onSetRoleModel,
+  onSetRoleReasoning,
   cliOptions,
   registry,
   registryStatus,
@@ -87,9 +101,18 @@ export function SprintEngineRosterPanel({
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
+  /**
+   * Per-role reasoning-effort level (MC-1885). OPT-IN, and only as a pair with
+   * `onSetRoleReasoning`: a host with nowhere to persist a level — the saved-
+   * roster manager, or an existing run whose seats already carry their level in
+   * run.yaml — passes neither and the rows render no effort control at all,
+   * rather than one that silently forgets.
+   */
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
+  onSetRoleReasoning?: (role: SprintEngineRoleId, reasoning: string | null) => void
   cliOptions: SprintEngineCliOption[]
   registry: SprintEngineRoleRegistry | null
   registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
@@ -149,6 +172,13 @@ export function SprintEngineRosterPanel({
             effectiveModel={effectiveRoleModel(SPRINT_ENGINE_GENERAL_ROLE_ID, roleModelOverrides)}
             onSetCli={(cli) => onSetRoleCli(SPRINT_ENGINE_GENERAL_ROLE_ID, cli)}
             onSetModel={(model) => onSetRoleModel(SPRINT_ENGINE_GENERAL_ROLE_ID, model)}
+            {...(onSetRoleReasoning
+              ? {
+                  effectiveReasoning: effectiveRoleReasoning(SPRINT_ENGINE_GENERAL_ROLE_ID, roleReasoningOverrides),
+                  onSetReasoning: (reasoning: string | null) =>
+                    onSetRoleReasoning(SPRINT_ENGINE_GENERAL_ROLE_ID, reasoning),
+                }
+              : {})}
           />
         </div>
       ) : (
@@ -186,10 +216,12 @@ export function SprintEngineRosterPanel({
                 cliOptions={cliOptions}
                 roleCliDefaults={roleCliDefaults}
                 roleModelOverrides={roleModelOverrides}
+                roleReasoningOverrides={roleReasoningOverrides}
                 rosterDisabled={rosterDisabled}
                 onSetRoleCount={onSetRoleCount}
                 onSetRoleCli={onSetRoleCli}
                 onSetRoleModel={onSetRoleModel}
+                onSetRoleReasoning={onSetRoleReasoning}
               />
             ))}
           </div>
@@ -235,10 +267,12 @@ function RosterRoleRow({
   cliOptions,
   roleCliDefaults,
   roleModelOverrides,
+  roleReasoningOverrides,
   rosterDisabled,
   onSetRoleCount,
   onSetRoleCli,
   onSetRoleModel,
+  onSetRoleReasoning,
 }: {
   role: SprintEngineRoleId
   isOn: boolean
@@ -248,10 +282,12 @@ function RosterRoleRow({
   cliOptions: SprintEngineCliOption[]
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides
   rosterDisabled: boolean
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
+  onSetRoleReasoning?: (role: SprintEngineRoleId, reasoning: string | null) => void
 }) {
   const label = getSprintEngineRoleLabel(role, registry)
   const summary = getSprintEngineWizardRoleSummary(role, registry)
@@ -291,6 +327,14 @@ function RosterRoleRow({
           effectiveModelFor={(candidateCli) =>
             candidateCli === roleCli ? effectiveRoleModel(role, roleModelOverrides) : undefined
           }
+          {...(onSetRoleReasoning
+            ? {
+                effectiveReasoningFor: (candidateCli: AgentCli) =>
+                  candidateCli === roleCli ? effectiveRoleReasoning(role, roleReasoningOverrides) : undefined,
+                onSelectReasoning: (_cli: AgentCli, reasoning: string | null) =>
+                  onSetRoleReasoning(role, reasoning),
+              }
+            : {})}
           onSelectCli={(nextCli) => onSetRoleCli(role, nextCli)}
           onSelectModel={(nextCli, nextModel) => {
             if (nextCli !== roleCli) onSetRoleCli(role, nextCli)
@@ -552,16 +596,21 @@ function PlainAgentsPanel({
   cli,
   cliOptions,
   effectiveModel,
+  effectiveReasoning,
   onSetCli,
   onSetModel,
+  onSetReasoning,
 }: {
   agentCount: number
   onChangeAgentCount?: (value: number) => void
   cli: AgentCli
   cliOptions: SprintEngineCliOption[]
   effectiveModel: string | undefined
+  /** The pool's effort level. Opt-in as a pair with `onSetReasoning`. */
+  effectiveReasoning?: string | undefined
   onSetCli: (cli: AgentCli) => void
   onSetModel?: (model: string | null) => void
+  onSetReasoning?: (reasoning: string | null) => void
 }) {
   const clamp = (value: number) => Math.max(1, Math.min(10, Math.floor(value)))
   const setCount = (value: number) => {
@@ -609,6 +658,13 @@ function PlainAgentsPanel({
               options={cliOptions}
               cli={cli}
               effectiveModelFor={(candidateCli) => (candidateCli === cli ? effectiveModel : undefined)}
+              {...(onSetReasoning
+                ? {
+                    effectiveReasoningFor: (candidateCli: AgentCli) =>
+                      candidateCli === cli ? effectiveReasoning : undefined,
+                    onSelectReasoning: (_cli: AgentCli, reasoning: string | null) => onSetReasoning(reasoning),
+                  }
+                : {})}
               onSelectCli={onSetCli}
               onSelectModel={(nextCli, nextModel) => {
                 if (nextCli !== cli) onSetCli(nextCli)

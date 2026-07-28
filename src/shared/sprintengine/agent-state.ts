@@ -127,15 +127,22 @@ export type AgentState = {
   // Undefined means the CLI's own default; persisted so relaunch/resume and
   // Sprint Engine auto-run keep the model the agent was created with.
   cliModel?: string
+  // Reasoning-effort level passed at CLI launch when the plugin declares
+  // reasoningSelection. Undefined means the CLI's own default effort (no flag);
+  // persisted alongside cliModel so a relaunch keeps the effort the agent was
+  // created with. Scoped by `cli` at the surface that resolved it
+  // (resolveCliReasoning), so it is always a level this agent's CLI accepts.
+  cliReasoning?: string
   cliPermissionPreset?: SprintEngineCliPermissionPreset
   // Explicit per-agent runtime override (MC-1450). Wins over the run's
   // per-role `roleRuntimes` config on every reconcile and spawn — set by the
   // board's per-agent CLI/model picker and by creation-time per-agent CLI
   // overrides. `model: null` means "explicitly the CLI default" (suppresses a
   // role-configured model); an absent field falls through to the role config.
+  // `reasoning` layers identically for the effort level (MC-1885).
   // Without this marker the reconcile could not tell a user's mid-run pick
   // from a stale snapshot and would revert the pick on the next projection.
-  cliRuntimeOverride?: { cli?: AgentCli; model?: string | null }
+  cliRuntimeOverride?: { cli?: AgentCli; model?: string | null; reasoning?: string | null }
   // The runtime the live terminal was actually launched with, stamped at spawn
   // success (TerminalView). The record's `cli`/`cliModel` are re-stamped from
   // the run's `roleRuntimes` on every reconcile, so after a mid-run role edit

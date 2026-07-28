@@ -29,6 +29,40 @@ export function renderPluginResume(
   return renderArgvSpec(manifest, context, argvSpec, manifest.launch)
 }
 
+// The reasoning-effort argv tokens a manifest renders for a selected level, or
+// an empty array when none should render: when no level is selected, when the
+// manifest declares no reasoningSelection, when the level equals the manifest's
+// declared default (so ordinary launches stay byte-identical), or when the level
+// is outside the declared set (better no flag than a value the CLI can't parse).
+// A manifest declaring no `default` therefore renders a flag for every declared
+// level, which is how a CLI with an undocumented default effort is modelled.
+//
+// `scope`, when passed, is the launch's full variable scope: the templates
+// substitute against it (and `reasoning` is set on it) exactly as they did
+// inline, so a manifest whose effort args reference another variable keeps
+// resolving it. Callers outside the manifest render path pass none and get the
+// minimal scope their own templates need.
+export function renderReasoningArgs(
+  manifest: PluginManifest,
+  reasoning: string | undefined,
+  scope?: Map<string, string | string[] | undefined>
+): string[] {
+  const level = reasoning?.trim()
+  const selection = manifest.reasoningSelection
+  if (
+    !level ||
+    !selection ||
+    selection.args.length === 0 ||
+    level === selection.default ||
+    !selection.levels.some((declared) => declared.id === level)
+  ) {
+    return []
+  }
+  const variables = scope ?? new Map<string, string | string[] | undefined>([['binary', manifest.binary]])
+  variables.set('reasoning', level)
+  return selection.args.map((template) => substituteString(template, variables))
+}
+
 function renderArgvSpec(
   manifest: PluginManifest,
   context: PluginRenderContext,
@@ -92,28 +126,12 @@ function buildVariableScope(
   }
 
   // `reasoningArgs` mirrors `modelArgs`: spread into argv via
-  // { spreadIf: "reasoningArgs" }. Rendered only when a reasoning level was
-  // selected, the manifest declares how to pass it, AND the level differs from
-  // the manifest's declared default — so an unset or default level passes no
-  // flag and the CLI's own default effort wins. A level outside the declared
-  // set renders nothing rather than sending a value the CLI can't parse.
-  const reasoning = context.reasoning?.trim()
-  const reasoningSelection = manifest.reasoningSelection
-  if (
-    reasoning &&
-    reasoningSelection &&
-    reasoningSelection.args.length > 0 &&
-    reasoning !== reasoningSelection.default &&
-    reasoningSelection.levels.some((level) => level.id === reasoning)
-  ) {
-    scope.set('reasoning', reasoning)
-    scope.set(
-      'reasoningArgs',
-      reasoningSelection.args.map((template) => substituteString(template, scope))
-    )
-  } else {
-    scope.set('reasoningArgs', [])
-  }
+  // { spreadIf: "reasoningArgs" }. The render rule lives in
+  // renderReasoningArgs, which the acknowledged-legacy native-Windows codex
+  // path also calls so both paths honor one rule. It sets `reasoning` on this
+  // scope only when the level actually renders, so an unset, default, or
+  // undeclared level leaves `{{reasoning}}` unresolved as before.
+  scope.set('reasoningArgs', renderReasoningArgs(manifest, context.reasoning, scope))
 
   // `themeArgs` mirrors `modelArgs`: spread into argv via { spreadIf: "themeArgs" }.
   // Rendered only when the host reported a color scheme AND the manifest declares

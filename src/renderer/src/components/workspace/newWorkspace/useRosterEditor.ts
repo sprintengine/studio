@@ -19,6 +19,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoster,
   SprintEngineRosterMode,
@@ -80,9 +81,17 @@ export type RosterEditorResult = {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides: SprintEngineRoleModelOverrides
+  /**
+   * Per-role reasoning-effort level (MC-1885's producer). Wizard-session state
+   * only: a level does NOT ride a saved roster preset (see the note on
+   * SprintEngineSavedRoster), so this map starts empty on every mount and is
+   * cleared when a preset is loaded.
+   */
+  roleReasoningOverrides: SprintEngineRoleReasoningOverrides
   onSetRoleCount: (role: SprintEngineRoleId, count: number) => void
   onSetRoleCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   onSetRoleModel: (role: SprintEngineRoleId, model: string | null) => void
+  onSetRoleReasoning: (role: SprintEngineRoleId, reasoning: string | null) => void
   cliOptions: AgentCliCatalogOption[]
   registry: SprintEngineRoleRegistry | null
   registryStatus: 'idle' | 'loading' | 'ready' | 'unavailable'
@@ -192,6 +201,10 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
   const [roleModelOverrides, setRoleModelOverrides] = useState<SprintEngineRoleModelOverrides>(
     () => ({ ...initial.roleModelOverrides }),
   )
+  // Effort levels are wizard-session state, never seeded from a roster: a saved
+  // preset does not carry one (ruling 2026-07-28 — that is a store-schema
+  // change, and this run's schema numbers are pinned to 69 and 70).
+  const [roleReasoningOverrides, setRoleReasoningOverrides] = useState<SprintEngineRoleReasoningOverrides>({})
   const [selectedRosterId, setSelectedRosterId] = useState<string | null>(() => initial.selectedRosterId)
   const [useSpecialistRoles, setUseSpecialistRoles] = useState(() => initial.mode === 'roles')
   // Run-level concurrency cap, surfaced on the roster step's pool panel.
@@ -294,11 +307,27 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
       delete next[role]
       return next
     })
+    // Same rule for the effort level, for the same reason: levels are per-CLI
+    // manifest knowledge (`ultra` exists on Codex and not on Claude Code), so a
+    // level picked for the previous CLI is meaningless — and the new CLI may
+    // declare no levels at all. Drop it rather than carry it across.
+    setRoleReasoningOverrides((current) => {
+      if (!(role in current)) return current
+      const next = { ...current }
+      delete next[role]
+      return next
+    })
     onRoleCliChanged?.(role)
   }, [onRoleCliChanged])
 
   const onSetRoleModel = useCallback((role: SprintEngineRoleId, model: string | null) => {
     setRoleModelOverrides((current) => ({ ...current, [role]: model }))
+  }, [])
+
+  // A level survives a model change within one CLI (the map is keyed by role,
+  // not by model) and is dropped by onSetRoleCli above when the CLI changes.
+  const onSetRoleReasoning = useCallback((role: SprintEngineRoleId, reasoning: string | null) => {
+    setRoleReasoningOverrides((current) => ({ ...current, [role]: reasoning }))
   }, [])
 
   // Load a saved roster into the rows, or detach to a hand-tuned ("Custom")
@@ -323,6 +352,11 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     if (!roster) return
     onDetachFromExistingRun?.()
     setRoleModelOverrides({ ...(roster.roleModelOverrides ?? {}) })
+    // Loading a preset replaces the whole runtime configuration, and a preset
+    // carries no level. Clearing rather than keeping the hand-tuned levels is
+    // the per-CLI drop rule again: the loaded roster may staff these roles on
+    // different CLIs entirely.
+    setRoleReasoningOverrides({})
     setRoleCounts(cloneRoleCounts(roster.roleCounts))
     setRoleCliDefaults(roleCliDefaultsFromRoster(roster))
     // Restore the SAVED formation rather than re-deriving it from roleCounts.
@@ -376,6 +410,9 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
       : null),
     [selectedRosterId, rosters],
   )
+  // Deliberately blind to roleReasoningOverrides: a preset cannot store a level,
+  // so a picked level must not make the roster read as edited — that would offer
+  // an "Update" whose only effect is to drop what the user just picked.
   const selectedRosterDirty = useMemo(
     () => (selectedRoster
       ? !sprintEngineRosterMatches(
@@ -395,9 +432,11 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
     roleCounts: visibleRoleCounts,
     roleCliDefaults,
     roleModelOverrides,
+    roleReasoningOverrides,
     onSetRoleCount,
     onSetRoleCli,
     onSetRoleModel,
+    onSetRoleReasoning,
     cliOptions,
     registry,
     registryStatus,

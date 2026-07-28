@@ -2640,6 +2640,7 @@ async function spawnTerminalFromIpc(
     cliPermissionPreset = 'default',
     debugMode = false,
     cliModel,
+    cliReasoning,
     memoryRootPath,
     memoryRelativeRoot,
     agentSession,
@@ -2948,7 +2949,8 @@ async function spawnTerminalFromIpc(
           memoryRelativeRoot,
           sprintEngineMcpEnv,
           debugMode,
-          cliAuthToken
+          cliAuthToken,
+          cliReasoning
         )
       // Install the authoritative-agent-state reporter into the workspace before
       // launching a supported agent, so its lifecycle hooks report phase the

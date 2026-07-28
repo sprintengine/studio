@@ -1116,5 +1116,62 @@ assert.equal(
   )
 }
 
+// ── A malformed cliModelCatalog in a CURRENT-version envelope ───────────────
+// Store v69 adds `cliModelCatalog`. Its shape rules cannot live only in the
+// migrate ladder: a dev-HMR module swap (or any writer holding un-migrated
+// state) stamps the current version onto a profile the ladder then never looks
+// at again — exactly how the v63 dedupe was bypassed in the wild. The envelope
+// below is stamped CURRENT, so the v69 rung never runs and merge() alone has to
+// hold the line: an entry that does not carry the recorded shape is dropped
+// rather than fed to the pickers, and the user's own model ids are untouched
+// either way.
+{
+  const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
+  const settingsEnvelope = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
+  assert.equal(
+    settingsEnvelope.version,
+    WORKSPACE_STORE_VERSION,
+    'the seeded settings envelope is at the current store version, so this exercises merge and not migrate',
+  )
+  const persistedAppSettings = (settingsEnvelope.state.appSettings ?? {}) as Record<string, unknown>
+  const seedCatalog = (cliModelCatalog: unknown): void => {
+    stored['multicode-app-settings'] = JSON.stringify({
+      state: {
+        ...settingsEnvelope.state,
+        appSettings: {
+          ...persistedAppSettings,
+          cliRuntimes: { codex: { command: 'codex', useWsl: false, models: ['o4-mini'] } },
+          cliModelCatalog,
+        },
+      },
+      version: WORKSPACE_STORE_VERSION,
+    })
+  }
+
+  seedCatalog({ codex: { models: [{ id: 'gpt-5.6' }], source: 'argv-probe' } })
+  await useWorkspaceStore.persist.rehydrate()
+  const afterMalformed = useWorkspaceStore.getState().appSettings
+  assert.equal(
+    afterMalformed.cliModelCatalog,
+    undefined,
+    'merge drops a malformed discovered catalog even at the current store version',
+  )
+  assert.deepEqual(
+    afterMalformed.cliRuntimes.codex.models,
+    ['o4-mini'],
+    'dropping the discovered catalog never touches the user model list',
+  )
+
+  seedCatalog({
+    codex: { models: [{ id: 'gpt-5.6' }, { id: '  ' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
+  })
+  await useWorkspaceStore.persist.rehydrate()
+  assert.deepEqual(
+    useWorkspaceStore.getState().appSettings.cliModelCatalog,
+    { codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' } },
+    'a well-formed catalog hydrates through merge with its unusable rows removed',
+  )
+}
+
 console.info = originalInfo
 console.log('workspaceStore.persistence.test.ts: ok')

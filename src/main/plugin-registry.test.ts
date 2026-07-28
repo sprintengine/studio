@@ -101,7 +101,8 @@ async function testBundledManifestsLoad(): Promise<void> {
   assert.equal(claudeEntry?.hostedVia, undefined)
 
   // Codex's reasoningSelection projects levels + default to the renderer
-  // (arg templates stay main-process-only, mirroring modelSelection).
+  // (arg templates stay main-process-only, mirroring modelSelection). `max` and
+  // `ultra` are the live catalogue's top levels (`codex debug models`).
   const codexReasoning = registry.list().find((entry) => entry.id === 'codex')?.reasoningSelection
   assert.deepEqual(codexReasoning, {
     levels: [
@@ -109,8 +110,24 @@ async function testBundledManifestsLoad(): Promise<void> {
       { id: 'medium', label: 'Medium' },
       { id: 'high', label: 'High' },
       { id: 'xhigh', label: 'Extra high' },
+      { id: 'max', label: 'Max' },
+      { id: 'ultra', label: 'Ultra' },
     ],
     default: 'medium',
+  })
+
+  // claude-code declares the five levels `claude --help` documents (CLI 2.1.220)
+  // and NO default: the CLI's own default effort is undocumented, so the picker
+  // treats blank as "the CLI decides" and every picked level renders a flag.
+  const claudeReasoning = registry.list().find((entry) => entry.id === 'claude-code')?.reasoningSelection
+  assert.deepEqual(claudeReasoning, {
+    levels: [
+      { id: 'low', label: 'Low' },
+      { id: 'medium', label: 'Medium' },
+      { id: 'high', label: 'High' },
+      { id: 'xhigh', label: 'Extra high' },
+      { id: 'max', label: 'Max' },
+    ],
   })
 
   const codexEntry = registry.list().find((entry) => entry.id === 'codex')

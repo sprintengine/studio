@@ -240,8 +240,10 @@ function agentStatesEqual(left: AgentState, right: AgentState): boolean {
     && left.cliLastExitedAt === right.cliLastExitedAt
     && left.cli === right.cli
     && left.cliModel === right.cliModel
+    && left.cliReasoning === right.cliReasoning
     && left.cliRuntimeOverride?.cli === right.cliRuntimeOverride?.cli
     && left.cliRuntimeOverride?.model === right.cliRuntimeOverride?.model
+    && left.cliRuntimeOverride?.reasoning === right.cliRuntimeOverride?.reasoning
     && left.cliPermissionPreset === right.cliPermissionPreset
     && left.cliStartupPrompt === right.cliStartupPrompt
     && left.kind === right.kind
@@ -279,12 +281,12 @@ export function reconcileSprintEngineAgents(
       const nextName = isDefaultSprintEngineAgentName(current?.name, agent.label)
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
         : current?.name ?? agent.label
-      // Per-role CLI + model resolve from the run's `roleRuntimes` config on
-      // EVERY rebuild — seeded, minted, and recycled records alike (MC-1450:
-      // the minted branch used to hardcode `claude-code` with no model, so
-      // replenishment-minted agents launched on the CLI's default model). An
-      // explicit per-agent `cliRuntimeOverride` outranks the role config; a
-      // role absent from the map preserves the existing record's values.
+      // Per-role CLI + model + reasoning effort resolve from the run's
+      // `roleRuntimes` config on EVERY rebuild — seeded, minted, and recycled
+      // records alike (MC-1450: the minted branch used to hardcode `claude-code`
+      // with no model, so replenishment-minted agents launched on the CLI's
+      // default model). An explicit per-agent `cliRuntimeOverride` outranks the
+      // role config; a role absent from the map preserves the record's values.
       const resolved = resolveSprintEngineAgentRuntime(sprintEngineState.roleRuntimes, agent.role, current)
       const normalizedAgent = current
         ? normalizeAgentState({
@@ -293,11 +295,13 @@ export function reconcileSprintEngineAgents(
           kind: 'sprintengine' as const,
           cli: resolved.cli ?? current.cli,
           cliModel: resolved.cliModel,
+          cliReasoning: resolved.cliReasoning,
         }, 'claude-code')
         : {
           ...defaultAgent(agent.id, nextName, 'sprintengine'),
           cli: resolved.cli ?? ('claude-code' as const),
           ...(resolved.cliModel ? { cliModel: resolved.cliModel } : {}),
+          ...(resolved.cliReasoning ? { cliReasoning: resolved.cliReasoning } : {}),
         }
       const nextAgent = reuseAgentIfUnchanged(current, normalizedAgent)
       nextAgents[agent.id] = nextAgent
@@ -700,16 +704,18 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         const agentRoleLabel = rosterAgent?.label ?? agentId
         const agentLabel = pickWorkspaceAgentName(ws.agents)
         const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
-        // Role config from run.yaml (via the projection) wins for both CLI and
-        // model; the workspace-level CLI defaults are the pre-projection
-        // fallback. No model in either place ⇒ no `--model` flag. A brand-new
-        // member has no per-agent override yet.
+        // Role config from run.yaml (via the projection) wins for CLI, model and
+        // reasoning effort; the workspace-level CLI defaults are the
+        // pre-projection fallback. No model in either place ⇒ no `--model` flag,
+        // and no level ⇒ no effort flag. A brand-new member has no per-agent
+        // override yet.
         const runtime = resolveSprintEngineAgentRuntime(ws.sprintEngineState.roleRuntimes, role, undefined)
         const memberCli = runtime.cli ?? resolveSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
           cli: memberCli,
           ...(runtime.cliModel ? { cliModel: runtime.cliModel } : {}),
+          ...(runtime.cliReasoning ? { cliReasoning: runtime.cliReasoning } : {}),
         }
         ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
         ws.sprintEngineState.events.push({

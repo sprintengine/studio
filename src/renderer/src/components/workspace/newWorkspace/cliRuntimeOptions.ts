@@ -11,15 +11,28 @@ import type {
   PluginModelOption,
   PluginReasoningCatalog,
 } from '../../../../../shared/plugin-manifest'
+import type {
+  CliModelOrigin,
+  DiscoveredCliModelCatalog,
+  MergedCliModelCatalog,
+  MergedCliModelOption,
+} from '../../../../../shared/cli-model-catalog'
+
+// What each CLI reported about its own models, keyed by plugin id — the
+// `cliModelCatalog` app setting, passed in rather than read from the store so
+// this module stays store-free.
+export type DiscoveredCliModelCatalogs = Partial<Record<AgentCli, DiscoveredCliModelCatalog>>
 
 export type AgentCliCatalogOption = {
   value: AgentCli
   label: string
   source?: PluginCatalogEntry['source']
   // Model choices for this CLI: the plugin manifest's seed options merged with
-  // the user-added ids from `cliRuntimes[id].models`. Absent when the plugin
-  // declares no modelSelection — such CLIs show no model UI at all.
-  modelSelection?: PluginModelCatalog
+  // what the CLI reported about itself and the user-added ids from
+  // `cliRuntimes[id].models`, each row tagged with which layer claimed it.
+  // Absent when the plugin declares no modelSelection — such CLIs show no model
+  // UI at all.
+  modelSelection?: MergedCliModelCatalog
   // Reasoning-effort levels the CLI accepts (manifest-declared). Absent when
   // the plugin declares no reasoningSelection — such CLIs show no effort UI.
   reasoningSelection?: PluginReasoningCatalog
@@ -123,6 +136,7 @@ export function labelForCliRuntime(cli: AgentCli): string {
 
 function legacyCliRuntimeOptions(
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
+  discovered: DiscoveredCliModelCatalogs | undefined,
 ): AgentCliCatalogOption[] {
   const seen = new Set<AgentCli>()
   const orderedIds: AgentCli[] = []
@@ -134,7 +148,11 @@ function legacyCliRuntimeOptions(
     orderedIds.push(canonical)
   }
   return orderedIds.map((value) => {
-    const modelSelection = mergeModelCatalog(BUNDLED_AGENT_MODEL_CATALOGS[value], cliRuntimes?.[value]?.models)
+    const modelSelection = mergeModelCatalog(
+      BUNDLED_AGENT_MODEL_CATALOGS[value],
+      cliRuntimes?.[value]?.models,
+      discovered?.[value],
+    )
     return {
       value,
       label: labelForCliRuntime(value),
@@ -224,8 +242,9 @@ export function resolveTemplateAgentCli(
 export function buildAgentCliCatalog(
   plugins: PluginCatalogEntry[] | null | undefined,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
+  discovered?: DiscoveredCliModelCatalogs,
 ): AgentCliCatalogOption[] {
-  if (!plugins) return legacyCliRuntimeOptions(cliRuntimes)
+  if (!plugins) return legacyCliRuntimeOptions(cliRuntimes, discovered)
 
   const seen = new Set<AgentCli>()
   const ordered = [...plugins].sort((a, b) => {
@@ -237,7 +256,11 @@ export function buildAgentCliCatalog(
     const id = plugin.id.trim()
     if (!id || seen.has(id) || AGENT_PICKER_HIDDEN_CLI_IDS.has(id)) continue
     seen.add(id)
-    const modelSelection = mergeModelCatalog(plugin.modelSelection ?? BUNDLED_AGENT_MODEL_CATALOGS[id], cliRuntimes?.[id]?.models)
+    const modelSelection = mergeModelCatalog(
+      plugin.modelSelection ?? BUNDLED_AGENT_MODEL_CATALOGS[id],
+      cliRuntimes?.[id]?.models,
+      discovered?.[id],
+    )
     options.push({
       value: id,
       label: plugin.displayName,
@@ -250,23 +273,65 @@ export function buildAgentCliCatalog(
   return options
 }
 
-// Merge a plugin's seed model options with the user-added ids for that CLI.
+// Merge the three layers a model row can come from, in order:
+//
+//   manifest seed  ∪  what the CLI reported  ∪  the user's own ids
+//
+// A union, never a replacement. Discovery under-reports — Claude's SDK omits
+// Opus 5 on a machine where `--model claude-opus-5` runs fine — so a merge that
+// took the discovered list as the truth would delete working models. Each layer
+// instead syncs on its own terms: the manifest seed and the user's ids are
+// curated and survive every refresh; the discovered layer is whatever the last
+// probe returned, so a model the CLI stopped listing is gone from the picker.
+// Both halves of that rule are load-bearing and separately tested.
+//
+// Dedupe is by exact `id` and nothing else. `resolvedModel` looks like it could
+// collapse an alias against its pin, but it is stale for some rows (measured:
+// `opus[1m]` reported as `claude-opus-4-8[1m]` while it actually resolves to
+// `claude-opus-5[1m]`), so trusting it would merge two different models and
+// mislabel the survivor.
+//
+// Later layers may enrich what earlier ones seeded: a discovered displayName
+// replaces the manifest's hand-written label for the same id, because the CLI
+// is more current than we are — this is what stops a stale label ("Opus 4.8")
+// rotting onto a floating alias. Row order still comes from first appearance,
+// and every row carries the strongest claim on it as `origin`.
+//
 // User additions only apply when the plugin declares modelSelection — without
 // declared args the launch path could not pass the model anyway.
 function mergeModelCatalog(
   declared: PluginModelCatalog | undefined,
   userModels: string[] | undefined,
-): PluginModelCatalog | undefined {
+  discovered: DiscoveredCliModelCatalog | undefined,
+): MergedCliModelCatalog | undefined {
   if (!declared) return undefined
-  const seen = new Set(declared.options.map((option) => option.id))
-  const merged: PluginModelOption[] = [...declared.options]
-  for (const entry of userModels ?? []) {
-    const id = entry.trim()
-    if (!id || seen.has(id)) continue
-    seen.add(id)
-    merged.push({ id })
+  const byId = new Map<string, MergedCliModelOption>()
+  const upsert = (option: PluginModelOption, origin: CliModelOrigin): void => {
+    const id = option.id.trim()
+    if (!id) return
+    const existing = byId.get(id)
+    if (!existing) {
+      byId.set(id, { ...option, id, origin })
+      return
+    }
+    // Same id in a later layer: keep its position, take the newer label when it
+    // has one, and record the stronger claim — the layers below are applied
+    // weakest first (manifest → discovered → user), so a later one always wins.
+    if (option.label) existing.label = option.label
+    existing.origin = origin
   }
-  return { options: merged, allowCustomId: declared.allowCustomId }
+  for (const option of declared.options) upsert(option, 'manifest')
+  // Tolerate a catalog that never went through the settings normalizer (a raw
+  // IPC payload, a hand-edited profile): a bad discovered layer must leave the
+  // curated ones rendering exactly as they did, not throw the picker away.
+  const discoveredModels = Array.isArray(discovered?.models) ? discovered.models : []
+  for (const model of discoveredModels) {
+    if (!model || typeof model.id !== 'string') continue
+    const label = typeof model.displayName === 'string' ? model.displayName.trim() : ''
+    upsert(label ? { id: model.id, label } : { id: model.id }, 'discovered')
+  }
+  for (const entry of userModels ?? []) upsert({ id: entry }, 'user')
+  return { options: [...byId.values()], allowCustomId: declared.allowCustomId }
 }
 
 // Effective model for a launch surface: the surface's own override only when
@@ -278,6 +343,20 @@ export function resolveCliModel(
 ): string | undefined {
   const overrideModel = override && override.cli === cli ? override.model.trim() : ''
   return overrideModel || undefined
+}
+
+// Effective reasoning-effort level for a launch surface. Same guard as
+// resolveCliModel, and for the same reason: levels are per-CLI manifest
+// knowledge, so a level picked for Codex must never reach a Claude launch (the
+// two CLIs do not even share a level set). Undefined means the CLI's own
+// default effort, with no flag passed — and the render boundary drops a level
+// the manifest does not declare, so this is not the only guard.
+export function resolveCliReasoning(
+  cli: AgentCli,
+  override: AgentCliModelSelection | null | undefined,
+): string | undefined {
+  const overrideReasoning = override && override.cli === cli ? override.reasoning?.trim() : ''
+  return overrideReasoning || undefined
 }
 
 // Effective model for a per-surface picker (specialist row): the
@@ -308,8 +387,9 @@ export function selectAgentCliCatalog(
   entries: PluginCatalogEntry[] | null | undefined,
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
   availability?: CliAvailabilityFilter,
+  discovered?: DiscoveredCliModelCatalogs,
 ): AgentCliCatalogOption[] {
-  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes)
+  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes, discovered)
   if (!availability) return catalog
   return filterCatalogByAvailability(catalog, availability.map, availability.status)
 }

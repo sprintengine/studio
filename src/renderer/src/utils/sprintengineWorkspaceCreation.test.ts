@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
 } from '../types/workspace'
 import {
   buildPlanSourcedSprintEngineWorkspaceContext,
@@ -69,6 +70,42 @@ test('empty and nullish inputs yield an empty runtime map', () => {
   assert.deepEqual(buildSprintEngineRoleRuntimes({}, {}), {})
   assert.deepEqual(buildSprintEngineRoleRuntimes(null, null), {})
   assert.deepEqual(buildSprintEngineRoleRuntimes(undefined, undefined), {})
+})
+
+// --- the seat reasoning-effort level (MC-1885) ------------------------------
+// The level rides the same `roleRuntimes` entry as the CLI/model pick, so it
+// reaches every spawn of the role through the one map the projection carries.
+
+const efforts = (entries: Record<string, string | null>): SprintEngineRoleReasoningOverrides =>
+  entries as SprintEngineRoleReasoningOverrides
+
+test('a role effort level rides its runtime entry', () => {
+  const runtimes = buildSprintEngineRoleRuntimes(
+    models({ developer: 'claude-opus-5' }),
+    clis({ developer: 'claude-code' }),
+    efforts({ developer: 'high' }),
+  )
+  assert.deepEqual(runtimes, {
+    developer: { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' },
+  })
+})
+
+test('a role with no level records no reasoning key at all', () => {
+  const runtimes = buildSprintEngineRoleRuntimes(
+    models({ developer: 'claude-opus-5' }),
+    clis({ developer: 'claude-code' }),
+    efforts({ developer: null, tester: 'max' }),
+  )
+  // `tester` has neither a model nor a CLI: a level alone has nothing to launch,
+  // so it must not mint an entry the runner would then fail to spawn.
+  assert.deepEqual(runtimes, { developer: { model: 'claude-opus-5', cli: 'claude-code' } })
+})
+
+test('omitting the effort map leaves every entry byte-identical to before', () => {
+  assert.deepEqual(
+    buildSprintEngineRoleRuntimes(models({ architect: 'sonnet' }), clis({ developer: 'codex' })),
+    buildSprintEngineRoleRuntimes(models({ architect: 'sonnet' }), clis({ developer: 'codex' }), null),
+  )
 })
 
 // --- buildPlanSourcedSprintEngineWorkspaceContext ---------------------------

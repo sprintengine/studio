@@ -55,6 +55,9 @@ export function buildRosterSessionFromAgent(
     cliSessionId: agent.cliSessionId,
     harnessSessionId: agent.harnessSessionId ?? liveHarnessSessionId,
     cliModel: agent.cliModel,
+    // Only carried when the seat actually ran with a level, so a seat on the
+    // CLI's own effort records exactly the session it recorded before.
+    ...(agent.cliReasoning ? { cliReasoning: agent.cliReasoning } : {}),
     name: agent.name,
     recordedAt: now,
   }

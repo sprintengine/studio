@@ -292,3 +292,78 @@ def test_init_role_runtimes_json_persists(tmp_path) -> None:
 
     state = read_state(state_path)
     assert state["roleRuntimes"] == {"developer": {"model": "claude-fable-5", "cli": "claude-code"}}
+
+
+# --- the seat reasoning-effort level (MC-1885) ------------------------------
+# The level rides the existing `roleRuntimes` entry as an optional member, so the
+# run-state SHAPE the engine validates is unchanged and RUN_SCHEMA_VERSION stays
+# put. These prove the passthrough rather than assuming it.
+
+
+def test_apply_role_runtimes_carries_the_reasoning_level() -> None:
+    st: dict = {}
+    state_module.apply_role_runtimes(
+        st,
+        json.dumps(
+            {
+                "developer": {"model": "claude-opus-5", "cli": "claude-code", "reasoning": "high"},
+                "tester": {"model": "", "cli": "claude-code", "reasoning": "  "},
+                # A level with no model and no cli has no seat to launch.
+                "security": {"reasoning": "max"},
+            }
+        ),
+    )
+    assert st["roleRuntimes"] == {
+        "developer": {"model": "claude-opus-5", "cli": "claude-code", "reasoning": "high"},
+        "tester": {"cli": "claude-code"},
+    }
+
+
+def test_role_runtime_edit_preserves_a_level_it_does_not_mention() -> None:
+    # `roster runtime` (the board's mid-run cli/model edit) sends only cli+model.
+    # Replacing the entry wholesale would silently drop the configured level.
+    st: dict = {}
+    state_module.apply_role_runtimes(
+        st, json.dumps({"developer": {"model": "claude-opus-5", "cli": "claude-code", "reasoning": "high"}})
+    )
+    state_module.apply_role_runtimes(
+        st, json.dumps({"developer": {"model": "claude-sonnet-5", "cli": "claude-code"}})
+    )
+    assert st["roleRuntimes"]["developer"] == {
+        "model": "claude-sonnet-5",
+        "cli": "claude-code",
+        "reasoning": "high",
+    }
+    # An explicit null clears it back to the CLI's own default effort.
+    state_module.apply_role_runtimes(
+        st, json.dumps({"developer": {"model": "claude-sonnet-5", "cli": "claude-code", "reasoning": None}})
+    )
+    assert st["roleRuntimes"]["developer"] == {"model": "claude-sonnet-5", "cli": "claude-code"}
+
+
+def test_seat_reasoning_level_survives_init_and_projection_round_trip(tmp_path) -> None:
+    team_dir = tmp_path / ".multi-code" / "sprintengine" / "init-reasoning"
+    state_path = team_dir / "run.yaml"
+    from helpers import SwarmCli
+
+    cli = SwarmCli(state_path)
+    cli.run(
+        "init",
+        "--name",
+        "init-reasoning",
+        "--agent",
+        "developer:developer-1",
+        "--role-runtimes-json",
+        json.dumps({"developer": {"model": "claude-opus-5", "cli": "claude-code", "reasoning": "high"}}),
+    )
+
+    state = read_state(state_path)
+    assert state["roleRuntimes"] == {
+        "developer": {"model": "claude-opus-5", "cli": "claude-code", "reasoning": "high"}
+    }
+
+    projection = store_module.build_projection(state_path.parent, state_path=state_path)
+    assert projection["run"]["roleRuntimes"] == {
+        "developer": {"model": "claude-opus-5", "cli": "claude-code", "reasoning": "high"}
+    }, "the level reaches the app through the projection, so no schema bump is needed"
+    assert projection["run"]["schemaVersion"] == store_module.RUN_SCHEMA_VERSION

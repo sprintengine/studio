@@ -51,6 +51,18 @@ function agent(overrides: Partial<AgentState>): AgentState {
   })
 }
 
+// 2b. MC-1885: a seat that ran with a reasoning-effort level records it beside
+//     the model, so re-opening the seat reads back the runtime it actually used.
+{
+  const session = buildRosterSessionFromAgent(
+    agent({ cli: 'claude-code', cliSessionId: 'sess-1', cliModel: 'opus', cliReasoning: 'high', name: 'Archie' }),
+    'architect',
+    undefined,
+    1000,
+  )
+  assert.equal(session?.cliReasoning, 'high')
+}
+
 // 3. Codex: the live session's harness id is preferred when the agent's own copy
 //    has not caught up.
 {

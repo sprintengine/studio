@@ -11,6 +11,7 @@ import type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineState,
@@ -87,6 +88,10 @@ export type SprintEngineExistingTeamInput = {
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   agentCliOverrides: Record<AgentId, AgentCli>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  // Per-role reasoning-effort level (MC-1885). Rides the same `roleRuntimes`
+  // entry as the CLI/model pick; an absent role means the CLI's own default
+  // effort, which passes no flag.
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
   startRunner: boolean
   autoApproveArtifacts: boolean
@@ -105,6 +110,10 @@ export type SprintEngineNewTeamInput = {
   maxParallelAgents: number
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  // Per-role reasoning-effort level (MC-1885). Rides the same `roleRuntimes`
+  // entry as the CLI/model pick; an absent role means the CLI's own default
+  // effort, which passes no flag.
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
   startRunner: boolean
   autoApproveArtifacts: boolean
@@ -145,6 +154,10 @@ export type SprintEnginePlanSourcedInput = {
   maxParallelAgents: number
   roleCliDefaults: Required<SprintEngineRoleCliDefaults>
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  // Per-role reasoning-effort level (MC-1885). Rides the same `roleRuntimes`
+  // entry as the CLI/model pick; an absent role means the CLI's own default
+  // effort, which passes no flag.
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
   startRunner: boolean
   autoApproveArtifacts: boolean

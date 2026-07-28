@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import type {
   DiagnosticLogInput,
   TerminalSessionSnapshot,
@@ -17,6 +18,12 @@ import type {
   SprintRuntimeOp,
   SprintRuntimeRunRegistration,
 } from '../shared/sprintengine/runtime-bridge'
+import { renderAgentLaunchArgv } from './agent-launch-render'
+import { createPluginRegistry } from './plugin-registry'
+import {
+  __resetPluginRegistryForTest,
+  __setPluginRegistryForTest,
+} from './plugin-registry-instance'
 import { createSprintRuntime, type SprintRuntimeDeps } from './sprint-runtime'
 
 // ---------------------------------------------------------------------------
@@ -48,6 +55,32 @@ function bootstrapProjection(): unknown {
       goal: 'Ship the fixture',
       rosterConfigured: true,
       roleRuntimes: { architect: { cli: 'claude' } },
+    },
+    roster: { 'architect-1': { role: 'architect', status: 'idle', currentTaskId: null } },
+    tasks: [],
+    artifacts: [],
+    activity: [],
+  }
+}
+
+/** Bootstrap projection whose architect seat also configures a model and a
+ *  reasoning-effort level, on a CLI whose bundled manifest declares
+ *  reasoningSelection (MC-1885). `roleRuntimes` is the ONLY source here: the
+ *  registration carries no agent record, so anything that reaches the spawn came
+ *  from the projection. */
+function seatEffortProjection(reasoning?: string): unknown {
+  return {
+    run: {
+      name: 'Fixture Run',
+      goal: 'Ship the fixture',
+      rosterConfigured: true,
+      roleRuntimes: {
+        architect: {
+          cli: 'claude-code',
+          model: 'claude-opus-5',
+          ...(reasoning ? { reasoning } : {}),
+        },
+      },
     },
     roster: { 'architect-1': { role: 'architect', status: 'idle', currentTaskId: null } },
     tasks: [],
@@ -1110,6 +1143,139 @@ async function testBlockedRunStillReconcilesStaleLaunchFlags(): Promise<void> {
   harness.runtime.shutdown()
 }
 
+// (MC-1885) A seat's reasoning-effort level rides `roleRuntimes` from the
+// projection to the spawn payload, and from there into the CLI's real argv.
+// The registration supplies NO agent record, so the level can only have come
+// from the projection — the renderer never stores config on the engine
+// (`sprintengine-roster-model-not-honored`).
+async function testSeatEffortReachesSpawnedArgv(): Promise<void> {
+  const harness = createHarness({ projection: seatEffortProjection('high') })
+  harness.runtime.registerRun(registration())
+  await settle()
+
+  const run = harness.runtime.inspectRun(STATE_PATH)
+  assert.equal(
+    run?.view.agents['architect-1']?.cliReasoning,
+    'high',
+    'roster reconcile stamped the seat level from roleRuntimes alone',
+  )
+
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  assert.equal(harness.spawnCalls.length, 1, 'the architect seat spawned once')
+  const spawn = harness.spawnCalls[0]
+  const metadata = spawn.metadata as Record<string, unknown>
+  assert.equal(metadata.cliModel, 'claude-opus-5', 'the seat model rides the spawn payload')
+  assert.equal(metadata.cliReasoning, 'high', 'the seat level rides the same spawn payload')
+
+  // The payload is only a promise until the launch boundary renders it. Run the
+  // real renderer over the spawned metadata and assert the flag on argv.
+  await usingBundledRegistry(() => {
+    const rendered = renderAgentLaunchArgv({
+      cli: spawn.cli as 'claude-code',
+      sessionId: spawn.sessionId,
+      cliModel: metadata.cliModel as string,
+      cliReasoning: metadata.cliReasoning as string,
+    })
+    assert.ok(
+      rendered.argv.join(' ').includes('--effort high'),
+      `spawned argv carries the seat's effort flag: ${rendered.argv.join(' ')}`,
+    )
+    // Resume never re-passes the level (no manifest spreads reasoningArgs on
+    // resume), so a re-opened seat cannot double-apply it.
+    const resumed = renderAgentLaunchArgv({
+      cli: spawn.cli as 'claude-code',
+      sessionId: spawn.sessionId,
+      resume: true,
+      cliModel: metadata.cliModel as string,
+      cliReasoning: metadata.cliReasoning as string,
+    })
+    assert.ok(!resumed.argv.includes('--effort'), 'resume argv carries no effort flag')
+  })
+
+  harness.runtime.shutdown()
+}
+
+// (MC-1885) A seat with no configured level spawns exactly as it did before the
+// level existed: no metadata field, and byte-identical argv.
+async function testSeatWithoutEffortSpawnsUnchanged(): Promise<void> {
+  const harness = createHarness({ projection: seatEffortProjection() })
+  harness.runtime.registerRun(registration())
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  assert.equal(harness.spawnCalls.length, 1, 'the architect seat spawned once')
+  const spawn = harness.spawnCalls[0]
+  const metadata = spawn.metadata as Record<string, unknown>
+  assert.equal(metadata.cliReasoning, undefined, 'no level configured means no level on the payload')
+
+  await usingBundledRegistry(() => {
+    const rendered = renderAgentLaunchArgv({
+      cli: spawn.cli as 'claude-code',
+      sessionId: spawn.sessionId,
+      cliModel: metadata.cliModel as string,
+      cliReasoning: metadata.cliReasoning as string | undefined,
+    })
+    const baseline = renderAgentLaunchArgv({
+      cli: spawn.cli as 'claude-code',
+      sessionId: spawn.sessionId,
+      cliModel: metadata.cliModel as string,
+    })
+    assert.deepEqual(rendered.argv, baseline.argv, 'argv is byte-identical to a pre-effort launch')
+  })
+
+  harness.runtime.shutdown()
+}
+
+// (MC-1885) Retirement records the level it ran at alongside the model, so a
+// re-opened seat reads back the runtime it actually used.
+async function testRetirementRecordsSeatEffort(): Promise<void> {
+  const harness = createHarness({ projection: twoAgentCompletedProjection() })
+  const exitedAgent: AgentState = {
+    id: 'dev-1',
+    name: 'Dev',
+    status: 'idle',
+    execution: { mode: 'current_workspace', worktreeId: null, cwd: null },
+    messages: [],
+    streamBuffer: '',
+    kind: 'sprintengine',
+    cli: 'claude',
+    cliSessionId: 'sess-a',
+    cliModel: 'claude-opus-5',
+    cliReasoning: 'xhigh',
+  }
+  harness.runtime.registerRun(registration({ agents: { 'dev-1': exitedAgent } }))
+  await settle()
+  harness.clock.now += STARTUP_SPAWN_DELAY_MS + 1
+  await harness.runtime.tickNow()
+
+  const recorded = harness.ops.find(
+    (op) => op.kind === 'roster_session_recorded' && op.agentId === 'dev-1',
+  )
+  assert.ok(recorded && recorded.kind === 'roster_session_recorded')
+  assert.equal(recorded.session.cliModel, 'claude-opus-5')
+  assert.equal(recorded.session.cliReasoning, 'xhigh', 'the retired session records its effort level')
+
+  harness.runtime.shutdown()
+}
+
+async function usingBundledRegistry(fn: () => Promise<void> | void): Promise<void> {
+  __resetPluginRegistryForTest()
+  const registry = createPluginRegistry({
+    bundledRoot: join(process.cwd(), 'resources', 'plugins'),
+    userRoot: join(process.cwd(), '.does-not-exist', 'multicode', 'plugins'),
+  })
+  const report = registry.loadSync()
+  __setPluginRegistryForTest(registry, report)
+  try {
+    await fn()
+  } finally {
+    __resetPluginRegistryForTest()
+  }
+}
+
 async function main(): Promise<void> {
   await testRegistrationActivatesRun()
   await testStartupDelayThenBootstrapSpawn()
@@ -1134,6 +1300,9 @@ async function main(): Promise<void> {
   await testRevealPolicyBroadcastOnSpawn()
   await testResumeIfBlockedResumesOnlyBlockedRuns()
   await testBlockedRunStillReconcilesStaleLaunchFlags()
+  await testSeatEffortReachesSpawnedArgv()
+  await testSeatWithoutEffortSpawnsUnchanged()
+  await testRetirementRecordsSeatEffort()
   console.log('sprint-runtime tests passed')
 }
 

@@ -14,6 +14,7 @@ import {
   removeEditorBuffersForPath,
   setEditorBuffer,
 } from '../../utils/editorBuffers'
+import { resolveSprintEngineRoleRuntime } from '../../../../shared/sprintengine/state'
 import { detectLanguage } from '../../utils/files'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import { shouldAutoArchiveWorkspace } from '../../utils/workspaceAutoArchive'
@@ -1104,6 +1105,18 @@ export function createWorkspacesSlice(
             const rosterModel = modelOverride === null
               ? undefined
               : modelOverride?.trim() || undefined
+            // The reasoning-effort level comes from the run's own `roleRuntimes`
+            // (what init just wrote, read back off the projection) rather than
+            // from a second wizard map, so this seeded record already says what
+            // the first reconcile would say. It has to be seeded here at all for
+            // the reason cli/model are: the architect seat launches from THIS
+            // record the moment the board opens, before any projection arrives,
+            // so a level left out of the seed silently launches the run's first
+            // agent at the CLI's own default effort (MC-1450, one field over).
+            const rosterReasoning = resolveSprintEngineRoleRuntime(
+              sprintEngineState.roleRuntimes,
+              agent.role,
+            )?.cliReasoning
             agents[agent.id] = {
               ...deps.defaultAgent(
                 agent.id,
@@ -1112,6 +1125,7 @@ export function createWorkspacesSlice(
               ),
               cli: rosterCli,
               cliModel: rosterModel,
+              ...(rosterReasoning ? { cliReasoning: rosterReasoning } : {}),
               // An explicit per-agent CLI pick from the wizard outranks the
               // role config on every later reconcile (MC-1450 hierarchy), so
               // record it as a durable override rather than a silent snapshot.
