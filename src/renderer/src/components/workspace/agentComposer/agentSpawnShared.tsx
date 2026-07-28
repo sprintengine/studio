@@ -1,6 +1,12 @@
 import React from 'react'
-import { Tooltip } from '../../ui'
+// Imported from the concrete modules rather than the `../../ui` barrel: the
+// barrel re-exports CliModelListbox, which imports ReasoningLevelPicker from
+// here, so going through it would make this module part of an import cycle.
+import { Popover } from '../../ui/Popover'
+import { Tooltip } from '../../ui/Tooltip'
+import { FOCUS_RING_CLASS } from '../../ui/tokens'
 import type { SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { PluginReasoningOption } from '../../../../../shared/plugin-manifest'
 
 // Shared, presentation-only pieces of the agent picker surfaces (the compact
 // AgentComposerPopover and the AgentComposer panel). Kept in one hookless module
@@ -106,6 +112,168 @@ export function SpawnDebugToggle({
         DEBUG
       </button>
     </Tooltip>
+  )
+}
+
+// The inline reasoning-effort picker that rides the right edge of the selected
+// model row (MC-1884). Blank is the CLI's own default effort and passes no
+// flag, so the at-rest state is an em-dash and a caret — nothing names it,
+// because a control that needs a sentence is the wrong control. Picking the
+// checked level again clears the stored level back to blank, so clearing is the
+// same gesture as choosing.
+//
+// The menu is a real Popover: portaled to <body> at fixed coordinates, so it can
+// never be clipped by the listbox's max-h scroll clamp, and it flips above the
+// trigger by itself when the row sits near the bottom edge.
+//
+// Hosts opt in per CLI — a CLI whose manifest declares no reasoningSelection has
+// no levels and therefore never renders this control, not even greyed.
+
+const REASONING_OPTION_SELECTOR = '[data-reasoning-option="true"]'
+
+// The costliest level is the last one the manifest declares (Codex `ultra`,
+// claude-code `max`). Derived rather than listed, so a manifest that adds a
+// level above the current top tones the new one without a code change.
+export function costliestReasoningLevel(levels: ReadonlyArray<PluginReasoningOption>): string | undefined {
+  return levels[levels.length - 1]?.id
+}
+
+export function ReasoningLevelPicker({
+  levels,
+  value,
+  onSelect,
+  className,
+}: {
+  levels: ReadonlyArray<PluginReasoningOption>
+  /** The stored level, or undefined for "the CLI's own default effort". */
+  value: string | undefined
+  /** `null` clears the stored level back to blank. */
+  onSelect: (reasoning: string | null) => void
+  className?: string
+}): JSX.Element | null {
+  const [open, setOpen] = React.useState(false)
+  const surfaceRef = React.useRef<HTMLElement | null>(null)
+  if (levels.length === 0) return null
+
+  const costliest = costliestReasoningLevel(levels)
+  const selected = levels.find((level) => level.id === value)
+  const selectedLabel = selected ? selected.label ?? selected.id : undefined
+  const isCostliest = Boolean(selected) && selected!.id === costliest
+
+  const focusChecked = (surface: HTMLElement) => {
+    surfaceRef.current = surface
+    const checked = surface.querySelector<HTMLButtonElement>(`${REASONING_OPTION_SELECTOR}[data-checked="true"]`)
+    ;(checked ?? surface.querySelector<HTMLButtonElement>(REASONING_OPTION_SELECTOR))?.focus()
+  }
+  const focusByOffset = (current: HTMLElement, offset: 1 | -1) => {
+    const nodes = Array.from(
+      surfaceRef.current?.querySelectorAll<HTMLButtonElement>(REASONING_OPTION_SELECTOR) ?? [],
+    )
+    const index = nodes.indexOf(current as HTMLButtonElement)
+    if (index < 0 || nodes.length === 0) return
+    nodes[(index + offset + nodes.length) % nodes.length]?.focus()
+  }
+  const onOptionKey = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      focusByOffset(event.currentTarget, 1)
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusByOffset(event.currentTarget, -1)
+    }
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      // The accessible name carries the control's meaning so the visible
+      // surface can stay wordless.
+      ariaLabel="Reasoning effort"
+      popupRole="menu"
+      placement="bottom-end"
+      className={`shrink-0 ${className ?? ''}`}
+      surfaceClassName="min-w-[7rem] p-1"
+      onOpenAutoFocus={focusChecked}
+      renderTrigger={({ ref, togglePopover, triggerProps }) => (
+        <button
+          ref={ref}
+          type="button"
+          {...triggerProps}
+          data-reasoning-picker="true"
+          aria-label={selectedLabel ? `Reasoning effort: ${selectedLabel}` : 'Reasoning effort'}
+          // The row owns selection; opening the picker must not re-select or
+          // close the listbox underneath it.
+          onClick={(event) => {
+            event.stopPropagation()
+            togglePopover()
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+          className={[
+            'interactive inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[3px]',
+            'border border-transparent px-1.5 py-px text-[11px] transition-colors',
+            'hover:border-[color:var(--border-default)]',
+            FOCUS_RING_CLASS,
+            selectedLabel
+              ? isCostliest
+                ? 'font-medium text-[color:var(--tone-warn-on-tint)]'
+                : 'font-medium text-[color:var(--text-strong)]'
+              : 'text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)]',
+          ].join(' ')}
+        >
+          <span aria-hidden="true">{selectedLabel ?? '—'}</span>
+          <span aria-hidden="true" className="text-[8px] text-[color:var(--text-disabled)]">
+            ▾
+          </span>
+        </button>
+      )}
+    >
+      {levels.map((level) => {
+        const checked = level.id === value
+        const warn = level.id === costliest
+        return (
+          <button
+            key={level.id}
+            type="button"
+            role="menuitemradio"
+            aria-checked={checked}
+            data-reasoning-option="true"
+            data-checked={checked || undefined}
+            // Radiogroup roving: the checked level is the tab stop, arrows move.
+            tabIndex={checked ? 0 : -1}
+            onKeyDown={onOptionKey}
+            onClick={(event) => {
+              event.stopPropagation()
+              // Re-selecting the checked level clears it — the same gesture
+              // chooses and un-chooses, so blank needs no separate control.
+              onSelect(checked ? null : level.id)
+              setOpen(false)
+            }}
+            className={[
+              'flex w-full items-center gap-1.5 rounded-[3px] px-2 py-1 text-left text-[11px]',
+              'hover:bg-[color:var(--bg-hover)]',
+              FOCUS_RING_CLASS,
+              // The costliest level carries the warn tone inside the menu, so it
+              // reads as expensive before it is chosen rather than after.
+              warn ? 'text-[color:var(--tone-warn-on-tint)]' : 'text-[color:var(--text-default)]',
+            ].join(' ')}
+          >
+            <span className="flex shrink-0 items-center justify-center text-[color:var(--accent-primary)]">
+              {checked ? <ReasoningCheckGlyph /> : null}
+            </span>
+            <span className="min-w-0 flex-1 truncate">{level.label ?? level.id}</span>
+          </button>
+        )
+      })}
+    </Popover>
+  )
+}
+
+function ReasoningCheckGlyph(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
+      <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 

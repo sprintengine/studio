@@ -13,6 +13,7 @@ import type {
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
 import {
   resolveAvailableAgentCli,
+  resolveCliReasoning,
   resolveSurfaceModel,
   selectAgentCliCatalog,
 } from '../newWorkspace/cliRuntimeOptions'
@@ -133,6 +134,7 @@ export function useAgentComposer({
     (s) => s.appSettings.specialistModelDefaults ?? EMPTY_SPECIALIST_MODEL_DEFAULTS,
   )
   const setSpecialistModelDefault = useWorkspaceStore((s) => s.setSpecialistModelDefault)
+  const setSpecialistReasoningDefault = useWorkspaceStore((s) => s.setSpecialistReasoningDefault)
   const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
   const disabledSpecialistPacks = useWorkspaceStore(
     (s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS,
@@ -245,6 +247,18 @@ export function useAgentComposer({
     [specialistModelDefaults],
   )
 
+  // Effort reads through the same per-surface selection the model does, guarded
+  // per-CLI by resolveCliReasoning so a level chosen for one CLI never surfaces
+  // on another.
+  const reasoningForSelection = React.useCallback(
+    (target: AgentComposerSelection, cli: AgentCli): string | undefined => {
+      if (target.kind === 'specialist') return resolveCliReasoning(cli, specialistModelDefaults[target.specialistId])
+      if (target.kind === 'general') return resolveCliReasoning(cli, specialistModelDefaults[GENERAL_AGENT_ENGINE_KEY])
+      return undefined
+    },
+    [specialistModelDefaults],
+  )
+
   const buildConfirm = React.useCallback(
     (target: AgentComposerSelection): AgentComposerConfirm => {
       const skill = skillAttachment ? { skill: skillAttachment } : {}
@@ -300,6 +314,17 @@ export function useAgentComposer({
     },
     [setSpecialistCliDefault, setSpecialistModelDefault],
   )
+  // `null` clears the level back to the CLI's own default effort. The setter
+  // keeps the model already chosen for that CLI, so clearing effort never
+  // silently changes which model launches.
+  const setEngineReasoning = React.useCallback(
+    (target: AgentComposerSelection, cli: AgentCli, reasoning: string | null) => {
+      const key = target.kind === 'specialist' ? target.specialistId : GENERAL_AGENT_ENGINE_KEY
+      setSpecialistCliDefault(key, cli)
+      setSpecialistReasoningDefault(key, cli, reasoning)
+    },
+    [setSpecialistCliDefault, setSpecialistReasoningDefault],
+  )
 
   return {
     query,
@@ -317,10 +342,12 @@ export function useAgentComposer({
     selectionCli,
     cliForSelection,
     modelForSelection,
+    reasoningForSelection,
     moveSelection,
     buildConfirm,
     setEngineCli,
     setEngineModel,
+    setEngineReasoning,
     agentCliOptions,
     generalCliOptions,
     // Catalog load state, so pickers can say "loading" / "no plugins" instead
