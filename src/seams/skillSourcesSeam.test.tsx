@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -104,6 +104,17 @@ function readFixture(name: string): string {
   return readFileSync(join(FIXTURES, name), 'utf8')
 }
 
+/** Every file under a directory, as sorted `/`-joined relative paths. */
+function filesUnder(root: string, prefix = ''): string[] {
+  const found: string[] = []
+  for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
+    const path = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) found.push(...filesUnder(root, path))
+    else found.push(path)
+  }
+  return found.sort()
+}
+
 // ── The repositories, as recorded ────────────────────────────────────────────
 
 const prototypeFiles = JSON.parse(readFixture('mattpocock-skills.files.json')) as RecordedFiles
@@ -122,27 +133,79 @@ const REPOS = new Map<string, Revision[]>([
 ])
 
 /**
- * A second state of mattpocock/skills, derived from the recorded one: the
- * prototype's entry document is edited, and the `research` skill is gone. Both
- * halves of what a sync has to survive, and neither is available as a second
- * recording — the repository has one head at a time.
+ * A later state of a repository, derived by editing the named skills' entry
+ * documents. Each edited file's tree entry is re-derived from the new bytes, so
+ * a derived revision is as internally consistent as a recorded one, and its
+ * commit id is one nothing recorded — it can never be mistaken for a real head.
+ *
+ * Derived rather than recorded because a repository has one head at a time:
+ * "the source moved" is not something a second recording can supply.
+ */
+function withEditedEntryDocuments(
+  revision: Revision,
+  skillIds: readonly string[],
+  marker: string,
+): Revision {
+  const files = new Map(revision.files)
+  const edited = new Map<string, string>()
+  for (const skillId of skillIds) {
+    const path = `${skillId}/SKILL.md`
+    const next = `${files.get(path) ?? ''}\n<!-- ${marker} -->\n`
+    files.set(path, next)
+    edited.set(path, next)
+  }
+  const entries = revision.entries.map((entry) => {
+    const next = edited.get(entry.path)
+    return next === undefined ? entry : { ...entry, sha: blobSha(next), size: Buffer.byteLength(next) }
+  })
+  return { commitSha: blobSha(`${marker}:${revision.commitSha}`), entries, files }
+}
+
+/**
+ * A second state of mattpocock/skills: the prototype's entry document is
+ * edited, and the `research` skill is gone. Both halves of what a sync has to
+ * survive.
  */
 function nextMattpocockRevision(head: Revision): Revision {
-  const editedEntry = `${head.files.get(`${PROTOTYPE_ID}/SKILL.md`) ?? ''}\n<!-- edited upstream -->\n`
-  const files = new Map(head.files)
-  files.set(`${PROTOTYPE_ID}/SKILL.md`, editedEntry)
+  const edited = withEditedEntryDocuments(head, [PROTOTYPE_ID], 'edited upstream')
+  const files = new Map(edited.files)
   for (const path of [...files.keys()]) {
     if (path.startsWith(`${RESEARCH_ID}/`)) files.delete(path)
   }
-  const entries = head.entries
-    .filter((entry) => entry.path !== RESEARCH_ID && !entry.path.startsWith(`${RESEARCH_ID}/`))
-    .map((entry) =>
-      entry.path === `${PROTOTYPE_ID}/SKILL.md`
-        ? { ...entry, sha: blobSha(editedEntry), size: Buffer.byteLength(editedEntry) }
-        : entry,
-    )
-  // A commit id nothing recorded, so it can never be mistaken for one that was.
-  return { commitSha: blobSha(`mattpocock-next:${editedEntry}`), entries, files }
+  const entries = edited.entries.filter(
+    (entry) => entry.path !== RESEARCH_ID && !entry.path.startsWith(`${RESEARCH_ID}/`),
+  )
+  return { commitSha: edited.commitSha, entries, files }
+}
+
+/**
+ * A state in which `research` is back, at the bytes it was recorded with. A
+ * skill leaving a repository and returning is ordinary, and the cross-source
+ * work below needs a mattpocock skill whose bytes exist to install — the second
+ * state dropped the only one besides `prototype`, and `prototype` is the name
+ * the collision case reserves.
+ */
+function withResearchRestored(recorded: Revision, current: Revision): Revision {
+  const files = new Map(current.files)
+  for (const [path, content] of recorded.files) {
+    if (path.startsWith(`${RESEARCH_ID}/`)) files.set(path, content)
+  }
+  const restored = recorded.entries.filter(
+    (entry) => entry.path === RESEARCH_ID || entry.path.startsWith(`${RESEARCH_ID}/`),
+  )
+  return {
+    commitSha: blobSha(`research-restored:${current.commitSha}`),
+    entries: [...current.entries, ...restored],
+    files,
+  }
+}
+
+/** Push a derived state onto a repository's history, and return it. */
+function publishRevision(repo: string, revision: Revision): Revision {
+  const revisions = REPOS.get(repo)
+  assert.ok(revisions, `${repo} is not one of the recorded repositories`)
+  revisions.push(revision)
+  return revision
 }
 
 // ── The network, answered from the fixtures ──────────────────────────────────
@@ -230,8 +293,21 @@ async function main(): Promise<void> {
   domWindow.api = withInertPreloadFallback({ platform: 'darwin', ...skillsApi, ...workspaceSkillsApi })
 
   await testScanBrowseReadInstallSync(workspaceRoot)
+  await testCrossSourceCollisionKeepsItsOwnBytes()
   await testLayoutBoundaries()
   await testRetiredSkillPacksDeepLinkStillOpensSkills()
+
+  // Everything this suite did, across every source, stayed inside the two hosts
+  // the source policy allows. Checked once at the end so a section added later
+  // is covered by it without having to remember to be.
+  assert.ok(requestedUrls.length > 0)
+  for (const url of requestedUrls) {
+    const host = new URL(url).hostname
+    assert.ok(
+      host === 'api.github.com' || host === 'raw.githubusercontent.com',
+      `the run reached a host outside the allowlist: ${host}`,
+    )
+  }
 
   console.log('all skill-source seam tests passed')
 }
@@ -496,19 +572,34 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     }),
     '/research',
   )
-  // FINDING (filed, not fixed here): a source skill whose directory name
-  // collides with one Multicode ships is reported as `source: 'builtin'` — the
-  // inventory keys provenance on the directory name alone. `prototype` is such
-  // a name, and the bytes on disk are mattpocock's.
+  // FINDING T9-F1, re-checked after provenance landed and still open: a source
+  // skill whose directory name collides with one Multicode ships is reported as
+  // `source: 'builtin'`, because the inventory keys provenance on the directory
+  // name alone. `prototype` is such a name, and the bytes on disk are
+  // mattpocock's. Install now writes a marker that says so — the disagreement
+  // below is the defect, pinned so that fixing the inventory to read the marker
+  // fails this line rather than passing silently.
   const inventoryPrototype = inventory.skills.find((skill) => skill.id === 'prototype')
   assert.ok(inventoryPrototype)
   assert.equal(inventoryPrototype.source, 'builtin', 'observed today: the collision is reported as builtin')
+  const { readSkillProvenance } = await import('../main/skills/install')
+  const prototypeProvenance = await readSkillProvenance(installed('.claude', 'prototype'))
+  assert.equal(
+    prototypeProvenance?.sourceId,
+    'github:mattpocock/skills',
+    'the copy on disk records the source it actually came from',
+  )
+  assert.notEqual(
+    inventoryPrototype.source,
+    'custom',
+    'T9-F1 is open: the inventory still ignores the marker beside the bytes it is describing',
+  )
 
   // ── Sync: the source moves, and the workspace moves with it ───────────────
 
   const head = headOf('mattpocock/skills')
   assert.ok(head)
-  REPOS.get('mattpocock/skills')?.push(nextMattpocockRevision(head))
+  publishRevision('mattpocock/skills', nextMattpocockRevision(head))
 
   await click(buttonWith('Sync'))
   await settleUntil('the sync', () => markup().includes('Synced ·'))
@@ -557,6 +648,207 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     root.unmount()
   })
   container.remove()
+}
+
+// --- T13/T14: what a sync may overwrite is what that source installed --------
+
+/**
+ * Two sources shipping a directory of the same name is ordinary — Multicode's
+ * own `prototype` and mattpocock's are the pair that broke this — and before
+ * install recorded provenance, syncing either one replaced the other's bytes on
+ * disk. This walks that collision through the same real IPC the chain above
+ * uses, in a workspace of its own so the state is the one being described:
+ *
+ *  1. a workspace holding Multicode's `prototype`, and nothing from mattpocock;
+ *  2. mattpocock moves and is synced — its own `prototype` changed upstream,
+ *     and the bytes on disk must not move, because that copy is not its;
+ *  3. the user installs a mattpocock skill, mattpocock moves again, and that
+ *     one *is* re-copied — the protection must not have closed the feature.
+ */
+async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
+  const { skillDirName } = await import('../shared/skills')
+  const { readSkillProvenance, SKILL_PROVENANCE_FILE } = await import('../main/skills/install')
+
+  const api = domWindow.api as {
+    skillsGetScan: (input: { sourceId: string }) => Promise<{ ok: boolean; scan: ScanResult }>
+    skillsInstall: (input: {
+      sourceId: string
+      skillId: string
+      workspaceRoot: string
+    }) => Promise<{ ok: boolean; message?: string }>
+    skillsSyncSource: (input: { sourceId: string; workspaceRoot: string }) => Promise<{
+      ok: boolean
+      message?: string
+      refreshed: number
+      failures: { skillId: string; message: string }[]
+    }>
+  }
+
+  const workspaceRoot = temporaryDir('multicode-seam-skills-collision-')
+  const installedPath = (harness: string, ...rest: string[]): string =>
+    join(workspaceRoot, harness, 'skills', ...rest)
+  const HARNESS_DIRS = ['.claude', '.agents'] as const
+  const bytesAt = (harness: string, ...rest: string[]): string =>
+    readFileSync(installedPath(harness, ...rest), 'utf8')
+
+  const scanOf = async (sourceId: string): Promise<ScanResult> => {
+    const result = await api.skillsGetScan({ sourceId })
+    assert.ok(result.ok, `${sourceId} has no scan`)
+    return result.scan
+  }
+  const idOfSkillNamed = (scan: ScanResult, dirName: string): string => {
+    const found = scan.skills.find((skill) => skillDirName(skill.id) === dirName)
+    assert.ok(found, `no skill installs as "${dirName}" in this source`)
+    return found.id
+  }
+  const install = async (sourceId: string, skillId: string): Promise<void> => {
+    const result = await api.skillsInstall({ sourceId, skillId, workspaceRoot })
+    assert.ok(result.ok, `${sourceId}:${skillId} could not be installed: ${result.message ?? ''}`)
+  }
+  const sync = async (): Promise<{ refreshed: number; failures: { skillId: string }[] }> => {
+    const result = await api.skillsSyncSource({ sourceId: 'github:mattpocock/skills', workspaceRoot })
+    assert.ok(result.ok, `the sync failed: ${result.message ?? ''}`)
+    // A failed copy is not a protected copy. Reading the failures here keeps a
+    // "bytes unchanged" pass from ever meaning "the fetch 404ed".
+    assert.deepEqual(result.failures, [], 'no copy this sync attempted failed')
+    return result
+  }
+
+  // ── 1. The workspace holds Multicode's own `prototype` ────────────────────
+
+  const builtinScan = await scanOf('builtin')
+  await install('builtin', idOfSkillNamed(builtinScan, 'prototype'))
+
+  const shippedRoot = join(process.cwd(), 'resources', 'skills', 'prototype')
+  const shippedPrototype = readFileSync(join(shippedRoot, 'SKILL.md'), 'utf8')
+  /**
+   * Every file of the installed copy, against the directory Multicode ships —
+   * the marker aside, which install writes and the source never had. Compares
+   * the whole directory rather than the entry document alone: mattpocock's
+   * prototype ships files Multicode's does not, so a partial overwrite shows up
+   * as an extra file even when SKILL.md happens to match.
+   */
+  const assertHoldsShippedPrototype = (harness: string, when: string): void => {
+    for (const path of ['SKILL.md', join('agents', 'openai.yaml')]) {
+      assert.equal(
+        bytesAt(harness, 'prototype', path),
+        readFileSync(join(shippedRoot, path), 'utf8'),
+        `${harness}/skills/prototype/${path} ${when}`,
+      )
+    }
+    assert.deepEqual(
+      filesUnder(installedPath(harness, 'prototype')).filter((path) => path !== SKILL_PROVENANCE_FILE),
+      filesUnder(shippedRoot),
+      `${harness}/skills/prototype holds exactly the shipped directory ${when}`,
+    )
+  }
+  for (const harness of HARNESS_DIRS) assertHoldsShippedPrototype(harness, 'as installed')
+  assert.equal(
+    (await readSkillProvenance(installedPath('.claude', 'prototype')))?.sourceId,
+    'builtin',
+    'and the copy records which source wrote it',
+  )
+  // mattpocock ships a `prototype` too — without that, nothing below collides.
+  const mattpocockScan = await scanOf('github:mattpocock/skills')
+  const mattpocockPrototype = idOfSkillNamed(mattpocockScan, 'prototype')
+
+  // ── 2. mattpocock moves; the directory it does not own does not move ───────
+
+  const head = headOf('mattpocock/skills')
+  const recorded = REPOS.get('mattpocock/skills')?.[0]
+  assert.ok(head && recorded)
+  // `research` returns upstream (installable in step 3), and `prototype`'s entry
+  // document changes — so a sync that wrongly claimed that directory would show
+  // in the bytes rather than being silently identical to what is already there.
+  publishRevision(
+    'mattpocock/skills',
+    withEditedEntryDocuments(
+      withResearchRestored(recorded, head),
+      [PROTOTYPE_ID],
+      'a source that does not own it',
+    ),
+  )
+
+  // A directory nothing claims: the shape every copy installed before markers
+  // existed has, and the shape a hand-made skill has. Sync cannot tell which
+  // source it came from, so it must not assume it came from this one.
+  const unclaimed = '<!-- a copy no marker claims -->\n'
+  for (const harness of HARNESS_DIRS) {
+    mkdirSync(installedPath(harness, 'research'), { recursive: true })
+    writeFileSync(installedPath(harness, 'research', 'SKILL.md'), unclaimed, 'utf8')
+  }
+
+  const crossSourceSync = await sync()
+  assert.equal(
+    crossSourceSync.refreshed,
+    0,
+    'a source refreshes nothing when no installed directory is one it wrote',
+  )
+  for (const harness of HARNESS_DIRS) {
+    assert.equal(
+      bytesAt(harness, 'research', 'SKILL.md'),
+      unclaimed,
+      `${harness} kept the unclaimed copy — a name match is not ownership`,
+    )
+  }
+  const refreshedList = await scanOf('github:mattpocock/skills')
+  assert.ok(
+    refreshedList.skills.some((skill) => skill.id === mattpocockPrototype),
+    'mattpocock still lists a prototype — the sync passed over an installed name it was offering',
+  )
+  for (const harness of HARNESS_DIRS) assertHoldsShippedPrototype(harness, 'after another source synced')
+  assert.equal(
+    (await readSkillProvenance(installedPath('.claude', 'prototype')))?.sourceId,
+    'builtin',
+    'and the marker still names the source that installed it',
+  )
+
+  // ── 3. The same source, over its own copy: still refreshed ────────────────
+
+  // Installing is what claims a directory — the way out of the unclaimed state
+  // above, and the state a plain install leaves behind either way.
+  const researchId = idOfSkillNamed(refreshedList, 'research')
+  await install('github:mattpocock/skills', researchId)
+  const installedResearch = bytesAt('.claude', 'research', 'SKILL.md')
+  assert.notEqual(installedResearch, unclaimed, 'an explicit install does replace what it installs over')
+  assert.equal(
+    (await readSkillProvenance(installedPath('.claude', 'research')))?.sourceId,
+    'github:mattpocock/skills',
+    'the copy the user chose is claimed by the source they chose it from',
+  )
+
+  // Both move this time: the one this source owns, and the one it does not.
+  const moved = headOf('mattpocock/skills')
+  assert.ok(moved)
+  publishRevision(
+    'mattpocock/skills',
+    withEditedEntryDocuments(moved, [RESEARCH_ID, PROTOTYPE_ID], 'moved again'),
+  )
+  const sameSourceSync = await sync()
+  assert.equal(sameSourceSync.refreshed, 1, 'the copy this source installed is the one it re-copies')
+  for (const harness of HARNESS_DIRS) {
+    assert.ok(
+      bytesAt(harness, 'research', 'SKILL.md').includes('<!-- moved again -->'),
+      `${harness} took the new bytes of the skill this source owns`,
+    )
+    assertHoldsShippedPrototype(harness, 'through a sync that did copy')
+  }
+  assert.equal(
+    installedResearch.includes('<!-- moved again -->'),
+    false,
+    'and the pre-sync bytes really were different, so the check above proves a write',
+  )
+
+  // ── The marker is an install artefact, not a skill file ───────────────────
+  //
+  // It is written into the copy and never back into the source, so it cannot
+  // reach the file list the reader renders or the files a later install reads.
+  const prototypeFileList = mattpocockScan.skills.find((skill) => skill.id === mattpocockPrototype)?.files ?? []
+  assert.equal(
+    prototypeFileList.some((file) => file.path === SKILL_PROVENANCE_FILE),
+    false,
+    'no source lists the marker among its own files',
+  )
 }
 
 /** The visible text of the surface, for a failure message worth reading. */
