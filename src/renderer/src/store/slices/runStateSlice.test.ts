@@ -217,6 +217,31 @@ assert.equal(
 const stableOverriddenAgents = reconcileSprintEngineAgents(overriddenAgents, runtimeSprintState)
 assert.equal(stableOverriddenAgents, overriddenAgents, 'override-resolved reconcile stays identity-stable')
 
+// MC-1885: the seat's reasoning-effort level resolves from `roleRuntimes` on the
+// same reconcile, and a level-only change must NOT be swallowed by the
+// reuse-if-unchanged identity check — a stale record there keeps launching the
+// seat at the old effort (the MC-1450 model bug, one field over).
+const effortSprintState = {
+  ...runtimeSprintState,
+  roleRuntimes: {
+    ...runtimeSprintState.roleRuntimes,
+    frontend: { model: 'claude-opus-4-8', cli: 'claude-code', reasoning: 'high' },
+  },
+}
+const effortAgents = reconcileSprintEngineAgents(mintedAgents, effortSprintState)
+assert.equal(effortAgents.frontend?.cliReasoning, 'high', 'the seat level resolves from roleRuntimes')
+assert.notEqual(effortAgents.frontend, mintedAgents.frontend, 'a level-only change must produce a fresh record')
+const raisedEffortAgents = reconcileSprintEngineAgents(effortAgents, {
+  ...effortSprintState,
+  roleRuntimes: {
+    ...effortSprintState.roleRuntimes,
+    frontend: { model: 'claude-opus-4-8', cli: 'claude-code', reasoning: 'max' },
+  },
+})
+assert.equal(raisedEffortAgents.frontend?.cliReasoning, 'max', 'raising only the level still reaches the record')
+const stableEffortAgents = reconcileSprintEngineAgents(effortAgents, effortSprintState)
+assert.equal(stableEffortAgents, effortAgents, 'an unchanged level stays identity-stable')
+
 runStateSlice.setSprintEngineMaxConcurrentAgents('ws-direct-run-state', 0)
 assert.equal(carrier.workspaces[0].sprintEngineAutoState?.maxConcurrentAgents, 1)
 runStateSlice.setSprintEngineAutomationMode('ws-direct-run-state', 'manual')
