@@ -139,9 +139,10 @@ export type AgentState = {
   // board's per-agent CLI/model picker and by creation-time per-agent CLI
   // overrides. `model: null` means "explicitly the CLI default" (suppresses a
   // role-configured model); an absent field falls through to the role config.
+  // `reasoning` layers identically for the effort level (MC-1885).
   // Without this marker the reconcile could not tell a user's mid-run pick
   // from a stale snapshot and would revert the pick on the next projection.
-  cliRuntimeOverride?: { cli?: AgentCli; model?: string | null }
+  cliRuntimeOverride?: { cli?: AgentCli; model?: string | null; reasoning?: string | null }
   // The runtime the live terminal was actually launched with, stamped at spawn
   // success (TerminalView). The record's `cli`/`cliModel` are re-stamped from
   // the run's `roleRuntimes` on every reconcile, so after a mid-run role edit

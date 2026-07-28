@@ -71,6 +71,7 @@ export type {
   SprintEngineRoleCounts,
   SprintEngineRoleId,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
   SprintEngineRoleRegistryMetadata,
   SprintEngineRoleRegistrySourceLayer,
