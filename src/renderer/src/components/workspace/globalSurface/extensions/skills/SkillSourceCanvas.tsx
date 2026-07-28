@@ -408,7 +408,9 @@ function GroupChips({
   )
 }
 
-function SectionHead({
+/** The one list header on this surface: what the list is, how many, and one
+ *  trailing slot. Discover renders its result lists under the same head. */
+export function SectionHead({
   label,
   count,
   action,

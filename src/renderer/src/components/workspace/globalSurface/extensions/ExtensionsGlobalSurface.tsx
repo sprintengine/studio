@@ -58,6 +58,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const activeWorkspaceRoot = useWorkspaceStore(
     (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
+  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
   const sources = useConnectorSources(activeWorkspaceRoot)
 
   const [section, setSection] = useState<ExtensionsSection>('marketplace')
@@ -131,9 +132,9 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const cliCount = useMemo(() => registryEntriesForKinds(plugins, ['cli']).length, [plugins])
   const installedCount = sources.installedServerIds.size
 
-  // The registry alone feeds the module/cli rows; the skill-pack row reads its
-  // own catalog. Same honesty rule as the marketplace row: loading and
-  // unavailable never render as a zero count.
+  // The registry alone feeds the module/cli rows; the Skills row reads its own
+  // sources. Same honesty rule as the marketplace row: loading and unavailable
+  // never render as a zero count.
   const registryStateLine = (count: number): string =>
     sources.registryLoad.status === 'loading'
       ? 'Loading…'
@@ -289,6 +290,10 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
               setSection('marketplace')
               setFacet('All')
             }}
+            // Discover's code search needs a GitHub token, which is configured
+            // in Settings; the door owns the store, so the surface stays
+            // store-free and takes the route as a prop.
+            onConfigureGitHubToken={() => openSettingsOverlay({ initialTab: 'github' })}
           />
         )
       case 'modules':

@@ -16,6 +16,7 @@ import { GhostButton, InlineNotice, Spinner } from '../../../../ui'
 import { FOCUS_RING_CLASS } from '../../../../ui/tokens'
 import { SurfaceCanvasState, SurfaceRail, type SurfaceRailRow } from '../../surfaceSubstrate'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
+import { addedRepoKeys } from './discoverModel'
 import { SkillPage } from './SkillPage'
 import { SkillSourceCanvas } from './SkillSourceCanvas'
 import { SkillsDiscover } from './SkillsDiscover'
@@ -43,18 +44,23 @@ export function SkillsSurface({
   sources,
   workspaceRoot,
   onBrowseMcpServers,
+  onConfigureGitHubToken,
 }: {
   /** Owned by the door, so its rail row can state the same counts this does. */
   sources: SkillSourcesState
   workspaceRoot: string | null
   /** The connector-skills deflection: those skills are browsed with their servers. */
   onBrowseMcpServers: () => void
+  /** Opens where the GitHub token is set — Discover's code search requires one. */
+  onConfigureGitHubToken: () => void
 }): JSX.Element {
   const [view, setView] = useState<SkillsView | null>(null)
   const [activeGroup, setActiveGroup] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [addOpen, setAddOpen] = useState(false)
+  // The repository the Add-a-source modal opens on. A Discover candidate lands
+  // in the same field a pasted one does, and takes the same path from there.
+  const [addRepo, setAddRepo] = useState<string | null>(null)
   const [installing, setInstalling] = useState<string | null>(null)
   const [installReport, setInstallReport] = useState<{ tone: 'ok' | 'error'; message: string } | null>(null)
   // A set, not one id: syncing one source and opening another must not leave
@@ -88,6 +94,13 @@ export function SkillsSurface({
   )
   const activeScan = activeSourceId ? sources.scans[activeSourceId] : undefined
   const commitsUrl = activeSource ? skillSourceCommitsUrl(activeSource) : null
+
+  // What Discover reads to say "Added" instead of offering a scan for a
+  // repository the list already holds.
+  const addedRepos = useMemo(
+    () => addedRepoKeys(sources.sources.map((source) => source.repo)),
+    [sources.sources],
+  )
 
   const toggleSelect = useCallback((skillId: string) => {
     setSelected((current) => {
@@ -246,7 +259,7 @@ export function SkillsSurface({
         rows={railRows}
         selectedId={view?.kind === 'discover' ? null : (activeSourceId ?? null)}
         onSelect={openSource}
-        newAffordance={{ label: 'Add a source', onActivate: () => setAddOpen(true) }}
+        newAffordance={{ label: 'Add a source', onActivate: () => setAddRepo('') }}
       />
       <div className="mt-auto border-t border-[color:var(--border-subtle)] pt-2">
         <button
@@ -284,7 +297,11 @@ export function SkillsSurface({
             onRetry={sources.refreshSources}
           />
         ) : view?.kind === 'discover' ? (
-          <SkillsDiscover onAddSource={() => setAddOpen(true)} />
+          <SkillsDiscover
+            addedRepos={addedRepos}
+            onScanRepo={(repo) => setAddRepo(repo)}
+            onConfigureToken={onConfigureGitHubToken}
+          />
         ) : !activeSource ? (
           <SurfaceCanvasState
             kind="empty"
@@ -293,7 +310,7 @@ export function SkillsSurface({
             body="Add a public GitHub repository of skills to browse what it holds."
             action={
               <GhostButton
-                onClick={() => setAddOpen(true)}
+                onClick={() => setAddRepo('')}
                 className="border border-[color:var(--border-default)]"
               >
                 Add a source
@@ -368,8 +385,9 @@ export function SkillsSurface({
         )}
       </div>
       <AddSkillSourceModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
+        open={addRepo !== null}
+        initialRepo={addRepo ?? ''}
+        onClose={() => setAddRepo(null)}
         onAdded={(source: SkillSource) => {
           sources.refreshSources()
           openSource(source.id)

@@ -1,11 +1,30 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import type { ScanResult, ScannedSkill, SkillSource } from '../../../../../../../shared/skills'
+import type {
+  ScanResult,
+  ScannedSkill,
+  SkillDiscoveryCondition,
+  SkillDiscoveryResult,
+  SkillRepoHit,
+  SkillSearchHit,
+  SkillSource,
+} from '../../../../../../../shared/skills'
 import { AddSkillSourceModal } from './AddSkillSourceModal'
 import { SkillDocument, SkillReader } from './SkillReader'
+import {
+  DiscoverRepoList,
+  DiscoverSearchResults,
+  SkillsDiscover,
+  type DiscoverLoad,
+} from './SkillsDiscover'
 import { SkillSourceCanvas, type SkillSourceCanvasProps } from './SkillSourceCanvas'
 import { SkillsSurface } from './SkillsSurface'
+
+/** A clean answer: results, and nothing GitHub could not do. */
+function hitResult<T>(results: T[]): SkillDiscoveryResult<T> {
+  return { results, rateLimit: null, degraded: null }
+}
 
 // What the rendered surface owes: two separate targets on a skill row (never a
 // button inside a button), an Install that states why it is unavailable rather
@@ -187,6 +206,7 @@ run('the surface opens on a nested source rail that keeps Add and Discover', () 
     <SkillsSurface
       workspaceRoot="/proj"
       onBrowseMcpServers={() => {}}
+      onConfigureGitHubToken={() => {}}
       sources={{
         sources: [
           { ...SOURCE, id: 'builtin', kind: 'builtin', name: 'Multicode', repo: '', monogram: 'MC' },
@@ -365,6 +385,191 @@ run('a source with nothing to re-read offers no Sync', () => {
   })
   assert.ok(!markup.includes('>Sync<'))
   assert.ok(!markup.includes('>Commit history<'))
+})
+
+// ── Discover ─────────────────────────────────────────────────────────────────
+
+const REPO_HITS: SkillRepoHit[] = [
+  {
+    repo: 'browser-act/skills',
+    description: 'Web automation skills.',
+    stars: 4900,
+    htmlUrl: 'https://github.com/browser-act/skills',
+    curated: true,
+  },
+  {
+    repo: 'pbakaus/impeccable',
+    description: '',
+    stars: 52341,
+    htmlUrl: 'https://github.com/pbakaus/impeccable',
+    curated: false,
+  },
+]
+
+const SEARCH_HITS: SkillSearchHit[] = [
+  {
+    repo: 'anthropics/skills',
+    path: 'document-skills/pdf/SKILL.md',
+    skillId: 'document-skills/pdf',
+    name: 'pdf',
+    description: 'Extract text from PDFs.',
+    htmlUrl: 'https://github.com/anthropics/skills/blob/HEAD/document-skills/pdf/SKILL.md',
+  },
+]
+
+function condition(
+  reason: SkillDiscoveryCondition['reason'],
+  message: string,
+): SkillDiscoveryCondition {
+  return { reason, message, retryAfterSeconds: 0 }
+}
+
+function repoList(
+  load: DiscoverLoad<SkillRepoHit>,
+  addedRepos: ReadonlySet<string> = new Set(),
+): string {
+  return renderToStaticMarkup(
+    <DiscoverRepoList
+      load={load}
+      addedRepos={addedRepos}
+      onScanRepo={() => {}}
+      onRetry={() => {}}
+      onConfigureToken={() => {}}
+    />,
+  )
+}
+
+function searchResults(load: DiscoverLoad<SkillSearchHit>): string {
+  return renderToStaticMarkup(
+    <DiscoverSearchResults
+      load={load}
+      intent={{ kind: 'pending' }}
+      addedRepos={new Set()}
+      onScanRepo={() => {}}
+      onRetry={() => {}}
+      onConfigureToken={() => {}}
+    />,
+  )
+}
+
+run('Discover offers a stars sort and a search, and never calls either one trending', () => {
+  const markup = renderToStaticMarkup(
+    <SkillsDiscover addedRepos={new Set()} onScanRepo={() => {}} onConfigureToken={() => {}} />,
+  )
+  assert.ok(markup.includes('>Most starred<') && markup.includes('>Search<'))
+  assert.equal(/trending/i.test(markup), false, 'GitHub has no trending API to name one after')
+  assert.ok(markup.includes('role="radiogroup"'), 'the two tabs are one mutually exclusive control')
+  assert.equal(hasNestedButton(markup), false)
+})
+
+run('a result row states what GitHub returned, and never a skill count', () => {
+  const markup = repoList({ status: 'ready', query: '', result: hitResult(REPO_HITS) })
+  assert.ok(markup.includes('>browser-act/skills<') && markup.includes('Web automation skills.'))
+  assert.ok(markup.includes('>4.9k<') && markup.includes('>52k<'), 'stars, as GitHub reported them')
+  assert.equal(/\d+\s+skills?</.test(markup), false, 'a count needs a scan; stars do not predict one')
+  assert.ok(markup.includes('>Scan<'), 'and the row hands the repository to the scan')
+  assert.equal(hasNestedButton(markup), false)
+})
+
+run('a repository with no star count shows none, never a zero', () => {
+  const markup = repoList({
+    status: 'ready',
+    query: '',
+    result: hitResult([{ ...REPO_HITS[0], stars: null }]),
+  })
+  assert.ok(markup.includes('>Manifest<'), 'why it leads the list is stated')
+  assert.equal(markup.includes('>0<'), false)
+})
+
+run('a repository already in the source list reads as Added, with nothing to press', () => {
+  const markup = repoList(
+    { status: 'ready', query: '', result: hitResult([REPO_HITS[0]]) },
+    new Set(['browser-act/skills']),
+  )
+  assert.ok(markup.includes('>Added<'))
+  assert.equal(markup.includes('>Scan<'), false)
+})
+
+run('rate-limit exhaustion is stated; the list is never silently empty', () => {
+  const markup = repoList({
+    status: 'ready',
+    query: '',
+    result: {
+      results: [],
+      rateLimit: { limit: 10, remaining: 0, resetAt: '' },
+      degraded: condition('rate_limited', "GitHub's search limit is used up. It resets in about 1 min."),
+    },
+  })
+  assert.ok(markup.includes("GitHub&#x27;s search limit is used up. It resets in about 1 min."))
+  assert.ok(markup.includes('No searches left in this minute.'))
+  assert.equal(markup.includes('no repositories tagged'), false, 'an exhausted budget is not "no match"')
+})
+
+run('with no token Most starred still lists, and says what the list is missing', () => {
+  const markup = repoList({
+    status: 'ready',
+    query: '',
+    result: {
+      results: [REPO_HITS[1]],
+      rateLimit: null,
+      degraded: condition('needs_token', 'Searching inside skill files needs a GitHub access token.'),
+    },
+  })
+  assert.ok(markup.includes('>pbakaus/impeccable<'), 'the stars half answered, so it is shown')
+  assert.ok(markup.includes('this list is stars only'), 'and what is missing from it is stated')
+  assert.equal(markup.includes('role="alert"'), false, 'a working list is not a failure')
+})
+
+run('with no token the Search tab says so and offers the route to set one', () => {
+  const markup = searchResults({
+    status: 'ready',
+    query: 'extract text from PDFs',
+    result: {
+      results: [],
+      rateLimit: null,
+      degraded: condition(
+        'needs_token',
+        'Searching inside skill files needs a GitHub access token. Add one in Settings under GitHub.',
+      ),
+    },
+  })
+  assert.ok(markup.includes('needs a GitHub access token'))
+  assert.ok(markup.includes('>Add a GitHub token<'), 'the notice carries the way to fix it')
+  assert.ok(markup.includes('The most starred list works without one.'))
+  assert.equal(markup.includes('Results for'), false, 'no result list is claimed for a search that never ran')
+})
+
+run('a search hit is a skill, labelled with the query it belongs to', () => {
+  const markup = searchResults({
+    status: 'ready',
+    query: 'extract text from PDFs',
+    result: hitResult(SEARCH_HITS),
+  })
+  assert.ok(markup.includes('Results for “extract text from PDFs”'))
+  assert.ok(markup.includes('>pdf<') && markup.includes('Extract text from PDFs.'))
+  assert.ok(markup.includes('>anthropics/skills<'), 'the repository it came from is on the row')
+  assert.equal(/\d+\s+skills?</.test(markup), false)
+  assert.ok(markup.includes('>Scan<'))
+  assert.equal(hasNestedButton(markup), false)
+})
+
+run('a search that matched nothing says which query, in its own words', () => {
+  const markup = searchResults({ status: 'ready', query: 'yodelling', result: hitResult([]) })
+  assert.ok(markup.includes('No SKILL.md on GitHub matches “yodelling”.'))
+})
+
+run('Scan opens the Add-a-source modal on that repository', () => {
+  const markup = renderToStaticMarkup(
+    <AddSkillSourceModal
+      open
+      initialRepo="browser-act/skills"
+      onClose={() => {}}
+      onAdded={() => {}}
+      onRemoved={() => {}}
+    />,
+  )
+  assert.ok(markup.includes('value="browser-act/skills"'), 'the candidate lands in the pasted-URL field')
+  assert.ok(markup.includes('Scan and add'), 'and takes the same path from there')
 })
 
 run('the closed modal renders nothing', () => {

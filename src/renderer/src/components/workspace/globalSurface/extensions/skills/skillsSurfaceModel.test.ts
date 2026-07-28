@@ -3,9 +3,19 @@ import assert from 'node:assert/strict'
 import type {
   ScanResult,
   ScannedSkill,
+  SkillDiscoveryCondition,
   SkillFileRef,
   SkillSource,
 } from '../../../../../../../shared/skills'
+import {
+  addedRepoKeys,
+  createSkillSearchScheduler,
+  describeSearchBudget,
+  discoverNoticeTone,
+  formatStars,
+  isRepoAdded,
+  SKILL_SEARCH_DEBOUNCE_MS,
+} from './discoverModel'
 import {
   defaultSkillFilePath,
   deriveGroupTabs,
@@ -480,6 +490,125 @@ run('frontmatter is the briefing, so the document starts after it', () => {
   assert.equal(isMarkdownSkillFile('SKILL.md'), true)
   assert.equal(isMarkdownSkillFile('agents/openai.yaml'), false)
   assert.equal(isMarkdownSkillFile('scripts/block-dangerous-git.sh'), false)
+})
+
+// ── Discover ─────────────────────────────────────────────────────────────────
+// The input discipline GitHub's ten-searches-a-minute budget forces, and the
+// facts a result row is allowed to state.
+
+/** A clock the test drives, so the quiet window is crossed without waiting. */
+function fakeClock(): {
+  schedule: (callback: () => void, delayMs: number) => number
+  cancelScheduled: (handle: number) => void
+  fire: () => void
+  armed: () => number
+  delays: number[]
+} {
+  const pending = new Map<number, () => void>()
+  const delays: number[] = []
+  let nextHandle = 1
+  return {
+    schedule(callback, delayMs) {
+      delays.push(delayMs)
+      const handle = nextHandle
+      nextHandle += 1
+      pending.set(handle, callback)
+      return handle
+    },
+    cancelScheduled(handle) {
+      pending.delete(handle)
+    },
+    fire() {
+      const due = [...pending.values()]
+      pending.clear()
+      for (const callback of due) callback()
+    },
+    armed: () => pending.size,
+    delays,
+  }
+}
+
+run('nothing is searched under three characters, and a burst of keystrokes is one request', () => {
+  const clock = fakeClock()
+  const sent: string[] = []
+  const scheduler = createSkillSearchScheduler({
+    onSearch: (query) => sent.push(query),
+    schedule: clock.schedule,
+    cancelScheduled: clock.cancelScheduled,
+  })
+
+  assert.deepEqual(scheduler.type(''), { kind: 'empty' })
+  assert.deepEqual(scheduler.type('p'), { kind: 'too_short', minLength: 3 })
+  assert.deepEqual(scheduler.type('pd'), { kind: 'too_short', minLength: 3 })
+  assert.equal(clock.armed(), 0, 'nothing is even armed below the minimum')
+  clock.fire()
+  assert.deepEqual(sent, [], 'and so nothing is sent')
+
+  // Typing "pdf extract" one key at a time: each keystroke disarms the last, so
+  // the quiet window at the end of it spends ONE of the ten requests a minute.
+  for (const keystroke of ['pdf', 'pdf ', 'pdf e', 'pdf ex', 'pdf extract']) {
+    assert.deepEqual(scheduler.type(keystroke), { kind: 'pending' })
+  }
+  assert.equal(clock.armed(), 1, 'one armed request, not five')
+  clock.fire()
+  assert.deepEqual(sent, ['pdf extract'], 'and it carries the last thing typed')
+  assert.deepEqual(new Set(clock.delays), new Set([SKILL_SEARCH_DEBOUNCE_MS]))
+})
+
+run('an armed search does not survive deleting back past the minimum, or leaving', () => {
+  const clock = fakeClock()
+  const sent: string[] = []
+  const scheduler = createSkillSearchScheduler({
+    onSearch: (query) => sent.push(query),
+    schedule: clock.schedule,
+    cancelScheduled: clock.cancelScheduled,
+  })
+
+  scheduler.type('pdf')
+  assert.deepEqual(scheduler.type('pd'), { kind: 'too_short', minLength: 3 })
+  clock.fire()
+  assert.deepEqual(sent, [], 'the request armed at three characters was dropped')
+
+  scheduler.type('pdf extract')
+  scheduler.cancel()
+  clock.fire()
+  assert.deepEqual(sent, [], 'and leaving the tab drops it too')
+
+  // Surrounding and repeated whitespace is not a different query.
+  scheduler.type('  pdf   extract  ')
+  clock.fire()
+  assert.deepEqual(sent, ['pdf extract'])
+})
+
+run('the budget is spoken only when it is about to bite', () => {
+  assert.equal(describeSearchBudget(null), null)
+  assert.equal(describeSearchBudget({ limit: 10, remaining: 8, resetAt: '' }), null)
+  assert.equal(describeSearchBudget({ limit: 10, remaining: 2, resetAt: '' }), '2 searches left this minute.')
+  assert.equal(describeSearchBudget({ limit: 10, remaining: 1, resetAt: '' }), '1 search left this minute.')
+  assert.equal(describeSearchBudget({ limit: 10, remaining: 0, resetAt: '' }), 'No searches left in this minute.')
+})
+
+run('a missing token is a failure of the tab; everything else is degraded', () => {
+  const condition = (reason: SkillDiscoveryCondition['reason']): SkillDiscoveryCondition => ({
+    reason,
+    message: reason,
+    retryAfterSeconds: 0,
+  })
+  assert.equal(discoverNoticeTone(condition('needs_token')), 'error')
+  assert.equal(discoverNoticeTone(condition('rate_limited')), 'warn')
+  assert.equal(discoverNoticeTone(condition('unavailable')), 'warn')
+})
+
+run('star counts fold, and a repository already added is recognised whatever its case', () => {
+  assert.equal(formatStars(0), '0')
+  assert.equal(formatStars(973), '973')
+  assert.equal(formatStars(4900), '4.9k')
+  assert.equal(formatStars(52341), '52k')
+
+  const added = addedRepoKeys(['browser-act/skills', '', 'MattPocock/Skills '])
+  assert.equal(isRepoAdded(added, 'Browser-Act/Skills'), true)
+  assert.equal(isRepoAdded(added, 'mattpocock/skills'), true)
+  assert.equal(isRepoAdded(added, 'anthropics/skills'), false)
 })
 
 console.log('skills surface model tests passed')

@@ -37,27 +37,31 @@ type AddPhase =
 
 export function AddSkillSourceModal({
   open,
+  initialRepo = '',
   onClose,
   onAdded,
   onRemoved,
 }: {
   open: boolean
+  /** A candidate chosen in Discover. It arrives in the same field a pasted
+   *  repository lands in, and takes the same path from there. */
+  initialRepo?: string
   onClose: () => void
   /** A source landed in the list; the surface reloads and opens it. */
   onAdded: (source: SkillSource) => void
   /** The just-added source was removed again. */
   onRemoved: () => void
 }): JSX.Element {
-  const [repo, setRepo] = useState('')
+  const [repo, setRepo] = useState(initialRepo)
   const [phase, setPhase] = useState<AddPhase>({ kind: 'idle' })
   const [removing, setRemoving] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setRepo('')
+    setRepo(initialRepo)
     setPhase({ kind: 'idle' })
     setRemoving(false)
-  }, [open])
+  }, [open, initialRepo])
 
   const scan = async (): Promise<void> => {
     const value = repo.trim()
