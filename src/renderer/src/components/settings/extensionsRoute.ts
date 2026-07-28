@@ -10,6 +10,11 @@ export const EXTENSIONS_BROWSE_DEEPLINK = 'extensions:browse'
 // Settings tab ids that folded into the Connectors surface (T3). Their browse /
 // install / manage UI now lives on the Connectors surface, so a deep-link that
 // once opened one of these Settings tabs opens the Connectors surface instead.
+//
+// `skill-packs` is kept deliberately. Skill packs themselves are gone — Skills
+// is the only concept now — but deep links carrying that value are still on
+// disk in older installs and in saved learn-centre actions, and they must land
+// somewhere real rather than on nothing.
 export const CONNECTORS_FOLDED_SETTINGS_TABS = ['mcps', 'skill-packs', 'extensions'] as const
 
 // True when a settings-overlay `initialTab` targets one of the folded tabs (or

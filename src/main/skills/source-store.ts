@@ -49,14 +49,19 @@ export function isRemovableSkillSource(id: string): boolean {
 type PersistedState = {
   sources: SkillSource[]
   scans: Record<string, ScanResult>
+  /** True once the retired skill packs have been offered adoption — see adopt-legacy-packs.ts. */
+  adoptedLegacyPacks: boolean
 }
 
 export type SkillSourceStore = {
   listSources(): Promise<SkillSource[]>
   getSource(id: string): Promise<SkillSource | null>
-  putSource(source: SkillSource, scan: ScanResult): Promise<void>
+  /** A null scan records the source without claiming to know what it holds. */
+  putSource(source: SkillSource, scan: ScanResult | null): Promise<void>
   removeSource(id: string): Promise<boolean>
   getScan(id: string): Promise<ScanResult | null>
+  hasAdoptedLegacyPacks(): Promise<boolean>
+  markLegacyPacksAdopted(): Promise<void>
 }
 
 export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
@@ -66,7 +71,7 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
     try {
       return parseSkillSourceState(await readFile(path, 'utf8'))
     } catch {
-      return { sources: [], scans: {} }
+      return emptyState()
     }
   }
 
@@ -103,7 +108,8 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
         const index = state.sources.findIndex((existing) => existing.id === source.id)
         if (index === -1) state.sources.push(source)
         else state.sources[index] = source
-        state.scans[source.id] = scan
+        if (scan) state.scans[source.id] = scan
+        else delete state.scans[source.id]
         return true
       })
     },
@@ -121,6 +127,16 @@ export function createSkillSourceStore(userDataDir: string): SkillSourceStore {
       const state = await read()
       return state.scans[id] ?? null
     },
+    async hasAdoptedLegacyPacks() {
+      return (await read()).adoptedLegacyPacks
+    },
+    async markLegacyPacksAdopted() {
+      await update((state) => {
+        if (state.adoptedLegacyPacks) return false
+        state.adoptedLegacyPacks = true
+        return true
+      })
+    },
   }
 }
 
@@ -134,10 +150,10 @@ export function parseSkillSourceState(raw: string): PersistedState {
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return { sources: [], scans: {} }
+    return emptyState()
   }
-  if (!parsed || typeof parsed !== 'object') return { sources: [], scans: {} }
-  const record = parsed as { sources?: unknown; scans?: unknown }
+  if (!parsed || typeof parsed !== 'object') return emptyState()
+  const record = parsed as { sources?: unknown; scans?: unknown; adoptedLegacyPacks?: unknown }
   const sources = Array.isArray(record.sources)
     ? record.sources.filter(isPersistableSource).filter((source) => isRemovableSkillSource(source.id))
     : []
@@ -147,7 +163,11 @@ export function parseSkillSourceState(raw: string): PersistedState {
       if (isPersistableScan(scan)) scans[id] = scan
     }
   }
-  return { sources, scans }
+  return { sources, scans, adoptedLegacyPacks: record.adoptedLegacyPacks === true }
+}
+
+function emptyState(): PersistedState {
+  return { sources: [], scans: {}, adoptedLegacyPacks: false }
 }
 
 function isPersistableSource(value: unknown): value is SkillSource {

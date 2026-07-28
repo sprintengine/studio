@@ -32,7 +32,6 @@ import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
 import { createMcpConfigService } from './mcp-config-service'
-import { createSkillPackService } from './skill-pack-service'
 import { createSkillsService } from './skills'
 import { createWorkspaceSkillsService } from './workspace-skills-service'
 import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
@@ -98,8 +97,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // (it claims the gate when it registers its sidecar); a disabled module
   // means the hub process cannot start, by explicit error rather than silence.
   const sprintEngineMcpHub = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ logMainPerfEvent }))
-  const skillPackService = createSkillPackService()
-  const workspaceSkillsService = createWorkspaceSkillsService({ skillPackService })
+  const workspaceSkillsService = createWorkspaceSkillsService()
 
   function getAuthenticatedMulticodeUserId(): string | null {
     const state = multicodeAuth.getState()
@@ -424,9 +422,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     builtinSkillManager,
   })
   const githubTokenStore = new GitHubTokenStore()
-  const skillsService = createSkillsService(app.getPath('userData'), {
-    resolveToken: () => githubTokenStore.resolveToken(),
-  })
 
   // The mobile relay bridge (construction + IPC + shutdown) and the Switchboard
   // session spawner/stopper/inventory/exit-recording wiring moved to their
@@ -457,6 +452,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     persistRoutingSnapshot: (snapshot) => workspaceSyncRoutingSnapshotStore.write(snapshot),
     logDiagnostic: logWorkspaceSyncDiagnostic,
     resolveResumeCapabilities: cliResumeCapabilities,
+  })
+  // Built after workspace sync because adopting the retired skill packs needs to
+  // know which projects are open — that is where a previously installed pack's
+  // directory would be.
+  const skillsService = createSkillsService(app.getPath('userData'), {
+    resolveToken: () => githubTokenStore.resolveToken(),
+    listWorkspaceRoots: () =>
+      workspaceSyncService
+        .getSnapshot()
+        .state.workspaces.map((workspace) => workspace.folderPath)
+        .filter((folderPath): folderPath is string => typeof folderPath === 'string' && folderPath.length > 0),
   })
   // Instance-global SprintEngine Studio MCP surface: reads come from the workspace-sync snapshot
   // and terminal runtime; mutations are delegated to the primary renderer so
@@ -633,7 +639,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logMainPerfEvent,
     mcpConfigService,
     multicodeAuth,
-    skillPackService,
     skillsService,
     sprintEngineArtifacts,
     sprintEngineAutomation,

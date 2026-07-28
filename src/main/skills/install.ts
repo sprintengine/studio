@@ -7,13 +7,19 @@
 // resolved by src/shared/skill-harnesses.ts. What changed is *what* is copied:
 // the whole directory, not the entry document alone.
 
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
-import type { SkillPackHarness } from '../../shared/electron-api'
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
-import { skillDirName, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
+import {
+  SKILL_ENTRY_FILE,
+  skillDirName,
+  type ScannedSkill,
+  type SkillFileRef,
+  type SkillHarness,
+} from '../../shared/skills'
+import { listLocalTree } from './local-source'
 
 /** Reads one file's bytes from whichever source the skill came from. */
 export type SkillFileReader = (file: SkillFileRef) => Promise<Buffer>
@@ -21,7 +27,7 @@ export type SkillFileReader = (file: SkillFileRef) => Promise<Buffer>
 export const DEFAULT_SKILL_INSTALL_MAX_FILES = 1_000
 export const DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 
-export type SkillInstallTarget = { harness: SkillPackHarness; path: string }
+export type SkillInstallTarget = { harness: SkillHarness; path: string }
 
 export type SkillInstallPlan = {
   dirName: string
@@ -34,7 +40,7 @@ export type SkillInstallPlanResult =
   | { ok: false; message: string }
 
 export type SkillInstallResult =
-  | { ok: true; dirName: string; harnesses: SkillPackHarness[]; paths: string[]; fileCount: number }
+  | { ok: true; dirName: string; harnesses: SkillHarness[]; paths: string[]; fileCount: number }
   | { ok: false; message: string }
 
 /**
@@ -46,7 +52,7 @@ export type SkillInstallResult =
 export function planSkillInstall(
   workspaceRoot: string,
   skill: ScannedSkill,
-  harnesses: readonly SkillPackHarness[]
+  harnesses: readonly SkillHarness[]
 ): SkillInstallPlanResult {
   const root = resolve(workspaceRoot)
   const dirName = skillDirName(skill.id)
@@ -119,7 +125,7 @@ function isInside(parent: string, child: string): boolean {
 export type InstallSkillOptions = {
   workspaceRoot: string
   skill: ScannedSkill
-  harnesses: readonly SkillPackHarness[]
+  harnesses: readonly SkillHarness[]
   readFile: SkillFileReader
   stagingRoot?: string
   maxTotalBytes?: number
@@ -184,10 +190,91 @@ export async function installSkill(options: InstallSkillOptions): Promise<SkillI
   }
 }
 
+/**
+ * Install a skill that is already a directory on this machine — a plugin
+ * bundle's skill component. It goes through the same plan/stage/copy path as a
+ * repository skill so a bundle cannot reach outside its own directory either;
+ * only where the bytes are read from differs.
+ */
+export async function installSkillDirectory(options: {
+  workspaceRoot: string
+  sourceDir: string
+  dirName: string
+  harnesses: readonly SkillHarness[]
+}): Promise<SkillInstallResult> {
+  const entries = await listLocalTree(options.sourceDir)
+  if (entries.length === 0) {
+    return { ok: false, message: `${options.dirName} contains no files to install.` }
+  }
+  const skill: ScannedSkill = {
+    id: options.dirName,
+    name: options.dirName,
+    description: '',
+    group: '',
+    files: entries.map((entry) => ({
+      path: entry.path,
+      size: entry.size ?? 0,
+      blobSha: '',
+      isEntry: entry.path === SKILL_ENTRY_FILE,
+    })),
+    allowedTools: [],
+    hasExecutables: false,
+  }
+  return installSkill({
+    workspaceRoot: options.workspaceRoot,
+    skill,
+    harnesses: options.harnesses,
+    readFile: (file) => readFile(join(options.sourceDir, ...file.path.split('/'))),
+  })
+}
+
+export type SkillUninstallResult =
+  | { ok: true; dirName: string; removedPaths: string[] }
+  | { ok: false; message: string }
+
+/**
+ * Take an installed skill back out of a workspace. Removal is by directory
+ * name across every harness that could hold a copy, because that is how the
+ * install wrote it — and a copy left behind in one harness dir is a skill the
+ * user believes they removed and an agent still reads.
+ *
+ * Removing nothing is not a failure here: `removedPaths` says what went, and
+ * each caller decides what an empty sweep means to it. A plugin uninstall wants
+ * "already gone" to be success; a user pressing Remove on a row wants to be
+ * told the row was stale.
+ */
+export async function uninstallSkill(options: {
+  workspaceRoot: string
+  dirName: string
+  harnesses: readonly SkillHarness[]
+}): Promise<SkillUninstallResult> {
+  const root = resolve(options.workspaceRoot)
+  const dirName = options.dirName.trim()
+  if (dirName.length === 0 || !isSafeSegment(dirName)) {
+    return { ok: false, message: 'That is not a skill directory name.' }
+  }
+
+  const removedPaths: string[] = []
+  for (const harness of options.harnesses) {
+    const path = resolve(root, SKILL_HARNESS_DIR[harness], 'skills', dirName)
+    if (!isInside(root, path)) continue
+    try {
+      // Not `force`: a harness that never held this skill must not be reported
+      // as one this call cleaned up.
+      await rm(path, { recursive: true })
+      removedPaths.push(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') continue
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  }
+  return { ok: true, dirName, removedPaths }
+}
+
 /** Absolute path a skill occupies for one harness, for status and removal. */
 export function skillInstallPath(
   workspaceRoot: string,
-  harness: SkillPackHarness,
+  harness: SkillHarness,
   dirName: string
 ): string {
   return join(resolve(workspaceRoot), SKILL_HARNESS_DIR[harness], 'skills', dirName)

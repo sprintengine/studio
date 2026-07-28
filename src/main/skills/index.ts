@@ -9,7 +9,6 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { SkillPackHarness } from '../../shared/electron-api'
 import {
   BUILTIN_SKILL_SOURCE_ID,
   CONNECTORS_SKILL_SOURCE_ID,
@@ -19,6 +18,7 @@ import {
   type ScanResult,
   type ScannedSkill,
   type SkillFileRef,
+  type SkillHarness,
   type SkillSource,
 } from '../../shared/skills'
 import type {
@@ -38,9 +38,13 @@ import type {
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
+  SkillUninstallInput,
+  SkillUninstallOutcome,
 } from '../../shared/electron-api'
+import { SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { findMarketplaceResourcePath } from '../marketplace/resources'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
+import { adoptLegacySkillPackSources } from './adopt-legacy-packs'
 import { createSkillDiscoveryClient, type SkillDiscoveryOptions } from './discover'
 import {
   fetchSkillRepoFile,
@@ -51,7 +55,7 @@ import {
   type SkillGithubOptions,
   type SkillRepoRef,
 } from './github-tree'
-import { installSkill } from './install'
+import { installSkill, uninstallSkill } from './install'
 import { scanLocalSkillSource } from './local-source'
 import { scanSkillTree, SKILL_MARKETPLACE_MANIFEST_PATH } from './scan'
 import { createSkillSourceStore, isRemovableSkillSource, type SkillSourceStore } from './source-store'
@@ -69,7 +73,9 @@ export type SkillsServiceDeps = {
   /** Overridden in tests; production reads the packaged resource dirs. */
   builtinSkillsRoot?: () => string | null
   connectorSkillsRoot?: () => string | null
-  listHarnesses?: () => Promise<SkillPackHarness[]>
+  listHarnesses?: () => Promise<SkillHarness[]>
+  /** Open project roots, used once to adopt the retired skill packs as sources. */
+  listWorkspaceRoots?: () => string[]
   github?: SkillGithubOptions
   discovery?: SkillDiscoveryOptions
 }
@@ -81,6 +87,7 @@ export type SkillsService = {
   getScan(input: SkillScanInput): Promise<SkillScanOutcome>
   readFile(input: SkillReadFileInput): Promise<SkillReadFileResult>
   install(input: SkillInstallInput): Promise<SkillInstallOutcome>
+  uninstall(input: SkillUninstallInput): Promise<SkillUninstallOutcome>
   syncSource(input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome>
   search(input: SkillSearchInput): Promise<SkillSearchOutcome>
   listPopularRepos(): Promise<SkillPopularReposOutcome>
@@ -114,7 +121,16 @@ export function createSkillsService(
   }
 
   return {
+    /**
+     * The source list, and the one place the retired skill packs are adopted:
+     * this is the first call the surface makes, and adoption has to have run
+     * before the list it returns is rendered.
+     */
     async listSources() {
+      await adoptLegacySkillPackSources({
+        store,
+        workspaceRoots: deps.listWorkspaceRoots?.() ?? [],
+      }).catch(() => [])
       return { ok: true, sources: await store.listSources() }
     },
 
@@ -150,14 +166,34 @@ export function createSkillsService(
       return removed ? { ok: true, sourceId: id } : { ok: false, message: 'That source is not in your list.' }
     },
 
+    /**
+     * A source's skills, from its cached scan.
+     *
+     * A repository source with no cached scan is read now rather than reported
+     * as unreadable: that is the state an adopted legacy pack starts in
+     * (adopt-legacy-packs.ts records the repository without claiming to know
+     * what it holds), and "open it and it lists" is what the user expects of a
+     * source in their list. A read that fails says why, and Try again retries
+     * the read itself.
+     */
     async getScan(input) {
       const source = await store.getSource(input.sourceId ?? '')
       if (!source) return { ok: false, message: 'That source is not in your list.' }
       const scan = await scanFor(source.id)
-      if (!scan) {
-        return { ok: false, message: `${source.name} has not been scanned yet.` }
+      if (scan) return { ok: true, source, scan }
+      if (source.kind !== 'github') {
+        return { ok: false, message: `${source.name} is not available in this build.` }
       }
-      return { ok: true, source, scan }
+      const ref = parseSkillRepoRef(source.repo)
+      if (!ref) return { ok: false, message: `${source.repo} is not a repository that can be read.` }
+      try {
+        const github = { ...deps.github, token: await deps.resolveToken() }
+        const scanned = await scanGithubSource(ref, source.id, github)
+        await store.putSource(scanned.source, scanned.scan)
+        return { ok: true, source: scanned.source, scan: scanned.scan }
+      } catch (error) {
+        return { ok: false, message: describeFetchError(error) }
+      }
     },
 
     async readFile(input) {
@@ -196,6 +232,30 @@ export function createSkillsService(
         harnesses,
         readFile: (file) => readSkillBytes(located.source, located.skill, file),
       })
+      return result
+    },
+
+    /**
+     * Removal sweeps every harness dir, not only the ones this machine reads
+     * today: a skill installed while another CLI was present still has a copy
+     * there, and leaving it behind means an agent keeps reading a skill the
+     * user removed.
+     */
+    async uninstall(input) {
+      const workspaceRoot = input.workspaceRoot?.trim() ?? ''
+      if (!workspaceRoot || !existsSync(workspaceRoot)) {
+        return { ok: false, message: 'That workspace folder no longer exists.' }
+      }
+      const result = await uninstallSkill({
+        workspaceRoot,
+        dirName: input.dirName ?? '',
+        harnesses: SKILL_PACK_HARNESSES,
+      })
+      // A row whose skill is already gone is a stale row, and saying so beats
+      // reporting a removal that removed nothing.
+      if (result.ok && result.removedPaths.length === 0) {
+        return { ok: false, message: `${result.dirName} is not installed in this workspace.` }
+      }
       return result
     },
 

@@ -2,10 +2,14 @@ import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './vo
 import type {
   ScanResult,
   SkillDiscoveryResult,
+  SkillHarness,
   SkillRepoHit,
   SkillSearchHit,
   SkillSource,
 } from './skills'
+// Re-exported because the harness identity is part of this IPC contract: it
+// rides BuiltinSkill, WorkspaceSkill and every install/uninstall result.
+export type { SkillHarness } from './skills'
 import type { SprintEngineAutomationIntentRecord } from './sprintengine/automation-intent'
 import type { SprintEngineAutomationMode as SprintEngineAutomationIntentMode } from './sprintengine/automation-types'
 import type { SprintEngineLaunchSettings } from './sprintengine/launch-settings'
@@ -406,7 +410,7 @@ export type BuiltinSkill = {
   name: string
   version: string
   description: string
-  harnesses?: SkillPackHarness[]
+  harnesses?: SkillHarness[]
   targetPolicy?: 'agents' | 'all-native'
 }
 
@@ -474,7 +478,7 @@ export type MarketplacePluginInstallInput = {
   workspaceRoot?: string
   mcpSettings?: McpSettings
   mcpClients?: McpClientTarget[]
-  skillHarnesses?: SkillPackHarness[]
+  skillHarnesses?: SkillHarness[]
 }
 
 // Both bundle and inline-MCP registry installs use this shape: a bundle entry
@@ -494,7 +498,7 @@ export type MarketplacePluginUninstallInput = {
   workspaceRoot?: string
   mcpSettings?: McpSettings
   mcpClients?: McpClientTarget[]
-  skillHarnesses?: SkillPackHarness[]
+  skillHarnesses?: SkillHarness[]
 }
 
 export type MarketplacePluginTrustClassification = 'verified' | 'community' | 'unsigned' | 'invalid'
@@ -522,7 +526,7 @@ export type MarketplacePluginInstalledComponent = {
   message?: string
   serverIds?: string[]
   servers?: McpServerConfig[]
-  harnesses?: SkillPackHarness[]
+  harnesses?: SkillHarness[]
   installedDirName?: string
 }
 
@@ -905,68 +909,12 @@ export type AgentConfigAdoptResult =
       warnings?: string[]
     }
 
-export type SkillPackHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
-export type SkillPackSource = 'bundled' | 'custom'
-
-export type SkillPackEntry = {
-  id: string
-  slug: string
-  name: string
-  category?: string
-  description?: string
-  version?: string
-  sourceUrl?: string
-  installedDirName?: string
-  harnesses: SkillPackHarness[]
-  source: SkillPackSource
-  installedAt?: string
-}
-
-export type SkillPackCatalogEntry = Omit<SkillPackEntry, 'source' | 'installedAt'> & {
-  recommended?: boolean
-  setupNotes?: string
-}
-
-export type SkillPackCatalogResult =
-  | { ok: true; packs: SkillPackCatalogEntry[] }
-  | { ok: false; message: string }
-
-export type SkillPackListInstalledInput = {
-  workspaceRoot: string
-}
-
-export type SkillPackListInstalledResult =
-  | { ok: true; installed: SkillPackEntry[] }
-  | { ok: false; message: string }
-
-export type SkillPackInstallInput = {
-  workspaceRoot: string
-  slug: string
-  harnesses?: SkillPackHarness[]
-  installedDirName?: string
-}
-
-export type SkillPackInstallResult =
-  | { ok: true; installed: SkillPackEntry; log: string }
-  | { ok: false; message: string; log?: string }
-
-export type SkillPackRemoveInput = {
-  workspaceRoot: string
-  slug: string
-  installedDirName?: string
-  harnesses?: SkillPackHarness[]
-}
-
-export type SkillPackRemoveResult =
-  | { ok: true; slug: string; log: string }
-  | { ok: false; message: string; log?: string }
-
-// One entry in the unified workspace skill inventory: built-ins, installed
-// skill packs, hand-dropped custom skill dirs, and not-yet-installed catalog
-// entries, deduped by skill id across harness dirs. Name/description come from
-// the installed SKILL.md frontmatter when present, falling back to the catalog
-// or BUILTIN_SKILLS metadata, then the directory name.
-export type WorkspaceSkillSource = 'builtin' | 'pack' | 'custom' | 'plugin'
+// One entry in the unified workspace skill inventory: built-ins, skills
+// installed from a source, and hand-dropped custom skill dirs, deduped by skill
+// id across harness dirs. Name/description come from the installed SKILL.md
+// frontmatter when present, falling back to BUILTIN_SKILLS metadata, then the
+// directory name.
+export type WorkspaceSkillSource = 'builtin' | 'custom' | 'plugin'
 export type WorkspaceSkillInstallState = 'installed' | 'available' | 'update-available'
 
 export type WorkspaceSkill = {
@@ -974,10 +922,8 @@ export type WorkspaceSkill = {
   name: string
   description?: string
   source: WorkspaceSkillSource
-  harnesses: SkillPackHarness[]
+  harnesses: SkillHarness[]
   installState: WorkspaceSkillInstallState
-  // For source 'pack': the catalog slug that drives skillPackInstall.
-  packSlug?: string
   version?: string
 }
 
@@ -1028,7 +974,18 @@ export type SkillReadFileResult =
 export type SkillInstallInput = { sourceId: string; skillId: string; workspaceRoot: string }
 
 export type SkillInstallOutcome =
-  | { ok: true; dirName: string; harnesses: SkillPackHarness[]; paths: string[]; fileCount: number }
+  | { ok: true; dirName: string; harnesses: SkillHarness[]; paths: string[]; fileCount: number }
+  | { ok: false; message: string }
+
+/**
+ * Uninstalling is by directory name, not by source: a skill installed from a
+ * source that has since been removed is still a directory in the workspace, and
+ * the user must still be able to take it back out.
+ */
+export type SkillUninstallInput = { workspaceRoot: string; dirName: string }
+
+export type SkillUninstallOutcome =
+  | { ok: true; dirName: string; removedPaths: string[] }
   | { ok: false; message: string }
 
 /** The workspace whose installed copies get re-copied; null with no workspace open. */
@@ -2946,10 +2903,6 @@ export type ElectronApi = {
   mcpListCatalog: () => Promise<McpCatalogResult>
   mcpPreviewSync: (input: McpSyncInput) => Promise<McpSyncPreview>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
-  skillPackListCatalog: () => Promise<SkillPackCatalogResult>
-  skillPackListInstalled: (input: SkillPackListInstalledInput) => Promise<SkillPackListInstalledResult>
-  skillPackInstall: (input: SkillPackInstallInput) => Promise<SkillPackInstallResult>
-  skillPackRemove: (input: SkillPackRemoveInput) => Promise<SkillPackRemoveResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
   skillsListSources: () => Promise<SkillSourcesResult>
   skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
@@ -2957,6 +2910,7 @@ export type ElectronApi = {
   skillsGetScan: (input: SkillScanInput) => Promise<SkillScanOutcome>
   skillsReadFile: (input: SkillReadFileInput) => Promise<SkillReadFileResult>
   skillsInstall: (input: SkillInstallInput) => Promise<SkillInstallOutcome>
+  skillsUninstall: (input: SkillUninstallInput) => Promise<SkillUninstallOutcome>
   skillsSyncSource: (input: SkillSyncSourceInput) => Promise<SkillSyncSourceOutcome>
   skillsSearch: (input: SkillSearchInput) => Promise<SkillSearchOutcome>
   skillsListPopularRepos: () => Promise<SkillPopularReposOutcome>

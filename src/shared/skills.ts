@@ -11,6 +11,13 @@
 
 export type SkillSourceKind = 'builtin' | 'connectors' | 'github'
 
+/**
+ * An agent CLI that reads workspace skills. Which directory each one reads is
+ * `SKILL_HARNESS_DIR` in src/shared/skill-harnesses.ts; this is the identity
+ * alone, so renderer code can name a harness without importing a node module.
+ */
+export type SkillHarness = 'claude' | 'codex' | 'cursor' | 'gemini' | 'opencode' | 'grok' | 'agents'
+
 /** A place skills come from. `repo` is `owner/name` for github, '' otherwise. */
 export type SkillSource = {
   id: string
