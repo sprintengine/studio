@@ -711,6 +711,9 @@ export default function NewWorkspacePanel({
   })
   const seRoleCliDefaults = roster.roleCliDefaults
   const seRoleModelOverrides = roster.roleModelOverrides
+  // Per-role effort level (MC-1885's wizard producer). Session state on the
+  // roster editor, carried into run init as part of `roleRuntimes`.
+  const seRoleReasoningOverrides = roster.roleReasoningOverrides
   const seRoleRegistry = roster.registry
   const seRoleRegistryStatus = roster.registryStatus
   const seSelectedRosterId = roster.selectedRosterId
@@ -1973,6 +1976,7 @@ export default function NewWorkspacePanel({
   }
 
   const setRoleModel = roster.onSetRoleModel
+  const setRoleReasoning = roster.onSetRoleReasoning
 
   // Lazy roster: only the architect carries a start-at-launch intent (no
   // per-role "Start now" toggle). Worker/reviewer ids are minted on demand.
@@ -2276,6 +2280,9 @@ export default function NewWorkspacePanel({
               maxParallelAgents: seMaxParallelAgents,
               roleCliDefaults: seRoleCliDefaults,
               roleModelOverrides: seRoleModelOverrides,
+              // The roster's effort levels ride the same `roleRuntimes` entry
+              // as the CLI/model pick (MC-1885).
+              roleReasoningOverrides: seRoleReasoningOverrides,
               initialSpawnRoles: seInitialSpawnRoles,
               startRunner: seAutomationMode !== 'manual',
               autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
@@ -2353,6 +2360,9 @@ export default function NewWorkspacePanel({
             maxParallelAgents: seMaxParallelAgents,
             roleCliDefaults: seRoleCliDefaults,
             roleModelOverrides: seRoleModelOverrides,
+            // The roster's effort levels ride the same `roleRuntimes` entry as
+            // the CLI/model pick (MC-1885).
+            roleReasoningOverrides: seRoleReasoningOverrides,
             initialSpawnRoles: seInitialSpawnRoles,
             startRunner: seAutomationMode !== 'manual',
             autoApproveArtifacts: seAutomationMode === 'run_agents_and_approve_artifacts',
@@ -2998,6 +3008,20 @@ export default function NewWorkspacePanel({
                   roleCounts={visibleSprintEngineRoleCounts}
                   roleCliDefaults={seRoleCliDefaults}
                   roleModelOverrides={seRoleModelOverrides}
+                  // Effort is offered only where a picked level actually
+                  // reaches the launch. A NEW run carries it into init as part
+                  // of `roleRuntimes`; an EXISTING run's seats already carry
+                  // their level in run.yaml and the creation path has no field
+                  // that would carry a re-pick into it — changing a live run's
+                  // seat runtime is the mid-run IPC verb, which is not this
+                  // task. So the rows there render no effort control at all
+                  // rather than one that silently forgets.
+                  {...(seExistingTeam == null
+                    ? {
+                        roleReasoningOverrides: seRoleReasoningOverrides,
+                        onSetRoleReasoning: setRoleReasoning,
+                      }
+                    : {})}
                   onSetRoleCount={setRoleCount}
                   onSetRoleCli={setRoleCli}
                   onSetRoleModel={setRoleModel}

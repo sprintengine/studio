@@ -990,6 +990,17 @@ export type SprintEngineSavedRoster = {
   // explicit model ids are stored (a "CLI default" pick is dropped, since it is
   // indistinguishable from absent at launch).
   roleModelOverrides?: SprintEngineRoleModelOverrides
+  // NO reasoning member, and that omission is a DECISION, not an oversight
+  // (ruling 2026-07-28, MC-1885's wizard producer). A saved roster persists the
+  // model but not the effort level, so a reused preset launches at its CLI's
+  // own default effort. Adding one here is a store-schema change, and this
+  // run's schema numbers are already pinned to MC-1865 (69) and MC-1870 (70) —
+  // a third migration inside one run is how migration ordering goes wrong.
+  // Effort diverging from model on presets is a known, accepted gap tracked as
+  // its own remainder in
+  // `backlog/2026-07-28-reasoning-effort-remaining-surfaces.md`; the wizard's
+  // level stays session-local (`useRosterEditor.roleReasoningOverrides`) until
+  // that item lands.
 }
 
 // A named, reusable roster preset. Lets users keep several rosters — e.g. a

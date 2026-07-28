@@ -13,9 +13,10 @@ import type {
   SprintEngineRoleCliDefaults,
   SprintEngineRoleCounts,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineRoleRegistry,
 } from '../../../types/workspace'
-import type { PluginModelCatalog } from '../../../../../shared/plugin-manifest'
+import type { PluginModelCatalog, PluginReasoningCatalog } from '../../../../../shared/plugin-manifest'
 
 export type SprintEngineCliOption = {
   value: AgentCli
@@ -23,6 +24,9 @@ export type SprintEngineCliOption = {
   // Present when the plugin declares model selection; enables the per-role
   // model sublist in the roster runtime picker.
   modelSelection?: PluginModelCatalog
+  // Present when the plugin declares reasoning levels; a CLI without it shows
+  // no effort control on any roster row (MC-1885).
+  reasoningSelection?: PluginReasoningCatalog
 }
 
 interface RosterTableProps {
@@ -40,6 +44,11 @@ interface RosterTableProps {
   // model shown (string = explicit id, null/absent = CLI default).
   roleModelOverrides?: SprintEngineRoleModelOverrides
   onSetModel?: (role: SprintEngineRoleId, model: string | null) => void
+  // Per-role reasoning-effort level (MC-1885). Opt-in as a pair, on top of the
+  // model-aware controls above: a host that passes neither renders no effort
+  // control rather than one it cannot persist.
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides
+  onSetReasoning?: (role: SprintEngineRoleId, reasoning: string | null) => void
   /** Optional trailing row rendered inside the roster border, hairline-divided
    *  below the role rows (e.g. the "save as default" affordance). */
   footer?: React.ReactNode
@@ -65,6 +74,8 @@ export function SprintEngineRosterTable({
   onSetCli,
   roleModelOverrides,
   onSetModel,
+  roleReasoningOverrides,
+  onSetReasoning,
   footer,
   workTypes,
 }: RosterTableProps) {
@@ -88,8 +99,10 @@ export function SprintEngineRosterTable({
                 disabled={cliDisabled}
                 cliOptions={cliOptions}
                 roleModelOverrides={roleModelOverrides}
+                roleReasoningOverrides={roleReasoningOverrides}
                 onSetCli={onSetCli}
                 onSetModel={onSetModel}
+                onSetReasoning={onSetReasoning}
               />
             ) : (
               <CliPicker
@@ -178,6 +191,17 @@ function effectiveRoleModel(
   return undefined
 }
 
+// Effective effort level for a role row: an explicit level, otherwise undefined
+// (the CLI's own default effort -> no flag). Mirrors effectiveRoleModel.
+function effectiveRoleReasoning(
+  role: SprintEngineRoleId,
+  roleReasoningOverrides: SprintEngineRoleReasoningOverrides | undefined,
+): string | undefined {
+  const override = roleReasoningOverrides?.[role]
+  if (override === null) return undefined
+  return override || undefined
+}
+
 // Model-aware runtime picker for a roster role row: the shared CLI+model
 // picker button with role-scoped override semantics.
 function RoleRuntimePicker({
@@ -187,8 +211,10 @@ function RoleRuntimePicker({
   disabled,
   cliOptions,
   roleModelOverrides,
+  roleReasoningOverrides,
   onSetCli,
   onSetModel,
+  onSetReasoning,
 }: {
   role: SprintEngineRoleId
   label: string
@@ -196,8 +222,10 @@ function RoleRuntimePicker({
   disabled: boolean
   cliOptions: SprintEngineCliOption[]
   roleModelOverrides?: SprintEngineRoleModelOverrides
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides
   onSetCli: (role: SprintEngineRoleId, cli: AgentCli) => void
   onSetModel: (role: SprintEngineRoleId, model: string | null) => void
+  onSetReasoning?: (role: SprintEngineRoleId, reasoning: string | null) => void
 }) {
   return (
     <CliModelPickerButton
@@ -208,6 +236,13 @@ function RoleRuntimePicker({
       effectiveModelFor={(candidateCli) =>
         candidateCli === cli ? effectiveRoleModel(role, roleModelOverrides) : undefined
       }
+      {...(onSetReasoning
+        ? {
+            effectiveReasoningFor: (candidateCli: AgentCli) =>
+              candidateCli === cli ? effectiveRoleReasoning(role, roleReasoningOverrides) : undefined,
+            onSelectReasoning: (_cli: AgentCli, reasoning: string | null) => onSetReasoning(role, reasoning),
+          }
+        : {})}
       onSelectCli={(nextCli) => onSetCli(role, nextCli)}
       onSelectModel={(nextCli, nextModel) => {
         if (nextCli !== cli) onSetCli(role, nextCli)
