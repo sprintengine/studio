@@ -16,13 +16,19 @@ from sprintengine_core.tool.repo_model import get_run_vcs, vcs_repos
 
 
 def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
-    """Record the roster's per-role execution runtime (model/cli) at init.
+    """Record the roster's per-role execution runtime (model/cli/reasoning) at init.
 
-    `raw_json` is a JSON object `{role: {"model": str, "cli": str}}` supplied by
-    Multicode from the workspace roster's per-role model/CLI selection. Entries
+    `raw_json` is a JSON object `{role: {"model": str, "cli": str, "reasoning": str}}`
+    supplied by Multicode from the workspace roster's per-role selection. Entries
     with no usable model AND no usable cli are dropped (a role left on the CLI's
     default model records nothing, so no model flag is fabricated). Merges into
     any existing map so a re-init preserves roles it does not mention.
+
+    `reasoning` (the seat's reasoning-effort level, MC-1885) is written when the
+    entry carries one, and PRESERVED from the recorded entry when the key is
+    absent: the mid-run `roster runtime` edit is cli/model-scoped, so a model
+    change must not silently drop the level the run was configured with. An
+    explicit `"reasoning": null` clears it back to the CLI's own default.
     """
     if not raw_json or not str(raw_json).strip():
         return
@@ -42,11 +48,20 @@ def apply_role_runtimes(state: Dict[str, Any], raw_json: Optional[str]) -> None:
             continue
         model = str(raw_entry.get("model") or "").strip()
         cli = str(raw_entry.get("cli") or "").strip()
+        if "reasoning" in raw_entry:
+            reasoning = str(raw_entry.get("reasoning") or "").strip()
+        else:
+            recorded = runtimes.get(role)
+            reasoning = str((recorded or {}).get("reasoning") or "").strip() if isinstance(recorded, dict) else ""
         entry: Dict[str, Any] = {}
         if model:
             entry["model"] = model
         if cli:
             entry["cli"] = cli
+        # A level never stands alone: without a model or cli there is no seat to
+        # launch, and an entry carrying only a level would be a runtime with no CLI.
+        if entry and reasoning:
+            entry["reasoning"] = reasoning
         if entry:
             runtimes[role] = entry
 

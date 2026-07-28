@@ -6,6 +6,7 @@ import type {
   SprintEngineAutoState,
   SprintEngineRoleCliDefaults,
   SprintEngineRoleModelOverrides,
+  SprintEngineRoleReasoningOverrides,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
   SprintEngineWorkspaceContext,
@@ -44,6 +45,7 @@ export type PlanSourcedSprintEngineWorkspaceArgs = {
   roleCounts: SprintEngineRoleCounts
   roleCliDefaults?: SprintEngineRoleCliDefaults
   roleModelOverrides?: SprintEngineRoleModelOverrides | null
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides | null
   initialSpawnRoles?: SprintEngineRoleId[] | null
   // The run's post-implementation phase list, forwarded verbatim to init; present
   // only when it diverges from the engine default (same contract as the new-team
@@ -108,22 +110,27 @@ export function buildPlanSourcedSprintEngineWorkspaceContext(
   }
 }
 
-// Build the per-role execution runtime map (model/cli) recorded into run state
-// at init, so each claimed task can be stamped with the model that worked it.
-// Union the roles from both maps; a role with no explicit model is still
+// Build the per-role execution runtime map (model/cli/reasoning effort) recorded
+// into run state at init, so each claimed task can be stamped with the model that
+// worked it and every spawn of the role carries the level the roster picked.
+// Union the roles from all three maps; a role with no explicit model is still
 // recorded when it has a CLI, and dropped entirely (server-side) when it has
-// neither. Used by every Sprint Engine creation path that inits a run.
+// neither. A reasoning level alone never mints an entry — a level without a CLI
+// has nothing to launch — so it rides the roles the CLI/model maps already name.
+// Used by every Sprint Engine creation path that inits a run.
 export function buildSprintEngineRoleRuntimes(
   roleModelOverrides: SprintEngineRoleModelOverrides | null | undefined,
   roleCliDefaults: SprintEngineRoleCliDefaults | null | undefined,
-): Record<string, { model?: string | null; cli?: string | null }> {
-  const roleRuntimes: Record<string, { model?: string | null; cli?: string | null }> = {}
+  roleReasoningOverrides?: SprintEngineRoleReasoningOverrides | null,
+): Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }> {
+  const roleRuntimes: Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }> = {}
   for (const role of new Set([
     ...Object.keys(roleModelOverrides ?? {}),
     ...Object.keys(roleCliDefaults ?? {}),
   ])) {
     const model = roleModelOverrides?.[role as SprintEngineRoleId] ?? null
     const cli = roleCliDefaults?.[role as SprintEngineRoleId] ?? null
+    const reasoning = roleReasoningOverrides?.[role as SprintEngineRoleId] ?? null
     // A recorded role MUST carry a CLI. Roles supplied by the role registry
     // (e.g. nuclear_reviewer, spec_reviewer) are absent from
     // DEFAULT_SPRINT_ENGINE_ROLE_COUNTS, so DEFAULT_SPRINT_ENGINE_ROLE_CLI_DEFAULTS
@@ -134,7 +141,9 @@ export function buildSprintEngineRoleRuntimes(
     // roster runner stalls the task (and, via the tick's early return on a failed
     // spawn, every sibling behind it) and spams the diagnostics log. Default the
     // CLI whenever an entry is recorded so a runnable role never ships without one.
-    if (model || cli) roleRuntimes[role] = { model, cli: cli ?? 'claude-code' }
+    if (model || cli) {
+      roleRuntimes[role] = { model, cli: cli ?? 'claude-code', ...(reasoning ? { reasoning } : {}) }
+    }
   }
   return roleRuntimes
 }
@@ -181,6 +190,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
   roleCounts,
   roleCliDefaults,
   roleModelOverrides,
+  roleReasoningOverrides,
   initialSpawnRoles,
   defaultPhases,
   sprintEngineAutoState,
@@ -254,7 +264,7 @@ export async function createPlanSourcedSprintEngineWorkspace({
       useWorktrees: useWorktrees === true,
       ...(repos && repos.length > 0 ? { repos } : {}),
       ...(useWorktrees === true && baseStartPoint?.trim() ? { baseStartPoint: baseStartPoint.trim() } : {}),
-      roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults),
+      roleRuntimes: buildSprintEngineRoleRuntimes(roleModelOverrides, roleCliDefaults, roleReasoningOverrides),
       enabledRoles,
       // The run's phase list, present only when set.
       ...(defaultPhases !== undefined ? { defaultPhases } : {}),

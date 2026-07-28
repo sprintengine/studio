@@ -202,6 +202,7 @@ function reconcileViewAgents(view: RunEntry['view'], state: SprintEngineState | 
       ...base,
       cli: resolved.cli ?? base.cli,
       ...(resolved.cliModel !== undefined ? { cliModel: resolved.cliModel } : {}),
+      ...(resolved.cliReasoning !== undefined ? { cliReasoning: resolved.cliReasoning } : {}),
     }
   }
   // Keep records for agents that carry live launch state but fell off the
@@ -846,6 +847,7 @@ export function createSprintRuntime(deps: SprintRuntimeDeps) {
         cliSessionId,
         ...(harnessSessionId ? { harnessSessionId } : {}),
         ...(agent?.cliModel ? { cliModel: agent.cliModel } : {}),
+        ...(agent?.cliReasoning ? { cliReasoning: agent.cliReasoning } : {}),
         ...(agent?.name ? { name: agent.name } : {}),
         recordedAt: now(),
       }

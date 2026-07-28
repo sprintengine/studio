@@ -5,6 +5,9 @@ import {
   deriveSprintEngineRepoMergeRollup,
   isCompletedSprintEngineRun,
   normalizeSprintEngineProjection,
+  normalizeSprintEngineRoleRuntimes,
+  resolveSprintEngineAgentRuntime,
+  resolveSprintEngineRoleRuntime,
 } from './state'
 import type { SprintEngineTask, SprintEngineVcs } from './run-types'
 
@@ -502,3 +505,90 @@ testMergeRollupZeroCommitSiblingHasNoBranchToMerge()
 testMergeRollupRunThatDeliveredNothingStaysUnlanded()
 testMergeRollupSingleRepoAndNullVcs()
 console.log('sprintengine state tests passed')
+
+// --- MC-1885: the seat reasoning-effort level ------------------------------
+
+// The projection is the ONLY source of a seat's runtime. A level written into
+// `roleRuntimes` must survive normalization and resolve like the model does —
+// trimmed, with a blank meaning "the CLI's own default effort" (no flag).
+function testRoleRuntimeResolvesReasoningLevel(): void {
+  const runtimes = normalizeSprintEngineRoleRuntimes({
+    developer: { cli: 'claude-code', model: ' claude-opus-5 ', reasoning: ' high ' },
+    tester: { cli: 'claude-code', reasoning: '   ' },
+    architect: { cli: 'claude-code' },
+    // A level with no cli and no model has no seat to launch: dropped whole.
+    frontend: { reasoning: 'max' },
+  })
+  assert.deepEqual(
+    runtimes?.developer,
+    { model: 'claude-opus-5', cli: 'claude-code', reasoning: 'high' },
+    'the level survives projection normalization beside the model',
+  )
+  assert.equal(runtimes?.tester?.reasoning, undefined, 'a blank level normalizes away')
+  assert.equal(runtimes?.frontend, undefined, 'a level alone never mints a runtime entry')
+
+  assert.equal(resolveSprintEngineRoleRuntime(runtimes ?? undefined, 'developer')?.cliReasoning, 'high')
+  assert.equal(
+    resolveSprintEngineRoleRuntime(runtimes ?? undefined, 'architect')?.cliReasoning,
+    undefined,
+    'a seat with no level resolves to no effort flag',
+  )
+  assert.equal(
+    resolveSprintEngineRoleRuntime(runtimes ?? undefined, 'nuclear_reviewer'),
+    null,
+    'a role absent from the map resolves null so callers preserve what they have',
+  )
+}
+
+// The level layers exactly like the model: per-agent override > role config >
+// the existing record. Proven with a projection-only resolve (no record at all),
+// so a level can never be sourced from renderer state stored on the engine.
+function testAgentRuntimeLayersReasoningLikeModel(): void {
+  const runtimes = normalizeSprintEngineRoleRuntimes({
+    developer: { cli: 'claude-code', model: 'claude-opus-5', reasoning: 'high' },
+  }) ?? undefined
+
+  assert.deepEqual(
+    resolveSprintEngineAgentRuntime(runtimes, 'developer', undefined),
+    { cli: 'claude-code', cliModel: 'claude-opus-5', cliReasoning: 'high' },
+    'the projection alone resolves the full seat runtime',
+  )
+
+  assert.equal(
+    resolveSprintEngineAgentRuntime(runtimes, 'developer', {
+      cli: 'claude-code',
+      cliReasoning: 'low',
+      cliRuntimeOverride: { cli: 'claude-code', reasoning: 'max' },
+    }).cliReasoning,
+    'max',
+    'an explicit per-agent override outranks the role config',
+  )
+  assert.equal(
+    resolveSprintEngineAgentRuntime(runtimes, 'developer', {
+      cli: 'claude-code',
+      cliRuntimeOverride: { cli: 'claude-code', reasoning: null },
+    }).cliReasoning,
+    undefined,
+    'override reasoning: null pins the CLI default even when the role configures a level',
+  )
+  assert.equal(
+    resolveSprintEngineAgentRuntime(runtimes, 'developer', {
+      cli: 'claude-code',
+      cliReasoning: 'low',
+    }).cliReasoning,
+    'high',
+    'the role config outranks a stale record value',
+  )
+  assert.equal(
+    resolveSprintEngineAgentRuntime(undefined, 'developer', {
+      cli: 'claude-code',
+      cliReasoning: 'low',
+    }).cliReasoning,
+    'low',
+    'a legacy run with no roleRuntimes preserves the record, never substitutes',
+  )
+}
+
+testRoleRuntimeResolvesReasoningLevel()
+testAgentRuntimeLayersReasoningLikeModel()
+console.log('sprintengine seat reasoning tests passed')

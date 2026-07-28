@@ -134,7 +134,7 @@ type SerializableSprintEngineStatePayload = {
    * only — the stored `vcs.baseRef` (and the PR base) stays the plain branch name.
    */
   baseStartPoint: string | null
-  roleRuntimes: Record<string, { model?: string | null; cli?: string | null }>
+  roleRuntimes: Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }>
   enabledRoles: string[]
   // `null` = absent (engine default applies); `[]` = an explicit no-review run.
   defaultPhases: string[] | null
@@ -508,18 +508,25 @@ function resolveEnabledRoles(input: SprintEngineStateInitializeInput['enabledRol
 
 // Keep only roles with a usable model or cli string; a role left on the CLI's
 // default model contributes nothing (no model flag is fabricated downstream).
+// A reasoning-effort level (MC-1885) rides an entry the model/cli already earned
+// — a level alone has no CLI to launch, so it never mints one.
 function resolveRoleRuntimes(
   input: SprintEngineStateInitializeInput['roleRuntimes']
-): Record<string, { model?: string | null; cli?: string | null }> {
+): Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }> {
   if (!input || typeof input !== 'object') return {}
-  const out: Record<string, { model?: string | null; cli?: string | null }> = {}
+  const out: Record<string, { model?: string | null; cli?: string | null; reasoning?: string | null }> = {}
   for (const [role, entry] of Object.entries(input)) {
     const roleKey = role.trim()
     if (!roleKey || !entry || typeof entry !== 'object') continue
     const model = typeof entry.model === 'string' ? entry.model.trim() : ''
     const cli = typeof entry.cli === 'string' ? entry.cli.trim() : ''
+    const reasoning = typeof entry.reasoning === 'string' ? entry.reasoning.trim() : ''
     if (!model && !cli) continue
-    out[roleKey] = { ...(model ? { model } : {}), ...(cli ? { cli } : {}) }
+    out[roleKey] = {
+      ...(model ? { model } : {}),
+      ...(cli ? { cli } : {}),
+      ...(reasoning ? { reasoning } : {}),
+    }
   }
   return out
 }
