@@ -1,4 +1,4 @@
-import type { BuiltinSkillTargetState, SkillPackHarness } from '../../../shared/electron-api'
+import type { BuiltinSkillTargetState, SkillHarness } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
 
@@ -198,7 +198,7 @@ export function backlogSkillInvocationForDrop(
 export function backlogSlashCommandForDrop(
   payload: FileDropPayload,
   session: TerminalSessionSnapshot,
-  installedHarnesses: readonly SkillPackHarness[]
+  installedHarnesses: readonly SkillHarness[]
 ): string | null {
   const plugins: PluginRegistryListEntry[] = [
     {

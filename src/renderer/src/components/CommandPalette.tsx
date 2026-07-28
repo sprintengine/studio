@@ -4,7 +4,7 @@ import { orderSpecialistActions } from '../specialists/specialistActions'
 import { listSpecialistPacks, resolveEnabledSpecialists } from '../specialists/specialistPacks'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { SpecialistActionId, Workspace, WorkspaceId, WorkspaceWindowId } from '../types/workspace'
-import type { BuiltinSkill, SkillPackEntry } from '../../../shared/electron-api'
+import type { BuiltinSkill, WorkspaceSkill } from '../../../shared/electron-api'
 import { focusOrAddComponentTab, revealNavRailComponent, togglePanelRailComponent } from '../utils/modelRegistry'
 import { openFileSurface } from '../utils/openFileSurface'
 import { isHiddenFromRail } from '../utils/workspaceVisibility'
@@ -140,7 +140,7 @@ export default function CommandPalette({
   // managed; per-skill deep-linking is deferred with the rest of global content
   // navigation (DEF-4).
   const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([])
-  const [installedSkillPacks, setInstalledSkillPacks] = useState<SkillPackEntry[]>([])
+  const [installedSkills, setInstalledSkills] = useState<WorkspaceSkill[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -159,17 +159,27 @@ export default function CommandPalette({
 
   useEffect(() => {
     if (!activeFolderPath) {
-      setInstalledSkillPacks([])
+      setInstalledSkills([])
       return
     }
     let cancelled = false
     void window.api
-      .skillPackListInstalled({ workspaceRoot: activeFolderPath })
+      .workspaceSkillsList({ workspaceRoot: activeFolderPath })
       .then((result) => {
-        if (!cancelled) setInstalledSkillPacks(result.ok ? result.installed : [])
+        if (cancelled) return
+        // Only what the workspace actually holds, and only what the bundled
+        // list above does not already carry: a builtin listed twice would be
+        // two palette rows running the same skill.
+        setInstalledSkills(
+          result.ok
+            ? result.skills.filter(
+                (skill) => skill.installState !== 'available' && skill.source !== 'builtin',
+              )
+            : [],
+        )
       })
       .catch(() => {
-        if (!cancelled) setInstalledSkillPacks([])
+        if (!cancelled) setInstalledSkills([])
       })
     return () => {
       cancelled = true
@@ -327,10 +337,10 @@ export default function CommandPalette({
           onClose()
         },
       })),
-      ...installedSkillPacks.map((pack) => ({
-        id: `skill-pack-${pack.id}`,
-        label: pack.name,
-        description: pack.description ?? pack.category,
+      ...installedSkills.map((skill) => ({
+        id: `installed-skill-${skill.id}`,
+        label: skill.name,
+        description: skill.description,
         group: 'skills' as const,
         run: () => {
           openExtensionsSurface()
@@ -456,7 +466,7 @@ export default function CommandPalette({
         },
       },
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkillPacks, specialistActions])
+  }, [workspaces, activeWorkspace, activeWorkspaceId, openFiles, addWorkspace, setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface, onClose, onNewChat, onNewWorkspace, onConnectRailway, onSpawnSpecialist, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleEnablement, builtinSkills, installedSkills, specialistActions])
 
   // Matches are ordered by group so the arrow keys traverse the same top-to-
   // bottom order the grouped list renders in. With no query each group shows a

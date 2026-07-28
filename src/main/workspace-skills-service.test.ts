@@ -3,31 +3,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { SkillPackCatalogEntry, SkillPackCatalogResult } from '../shared/electron-api'
 import { BUILTIN_SKILLS } from './builtin-skills'
 import { createWorkspaceSkillsService } from './workspace-skills-service'
-
-const CATALOG: SkillPackCatalogEntry[] = [
-  {
-    id: 'vercel-react-best-practices',
-    slug: 'vercel/react-best-practices',
-    name: 'React Best Practices',
-    description: 'Vercel React and Next.js guidance.',
-    installedDirName: 'react-best-practices',
-    harnesses: ['claude', 'codex', 'cursor', 'gemini', 'opencode', 'agents'],
-  },
-  {
-    id: 'not-installed-pack',
-    slug: 'someone/not-installed-pack',
-    name: 'Not Installed Pack',
-    description: 'A catalog pack nobody installed.',
-    harnesses: ['agents'],
-  },
-]
-
-function catalogService(packs: SkillPackCatalogEntry[]): { listCatalog(): SkillPackCatalogResult } {
-  return { listCatalog: () => ({ ok: true, packs }) }
-}
 
 async function writeSkillDir(
   workspaceRoot: string,
@@ -46,7 +23,7 @@ async function main(): Promise<void> {
   const workspaceRoot = join(temp, 'workspace')
   await mkdir(workspaceRoot, { recursive: true })
 
-  const service = createWorkspaceSkillsService({ skillPackService: catalogService(CATALOG) })
+  const service = createWorkspaceSkillsService()
 
   // Missing workspace root fails, not throws.
   const missing = await service.listWorkspaceSkills({ workspaceRoot: join(temp, 'nope') })
@@ -69,7 +46,8 @@ async function main(): Promise<void> {
   // Custom skill dir with no SKILL.md at all: falls back to the dir name.
   await writeSkillDir(workspaceRoot, '.agents', 'bare-dir')
 
-  // Installed catalog pack (no frontmatter → catalog metadata wins).
+  // A skill installed from a source: no builtin, no frontmatter, so the
+  // directory name is all the inventory can honestly report.
   await writeSkillDir(workspaceRoot, '.agents', 'react-best-practices')
 
   // Installed builtin, up to date.
@@ -108,17 +86,11 @@ async function main(): Promise<void> {
   assert.equal(bare.name, 'bare-dir')
   assert.equal(bare.source, 'custom')
 
-  const pack = byId.get('vercel-react-best-practices')
-  assert.ok(pack, 'installed catalog pack resolves to its catalog id')
-  assert.equal(pack.name, 'React Best Practices')
-  assert.equal(pack.source, 'pack')
-  assert.equal(pack.installState, 'installed')
-  assert.equal(pack.packSlug, 'vercel/react-best-practices')
-
-  const notInstalled = byId.get('not-installed-pack')
-  assert.ok(notInstalled, 'catalog pack not installed is still offered')
-  assert.equal(notInstalled.installState, 'available')
-  assert.equal(notInstalled.harnesses.length, 0)
+  const fromSource = byId.get('react-best-practices')
+  assert.ok(fromSource, 'a skill installed from a source is listed by its directory')
+  assert.equal(fromSource.name, 'react-best-practices')
+  assert.equal(fromSource.source, 'custom')
+  assert.equal(fromSource.installState, 'installed')
 
   const backlog = byId.get('backlog')
   assert.ok(backlog)

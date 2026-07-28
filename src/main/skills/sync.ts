@@ -14,7 +14,7 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { SkillPackHarness } from '../../shared/electron-api'
+import type { SkillHarness } from '../../shared/electron-api'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { skillDirName, type ScanResult, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
 import { installSkill } from './install'
@@ -48,8 +48,8 @@ export function diffScannedSkills(previous: ScanResult | null, next: ScanResult)
  */
 export async function installedSkillHarnesses(
   workspaceRoot: string
-): Promise<Map<string, SkillPackHarness[]>> {
-  const byDirName = new Map<string, SkillPackHarness[]>()
+): Promise<Map<string, SkillHarness[]>> {
+  const byDirName = new Map<string, SkillHarness[]>()
   for (const harness of SKILL_PACK_HARNESSES) {
     const skillsDir = join(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills')
     const entries = await readdir(skillsDir, { withFileTypes: true }).catch(() => [])
@@ -76,7 +76,7 @@ export type SkillSyncCopyResult = { refreshed: string[]; failures: SkillSyncCopy
 export async function refreshInstalledSkills(options: {
   workspaceRoot: string
   scan: ScanResult
-  installedHarnesses: ReadonlyMap<string, SkillPackHarness[]>
+  installedHarnesses: ReadonlyMap<string, SkillHarness[]>
   readFile: (skill: ScannedSkill, file: SkillFileRef) => Promise<Buffer>
 }): Promise<SkillSyncCopyResult> {
   const refreshed: string[] = []

@@ -847,7 +847,6 @@ const legacyBackupAppSettings = {
     completedLessonIds: ['lesson-a'],
   },
   mcp: { syncEnabled: true, servers: {} },
-  skillPacks: { installed: {} },
 }
 
 backupReadResponse = {

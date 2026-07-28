@@ -216,9 +216,6 @@ const toolsPage = renderToStaticMarkup(
     mcpCatalog={[]}
     mcpSettings={null}
     onToggleMcp={spy('onToggleMcp')}
-    skillPackCatalog={[]}
-    selectedSkillPackIds={new Set()}
-    onToggleSkillPack={spy('onToggleSkillPack')}
     message={null}
     knowledgeProjectRoot={null}
     committedKnowledgeRoot={null}
@@ -246,7 +243,6 @@ const startPage = renderToStaticMarkup(
     roleModelOverrides={UNTOUCHED.roleModelOverrides}
     poolAgentCount={UNTOUCHED.maxParallelAgents}
     selectedToolNames={[]}
-    selectedSkillPackCount={0}
     onEditStep={spy('onEditStep')}
     cliPermissionPreset={UNTOUCHED.cliPermissionPreset as never}
     onChangeCliPermissionPreset={spy('onChangeCliPermissionPreset')}
@@ -281,7 +277,7 @@ assert.ok(
   'the stepper shows the default agent count',
 )
 // The tools page is optional and renders its empty state without inventing state.
-assert.ok(toolsPage.includes('Search tools and skills'), 'the tools page renders its search field')
+assert.ok(toolsPage.includes('Search tools'), 'the tools page renders its search field')
 // The review-&-start page renders the run settings; in pool mode it drops its
 // own cap row — the Team page's stepper owns that value, so it must not appear twice.
 assert.ok(startPage.includes('Run settings'), 'the start page renders the run settings')

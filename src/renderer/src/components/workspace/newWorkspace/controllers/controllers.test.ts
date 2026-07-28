@@ -1664,8 +1664,8 @@ async function testGuidedBriefStartBuildDesignPresetHandoff(): Promise<void> {
 }
 
 async function testGuidedBriefStartBuildAdvancedSetupFailsClosed(): Promise<void> {
-  // T17 fail-closed: when the Advanced-setup preflight (MCP sync / skill-pack
-  // install) fails, the controller must abort before writing the handoff or
+  // T17 fail-closed: when the Advanced-setup preflight (MCP sync / knowledge
+  // root) fails, the controller must abort before writing the handoff or
   // creating the run/workspace, so no partial Sprint Engine workspace remains.
   const fs = createMemoryFilesystem()
   let createCalled = false

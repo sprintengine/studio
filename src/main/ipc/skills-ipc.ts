@@ -16,6 +16,8 @@ import type {
   SkillSourcesResult,
   SkillSyncSourceInput,
   SkillSyncSourceOutcome,
+  SkillUninstallInput,
+  SkillUninstallOutcome,
 } from '../../shared/electron-api'
 import type { SkillsService } from '../skills'
 
@@ -40,6 +42,10 @@ export function registerSkillsIpc(ipcMain: IpcMain, service: SkillsService): voi
   ipcMain.handle(
     'skills:install',
     (_, input: SkillInstallInput): Promise<SkillInstallOutcome> => service.install(input)
+  )
+  ipcMain.handle(
+    'skills:uninstall',
+    (_, input: SkillUninstallInput): Promise<SkillUninstallOutcome> => service.uninstall(input)
   )
   ipcMain.handle(
     'skills:sync-source',

@@ -7,11 +7,10 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 
 import type { WebContents } from 'electron'
-import type { MarketplacePluginInstallInput, McpClientTarget, McpSettings, SkillPackEntry } from '../../shared/electron-api'
+import type { MarketplacePluginInstallInput, McpClientTarget, McpSettings } from '../../shared/electron-api'
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
 import { createMcpConfigService, type PluginLookup } from '../mcp-config-service'
-import type { SkillPackService } from '../skill-pack-service'
 import { installMarketplacePlugin } from './plugin-bundle-installer'
 
 type RuntimeModule = typeof import('../terminal-runtime')
@@ -169,52 +168,6 @@ function mcpPluginManifest(id: string, format: PluginMcpConfigFormat): PluginMan
   }
 }
 
-function createLocalSkillService(): SkillPackService {
-  return {
-    listCatalog: () => ({ ok: true, packs: [] }),
-    listInstalled: async (input) => {
-      const skillsDir = join(input.workspaceRoot, '.agents', 'skills')
-      if (!existsSync(skillsDir)) return { ok: true, installed: [] }
-      const entries = await readdir(skillsDir, { withFileTypes: true })
-      return {
-        ok: true,
-        installed: entries
-          .filter((entry) => entry.isDirectory())
-          .map((entry): SkillPackEntry => ({
-            id: entry.name,
-            slug: entry.name,
-            name: entry.name,
-            installedDirName: entry.name,
-            harnesses: ['agents'],
-            source: 'custom',
-          })),
-      }
-    },
-    install: async (input) => {
-      const installedDirName = input.installedDirName ?? basename(input.slug)
-      const harnesses: SkillPackEntry['harnesses'] = input.harnesses?.length ? input.harnesses : ['agents']
-      for (const harness of harnesses) {
-        const harnessDir = harness === 'agents' ? '.agents' : `.${harness}`
-        await cp(input.slug, join(input.workspaceRoot, harnessDir, 'skills', installedDirName), {
-          recursive: true,
-          force: true,
-        })
-      }
-      const installed: SkillPackEntry = {
-        id: installedDirName,
-        slug: input.slug,
-        name: installedDirName,
-        installedDirName,
-        harnesses,
-        source: 'custom',
-        installedAt: '2026-06-16T00:00:00.000Z',
-      }
-      return { ok: true, installed, log: input.slug }
-    },
-    remove: async () => ({ ok: false, message: 'not used' }),
-  }
-}
-
 async function createBundle(
   root: string,
   components: BundleComponents,
@@ -313,7 +266,6 @@ async function installInput(temp: string, bundle: string, options: {
     input: { localFolder: bundle, workspaceRoot, mcpSettings, mcpClients: options.mcpClients ?? ['codex'], skillHarnesses: ['agents'] },
     services: {
       mcpConfigService,
-      skillPackService: createLocalSkillService(),
       trustContext: () => ({ trustedModules: new Map() }),
       moduleRoot: () => moduleRoot,
       pluginRoot: () => pluginRoot,
@@ -517,17 +469,17 @@ async function testPartialFailureReportsInstalledComponents(): Promise<void> {
     const components: BundleComponents = { mcp: { path: 'mcp.json' }, skills: { path: 'skills/local-skill' } }
     const bundle = await createBundle(temp, components)
     const { input, services } = await installInput(temp, bundle)
-    services.skillPackService = {
-      ...services.skillPackService,
-      install: async () => ({ ok: false, message: 'skills CLI failed' }),
-    }
+    // A real, deterministic install failure: the harness skill directory is a
+    // file, so the skill copy cannot create anything under it. The MCP
+    // component installed first, and the result must still say so.
+    await mkdir(join(input.workspaceRoot!, '.agents'), { recursive: true })
+    await writeFile(join(input.workspaceRoot!, '.agents', 'skills'), 'not a directory', 'utf8')
 
     const result = await installMarketplacePlugin(input, services)
 
     assert.equal(result.ok, false)
     if (result.ok) return
     assert.equal(result.component, 'skills')
-    assert.equal(result.message, 'skills CLI failed')
     assert.deepEqual(result.installed?.map((component) => component.kind), ['mcp'])
   })
 }
