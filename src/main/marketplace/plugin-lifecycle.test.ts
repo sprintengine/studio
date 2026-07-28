@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { IpcMain } from 'electron'
 
 import type {
