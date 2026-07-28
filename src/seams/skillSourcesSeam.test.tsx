@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { WorkspaceSkill } from '../shared/electron-api'
 import type { SkillTreeEntry } from '../main/skills/scan'
 import type { ScanResult, ScannedSkill, SkillSource } from '../shared/skills'
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
@@ -248,13 +249,16 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   const { useSkillSources } = await import(
     '../renderer/src/components/workspace/globalSurface/extensions/skills/useSkillSources'
   )
+  const { renderSkillInvocation, skillInstalledForHarness } = await import(
+    '../renderer/src/utils/skillInvocation'
+  )
 
   const api = domWindow.api as {
     skillsAddSource: (input: { repo: string }) => Promise<{ ok: boolean; message?: string }>
     skillsGetScan: (input: { sourceId: string }) => Promise<{ ok: boolean; scan: ScanResult }>
     workspaceSkillsList: (input: { workspaceRoot: string }) => Promise<{
       ok: boolean
-      skills: Array<{ id: string; name: string; source: string; harnesses: string[]; installState: string }>
+      skills: WorkspaceSkill[]
     }>
   }
 
@@ -297,7 +301,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
         await new Promise((resolve) => setTimeout(resolve, 5))
       })
     }
-    assert.fail(`${what} never finished: ${installLine(markup())}`)
+    assert.fail(`${what} never finished: ${visibleText(markup())}`)
   }
   const buttons = (): HTMLButtonElement[] =>
     [...container.querySelectorAll('button')] as unknown as HTMLButtonElement[]
@@ -459,7 +463,11 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
       `${harness} received the repository's own bytes, in its own subdirectory`,
     )
   }
-  assert.ok(markup().includes('>Installed<'), 'and the row it came from says so')
+  assert.equal(
+    markup().match(/>Installed</g)?.length,
+    2,
+    'and both rows they came from say so — no more, no fewer',
+  )
 
   // The installed copy is the one the agent-facing inventory reads, so a skill
   // installed from a source is a skill an agent can be handed.
@@ -470,6 +478,24 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   assert.deepEqual(research.harnesses.sort(), ['agents', 'claude'])
   assert.equal(research.installState, 'installed')
   assert.equal(research.source, 'custom')
+
+  // And it is invocable through the path an agent is handed: because the copy
+  // landed in the harness dir Claude Code reads, the invocation is that CLI's
+  // native form rather than the plain-prompt fallback.
+  const claudeIntegration = {
+    support: 'native' as const,
+    harnessId: 'claude',
+    invocation: { explicitTemplate: '/{{skillId}}' },
+  }
+  assert.equal(skillInstalledForHarness(research, claudeIntegration), true)
+  assert.equal(
+    renderSkillInvocation({
+      skill: research,
+      integration: claudeIntegration,
+      nativeInstalled: skillInstalledForHarness(research, claudeIntegration),
+    }),
+    '/research',
+  )
   // FINDING (filed, not fixed here): a source skill whose directory name
   // collides with one Multicode ships is reported as `source: 'builtin'` — the
   // inventory keys provenance on the directory name alone. `prototype` is such
@@ -496,7 +522,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   )
   assert.ok(
     markup().includes('Synced · 1 removed upstream · 1 installed skill updated'),
-    `the sync line states what changed, in counts: ${installLine(markup())}`,
+    `the sync line states what changed, in counts: ${visibleText(markup())}`,
   )
 
   // Re-copied, not merely re-listed: the bytes under both harness dirs are the
@@ -533,8 +559,8 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   container.remove()
 }
 
-/** The install/sync line the header states, for a failure message worth reading. */
-function installLine(markup: string): string {
+/** The visible text of the surface, for a failure message worth reading. */
+function visibleText(markup: string): string {
   return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 600)
 }
 
