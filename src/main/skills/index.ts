@@ -153,6 +153,11 @@ export function createSkillsService(
       if (!found.ok) return found
       try {
         const bytes = await readSkillBytes(found.source, found.skill, found.file)
+        // Reading returns text. Decoding an image or archive as UTF-8 would
+        // hand back convincing mojibake, so a file that is not text says so.
+        if (!isUtf8Text(bytes)) {
+          return { ok: false, message: `${found.file.path} is not a text file.` }
+        }
         return { ok: true, path: found.file.path, content: bytes.toString('utf8') }
       } catch (error) {
         return { ok: false, message: describeFetchError(error) }
@@ -310,6 +315,12 @@ function defaultBuiltinSkillsRoot(): string | null {
     join(process.cwd(), 'resources', 'skills'),
   ]
   return candidates.find((candidate) => existsSync(candidate)) ?? null
+}
+
+/** Round-trips as UTF-8 and carries no NUL — the cheap, exact "is this text". */
+function isUtf8Text(bytes: Buffer): boolean {
+  if (bytes.includes(0)) return false
+  return Buffer.compare(Buffer.from(bytes.toString('utf8'), 'utf8'), bytes) === 0
 }
 
 function describeFetchError(error: unknown): string {

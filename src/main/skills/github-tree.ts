@@ -21,6 +21,11 @@ export type SkillFetch = (url: string, init: RequestInit) => Promise<Response>
 
 export const DEFAULT_SKILL_FETCH_TIMEOUT_MS = 30_000
 export const DEFAULT_SKILL_MAX_FILE_BYTES = 2 * 1024 * 1024
+// The listing is one JSON document covering the whole repository, so it is
+// routinely far larger than any single file it describes: pbakaus/impeccable
+// alone is ~800 KB across 3,143 entries. It gets its own ceiling, sized for the
+// ~100k entries GitHub will return before it truncates.
+export const DEFAULT_SKILL_MAX_LISTING_BYTES = 48 * 1024 * 1024
 // A tree this large is not a skill repository. The cap bounds the single scan
 // request's parse cost; GitHub itself truncates far larger trees, which we
 // report rather than silently scanning a partial repository.
@@ -176,7 +181,10 @@ export async function fetchSkillRepoFile(
 }
 
 async function fetchJson<T>(url: string, options: SkillGithubOptions): Promise<T> {
-  const body = await fetchBytes(url, { accept: 'application/vnd.github+json' }, options)
+  const body = await fetchBytes(url, { accept: 'application/vnd.github+json' }, options, {
+    maxBytes: DEFAULT_SKILL_MAX_LISTING_BYTES,
+    describeOverflow: (limit) => `This repository's file listing is larger than ${limit} bytes.`,
+  })
   try {
     return JSON.parse(body.toString('utf8')) as T
   } catch {
@@ -184,14 +192,19 @@ async function fetchJson<T>(url: string, options: SkillGithubOptions): Promise<T
   }
 }
 
+type FetchLimit = { maxBytes: number; describeOverflow: (limit: number) => string }
+
 async function fetchBytes(
   url: string,
   headers: Record<string, string>,
-  options: SkillGithubOptions
+  options: SkillGithubOptions,
+  limit?: FetchLimit
 ): Promise<Buffer> {
   const parsed = parseAllowedUrl(url)
   const fetcher = options.fetcher ?? defaultFetch
-  const maxBytes = options.maxFileBytes ?? DEFAULT_SKILL_MAX_FILE_BYTES
+  const maxBytes = limit?.maxBytes ?? options.maxFileBytes ?? DEFAULT_SKILL_MAX_FILE_BYTES
+  const describeOverflow =
+    limit?.describeOverflow ?? ((bytes: number) => `A file in this repository is larger than ${bytes} bytes.`)
   const token = options.token?.trim()
   const controller = new AbortController()
   const timeout = setTimeout(
@@ -213,9 +226,7 @@ async function fetchBytes(
     }
     if (!response.ok) throw new SkillFetchError(githubErrorMessage(response), response.status)
     const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.byteLength > maxBytes) {
-      throw new SkillFetchError(`A file in this repository is larger than ${maxBytes} bytes.`)
-    }
+    if (bytes.byteLength > maxBytes) throw new SkillFetchError(describeOverflow(maxBytes))
     return bytes
   } finally {
     clearTimeout(timeout)
