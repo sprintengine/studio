@@ -16,8 +16,17 @@ export { GhostButton, PrimaryButton, OutlineButton, IconButton, CloseIconButton 
 export { RefreshIcon } from './RefreshIcon'
 export { ConfirmDialog, ConfirmDialogProvider, useConfirmDialog } from './ConfirmDialog'
 export type { ConfirmDialogOptions, ConfirmDialogProps, PromptDialogOptions } from './ConfirmDialog'
-export { CliModelListbox, CliModelPickerButton } from './CliModelListbox'
-export type { CliModelListboxOption } from './CliModelListbox'
+export { CliModelPickerButton, CliModelPopoverSurface, buildModelRows, meaningfulModelId } from './CliModelPicker'
+export { ReasoningSelector, costliestReasoningLevel, hasReasoningAxes, reasoningTriggerLabel } from './ReasoningSelector'
+export type { ReasoningAxes } from './ReasoningSelector'
+export {
+  buildModelFamilies,
+  familyForModel,
+  parseModelWindow,
+  windowVariantLabel,
+} from './cliRuntimeCatalog'
+export type { CliModelFamily, CliRuntimeOption, ModelWindowVariant } from './cliRuntimeCatalog'
+export { modelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
 export { Popover } from './Popover'
 export { FilterMenu } from './FilterMenu'
 export type { FilterMenuGroup } from './FilterMenu'
