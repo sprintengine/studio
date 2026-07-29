@@ -22,6 +22,8 @@ export type AgentCapabilitiesState = {
 
 const IDLE: AgentCapabilitiesState = { snapshot: null, loading: false, unavailableMessage: null }
 
+const NO_WORKSPACE = 'Open a project folder to see this agent’s skills.'
+
 export function useAgentCapabilities(
   workspaceRoot: string | null,
   pluginId: string | null,
@@ -34,7 +36,21 @@ export function useAgentCapabilities(
   // current CLI without re-subscribing on every tab switch.
   const pluginIdRef = useRef(pluginId)
   pluginIdRef.current = pluginId
-  const lastTargetRef = useRef<string | null>(null)
+
+  // Which agent the state in hand describes. A new target drops the old answer:
+  // showing the previous agent's skills under the new tab's name would be
+  // live-looking and wrong.
+  //
+  // Reset during render, not in an effect. An effect runs after this render has
+  // committed, so the pane would paint one frame of the previous agent's list
+  // under the newly focused tab before blanking it — the exact "renders what the
+  // resolver did not return for this agent" defect, just brief.
+  const target = workspaceRoot && pluginId ? `${workspaceRoot}::${pluginId}` : null
+  const [shownTarget, setShownTarget] = useState<string | null>(target)
+  if (shownTarget !== target) {
+    setShownTarget(target)
+    setState({ snapshot: null, loading: target !== null, unavailableMessage: null })
+  }
 
   useEffect(() => {
     if (!workspaceRoot) return
@@ -57,27 +73,13 @@ export function useAgentCapabilities(
   }, [refetch, workspaceRoot])
 
   useEffect(() => {
-    if (!workspaceRoot) {
-      setState({ snapshot: null, loading: false, unavailableMessage: 'Open a project folder to see this agent’s skills.' })
-      return
-    }
-    if (!pluginId) {
-      setState(IDLE)
-      return
-    }
+    if (!workspaceRoot || !pluginId) return
     let cancelled = false
-    // A new target drops the old answer: showing the previous agent's skills
-    // under the new tab's name would be live-looking and wrong. A refetch of the
-    // *same* target keeps the list on screen, so an invalidation moves the pane
-    // once instead of flashing a spinner over a list that barely changed.
-    const target = `${workspaceRoot}::${pluginId}`
-    const changedTarget = lastTargetRef.current !== target
-    lastTargetRef.current = target
-    setState((previous) => ({
-      snapshot: changedTarget ? null : previous.snapshot,
-      loading: true,
-      unavailableMessage: null,
-    }))
+    // A refetch of the *same* target keeps the list on screen, so an
+    // invalidation moves the pane once instead of flashing a spinner over a list
+    // that is about to come back almost identical. The cross-target reset
+    // already happened during render.
+    setState((previous) => ({ ...previous, loading: true, unavailableMessage: null }))
     window.api
       .agentCapabilities({ workspaceRoot, pluginId })
       .then((result) => {
@@ -112,5 +114,8 @@ export function useAgentCapabilities(
     }
   }, [nonce, pluginId, workspaceRoot])
 
+  // Derived, never stored: with no project folder there is nothing to ask, and a
+  // stored message would need clearing on the way back out.
+  if (!workspaceRoot) return { snapshot: null, loading: false, unavailableMessage: NO_WORKSPACE, refetch }
   return { ...state, refetch }
 }
