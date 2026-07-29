@@ -230,7 +230,7 @@ export async function pasteDroppedFilesIntoTerminal(input: {
   workspaceId: string
 }): Promise<TerminalDropResult> {
   const payload = parseFileDropPayload(input.dataTransfer)
-  if (!payload) return { ok: false, message: 'No Multicode file was dropped.' }
+  if (!payload) return { ok: false, message: 'That drop carried no file.' }
   return sendFileDropToTerminal({
     payload,
     sessionId: input.sessionId,

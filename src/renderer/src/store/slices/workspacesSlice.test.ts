@@ -1003,4 +1003,58 @@ assert.equal(
 )
 useWorkspaceStore.getState().closeGlobalSurface()
 
+// --- auto-titling a new chat from its first real prompt ---------------------
+
+const nameOf = (id: string): string | undefined =>
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === id)?.name
+const lockedOf = (id: string): boolean | undefined =>
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === id)?.titleLocked
+
+// No explicit name: the workspace lands on the generic "<template> <n>" fallback
+// and is the only kind auto-titling may touch.
+const autoId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  folderPath: '/Users/example/auto-title',
+  background: true,
+})
+assert.match(nameOf(autoId) ?? '', /^Standard \d+$/, 'an unnamed workspace starts on the fallback name')
+assert.notEqual(lockedOf(autoId), true, 'a fallback-named workspace starts unlocked')
+
+// A prompt with no usable topic leaves the name alone AND leaves it unlocked, so
+// the next prompt still gets its chance.
+useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(autoId, '/backlog')
+assert.match(nameOf(autoId) ?? '', /^Standard \d+$/, 'an app-injected skill drop does not title the chat')
+assert.notEqual(lockedOf(autoId), true, 'a rejected prompt leaves the workspace open to the next one')
+
+useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(
+  autoId,
+  'so can you fix the git stash panel dropping its hash',
+)
+assert.equal(nameOf(autoId), 'Fix the git stash panel dropping')
+assert.equal(lockedOf(autoId), true, 'auto-titling locks the name')
+
+// Frozen: a second prompt — from this terminal or a newly added one — never
+// renames the workspace again.
+useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(autoId, 'now migrate the settings store')
+assert.equal(nameOf(autoId), 'Fix the git stash panel dropping', 'a later prompt never retitles')
+
+// A workspace created WITH a name is locked from birth.
+const namedId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  name: 'Release prep',
+  folderPath: '/Users/example/named-title',
+  background: true,
+})
+assert.equal(lockedOf(namedId), true, 'an explicitly named workspace is locked at creation')
+useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(namedId, 'rewrite the changelog generator')
+assert.equal(nameOf(namedId), 'Release prep', 'auto-titling never overwrites a chosen name')
+
+// A hand rename locks a workspace that was still on its fallback name.
+const renamedId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
+  folderPath: '/Users/example/hand-renamed',
+  background: true,
+})
+useWorkspaceStore.getState().renameWorkspace(renamedId, 'My own name')
+assert.equal(lockedOf(renamedId), true, 'a manual rename locks the name')
+useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(renamedId, 'add a retry to the uploader')
+assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a hand-typed name')
+
 console.log('workspacesSlice.test.ts: ok')

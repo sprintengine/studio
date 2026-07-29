@@ -33,7 +33,7 @@ export function getSprintEngineAccessState(authState: MulticodeAuthState): Premi
     return {
       allowed: true,
       title: 'Sprint Engine is available.',
-      body: 'This signed-in Multicode session can create local Sprint Engine workflows.',
+      body: 'This signed-in session can create local Sprint Engine workflows.',
       action: 'login',
     }
   }

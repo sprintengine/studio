@@ -108,7 +108,7 @@ function trimPendingTerminalChunks(chunks: string[], maxBytes: number): { chunks
       retained.unshift(tail)
       bytes += Buffer.byteLength(tail)
     }
-    retained.unshift('\r\n[Multicode: terminal output throttled to keep the UI responsive]\r\n')
+    retained.unshift('\r\n[Terminal output throttled to keep the UI responsive]\r\n')
     return {
       chunks: retained,
       bytes: retained.reduce((total, value) => total + Buffer.byteLength(value), 0),

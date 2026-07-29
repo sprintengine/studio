@@ -4,7 +4,7 @@ import { TERMINAL_RECENT_REPLAY_BYTES } from '../../../shared/terminal-history'
 const MAX_TERMINAL_WRITE_CHARS = 32 * 1024
 const MAX_QUEUED_TERMINAL_CHARS = TERMINAL_RECENT_REPLAY_BYTES
 const TERMINAL_WRITE_FRAME_BUDGET_MS = 8
-const TERMINAL_THROTTLE_MESSAGE = '\r\n[Multicode: renderer terminal output throttled to keep the UI responsive]\r\n'
+const TERMINAL_THROTTLE_MESSAGE = '\r\n[Terminal output throttled to keep the UI responsive]\r\n'
 
 type TerminalOutputQueueOptions = {
   recordWrite: (data: string, elapsedMs: number) => void

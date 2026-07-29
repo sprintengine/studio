@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     // the guide-run lifecycle the hook subscribes to.
     let briefValue: ReviewBrief | null = null
     let runEventCb: ((event: ReviewBriefRunEvent) => void) | null = null
-    const starts: { cli?: string; depth?: string; restart?: boolean }[] = []
+    const starts: { cli?: string; depth?: string; restart?: boolean; hostWorkspaceId?: string }[] = []
     const api = {
       reviewReadState: async () => ({ ok: true, state: stored }),
       reviewReadChangeset: async () => ({ ok: true, changeset: fixtureChangeSet }),
@@ -92,8 +92,15 @@ async function main(): Promise<void> {
       reviewIngestSource: async () => ({ ok: true, changeset: fixtureChangeSet }),
       // The terminal guide (MC-1783): `ok` means its terminal has the prompt, not
       // that a walkthrough exists — the brief arrives later as a `done` event.
-      reviewStartBriefRun: async (input: { cli?: string; depth?: string; restart?: boolean }) => {
-        starts.push({ cli: input.cli, depth: input.depth, restart: input.restart })
+      reviewStartBriefRun: async (
+        input: { cli?: string; depth?: string; restart?: boolean; hostWorkspaceId?: string },
+      ) => {
+        starts.push({
+          cli: input.cli,
+          depth: input.depth,
+          restart: input.restart,
+          hostWorkspaceId: input.hostWorkspaceId,
+        })
         return {
           ok: true,
           guide: { workspaceId: 'ws-1', agentId: 'review-guide-r1', sessionId: 'review-guide-r1', cli: input.cli ?? 'codex' },
@@ -117,7 +124,15 @@ async function main(): Promise<void> {
     // prepare banner, so the harness renders it the way the door does rather than
     // leaning on a default the hook no longer has.
     function Harness({ depth }: { depth: ReviewBriefRunDepth }): null {
-      session = useReviewSession({ reviewId: 'r1', workspaceRoot: '/repo', depth, guideCli: 'codex' })
+      session = useReviewSession({
+        reviewId: 'r1',
+        workspaceRoot: '/repo',
+        depth,
+        guideCli: 'codex',
+        // The door resolves-or-creates the project's Reviews host at start time
+        // (MC-1911); the hook only has to carry whatever it answers.
+        resolveHostWorkspaceId: () => 'ws-reviews-repo',
+      })
       return null
     }
     const container = dom.window.document.createElement('div')
@@ -309,8 +324,8 @@ async function main(): Promise<void> {
     })
     assert.deepEqual(
       h.starts(),
-      [{ cli: 'codex', depth: 'standard', restart: undefined }],
-      'the picked agent CLI and depth ride the start; a fresh start never restarts',
+      [{ cli: 'codex', depth: 'standard', restart: undefined, hostWorkspaceId: 'ws-reviews-repo' }],
+      'the picked agent CLI, depth, and guide host ride the start; a fresh start never restarts',
     )
     assert.equal(h.current().run.running, true, 'the run stays open after the start resolves — the brief is not there yet')
     assert.equal(h.current().status, 'degraded', 'the raw change is still what renders')
@@ -366,6 +381,13 @@ async function main(): Promise<void> {
     assert.equal(h.starts().length, 2, 'the freshness re-run started the guide again')
     assert.equal(h.starts()[1]?.depth, 'brief', 'the re-run silently reuses the current choice, not the first one')
     assert.equal(h.starts()[1]?.restart, true, 'and it replaces the run in flight, as a re-run must')
+    // MC-1911: the guide's terminal belongs in the project's Reviews host, not in
+    // whatever workspace the reviewer happens to have open.
+    assert.deepEqual(
+      h.starts().map((start) => start.hostWorkspaceId),
+      ['ws-reviews-repo', 'ws-reviews-repo'],
+      'every guide invocation names the workspace its terminal belongs in',
+    )
     h.root.unmount()
     console.log('ok - the chosen depth rides both the first start and a freshness re-run')
   }

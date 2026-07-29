@@ -489,7 +489,7 @@ function SurfaceBody({
         kind="empty"
         glyph={<AutomationsGlyph />}
         title="No automations yet"
-        body="Automations run agents and tasks on a schedule — a nightly review, backlog triage — while Multicode is open."
+        body="Automations run agents and tasks on a schedule — a nightly review, backlog triage — while the app is open."
         action={
           <PrimaryButton
             onClick={(event) => {

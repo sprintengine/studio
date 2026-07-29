@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>List surface</title>
+<link rel="stylesheet" href="../foundations/tokens.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+  .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+  .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+  .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+  .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+  .pat-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--sem-space-lg);
+    align-items: start;
+  }
+
+  /* ── the anatomy ───────────────────────────────────────────────────────── */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    background: var(--sem-color-bg-surface-raised);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    overflow: hidden;
+  }
+  /* 1+2+3: create, then search with the glyph, then THE divider. */
+  .rail-head {
+    padding: var(--sem-space-sm);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+  }
+  .rail-new {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    margin-bottom: var(--sem-space-sm);
+    border: 1px dashed var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .rail-new:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
+  .rail-new:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+
+  .rail-find { display: flex; align-items: center; gap: var(--sem-space-2xs); }
+  .rail-search {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    flex: 1;
+    min-width: 0;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-subtle);
+  }
+  .rail-glyph {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    flex: none;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
+  .rail-glyph:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+  /* Collapsing the axes hides them; it must never hide that one is applied. */
+  .rail-glyph[data-active="true"] { color: var(--sem-color-accent-primary); }
+  .rail-glyph[data-active="true"]::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--sem-radius-pill);
+    background: var(--sem-color-accent-primary);
+  }
+
+  /* 4: the rows. */
+  .rail-rows { list-style: none; margin: 0; padding: var(--sem-space-2xs); }
+  .rail-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-3xs);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-control);
+  }
+  .rail-row[aria-current="true"] { background: var(--sem-color-bg-selected); }
+  .rail-row-title { color: var(--sem-color-text-default); }
+  .rail-row[aria-current="true"] .rail-row-title { color: var(--sem-color-text-primary); }
+  .rail-row-meta { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); }
+  /* A heading appears only when there are two groups to tell apart. */
+  .rail-group {
+    padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-subtle);
+  }
+
+  /* the rejected shape, for contrast */
+  .rail--wrong .rail-scope {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    margin-bottom: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+  }
+  .rail--wrong .rail-head { border-bottom: 0; }
+  .rail--wrong .rail-rows { border-top: 1px solid var(--sem-color-border-subtle); }
+  .pat-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    margin: 0 0 var(--sem-space-xs);
+  }
+  .pat-verdict[data-tone="good"] { color: var(--sem-color-status-good); }
+  .pat-verdict[data-tone="bad"] { color: var(--sem-color-status-danger); }
+</style>
+</head>
+<body>
+<div class="pat-stage">
+  <h1 class="pat-title">List surface</h1>
+  <p class="pat-lede">
+    The anatomy every rail, column, and panel whose job is “find a thing in a
+    list” is built from. Create, then search with one filter glyph, then one
+    divider, then the rows. Tokens and components alone never caught the defects
+    this pattern exists to prevent — they are all composition defects.
+  </p>
+
+  <h2 class="pat-heading">The anatomy</h2>
+  <div class="pat-panes">
+    <div>
+      <p class="pat-verdict" data-tone="good">Build to this</p>
+      <div class="rail">
+        <div class="rail-head">
+          <button type="button" class="rail-new">
+            <span aria-hidden="true">+</span> New sprint
+          </button>
+          <div class="rail-find">
+            <span class="rail-search">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
+                <path d="M10.2 10.2 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              Search sprints…
+            </span>
+            <button type="button" class="rail-glyph" data-active="true" aria-label="Filter and sort — filters active">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">design-system-conformance</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">skills-aside</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">site-truth-and-impact</span>
+            <span class="rail-row-meta">landed Jul 29</span>
+          </li>
+        </ul>
+      </div>
+      <p class="pat-caption">
+        Project, view, sort and group all live inside the glyph. It carries the
+        accent dot because a lens is applied — collapsing the axes must never
+        collapse the fact that one is narrowing the list. One group, so no
+        heading over it.
+      </p>
+    </div>
+
+    <div>
+      <p class="pat-verdict" data-tone="bad">Not this</p>
+      <div class="rail rail--wrong">
+        <div class="rail-head">
+          <button type="button" class="rail-new">
+            <span aria-hidden="true">+</span> New sprint
+          </button>
+          <span class="rail-scope">All projects · 49 <span aria-hidden="true">⌄</span></span>
+          <div class="rail-find">
+            <span class="rail-search">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
+                <path d="M10.2 10.2 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              Search sprints…
+            </span>
+            <button type="button" class="rail-glyph" aria-label="Filter and sort">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="rail-group">Recent 49</div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">design-system-conformance</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">skills-aside</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+        </ul>
+      </div>
+      <p class="pat-caption">
+        Three defects, all composition: a second full-width control stacked over
+        the field it narrows; the same choice offered as a Select here and as a
+        menu axis elsewhere; and a “Recent” heading spanning every row, which
+        groups nothing. The divider has also drifted below the group heading, so
+        it no longer means “the list starts here”.
+      </p>
+    </div>
+  </div>
+
+  <h2 class="pat-heading">Both modes</h2>
+  <div class="pat-panes">
+    <div data-mode="light">
+      <div class="rail">
+        <div class="rail-head">
+          <button type="button" class="rail-new"><span aria-hidden="true">+</span> New item</button>
+          <div class="rail-find">
+            <span class="rail-search">Search items…</span>
+            <button type="button" class="rail-glyph" aria-label="Filter and sort">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">Voice dictation becomes a real module</span>
+            <span class="rail-row-meta">MC-1861 · 1h ago</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">Reviews behind one module boundary</span>
+            <span class="rail-row-meta">MC-1856 · 1h ago</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+    <div data-mode="dark">
+      <div class="rail">
+        <div class="rail-head">
+          <button type="button" class="rail-new"><span aria-hidden="true">+</span> New item</button>
+          <div class="rail-find">
+            <span class="rail-search">Search items…</span>
+            <button type="button" class="rail-glyph" aria-label="Filter and sort">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">Voice dictation becomes a real module</span>
+            <span class="rail-row-meta">MC-1861 · 1h ago</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">Reviews behind one module boundary</span>
+            <span class="rail-row-meta">MC-1856 · 1h ago</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <p class="pat-caption">
+    In a list-plus-detail layout the whole block above — search, glyph, and the
+    divider under them — is constrained to the list column. Spanning the full
+    width reads as “search this screen” while it only ever filters one column.
+  </p>
+</div>
+</body>
+</html>

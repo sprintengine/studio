@@ -182,7 +182,7 @@ export function buildAgentShellCommand(input: AgentLaunchRenderInput): string {
   const shellCommand = argvToPosixShellCommand(argv)
   const displayName = plugin.manifest.displayName
   const shortName = displayName.split(/\s+/)[0] || displayName
-  const message = `${shortName} CLI was not found. Check the ${input.cli} command in Multicode Settings.`
+  const message = `${shortName} CLI was not found. Check the ${input.cli} command in Settings.`
   const guard = [
     `if ! command -v ${quotePosixToken(binary)} >/dev/null 2>&1; then`,
     `echo ${quotePosixForced(message)};`,

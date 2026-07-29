@@ -80,11 +80,13 @@ function ReviewBarActions({ session }: { session: ReviewSession }) {
   )
 }
 
-// The canvas toolbar: the tools that act on the walkthrough below, rendered by
-// the Reviews door as ReviewCanvas's `toolbar` slot — one slim row over the
-// walkthrough, never title-bar chrome. Re-run and Ask the guide act on a guide
-// walkthrough; with no guide (degraded) there is nothing to re-run and no guide
-// to ask, so they drop and the diff-view toggle stands alone.
+// The canvas tools that act on the walkthrough below, handed to ReviewCanvas as
+// its `toolbar` slot. These are CONTROLS, not a row: the canvas owns the single
+// chrome row they sit in and folds the guide's status line into that same row, so
+// the walkthrough never carries a tools bar stacked on top of a status bar. Re-run
+// and Ask the guide act on a guide walkthrough; with no guide (degraded) there is
+// nothing to re-run and no guide to ask, so they drop and the diff-view toggle
+// stands alone.
 //
 // While a re-run is in flight (MC-1804) the Re-run button is replaced by the live
 // line plus Stop, rather than the disabled "Re-running…" button it used to become:
@@ -95,7 +97,7 @@ export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.
   const guideActions = !session.isDegraded
   const running = session.run.running
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2">
+    <span className="flex flex-wrap items-center justify-end gap-1.5">
       <SegmentedControl
         ariaLabel="Diff view"
         items={DIFF_VIEW_ITEMS}
@@ -133,6 +135,6 @@ export function ReviewCanvasTools({ session }: { session: ReviewSession }): JSX.
           Ask the guide
         </GhostButton>
       ) : null}
-    </div>
+    </span>
   )
 }

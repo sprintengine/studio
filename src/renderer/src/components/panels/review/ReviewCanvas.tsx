@@ -107,15 +107,28 @@ export function ReviewCanvas({ session, guideActions, toolbar }: { session: Revi
     )
   }
 
-  const bannerSlot = session.isDegraded ? (
-    <DegradedBanner run={run} actions={guideActions} />
-  ) : session.bannerModel ? (
-    <FreshnessBanner model={session.bannerModel} refreshing={run.running} refreshPhase={run.phase} onRefresh={session.refresh} />
-  ) : null
+  // ONE chrome row above the walkthrough, not two. The guide's status line and
+  // the tools that act on the walkthrough are both chrome for the same content,
+  // so they share a row: status on the left, tools on the right. Stacking a tools
+  // bar on a status bar spent a second band of vertical space to say nothing the
+  // first band could not hold. A freshness banner is a different animal — it is a
+  // notice about the change itself, with its own action — so it keeps its own
+  // band above the row.
+  const bannerSlot = (
+    <>
+      {!session.isDegraded && session.bannerModel ? (
+        <FreshnessBanner model={session.bannerModel} refreshing={run.running} refreshPhase={run.phase} onRefresh={session.refresh} />
+      ) : null}
+      <ChromeRow
+        message={session.isDegraded ? <DegradedMessage run={run} /> : null}
+        actions={session.isDegraded ? guideActions : null}
+        tools={toolbar}
+      />
+    </>
+  )
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
-      {toolbar}
       <div className="min-h-0 flex-1">
         <ReviewWalkthrough
           changeset={changeset}
@@ -179,35 +192,43 @@ function PrepareShell({ changeset, children }: { changeset: ReviewChangeSet; chi
   )
 }
 
-// The slim degraded banner under the surface bar: honest about the missing guide,
-// with the one affordance that matters in each state. It carries three faces — a
-// resting invite, a "the guide is working" line (the guide runs in its own
-// terminal, so the action beside it is the way into that terminal), and a run
-// failure ("keep reviewing without it") — so a failed guide run is never a dead
-// end over a reviewable change. `actions` is the whole right-hand block, choices
-// included (MC-1788), and lays itself out; the banner only places it.
-function DegradedBanner({ run, actions }: { run: ReviewRunProgress; actions: ReactNode }) {
-  const failed = Boolean(run.error)
+// The single chrome band above the walkthrough. Left: whatever the guide has to
+// say right now (nothing, once a walkthrough exists). Right: the tools that act
+// on the walkthrough, and — while a guide is working or has failed — the actions
+// that resolve that state. One row, whatever the combination.
+function ChromeRow({ message, actions, tools }: { message: ReactNode; actions: ReactNode; tools: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2.5">
-      <span className="min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-        {failed ? (
-          <>
-            <span className="font-medium text-[color:var(--tone-error)]">The guide couldn’t finish.</span>{' '}
-            {run.error} You can keep reviewing without it.
-          </>
-        ) : run.running ? (
-          <span className="inline-flex items-center gap-2">
-            <Spinner />
-            {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? RUN_PHASE_LABEL.grouping}
-          </span>
-        ) : (
-          'No guide walkthrough yet — you’re viewing the raw change.'
-        )}
-      </span>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-6 py-2">
+      <span className="min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{message}</span>
       {actions}
+      {tools}
     </div>
   )
+}
+
+// What the guide has to say while there is no walkthrough: a resting invite, a
+// "the guide is working" line (the guide runs in its own terminal, so the action
+// beside it is the way into that terminal), or a run failure ("keep reviewing
+// without it") — so a failed guide run is never a dead end over a reviewable
+// change.
+function DegradedMessage({ run }: { run: ReviewRunProgress }) {
+  if (run.error) {
+    return (
+      <>
+        <span className="font-medium text-[color:var(--tone-error)]">The guide couldn’t finish.</span> {run.error} You
+        can keep reviewing without it.
+      </>
+    )
+  }
+  if (run.running) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <Spinner />
+        {RUN_PHASE_LABEL[run.phase ?? 'reading'] ?? RUN_PHASE_LABEL.grouping}
+      </span>
+    )
+  }
+  return <>No guide walkthrough yet — you’re viewing the raw change.</>
 }
 
 function RunLine({ run }: { run: ReviewRunProgress }) {

@@ -746,7 +746,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         <>
           This reverts every change to{' '}
           {many ? `these ${unique.length} files` : unique[0].relativePath} in {activeScopeLabel}. The action
-          cannot be undone from Multicode.
+          cannot be undone from here.
           <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
@@ -766,7 +766,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: 'Discard unstaged changes?',
       body: (
         <>
-          This rolls back every unstaged edit in {activeScopeLabel} and removes untracked files. The action cannot be undone from Multicode.
+          This rolls back every unstaged edit in {activeScopeLabel} and removes untracked files. The action cannot be undone from here.
           <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
@@ -1110,7 +1110,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       body: (
         <>
           This merges {subject} into <span className="font-mono">{currentBranch}</span> in {activeScopeLabel}. If Git
-          reports conflicts, Multicode will leave the merge state in the working tree for you to resolve.
+          reports conflicts, the merge state is left in the working tree for you to resolve.
           <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
@@ -1150,7 +1150,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         <>
           This replays the commits of <span className="font-mono">{currentBranch}</span> on top of{' '}
           <span className="font-mono">{subjectLabel}</span> in {activeScopeLabel}, rewriting their hashes. If Git
-          reports conflicts, Multicode will pause the rebase for you to resolve and continue.
+          reports conflicts, the rebase pauses for you to resolve and continue.
           <div className="mt-2 font-mono text-[12px] text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
@@ -1178,7 +1178,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       body: (
         <>
           This applies “{commit.subject}” onto <span className="font-mono">{currentBranch}</span> as a new commit. If
-          Git reports conflicts, Multicode will pause the cherry-pick for you to resolve and continue.
+          Git reports conflicts, the cherry-pick pauses for you to resolve and continue.
         </>
       ),
       confirmLabel: 'Cherry-pick',
@@ -1222,7 +1222,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
     const consequence =
       mode === 'hard'
-        ? 'Commits after it are dropped from this branch and every uncommitted change is discarded. The action cannot be undone from Multicode.'
+        ? 'Commits after it are dropped from this branch and every uncommitted change is discarded. The action cannot be undone from here.'
         : mode === 'soft'
           ? 'Commits after it stay in the working tree as staged changes.'
           : 'Commits after it stay in the working tree as unstaged changes.'
@@ -1373,7 +1373,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: `Drop ${entry.ref}?`,
       body: (
         <>
-          This deletes the stash entry “{entry.message}”. The action cannot be undone from Multicode.
+          This deletes the stash entry “{entry.message}”. The action cannot be undone from here.
         </>
       ),
       confirmLabel: 'Drop stash',

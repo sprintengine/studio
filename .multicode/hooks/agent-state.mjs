@@ -44,6 +44,10 @@ const CONNECT_TIMEOUT_MS = 1000
 const WRITE_ATTEMPTS = 3
 const RETRY_BACKOFF_MS = 200
 const TOTAL_DEADLINE_MS = 2000
+// Send-side cap on the forwarded prompt. Must stay <= MAX_AGENT_PROMPT_LENGTH in
+// src/main/agent-state.ts, which truncates again on receipt — this reporter is
+// untrusted input, so the cap here is a courtesy, not the enforcement.
+const MAX_PROMPT_LENGTH = 2000
 
 function readStdin() {
   return new Promise((res) => {
@@ -190,6 +194,28 @@ async function main() {
     phase,
     event,
     ts: Date.now(),
+  }
+
+  // The prompt the person just sent, forwarded on `UserPromptSubmit` only. The
+  // app uses it for two things: the hover preview on a terminal tab ("what was I
+  // working on here?"), and naming a new chat after its first real prompt
+  // instead of leaving it "Chat 44".
+  //
+  // Truncated HERE rather than at the reader so a pasted novel never rides the
+  // socket. The cap is generous relative to a title because the hover preview
+  // shows more than the title does.
+  //
+  // This is the user's verbatim typed text. Context injected by other hooks is
+  // added to the agent's context downstream and is NOT part of this field, so
+  // the app never titles a chat after an injection — but text the APP itself
+  // pasted into the terminal (a dropped skill invocation, a file path) IS part
+  // of it, and is stripped by the reader (see src/shared/workspace-title.ts).
+  if (event === 'UserPromptSubmit') {
+    const prompt = str(payload?.prompt) ?? str(payload?.userPrompt)
+    if (prompt) {
+      const trimmed = prompt.trim()
+      if (trimmed) frame.prompt = trimmed.slice(0, MAX_PROMPT_LENGTH)
+    }
   }
 
   // The session transcript, forwarded on a turn end so the app can derive a

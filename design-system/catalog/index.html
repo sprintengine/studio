@@ -507,10 +507,14 @@ code {
 #ds-view-component-tooltip:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog #patterns .catalog-view { display: block; }
+#ds-view-pattern-list-surface:checked ~ .ds-catalog #patterns { display: block; }
+#ds-view-pattern-list-surface:checked ~ .ds-catalog #pattern-list-surface { display: block; }
 #ds-view-pattern-selection:checked ~ .ds-catalog #patterns { display: block; }
 #ds-view-pattern-selection:checked ~ .ds-catalog #pattern-selection { display: block; }
 #ds-view-patterns:checked ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-patterns:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-patterns"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-pattern-list-surface:checked ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-list-surface"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-pattern-list-surface:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-list-surface"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-pattern-selection:checked ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-pattern-selection:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-pattern-selection"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 </style>
@@ -1304,6 +1308,161 @@ code {
 .ds-embed-component-tooltip .ds-tooltip.demo-parked {
     position: static;
   }
+.ds-embed-pattern-list-surface {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+.ds-embed-pattern-list-surface .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-pattern-list-surface .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+.ds-embed-pattern-list-surface .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+.ds-embed-pattern-list-surface .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+.ds-embed-pattern-list-surface .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+.ds-embed-pattern-list-surface .pat-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--sem-space-lg);
+    align-items: start;
+  }
+.ds-embed-pattern-list-surface .rail {
+    display: flex;
+    flex-direction: column;
+    background: var(--sem-color-bg-surface-raised);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    overflow: hidden;
+  }
+.ds-embed-pattern-list-surface .rail-head {
+    padding: var(--sem-space-sm);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+  }
+.ds-embed-pattern-list-surface .rail-new {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    margin-bottom: var(--sem-space-sm);
+    border: 1px dashed var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+.ds-embed-pattern-list-surface .rail-new:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
+.ds-embed-pattern-list-surface .rail-new:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+.ds-embed-pattern-list-surface .rail-find { display: flex; align-items: center; gap: var(--sem-space-2xs); }
+.ds-embed-pattern-list-surface .rail-search {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    flex: 1;
+    min-width: 0;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-pattern-list-surface .rail-glyph {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    flex: none;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+.ds-embed-pattern-list-surface .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
+.ds-embed-pattern-list-surface .rail-glyph:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+.ds-embed-pattern-list-surface .rail-glyph[data-active="true"] { color: var(--sem-color-accent-primary); }
+.ds-embed-pattern-list-surface .rail-glyph[data-active="true"]::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--sem-radius-pill);
+    background: var(--sem-color-accent-primary);
+  }
+.ds-embed-pattern-list-surface .rail-rows { list-style: none; margin: 0; padding: var(--sem-space-2xs); }
+.ds-embed-pattern-list-surface .rail-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-3xs);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-control);
+  }
+.ds-embed-pattern-list-surface .rail-row[aria-current="true"] { background: var(--sem-color-bg-selected); }
+.ds-embed-pattern-list-surface .rail-row-title { color: var(--sem-color-text-default); }
+.ds-embed-pattern-list-surface .rail-row[aria-current="true"] .rail-row-title { color: var(--sem-color-text-primary); }
+.ds-embed-pattern-list-surface .rail-row-meta { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); }
+.ds-embed-pattern-list-surface .rail-group {
+    padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-pattern-list-surface .rail--wrong .rail-scope {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    margin-bottom: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-pattern-list-surface .rail--wrong .rail-head { border-bottom: 0; }
+.ds-embed-pattern-list-surface .rail--wrong .rail-rows { border-top: 1px solid var(--sem-color-border-subtle); }
+.ds-embed-pattern-list-surface .pat-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    margin: 0 0 var(--sem-space-xs);
+  }
+.ds-embed-pattern-list-surface .pat-verdict[data-tone="good"] { color: var(--sem-color-status-good); }
+.ds-embed-pattern-list-surface .pat-verdict[data-tone="bad"] { color: var(--sem-color-status-danger); }
 .ds-embed-pattern-selection {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -1402,6 +1561,7 @@ code {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-list-surface" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-pattern-selection" />
 <div class="ds-catalog">
 <header class="catalog-header">
@@ -1426,6 +1586,7 @@ code {
 <label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
+<label class="catalog-nav-item" for="ds-view-pattern-list-surface">List surface</label>
 <label class="catalog-nav-item" for="ds-view-pattern-selection">Selection</label>
 </nav>
 <main class="catalog-main">
@@ -1601,7 +1762,7 @@ code {
 <p>What you withhold is as deliberate as what you show. No screen confronts a person with everything at once.</p>
 <ul><li>Each screen gets one visual priority. High-signal status and the default reading path are visible; secondary detail and lower-frequency configuration are revealed as the user reaches for them, behind nearby disclosure.</li><li><strong>Prefer per-row and per-cell actions revealed on hover or focus over always-on controls.</strong> Delete, roll back, close, reveal-in-folder, and the rest belong to the row you are pointing at — not to every row simultaneously.</li><li>Anything revealed on hover <strong>must also appear on keyboard focus</strong>, and must have a non-hover path (an overflow menu, a context menu, or the detail pane). Hover-only is a bug, not a style.</li><li>Revealing an action must not resize or reflow the row. Reserve its space, or reveal it over the row's trailing padding.</li><li>Disclosure is not concealment: destructive or state-changing actions stay discoverable, and a state a person must act on is never hidden behind hover.</li></ul>
 <h4>Hairlines carry the structure</h4>
-<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li></ul>
+<ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li><li><strong>Inside an overlay, space separates — rules do not.</strong> A dialog's title, its content, and its buttons are divided by padding. A rule under the title and another above the buttons cuts a small surface into three boxed strips and buys nothing: the shell already draws its own edge, and a shell that scrolls as one piece never needed the rules as scroll affordances.</li><li><strong>One chrome row per content region.</strong> Everything that is chrome for the same content shares a band — status on the left, controls on the right. A tools bar stacked on a status bar spends a second band of vertical space to say what the first could hold. When you reach for a second row, the question is which row the new control belongs in, not where to put the new row.</li><li><strong>A notice carries its tone with a glyph, not a coloured edge.</strong> A 2px stripe down one side of an error or warning card is decoration wearing a hairline's clothes: it doubles the card's own border, breaks the 1px rule, and leaves the tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint, and the tone glyph at the leading edge — which is what makes it survive greyscale.</li></ul>
 <h4>Space and size</h4>
 <ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (24px) for icon buttons and in-row triggers, <code>sm</code> (28px) as the default for anything with a label, <code>md</code> (32px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li></ul>
 <h4>Type</h4>
@@ -1609,6 +1770,24 @@ code {
 <ul><li>Sentence case everywhere except real keyboard shortcuts. No uppercase letter-spaced labels as hierarchy — not on section headers, metadata, breadcrumbs, or chips.</li><li>The scale repeats title / body / meta. Primary content does not go below <code>font.size.body</code> (12px).</li><li>Tracking is optical, not decorative: <code>tracking.tight</code> on titles at 13px and up, <code>tracking.wide</code> on mono identifiers and micro labels, <code>tracking.normal</code> everywhere else.</li><li>Line height by context: <code>line.tight</code> for display, <code>line.default</code> for UI, <code>line.relaxed</code> for prose. Not a single default applied everywhere.</li></ul>
 <p><strong>The micro-typography pass</strong> — run before any surface is called done:</p>
 <ul><li><code>tabular-nums</code> on every numeric column: counts, ids, timestamps, durations.</li><li>Mono for identifiers only, never for prose.</li><li>Numbers, ids, and percentages right-align in columns; titles left-align. Dense data is never centre-aligned.</li><li>Curly quotes and em-dashes in copy, no double spaces. Code is exempt.</li></ul>
+<h4>Copy</h4>
+<p>Copy is the last resort, not the first. A sentence in the interface is an admission that the interface did not carry the meaning on its own.</p>
+<p><strong>The UI does not explain the UI.</strong> If a control needs a sentence beside it to say why it exists or what will happen, the control is wrong — redesign it. The generated-interface tell is a screen where every element has a caption. Delete, in this order:</p>
+<ul><li>A subtitle that restates the title. &quot;Add a skill source&quot; / &quot;A public GitHub repository. We walk it and find the skills&quot; says the same thing twice.</li><li>A field label that restates the dialog title. One field under &quot;New horizon&quot; does not need a &quot;Horizon name&quot; label above it — pass the name to the control as its accessible name and let the placeholder do the visible work.</li><li>Helper text that restates the placeholder. A field showing <code>owner/repo</code> does not need &quot;a github.com address, or owner/repo&quot; beneath it.</li><li>A closing paragraph reassuring the user about what just happened. &quot;X is now one of your sources. Nothing is installed yet — take skills from it when you want them&quot; is three sentences replacing a state the screen already shows.</li></ul>
+<p>A line of copy earns its place only by carrying something the screen cannot: a consequence the user cannot see (where a file will be written), or a fact they cannot infer (which project this adopted as its home).</p>
+<p><strong>The product does not name itself.</strong> UI copy never says the application's name. &quot;Multicode will run this command&quot;, &quot;cannot be undone from Multicode&quot;, &quot;while Multicode is open&quot; — every one of these is the app narrating itself in the third person, and no serious product does it. Write the sentence without the name: &quot;Will run:&quot;, &quot;cannot be undone from here&quot;, &quot;while the app is open&quot;. The name belongs in exactly four places: the window title, the About/version line, the sign-in and account surfaces, and first-run onboarding.</p>
+<p><strong>Report the result, not the inventory.</strong> When an operation finishes, show the one fact that answers &quot;did it work?&quot; — a count, a name, a state. Everything else the operation happens to know (file counts, commit hashes, byte sizes, which internal layout was chosen) is stored, not displayed. Metadata dumped into a success message reads as a machine reporting to itself.</p>
+<p><strong>Empty is not invalid.</strong> A required field nobody has filled in yet is not an error. Do not mark it with a red &quot;Required&quot; or an asterisk on open — the disabled confirm button already says &quot;not yet&quot;. Validation messages appear after the first keystroke, never before.</p>
+<h4>Composition</h4>
+<p>Tokens govern values and components govern parts. Neither one governs how parts are assembled into a surface — and that is where generated interfaces actually fail. A screen can use every correct token, every approved component, and still be wrong because it has two toolbars, a search detached from the list it filters, and a heading over a group of one.</p>
+<p>So the system fixes canonical <strong>anatomies</strong>. An anatomy is not a suggestion: where one exists, build to it, and if a surface cannot fit it, the surface is the thing to reconsider.</p>
+<p><strong>The list surface</strong> — every rail, column, and panel whose job is &quot;find a thing in a list&quot; is built from exactly these parts, in exactly this order:</p>
+<p>1. <strong>The create affordance.</strong> &quot;New …&quot;, full width, at the very top. Never below the scroll. 2. <strong>The search field, with the filter glyph beside it.</strong> One row. Search is the only at-rest narrowing control; every other axis — project, view, sort, group — is an option inside the glyph's menu. Because collapsing them hides that a filter is applied, the glyph marks itself active whenever any axis is off its default. 3. <strong>One divider.</strong> Directly under the search row, and nowhere else in the header. This is the line that means &quot;the list starts here&quot; — it is the only rule the surface gets. 4. <strong>The rows.</strong></p>
+<p>Two consequences follow, and both were real defects:</p>
+<ul><li><strong>A second full-width control never stacks above the search.</strong> A project Select sitting over the field it narrows is a control competing with the control beside it, and it puts the same choice in two different shapes on two different surfaces.</li><li><strong>The search belongs to the column it narrows, not to the screen.</strong> In a list-plus-detail layout, a search bar spanning the full width reads as &quot;search this screen&quot; while it only ever filters the left column. Constrain it — and its divider — to the column it acts on.</li></ul>
+<p><strong>One chrome band per region of content.</strong> Everything that is chrome for the same content shares a row: status on the left, controls on the right. Reaching for a second band means asking which band the new control belongs in, not where to put the new band.</p>
+<p><strong>A heading must separate something from something else.</strong> Do not label an ungrouped list (&quot;Horizons&quot; over a field that already reads &quot;Search horizons…&quot;), and do not render a group heading when there is only one group — &quot;Recent&quot; spanning every row groups nothing. Headings appear when there are at least two groups to tell apart; the list's accessible name carries the label otherwise.</p>
+<p><strong>A dialog is header, content, actions — separated by space.</strong> No rule under the title, none above the buttons. See *Hairlines carry the structure*.</p>
 <h4>Status is earned</h4>
 <ul><li>Status reads by <strong>shape first, color second</strong> — every state survives grayscale. Healthy, done, and idle render no mark at all.</li><li>One status idiom per surface. A 6px dot or a lifecycle glyph — never a dot and a tinted pill saying the same thing.</li><li>A status is never text-only with no glyph, nor glyph-only with no accessible name.</li><li>The accent green (forest) and the success green (bright emerald) are held apart by brightness and saturation. Never retune one toward the other.</li></ul>
 <h4>Motion</h4>
@@ -1622,7 +1801,7 @@ code {
 <ul><li>Never hard-code a color, space, size, radius, duration, or z-index the system defines. Pick by the token's documented <code>role</code> and <code>use</code>, not by its looks.</li><li>The <code>--ref-*</code> tier is internal plumbing for the token file. Components and patterns consume <code>--sem-*</code> only.</li><li>Layering comes from <code>sem.z.*</code>. A surface that needs to sit between two defined layers is the wrong kind of surface.</li></ul>
 <h4>Reject on sight</h4>
 <p>Each of these is a restart signal, not a fix-it-later note. Rebuild the surface rather than patching it.</p>
-<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product.</li><li>A badge or tinted pill where a status dot carries the same meaning.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a gradient fill, inset highlight, or blurred shadow.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
+<ul><li>Two or more accent hues competing for primary, or an accent used as a selection fill.</li><li>More than two radii or more than three font weights in one view.</li><li>A third font family, or a serif anywhere in the product.</li><li>A badge or tinted pill where a status dot carries the same meaning.</li><li>A card inside a card with no containment reason.</li><li>A hero composition — oversized headline, decorative blob, three-up stat row — inside an operational panel.</li><li>A primary button with a gradient fill, inset highlight, or blurred shadow.</li><li>Decorative emoji as iconography, or celebration copy (&quot;✅&quot;, &quot;🎉&quot;, &quot;Awesome!&quot;).</li><li>Placeholder content: &quot;Lorem ipsum&quot;, &quot;Card title&quot;, &quot;Item 1 / 2 / 3&quot;.</li><li>Empty-state copy that explains an obvious interaction (&quot;Click here to start&quot;), or marketing copy in operational chrome.</li><li>A subtitle restating the title, a field label restating the dialog title, or helper text restating the placeholder.</li><li>The application naming itself in ordinary UI copy.</li><li>A success message that dumps the operation's metadata instead of its result.</li><li>A red &quot;Required&quot; or an asterisk on a field nobody has filled in yet.</li><li>A tone-coloured bar down the left edge of a notice, card, or callout.</li><li>Two stacked bands of chrome above one region of content.</li><li>Dividers separating the sections of a dialog.</li><li>The same count shown in two places where the values could appear to disagree.</li><li>Always-on row actions that should have been revealed on hover — or hover-revealed actions with no keyboard path.</li></ul>
 </div>
 </section>
 <section id="components" class="catalog-group">
@@ -3664,6 +3843,510 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
 </section>
 <section id="patterns" class="catalog-group">
 <h2>Patterns</h2>
+<div id="pattern-list-surface" class="catalog-view catalog-pattern">
+<h3>List surface</h3>
+<div class="catalog-stage ds-embed-pattern-list-surface">
+<div class="pat-stage">
+  <h1 class="pat-title">List surface</h1>
+  <p class="pat-lede">
+    The anatomy every rail, column, and panel whose job is “find a thing in a
+    list” is built from. Create, then search with one filter glyph, then one
+    divider, then the rows. Tokens and components alone never caught the defects
+    this pattern exists to prevent — they are all composition defects.
+  </p>
+
+  <h2 class="pat-heading">The anatomy</h2>
+  <div class="pat-panes">
+    <div>
+      <p class="pat-verdict" data-tone="good">Build to this</p>
+      <div class="rail">
+        <div class="rail-head">
+          <button type="button" class="rail-new">
+            <span aria-hidden="true">+</span> New sprint
+          </button>
+          <div class="rail-find">
+            <span class="rail-search">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
+                <path d="M10.2 10.2 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              Search sprints…
+            </span>
+            <button type="button" class="rail-glyph" data-active="true" aria-label="Filter and sort — filters active">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">design-system-conformance</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">skills-aside</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">site-truth-and-impact</span>
+            <span class="rail-row-meta">landed Jul 29</span>
+          </li>
+        </ul>
+      </div>
+      <p class="pat-caption">
+        Project, view, sort and group all live inside the glyph. It carries the
+        accent dot because a lens is applied — collapsing the axes must never
+        collapse the fact that one is narrowing the list. One group, so no
+        heading over it.
+      </p>
+    </div>
+
+    <div>
+      <p class="pat-verdict" data-tone="bad">Not this</p>
+      <div class="rail rail--wrong">
+        <div class="rail-head">
+          <button type="button" class="rail-new">
+            <span aria-hidden="true">+</span> New sprint
+          </button>
+          <span class="rail-scope">All projects · 49 <span aria-hidden="true">⌄</span></span>
+          <div class="rail-find">
+            <span class="rail-search">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.25" stroke="currentColor" stroke-width="1.4" />
+                <path d="M10.2 10.2 13.5 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              Search sprints…
+            </span>
+            <button type="button" class="rail-glyph" aria-label="Filter and sort">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="rail-group">Recent 49</div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">design-system-conformance</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">skills-aside</span>
+            <span class="rail-row-meta">1 merge left</span>
+          </li>
+        </ul>
+      </div>
+      <p class="pat-caption">
+        Three defects, all composition: a second full-width control stacked over
+        the field it narrows; the same choice offered as a Select here and as a
+        menu axis elsewhere; and a “Recent” heading spanning every row, which
+        groups nothing. The divider has also drifted below the group heading, so
+        it no longer means “the list starts here”.
+      </p>
+    </div>
+  </div>
+
+  <h2 class="pat-heading">Both modes</h2>
+  <div class="pat-panes">
+    <div data-mode="light">
+      <div class="rail">
+        <div class="rail-head">
+          <button type="button" class="rail-new"><span aria-hidden="true">+</span> New item</button>
+          <div class="rail-find">
+            <span class="rail-search">Search items…</span>
+            <button type="button" class="rail-glyph" aria-label="Filter and sort">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">Voice dictation becomes a real module</span>
+            <span class="rail-row-meta">MC-1861 · 1h ago</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">Reviews behind one module boundary</span>
+            <span class="rail-row-meta">MC-1856 · 1h ago</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+    <div data-mode="dark">
+      <div class="rail">
+        <div class="rail-head">
+          <button type="button" class="rail-new"><span aria-hidden="true">+</span> New item</button>
+          <div class="rail-find">
+            <span class="rail-search">Search items…</span>
+            <button type="button" class="rail-glyph" aria-label="Filter and sort">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <ul class="rail-rows">
+          <li class="rail-row" aria-current="true">
+            <span class="rail-row-title">Voice dictation becomes a real module</span>
+            <span class="rail-row-meta">MC-1861 · 1h ago</span>
+          </li>
+          <li class="rail-row">
+            <span class="rail-row-title">Reviews behind one module boundary</span>
+            <span class="rail-row-meta">MC-1856 · 1h ago</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <p class="pat-caption">
+    In a list-plus-detail layout the whole block above — search, glyph, and the
+    divider under them — is constrained to the list column. Spanning the full
+    width reads as “search this screen” while it only ever filters one column.
+  </p>
+</div>
+</div>
+<details class="catalog-source"><summary>patterns/list-surface.html</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;List surface&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../foundations/tokens.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-body);
+    line-height: var(--sem-font-line-default);
+  }
+  .pat-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .pat-title {
+    font-size: var(--sem-font-size-title);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: 0 0 var(--sem-space-2xs);
+  }
+  .pat-lede {
+    color: var(--sem-color-text-muted);
+    max-width: 62ch;
+    margin: 0 0 var(--sem-space-2xl);
+  }
+  .pat-heading {
+    font-size: var(--sem-font-size-heading);
+    font-weight: var(--sem-font-weight-emphasis);
+    letter-spacing: var(--sem-font-tracking-tight);
+    color: var(--sem-color-text-primary);
+    margin: var(--sem-space-3xl) 0 var(--sem-space-sm);
+  }
+  .pat-caption {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    max-width: 62ch;
+    margin: var(--sem-space-sm) 0 0;
+  }
+  .pat-panes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--sem-space-lg);
+    align-items: start;
+  }
+
+  /* ── the anatomy ───────────────────────────────────────────────────────── */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    background: var(--sem-color-bg-surface-raised);
+    border: 1px solid var(--sem-color-border-subtle);
+    border-radius: var(--sem-radius-overlay);
+    overflow: hidden;
+  }
+  /* 1+2+3: create, then search with the glyph, then THE divider. */
+  .rail-head {
+    padding: var(--sem-space-sm);
+    border-bottom: 1px solid var(--sem-color-border-subtle);
+  }
+  .rail-new {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    margin-bottom: var(--sem-space-sm);
+    border: 1px dashed var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .rail-new:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
+  .rail-new:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+
+  .rail-find { display: flex; align-items: center; gap: var(--sem-space-2xs); }
+  .rail-search {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-xs);
+    flex: 1;
+    min-width: 0;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-subtle);
+  }
+  .rail-glyph {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--sem-size-control-xs);
+    height: var(--sem-size-control-xs);
+    flex: none;
+    border: 0;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-muted);
+    cursor: pointer;
+  }
+  .rail-glyph:hover { background: var(--sem-color-bg-hover); color: var(--sem-color-text-primary); }
+  .rail-glyph:focus-visible { outline: none; box-shadow: var(--sem-shadow-focus-ring); }
+  /* Collapsing the axes hides them; it must never hide that one is applied. */
+  .rail-glyph[data-active=&quot;true&quot;] { color: var(--sem-color-accent-primary); }
+  .rail-glyph[data-active=&quot;true&quot;]::after {
+    content: &quot;&quot;;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--sem-radius-pill);
+    background: var(--sem-color-accent-primary);
+  }
+
+  /* 4: the rows. */
+  .rail-rows { list-style: none; margin: 0; padding: var(--sem-space-2xs); }
+  .rail-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-3xs);
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    border-radius: var(--sem-radius-control);
+  }
+  .rail-row[aria-current=&quot;true&quot;] { background: var(--sem-color-bg-selected); }
+  .rail-row-title { color: var(--sem-color-text-default); }
+  .rail-row[aria-current=&quot;true&quot;] .rail-row-title { color: var(--sem-color-text-primary); }
+  .rail-row-meta { font-size: var(--sem-font-size-meta); color: var(--sem-color-text-subtle); }
+  /* A heading appears only when there are two groups to tell apart. */
+  .rail-group {
+    padding: var(--sem-space-sm) var(--sem-space-sm) var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    font-weight: var(--sem-font-weight-emphasis);
+    color: var(--sem-color-text-subtle);
+  }
+
+  /* the rejected shape, for contrast */
+  .rail--wrong .rail-scope {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: var(--sem-size-control-sm);
+    padding: 0 var(--sem-space-sm);
+    margin-bottom: var(--sem-space-sm);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-control);
+    background: var(--sem-color-bg-surface);
+    color: var(--sem-color-text-default);
+  }
+  .rail--wrong .rail-head { border-bottom: 0; }
+  .rail--wrong .rail-rows { border-top: 1px solid var(--sem-color-border-subtle); }
+  .pat-verdict {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    margin: 0 0 var(--sem-space-xs);
+  }
+  .pat-verdict[data-tone=&quot;good&quot;] { color: var(--sem-color-status-good); }
+  .pat-verdict[data-tone=&quot;bad&quot;] { color: var(--sem-color-status-danger); }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;pat-stage&quot;&gt;
+  &lt;h1 class=&quot;pat-title&quot;&gt;List surface&lt;/h1&gt;
+  &lt;p class=&quot;pat-lede&quot;&gt;
+    The anatomy every rail, column, and panel whose job is “find a thing in a
+    list” is built from. Create, then search with one filter glyph, then one
+    divider, then the rows. Tokens and components alone never caught the defects
+    this pattern exists to prevent — they are all composition defects.
+  &lt;/p&gt;
+
+  &lt;h2 class=&quot;pat-heading&quot;&gt;The anatomy&lt;/h2&gt;
+  &lt;div class=&quot;pat-panes&quot;&gt;
+    &lt;div&gt;
+      &lt;p class=&quot;pat-verdict&quot; data-tone=&quot;good&quot;&gt;Build to this&lt;/p&gt;
+      &lt;div class=&quot;rail&quot;&gt;
+        &lt;div class=&quot;rail-head&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;rail-new&quot;&gt;
+            &lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New sprint
+          &lt;/button&gt;
+          &lt;div class=&quot;rail-find&quot;&gt;
+            &lt;span class=&quot;rail-search&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;13&quot; height=&quot;13&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+                &lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;4.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; /&gt;
+                &lt;path d=&quot;M10.2 10.2 13.5 13.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              Search sprints…
+            &lt;/span&gt;
+            &lt;button type=&quot;button&quot; class=&quot;rail-glyph&quot; data-active=&quot;true&quot; aria-label=&quot;Filter and sort — filters active&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;14&quot; height=&quot;14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+                &lt;path d=&quot;M2.5 4.5h11M4.5 8h7M6.5 11.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;ul class=&quot;rail-rows&quot;&gt;
+          &lt;li class=&quot;rail-row&quot; aria-current=&quot;true&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;design-system-conformance&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;1 merge left&lt;/span&gt;
+          &lt;/li&gt;
+          &lt;li class=&quot;rail-row&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;skills-aside&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;1 merge left&lt;/span&gt;
+          &lt;/li&gt;
+          &lt;li class=&quot;rail-row&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;site-truth-and-impact&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;landed Jul 29&lt;/span&gt;
+          &lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+      &lt;p class=&quot;pat-caption&quot;&gt;
+        Project, view, sort and group all live inside the glyph. It carries the
+        accent dot because a lens is applied — collapsing the axes must never
+        collapse the fact that one is narrowing the list. One group, so no
+        heading over it.
+      &lt;/p&gt;
+    &lt;/div&gt;
+
+    &lt;div&gt;
+      &lt;p class=&quot;pat-verdict&quot; data-tone=&quot;bad&quot;&gt;Not this&lt;/p&gt;
+      &lt;div class=&quot;rail rail--wrong&quot;&gt;
+        &lt;div class=&quot;rail-head&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;rail-new&quot;&gt;
+            &lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New sprint
+          &lt;/button&gt;
+          &lt;span class=&quot;rail-scope&quot;&gt;All projects · 49 &lt;span aria-hidden=&quot;true&quot;&gt;⌄&lt;/span&gt;&lt;/span&gt;
+          &lt;div class=&quot;rail-find&quot;&gt;
+            &lt;span class=&quot;rail-search&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;13&quot; height=&quot;13&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+                &lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;4.25&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; /&gt;
+                &lt;path d=&quot;M10.2 10.2 13.5 13.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+              Search sprints…
+            &lt;/span&gt;
+            &lt;button type=&quot;button&quot; class=&quot;rail-glyph&quot; aria-label=&quot;Filter and sort&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;14&quot; height=&quot;14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+                &lt;path d=&quot;M2.5 4.5h11M4.5 8h7M6.5 11.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;rail-group&quot;&gt;Recent 49&lt;/div&gt;
+        &lt;ul class=&quot;rail-rows&quot;&gt;
+          &lt;li class=&quot;rail-row&quot; aria-current=&quot;true&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;design-system-conformance&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;1 merge left&lt;/span&gt;
+          &lt;/li&gt;
+          &lt;li class=&quot;rail-row&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;skills-aside&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;1 merge left&lt;/span&gt;
+          &lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+      &lt;p class=&quot;pat-caption&quot;&gt;
+        Three defects, all composition: a second full-width control stacked over
+        the field it narrows; the same choice offered as a Select here and as a
+        menu axis elsewhere; and a “Recent” heading spanning every row, which
+        groups nothing. The divider has also drifted below the group heading, so
+        it no longer means “the list starts here”.
+      &lt;/p&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;h2 class=&quot;pat-heading&quot;&gt;Both modes&lt;/h2&gt;
+  &lt;div class=&quot;pat-panes&quot;&gt;
+    &lt;div data-mode=&quot;light&quot;&gt;
+      &lt;div class=&quot;rail&quot;&gt;
+        &lt;div class=&quot;rail-head&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;rail-new&quot;&gt;&lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New item&lt;/button&gt;
+          &lt;div class=&quot;rail-find&quot;&gt;
+            &lt;span class=&quot;rail-search&quot;&gt;Search items…&lt;/span&gt;
+            &lt;button type=&quot;button&quot; class=&quot;rail-glyph&quot; aria-label=&quot;Filter and sort&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;14&quot; height=&quot;14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+                &lt;path d=&quot;M2.5 4.5h11M4.5 8h7M6.5 11.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;ul class=&quot;rail-rows&quot;&gt;
+          &lt;li class=&quot;rail-row&quot; aria-current=&quot;true&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;Voice dictation becomes a real module&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;MC-1861 · 1h ago&lt;/span&gt;
+          &lt;/li&gt;
+          &lt;li class=&quot;rail-row&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;Reviews behind one module boundary&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;MC-1856 · 1h ago&lt;/span&gt;
+          &lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div data-mode=&quot;dark&quot;&gt;
+      &lt;div class=&quot;rail&quot;&gt;
+        &lt;div class=&quot;rail-head&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;rail-new&quot;&gt;&lt;span aria-hidden=&quot;true&quot;&gt;+&lt;/span&gt; New item&lt;/button&gt;
+          &lt;div class=&quot;rail-find&quot;&gt;
+            &lt;span class=&quot;rail-search&quot;&gt;Search items…&lt;/span&gt;
+            &lt;button type=&quot;button&quot; class=&quot;rail-glyph&quot; aria-label=&quot;Filter and sort&quot;&gt;
+              &lt;svg viewBox=&quot;0 0 16 16&quot; width=&quot;14&quot; height=&quot;14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;
+                &lt;path d=&quot;M2.5 4.5h11M4.5 8h7M6.5 11.5h3&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; /&gt;
+              &lt;/svg&gt;
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;ul class=&quot;rail-rows&quot;&gt;
+          &lt;li class=&quot;rail-row&quot; aria-current=&quot;true&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;Voice dictation becomes a real module&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;MC-1861 · 1h ago&lt;/span&gt;
+          &lt;/li&gt;
+          &lt;li class=&quot;rail-row&quot;&gt;
+            &lt;span class=&quot;rail-row-title&quot;&gt;Reviews behind one module boundary&lt;/span&gt;
+            &lt;span class=&quot;rail-row-meta&quot;&gt;MC-1856 · 1h ago&lt;/span&gt;
+          &lt;/li&gt;
+        &lt;/ul&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+  &lt;p class=&quot;pat-caption&quot;&gt;
+    In a list-plus-detail layout the whole block above — search, glyph, and the
+    divider under them — is constrained to the list column. Spanning the full
+    width reads as “search this screen” while it only ever filters one column.
+  &lt;/p&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="pattern-selection" class="catalog-view catalog-pattern">
 <h3>Selection</h3>
 <div class="catalog-stage ds-embed-pattern-selection">

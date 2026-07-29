@@ -936,7 +936,7 @@ async function requireSprintEngineMcpAuthority(
 ): Promise<SprintEngineMcpActorContext> {
   const userId = deps.getAuthenticatedUserId()
   if (!userId) {
-    throw new Error('Artifact review requires an authenticated Multicode user.')
+    throw new Error('Artifact review requires a signed-in user.')
   }
 
   return {

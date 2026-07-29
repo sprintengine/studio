@@ -680,7 +680,7 @@ function StepRow({
             className="min-w-0 flex-1 truncate font-mono text-[11px] text-[color:var(--text-disabled)]"
             title={
               row.projectUnavailable
-                ? `${row.projectName} is not open in this Multicode, so this step cannot be read.`
+                ? `${row.projectName} is not open, so this step cannot be read.`
                 : `No backlog item matches “${row.ref}”. Remove the stale step, or create the item.`
             }
           >
@@ -703,7 +703,7 @@ function StepRow({
             className="shrink-0 max-w-[7rem] truncate rounded-sm border border-[color:var(--border-subtle)] px-1 font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
             title={
               row.state === 'unknown_project'
-                ? `${row.projectName} — this project is not open in this Multicode`
+                ? `${row.projectName} — this project is not open`
                 : `In ${row.projectName}`
             }
           >

@@ -79,7 +79,7 @@ async function resolveStashSelector(
         ok: false,
         stdout: '',
         stderr: '',
-        message: 'The stash list changed since it was loaded. Multicode refreshed it; try again.',
+        message: 'The stash list changed since it was loaded. It has been refreshed; try again.',
       },
     }
   }

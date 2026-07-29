@@ -220,7 +220,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     sourceSummary,
     `Source snapshot: ${contentLines} total text line${contentLines === 1 ? '' : 's'} selected by the user.`,
     seedAlreadyPersisted
-      ? `The Multicode app has already created the run store and seeded this sprint source. The remaining canonical Sprint Engine files (product requirements, plan, task cards) are still created through the managed \`${STUDIO_MCP_SERVER_ID}\` MCP server, which resolves run and workspace routing from its registered run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, \`handover.md\`, task state, or artifact state directly. The source is already registered — do NOT call \`sprintengine.handover\`.`
+      ? `The app has already created the run store and seeded this sprint source. The remaining canonical Sprint Engine files (product requirements, plan, task cards) are still created through the managed \`${STUDIO_MCP_SERVER_ID}\` MCP server, which resolves run and workspace routing from its registered run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, \`handover.md\`, task state, or artifact state directly. The source is already registered — do NOT call \`sprintengine.handover\`.`
       : `The renderer has only created local workspace metadata and this startup prompt. Canonical Sprint Engine files must be created through the managed \`${STUDIO_MCP_SERVER_ID}\` MCP server, which resolves run and workspace routing from its registered run context. Do not pass server-owned routing fields in autonomous MCP tool payloads. Do not write run-store files, \`handover.md\`, task state, or artifact state directly.`,
     seedAlreadyPersisted ? null : handoverCalls,
     seedAlreadyPersisted
@@ -235,7 +235,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
     mockupDirective,
     autoRunRequested
       ? [
-        'Auto-run was requested when this workspace was created. The Multicode app owns runner policy and will persist `auto` mode through its supervisor IPC immediately after `sprintengine.init` returns — you do not need to set runner mode from this terminal.',
+        'Auto-run was requested when this workspace was created. The app owns runner policy and will persist `auto` mode through its supervisor IPC immediately after `sprintengine.init` returns — you do not need to set runner mode from this terminal.',
         'After `sprintengine.init` succeeds, continue immediately into the architect MCP join + claim flow for this same run.',
         'Register as the architect agent with `sprintengine.agent.join`:',
         jsonBlock(architectJoinPayload),
@@ -245,7 +245,7 @@ export function buildPlanFileSprintEngineHandoffPrompt({
       ].join('\n\n')
       : null,
     reference
-      ? 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the referenced source file(s) at the project-root-relative paths listed in their claimed task, treat them as canonical incoming context, and update them in place rather than copying them.'
-      : 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` using `{role, id}`. Work what the claim returns; if it returns no claim, stop — Multicode re-engages the terminal when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
+      ? 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` using `{role, id}`. Work what the claim returns; if it returns no claim, stop — the terminal is re-engaged when work is ready. Product and architect agents must read the referenced source file(s) at the project-root-relative paths listed in their claimed task, treat them as canonical incoming context, and update them in place rather than copying them.'
+      : 'After initialization, agents continue through the managed MCP server: register with `sprintengine.agent.join`, then claim work with `sprintengine.task.next` using `{role, id}`. Work what the claim returns; if it returns no claim, stop — the terminal is re-engaged when work is ready. Product and architect agents must read the imported source file(s) in the Sprint Engine team folder when their own work is claimed, and should treat those files as incoming context.',
   ].filter((line): line is string => line !== null).join('\n\n')
 }

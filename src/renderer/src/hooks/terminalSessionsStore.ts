@@ -52,6 +52,10 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       // tool_use flips on every tool call are high-frequency noise, like
       // lastOutputAt above. Widen this when more phase detail is actually rendered.
       session.agentState?.phase === 'awaiting_input',
+      // The tab hover preview and the auto-title both render this, so a new
+      // prompt has to survive the dedupe. Keyed on the timestamp rather than the
+      // text: it changes on every submit, including a prompt re-sent verbatim.
+      session.lastPrompt?.at ?? null,
     ])
   return JSON.stringify(rows)
 }

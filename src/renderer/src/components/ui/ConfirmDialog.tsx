@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react'
-import { Field } from './Field'
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from './Modal'
 import { FOCUS_RING_CLASS } from './tokens'
 
@@ -188,10 +187,16 @@ function PromptDialog({
   const titleId = useId()
   const inputId = useId()
   const [value, setValue] = useState(options.initialValue ?? '')
+  const [touched, setTouched] = useState(false)
   const trimmed = value.trim()
-  const requiredError = options.required && trimmed.length === 0 ? 'Required' : null
-  const validationError = requiredError ?? options.validate?.(value) ?? null
-  const canSubmit = !validationError
+  const missing = Boolean(options.required) && trimmed.length === 0
+  const validationError = options.validate?.(value) ?? null
+  const canSubmit = !missing && !validationError
+  // An empty required field is not an error yet — it is a field nobody has
+  // filled in. The disabled confirm button already says "not yet"; a red
+  // "Required" under an untouched input is the UI narrating itself. Real
+  // validation messages wait for the first keystroke too.
+  const shownError = touched ? validationError : null
 
   return (
     <Modal open onClose={onCancel} labelledBy={titleId} width={460} contained={options.contained}>
@@ -203,29 +208,40 @@ function PromptDialog({
         }}
       >
         <ModalHeader title={options.title} titleId={titleId} onClose={onCancel} />
-        <ModalBody className="space-y-4">
+        <ModalBody className="space-y-3">
           {options.body ? (
             <div className="text-[13px] leading-5 text-[color:var(--text-default)]">{options.body}</div>
           ) : null}
-          <Field
-            label={options.inputLabel}
-            htmlFor={inputId}
-            error={validationError ?? undefined}
-            required={options.required}
-          >
-            <input
-              value={value}
-              autoFocus
-              placeholder={options.placeholder}
-              onChange={(event) => setValue(event.currentTarget.value)}
-              className={[
-                'h-8 rounded-[5px] border border-[color:var(--border-default)]',
-                'bg-[color:var(--bg-surface-raised)] px-2 text-[13px] text-[color:var(--text-strong)]',
-                'placeholder:text-[color:var(--text-disabled)]',
-                FOCUS_RING_CLASS,
-              ].join(' ')}
-            />
-          </Field>
+          {/* No visible label and no required asterisk. The dialog title names
+              the thing being asked for and there is exactly one field, so a
+              label above it restates the title in smaller type. `inputLabel`
+              becomes the accessible name instead — the label still exists for
+              a screen reader, it just stops being redundant on screen. */}
+          <input
+            id={inputId}
+            value={value}
+            autoFocus
+            placeholder={options.placeholder}
+            aria-label={options.inputLabel}
+            aria-required={options.required ? true : undefined}
+            aria-invalid={shownError ? true : undefined}
+            aria-describedby={shownError ? `${inputId}-error` : undefined}
+            onChange={(event) => {
+              setTouched(true)
+              setValue(event.currentTarget.value)
+            }}
+            className={[
+              'block h-8 w-full rounded-[5px] border border-[color:var(--border-default)]',
+              'bg-[color:var(--bg-surface-raised)] px-2 text-[13px] text-[color:var(--text-strong)]',
+              'placeholder:text-[color:var(--text-disabled)]',
+              FOCUS_RING_CLASS,
+            ].join(' ')}
+          />
+          {shownError ? (
+            <p id={`${inputId}-error`} className="text-[11px] text-[color:var(--tone-error)]">
+              {shownError}
+            </p>
+          ) : null}
         </ModalBody>
         <ModalFooter>
           <ModalButton type="button" onClick={onCancel}>

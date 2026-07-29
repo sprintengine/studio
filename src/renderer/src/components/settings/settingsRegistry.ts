@@ -138,7 +138,7 @@ export const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'appearance-theme',
     label: 'Theme',
-    help: 'Theme applies across every Multicode workspace and panel.',
+    help: 'Theme applies across every workspace and panel.',
     scope: 'app',
     group: 'appearance',
     field: { type: 'select', items: APP_THEME_OPTIONS },

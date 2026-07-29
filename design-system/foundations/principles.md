@@ -100,6 +100,22 @@ person with everything at once.
 - In light mode, `bg.surface-raised` is deliberately the same white as
   `bg.surface`: raised surfaces separate by shadow and `border.strong`, not by
   tone. In dark mode the tone step does the work.
+- **Inside an overlay, space separates — rules do not.** A dialog's title, its
+  content, and its buttons are divided by padding. A rule under the title and
+  another above the buttons cuts a small surface into three boxed strips and
+  buys nothing: the shell already draws its own edge, and a shell that scrolls
+  as one piece never needed the rules as scroll affordances.
+- **One chrome row per content region.** Everything that is chrome for the same
+  content shares a band — status on the left, controls on the right. A tools bar
+  stacked on a status bar spends a second band of vertical space to say what the
+  first could hold. When you reach for a second row, the question is which row
+  the new control belongs in, not where to put the new row.
+- **A notice carries its tone with a glyph, not a coloured edge.** A 2px stripe
+  down one side of an error or warning card is decoration wearing a hairline's
+  clothes: it doubles the card's own border, breaks the 1px rule, and leaves the
+  tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint,
+  and the tone glyph at the leading edge — which is what makes it survive
+  greyscale.
 
 ## Space and size
 
@@ -141,6 +157,102 @@ product. Introducing one is a system change, not a styling choice.
 - Numbers, ids, and percentages right-align in columns; titles left-align.
   Dense data is never centre-aligned.
 - Curly quotes and em-dashes in copy, no double spaces. Code is exempt.
+
+## Copy
+
+Copy is the last resort, not the first. A sentence in the interface is an
+admission that the interface did not carry the meaning on its own.
+
+**The UI does not explain the UI.** If a control needs a sentence beside it to
+say why it exists or what will happen, the control is wrong — redesign it. The
+generated-interface tell is a screen where every element has a caption. Delete,
+in this order:
+
+- A subtitle that restates the title. "Add a skill source" / "A public GitHub
+  repository. We walk it and find the skills" says the same thing twice.
+- A field label that restates the dialog title. One field under "New horizon"
+  does not need a "Horizon name" label above it — pass the name to the control
+  as its accessible name and let the placeholder do the visible work.
+- Helper text that restates the placeholder. A field showing `owner/repo` does
+  not need "a github.com address, or owner/repo" beneath it.
+- A closing paragraph reassuring the user about what just happened. "X is now
+  one of your sources. Nothing is installed yet — take skills from it when you
+  want them" is three sentences replacing a state the screen already shows.
+
+A line of copy earns its place only by carrying something the screen cannot:
+a consequence the user cannot see (where a file will be written), or a fact
+they cannot infer (which project this adopted as its home).
+
+**The product does not name itself.** UI copy never says the application's
+name. "Multicode will run this command", "cannot be undone from Multicode",
+"while Multicode is open" — every one of these is the app narrating itself in
+the third person, and no serious product does it. Write the sentence without
+the name: "Will run:", "cannot be undone from here", "while the app is open".
+The name belongs in exactly four places: the window title, the About/version
+line, the sign-in and account surfaces, and first-run onboarding.
+
+**Report the result, not the inventory.** When an operation finishes, show the
+one fact that answers "did it work?" — a count, a name, a state. Everything
+else the operation happens to know (file counts, commit hashes, byte sizes,
+which internal layout was chosen) is stored, not displayed. Metadata dumped
+into a success message reads as a machine reporting to itself.
+
+**Empty is not invalid.** A required field nobody has filled in yet is not an
+error. Do not mark it with a red "Required" or an asterisk on open — the
+disabled confirm button already says "not yet". Validation messages appear
+after the first keystroke, never before.
+
+## Composition
+
+Tokens govern values and components govern parts. Neither one governs how parts
+are assembled into a surface — and that is where generated interfaces actually
+fail. A screen can use every correct token, every approved component, and still
+be wrong because it has two toolbars, a search detached from the list it
+filters, and a heading over a group of one.
+
+So the system fixes canonical **anatomies**. An anatomy is not a suggestion:
+where one exists, build to it, and if a surface cannot fit it, the surface is
+the thing to reconsider.
+
+**The list surface** — every rail, column, and panel whose job is "find a thing
+in a list" is built from exactly these parts, in exactly this order:
+
+1. **The create affordance.** "New …", full width, at the very top. Never below
+   the scroll.
+2. **The search field, with the filter glyph beside it.** One row. Search is the
+   only at-rest narrowing control; every other axis — project, view, sort,
+   group — is an option inside the glyph's menu. Because collapsing them hides
+   that a filter is applied, the glyph marks itself active whenever any axis is
+   off its default.
+3. **One divider.** Directly under the search row, and nowhere else in the
+   header. This is the line that means "the list starts here" — it is the only
+   rule the surface gets.
+4. **The rows.**
+
+Two consequences follow, and both were real defects:
+
+- **A second full-width control never stacks above the search.** A project
+  Select sitting over the field it narrows is a control competing with the
+  control beside it, and it puts the same choice in two different shapes on two
+  different surfaces.
+- **The search belongs to the column it narrows, not to the screen.** In a
+  list-plus-detail layout, a search bar spanning the full width reads as "search
+  this screen" while it only ever filters the left column. Constrain it — and
+  its divider — to the column it acts on.
+
+**One chrome band per region of content.** Everything that is chrome for the
+same content shares a row: status on the left, controls on the right. Reaching
+for a second band means asking which band the new control belongs in, not where
+to put the new band.
+
+**A heading must separate something from something else.** Do not label an
+ungrouped list ("Horizons" over a field that already reads "Search horizons…"),
+and do not render a group heading when there is only one group — "Recent"
+spanning every row groups nothing. Headings appear when there are at least two
+groups to tell apart; the list's accessible name carries the label otherwise.
+
+**A dialog is header, content, actions — separated by space.** No rule under the
+title, none above the buttons. See *Hairlines carry the structure*.
 
 ## Status is earned
 
@@ -222,6 +334,14 @@ surface rather than patching it.
 - Placeholder content: "Lorem ipsum", "Card title", "Item 1 / 2 / 3".
 - Empty-state copy that explains an obvious interaction ("Click here to
   start"), or marketing copy in operational chrome.
+- A subtitle restating the title, a field label restating the dialog title, or
+  helper text restating the placeholder.
+- The application naming itself in ordinary UI copy.
+- A success message that dumps the operation's metadata instead of its result.
+- A red "Required" or an asterisk on a field nobody has filled in yet.
+- A tone-coloured bar down the left edge of a notice, card, or callout.
+- Two stacked bands of chrome above one region of content.
+- Dividers separating the sections of a dialog.
 - The same count shown in two places where the values could appear to disagree.
 - Always-on row actions that should have been revealed on hover — or
   hover-revealed actions with no keyboard path.

@@ -8,7 +8,6 @@ import {
   InlineNotice,
   MenuItem,
   PrimaryButton,
-  Select,
   Tooltip,
   useConfirmDialog,
   type SelectItem,
@@ -558,22 +557,38 @@ export default function BacklogGlobalSurface(): JSX.Element {
   return (
     <GlobalSurfaceShell ariaLabel="Backlog" bar={bar} onBack={back.onBack} canGoBack={back.canGoBack}>
       <div ref={rootRef} className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-        <BacklogDoorToolbar
-          projects={projects}
-          filter={filter}
-          counts={list.countsByProject}
-          view={door.view}
-          sort={door.sort}
-          group={door.group}
-          search={search}
-          onFilter={(next) => setDoorView({ projectFilter: next })}
-          onSearch={setSearch}
-          onViewChange={(view) => setDoorView({ view })}
-          onSortChange={(sort) => setDoorView({ sort })}
-          onGroupChange={(group) => setDoorView({ group })}
-        />
+        {/* The search belongs to the column it narrows, not to the whole door.
+            Spanning the full width put it above the detail pane too, so it read
+            as "search this screen" while it only ever filtered the list on the
+            left. Constrained to the list column, the control and its target are
+            the same shape and the divider under it lands where the rows start. */}
+        <div className="flex shrink-0">
+          <div
+            className={
+              isSplit
+                ? 'w-[44%] max-w-[460px] border-r border-[color:var(--border-subtle)]'
+                : 'w-full'
+            }
+          >
+            <BacklogDoorToolbar
+              projects={projects}
+              filter={filter}
+              counts={list.countsByProject}
+              view={door.view}
+              sort={door.sort}
+              group={door.group}
+              search={search}
+              onFilter={(next) => setDoorView({ projectFilter: next })}
+              onSearch={setSearch}
+              onViewChange={(view) => setDoorView({ view })}
+              onSortChange={(sort) => setDoorView({ sort })}
+              onGroupChange={(group) => setDoorView({ group })}
+            />
+          </div>
+          {isSplit ? <div className="flex-1 border-b border-[color:var(--border-subtle)]" /> : null}
+        </div>
         {actionError ? (
-          <div className="shrink-0 px-4 pb-2">
+          <div className="shrink-0 px-4 pb-2 pt-2">
             <InlineNotice
               tone="error"
               title="That change didn’t go through."
@@ -802,34 +817,26 @@ function BacklogDoorToolbar({
       })),
   ]
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2.5">
-      <Select
-        ariaLabel="Filter by project"
-        items={filterItems}
-        value={filter}
-        onChange={onFilter}
-        triggerMinWidthClassName="min-w-[180px]"
+    <div className="flex shrink-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] px-3 py-2">
+      <InboxSearchInput
+        value={search}
+        onChange={onSearch}
+        ariaLabel="Search every project’s backlog"
+        placeholder="Search every project…"
       />
-      <div className="ml-auto flex min-w-[220px] max-w-[380px] flex-1 items-center gap-1.5">
-        <InboxSearchInput
-          value={search}
-          onChange={onSearch}
-          ariaLabel="Search every project’s backlog"
-          placeholder="Search every project…"
-        />
-        <BacklogFilterMenu
-          view={view}
-          sort={sort}
-          group={group}
-          viewItems={VIEW_ITEMS}
-          sortItems={SORT_ITEMS}
-          groupItems={GROUP_ITEMS}
-          onViewChange={onViewChange}
-          onSortChange={onSortChange}
-          onGroupChange={onGroupChange}
-          className="shrink-0"
-        />
-      </div>
+      <BacklogFilterMenu
+        view={view}
+        sort={sort}
+        group={group}
+        viewItems={VIEW_ITEMS}
+        sortItems={SORT_ITEMS}
+        groupItems={GROUP_ITEMS}
+        onViewChange={onViewChange}
+        onSortChange={onSortChange}
+        onGroupChange={onGroupChange}
+        project={{ items: filterItems, value: filter, defaultValue: ALL_PROJECTS, onChange: onFilter }}
+        className="shrink-0"
+      />
     </div>
   )
 }

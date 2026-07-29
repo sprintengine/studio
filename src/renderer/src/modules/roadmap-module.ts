@@ -31,7 +31,7 @@ export const roadmapRendererModule: RendererModule = {
     publisher: 'multicode',
     category: 'orchestration',
     summary:
-      'Works an ordered plan of backlog items across your projects, one sprint at a time. Disabling hides the sidebar door and stops Multicode from starting new sprints.',
+      'Works an ordered plan of backlog items across your projects, one sprint at a time. Disabling hides the sidebar door and stops new sprints from starting.',
     defaultEnabled: true,
     dependsOn: ['sprint-engine', 'automations'],
   },

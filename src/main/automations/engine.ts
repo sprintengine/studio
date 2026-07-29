@@ -926,7 +926,7 @@ export class AutomationsEngine {
         automationId: pending.automationId,
         runId: pending.runId,
         outcome: 'failed',
-        summary: 'The agent stopped while Multicode was closed, so this run never finished.',
+        summary: 'The agent stopped while the app was closed, so this run never finished.',
         workspaceId: pending.workspaceId,
         eventTrigger: 'timer',
       })

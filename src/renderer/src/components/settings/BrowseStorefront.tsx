@@ -126,7 +126,7 @@ export function PluginDetailPanel({
       return
     }
     if (typeof window.api.verifyMarketplacePlugin !== 'function') {
-      setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update Multicode and restart.' })
+      setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update and restart.' })
       return
     }
     setFlow({ status: 'verifying' })
@@ -392,7 +392,7 @@ function TrustPrompt({
             }
           : {
               heading: 'Community extension — review the access it requests',
-              body: 'This publisher isn’t verified. Trusting it lets its code run in Multicode with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
+              body: 'This publisher isn’t verified. Trusting it lets its code run with the app’s access — requested access is install-time disclosure, not a runtime sandbox.',
             }
   return (
     <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">

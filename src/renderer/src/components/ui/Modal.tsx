@@ -79,9 +79,14 @@ type ModalHeaderProps = {
   onClose?: () => void
 }
 
+// Header, body, and footer are separated by space, not by rules. The modal
+// shell already draws its own edge; a divider under the title and another above
+// the buttons cuts a small dialog into three boxed strips for no structural
+// gain. The shell scrolls as one piece, so neither rule was a scroll affordance
+// either.
 export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-subtle)] px-5 py-4">
+    <div className="flex items-start justify-between gap-4 px-5 pb-0 pt-5">
       <div className="min-w-0">
         <TruncatedText
           as="h2"
@@ -101,12 +106,12 @@ export function ModalHeader({ title, subtitle, titleId, onClose }: ModalHeaderPr
 }
 
 export function ModalBody({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={`px-5 py-5 ${className ?? ''}`}>{children}</div>
+  return <div className={`px-5 py-4 ${className ?? ''}`}>{children}</div>
 }
 
 export function ModalFooter({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[color:var(--border-subtle)] px-5 py-3">
+    <div className="flex flex-wrap items-center justify-end gap-2 px-5 pb-5 pt-2">
       {children}
     </div>
   )

@@ -2,10 +2,15 @@
 //
 // The guide used to run on the companion/conversation path: Claude-only, hidden
 // from the session manager, and driven by a stream-scraping harness. It now runs
-// as a plain agent terminal in the project workspace the review belongs to,
-// under whichever CLI the reviewer picked, with the `review-guide` builtin skill
-// attached at spawn and the walkthrough delivered through the Studio gateway's
-// `review_submit_brief` tool. Nothing here parses the guide's output.
+// as a plain agent terminal under whichever CLI the reviewer picked, with the
+// `review-guide` builtin skill attached at spawn and the walkthrough delivered
+// through the Studio gateway's `review_submit_brief` tool. Nothing here parses
+// the guide's output.
+//
+// It runs WITH the project as its cwd and IN the project's Reviews-host
+// workspace (MC-1911) — a rail-hidden residency that holds review guides and
+// nothing else, so the guide is never a stray tab among the reviewer's own
+// agents. The Reviews door is what finds and opens it.
 //
 // Where the spawn happens: the app's programmatic agent-terminal seam is the
 // terminal runtime's spawn handler (the same one the sprint scheduler drives
@@ -22,6 +27,7 @@
 // Every phase goes to the guide-run registry (which outlives the renderer) and
 // the BriefRunEvent channel, so a remount rediscovers a live run.
 
+import { randomUUID } from 'crypto'
 import { resolve } from 'path'
 
 import type {
@@ -31,7 +37,7 @@ import type {
   TerminalSpawnResult,
 } from '../../shared/electron-api'
 import { bracketedTerminalPaste } from '../../shared/sprintengine/auto-run-executor'
-import { isModeHiddenFromRail } from '../../shared/workspace-mode'
+import { isModeHiddenFromRail, REVIEWS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
 import type { TerminalSpawnPayload } from '../ipc/terminal-ipc'
 import type { BriefRunEvent } from './brief-run-service'
 import {
@@ -73,9 +79,18 @@ const ENDED_WITHOUT_BRIEF_DETAIL =
   'The guide session ended without delivering a walkthrough — its terminal has the details.'
 const STOPPED_DETAIL = 'You stopped the guide.'
 
-// One guide agent per review, deterministic in both directions: the terminal
-// session id equals the agent id, so a second start finds the live terminal
-// instead of spawning a twin, and the renderer can reattach a tab to it.
+// One guide agent per review, deterministic from the review id, so a second
+// start finds the live terminal instead of spawning a twin and the renderer can
+// reattach a tab to it.
+//
+// This is the AGENT id, never the terminal session id. The two used to be the
+// same string, which broke the guide outright on every Claude-harness CLI: a
+// manifest declaring `sessionIdFromCaller` renders our terminal key into
+// `--session-id <id>` at launch (see resources/plugins/claude-code/plugin.json),
+// and Claude rejects anything that is not a UUID — the CLI exited before it
+// started and the reviewer got a bare shell. Session ids are minted per spawn
+// (`randomUUID`, exactly as every other agent-terminal caller does) and the live
+// terminal is found by its agent id instead.
 export function reviewGuideAgentId(reviewId: string): string {
   return `review-guide-${reviewId}`
 }
@@ -102,6 +117,10 @@ export type GuideAskResult =
 export interface GuideRunStartInput {
   reviewId: string
   projectRoot: string
+  // The Reviews-host workspace the caller has already made for this project
+  // (MC-1911). The renderer mints it before starting, so it is authoritative
+  // here even when the workspace-sync snapshot has not caught up yet.
+  hostWorkspaceId?: string
   depth: ReviewBriefRunDepth
   // Freshness re-run: the ids of the steps whose files moved. The guide carries
   // every other step over verbatim.
@@ -115,6 +134,7 @@ export interface GuideRunStartInput {
 export interface GuideAskInput {
   reviewId: string
   projectRoot: string
+  hostWorkspaceId?: string
   question: string
   cli?: string
   cliModel?: string
@@ -211,7 +231,7 @@ export class ReviewGuideTerminalService {
     // Every path out of here reaches a terminal phase: a run left marked live
     // would make every later start join a run that is already dead.
     const recorder = this.guideRuns.begin(reviewId)
-    const prepared = this.prepareTerminal(reviewId, projectRoot, input.cli)
+    const prepared = this.prepareTerminal(reviewId, projectRoot, input.cli, input.hostWorkspaceId)
     if (!prepared.ok) return this.fail(recorder, reviewId, prepared.error)
 
     const prompt = this.buildRunPrompt({
@@ -244,7 +264,7 @@ export class ReviewGuideTerminalService {
     if (invalid) return { ok: false, error: invalid }
     if (question.trim().length === 0) return { ok: false, error: 'Ask the guide a question first.' }
 
-    const prepared = this.prepareTerminal(reviewId, projectRoot, input.cli)
+    const prepared = this.prepareTerminal(reviewId, projectRoot, input.cli, input.hostWorkspaceId)
     if (!prepared.ok) return { ok: false, error: prepared.error }
 
     const prompt = this.buildAskPrompt({
@@ -262,7 +282,7 @@ export class ReviewGuideTerminalService {
   // as this run's terminal phase, so the panel shows why it ended and the
   // watchdog stays silent for the exit it is about to see.
   stop(reviewId: string): void {
-    const sessionId = reviewGuideAgentId(reviewId)
+    const sessionId = this.findGuideSession(reviewGuideAgentId(reviewId))?.sessionId
     const entry = this.inFlight.get(reviewId)
     this.inFlight.delete(reviewId)
     if (entry) this.emitPhase(entry.recorder, reviewId, 'failed', STOPPED_DETAIL)
@@ -272,6 +292,7 @@ export class ReviewGuideTerminalService {
       this.guideRuns.record(reviewId, 'failed', STOPPED_DETAIL)
       this.deps.emit({ workspaceId: reviewId, phase: 'failed', detail: STOPPED_DETAIL })
     }
+    if (!sessionId) return
     this.deps.terminal.setReapExempt(sessionId, false)
     this.deps.terminal.kill(sessionId)
   }
@@ -284,7 +305,8 @@ export class ReviewGuideTerminalService {
   // later stop() must not overwrite the delivered `done` with a failure.
   clearReapExempt(reviewId: string): void {
     this.inFlight.delete(reviewId)
-    this.deps.terminal.setReapExempt(reviewGuideAgentId(reviewId), false)
+    const sessionId = this.findGuideSession(reviewGuideAgentId(reviewId))?.sessionId
+    if (sessionId) this.deps.terminal.setReapExempt(sessionId, false)
   }
 
   // The watchdog. A guide terminal that ends without a brief failed, whatever
@@ -297,7 +319,8 @@ export class ReviewGuideTerminalService {
     if (!found) return
     const [reviewId, entry] = found
     this.inFlight.delete(reviewId)
-    this.deps.terminal.setReapExempt(reviewGuideAgentId(reviewId), false)
+    const sessionId = this.findGuideSession(reviewGuideAgentId(reviewId))?.sessionId
+    if (sessionId) this.deps.terminal.setReapExempt(sessionId, false)
     if (!this.guideRuns.status(reviewId)?.running) return
     this.emitPhase(entry.recorder, reviewId, 'failed', ENDED_WITHOUT_BRIEF_DETAIL)
   }
@@ -306,38 +329,52 @@ export class ReviewGuideTerminalService {
   private prepareTerminal(
     reviewId: string,
     projectRoot: string,
-    requestedCli: string | undefined
+    requestedCli: string | undefined,
+    hostWorkspaceId: string | undefined
   ): PreparedTerminal | { ok: false; error: string } {
     const normalizedRoot = resolve(projectRoot)
-    const workspace = this.findProjectWorkspace(normalizedRoot)
-    if (!workspace) {
+    const workspaceId = this.resolveHostWorkspace(normalizedRoot, hostWorkspaceId)
+    if (!workspaceId) {
       // The degraded walkthrough keeps the review readable; only the guide needs
       // the project open, and saying so is the whole fix.
       return { ok: false, error: 'Open the project to run the guide.' }
     }
 
-    const sessionId = reviewGuideAgentId(reviewId)
-    const existing = this.deps.terminal.list().find((session) => session.sessionId === sessionId)
+    const agentId = reviewGuideAgentId(reviewId)
+    const existing = this.findGuideSession(agentId)
     const liveSession = existing && existing.processAlive && !existing.suspended ? existing : null
-    const cli = requestedCli?.trim() || liveSession?.cli || this.lastAgentCli(workspace.id)
+    const cli = requestedCli?.trim() || liveSession?.cli || this.lastAgentCli(normalizedRoot)
     if (!cli) {
       return { ok: false, error: 'Choose which agent CLI should run the review guide.' }
     }
 
+    // A live terminal keeps its session id — the prompt is pasted into it. Any
+    // other outcome is a fresh spawn, which mints a fresh UUID rather than
+    // inheriting the dead session's: a Claude-harness CLI is launched with
+    // `--session-id <it>` and refuses an id it has already used.
+    const sessionId = liveSession?.sessionId ?? randomUUID()
     return {
       ok: true,
       projectRoot: normalizedRoot,
       liveSession: liveSession !== null,
       // A retained session whose process is gone (exited, or suspended by the
-      // reaper) must be disposed before a fresh spawn: the runtime reattaches to
-      // any session it still holds under this id, and would launch nothing.
-      staleSession: existing !== undefined && liveSession === null,
+      // reaper) must be disposed before the fresh spawn, or the runtime keeps
+      // holding a record for an agent that now has a live terminal elsewhere.
+      ...(existing && !liveSession ? { staleSessionId: existing.sessionId } : {}),
       // A reused terminal keeps the execution id it was spawned with — that is
       // the id its exit will carry. A fresh one gets a new id, so the pty being
       // replaced cannot be mistaken for the one taking its place.
-      executionId: liveSession?.agentSession?.executionId ?? `${sessionId}#${this.nextExecution++}`,
-      handle: { workspaceId: workspace.id, agentId: sessionId, sessionId, cli },
+      executionId: liveSession?.agentSession?.executionId ?? `${agentId}#${this.nextExecution++}`,
+      handle: { workspaceId, agentId, sessionId, cli },
     }
+  }
+
+  // This review's guide terminal, live or retained, found by AGENT id — the one
+  // identity that is stable across spawns now that session ids are minted.
+  private findGuideSession(agentId: string): TerminalSessionSnapshot | undefined {
+    return this.deps.terminal
+      .list()
+      .find((session) => session.kind === 'agent' && session.agentId === agentId)
   }
 
   // Deliver a prompt to the guide: paste it into the live terminal, or spawn one
@@ -355,11 +392,12 @@ export class ReviewGuideTerminalService {
       return { ok: true, reused: true }
     }
 
-    // A retained record under this id has to go before a fresh spawn, or the
-    // runtime reattaches to it and launches nothing. Its pty exit arrives after
-    // this one starts, which is exactly why in-flight runs are keyed by
-    // execution id: the dead terminal's exit cannot touch the new run.
-    if (prepared.staleSession) this.deps.terminal.kill(handle.sessionId)
+    // The retained record for this agent's previous terminal has to go before
+    // the fresh spawn, or the guide is listed twice — once as a dead session and
+    // once as the live one. Its pty exit arrives after this one starts, which is
+    // exactly why in-flight runs are keyed by execution id: the dead terminal's
+    // exit cannot touch the new run.
+    if (prepared.staleSessionId) this.deps.terminal.kill(prepared.staleSessionId)
 
     const settings = this.deps.launchSettings?.()
     const spawned = await this.deps.terminal.spawn({
@@ -457,45 +495,67 @@ export class ReviewGuideTerminalService {
     )
   }
 
-  // The open workspace whose folder is this project. A project folder can host
-  // more than one workspace (an automations host, a sprint run); the standard
-  // one is where a person's agents live, so prefer it and fall back to any
-  // OTHER rail-visible one. Rail-hidden workspaces are excluded outright (item
-  // 1807): the guide's terminal becomes a tab in whatever workspace it spawns
-  // into, and a workspace with no Projects row is one the reviewer cannot get
-  // back to — the guide tab would sit among a sprint run's agents forever. With
-  // none left, the caller reports the project as not open, which is the truth
-  // the reviewer can act on.
-  private findProjectWorkspace(projectRoot: string): { id: string } | null {
+  // Which workspace hosts the guide's terminal (MC-1911). The Reviews host: a
+  // per-project workspace that exists to hold review guides and nothing else.
+  // The caller's id wins outright — the renderer mints the host immediately
+  // before starting, so requiring it in this process's workspace-sync snapshot
+  // would lose a race it has no reason to run.
+  //
+  // The guide used to land in the project's STANDARD workspace (item 1807),
+  // which put a "Review guide" tab among the reviewer's own agents in whatever
+  // project they had open. That reasoning — a rail-hidden workspace is one the
+  // reviewer cannot get back to — is answered by the Reviews door: it owns the
+  // link to this terminal, exactly as the Sprints door owns the link to a run's
+  // agents. Every OTHER hidden workspace is still excluded, so the guide can
+  // never end up parked inside a sprint run.
+  private resolveHostWorkspace(projectRoot: string, hostWorkspaceId: string | undefined): string | null {
+    const requested = hostWorkspaceId?.trim()
+    if (requested) return requested
     const matches = this.deps
       .listWorkspaces()
       .filter((workspace) => normalizeFolder(workspace.folderPath) === projectRoot)
-      .filter((workspace) => !workspace.mode || !isModeHiddenFromRail(workspace.mode))
-    return matches.find((workspace) => workspace.mode === 'standard') ?? matches[0] ?? null
+    const host = matches.find((workspace) => workspace.mode === REVIEWS_HOST_WORKSPACE_MODE)
+    if (host) return host.id
+    // No host yet (a caller that predates one, or a run started from outside the
+    // door): fall back to the project's own workspace rather than refusing.
+    const visible = matches.filter((workspace) => !workspace.mode || !isModeHiddenFromRail(workspace.mode))
+    return (visible.find((workspace) => workspace.mode === 'standard') ?? visible[0])?.id ?? null
   }
 
   // The CLI a live guide terminal is already running, or the one the reviewer
-  // last used for an agent in this workspace. Only a guess for a caller that
-  // named none; when there is nothing to go on, the start fails visibly.
-  private lastAgentCli(workspaceId: string): string | undefined {
+  // last used for an agent anywhere in this project. Only a guess for a caller
+  // that named none; when there is nothing to go on, the start fails visibly.
+  // Keyed by the project's folder rather than one workspace id: the guide's own
+  // host workspace is new and empty, so its agent list would never answer.
+  private lastAgentCli(projectRoot: string): string | undefined {
+    const workspaceIds = new Set(
+      this.deps
+        .listWorkspaces()
+        .filter((workspace) => normalizeFolder(workspace.folderPath) === projectRoot)
+        .map((workspace) => workspace.id)
+    )
     return this.deps.terminal
       .list()
-      .filter((session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.cli)
+      .filter(
+        (session) =>
+          session.kind === 'agent'
+          && session.cli
+          && session.workspaceId !== undefined
+          && workspaceIds.has(session.workspaceId)
+      )
       .sort((left, right) => right.startedAt - left.startedAt)[0]?.cli
   }
 
   // The terminal a joinable run is running in, or null when nothing is live
   // under this review's guide id.
   private currentHandle(reviewId: string): GuideTerminalHandle | null {
-    const sessionId = reviewGuideAgentId(reviewId)
-    const session = this.deps.terminal
-      .list()
-      .find((candidate) => candidate.sessionId === sessionId && candidate.processAlive)
-    if (!session) return null
+    const agentId = reviewGuideAgentId(reviewId)
+    const session = this.findGuideSession(agentId)
+    if (!session?.processAlive) return null
     return {
       workspaceId: session.workspaceId ?? '',
-      agentId: sessionId,
-      sessionId,
+      agentId,
+      sessionId: session.sessionId,
       cli: session.cli ?? '',
     }
   }
@@ -523,7 +583,10 @@ interface PreparedTerminal {
   ok: true
   projectRoot: string
   liveSession: boolean
-  staleSession: boolean
+  // The dead-but-retained terminal this spawn replaces, when there is one. Its
+  // session id is the PREVIOUS one — session ids are minted per spawn now — so
+  // it is carried explicitly rather than derived from the handle.
+  staleSessionId?: string
   executionId: string
   handle: GuideTerminalHandle
 }

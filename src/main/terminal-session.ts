@@ -6,6 +6,7 @@ import type {
   AgentSessionIdentity,
   AgentState,
   SessionActivity,
+  SessionPrompt,
   TerminalKind,
   TerminalPathStyle,
   TerminalSessionSnapshot,
@@ -77,6 +78,11 @@ export type TerminalSession = {
   // reports it. Layered on top of `activity` (which stays the inference floor);
   // absent until the first hook frame arrives. See agent-state.ts.
   agentState?: AgentState
+  // The last prompt the person submitted to this session, from the reporter's
+  // `UserPromptSubmit` frame. Drives the terminal tab's hover preview ("what was
+  // I working on here?") and names a new chat after its first real prompt.
+  // Absent for plain terminals, for hookless CLIs, and until the first prompt.
+  lastPrompt?: SessionPrompt
   // When the agent self-scheduled a wakeup (ScheduleWakeup hook frame), the
   // epoch-ms time it fires. The timer lives inside the CLI process, so the idle
   // reaper holds the session until then (terminal-reap-policy). Cleared by a
@@ -485,6 +491,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
     agentState:
       session.agentState
       ?? (session.kind === 'agent' ? inferAgentStateFromActivity(session.activity) : undefined),
+    lastPrompt: session.lastPrompt,
     exitedAt: session.exitedAt,
     outputBufferLength: session.outputLength,
     retainedOutputBytes: session.outputBytes,

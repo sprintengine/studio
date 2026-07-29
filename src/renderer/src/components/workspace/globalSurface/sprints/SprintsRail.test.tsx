@@ -142,26 +142,40 @@ run('an empty group is omitted, not rendered as an empty header', () => {
 // project lens LEADS it as one compact Select, then search, then the sort axis
 // behind the filter glyph. The lens is never collapsed behind that glyph — a
 // person moving between the two doors finds it in the same place.
-run('the project lens leads the rail as a Select, ahead of search and the filter glyph', () => {
+// One anatomy on every list surface: "New …", then search with the filter glyph
+// beside it, then ONE divider, then the rows. The project lens is an axis behind
+// that glyph like any other — never a second full-width Select stacked over the
+// field it narrows.
+run('the rail is New, then search with one filter glyph, then the rows', () => {
   const html = render()
-  assert.ok(html.includes('role="combobox"'), 'the project lens is a Select, not a glyph-hidden axis')
-  const lens = html.indexOf('aria-label="Filter by project"')
-  assert.ok(lens > 0, 'named exactly as the Backlog door names its own')
-  assert.ok(html.includes('All projects · 3'), 'its trigger reads the current scope and the run total')
+  assert.ok(!html.includes('role="combobox"'), 'the project lens is not a Select above the search')
   const newSprint = html.indexOf('New sprint')
   const search = html.indexOf('Search sprints…')
+  const glyph = html.indexOf('aria-label="Filter and sort sprints"')
   const firstGroup = html.indexOf('Sprints: Needs you')
-  assert.ok(newSprint < lens && lens < search, 'New sprint, then the project lens, then search')
-  assert.ok(
-    html.indexOf('aria-label="Filter and sort sprints"') < firstGroup,
-    'sort stays behind the filter glyph, still above the first row',
-  )
-  assert.ok(search < firstGroup, 'the whole control block sits above the rows')
+  assert.ok(newSprint < search, 'New sprint leads the rail')
+  assert.ok(search < glyph, 'the filter glyph sits beside the search field')
+  assert.ok(glyph < firstGroup, 'the whole control block sits above the rows')
 })
 
-run('a single-project Multicode shows no lens — a lone option narrows nothing', () => {
+// The menu's options only exist once the popover opens, so what a static render
+// can prove is the part that must be visible AT REST: hiding the lens behind a
+// glyph must never hide that a lens is applied.
+run('a narrowed project lens marks the filter glyph as active', () => {
+  const resting = render()
+  assert.ok(
+    resting.includes('aria-label="Filter and sort sprints"'),
+    'at rest the glyph reports no filters',
+  )
+  const narrowed = render({ projectFilter: '/work/alpha' })
+  assert.ok(
+    narrowed.includes('aria-label="Filter and sort sprints — filters active"'),
+    'a project lens applied from inside the menu still says so on the trigger',
+  )
+})
+
+run('a single-project rail still offers the glyph for sort', () => {
   const html = render({ runs: [runs[0]!, runs[2]!] })
-  assert.ok(!html.includes('aria-label="Filter by project"'), 'no lens when every run shares one project')
   assert.ok(html.includes('Search sprints…'), 'search stays')
   assert.ok(html.includes('aria-label="Filter and sort sprints"'), 'and so does sort')
 })
@@ -176,20 +190,25 @@ run('a filter that matches no run says so instead of reading as "no sprints"', (
 // lens now names a project the chips no longer carry. The trigger must still say
 // which lens is applied — a placeholder there would leave the operator staring at
 // an empty rail with nothing naming why, and no way back.
-run('a filter stranded by a deleted run still names itself and offers a way back', () => {
+run('a filter stranded by a deleted run still says so, and the way back stays reachable', () => {
   const html = render({ projectFilter: '/work/nowhere' })
-  assert.ok(html.includes('aria-label="Filter by project"'), 'the lens is still offered')
-  assert.ok(html.includes('nowhere · no sprints'), 'and the trigger names the applied lens, not a placeholder')
-  assert.ok(!html.includes('Select…'), 'never the Select placeholder')
+  assert.ok(
+    html.includes('aria-label="Filter and sort sprints — filters active"'),
+    'the glyph reports that a lens is narrowing the empty rail',
+  )
+  assert.ok(html.includes('aria-haspopup="menu"'), 'and the menu holding the lens is still there to clear it')
 })
 
-// Same state on a single-project Multicode, which otherwise gets no lens at all:
+// Same state on a lone project, which otherwise gets no project axis at all:
 // without one there is no control that can clear the filter, so the rail would
 // stay permanently empty.
-run('a lone project with a stranded filter still gets a lens — else there is no way back', () => {
+run('a lone project with a stranded filter still gets the axis — else there is no way back', () => {
   const html = render({ runs: [runs[0]!, runs[2]!], projectFilter: '/work/nowhere' })
-  assert.ok(html.includes('aria-label="Filter by project"'), 'the lens appears to carry the way back')
-  assert.ok(html.includes('nowhere · no sprints'), 'naming the lens that is stranding the rail')
+  assert.ok(
+    html.includes('aria-label="Filter and sort sprints — filters active"'),
+    'the glyph says a lens is stranding the rail',
+  )
+  assert.ok(html.includes('No sprints in this project.'), 'and the rail says why it is empty')
 })
 
 run('a search that matches no run says so instead of reading as "no sprints"', () => {

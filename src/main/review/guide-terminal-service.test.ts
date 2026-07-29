@@ -21,16 +21,28 @@ function run(name: string, body: () => Promise<void> | void): void {
 
 const REVIEW_ID = 'review_1'
 const PROJECT_ROOT = '/projects/app'
+// The project's Reviews host, where the guide's terminal belongs (MC-1911), and
+// the standard workspace it used to land in.
+const HOST_WORKSPACE_ID = 'ws-reviews-app'
 const WORKSPACE_ID = 'ws-app'
-const SESSION_ID = reviewGuideAgentId(REVIEW_ID)
+const AGENT_ID = reviewGuideAgentId(REVIEW_ID)
+// A pty id of the shape the service now mints: a UUID, because a Claude-harness
+// CLI is launched with `--session-id <it>`. Deliberately NOT the agent id.
+const PTY_ID = '11111111-2222-4333-8444-555555555555'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
+
+const HOST_WORKSPACES = [
+  { id: HOST_WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'reviews-host' },
+  { id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' },
+]
 
 function agentSession(overrides: Partial<TerminalSessionSnapshot> = {}): TerminalSessionSnapshot {
   return {
-    sessionId: SESSION_ID,
+    sessionId: PTY_ID,
     processAlive: true,
     kind: 'agent',
-    workspaceId: WORKSPACE_ID,
-    agentId: SESSION_ID,
+    workspaceId: HOST_WORKSPACE_ID,
+    agentId: AGENT_ID,
     cli: 'claude-code',
     visible: false,
     suspended: false,
@@ -75,11 +87,10 @@ function makeHarness(
   const reapExempt: Array<{ sessionId: string; exempt: boolean }> = []
   const sessions = options.sessions ?? []
   const exitListeners: Array<(event: GuideAgentExit) => void> = []
-  let nextSpawn: TerminalSpawnResult = { ok: true, sessionId: SESSION_ID }
+  let nextSpawn: TerminalSpawnResult = { ok: true, sessionId: PTY_ID }
 
   const service = createReviewGuideTerminalService({
-    listWorkspaces: () =>
-      options.workspaces ?? [{ id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' }],
+    listWorkspaces: () => options.workspaces ?? HOST_WORKSPACES,
     terminal: {
       list: () => sessions,
       spawn: async (payload) => {
@@ -87,6 +98,8 @@ function makeHarness(
         if (nextSpawn.ok) {
           sessions.push(agentSession({
             sessionId: payload.sessionId,
+            ...(payload.agentId ? { agentId: payload.agentId } : {}),
+            ...(payload.workspaceId ? { workspaceId: payload.workspaceId } : {}),
             cli: payload.cli,
             // The runtime materializes the spawn's agent identity onto the
             // session; the watchdog correlates on its execution id.
@@ -140,6 +153,15 @@ function executionIdOf(harness: Harness, index = 0): string {
   return executionId
 }
 
+// The pty id a spawn actually minted. Read from the spawn rather than assumed:
+// session ids are per-spawn now, so nothing outside the service knows one until
+// it has been handed out.
+function ptyIdOf(harness: Harness, index = 0): string {
+  const sessionId = harness.spawns[index]?.sessionId
+  assert.ok(sessionId, 'the spawn named a terminal session')
+  return sessionId
+}
+
 function startInput(overrides: Record<string, unknown> = {}) {
   return {
     reviewId: REVIEW_ID,
@@ -150,27 +172,33 @@ function startInput(overrides: Record<string, unknown> = {}) {
   }
 }
 
-run('a start spawns the guide in the review project, with the skill attached', async () => {
+run('a start spawns the guide in the project Reviews host, with the skill attached', async () => {
   const harness = makeHarness()
   const result = await harness.service.startRun(startInput())
 
   assert.ok(result.ok && !('joined' in result), 'the start reports a fresh guide')
   assert.deepEqual(result.ok && !('joined' in result) ? result.guide : null, {
-    workspaceId: WORKSPACE_ID,
-    agentId: SESSION_ID,
-    sessionId: SESSION_ID,
+    workspaceId: HOST_WORKSPACE_ID,
+    agentId: AGENT_ID,
+    sessionId: ptyIdOf(harness),
     cli: 'claude-code',
   })
   assert.equal(harness.spawns.length, 1)
   const spawn = harness.spawns[0]
-  assert.equal(spawn.sessionId, SESSION_ID, 'session id equals the agent id, so a tab can reattach')
-  assert.equal(spawn.workspaceId, WORKSPACE_ID, 'the guide runs under the review project workspace')
-  assert.equal(spawn.cwd, PROJECT_ROOT)
+  assert.equal(spawn.agentId, AGENT_ID, 'the agent id is stable per review, so a tab can reattach')
+  assert.notEqual(spawn.sessionId, AGENT_ID, 'the pty id is NOT the agent id')
+  assert.match(
+    spawn.sessionId,
+    UUID,
+    'a Claude-harness CLI is launched with --session-id <it> and rejects anything but a UUID'
+  )
+  assert.equal(spawn.workspaceId, HOST_WORKSPACE_ID, 'the guide runs in the Reviews host, not among the project agents')
+  assert.equal(spawn.cwd, PROJECT_ROOT, 'and still with the project as its cwd — it reads the change')
   assert.equal(spawn.kind, 'agent')
   assert.equal(spawn.agentName, 'Review guide')
   assert.equal(spawn.spawnSkillId, REVIEW_GUIDE_SKILL_ID)
   assert.ok(
-    spawn.agentSession?.executionId.startsWith(`${SESSION_ID}#`),
+    spawn.agentSession?.executionId.startsWith(`${AGENT_ID}#`),
     'a per-pty execution identity is what reports the exit'
   )
   // Run coordinates only: the craft lives in the skill.
@@ -181,7 +209,25 @@ run('a start spawns the guide in the review project, with the skill attached', a
 
   assert.equal(harness.registry.status(REVIEW_ID)?.running, true)
   assert.deepEqual(harness.events.map((event) => event.phase), ['reading', 'grouping'])
-  assert.deepEqual(harness.reapExempt, [{ sessionId: SESSION_ID, exempt: true }])
+  assert.deepEqual(harness.reapExempt, [{ sessionId: ptyIdOf(harness), exempt: true }])
+})
+
+// The bug this identity split fixes (MC-1911): the guide's terminal key used to
+// be `review-guide-<reviewId>`, which the plugin manifest renders straight into
+// `--session-id` for every CLI declaring `sessionIdFromCaller`. Claude rejects a
+// non-UUID id and exits, so the guide had never once run under claude-code,
+// zai, kimi-claude, or grok — the reviewer got a bare shell prompt.
+run('every spawn mints its own UUID rather than reusing a dead one', async () => {
+  const harness = makeHarness()
+  await harness.service.startRun(startInput())
+  const first = ptyIdOf(harness)
+  // The terminal died; the next start is a fresh launch, not a resume.
+  harness.sessions.length = 0
+  await harness.service.startRun(startInput())
+  const second = ptyIdOf(harness, 1)
+
+  assert.match(second, UUID)
+  assert.notEqual(second, first, 'a CLI refuses a --session-id it has already consumed')
 })
 
 run('a CLI with no native skill invocation is pointed at the installed skill file', async () => {
@@ -257,15 +303,23 @@ run('a project open only as a sprint-run workspace is not somewhere the guide ma
   assert.equal(harness.spawns.length, 0, 'no guide tab is seeded into the sprint run')
 })
 
-run('the guide picks the standard workspace over the sprint run, and any other visible one over none', async () => {
-  const both = makeHarness({
+// MC-1911. The reviewer's own workspace is not where a review guide belongs:
+// its tab used to appear among their agents in whatever project was open.
+run('the Reviews host outranks the project workspace, which stays the fallback', async () => {
+  const hosted = makeHarness()
+  await hosted.service.startRun(startInput())
+  assert.equal(hosted.spawns[0].workspaceId, HOST_WORKSPACE_ID)
+
+  // No host yet (a caller that predates one): the guide still runs, in the
+  // standard workspace it always used, rather than refusing.
+  const legacy = makeHarness({
     workspaces: [
       { id: 'ws-sprint', folderPath: PROJECT_ROOT, mode: 'sprintengine' },
       { id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' },
     ],
   })
-  await both.service.startRun(startInput())
-  assert.equal(both.spawns[0].workspaceId, WORKSPACE_ID)
+  await legacy.service.startRun(startInput())
+  assert.equal(legacy.spawns[0].workspaceId, WORKSPACE_ID)
 
   // Rail-visible but not standard (a review workspace on the same folder) is
   // still a workspace the reviewer can navigate back to, so it remains the
@@ -280,9 +334,20 @@ run('the guide picks the standard workspace over the sprint run, and any other v
   assert.equal(fallback.spawns[0].workspaceId, 'ws-review')
 })
 
+// The renderer mints the host immediately before starting, so requiring it in
+// this process's workspace-sync snapshot would lose a race it need not run.
+run('a caller-named Reviews host is used before the snapshot has heard of it', async () => {
+  const harness = makeHarness({
+    workspaces: [{ id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' }],
+  })
+  await harness.service.startRun(startInput({ hostWorkspaceId: 'ws-reviews-fresh' }))
+  assert.equal(harness.spawns[0].workspaceId, 'ws-reviews-fresh')
+  assert.equal(harness.spawns[0].cli, 'claude-code')
+})
+
 run('a spawn failure fails the run and leaves no in-flight record behind', async () => {
   const harness = makeHarness()
-  harness.spawnResult({ ok: false, sessionId: SESSION_ID, message: 'claude was not found.', exitCode: 1 })
+  harness.spawnResult({ ok: false, sessionId: PTY_ID, message: 'claude was not found.', exitCode: 1 })
   const result = await harness.service.startRun(startInput())
 
   assert.deepEqual(result, { ok: false, error: 'claude was not found.' })
@@ -291,14 +356,14 @@ run('a spawn failure fails the run and leaves no in-flight record behind', async
   assert.equal(failures.length, 1)
 
   // The failed launch's pty exit must not report a second failure.
-  harness.exit({ agentId: SESSION_ID, executionId: executionIdOf(harness), exitCode: 1 })
+  harness.exit({ agentId: AGENT_ID, executionId: executionIdOf(harness), exitCode: 1 })
   assert.equal(harness.events.filter((event) => event.phase === 'failed').length, 1)
 })
 
 run('a guide terminal that ends without a brief fails the run', async () => {
   const harness = makeHarness()
   await harness.service.startRun(startInput())
-  harness.exit({ agentId: SESSION_ID, executionId: executionIdOf(harness), exitCode: 0 })
+  harness.exit({ agentId: AGENT_ID, executionId: executionIdOf(harness), exitCode: 0 })
 
   const status = harness.registry.status(REVIEW_ID)
   assert.equal(status?.running, false)
@@ -307,7 +372,7 @@ run('a guide terminal that ends without a brief fails the run', async () => {
     status?.detail,
     'The guide session ended without delivering a walkthrough — its terminal has the details.'
   )
-  assert.deepEqual(harness.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
+  assert.deepEqual(harness.reapExempt.at(-1), { sessionId: ptyIdOf(harness), exempt: false })
 })
 
 run('a delivered brief closes the run, so the terminal exiting afterwards says nothing', async () => {
@@ -315,7 +380,7 @@ run('a delivered brief closes the run, so the terminal exiting afterwards says n
   await harness.service.startRun(startInput())
   // What the Studio gateway does when review_submit_brief lands.
   recordGuideRunEvent({ workspaceId: REVIEW_ID, phase: 'done' }, harness.registry)
-  harness.exit({ agentId: SESSION_ID, executionId: executionIdOf(harness), exitCode: 0 })
+  harness.exit({ agentId: AGENT_ID, executionId: executionIdOf(harness), exitCode: 0 })
 
   const status = harness.registry.status(REVIEW_ID)
   assert.equal(status?.phase, 'done', 'the delivered brief is still the outcome of record')
@@ -329,11 +394,11 @@ run('a delivered brief closes the run, so the terminal exiting afterwards says n
 run('a brief landing releases the reap exemption, as stop() and a process exit do', async () => {
   const delivered = makeHarness()
   await delivered.service.startRun(startInput())
-  assert.deepEqual(delivered.reapExempt, [{ sessionId: SESSION_ID, exempt: true }])
+  assert.deepEqual(delivered.reapExempt, [{ sessionId: ptyIdOf(delivered), exempt: true }])
   // What the Studio gateway's brief sink does when review_submit_brief lands.
   recordGuideRunEvent({ workspaceId: REVIEW_ID, phase: 'done' }, delivered.registry)
   delivered.service.clearReapExempt(REVIEW_ID)
-  assert.deepEqual(delivered.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
+  assert.deepEqual(delivered.reapExempt.at(-1), { sessionId: ptyIdOf(delivered), exempt: false })
   assert.deepEqual(delivered.kills, [], 'the terminal is released, not killed — the reviewer may still read it')
 
   // The run is over: stopping the terminal afterwards cannot overwrite the
@@ -344,12 +409,12 @@ run('a brief landing releases the reap exemption, as stop() and a process exit d
   const stopped = makeHarness()
   await stopped.service.startRun(startInput())
   stopped.service.stop(REVIEW_ID)
-  assert.deepEqual(stopped.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
+  assert.deepEqual(stopped.reapExempt.at(-1), { sessionId: ptyIdOf(stopped), exempt: false })
 
   const exited = makeHarness()
   await exited.service.startRun(startInput())
-  exited.exit({ agentId: SESSION_ID, executionId: executionIdOf(exited), exitCode: 0 })
-  assert.deepEqual(exited.reapExempt.at(-1), { sessionId: SESSION_ID, exempt: false })
+  exited.exit({ agentId: AGENT_ID, executionId: executionIdOf(exited), exitCode: 0 })
+  assert.deepEqual(exited.reapExempt.at(-1), { sessionId: ptyIdOf(exited), exempt: false })
 })
 
 run('stopping the guide kills its terminal and names the reviewer as the reason', async () => {
@@ -357,13 +422,13 @@ run('stopping the guide kills its terminal and names the reviewer as the reason'
   await harness.service.startRun(startInput())
   harness.service.stop(REVIEW_ID)
 
-  assert.deepEqual(harness.kills, [SESSION_ID])
+  assert.deepEqual(harness.kills, [ptyIdOf(harness)])
   const status = harness.registry.status(REVIEW_ID)
   assert.equal(status?.running, false)
   assert.equal(status?.detail, 'You stopped the guide.')
 
   // The kill's own exit event must not overwrite that with the watchdog message.
-  harness.exit({ agentId: SESSION_ID, executionId: executionIdOf(harness), exitCode: 0 })
+  harness.exit({ agentId: AGENT_ID, executionId: executionIdOf(harness), exitCode: 0 })
   assert.equal(harness.registry.status(REVIEW_ID)?.detail, 'You stopped the guide.')
 })
 
@@ -372,12 +437,12 @@ run('a dead session under the guide id is disposed before a fresh spawn', async 
     processAlive: false,
     activity: { kind: 'exited', at: 2, exitCode: 0 },
     agentSession: {
-      sessionId: SESSION_ID,
+      sessionId: PTY_ID,
       executionId: 'old-execution',
       system: 'manual',
       workspaceId: WORKSPACE_ID,
       workspaceRoot: PROJECT_ROOT,
-      workId: SESSION_ID,
+      workId: AGENT_ID,
       role: 'review-guide',
       displayName: 'Review guide',
     },
@@ -386,13 +451,17 @@ run('a dead session under the guide id is disposed before a fresh spawn', async 
   const result = await harness.service.startRun(startInput())
 
   assert.ok(result.ok)
-  assert.deepEqual(harness.kills, [SESSION_ID], 'the retained record is disposed, or the spawn would reattach nothing')
+  assert.deepEqual(
+    harness.kills,
+    [PTY_ID],
+    'the retained record is disposed, so the guide is not listed twice'
+  )
   assert.equal(harness.spawns.length, 1)
   // Disposing the dead pty fires its exit AFTER the replacement started. The run
   // that just began must survive it — that is what execution ids are for.
-  harness.exit({ agentId: SESSION_ID, executionId: 'old-execution', exitCode: 0 })
+  harness.exit({ agentId: AGENT_ID, executionId: 'old-execution', exitCode: 0 })
   assert.equal(harness.registry.status(REVIEW_ID)?.running, true, 'the replaced terminal cannot fail its successor')
-  harness.exit({ agentId: SESSION_ID, executionId: executionIdOf(harness), exitCode: 0 })
+  harness.exit({ agentId: AGENT_ID, executionId: executionIdOf(harness), exitCode: 0 })
   assert.equal(harness.registry.status(REVIEW_ID)?.phase, 'failed')
 })
 
@@ -415,7 +484,7 @@ run('asking sends the question to the guide terminal and records no run phase', 
   })
 
   assert.ok(asked.ok)
-  assert.equal(asked.ok ? asked.guide.sessionId : null, SESSION_ID)
+  assert.equal(asked.ok ? asked.guide.sessionId : null, ptyIdOf(harness))
   assert.ok(harness.writes[0].data.includes('Why did the router move?'))
   assert.ok(harness.writes[0].data.includes(`Review: ${REVIEW_ID}`), 'the question carries its run coordinates')
   assert.equal(harness.events.length, before, 'a question is not a walkthrough run')

@@ -1524,7 +1524,7 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'failed', 'orphaned run is force-failed')
-  assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped while Multicode was closed, so this run never finished.')
+  assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped while the app was closed, so this run never finished.')
   assert.deepEqual(
     disposedAgents,
     [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],

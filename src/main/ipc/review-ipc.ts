@@ -205,6 +205,7 @@ export function registerReviewIpc(
     const result = await guideTerminals.startRun({
       reviewId: input.workspaceId,
       projectRoot: input.workspaceRoot,
+      ...(input.hostWorkspaceId ? { hostWorkspaceId: input.hostWorkspaceId } : {}),
       depth: input.depth,
       ...(input.affectedStepIds ? { affectedStepIds: input.affectedStepIds } : {}),
       ...(input.cli ? { cli: input.cli } : {}),
@@ -240,6 +241,7 @@ export function registerReviewIpc(
     const result = await guideTerminals.ask({
       reviewId: input.workspaceId,
       projectRoot: input.workspaceRoot,
+      ...(input.hostWorkspaceId ? { hostWorkspaceId: input.hostWorkspaceId } : {}),
       question: input.message,
       ...(input.cli ? { cli: input.cli } : {}),
       ...(input.cliModel ? { cliModel: input.cliModel } : {}),

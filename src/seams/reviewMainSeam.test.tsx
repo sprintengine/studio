@@ -224,7 +224,7 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
       terminal: {
         list: () => sessions,
         spawn: async (payload: TerminalSpawnPayload): Promise<TerminalSpawnResult> => {
-          sessions.push(guideSession(payload.sessionId))
+          sessions.push(guideSession(payload.sessionId, payload.agentId ?? ''))
           return { ok: true, sessionId: payload.sessionId }
         },
         write: () => {},
@@ -259,9 +259,11 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
       cli: 'claude-code',
     })
     assert.equal(started.ok, true, 'the guide started')
+    const guidePty = sessions.at(-1)?.sessionId ?? ''
+    assert.notEqual(guidePty, guideAgentId, 'the pty id is not the agent id')
     assert.deepEqual(
       reapExempt,
-      [{ sessionId: guideAgentId, exempt: true }],
+      [{ sessionId: guidePty, exempt: true }],
       'and took its terminal out of the idle reaper’s reach for the run',
     )
 
@@ -278,7 +280,7 @@ async function testBriefLandingReleasesTheGuideTerminal(): Promise<void> {
 
     assert.deepEqual(
       reapExempt.at(-1),
-      { sessionId: guideAgentId, exempt: false },
+      { sessionId: guidePty, exempt: false },
       'the landed brief released the guide’s terminal back to the reaper',
     )
     assert.deepEqual(kills, [], 'released, not killed — the reviewer may still read the terminal')
@@ -365,13 +367,16 @@ async function testDisabledReviewModuleRefusesEveryGatewayTool(): Promise<void> 
 
 // --- Fixtures ---------------------------------------------------------------
 
-function guideSession(sessionId: string): TerminalSessionSnapshot {
+// The guide's pty id is minted per spawn (a UUID, because a Claude-harness CLI
+// is launched with `--session-id <it>`); its AGENT id is the stable per-review
+// one. The two are deliberately different.
+function guideSession(sessionId: string, agentId: string): TerminalSessionSnapshot {
   return {
     sessionId,
     processAlive: true,
     kind: 'agent',
     workspaceId: 'ws-app',
-    agentId: sessionId,
+    agentId,
     cli: 'claude-code',
     visible: false,
     suspended: false,

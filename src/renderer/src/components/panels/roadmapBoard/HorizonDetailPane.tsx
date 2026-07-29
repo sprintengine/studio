@@ -118,8 +118,8 @@ export function HorizonDetailPane(props: HorizonDetailPaneProps): JSX.Element {
     if (unresolved === 'project_unavailable' || step.state === 'unknown_project') {
       return (
         <DetailMessage
-          title={`${step.projectName} isn’t open in this Multicode`}
-          body="This step changes a project the horizon names but this Multicode can’t resolve. Open that project, or re-map the alias in the horizon file’s projects: block."
+          title={`${step.projectName} isn’t open`}
+          body="This step changes a project the horizon names but can’t resolve. Open that project, or re-map the alias in the horizon file’s projects: block."
           detail={step.ref}
         />
       )

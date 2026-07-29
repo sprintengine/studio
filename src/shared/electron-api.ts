@@ -1203,6 +1203,18 @@ export type AgentState = {
   source: AgentStateSource
 }
 
+// The last prompt a person submitted to an agent session, captured from the
+// CLI's `UserPromptSubmit` lifecycle hook. `text` is their verbatim typing,
+// truncated to MAX_AGENT_PROMPT_LENGTH; `at` is when the hook reported it.
+//
+// Only CLIs whose reporter forwards the prompt supply this (Claude Code, Codex,
+// Grok Build). A hookless or unsupported CLI simply never sets it, and every
+// consumer treats absence as "nothing to show" rather than an error.
+export type SessionPrompt = {
+  text: string
+  at: number
+}
+
 export type TerminalSessionSnapshot = {
   sessionId: string
   processAlive: boolean
@@ -1245,6 +1257,9 @@ export type TerminalSessionSnapshot = {
   // sessions whose CLI emits no hooks (the legacy idle-timer `activity` above
   // remains the floor). `source` distinguishes hook truth from inference.
   agentState?: AgentState
+  // The last prompt submitted to this session. Absent for plain terminals and
+  // for CLIs whose reporter does not forward one.
+  lastPrompt?: SessionPrompt
   exitedAt: number | null
   outputBufferLength: number
   retainedOutputBytes: number
@@ -2419,6 +2434,12 @@ export type ReviewBriefRunDepth = 'brief' | 'standard' | 'thorough'
 export interface ReviewBriefRunInput {
   workspaceId: string
   workspaceRoot: string
+  // The project's Reviews-host workspace, which hosts the guide's terminal
+  // (MC-1911). The renderer resolves-or-creates it and passes it here, so main
+  // never has to wait for its workspace-sync snapshot to catch up. Omitted, main
+  // looks for an existing host on the project root and falls back to the
+  // project's own workspace.
+  hostWorkspaceId?: string
   depth: ReviewBriefRunDepth
   // A freshness re-run (MC-1682): the ids of the steps whose files changed since
   // the previous walkthrough. When present and a previous walkthrough exists, the
@@ -2439,8 +2460,10 @@ export interface ReviewBriefRunInput {
 }
 
 // Where a review's guide terminal lives, so a caller can show or focus it. The
-// agent id is stable per review (`review-guide-<reviewId>`) and equals the
-// terminal session id, which is what lets a tab reattach to the running guide.
+// agent id is stable per review (`review-guide-<reviewId>`) and is what a tab
+// reattaches by. The session id is minted per spawn and is a UUID: a
+// Claude-harness CLI is launched with `--session-id <it>` and rejects any other
+// shape, which is why the two are no longer the same string.
 export interface ReviewGuideTerminal {
   workspaceId: string
   agentId: string
@@ -2500,6 +2523,8 @@ export type ReviewBriefRunResult =
 export interface ReviewAskGuideInput {
   workspaceId: string
   workspaceRoot: string
+  // The Reviews-host workspace for the guide's terminal; see ReviewBriefRunInput.
+  hostWorkspaceId?: string
   message: string
   // Same fallback chain as ReviewBriefRunInput when omitted.
   cli?: string

@@ -169,6 +169,7 @@ export type BundledWorkspaceMode =
   | typeof SWITCHBOARD_WORKSPACE_MODE
   | typeof GUIDED_BRIEF_WORKSPACE_MODE
   | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
+  | typeof REVIEWS_HOST_WORKSPACE_MODE
   | typeof REVIEW_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
@@ -178,10 +179,11 @@ export type BundledWorkspaceMode =
 // resolve) and re-exported so every existing import site keeps resolving here.
 import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
+  REVIEWS_HOST_WORKSPACE_MODE,
   SPRINT_ENGINE_WORKSPACE_MODE,
   type WorkspaceMode,
 } from '../../../shared/workspace-mode'
-export { AUTOMATIONS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
+export { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE, SPRINT_ENGINE_WORKSPACE_MODE }
 export type { WorkspaceMode }
 
 export type HighlightColor = 'red' | 'orange' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'
@@ -994,4 +996,14 @@ export type Workspace = {
   // visible under the aside's Archived lens and still findable in search.
   // Presentation-level only; archiving never touches agents or run state.
   archivedAt?: number | null
+  // True once this workspace's name is settled and auto-titling must never touch
+  // it again. Set by the auto-title itself (a name derived from the first real
+  // prompt), by a manual rename, and at creation for any workspace given an
+  // explicit name (the wizard, a sprint roster, a chained run).
+  //
+  // This is what makes the name stop moving: a second prompt, a second terminal,
+  // or a resumed session all find the lock set and leave the name alone. Absent
+  // on workspaces created before the field existed, which reads as unlocked —
+  // correct, since those are sitting on a default "Chat 44" name.
+  titleLocked?: boolean
 }

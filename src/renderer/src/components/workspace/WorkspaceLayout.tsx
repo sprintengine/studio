@@ -47,6 +47,7 @@ import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdenti
 import type { AgentCliCatalogOption } from './newWorkspace/cliRuntimeOptions'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { panelTabAccentClass } from './panelTabAccent'
+import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { LifecycleGlyph, type LifecycleState, StatusDot, type Tone } from '../ui'
 import MulticodeSpinner from '../brand/MulticodeSpinner'
@@ -1024,7 +1025,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       }
       const isLiveTab = Boolean(liveTabSession?.processAlive)
 
-      const tabContent = (
+      const tabNameSpan = (
         <span
           className={`min-w-0 truncate ${isLiveTab ? 'font-semibold' : ''}`}
           draggable={canDragOut}
@@ -1035,6 +1036,20 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
         >
           {renderValues.content}
         </span>
+      )
+
+      // Hovering a terminal/agent tab reveals the last message sent to it — the
+      // tab's own name never says what the work was. Only wrapped when there IS
+      // a captured prompt: a tab with none must behave exactly as before, with
+      // no empty popover and no added hover latency. Editors and panels have no
+      // session, so `liveTabSession` is undefined and they fall straight through.
+      const tabPrompt = liveTabSession?.lastPrompt
+      const tabContent = tabPrompt ? (
+        <TabPromptPeek prompt={tabPrompt} tabLabel={node.getName()}>
+          {tabNameSpan}
+        </TabPromptPeek>
+      ) : (
+        tabNameSpan
       )
 
       if (node.getComponent() === 'file-editor') {

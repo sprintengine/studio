@@ -95,8 +95,8 @@ export interface ReviewSession {
   run: ReviewRunProgress
   // Where this review's guide terminal lives, once a start or an ask has reported
   // it. Null before either — a remount reads the run's *phase* back from the main
-  // process but not its coordinates, so the door derives them from the review id
-  // and the project workspace instead (see reviewGuideTerminal.ts).
+  // process but not its coordinates, so the door finds the terminal among the live
+  // sessions instead (see reviewGuideTerminal.ts).
   guide: ReviewGuideTerminal | null
   // Walkthrough props (present when status === 'ready').
   readFiles: ReadonlySet<string>
@@ -160,6 +160,12 @@ export interface UseReviewSessionParams {
   // agent CLI, and finally fails visibly rather than guessing an engine.
   guideCli?: string
   guideModel?: string
+  // The workspace that hosts the guide's terminal (MC-1911), resolved at the
+  // moment a guide is asked for — never during render, because resolving it
+  // CREATES the project's Reviews host on first use. A door-level concern like
+  // depth and CLI: this hook stays free of the workspace store, and a caller
+  // that supplies none leaves the main process to pick.
+  resolveHostWorkspaceId?: () => string | null
 }
 
 // The idle run state, and the projection of the main process's record of a run
@@ -182,8 +188,18 @@ export function useReviewSession({
   depth,
   guideCli,
   guideModel,
+  resolveHostWorkspaceId,
 }: UseReviewSessionParams): ReviewSession {
   const monacoTheme = useMonacoBaseTheme()
+  // Called at start/ask time, never on render. Held in a ref so the callbacks
+  // below do not re-create themselves (and re-arm their effects) whenever the
+  // door hands down a fresh closure.
+  const hostWorkspaceRef = useRef(resolveHostWorkspaceId)
+  hostWorkspaceRef.current = resolveHostWorkspaceId
+  const hostWorkspace = useCallback((): { hostWorkspaceId?: string } => {
+    const hostWorkspaceId = hostWorkspaceRef.current?.()
+    return hostWorkspaceId ? { hostWorkspaceId } : {}
+  }, [])
 
   const [storedState, setStoredState] = useState<ReviewWorkspaceState | null>(null)
   const [stateLoaded, setStateLoaded] = useState(false)
@@ -374,6 +390,7 @@ export function useReviewSession({
       const result = await window.api.reviewStartBriefRun({
         workspaceId: target.workspaceId,
         workspaceRoot: target.workspaceRoot,
+        ...hostWorkspace(),
         depth,
         ...(guideCli ? { cli: guideCli } : {}),
         ...(guideModel ? { cliModel: guideModel } : {}),
@@ -390,7 +407,7 @@ export function useReviewSession({
     } catch (error) {
       applyRun({ running: false, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
     }
-  }, [target, depth, guideCli, guideModel, applyRun])
+  }, [target, depth, guideCli, guideModel, hostWorkspace, applyRun])
 
   const changeset = changesetLoad.phase === 'ready' ? changesetLoad.changeset : null
   // The guide's brief, present only when it validated on disk. Freshness/staleness
@@ -535,6 +552,7 @@ export function useReviewSession({
       const runResult = await window.api.reviewStartBriefRun({
         workspaceId: target.workspaceId,
         workspaceRoot: target.workspaceRoot,
+        ...hostWorkspace(),
         depth,
         affectedStepIds,
         restart: true,
@@ -558,7 +576,20 @@ export function useReviewSession({
     } finally {
       refreshInFlightRef.current = false
     }
-  }, [target, changeset, storedState, realBrief, depth, guideCli, guideModel, persistReviewState, loadBrief, startRun, applyRun])
+  }, [
+    target,
+    changeset,
+    storedState,
+    realBrief,
+    depth,
+    guideCli,
+    guideModel,
+    hostWorkspace,
+    persistReviewState,
+    loadBrief,
+    startRun,
+    applyRun,
+  ])
 
   // Deliver one question to the guide's terminal, starting it if none is live.
   // Nothing here reads an answer: it arrives in the terminal, which is the point
@@ -570,6 +601,7 @@ export function useReviewSession({
         const result = await window.api.reviewAskGuide({
           workspaceId: target.workspaceId,
           workspaceRoot: target.workspaceRoot,
+          ...hostWorkspace(),
           message,
           ...(guideCli ? { cli: guideCli } : {}),
           ...(guideModel ? { cliModel: guideModel } : {}),
@@ -580,7 +612,7 @@ export function useReviewSession({
         return { ok: false, error: error instanceof Error ? error.message : String(error) }
       }
     },
-    [target, guideCli, guideModel],
+    [target, guideCli, guideModel, hostWorkspace],
   )
 
   const comments = resolvedState?.comments ?? []

@@ -1,21 +1,21 @@
 import { useCallback, useMemo } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 
 import type { ReviewGuideTerminal } from '../../../../../../shared/electron-api'
+import { useTerminalSessions } from '../../../../hooks/useTerminalSessions'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { ensureAgentTabInLayoutModel, flashAgentTab, focusOrAddAgentTab } from '../../../../utils/modelRegistry'
 import { resolveGuideTerminal, type ResolvedGuideTerminal } from './reviewGuideTerminal'
 
 // Opening the review guide's terminal from the Reviews door (MC-1783).
 //
-// The guide is a plain agent terminal in the review's project workspace, so
-// "open it" is the ordinary reveal path — the same one the session manager and
-// the Backlog "Open agent" action use: leave the door, activate the workspace,
-// then focus (or add) the agent's tab. The one extra step is the AgentState:
-// main spawns the pty under `sessionId === agentId`, and without a matching
-// `workspace.agents` record the tab has nothing to reattach to. Writing it here
-// from the reported coordinates is exactly what `WorkspaceManager.openSession`
-// does when it adopts a session it did not start.
+// The guide is a plain agent terminal in the project's Reviews-host workspace,
+// so "open it" is the ordinary reveal path — the same one the session manager
+// and the Backlog "Open agent" action use: leave the door, activate the
+// workspace, then focus (or add) the agent's tab. The one extra step is the
+// AgentState: without a matching `workspace.agents` record carrying the pty's
+// session id, the tab has nothing to reattach to. Writing it here from the live
+// session's coordinates is exactly what `WorkspaceManager.openSession` does when
+// it adopts a session it did not start.
 
 export interface GuideTerminalLink {
   // Null when the review's project is not open in this window — there is no
@@ -29,43 +29,24 @@ export interface GuideTerminalLink {
 
 export function useGuideTerminal({
   reviewId,
-  workspaceRoot,
   guide,
 }: {
   reviewId: string | null
-  workspaceRoot: string | null
   guide: ReviewGuideTerminal | null
 }): GuideTerminalLink {
-  // Only the id + folder + mode of each workspace, selected as PRIMITIVE keys:
-  // useShallow compares array elements with Object.is, so mapping to fresh
-  // objects inside the selector never compares equal — every render produced a
-  // new snapshot, an infinite re-render loop that crashed the renderer the
-  // moment the Reviews door mounted (MC-1834). Strings compare by value, so an
-  // unrelated store tick (an agent's output, a projection refresh) still does
-  // not re-render the review canvas; the object view is rebuilt in a memo only
-  // when a key actually changes.
-  const projectKeys = useWorkspaceStore(
-    useShallow((state) =>
-      state.workspaces.map((workspace) =>
-        JSON.stringify([workspace.id, workspace.folderPath, workspace.mode]),
-      ),
-    ),
-  )
-  const projects = useMemo(
-    () =>
-      projectKeys.map((key) => {
-        const [id, folderPath, mode] = JSON.parse(key) as [string, string | null, string]
-        return { id, folderPath, mode }
-      }),
-    [projectKeys],
-  )
+  // The live terminal sessions are the source of truth for where the guide is
+  // and what pty to attach to. Deliberately NOT a workspace-store selector: the
+  // store view this used to build had to be flattened to primitives to stop an
+  // infinite re-render loop on mount (MC-1834), and the session snapshot is
+  // both dedup-stable and the thing actually being asked about.
+  const sessions = useTerminalSessions()
   const terminal = useMemo(
-    () => resolveGuideTerminal({ reviewId, workspaceRoot, guide, workspaces: projects }),
-    [reviewId, workspaceRoot, guide, projects],
+    () => resolveGuideTerminal({ reviewId, guide, sessions }),
+    [reviewId, guide, sessions],
   )
 
   const open = useCallback(async () => {
-    if (!terminal) return
+    if (!terminal?.sessionId) return
     const store = useWorkspaceStore.getState()
     const workspace = store.workspaces.find((candidate) => candidate.id === terminal.workspaceId)
     if (!workspace) return
@@ -73,11 +54,14 @@ export function useGuideTerminal({
     // working, so a dead session is the race (it exited between render and
     // click) — and writing launch flags for one is how a tab ends up trying to
     // relaunch a terminal nobody asked for. Same check `openSession` makes.
-    const status = await window.api.terminalStatus(terminal.agentId).catch(() => null)
+    const status = await window.api.terminalStatus(terminal.sessionId).catch(() => null)
     if (!status?.processAlive) return
     store.updateAgent(workspace.id, terminal.agentId, {
       name: GUIDE_AGENT_NAME,
-      cliSessionId: terminal.agentId,
+      // The pty's own id, which is what the tab attaches by. It is also the
+      // resume token for a Claude-harness CLI, which is why it must be the id
+      // the guide was really launched with rather than anything derived here.
+      cliSessionId: terminal.sessionId,
       cliStartRequested: true,
       cliHasLaunched: true,
       // Only when something reported it: the agent record already carries the CLI

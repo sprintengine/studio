@@ -480,23 +480,30 @@ async function main(): Promise<void> {
   )
   console.log('ok - single-repo run renders one Primary card with no merge order')
 
-  // ── The project lens LEADS the rail, as one Select (MC-1816) ─────────────
-  // Same control, same accessible name, and same place as the Backlog door's
-  // toolbar-leading filter — not an axis collapsed behind the filter glyph.
+  // ── The project lens is an axis inside the rail's filter glyph ────────────
+  // Same control, same place, same menu position as the Backlog door: one glyph
+  // beside the search field holds every axis that narrows the list, so a person
+  // moving between doors reaches for one thing, not two.
   const filterTrigger = (): HTMLElement => {
-    const trigger = container.querySelector('button[role="combobox"][aria-label="Filter by project"]')
-    assert.ok(trigger, 'the project lens is one compact Select leading the rail')
+    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter and sort"]')
+    assert.ok(trigger, 'the rail narrows through one filter glyph')
     return trigger as HTMLElement
   }
-  const pickFilter = async (label: string): Promise<void> => {
+  // The menu portals to document.body; scope to the Project group, since the
+  // same menu also carries Sort.
+  const projectOptions = (): HTMLElement[] =>
+    [...dom.window.document.querySelectorAll('[role="group"][aria-label="Project"] [role="menuitemradio"]')] as HTMLElement[]
+  const openFilter = async (): Promise<void> => {
+    if (filterTrigger().getAttribute('aria-expanded') === 'true') return
     await act(async () => {
       filterTrigger().click()
     })
-    // The Select's listbox portals to document.body; the rail's own rows are a
-    // list, not a listbox, so options are queryable document-wide.
-    const option = [...dom.window.document.querySelectorAll('[role="listbox"] [role="option"]')].find(
-      (candidate) => candidate.textContent?.startsWith(label),
-    )
+  }
+  const pickFilter = async (label: string): Promise<void> => {
+    // Picking does not close this menu, so opening is conditional — an
+    // unconditional click would toggle an already-open menu shut.
+    await openFilter()
+    const option = projectOptions().find((candidate) => candidate.textContent?.startsWith(label))
     assert.ok(option, `the filter lists ${label}`)
     await act(async () => {
       ;(option as HTMLElement).click()
@@ -507,13 +514,9 @@ async function main(): Promise<void> {
   }
   // Every project with a run is offered, counted, and no other — a project with
   // nothing to show is never listed.
-  await act(async () => {
-    filterTrigger().click()
-  })
+  await openFilter()
   assert.deepEqual(
-    [...dom.window.document.querySelectorAll('[role="listbox"] [role="option"]')].map(
-      (option) => option.textContent,
-    ),
+    projectOptions().map((option) => option.textContent),
     ['All projects · 5', 'multicode · 4', 'multicode-mobile · 1'],
     'All projects with the total, then one counted option per project with runs',
   )
@@ -523,21 +526,27 @@ async function main(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
   })
-  // The lens sits above the rows and ahead of search, exactly as it does on the
-  // Backlog door — never below the list, never behind the filter glyph.
+  // One control block above the rows: New sprint, then search with the filter
+  // glyph beside it, then the list. No second full-width Select stacked over the
+  // field it narrows — the shape shared by every list surface.
   const railHtml = container.querySelector('aside[aria-label="Sprints list"]')?.innerHTML ?? ''
-  const lensAt = railHtml.indexOf('aria-label="Filter by project"')
-  assert.ok(lensAt > 0, 'the lens renders inside the rail')
+  const glyphAt = railHtml.indexOf('aria-haspopup="menu"')
+  assert.ok(glyphAt > 0, 'the filter glyph renders inside the rail')
   assert.ok(
-    railHtml.indexOf('New sprint') < lensAt && lensAt < railHtml.indexOf('Search sprints…'),
-    'New sprint, then the project lens, then search',
+    !railHtml.includes('aria-label="Filter by project"'),
+    'and no standalone project Select stands above the search',
   )
-  assert.ok(lensAt < railHtml.indexOf('Sprints: '), 'and the whole block leads the rows')
+  assert.ok(
+    railHtml.indexOf('New sprint') < railHtml.indexOf('Search sprints…'),
+    'New sprint leads the rail, then search',
+  )
+  assert.ok(railHtml.indexOf('Search sprints…') < glyphAt, 'the glyph sits beside the search field')
+  assert.ok(glyphAt < railHtml.indexOf('Sprints: '), 'and the whole block leads the rows')
 
-  // The lens sits INSIDE the rail's ↑/↓ + j/k handler and its own Arrow contract
+  // The glyph sits INSIDE the rail's ↑/↓ + j/k handler and its own Arrow contract
   // does not stop propagation. Without a guard, opening it from the keyboard also
   // walked the rail and pulled focus onto a row — the control would be unusable
-  // by keyboard. Arrow keys on the lens must move the lens and nothing else.
+  // by keyboard. Arrow keys on the menu must move the menu and nothing else.
   const selectedRunName = (): string =>
     container.querySelector('li button[aria-current="true"]')?.textContent ?? ''
   const beforeArrow = selectedRunName()

@@ -16,6 +16,7 @@ import { ReviewChangeForm } from './ReviewChangeForm'
 import { orderReviewRail, resolveReviewAutoSelect } from './reviewRailModel'
 import { ReviewCanvasTools, buildReviewsSurfaceBar } from './ReviewSurfaceBar'
 import { AskGuideDrawer, ReviewGuideActions, useReviewGuideRuntime } from './ReviewGuideControls'
+import { ensureReviewsHostWorkspace } from './reviewsHostWorkspace'
 import { useGuideTerminal } from './useGuideTerminal'
 
 // How often the open door re-scans the review index so the rail's states stay
@@ -167,16 +168,23 @@ export default function ReviewsGlobalSurface(): JSX.Element {
   // session explicitly: every start and freshness re-run carries the reviewer's
   // persisted pick, and there is no default further down to fall back on.
   const guideRuntime = useReviewGuideRuntime()
+  // Resolved when a guide is actually asked for, not on render: the first call
+  // for a project CREATES its Reviews host (MC-1911).
+  const selectedRoot = selected?.workspaceRoot ?? null
+  const resolveHostWorkspaceId = useCallback(
+    () => ensureReviewsHostWorkspace(selectedRoot),
+    [selectedRoot],
+  )
   const session = useReviewSession({
     reviewId: selected?.reviewId ?? null,
-    workspaceRoot: selected?.workspaceRoot ?? null,
+    workspaceRoot: selectedRoot,
     depth: guideRuntime.depth,
     guideCli: guideRuntime.cli,
+    resolveHostWorkspaceId,
     ...(guideRuntime.model ? { guideModel: guideRuntime.model } : {}),
   })
   const guideTerminal = useGuideTerminal({
     reviewId: selected?.reviewId ?? null,
-    workspaceRoot: selected?.workspaceRoot ?? null,
     guide: session.guide,
   })
   const guideActions = <ReviewGuideActions session={session} runtime={guideRuntime} terminal={guideTerminal} />

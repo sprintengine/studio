@@ -1677,6 +1677,13 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   const previousPhase = session.agentState?.phase
   session.agentState = { phase: frame.phase, since: frame.ts, source: 'hook' }
 
+  // The person's own prompt, carried only on UserPromptSubmit. Retained on the
+  // session so the terminal tab can show "what was I working on here?" and a new
+  // chat can be named after its first real request. Broadcast-worthy: it is
+  // rendered, unlike the thinking ↔ tool_use churn below.
+  const promptChanged = Boolean(frame.prompt) && frame.prompt !== session.lastPrompt?.text
+  if (frame.prompt) session.lastPrompt = { text: frame.prompt, at: frame.ts }
+
   // Self-scheduled wakeup bookkeeping: a schedule frame arms the reap hold, a
   // stop frame disarms it, and SessionStart clears — a fresh or resumed CLI
   // process carries no timer from its previous life, so a stale hold would
@@ -1739,7 +1746,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // the renderer's dedupe signature and avoiding a snapshot IPC per tool call.
   const attentionChanged = (previousPhase === 'awaiting_input') !== (frame.phase === 'awaiting_input')
   if (
-    (activityChanged || attentionChanged || cliSessionIdChanged)
+    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged)
     && terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()

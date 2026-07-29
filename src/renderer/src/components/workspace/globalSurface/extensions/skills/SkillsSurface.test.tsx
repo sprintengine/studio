@@ -198,7 +198,7 @@ run('Add a source is a centred modal with an accessible name', () => {
   assert.ok(markup.includes('role="dialog"') && markup.includes('aria-modal="true"'))
   assert.ok(markup.includes('id="add-skill-source-title"'))
   assert.ok(markup.includes('items-center justify-center'), 'the modal is centred over a scrim')
-  assert.ok(markup.includes('Scan and add'))
+  assert.ok(markup.includes('>Add<'))
   assert.equal(hasNestedButton(markup), false)
 })
 
@@ -601,7 +601,7 @@ run('Scan opens the Add-a-source modal on that repository', () => {
     />,
   )
   assert.ok(markup.includes('value="browser-act/skills"'), 'the candidate lands in the pasted-URL field')
-  assert.ok(markup.includes('Scan and add'), 'and takes the same path from there')
+  assert.ok(markup.includes('>Add<'), 'and takes the same path from there')
 })
 
 run('the closed modal renders nothing', () => {

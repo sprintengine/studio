@@ -175,7 +175,7 @@ function WelcomeStep({ titleId, onContinue }: { titleId: string; onContinue: () 
       <MulticodeWordmark className="h-7" />
       <div className="space-y-1.5">
         <h2 id={titleId} className="text-[15px] font-semibold text-[color:var(--text-strong)]">
-          Welcome to Multicode
+          Welcome to Sprint Engine Studio
         </h2>
         <p className="mx-auto max-w-[400px] text-[12px] leading-5 text-[color:var(--text-muted)]">
           A command surface for running coding agents. Pick the tools you want, then open your first
@@ -204,7 +204,7 @@ function ThemeStep({ titleId, onContinue }: { titleId: string; onContinue: () =>
           Pick a theme
         </h2>
         <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Choose how Multicode looks. It applies right away, and you can change it anytime in
+          Choose how it looks. This applies right away, and you can change it anytime in
           Settings → Appearance.
         </p>
       </div>
@@ -250,7 +250,7 @@ function EssentialsStep({ titleId, onContinue }: { titleId: string; onContinue: 
           Set up an agent CLI
         </h2>
         <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Multicode runs coding agents through a CLI like Claude or Codex. Install one now, or skip and
+          Coding agents run through a CLI like Claude or Codex. Install one now, or skip and
           configure your own command later in Settings.
         </p>
       </div>

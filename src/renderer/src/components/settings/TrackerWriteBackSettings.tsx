@@ -242,7 +242,7 @@ export function TrackerWriteBackSettings({
                   title={`Couldn’t post ${
                     notices.length === 1 ? 'an update' : `${notices.length} updates`
                   } to ${providerDisplayName(connection.provider)}.`}
-                  hint="Multicode retries automatically the next time this sprint does anything. Reconnect this connection above, or turn posting off."
+                  hint="This retries automatically the next time this sprint does anything. Reconnect this connection above, or turn posting off."
                   detail={distinctNoticeMessages(notices).join('\n')}
                   action={
                     <>
@@ -291,7 +291,7 @@ export function TrackerWriteBackSettings({
                   ) : transitions.reason === 'no_sample_issue' ? (
                     <p className="max-w-[52ch] text-[12px] leading-[1.5] text-[color:var(--text-subtle)]">
                       Add an issue from this tracker to your backlog first — its own statuses populate these options, so
-                      Multicode never guesses a workflow.
+                      a workflow is never guessed.
                     </p>
                   ) : (
                     <>
@@ -313,8 +313,8 @@ export function TrackerWriteBackSettings({
                       ))}
                       <p className="mt-1.5 max-w-[54ch] text-[12px] leading-[1.5] text-[color:var(--text-subtle)]">
                         Statuses come from this {providerDisplayName(connection.provider)} project’s own workflow
-                        {transitions.sampleKey ? `, read from ${transitions.sampleKey}` : ''}. Multicode never guesses a
-                        transition.
+                        {transitions.sampleKey ? `, read from ${transitions.sampleKey}` : ''}. A transition is never
+                        guessed.
                       </p>
                     </>
                   )}
@@ -451,7 +451,7 @@ function CommentPreviewCard({ markdown }: { markdown: string }) {
         <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-[11px] font-semibold text-[color:var(--text-on-accent)]">
           MC
         </span>
-        <span className="text-[12px] font-medium text-[color:var(--text-strong)]">Multicode</span>
+        <span className="text-[12px] font-medium text-[color:var(--text-strong)]">Sprint Engine Studio</span>
       </div>
       <div className="flex flex-col gap-1.5 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
         {blocks.map((block, index) =>

@@ -439,7 +439,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
         status: 'local',
         skill,
         destinationPath,
-        message: 'A local skill exists but is not managed by Multicode.',
+        message: 'A local skill exists but is not managed here.',
         targets,
       }
     }
@@ -462,7 +462,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
         ok: false,
         status: skipped.every((target) => target.status === 'local') ? 'local' : 'modified',
         skillId,
-        message: 'The workspace skill has local changes. Multicode will not overwrite it.',
+        message: 'The workspace skill has local changes. It will not be overwritten.',
       }
     }
 

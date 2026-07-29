@@ -243,7 +243,7 @@ export function CliInstallControl({
               {selectedMethod && (
                 <div className="mt-2">
                   <div className="mb-1 text-[11px] text-[color:var(--text-subtle)]">
-                    Multicode will run this command:
+                    Will run:
                   </div>
                   <pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-[11px] text-[color:var(--text-default)]">
                     {selectedMethod.commandPreview}

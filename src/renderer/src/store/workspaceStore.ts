@@ -307,6 +307,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice {
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
+  autoTitleWorkspaceFromPrompt: (id: WorkspaceId, prompt: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
   updateLayout: (id: WorkspaceId, model: IJsonModel) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void

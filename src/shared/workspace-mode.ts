@@ -11,6 +11,12 @@ export type WorkspaceMode = 'standard' | (string & {})
 export const AUTOMATIONS_HOST_WORKSPACE_MODE = 'automations-host'
 // Execution residency for a Sprint Engine run's agent terminals (item 1767).
 export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
+// Residency for a project's review guide terminals (MC-1911). One per project
+// root, created on demand by the Reviews door. The guide runs WITH the project
+// as its cwd — it reads the change, the code around it, and the knowledge graph
+// — but its terminal is not the project's work, so it does not belong among the
+// reviewer's own agents. The Reviews door is how it is found and opened.
+export const REVIEWS_HOST_WORKSPACE_MODE = 'reviews-host'
 
 // True when a workspace of this mode must not appear in the normal workspace
 // rail: an instance-level door surface took over finding and steering it, so
@@ -20,8 +26,12 @@ export const SPRINT_ENGINE_WORKSPACE_MODE = 'sprintengine'
 //
 // It lives in `shared` because both processes need the same answer and main
 // cannot import the renderer: the renderer's `isHiddenFromRail` delegates here,
-// and the review guide's workspace fallback (`guide-terminal-service.ts`) uses
-// it so it never spawns into a workspace with no rail row leading back.
+// and the review guide's workspace resolution (`guide-terminal-service.ts`)
+// consults it to keep the guide out of every OTHER hidden workspace.
 export function isModeHiddenFromRail(mode: WorkspaceMode): boolean {
-  return mode === AUTOMATIONS_HOST_WORKSPACE_MODE || mode === SPRINT_ENGINE_WORKSPACE_MODE
+  return (
+    mode === AUTOMATIONS_HOST_WORKSPACE_MODE
+    || mode === SPRINT_ENGINE_WORKSPACE_MODE
+    || mode === REVIEWS_HOST_WORKSPACE_MODE
+  )
 }

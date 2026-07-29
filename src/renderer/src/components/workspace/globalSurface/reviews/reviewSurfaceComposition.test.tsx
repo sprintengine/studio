@@ -262,49 +262,72 @@ run('the walkthrough top bar renders with and without a complexity', () => {
   assert.match(unjudged, /Re-run/, 'including its actions')
 })
 
-// Guide-terminal coordinates. A reported handle wins; without one they are
-// derived, because the run-status IPC answers "is a run open" and never says
-// where — a remount still has to produce a working link.
-run('the guide terminal resolves from a reported handle, else from the open project', () => {
-  const workspaces = [
-    { id: 'ws-other', folderPath: '/proj/other' },
-    { id: 'ws-multicode', folderPath: '/proj/multicode/' },
-  ]
-  const reported = resolveGuideTerminal({
-    reviewId: 'rv_1',
-    workspaceRoot: '/proj/multicode',
-    guide: { workspaceId: 'ws-live', agentId: 'review-guide-rv_1', sessionId: 'review-guide-rv_1', cli: 'codex' },
-    workspaces,
-  })
-  assert.deepEqual(reported, { workspaceId: 'ws-live', agentId: 'review-guide-rv_1', cli: 'codex' })
+// Guide-terminal coordinates. The live session wins — it is the terminal that
+// actually exists — and a reported handle covers the gap before its snapshot
+// arrives, because the run-status IPC answers "is a run open" and never says
+// where. A remount still has to produce a working link.
+run('the guide terminal resolves from its live session, else from a reported handle', () => {
+  const guideSession = (overrides: Record<string, unknown> = {}) => ({
+    sessionId: 'a1b2c3d4-0000-4000-8000-000000000001',
+    processAlive: true,
+    kind: 'agent',
+    workspaceId: 'ws-reviews-multicode',
+    agentId: reviewGuideAgentId('rv_1'),
+    cli: 'claude-code',
+    visible: false,
+    suspended: false,
+    reapExempt: false,
+    startedAt: 1,
+    lastOutputAt: null,
+    lastInputAt: null,
+    lastVisibleAt: null,
+    exitedAt: null,
+    outputBufferLength: 0,
+    retainedOutputBytes: 0,
+    activity: { kind: 'idle', since: 1 },
+    ...overrides,
+  }) as never
 
-  const derived = resolveGuideTerminal({ reviewId: 'rv_1', workspaceRoot: '/proj/multicode', guide: null, workspaces })
+  const sessions = [
+    guideSession({ agentId: 'agent-1', sessionId: 'other', workspaceId: 'ws-multicode' }),
+    guideSession(),
+  ]
   assert.deepEqual(
-    derived,
-    { workspaceId: 'ws-multicode', agentId: reviewGuideAgentId('rv_1') },
-    'a trailing separator does not stop the project from matching, and no CLI is invented',
+    resolveGuideTerminal({ reviewId: 'rv_1', guide: null, sessions }),
+    {
+      workspaceId: 'ws-reviews-multicode',
+      agentId: reviewGuideAgentId('rv_1'),
+      sessionId: 'a1b2c3d4-0000-4000-8000-000000000001',
+      cli: 'claude-code',
+    },
+    'the guide is found by its per-review agent id, and reports the pty a tab attaches to',
   )
 
-  // One repo, two workspaces: the guide's terminal lives in the standard one,
-  // because that is the workspace ReviewGuideTerminalService spawned it in.
+  // The pty id is minted per spawn, so a handle is the only way to know it
+  // before the session snapshot lands.
   assert.deepEqual(
     resolveGuideTerminal({
       reviewId: 'rv_1',
-      workspaceRoot: '/proj/multicode',
-      guide: null,
-      workspaces: [
-        { id: 'ws-sprint', folderPath: '/proj/multicode', mode: 'sprintengine' },
-        { id: 'ws-standard', folderPath: '/proj/multicode', mode: 'standard' },
-      ],
+      guide: {
+        workspaceId: 'ws-reviews-multicode',
+        agentId: reviewGuideAgentId('rv_1'),
+        sessionId: 'a1b2c3d4-0000-4000-8000-000000000009',
+        cli: 'codex',
+      },
+      sessions: [],
     }),
-    { workspaceId: 'ws-standard', agentId: reviewGuideAgentId('rv_1') },
-    'the standard workspace wins, matching findProjectWorkspace in the main service',
+    {
+      workspaceId: 'ws-reviews-multicode',
+      agentId: reviewGuideAgentId('rv_1'),
+      sessionId: 'a1b2c3d4-0000-4000-8000-000000000009',
+      cli: 'codex',
+    },
   )
 
   assert.equal(
-    resolveGuideTerminal({ reviewId: 'rv_1', workspaceRoot: '/proj/closed', guide: null, workspaces }),
+    resolveGuideTerminal({ reviewId: 'rv_2', guide: null, sessions }),
     null,
-    'a review whose project is not open has no terminal to focus',
+    'a review with no guide terminal running has none to focus',
   )
 })
 

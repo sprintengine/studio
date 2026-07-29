@@ -208,7 +208,7 @@ export function createDiagnosticsWindow(): BrowserWindow {
     minWidth: 600,
     minHeight: 400,
     show: false,
-    title: 'Multicode Diagnostics',
+    title: 'Sprint Engine Studio Diagnostics',
     backgroundColor: '#09090b',
     autoHideMenuBar: true,
     webPreferences: {

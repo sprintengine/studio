@@ -68,8 +68,13 @@ import type {
   WorkspaceWorktreeState,
   WorktreeEntry,
 } from '../../types/workspace'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEW_WORKSPACE_MODE } from '../../types/workspace'
+import {
+  AUTOMATIONS_HOST_WORKSPACE_MODE,
+  REVIEW_WORKSPACE_MODE,
+  REVIEWS_HOST_WORKSPACE_MODE,
+} from '../../types/workspace'
 import type { ReviewGuideConfig, ReviewWorkspaceState } from '../../types/workspace'
+import { deriveWorkspaceTitle } from '../../../../shared/workspace-title'
 // TerminalSessionSnapshot is a global ambient type from src/renderer/src/env.d.ts.
 
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
@@ -320,6 +325,12 @@ export interface WorkspacesSliceActions {
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
+  /**
+   * Name a still-default workspace after `prompt`, the first real request sent
+   * inside it. No-op when the name is already locked or the prompt yields no
+   * usable title.
+   */
+  autoTitleWorkspaceFromPrompt: (id: WorkspaceId, prompt: string) => void
   setActiveWorkspace: (id: WorkspaceId) => void
   setFolderPath: (id: WorkspaceId, folderPath: string | null) => void
   setFolderMissing: (id: WorkspaceId, folderMissing: boolean) => void
@@ -1026,37 +1037,44 @@ export function createWorkspacesSlice(
           normalizeWindowAssignments(state)
           return
         }
-        // The Automations host is strictly one-per-project (same contract as
-        // Switchboard): every creation path — the New-workspace mode card and the
-        // automation executor's workspace.create — funnels here, so reusing the
-        // folder's existing host at this boundary is what guarantees a duplicate
-        // can never be minted, whatever the caller believed.
-        const automationsHostFolderKey = isAutomationsHost ? workspaceFolderKey(folderPath) : null
-        const existingAutomationsHost = automationsHostFolderKey
+        // A background host — Automations (item 1707) or Reviews (MC-1911) — is
+        // strictly one-per-project, the same contract as Switchboard. Every
+        // creation path funnels here, so reusing the folder's existing host at
+        // this boundary is what guarantees a duplicate can never be minted,
+        // whatever the caller believed. Both are created by code rather than by a
+        // person, which is exactly why the check has to be inside `set()`: two
+        // calls in one tick each read the store before either writes.
+        const hostMode = isAutomationsHost
+          ? AUTOMATIONS_HOST_WORKSPACE_MODE
+          : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
+            ? REVIEWS_HOST_WORKSPACE_MODE
+            : null
+        const hostFolderKey = hostMode ? workspaceFolderKey(folderPath) : null
+        const existingHost = hostFolderKey
           ? state.workspaces.find((workspace) =>
-            workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE
-            && workspaceFolderKey(workspace.folderPath) === automationsHostFolderKey
+            workspace.mode === hostMode
+            && workspaceFolderKey(workspace.folderPath) === hostFolderKey
           )
           : null
-        if (existingAutomationsHost) {
+        if (existingHost) {
           if (folderPath) {
             state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
               [folderPath],
               state.appSettings.recentWorkspaceFolders
             )
           }
-          id = existingAutomationsHost.id
-          existingAutomationsHost.folderMissing = false
-          state.activeWorkspaceId = existingAutomationsHost.id
+          id = existingHost.id
+          existingHost.folderMissing = false
+          state.activeWorkspaceId = existingHost.id
           if (!options?.background) state.activeGlobalSurface = null
           const targetWindow = ensureWorkspaceWindow(
             state,
-            options?.windowId ?? findWorkspaceWindow(state, existingAutomationsHost.id)?.id ?? targetWindowId,
+            options?.windowId ?? findWorkspaceWindow(state, existingHost.id)?.id ?? targetWindowId,
           )
-          if (!targetWindow.workspaceIds.includes(existingAutomationsHost.id)) {
-            targetWindow.workspaceIds.push(existingAutomationsHost.id)
+          if (!targetWindow.workspaceIds.includes(existingHost.id)) {
+            targetWindow.workspaceIds.push(existingHost.id)
           }
-          targetWindow.activeWorkspaceId = existingAutomationsHost.id
+          targetWindow.activeWorkspaceId = existingHost.id
           normalizeWindowAssignments(state)
           // Offer the reused host to main as a workspace.created command. When
           // main holds only a restart-restored routing placeholder for the id
@@ -1067,7 +1085,7 @@ export function createWorkspacesSlice(
           // `current()` detaches the payload from the immer draft, which is
           // revoked once set() returns.
           createdEventPayload = {
-            workspace: current(existingAutomationsHost),
+            workspace: current(existingHost),
             windowId: targetWindow.id,
             folderPath,
           }
@@ -1084,6 +1102,11 @@ export function createWorkspacesSlice(
         const workspaceName = sprintEngineState
           ? sprintEngineState.name
           : options?.name?.trim() || fallbackName
+        // Only a workspace left on the generic `fallbackName` ("Chat 44") is a
+        // candidate for auto-titling. A sprint roster name, a wizard-typed name,
+        // or a chained run's name is already meaningful and is locked here so the
+        // first prompt never overwrites it.
+        const titleLocked = workspaceName !== fallbackName
         const agents: Workspace['agents'] = {}
         const sprintEngineRoleCliDefaults = sprintEngineState
           ? deps.normalizeSprintEngineRoleCliDefaults(options?.sprintEngineRoleCliDefaults)
@@ -1195,6 +1218,7 @@ export function createWorkspacesSlice(
         const newWorkspace: Workspace = {
           id,
           name: workspaceName,
+          ...(titleLocked ? { titleLocked: true } : {}),
           mode: isSwitchboard
             ? 'switchboard'
             : isGuidedBrief
@@ -1203,9 +1227,11 @@ export function createWorkspacesSlice(
                 ? 'sprintengine'
                 : isAutomationsHost
                   ? AUTOMATIONS_HOST_WORKSPACE_MODE
-                  : isReview
-                    ? REVIEW_WORKSPACE_MODE
-                    : 'standard',
+                  : explicitMode === REVIEWS_HOST_WORKSPACE_MODE
+                    ? REVIEWS_HOST_WORKSPACE_MODE
+                    : isReview
+                      ? REVIEW_WORKSPACE_MODE
+                      : 'standard',
           folderPath,
           folderMissing: false,
           ...(options?.worktree ? { worktree: options.worktree } : {}),
@@ -1299,7 +1325,30 @@ export function createWorkspacesSlice(
     renameWorkspace: (id, name) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
-        if (ws) ws.name = name.trim() || ws.name
+        if (!ws) return
+        ws.name = name.trim() || ws.name
+        // A hand-typed name is final: auto-titling must never overwrite it, and
+        // the lock is set even when the rename was a no-op (the user retyping
+        // the same name is still them settling on it).
+        ws.titleLocked = true
+      }),
+
+    // Name a still-default workspace after the first real prompt sent inside it.
+    // A no-op once the name is locked — by an earlier auto-title, a manual
+    // rename, or an explicit name at creation — which is what stops the title
+    // moving when a second prompt or a second terminal arrives.
+    //
+    // Takes the raw prompt rather than a finished title so the derivation stays
+    // in one place and a rejected prompt (an app-injected skill drop, filler)
+    // leaves the workspace unlocked for the next one.
+    autoTitleWorkspaceFromPrompt: (id, prompt) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws || ws.titleLocked) return
+        const title = deriveWorkspaceTitle(prompt)
+        if (!title) return
+        ws.name = title
+        ws.titleLocked = true
       }),
 
     setActiveWorkspace: (id) =>

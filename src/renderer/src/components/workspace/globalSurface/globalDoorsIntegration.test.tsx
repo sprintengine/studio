@@ -190,18 +190,21 @@ async function main(): Promise<void> {
   // standing in for the other's.
   const FOLLOWING = 4 // Node.DOCUMENT_POSITION_FOLLOWING
   function projectFilterPlacement(searchAriaLabel: string, rowListSelector: string): unknown {
-    const lens = container.querySelector('button[aria-label="Filter by project"]')
-    assert.ok(lens, 'the door exposes a project filter named "Filter by project"')
     const search = container.querySelector(`input[aria-label="${searchAriaLabel}"]`)
-    assert.ok(search, 'and a search field')
+    assert.ok(search, 'the door exposes a search field')
+    // Everything that narrows the list — the project lens included — lives behind
+    // ONE glyph beside that field. A standalone project Select stacked above the
+    // search is the shape this contract exists to keep out.
+    const standalone = container.querySelector('button[aria-label="Filter by project"]')
+    assert.equal(standalone, null, 'and no standalone project Select beside it')
+    const glyph = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter"]')
+    assert.ok(glyph, 'and a filter glyph holding the narrowing axes')
     const rows = container.querySelector(rowListSelector)
     assert.ok(rows, 'and a row list')
     return {
-      control: lens.getAttribute('role'),
-      // Collapsed behind a glyph, the lens would be a menu trigger, not a Select.
-      collapsedBehindAGlyph: lens.getAttribute('aria-haspopup') === 'menu',
-      leadsSearch: Boolean(lens.compareDocumentPosition(search) & FOLLOWING),
-      leadsRows: Boolean(lens.compareDocumentPosition(rows) & FOLLOWING),
+      collapsedBehindAGlyph: glyph.getAttribute('aria-haspopup') === 'menu',
+      followsSearch: Boolean(search.compareDocumentPosition(glyph) & FOLLOWING),
+      leadsRows: Boolean(glyph.compareDocumentPosition(rows) & FOLLOWING),
     }
   }
 
@@ -465,23 +468,29 @@ async function main(): Promise<void> {
   })
   await settle(12)
 
-  // The project filter is ONE compact control (MC-1837), not a chip per
-  // project: options carry their counts, a failed project stays listed as
-  // "unavailable" (unreadable must remain reachable), and a healthy project
-  // with zero rows in the lens is omitted as noise.
+  // The project filter is ONE axis inside the filter glyph's menu, not a chip
+  // per project and not a Select of its own: options carry their counts, a
+  // failed project stays listed as "unavailable" (unreadable must remain
+  // reachable), and a healthy project with zero rows in the lens is omitted as
+  // noise.
   const filterTrigger = (): HTMLElement => {
-    const trigger = container.querySelector('button[role="combobox"][aria-label="Filter by project"]')
-    assert.ok(trigger, 'the project filter renders as one compact select')
+    const trigger = container.querySelector('button[aria-haspopup="menu"][aria-label^="Filter and sort"]')
+    assert.ok(trigger, 'the narrowing axes live behind one filter glyph')
     return trigger as HTMLElement
   }
-  // The Select's listbox portals to document.body, so options are queried
-  // document-wide, excluding the row list (whose rows are options too).
+  // The menu portals to document.body, so options are queried document-wide and
+  // scoped to the Project group — the menu also holds View / Sort by / Group.
   const filterOptions = (): HTMLElement[] =>
-    [...dom.window.document.querySelectorAll('[role="listbox"]:not([aria-label="Backlog items across projects"]) [role="option"]')] as HTMLElement[]
+    [...dom.window.document.querySelectorAll('[role="group"][aria-label="Project"] [role="menuitemradio"]')] as HTMLElement[]
   const pickFilterOption = async (label: string): Promise<void> => {
-    await act(async () => {
-      filterTrigger().click()
-    })
+    // Picking an option does NOT close this menu (both axes can be set in one
+    // visit), so opening is conditional — an unconditional click would toggle an
+    // already-open menu shut.
+    if (filterTrigger().getAttribute('aria-expanded') !== 'true') {
+      await act(async () => {
+        filterTrigger().click()
+      })
+    }
     const option = filterOptions().find(
       (candidate) => candidate.textContent?.startsWith(label),
     )
@@ -506,22 +515,22 @@ async function main(): Promise<void> {
   })
   await settle()
 
-  // ── One project-filter placement across both doors (MC-1816) ──────────────
-  // The two doors used to disagree: Backlog led its toolbar with the project
-  // Select while Sprints tucked the same lens behind the rail's filter glyph.
-  // Compared as relationships, not markup, so this holds whichever door moves.
+  // ── One narrowing anatomy across both doors ───────────────────────────────
+  // Search leads, one filter glyph sits beside it holding every narrowing axis
+  // (project included), and the rows follow. Compared as relationships, not
+  // markup, so this holds whichever door moves.
   assert.deepEqual(
     projectFilterPlacement(
       'Search every project’s backlog',
       'ul[role="listbox"][aria-label="Backlog items across projects"]',
     ),
     sprintsFilterPlacement,
-    'both doors expose the project filter as the same control, in the same place',
+    'both doors narrow the list through the same control, in the same place',
   )
   assert.deepEqual(
     sprintsFilterPlacement,
-    { control: 'combobox', collapsedBehindAGlyph: false, leadsSearch: true, leadsRows: true },
-    'and that place is leading the door’s controls, never behind a filter glyph',
+    { collapsedBehindAGlyph: true, followsSearch: true, leadsRows: true },
+    'and that place is one glyph beside the search field, above the rows',
   )
   console.log('ok - the Backlog and Sprints doors place their project filter identically')
 

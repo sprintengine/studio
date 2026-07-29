@@ -283,9 +283,11 @@ export default function RoadmapGlobalSurface(): JSX.Element {
     const name = (
       await dialog.prompt({
         title: 'New horizon',
-        body: homePath
-          ? 'Name your horizon. It can line up work from every project in this Multicode.'
-          : `Your horizon will live in ${projectName} and can line up work from every project in this Multicode.`,
+        // No body when the home project is already settled: the title, the
+        // field, and Create say everything. The one case worth a line is the
+        // first horizon, which silently adopts this project as the home — a
+        // consequence the user cannot see anywhere in the dialog.
+        body: homePath ? undefined : `Lives in ${projectName}.`,
         inputLabel: 'Horizon name',
         placeholder: 'e.g. Next quarter',
         confirmLabel: 'Create',
@@ -331,7 +333,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
           file.totalSteps > 0
             ? 'The backlog items it lines up are not touched, and any sprint it already delivered keeps its branch and pull request.'
             : 'No backlog items are touched.',
-          isActive ? 'This is your active horizon, so Multicode will stop working it.' : null,
+          isActive ? 'This is your active horizon, so work on it stops.' : null,
         ]
           .filter(Boolean)
           .join(' '),
@@ -386,8 +388,8 @@ export default function RoadmapGlobalSurface(): JSX.Element {
         title: `Make “${file.title}” the active horizon?`,
         body:
           demoting.length > 0
-            ? `Multicode runs one horizon at a time. “${demoting[0].title}” becomes a draft — its running sprints finish, but nothing new starts on it until you make it active again.`
-            : 'Multicode will start working this horizon, one sprint at a time.',
+            ? `Only one horizon runs at a time. “${demoting[0].title}” becomes a draft — its running sprints finish, but nothing new starts on it until you make it active again.`
+            : 'This horizon starts running, one sprint at a time.',
         confirmLabel: 'Make active',
       })
       if (!ok) return
@@ -977,7 +979,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
               <SurfaceCanvasState
                 kind="error"
                 title="This horizon file no longer exists."
-                hint="It may have been moved or deleted outside Multicode."
+                hint="It may have been moved or deleted outside the app."
                 detail={selectedFile.roadmapRef}
                 onRetry={reload}
               />
@@ -1061,7 +1063,7 @@ export default function RoadmapGlobalSurface(): JSX.Element {
                         ? undefined
                         : {
                             title: 'Draft horizon',
-                            body: 'Nothing runs until you make it active. Multicode will then work it one sprint at a time.',
+                            body: 'Nothing runs until you make it active. It then runs one sprint at a time.',
                           }
                     }
                   />

@@ -168,7 +168,7 @@ export const HORIZON_PARK_COPY: Record<string, string> = {
   merge_failed: 'A merge could not complete.',
   start_failed: 'No sprint was created.',
   eligibility_contradiction: 'This track points at an item that no longer exists.',
-  unknown_project: 'This track points at a project this Multicode can’t find.',
+  unknown_project: 'This track points at a project that can’t be found.',
   paused: 'You paused this track.',
 }
 

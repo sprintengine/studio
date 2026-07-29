@@ -31,6 +31,16 @@ type BacklogFilterMenuProps = {
   defaultView?: BacklogView
   defaultSort?: BacklogSort
   defaultGroup?: BacklogGroup
+  /** The project lens, when the surface spans more than one project (the door).
+   *  It leads the menu rather than standing beside the search as its own Select:
+   *  everything that narrows the list lives behind one glyph, so there is one
+   *  place to look for "why am I not seeing everything?". */
+  project?: {
+    items: ReadonlyArray<SelectItem<string>>
+    value: string
+    defaultValue: string
+    onChange: (value: string) => void
+  }
   className?: string
 }
 
@@ -49,6 +59,7 @@ export function BacklogFilterMenu({
   defaultView = 'active',
   defaultSort = 'recent',
   defaultGroup = 'none',
+  project,
   className,
 }: BacklogFilterMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -89,7 +100,11 @@ export function BacklogFilterMenu({
     }
   }
 
-  const active = view !== defaultView || sort !== defaultSort || group !== defaultGroup
+  const active =
+    view !== defaultView ||
+    sort !== defaultSort ||
+    group !== defaultGroup ||
+    (project ? project.value !== project.defaultValue : false)
 
   return (
     <Popover
@@ -130,12 +145,22 @@ export function BacklogFilterMenu({
         </button>
       )}
     >
+      {project ? (
+        <FilterGroup
+          label="Project"
+          items={project.items}
+          current={project.value}
+          onSelect={project.onChange}
+          onOptionKey={onOptionKey}
+        />
+      ) : null}
       <FilterGroup
         label="View"
         items={viewItems}
         current={view}
         onSelect={onViewChange}
         onOptionKey={onOptionKey}
+        divider={Boolean(project)}
       />
       <FilterGroup
         label="Sort by"

@@ -8,7 +8,7 @@
     "dark"
   ],
   "namingGrammar": {
-    "tokens": "<tier>.<group...>.<name> — tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",
+    "tokens": "<tier>.<group...>.<name> \u2014 tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",
     "cssVariables": "'--' plus the token path with '.' replaced by '-' (sem.color.bg.app -> --sem-color-bg-app); components consume only the --sem-* set",
     "components": "kebab-case directory under components/, containing component.html, component.css, and component.md",
     "glyphs": "kebab-case concept name, one concept per SVG; strokes and fills use currentColor"
@@ -26,6 +26,7 @@
       "tooltip"
     ],
     "patterns": [
+      "patterns/list-surface.html",
       "patterns/selection.html"
     ],
     "glyphs": [

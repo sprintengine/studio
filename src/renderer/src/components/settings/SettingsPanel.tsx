@@ -1102,7 +1102,7 @@ export default function SettingsPanel({
           title: 'Enable activity tracking?',
           body: (
             <>
-              <div>Multicode will:</div>
+              <div>What happens:</div>
               <ul className="mt-1 list-disc pl-5">
                 <li>Add a hook to <span className="font-mono">.claude/settings.local.json</span> in the project folder</li>
                 <li>Copy a hook script to <span className="font-mono">.multicode/hooks/</span></li>
@@ -1702,7 +1702,7 @@ export default function SettingsPanel({
           <div className="space-y-2">
             <SettingsSectionTitle>Theme</SettingsSectionTitle>
             <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-              Theme applies across every Multicode workspace and panel. Every theme is anti-temporal-dither baseline (channel values are multiples of 4) so surfaces don&apos;t flicker on 6-bit-FRC panels. &lsquo;Match system&rsquo; follows your operating system&apos;s light or dark preference.
+              Theme applies across every workspace and panel. Every theme is anti-temporal-dither baseline (channel values are multiples of 4) so surfaces don&apos;t flicker on 6-bit-FRC panels. &lsquo;Match system&rsquo; follows your operating system&apos;s light or dark preference.
             </p>
           </div>
           <AppThemePicker value={appearanceTheme} onChange={setAppearanceTheme} />
@@ -1771,7 +1771,7 @@ export default function SettingsPanel({
                 <MulticodeMark className="h-4 w-4 shrink-0" />
                 <div className="min-w-0">
                   <div className="text-[13px] font-medium text-[color:var(--text-strong)]">
-                    Multicode <span className="tabular-nums">{updateState?.version ?? '…'}</span>
+                    Sprint Engine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
                   </div>
                   <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
                     {formatUpdateChannel(updateState?.channel)} channel · last checked {formatNullableDate(updateState?.lastCheckedAt)}
@@ -1990,7 +1990,7 @@ export default function SettingsPanel({
             Installed CLIs
           </SettingsSectionTitle>
           <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-            The agent CLIs Multicode can launch. Select one to check its status or change how it runs.
+            The agent CLIs that can be launched. Select one to check its status or change how it runs.
           </p>
           {cliInstallMessage ? (
             <MessageBlock tone={cliInstallMessage.tone}>{cliInstallMessage.text}</MessageBlock>
@@ -2640,7 +2640,7 @@ function ProfileSection({
       <div className="space-y-4">
         <SettingsSectionTitle>Account</SettingsSectionTitle>
         <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
-          Sign in to your Multicode account to sync entitlements and unlock Pro features.
+          Sign in to sync entitlements and unlock Pro features.
         </p>
         <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
           Sign in
@@ -2651,7 +2651,7 @@ function ProfileSection({
   }
 
   const pro = hasActiveProPlan(authState)
-  const name = authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
+  const name = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const orgName = authState.selectedOrganization?.name ?? null
   const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
@@ -2765,13 +2765,13 @@ function formatUpdateStatus(state: AppUpdateState | null): string {
     case 'checking':
       return 'Checking for updates.'
     case 'available':
-      return state.updateVersion ? `Multicode ${state.updateVersion} is available.` : 'An update is available.'
+      return state.updateVersion ? `Version ${state.updateVersion} is available.` : 'An update is available.'
     case 'downloading':
       return state.progress ? `Downloading update (${Math.round(state.progress.percent)}%).` : 'Downloading update.'
     case 'downloaded':
-      return 'Update downloaded. Restart Multicode to install it.'
+      return 'Update downloaded. Restart to install it.'
     case 'not_available':
-      return 'Multicode is up to date.'
+      return 'You’re up to date.'
     case 'error':
       return state.errorMessage ?? 'Update check failed.'
     default:

@@ -3,7 +3,7 @@ import { deriveSprintEngineRunGlyph } from './sprintengine'
 import { isSprintEngineWorkspace } from './sprintEngineWorkspace'
 import { isStarred } from './highlight'
 import { workspaceLastWorkedAt } from './workspaceRecency'
-import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, REVIEWS_HOST_WORKSPACE_MODE } from '../types/workspace'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // A workspace auto-archives once it has gone this long without being worked on
@@ -26,12 +26,16 @@ const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set([
 ])
 
 // Pure rule for the startup sweep. Deliberately conservative: starred rows,
-// pending-work sprints, and the background Automations host never archive;
-// the caller additionally excludes every window's active workspace.
+// pending-work sprints, and the background hosts (Automations, Reviews) never
+// archive; the caller additionally excludes every window's active workspace.
 export function shouldAutoArchiveWorkspace(workspace: Workspace, now: number): boolean {
   if (typeof workspace.archivedAt === 'number') return false
   if (isStarred(workspace.highlight)) return false
   if (workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE) return false
+  // Archiving is presentation tidiness for rows a person navigates; the Reviews
+  // host has no row, and archiving it would only hide the guide from the
+  // session manager while its terminal is still running.
+  if (workspace.mode === REVIEWS_HOST_WORKSPACE_MODE) return false
   if (now - workspaceLastWorkedAt(workspace) < WORKSPACE_AUTO_ARCHIVE_AFTER_MS) return false
   if (isSprintEngineWorkspace(workspace)) {
     const glyph = deriveSprintEngineRunGlyph({

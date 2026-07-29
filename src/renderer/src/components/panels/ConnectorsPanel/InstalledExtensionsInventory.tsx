@@ -187,7 +187,7 @@ function InstalledView({
   if (view.status === 'unsupported') {
     return (
       <InlineNotice tone="warn">
-        Installed extensions need a newer app build. Update Multicode and restart to see them here.
+        Installed extensions need a newer app build. Update and restart to see them here.
       </InlineNotice>
     )
   }

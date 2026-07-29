@@ -427,7 +427,7 @@ function formatBuiltinSkillStatus(status: BuiltinSkillStatus | null, skillId: st
     case 'update-available':
       return `Update available. Installed version: ${status.installedVersion}.`
     case 'modified':
-      return 'Installed with local changes. Multicode will not overwrite it.'
+      return 'Installed with local changes. It will not be overwritten.'
     case 'local':
       return status.message
     default:

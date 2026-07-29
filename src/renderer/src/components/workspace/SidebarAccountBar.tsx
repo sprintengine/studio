@@ -130,7 +130,7 @@ function AccountPopover({
   const metaLine = [planLabel, authState.selectedOrganization?.name]
     .filter(Boolean)
     .join(' · ')
-  const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
+  const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
 
@@ -212,7 +212,7 @@ export default function SidebarAccountBar({
   const tier = accountTier(authState)
   const tierStyle = ACCOUNT_TIER_STYLE[tier]
   const initials = accountInitials(authState.user)
-  const accountName = authState.user?.displayName ?? authState.user?.email ?? 'Multicode account'
+  const accountName = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
 
   const avatar = (
     <span

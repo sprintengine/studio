@@ -153,7 +153,7 @@ export function createAppMenu(): Menu {
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'app.updates.check'),
         },
         {
-          label: 'About Multicode',
+          label: 'About Sprint Engine Studio',
           click: (_, win) => sendMenuCommand(win ?? BrowserWindow.getFocusedWindow(), 'show-about'),
         },
       ],

@@ -165,7 +165,7 @@ export default function AutomationsPanel({ workspaceId }: { workspaceId: string 
         <PanelHeader
           title="Automations"
           titleId={titleId}
-          subtitle="Runs while Multicode is open"
+          subtitle="Runs while the app is open"
           count={loadState === 'ready' ? definitions.length : undefined}
           primaryAction={
             <PrimaryButton

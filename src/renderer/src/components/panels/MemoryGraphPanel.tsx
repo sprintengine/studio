@@ -265,7 +265,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
           <MemoryNotice
             tone="info"
             title="Knowledge Graph is not configured"
-            message="Set a project-relative knowledge path in Settings → Knowledge to render the graph. Multicode never guesses a folder for you."
+            message="Set a project-relative knowledge path in Settings → Knowledge to render the graph. A folder is never guessed for you."
           />
         ) : loading ? (
           <LoadingOverlay label="Indexing knowledge…" />

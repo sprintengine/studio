@@ -186,7 +186,9 @@ const GROUP_ITEMS: SelectItem<BacklogGroup>[] = [
 // Scope word shown next to the header count when a lens narrows the list, so a
 // bare number never reads as the whole backlog.
 const VIEW_SCOPE_LABEL: Partial<Record<BacklogView, string>> = {
-  epics: 'epics',
+  // "Epics" is the name of the lens, not a common noun, so it keeps the capital
+  // it carries in the filter menu that switched it on.
+  epics: 'Epics',
   quick_wins: 'quick wins',
   strategic_bets: 'strategic bets',
   defer: 'defer candidates',
@@ -1657,6 +1659,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           </>
         }
         overflow={backlogOverflow}
+        divider={false}
       />
 
       <div className="flex shrink-0 items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2">

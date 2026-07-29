@@ -209,7 +209,7 @@ run('a step in an unresolvable project names the project and the fix', () => {
   const markup = render({
     step: step({ state: 'unknown_project', projectName: 'multicode-mobile', ref: 'mobile:backlog/one.md' }),
   })
-  assert.match(markup, /multicode-mobile isn’t open in this Multicode/)
+  assert.match(markup, /multicode-mobile isn’t open/)
   assert.match(markup, /re-map the alias/)
   assert.match(markup, /mobile:backlog\/one\.md/, 'the ref, so the horizon file can be found')
 })
@@ -223,7 +223,7 @@ run('a step whose backlog file is gone says so, and says the track will park', (
 run('a step in a project this Multicode has no feed for is not reported "missing"', () => {
   // The file may be perfectly present — we simply cannot see that project.
   const markup = render({ step: step(), resolved: null, unresolved: 'project_unavailable' })
-  assert.match(markup, /isn’t open in this Multicode/)
+  assert.match(markup, /isn’t open/)
   assert.doesNotMatch(markup, /backlog item is missing/)
 })
 

@@ -97,7 +97,7 @@ export function formatDiagnosticsReport(input: {
 
   const sections: string[] = []
 
-  sections.push('# Multicode performance diagnostics')
+  sections.push('# Performance diagnostics')
   sections.push(
     [
       `Captured: ${new Date(now).toISOString()}`,

@@ -529,7 +529,7 @@ function statusMessage(state: MobileBridgeState | null): string {
   }
   const diagnosticMessage = latestDiagnosticMessage(state)
   if (diagnosticMessage?.toLowerCase().includes('access token has expired')) {
-    return 'Desktop access token has expired. Multicode will refresh it automatically; sign in again if this persists.'
+    return 'Desktop access token has expired. It refreshes automatically; sign in again if this persists.'
   }
   if (state.relayStatus === 'connecting' || state.relayStatus === 'retrying') {
     return 'Connecting to the relay.'

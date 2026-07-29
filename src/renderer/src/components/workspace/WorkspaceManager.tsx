@@ -328,6 +328,7 @@ export default function WorkspaceManager() {
   const closeGlobalSurface = useWorkspaceStore((s) => s.closeGlobalSurface)
   const forgetFolder = useWorkspaceStore((s) => s.forgetFolder)
   const recordWorkspaceTerminalActivity = useWorkspaceStore((s) => s.recordWorkspaceTerminalActivity)
+  const autoTitleWorkspaceFromPrompt = useWorkspaceStore((s) => s.autoTitleWorkspaceFromPrompt)
   const reconcileWorkspaceAgentLaunchFlags = useWorkspaceStore((s) => s.reconcileWorkspaceAgentLaunchFlags)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const authState = useWorkspaceStore((s) => s.authState)
@@ -566,6 +567,10 @@ export default function WorkspaceManager() {
   const notificationsRef = useRef<HTMLDivElement>(null)
   const terminalSessionsSignatureRef = useRef('')
   const reportedTerminalLastInputRef = useRef<Map<string, number>>(new Map())
+  // Prompt timestamps already offered to the auto-titler, per session. The store
+  // action is idempotent, but calling it on every broadcast would run an immer
+  // `set` per snapshot and churn subscribers for nothing.
+  const titledPromptAtRef = useRef<Map<string, number>>(new Map())
   const reconciledLaunchFlagsRef = useRef(false)
   const workspaceLayoutLastFocusedAtRef = useRef<Record<string, number>>({})
   const workspaceLayoutRetentionReasonsRef = useRef<Record<string, WorkspaceLayoutRetentionReason>>({})
@@ -882,7 +887,7 @@ export default function WorkspaceManager() {
         level: 'error',
         source: 'workspace',
         title: 'New chat unavailable',
-        message: 'The Solo layout template is missing, so Multicode cannot create a one-agent chat.',
+        message: 'The Solo layout template is missing, so a one-agent chat cannot be created.',
       })
       return
     }
@@ -1290,7 +1295,7 @@ export default function WorkspaceManager() {
   useEffect(() => {
     const windowName = activeWorkspace?.name?.trim()
     const projectName = activeWorkspace?.folderPath ? folderName(activeWorkspace.folderPath) : null
-    document.title = [windowName, projectName, 'Multicode'].filter(Boolean).join(' - ')
+    document.title = [windowName, projectName, 'Sprint Engine Studio'].filter(Boolean).join(' - ')
   }, [activeWorkspace?.folderPath, activeWorkspace?.name])
 
   const learningContext = useMemo(() => ({
@@ -1520,6 +1525,21 @@ export default function WorkspaceManager() {
         recordWorkspaceTerminalActivity(workspaceId, lastInputAt)
       }
 
+      // Name a new chat after the first real prompt sent inside it, so a sidebar
+      // of them says what each was for instead of "Chat 44". The store action
+      // owns the rules — it no-ops once a workspace's name is locked, and skips a
+      // prompt that yields no usable title (an app-injected skill drop, pure
+      // filler), leaving the next prompt to try. So this only has to avoid
+      // re-offering a prompt it already offered.
+      for (const session of sessions) {
+        const prompt = session.lastPrompt
+        if (!prompt || typeof session.workspaceId !== 'string') continue
+        const offered = titledPromptAtRef.current.get(session.sessionId)
+        if (offered !== undefined && offered >= prompt.at) continue
+        titledPromptAtRef.current.set(session.sessionId, prompt.at)
+        autoTitleWorkspaceFromPrompt(session.workspaceId, prompt.text)
+      }
+
       if (!reconciledLaunchFlagsRef.current) {
         reconciledLaunchFlagsRef.current = true
         reconcileWorkspaceAgentLaunchFlags(sessions)
@@ -1541,7 +1561,7 @@ export default function WorkspaceManager() {
       unsubscribe()
       window.clearInterval(interval)
     }
-  }, [recordWorkspaceTerminalActivity, reconcileWorkspaceAgentLaunchFlags])
+  }, [recordWorkspaceTerminalActivity, reconcileWorkspaceAgentLaunchFlags, autoTitleWorkspaceFromPrompt])
 
   useEffect(() => {
     if (window.api.platform === 'darwin') return
@@ -2765,8 +2785,16 @@ export default function WorkspaceManager() {
     // workspace.agents record; updateAgent would fabricate one and
     // focusOrAddAgentTab would open a pane for it. For those rows activation
     // is plain workspace focus only.
+    //
+    // A review guide is the opposite case: it is an ordinary agent terminal
+    // that main spawned without this window's knowledge, so it has no record
+    // until something adopts it. Opening it from here IS that adoption — the
+    // same one the Reviews door performs — and without it the reviewer lands in
+    // the Reviews host with no tab (MC-1911).
     const agentId =
-      item.agentId && workspace.agents[item.agentId] ? item.agentId : null
+      item.agentId && (workspace.agents[item.agentId] || isReviewGuideAgentId(item.agentId))
+        ? item.agentId
+        : null
     const status = await window.api.terminalStatus(item.sessionId)
     if (!status.processAlive) {
       setTerminalSessions((sessions) => sessions.filter((session) => session.sessionId !== item.sessionId))

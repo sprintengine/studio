@@ -317,7 +317,7 @@ const PARK_NOTICE: Record<RoadmapParkReason, string> = {
   merge_failed: 'A merge could not complete. The horizon is paused.',
   start_failed: 'The next sprint could not start. The horizon is paused.',
   eligibility_contradiction: 'The horizon references an item that no longer exists. It is paused.',
-  unknown_project: 'The horizon points at a project this Multicode can no longer find. It is paused until you re-point it.',
+  unknown_project: 'The horizon points at a project that can no longer be found. It is paused until you re-point it.',
   // A manual pause is a human action, not an incident — it never notifies (the
   // driver only calls notifyPark for the failure reasons), so this copy is a
   // defensive default the notify path never reaches.
@@ -1126,7 +1126,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   // the body stays byte-stable. Reconciles so the orchestrator adopts the new plan.
   async function activateRoadmap(input: { roadmapRef: string }): Promise<{ ok: boolean; message?: string }> {
     const homeRoot = ports.getHomeProjectRoot()
-    if (!homeRoot) return { ok: false, message: 'No home project is configured for this Multicode.' }
+    if (!homeRoot) return { ok: false, message: 'No home project is configured.' }
     const targetRef = normalizeRoadmapPath(input.roadmapRef)
     let roadmaps: RoadmapBacklogItem[]
     try {
@@ -1195,7 +1195,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   // never inherit this one's parks and pending approvals.
   async function deleteRoadmap(input: { roadmapRef: string }): Promise<{ ok: boolean; message?: string }> {
     const homeRoot = ports.getHomeProjectRoot()
-    if (!homeRoot) return { ok: false, message: 'No home project is configured for this Multicode.' }
+    if (!homeRoot) return { ok: false, message: 'No home project is configured.' }
     const targetRef = normalizeRoadmapPath(input.roadmapRef)
     let roadmaps: RoadmapBacklogItem[]
     try {
@@ -1256,7 +1256,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
   // content is the exact bytes composeRoadmapSaveContent/skipRoadmapEntry edit.
   async function loadForEdit(): Promise<{ entry: RoadmapEntry; content: string } | { error: string }> {
     const entry = await loadActiveRoadmap()
-    if (!entry) return { error: 'No active roadmap is configured for this Multicode.' }
+    if (!entry) return { error: 'No active roadmap is configured.' }
     const content = await ports.readRoadmapFile(entry.homeRoot, entry.roadmapRef)
     if (content === null) return { error: 'The roadmap file could not be read.' }
     return { entry, content }
@@ -1277,7 +1277,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     const knownRoots = new Set(ports.listWorkspaceRoots().map(normalizeRoot))
     knownRoots.add(normalizeRoot(entry.homeRoot))
     if (!knownRoots.has(normalized)) {
-      return { error: `Project "${projectPath}" is not an open workspace in this Multicode.` }
+      return { error: `Project "${projectPath}" is not an open workspace.` }
     }
     for (const project of entry.roadmap.projects) {
       if (normalizeRoot(project.path) === normalized) return { projectKey: project.alias, root: project.path }
@@ -1479,7 +1479,7 @@ export function createRoadmapOrchestrator(ports: RoadmapOrchestratorPorts) {
     options: RoadmapResumeOptions = {},
   ): Promise<RoadmapCommandOutcome> {
     const entry = await loadActiveRoadmap()
-    if (!entry) return { ok: false, message: 'No active roadmap is configured for this Multicode.' }
+    if (!entry) return { ok: false, message: 'No active roadmap is configured.' }
     switch (action) {
       case 'approve':
         return approveStart(entry.roadmapRef, lane, actor)

@@ -23,7 +23,7 @@ import { GhostButton } from '../../ui/Buttons'
 import { FilterMenu, type FilterMenuGroup } from '../../ui/FilterMenu'
 import { InboxSearchInput } from '../../ui/InboxSearchInput'
 import { InlineNotice } from '../../ui/InlineNotice'
-import { Select, type SelectItem } from '../../ui/Select'
+import { type SelectItem } from '../../ui/Select'
 import { Spinner } from '../../ui/Spinner'
 import { StatusDot } from '../../ui/StatusDot'
 import { FOCUS_RING_CLASS, type StatusTone } from '../../ui/tokens'
@@ -205,7 +205,8 @@ export interface SurfaceRailFilter {
   groups: ReadonlyArray<FilterMenuGroup>
 }
 
-/** The rail's optional project lens: one compact Select LEADING the rail's
+/** The rail's optional project lens. It rides inside the filter glyph's menu as
+ *  its leading group — never a separate Select LEADING the rail's
  *  filter controls, exactly where the Backlog door's toolbar puts its own
  *  (MC-1816). Which projects a door offers is the door's business; that the
  *  operator finds the control in the same place on both is this substrate's. */
@@ -288,6 +289,24 @@ export function SurfaceRail({
     [rows, selectedId, onSelect],
   )
 
+  // The project lens leads the filter glyph's menu; the door's own axes follow.
+  // One affordance narrows the list, so there is one place to look for "why am I
+  // not seeing everything?" — and the rail keeps a single full-width control.
+  const menuGroups: FilterMenuGroup[] = [
+    ...(scope
+      ? [
+          {
+            label: 'Project',
+            items: scope.items,
+            value: scope.value,
+            defaultValue: scope.items[0]?.value ?? scope.value,
+            onChange: scope.onChange,
+          },
+        ]
+      : []),
+    ...(filter?.groups ?? []),
+  ]
+
   const renderRow = (row: SurfaceRailRow): JSX.Element => {
     const selected = row.id === selectedId
     return (
@@ -351,13 +370,20 @@ export function SurfaceRail({
     // shows one focused selection rather than none (assets/index.css,
     // "Selection tiers").
     <div className="flex min-h-0 flex-col" data-selection-pane="primary" onKeyDown={onKeyDown}>
-      {/* The "New …" affordance, the project lens, and the search row lead the
-          rail and stay pinned while the list scrolls: with a long list they must
-          never hide below (or above) the scroll — creating and narrowing are the
-          rail's always-reachable actions, in the same place on every door. The
-          negative offsets fold the shell aside's p-2.5 into the sticky header
-          so it sits flush with the scrollport and paints over passing rows. */}
-      <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 shrink-0 bg-[color:var(--bg-surface-raised)] px-2.5 pt-2.5">
+      {/* The "New …" affordance and the search row lead the rail and stay pinned
+          while the list scrolls: with a long list they must never hide below (or
+          above) the scroll — creating and narrowing are the rail's
+          always-reachable actions, in the same place on every door. The negative
+          offsets fold the shell aside's p-2.5 into the sticky header so it sits
+          flush with the scrollport and paints over passing rows.
+
+          ONE rule shared by every list surface: exactly one divider, drawn under
+          the search row, which is what says "a list starts here". The project
+          lens rides inside the filter glyph rather than standing as its own
+          full-width Select above the search — a second control stacked over the
+          field it narrows read as chrome for its own sake, and put the same
+          choice in two different shapes on two different doors. */}
+      <div className="sticky -top-2.5 z-10 -mx-2.5 -mt-2.5 mb-2 shrink-0 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2.5 pt-2.5">
         <button
           type="button"
           aria-current={newAffordance.selected ? 'true' : undefined}
@@ -374,26 +400,6 @@ export function SurfaceRail({
           {PLUS_ICON}
           {newAffordance.label}
         </button>
-        {scope ? (
-          <div className="pb-2">
-            <Select
-              ariaLabel={scope.ariaLabel}
-              items={scope.items}
-              value={scope.value}
-              onChange={scope.onChange}
-              // Full-rail width, not shrink-wrapped to the selected label: it
-              // stacks between the full-width "New …" button and the full-width
-              // search row, so a content-width trigger would sit short of both
-              // and change width every time the lens changes. `Popover`'s root
-              // is `inline-flex`, so the width has to come from here for the
-              // trigger's own `w-full` to mean the rail.
-              className="w-full"
-              // The rail is 224 px wide; the trigger truncates inside its track
-              // rather than overflowing the aside.
-              triggerMinWidthClassName="min-w-0"
-            />
-          </div>
-        ) : null}
         {search ? (
           <div className="flex items-center gap-1 pb-2">
             <InboxSearchInput
@@ -402,17 +408,29 @@ export function SurfaceRail({
               ariaLabel={search.ariaLabel}
               placeholder={search.placeholder}
             />
-            {filter ? <FilterMenu ariaLabel={filter.ariaLabel} groups={filter.groups} className="shrink-0" /> : null}
+            {menuGroups.length > 0 ? (
+              <FilterMenu
+                ariaLabel={filter?.ariaLabel ?? scope?.ariaLabel ?? 'Filter'}
+                groups={menuGroups}
+                className="shrink-0"
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
-      {groups ? null : (
-        <div className="px-2 pb-1.5 pt-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)]">{label}</div>
-      )}
+      {/* No heading over an ungrouped list, and none over a lone group. "Horizons"
+          above a field that already reads "Search horizons…" is the placeholder
+          said twice, and a "Recent" header spanning every row groups nothing —
+          a group heading earns its place only by separating one group from
+          another. The list's accessible name carries the label either way. */}
       {groups ? (
         groups.map((group) => (
           <div key={group.key} className="flex min-w-0 flex-col">
-            <div className="flex items-baseline gap-1.5 px-2 pb-1 pt-2 first:pt-0.5">
+            <div
+              className={`flex items-baseline gap-1.5 px-2 pb-1 pt-2 first:pt-0.5 ${
+                groups.length > 1 ? '' : 'hidden'
+              }`}
+            >
               <span className="text-[11px] font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
               <span className="font-mono text-[10px] tabular-nums text-[color:var(--text-disabled)]">
                 {group.rows.length}

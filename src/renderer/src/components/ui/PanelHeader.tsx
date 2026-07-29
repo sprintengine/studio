@@ -29,6 +29,11 @@ type PanelHeaderProps = {
    *  Use when the panel has a canonical completion metric (accepted/total) so
    *  the indicator earns its place; do not use as decoration. */
   progress?: ProgressIndicator
+  /** Set false when a search row follows immediately. One divider per panel, and
+   *  it belongs under the search — that is the line that says "a list starts
+   *  here". A rule above the search as well boxes the search into a strip of its
+   *  own and gives the panel two lines where one carries the meaning. */
+  divider?: boolean
 }
 
 export function PanelHeader({
@@ -40,6 +45,7 @@ export function PanelHeader({
   primaryAction,
   overflow,
   progress,
+  divider = true,
 }: PanelHeaderProps) {
   const acceptedPct =
     progress && progress.total > 0
@@ -51,7 +57,9 @@ export function PanelHeader({
       : 0
   return (
     <header
-      className="relative flex items-center justify-between gap-3 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2"
+      className={`relative flex items-center justify-between gap-3 bg-[color:var(--bg-surface)] px-3 py-2 ${
+        divider ? 'border-b border-[color:var(--border-default)]' : ''
+      }`}
     >
       <div className="flex min-w-0 items-center gap-2">
         {tool ? (

@@ -3,31 +3,23 @@
 // future skills surface. Escape, the scrim, and the padding around the modal
 // all dismiss it — that is the shared Modal's contract.
 //
-// Paste a repository, scan it, and read what the scan found. The counts shown
-// are the scan's own — skills, groups, files, and the commit it pinned — never
-// a simulated walk: the surface has no per-path log to show, and inventing one
-// would be theatre over a real result.
+// Paste a repository, scan it, and read the one number that answers "did it
+// work?" — how many skills came in, and how they group. File counts, the pinned
+// commit, and the layout the source will open in are stored, not displayed:
+// metadata nobody asked for at this moment is bloat, and a paragraph explaining
+// what adding a source means is copy standing in for a self-evident UI.
 //
 // Scanning and adding are one call (`skillsAddSource` walks the tree and stores
-// the source with its scan), so the modal says so plainly and offers Remove for
-// a repository that turned out to be the wrong one. Nothing installs here —
-// adding a source and taking skills from it stay separate acts.
+// the source with its scan), so the footer offers Remove for a repository that
+// turned out to be the wrong one. Nothing installs here — adding a source and
+// taking skills from it stay separate acts.
 
 import React, { useEffect, useState } from 'react'
 
 import type { ScanResult, SkillSource } from '../../../../../../../shared/skills'
-import { sourceLayout } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Input, PrimaryButton, Spinner } from '../../../../ui'
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../../../../ui/Modal'
-import { pluralSkills, shortCommit } from './skillsSurfaceModel'
-
-const LAYOUT_NOTE: Record<string, string> = {
-  solo: 'One skill, so it opens as a skill page.',
-  flat: 'Opens as one list.',
-  grouped: 'Opens two-pane, one group at a time.',
-  search: 'Opens search-first — past the browsing threshold, it stays empty until asked.',
-  none: 'Nothing in it scanned as a skill: a skill is a directory containing SKILL.md.',
-}
+import { pluralSkills } from './skillsSurfaceModel'
 
 type AddPhase =
   | { kind: 'idle' }
@@ -103,31 +95,22 @@ export function AddSkillSourceModal({
     <Modal open={open} onClose={onClose} labelledBy="add-skill-source-title" width={520}>
       <ModalHeader
         titleId="add-skill-source-title"
-        title="Add a skill source"
-        subtitle="A public GitHub repository. Multicode walks it and finds the skills."
+        title="Add a skill source from GitHub"
         onClose={onClose}
       />
       <ModalBody className="flex flex-col gap-3.5">
-        <label className="block">
-          <span className="mb-1.5 block text-[12px] font-medium text-[color:var(--text-default)]">
-            Repository
-          </span>
-          <Input
-            value={repo}
-            autoFocus
-            disabled={phase.kind === 'scanning' || phase.kind === 'added'}
-            onChange={(event) => setRepo(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void scan()
-            }}
-            placeholder="owner/repo"
-            aria-label="Repository"
-            className="font-mono"
-          />
-          <span className="mt-1.5 block text-[11px] text-[color:var(--text-subtle)]">
-            A github.com address, or owner/repo. Pins to the current commit of the default branch.
-          </span>
-        </label>
+        <Input
+          value={repo}
+          autoFocus
+          disabled={phase.kind === 'scanning' || phase.kind === 'added'}
+          onChange={(event) => setRepo(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void scan()
+          }}
+          placeholder="owner/repo"
+          aria-label="Repository"
+          className="font-mono"
+        />
 
         {phase.kind === 'scanning' ? (
           <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
@@ -140,7 +123,7 @@ export function AddSkillSourceModal({
           <InlineNotice tone="error" title="That repository was not added." hint={phase.message} />
         ) : null}
 
-        {phase.kind === 'added' ? <ScanSummary source={phase.source} scan={phase.scan} /> : null}
+        {phase.kind === 'added' ? <ScanSummary scan={phase.scan} /> : null}
       </ModalBody>
       <ModalFooter>
         {phase.kind === 'added' ? (
@@ -166,7 +149,7 @@ export function AddSkillSourceModal({
               onClick={() => void scan()}
               disabled={repo.trim().length === 0 || phase.kind === 'scanning'}
             >
-              {phase.kind === 'scanning' ? 'Scanning…' : 'Scan and add'}
+              {phase.kind === 'scanning' ? 'Adding…' : 'Add'}
             </PrimaryButton>
           </>
         )}
@@ -175,26 +158,18 @@ export function AddSkillSourceModal({
   )
 }
 
-function ScanSummary({ source, scan }: { source: SkillSource; scan: ScanResult }): JSX.Element {
-  const layout = sourceLayout(scan)
-  const commit = shortCommit(scan.commitSha || source.commitSha)
+// The whole result, in one line: what came in, and how it groups. The scan also
+// knows the file count, the commit it pinned, and the layout the source will
+// open in — all stored, none of it shown. A person adding a repository is
+// asking "did it work?", not reading an inventory.
+function ScanSummary({ scan }: { scan: ScanResult }): JSX.Element {
   return (
-    <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
-      <p className="text-[12px] font-medium text-[color:var(--text-strong)]">
-        {scan.groups.length > 0
-          ? `${pluralSkills(scan.skills.length)} in ${scan.groups.length} ${
-              scan.groupingSignal === 'manifest' ? 'plugins' : 'categories'
-            }.`
-          : `${pluralSkills(scan.skills.length)}.`}
-      </p>
-      <p className="mt-1 text-[11px] text-[color:var(--text-muted)]">
-        {`${scan.fileCount} file${scan.fileCount === 1 ? '' : 's'}${commit ? `. Pinned at ${commit}` : ''}. ${
-          LAYOUT_NOTE[layout] ?? ''
-        }`}
-      </p>
-      <p className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-2.5 text-[11px] text-[color:var(--text-subtle)]">
-        {`${source.repo || source.name} is now one of your sources. Nothing is installed yet — take skills from it when you want them.`}
-      </p>
-    </div>
+    <p className="text-[13px] leading-5 text-[color:var(--text-strong)]">
+      {scan.groups.length > 0
+        ? `${pluralSkills(scan.skills.length)} in ${scan.groups.length} ${
+            scan.groupingSignal === 'manifest' ? 'plugins' : 'categories'
+          }.`
+        : `${pluralSkills(scan.skills.length)}.`}
+    </p>
   )
 }
