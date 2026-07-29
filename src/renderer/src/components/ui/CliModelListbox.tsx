@@ -238,7 +238,7 @@ function CliModelRow({
         mono ? 'font-mono text-[11px]' : ''
       } ${
         selected
-          ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >

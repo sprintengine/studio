@@ -182,7 +182,7 @@ function ProjectRepoChip({
       onClick={onToggle}
       className={`h-[24px] max-w-full truncate rounded-full px-2.5 text-[11.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS_RING_CLASS} ${
         selected
-          ? 'bg-[color:var(--accent-primary-soft)] font-medium text-[color:var(--accent-primary)]'
+          ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
           : 'border border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
       }`}
     >

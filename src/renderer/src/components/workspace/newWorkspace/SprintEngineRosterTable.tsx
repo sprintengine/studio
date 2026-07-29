@@ -346,7 +346,7 @@ export function AgentCliPicker({
             }}
             className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
               isCurrent
-                ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
+                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-default)] hover:bg-[rgba(92,124,255,0.06)] hover:text-[color:var(--text-strong)]'
             }`}
           >

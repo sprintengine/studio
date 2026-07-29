@@ -69,7 +69,7 @@ export function PermissionPresetChips({
                 active
                   ? isBypass
                     ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
-                    : 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    : 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                   : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'
               }`}
             >

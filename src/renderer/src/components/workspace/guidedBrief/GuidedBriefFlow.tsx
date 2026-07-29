@@ -1095,7 +1095,7 @@ function StepRail({
               onClick={() => onReview(step.stage)}
               className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[12px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] ${
                 step.state === 'active'
-                  ? 'bg-[color:var(--accent-primary-soft)] font-medium text-[color:var(--text-strong)]'
+                  ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
                   : isReviewing
                     ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
                     : reviewable

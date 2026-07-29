@@ -576,7 +576,7 @@ export default function CommandPalette({
                       onMouseEnter={() => setSelected(index)}
                       className={`flex cursor-pointer items-center justify-between px-4 py-2 transition-colors ${
                         isSelected
-                          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
                       }`}
                     >

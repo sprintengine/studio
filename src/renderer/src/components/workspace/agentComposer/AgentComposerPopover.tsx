@@ -496,10 +496,10 @@ function PopoverRosterRow({
           onHighlight()
           onOpenEngine()
         }}
-        className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 py-1.5 pr-2 text-left transition-colors ${
+        className={`grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 py-1.5 pl-2.5 pr-2 text-left transition-colors ${
           selected
-            ? 'bg-[color:var(--accent-primary-soft)] pl-[7px] text-[color:var(--text-strong)] shadow-[inset_3px_0_0_var(--accent-primary)]'
-            : 'pl-2.5 text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
+            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
         }`}
       >
         <span className={selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'}>{icon}</span>

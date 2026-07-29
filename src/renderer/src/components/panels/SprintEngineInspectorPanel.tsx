@@ -1795,7 +1795,7 @@ function TaskActivityFeed({
                 onClick={() => setFilter(option.key)}
                 className={`interactive rounded px-2 py-1 text-[11px] transition-colors ${
                   active
-                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
                 }`}
               >
@@ -2096,7 +2096,7 @@ function AgentActivityFeed({
                 onClick={() => setFilter(option.key)}
                 className={`interactive rounded px-2 py-1 text-[11px] transition-colors ${
                   active
-                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
                 }`}
               >

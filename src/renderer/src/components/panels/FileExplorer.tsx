@@ -2143,10 +2143,10 @@ function ExplorerTree({
               onContextMenu={(event) => void showContextMenu(event, entry)}
               className={`group flex min-h-[26px] cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
                 isDropTarget
-                  ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
+                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
                   : isSelected
                   ? isFocused
-                    ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
                   : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
               }`}

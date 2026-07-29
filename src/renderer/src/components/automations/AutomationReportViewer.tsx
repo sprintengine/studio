@@ -185,7 +185,7 @@ export function ReportPathPicker({
             className={[
               'h-6 rounded px-2 text-[11px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
               active
-                ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',
             ].join(' ')}
           >

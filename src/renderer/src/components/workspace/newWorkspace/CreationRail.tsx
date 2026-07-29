@@ -59,9 +59,9 @@ export function CreationRail({
                 tabIndex={active ? 0 : -1}
                 onClick={() => onSelect(model.id)}
                 onKeyDown={(event) => onTabKeyDown(event, index)}
-                className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-[5px] text-left text-[13px] leading-[18px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+                className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-[13px] leading-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
                   active
-                    ? 'bg-[color:var(--accent-primary-soft)] font-medium text-[color:var(--text-strong)]'
+                    ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
                 }`}
               >

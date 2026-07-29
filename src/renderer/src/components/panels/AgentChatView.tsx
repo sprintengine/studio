@@ -2791,7 +2791,7 @@ function ModelPickerPill({
                       onClick={() => onSelect(group.providerId, model.id)}
                       className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[13px] transition-colors disabled:cursor-default disabled:opacity-45 ${
                         isCurrent
-                          ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-default)]'
                       }`}
                     >
@@ -3693,12 +3693,12 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
         )}
       </button>
       {open ? (
-        <div className="ml-[5px] mt-1.5 flex flex-col gap-0.5 border-l border-[color:var(--border-default)] pl-4">
+        <div className="ml-1.5 mt-1.5 flex flex-col gap-0.5 border-l border-[color:var(--border-default)] pl-4">
           {hiddenSteps > 0 ? (
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="self-start rounded-md px-2 py-[3px] text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+              className="self-start rounded-md px-2 py-1 text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
             </button>
@@ -3743,12 +3743,12 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   // Steps only appear once the agent reports its first tool call, so a lane
   // with none yet is a plain row rather than an expander onto nothing.
   const expandable = children.length > 0
-  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-[3px] text-left text-[12px] ${
+  const headerClass = `relative flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left text-[12px] ${
     running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
   }`
   const header = (
     <>
-      <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[9px]" />
+      <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[10px]" />
       {expandable ? (
         <ChevronRightGlyph
           className={`icon-xs shrink-0 self-center text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
@@ -3787,12 +3787,12 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
         <div className={headerClass}>{header}</div>
       )}
       {open && expandable ? (
-        <div className="ml-[7px] mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
+        <div className="ml-2 mt-0.5 flex flex-col gap-0.5 border-l border-[color:var(--border-subtle)] pl-4">
           {hiddenSteps > 0 ? (
             <button
               type="button"
               onClick={() => setShowAllSteps(true)}
-              className="self-start rounded-md px-2 py-[3px] text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
+              className="self-start rounded-md px-2 py-1 text-left text-[11.5px] text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-muted)]"
             >
               Show {hiddenSteps} earlier {hiddenSteps === 1 ? 'step' : 'steps'}
             </button>
@@ -3817,14 +3817,14 @@ function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
   return (
     <>
       <div
-        className={`relative flex items-baseline gap-2 rounded-md px-2 py-[3px] text-[12px] ${
+        className={`relative flex items-baseline gap-2 rounded-md px-2 py-1 text-[12px] ${
           running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
         }`}
       >
         <StatusDot
           tone={running ? 'accent' : 'neutral'}
           pulse={running}
-          className="absolute -left-[19px] top-[9px]"
+          className="absolute -left-[19px] top-[10px]"
         />
         <span className="shrink-0 font-medium text-[color:var(--text-default)]">{toolVerb(tool.name, running)}</span>
         {object ? (
