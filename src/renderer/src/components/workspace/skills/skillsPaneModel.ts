@@ -217,9 +217,17 @@ function noticesFor(input: SkillsPaneInput, snapshot: CapabilitySnapshot | null)
   // The danger banner already names that path and offers the retry, so a second
   // banner repeating it in a quieter voice — carrying the watcher's raw error
   // string — is the one failure read twice.
+  // Exactly the diagnostics the loop below turns into a danger banner: the same
+  // two conditions, so a diagnostic can never end up suppressing itself and
+  // leaving the failure unnamed.
   const unreadablePaths = new Set(
     (snapshot?.diagnostics ?? [])
-      .filter((diagnostic) => diagnostic.capability !== 'freshness' && diagnostic.path)
+      .filter(
+        (diagnostic) =>
+          diagnostic.reason !== 'watch_unavailable'
+          && diagnostic.capability !== 'freshness'
+          && diagnostic.path,
+      )
       .map((diagnostic) => diagnostic.path),
   )
 

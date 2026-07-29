@@ -165,6 +165,28 @@ const staleOnly = render({
 })
 assert.match(staleOnly, /This list may be out of date\./, 'a lone watch failure still says so')
 
+// A watch failure filed against a non-freshness capability must not suppress
+// itself: the path has no danger banner, so dropping the notice would leave the
+// failure unnamed anywhere on the surface.
+const oddlyFiledWatchFailure = render({
+  snapshot: snapshot({
+    skills: [SKILL],
+    diagnostics: [
+      {
+        capability: 'skills',
+        reason: 'watch_unavailable',
+        path: '.claude/skills',
+        message: 'Watching is unavailable here.',
+      },
+    ],
+  }),
+})
+assert.match(
+  oddlyFiledWatchFailure,
+  /This list may be out of date\./,
+  'a watch failure never suppresses itself',
+)
+
 // --- search with no matches is its own empty, and offers Extensions ----------
 const noMatches = render({ snapshot: snapshot({ skills: [SKILL] }), query: 'zzz' })
 assert.match(noMatches, /No skill or server matches “zzz”\./)
