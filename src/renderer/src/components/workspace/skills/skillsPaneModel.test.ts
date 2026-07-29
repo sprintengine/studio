@@ -56,11 +56,16 @@ function input(overrides: Partial<SkillsPaneInput> = {}): SkillsPaneInput {
   }
 }
 
-const builtin = (id: string, description = ''): BuiltinSkill => ({
+// `all-native` by default, which is what the bundled skills the pane can
+// actually offer declare (backlog, review-guide, debug). A built-in whose
+// declared targets do not include the focused harness is a separate case below.
+const builtin = (id: string, description = '', overrides: Partial<BuiltinSkill> = {}): BuiltinSkill => ({
   id,
   name: id,
   version: '1.0.0',
   description,
+  targetPolicy: 'all-native',
+  ...overrides,
 })
 
 // --- the supporting clause is one real sentence, never invented copy ---------
@@ -219,6 +224,49 @@ for (const reason of ['unreadable', 'malformed'] as const) {
   assert.equal(searched.body.available.length, 1)
   assert.equal(searched.body.available[0].installed, false)
   assert.equal(searched.body.skills.length, 0)
+}
+
+// --- the catalogue only offers what an Add would land in THIS harness --------
+// Attach fans out by harness, so a built-in whose declared targets exclude the
+// focused CLI would be written into some other CLI's directory and reported as
+// written, leaving this list unchanged. `use-codex` is the real case: Claude
+// only, deliberately never `.codex/skills`.
+{
+  const catalogue = [
+    builtin('use-codex', 'Delegate to the local Codex CLI.', {
+      targetPolicy: undefined,
+      harnesses: ['agents', 'claude'],
+    }),
+    // The default target is `.agents`, which is no CLI's own directory.
+    builtin('handoff', 'Write a continuation handoff.', { targetPolicy: undefined }),
+  ]
+  const onCodex = buildSkillsPaneView(
+    input({ snapshot: snapshot({ harnessId: 'codex' }), catalogue, query: 'e' }),
+  )
+  // Nothing reachable, nothing installable here: the honest answer to the search
+  // is "no matches", not a row whose Add would write into `.claude/skills`.
+  assert.equal(onCodex.body.kind, 'no-matches', 'neither can land in .codex/skills')
+
+  const onClaude = buildSkillsPaneView(
+    input({ snapshot: snapshot({ harnessId: 'claude' }), catalogue, query: 'e' }),
+  )
+  if (onClaude.body.kind !== 'sections') throw new Error('expected sections')
+  assert.deepEqual(
+    onClaude.body.available.map((row) => row.skillId),
+    ['use-codex'],
+    'only the one that names this harness',
+  )
+
+  // And the count at rest agrees with what search would reveal.
+  const atRestOnClaude = buildSkillsPaneView(
+    input({ snapshot: snapshot({ harnessId: 'claude', skills: [skill({ id: 'backlog' })] }), catalogue }),
+  )
+  if (atRestOnClaude.body.kind !== 'sections') throw new Error('expected sections')
+  assert.equal(
+    atRestOnClaude.body.catalogueRemaining,
+    1,
+    'the resting count agrees with what search would reveal',
+  )
 }
 
 // --- a partial write reads as partial, never as a bare failure ---------------

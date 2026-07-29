@@ -11,11 +11,12 @@
 // resolver's payload; a field the resolver did not send is absent, never zero
 // and never a placeholder.
 
-import type {
-  AgentMcpServer,
-  AgentSkill,
-  AgentSkillSource,
-  CapabilityDiagnostic,
+import {
+  builtinInstallsIntoHarness,
+  type AgentMcpServer,
+  type AgentSkill,
+  type AgentSkillSource,
+  type CapabilityDiagnostic,
 } from '../../../../../shared/skills'
 import type { AgentSkillTarget, BuiltinSkill } from '../../../../../shared/electron-api'
 
@@ -317,8 +318,15 @@ export function buildSkillsPaneView(input: SkillsPaneInput): SkillsPaneView {
 
   // The catalogue is search-only. At rest the pane answers "what can this agent
   // reach", and a standing list of things it cannot would bury that answer.
+  //
+  // Filtered to what an Add would actually land in *this* agent's harness. A
+  // bundled skill whose declared targets exclude it is not offered here: attach
+  // fans out by harness, so the Add would write into some other CLI's directory,
+  // report each of those as written, and leave this list unchanged.
   const reachable = new Set(snapshot.skills.map((skill) => skill.id))
-  const installable = input.catalogue.filter((skill) => !reachable.has(skill.id))
+  const installable = input.catalogue.filter(
+    (skill) => !reachable.has(skill.id) && builtinInstallsIntoHarness(skill, snapshot.harnessId),
+  )
   const available = normalized
     ? installable
       .map(catalogueRow)

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -492,6 +493,104 @@ async function testInProcessWriteInvalidates(temp: string): Promise<void> {
   release()
 }
 
+// 12. A watched directory deleted underneath the watcher.
+//
+//     Deliberately driven through the `WatchDirectory` port rather than real
+//     `fs.watch`: on macOS the FSEvents stream is keyed by path and resumes on
+//     its own when the directory comes back, so a real-fs version of this test
+//     passes whether or not the watcher handles the case. Windows'
+//     ReadDirectoryChangesW handle does not — it is bound to the directory that
+//     was deleted and never delivers again. The fake below is that platform:
+//     a handle that goes deaf once its path is gone. Without re-attachment the
+//     pane would look live and be frozen, with nothing in `diagnostics` to say
+//     so, which is the freshness lie this whole file exists to prevent.
+async function testDeletedDirectoryIsRewatched(temp: string): Promise<void> {
+  const workspaceRoot = await makeWorkspace(temp, 'deleted-dir')
+  const skillsDir = join(workspaceRoot, '.claude', 'skills')
+
+  let live: { path: string; fire: () => void }[] = []
+  const deafOnDelete: WatchDirectory = (target, onChange) => {
+    if (!existsSync(target.path)) {
+      throw Object.assign(new Error(`ENOENT: no such file or directory, watch '${target.path}'`), {
+        code: 'ENOENT',
+      })
+    }
+    const entry = {
+      path: target.path,
+      // The platform behaviour under test: bound to the directory that existed
+      // at open time, silent once it is gone.
+      fire: () => {
+        if (existsSync(target.path)) onChange(null)
+      },
+    }
+    live.push(entry)
+    return {
+      close: () => {
+        live = live.filter((candidate) => candidate !== entry)
+      },
+    }
+  }
+  const fireAll = (): void => {
+    for (const entry of [...live]) entry.fire()
+  }
+
+  const watcher = watcherFor({ temp, watchDirectory: deafOnDelete })
+  const seen = collector()
+  const release = watcher.subscribe(workspaceRoot, seen.notify)
+  assert.ok(
+    live.some((entry) => entry.path === skillsDir),
+    'the skills directory starts out watched',
+  )
+
+  await rm(skillsDir, { recursive: true, force: true })
+  // The parent still delivers, which is how the deletion is noticed at all.
+  fireAll()
+  await seen.waitFor(() => seen.events.length > 0, 'the deletion to invalidate')
+  assert.ok(
+    !live.some((entry) => entry.path === skillsDir),
+    'the dead handle is dropped rather than left open and deaf',
+  )
+
+  await mkdir(join(skillsDir, 'reborn'), { recursive: true })
+  const afterDelete = seen.events.length
+  fireAll()
+  await seen.waitFor(() => seen.events.length > afterDelete, 'the directory coming back to invalidate')
+  assert.ok(
+    live.some((entry) => entry.path === skillsDir),
+    'the recreated directory is watched again, not left to the stand-in',
+  )
+
+  assert.deepEqual(
+    watcher.diagnosticsFor(workspaceRoot, 'claude'),
+    [],
+    'a directory that came back is not reported as a freshness fault',
+  )
+  release()
+}
+
+// 13. The installer resolves its workspace root before invalidating, so a
+//     subscription keyed on the raw string would miss and the pane would sit on
+//     a stale list with nothing saying so.
+async function testInvalidateMatchesUnnormalisedRoot(temp: string): Promise<void> {
+  const workspaceRoot = await makeWorkspace(temp, 'unnormalised')
+  const watcher = watcherFor({ temp })
+  const seen = collector()
+  const release = watcher.subscribe(`${workspaceRoot}/`, seen.notify)
+
+  watcher.invalidate(workspaceRoot, 'claude')
+  await seen.waitFor(() => seen.events.length > 0, 'the resolved root to reach the raw subscription')
+  assert.equal(
+    seen.events[0].workspaceRoot,
+    `${workspaceRoot}/`,
+    'the event echoes the root the subscriber sent, which is what it matches on',
+  )
+  assert.ok(
+    watcher.diagnosticsFor(`${workspaceRoot}/`, 'claude').length === 0,
+    'diagnostics answer for the same subscription',
+  )
+  release()
+}
+
 async function main(): Promise<void> {
   const temp = await mkdtemp(join(tmpdir(), 'multicode-capability-watcher-'))
   try {
@@ -506,6 +605,8 @@ async function main(): Promise<void> {
     await testDegradeReachesTheCapabilityResult(temp)
     await testInProcessWriteInvalidates(temp)
     await testNoPollingLoop()
+    await testDeletedDirectoryIsRewatched(temp)
+    await testInvalidateMatchesUnnormalisedRoot(temp)
     console.log('capability-watcher tests passed')
   } finally {
     await rm(temp, { recursive: true, force: true })

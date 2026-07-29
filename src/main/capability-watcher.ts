@@ -11,8 +11,8 @@
 // No polling anywhere: `fs.watch` only, never `fs.watchFile` (which polls) and
 // never an interval. The one timer is the coalescing debounce.
 
-import { watch } from 'fs'
-import { basename, dirname, join } from 'path'
+import { existsSync, watch } from 'fs'
+import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { homedir } from 'os'
 
 import { buildHarnessMap } from '../shared/harness-map'
@@ -108,11 +108,14 @@ export function createCapabilityWatcher(options: {
   /** Focus signal for the degraded fallback; returns its own unsubscribe. */
   onWorkspaceFocus?: (listener: () => void) => () => void
   homeDir?: () => string
+  /** Whether a watched path is still there; the port exists for the same reason `watchDirectory` does. */
+  pathExists?: (path: string) => boolean
   debounceMs?: number
   maxWorkspaces?: number
   log?: (message: string) => void
 }): CapabilityWatcher {
   const watchDirectory = options.watchDirectory ?? createFsWatchDirectory()
+  const pathExists = options.pathExists ?? ((path: string) => existsSync(path))
   const homeDir = options.homeDir ?? (() => homedir())
   const debounceMs = options.debounceMs ?? INVALIDATE_DEBOUNCE_MS
   const maxWorkspaces = options.maxWorkspaces ?? MAX_WATCHED_WORKSPACES
@@ -134,8 +137,28 @@ export function createCapabilityWatcher(options: {
     if (group.timer) clearTimeout(group.timer)
     group.timer = setTimeout(() => {
       group.timer = null
+      // A watched directory that has been deleted takes its watch with it: the
+      // handle stays open and silently stops delivering, and `attach` skips the
+      // entry because it still holds one. Recreating the directory would then
+      // never be noticed, and nothing would say so — the pane would look live
+      // and be frozen. Checked once per debounced burst, not per event.
+      dropWatchesOnMissingPaths(group)
+      if (!workspace.capped) attach(workspace, group)
       emit(workspace, group)
     }, debounceMs)
+  }
+
+  /**
+   * Close the handles of real targets whose path has gone. Only real targets: a
+   * stand-in is already watching a parent for a path that does not exist, which
+   * is its whole job.
+   */
+  const dropWatchesOnMissingPaths = (group: WatchedGroup): void => {
+    for (const entry of group.targets) {
+      if (!entry.handle || entry.waitingFor || pathExists(entry.path)) continue
+      entry.handle.close()
+      entry.handle = null
+    }
   }
 
   // Attaches every target a group still lacks a handle for, and records the
@@ -222,11 +245,14 @@ export function createCapabilityWatcher(options: {
 
   return {
     subscribe(workspaceRoot, onInvalidate) {
-      const root = workspaceRoot.trim()
+      const root = workspaceKey(workspaceRoot)
       let workspace = workspaces.get(root)
       if (!workspace) {
         workspace = {
-          root,
+          // The string the subscriber sent, not the map key: it is echoed back
+          // in every invalidation and the renderer matches it against the
+          // workspace root it holds.
+          root: workspaceRoot.trim(),
           listeners: new Set(),
           capped: false,
           groups: capabilityWatchGroups({
@@ -264,7 +290,7 @@ export function createCapabilityWatcher(options: {
     },
 
     invalidate(workspaceRoot, harnessId) {
-      const workspace = workspaces.get(workspaceRoot.trim())
+      const workspace = workspaces.get(workspaceKey(workspaceRoot))
       // Nobody is subscribed for this workspace, so there is no surface holding
       // a stale answer to correct.
       if (!workspace) return
@@ -274,7 +300,7 @@ export function createCapabilityWatcher(options: {
     },
 
     diagnosticsFor(workspaceRoot, pluginId) {
-      const workspace = workspaces.get(workspaceRoot.trim())
+      const workspace = workspaces.get(workspaceKey(workspaceRoot))
       if (!workspace) return []
       const diagnostics: CapabilityDiagnostic[] = []
       for (const group of workspace.groups) {
@@ -423,6 +449,16 @@ function dedupeTargets(targets: readonly WatchTarget[]): WatchTarget[] {
     if (!kept.some((existing) => sameTarget(existing, entry))) kept.push(entry)
   }
   return kept
+}
+
+/**
+ * One spelling of a workspace root for the subscription map. The installer
+ * resolves its root before invalidating, so a subscription keyed on the raw
+ * string would miss — silently, which is the worst way for freshness to fail.
+ */
+function workspaceKey(workspaceRoot: string): string {
+  const trimmed = workspaceRoot.trim()
+  return trimmed ? resolvePath(trimmed) : trimmed
 }
 
 function isMissingPath(error: unknown): boolean {

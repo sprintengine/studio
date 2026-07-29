@@ -9,11 +9,11 @@ import React, {
 } from 'react'
 import type {
   AgentCapabilitiesResult,
-  BuiltinSkill,
   SkillHarness,
   WorkspaceSkill,
   WorkspaceSkillSource,
 } from '../../../../shared/electron-api'
+import { builtinInstallsIntoHarness } from '../../../../shared/skills'
 import { ensureSkillForAgent } from '../../utils/skillInvocation'
 import { Popover, type PopoverPlacement, type PopoverProps } from './Popover'
 import { Spinner } from './Spinner'
@@ -62,16 +62,6 @@ function reachableRow(skill: AgentSkillRow, harnessId: string): WorkspaceSkill {
   }
 }
 
-// Whether installing this built-in would actually put it where the harness
-// reads: `all-native` covers every natively-supported CLI, a static list covers
-// the harnesses it names, and the default target (`.agents`, prompt-injected)
-// reaches no CLI's own directory. Offering one that cannot land there would be
-// an install that silently changes nothing.
-function installsInto(skill: BuiltinSkill, harnessId: string): boolean {
-  if (skill.targetPolicy === 'all-native') return true
-  return (skill.harnesses ?? []).some((harness) => harness === harnessId)
-}
-
 // One inventory, two questions. With a CLI in play the rows are what that agent
 // can actually reach, through the one capability query. Without one — a
 // conversation provider, or a scheduled automation that installs into a per-run
@@ -98,7 +88,9 @@ async function loadInventory(workspaceRoot: string, pluginId: string | null): Pr
   const reachableIds = new Set(reachable.map((skill) => skill.id))
   const bundled = await window.api.builtinSkillsList()
   const available = bundled
-    .filter((skill) => !reachableIds.has(skill.id) && installsInto(skill, capabilities.harnessId))
+    .filter(
+      (skill) => !reachableIds.has(skill.id) && builtinInstallsIntoHarness(skill, capabilities.harnessId),
+    )
     .map((skill): WorkspaceSkill => ({
       id: skill.id,
       name: skill.name,

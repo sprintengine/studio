@@ -216,9 +216,17 @@ assert.match(rows, /aria-label="Remove backlog"/, 'installed rows offer remove')
 // reachable by keyboard and revealing one never reflows the row.
 assert.match(rows, /opacity-0[^"]*group-hover\/row:opacity-100[^"]*group-focus-within\/row:opacity-100/)
 
+// `targetPolicy` is what makes this row offerable at all: the catalogue only
+// shows built-ins an Add would land in the focused agent's own harness.
 const catalogueRow = render({
   snapshot: snapshot({ skills: [] }),
-  catalogue: [{ id: 'review-guide', name: 'review-guide', version: '1', description: 'Build a walkthrough.' }],
+  catalogue: [{
+    id: 'review-guide',
+    name: 'review-guide',
+    version: '1',
+    description: 'Build a walkthrough.',
+    targetPolicy: 'all-native',
+  }],
   query: 'review',
 })
 assert.match(catalogueRow, /Not installed/)

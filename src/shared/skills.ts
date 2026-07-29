@@ -235,6 +235,28 @@ export type CapabilityDiagnostic = {
   message: string
 }
 
+/**
+ * Whether installing a bundled skill would actually put it where this harness
+ * reads: `all-native` covers every natively-supported CLI, a static list covers
+ * the harnesses it names, and the default target (`.agents`, prompt-injected)
+ * reaches no CLI's own directory.
+ *
+ * One rule, because two surfaces ask it — the Skills pane's search-only
+ * catalogue and `SkillPickerPopover`'s "available" rows. Offering a skill the
+ * attach path will route into some *other* CLI's directory is an Add that
+ * reports success and changes nothing for the agent the user is looking at —
+ * the picker applied that rule privately, the pane did not apply it at all.
+ * It lives here rather than beside either of them because it is a fact about a
+ * bundled skill's declared targets, not about how a surface draws them.
+ */
+export function builtinInstallsIntoHarness(
+  skill: { harnesses?: readonly string[]; targetPolicy?: string },
+  harnessId: string,
+): boolean {
+  if (skill.targetPolicy === 'all-native') return true
+  return (skill.harnesses ?? []).some((harness) => harness === harnessId)
+}
+
 export type AgentCapabilitiesInput = {
   workspaceRoot: string
   pluginId: string
