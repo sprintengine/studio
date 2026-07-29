@@ -392,6 +392,8 @@ const GROUP_HOVER_REVEAL = /(?<![\w-])group-hover:opacity-100(?![\w-])/g
 const FOCUS_REVEAL = /(?:group-)?focus(?:-within|-visible)?:opacity-100/
 
 // `rounded-2xl` is 16px; the arbitrary form is caught at the same threshold.
+// `rounded-full` is deliberately absent: a pill or a dot is its own idiom, not
+// a marketing radius.
 const MARKETING_RADIUS = /(?<![\w-])rounded-(?:2xl|3xl|4xl|\[(\d+(?:\.\d+)?)px\])(?![\w-])/g
 const MARKETING_RADIUS_FLOOR_PX = 16
 
@@ -852,7 +854,6 @@ if (unknownRules.length > 0) {
 
 const violations = []
 const markerErrors = []
-const notes = []
 
 function push(rule, file, index, text) {
   const line = lineOf(file.starts, index)
@@ -869,11 +870,10 @@ function collectMarkerLines(path, lines) {
   lines.forEach((line, index) => {
     const at = line.indexOf(ALLOW_MARKER)
     if (at === -1) return
-    const reason = line
-      .slice(at + ALLOW_MARKER.length)
-      .replace(/\*\/\s*$/, '')
-      .trim()
-    if (reason.length === 0) {
+    // Strip whatever closes the comment — `*/`, `*/}` in a JSX comment, `-->`
+    // — then require the reason to carry actual words, not punctuation.
+    const reason = line.slice(at + ALLOW_MARKER.length).replace(/[*/}>\-\s]+$/, '')
+    if (!/[A-Za-z0-9]/.test(reason)) {
       markerErrors.push({ path, line: index + 1 })
       return
     }
@@ -967,7 +967,16 @@ for (const theme of [...themeIds].sort()) {
   const resolved = new Map()
   for (const block of rootBlocks) {
     if (!block.appliesToAllThemes && !block.themes.includes(theme)) continue
-    const bundleMode = block === baseBlock ? 'dark' : block === lightBlock ? 'light' : null
+    // The base block applies to every theme, but its `var(--sem-…)` aliases
+    // only resolve for the mode that block IS. A light-family theme falling
+    // through to a base alias would read the wrong mode's value, so its mode
+    // is left unknown rather than guessed — see the unresolved branch below.
+    const bundleMode =
+      block === baseBlock && theme === 'dark'
+        ? 'dark'
+        : block === lightBlock && theme === 'light'
+          ? 'light'
+          : null
     for (const [name, declaration] of readDeclarations(appCss, appCssKinds, block, bundleMode)) {
       resolved.set(name, declaration)
     }
@@ -985,14 +994,25 @@ for (const theme of [...themeIds].sort()) {
       color: value ? parseColor(value) : null,
     }
   })
-  const unresolved = ramp.filter((step) => step.color === null).map((step) => step.name)
-  if (!surfaceColor || unresolved.length > 0) {
-    notes.push(
-      `theme "${theme}": skipped ramp check — unresolved ${[
-        ...(surfaceColor ? [] : ['--bg-surface']),
-        ...unresolved,
-      ].join(', ')}`,
-    )
+  // A value the guard cannot resolve to an opaque colour — a `color-mix()`, a
+  // translucent ink, a bundle alias whose mode is ambiguous — is reported, not
+  // skipped. Silently passing a theme the guard could not actually check is the
+  // failure mode this rule exists to prevent; the carve-out marker is the way
+  // out when a value is genuinely beyond it.
+  const unresolved = [
+    ...(surfaceColor ? [] : [{ name: '--bg-surface', declaration: surface }]),
+    ...ramp.filter((step) => step.color === null),
+  ]
+  if (unresolved.length > 0) {
+    for (const step of unresolved) {
+      pushAt(
+        'theme-ramp-contrast',
+        APP_CSS_PATH,
+        step.declaration ? lineOf(appCssStarts, step.declaration.index) : 1,
+        `theme "${theme}": ${step.name} (${step.declaration?.value ?? 'undeclared'}) does not ` +
+          'resolve to an opaque colour, so the ramp cannot be checked',
+      )
+    }
     continue
   }
 
@@ -1124,7 +1144,6 @@ if (!QUIET) {
         `\`${ALLOW_MARKER} <reason>\` needs a reason\n`,
     )
   }
-  for (const note of notes) process.stdout.write(`[note] ${note}\n`)
 }
 
 if (!QUIET) {
