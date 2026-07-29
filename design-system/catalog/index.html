@@ -3227,7 +3227,7 @@ code {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The description for a value the surface itself cannot show: a title truncated to one line, an icon-only control's name, a path abbreviated to its tail. It elaborates something already on screen — it never carries information that exists nowhere else.</p>
+<p>The description for a value the surface itself cannot show: a title truncated to one line, an icon-only control's name, a path abbreviated to its tail. It elaborates what is already on screen, and never becomes the only route to a value: the detail pane, a menu, or the control's own accessible name still carries it.</p>
 <p>One surface per document, repositioned per trigger. A list of 200 rows mounts one tooltip, not 200.</p>
 <p>Use a popover instead when the content is interactive, a menu when it is a list of actions, and the detail pane when the value is long enough to read rather than glance at. Never a native <code>title</code> attribute on a control: it is unstyleable, slow, invisible to touch, and inconsistent between browsers.</p>
 <h4>Anatomy</h4>
@@ -3246,7 +3246,7 @@ code {
 <p><strong>Four ways out</strong>, all of them cheap: the pointer leaves the trigger, focus leaves it, Escape, or any scroll. Scroll dismissal is not optional — a fixed surface anchored to a row that has scrolled away is pointing at nothing. Listen for scroll in the capture phase so nested containers dismiss too.</p>
 <p><strong>Never interactive.</strong> <code>pointer-events: none</code>. Anything clickable belongs in a popover, which is a different component with a different keyboard contract.</p>
 <p><strong>Flip, do not shrink.</strong> Prefer the inline-start side and flip when there is no room. This is load-bearing for a right-docked pane, where the natural side is off-screen.</p>
-<p><strong>Only when the value is actually cut off.</strong> Attaching a tooltip to text that fits repeats what the person can already read. Compare <code>scrollWidth</code> with <code>clientWidth</code> and attach only when it overflows.</p>
+<p><strong>Restate a value only when it is actually cut off.</strong> When the tooltip's job is to repeat a title the row truncated, compare <code>scrollWidth</code> with <code>clientWidth</code> and attach only when it overflows — on text that fits it repeats what the person can already read. A tooltip that instead *adds* a description the row has no room for is a different job, and that description has to stay reachable without hovering.</p>
 <p><strong>Touch has no hover.</strong> Anything a tooltip explains must also be reachable without one — in the detail pane, an overflow menu, or the accessible name of the control itself.</p>
 <p><strong>Rebuilding it in a framework:</strong> keep the single shared surface. Mounting one per row is the defect this component exists to prevent, and it is the easy mistake to make in a component tree. When a subtree forces <code>data-mode</code>, mirror that mode onto the surface — it sits on the body and would otherwise be lit by the document's mode instead of the container's.</p>
 <h4>Accessibility</h4>
@@ -3565,6 +3565,10 @@ const triggersOut = document.getElementById('demo-triggers')
 const lastOut = document.getElementById('demo-last')
 
 let timer = null
+/* The trigger the delay is counting down for. Without it, crossing from a
+   button onto its own glyph re-fires pointerover, restarts the timer, and a
+   pointer that keeps moving inside one trigger never reaches 350 ms. */
+let pending = null
 let owner = null
 
 function esc(text) {
@@ -3602,6 +3606,7 @@ function show(trigger, source) {
   tip.hidden = false
   place(trigger)
   trigger.setAttribute('aria-describedby', tip.id)
+  pending = null
   owner = trigger
   lastOut.textContent = source
 }
@@ -3609,6 +3614,7 @@ function show(trigger, source) {
 function hide() {
   window.clearTimeout(timer)
   timer = null
+  pending = null
   if (owner) {
     owner.removeAttribute('aria-describedby')
     owner = null
@@ -3622,8 +3628,9 @@ document.addEventListener('pointerover', (event) =&gt; {
     if (owner || timer) hide()
     return
   }
-  if (trigger === owner) return
+  if (trigger === owner || trigger === pending) return
   hide()
+  pending = trigger
   timer = window.setTimeout(() =&gt; show(trigger, 'pointer, after ' + POINTER_DELAY_MS + ' ms'), POINTER_DELAY_MS)
 })
 

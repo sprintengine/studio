@@ -259,6 +259,10 @@ const triggersOut = document.getElementById('demo-triggers')
 const lastOut = document.getElementById('demo-last')
 
 let timer = null
+/* The trigger the delay is counting down for. Without it, crossing from a
+   button onto its own glyph re-fires pointerover, restarts the timer, and a
+   pointer that keeps moving inside one trigger never reaches 350 ms. */
+let pending = null
 let owner = null
 
 function esc(text) {
@@ -296,6 +300,7 @@ function show(trigger, source) {
   tip.hidden = false
   place(trigger)
   trigger.setAttribute('aria-describedby', tip.id)
+  pending = null
   owner = trigger
   lastOut.textContent = source
 }
@@ -303,6 +308,7 @@ function show(trigger, source) {
 function hide() {
   window.clearTimeout(timer)
   timer = null
+  pending = null
   if (owner) {
     owner.removeAttribute('aria-describedby')
     owner = null
@@ -316,8 +322,9 @@ document.addEventListener('pointerover', (event) => {
     if (owner || timer) hide()
     return
   }
-  if (trigger === owner) return
+  if (trigger === owner || trigger === pending) return
   hide()
+  pending = trigger
   timer = window.setTimeout(() => show(trigger, 'pointer, after ' + POINTER_DELAY_MS + ' ms'), POINTER_DELAY_MS)
 })
 

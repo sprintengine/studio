@@ -2,8 +2,9 @@
 
 The description for a value the surface itself cannot show: a title truncated
 to one line, an icon-only control's name, a path abbreviated to its tail. It
-elaborates something already on screen — it never carries information that
-exists nowhere else.
+elaborates what is already on screen, and never becomes the only route to a
+value: the detail pane, a menu, or the control's own accessible name still
+carries it.
 
 One surface per document, repositioned per trigger. A list of 200 rows mounts
 one tooltip, not 200.
@@ -74,9 +75,12 @@ popover, which is a different component with a different keyboard contract.
 room. This is load-bearing for a right-docked pane, where the natural side is
 off-screen.
 
-**Only when the value is actually cut off.** Attaching a tooltip to text that
-fits repeats what the person can already read. Compare `scrollWidth` with
-`clientWidth` and attach only when it overflows.
+**Restate a value only when it is actually cut off.** When the tooltip's job is
+to repeat a title the row truncated, compare `scrollWidth` with `clientWidth`
+and attach only when it overflows — on text that fits it repeats what the
+person can already read. A tooltip that instead *adds* a description the row
+has no room for is a different job, and that description has to stay reachable
+without hovering.
 
 **Touch has no hover.** Anything a tooltip explains must also be reachable
 without one — in the detail pane, an overflow menu, or the accessible name of
