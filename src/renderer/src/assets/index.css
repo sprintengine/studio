@@ -2266,13 +2266,15 @@ samp,
  * and the row is found by the ARIA state it already carries.
  *
  *   data-selection-pane="auto"     rests unless it holds focus.
- *   data-selection-pane="primary"  the surface's leading list. Also rests when
- *                                  another pane takes focus, but holds the
- *                                  tier while focus sits outside every pane —
- *                                  a door that has just opened has one focused
- *                                  selection, never zero.
+ *   data-selection-pane="primary"  the surface's leading list, one per surface.
+ *                                  Also rests when another pane takes focus,
+ *                                  but holds the tier while focus sits outside
+ *                                  every pane — a door that has just opened has
+ *                                  one focused selection, never zero.
  *
- * An unmarked list is a single-pane surface: it never rests. */
+ * An unmarked list is a single-pane surface: it never rests. Marking a pane
+ * whose fill is painted on a wrapper around the row rather than on the row that
+ * carries the ARIA state does nothing — the rebinding lands on the row. */
 [data-selection-pane="auto"]:not(:focus-within)
   :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]),
 body:has([data-selection-pane]:focus-within)

@@ -175,8 +175,14 @@ export default function AgentComposer({
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[292px_1fr]">
-        {/* Roster column — the primary decision. */}
-        <div className="flex min-h-0 flex-col border-r border-[color:var(--border-subtle)] p-3">
+        {/* Roster column — the primary decision, and the composer's leading
+            selection pane: the search field it opens focused drives the list
+            below through aria-activedescendant, so focus-within is what says
+            the keyboard is here (assets/index.css, "Selection tiers"). */}
+        <div
+          className="flex min-h-0 flex-col border-r border-[color:var(--border-subtle)] p-3"
+          data-selection-pane="primary"
+        >
           <div className="mb-2 flex items-center gap-2 rounded border border-[color:var(--border-subtle)] px-2.5 py-1.5">
             <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
@@ -260,8 +266,10 @@ export default function AgentComposer({
         {/* Config column — the selected agent and its engine. The config is
             the column's one scroll region; the attachment chips and the CTA
             row keep their own reserved height below it so overflowing config
-            (e.g. a long model list) can never paint underneath them. */}
-        <div className="flex min-h-0 flex-col p-5">
+            (e.g. a long model list) can never paint underneath them. Its own
+            selection pane: the engine's chosen row rests while the roster
+            holds focus. */}
+        <div className="flex min-h-0 flex-col p-5" data-selection-pane="auto">
           <div className="min-h-0 flex-1 overflow-y-auto">
           <ComposerConfig
             selection={selection}

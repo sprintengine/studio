@@ -316,7 +316,14 @@ export function SurfaceRail({
         >
           {row.icon ?? null}
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+            {/* The selected row's ink lift is the second channel of the
+                selection, so an unselected title has to sit a step below it —
+                and in a resting rail the lift drops back out with the fill. */}
+            <span
+              className={`truncate text-[12px] font-medium ${
+                selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+              }`}
+            >
               {row.title}
             </span>
             <span className="truncate text-[10px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
@@ -339,7 +346,11 @@ export function SurfaceRail({
   }
 
   return (
-    <div className="flex min-h-0 flex-col" onKeyDown={onKeyDown}>
+    // The door's leading list: it holds the full-strength selection tier until
+    // another pane on the surface takes focus, so a door that has just opened
+    // shows one focused selection rather than none (assets/index.css,
+    // "Selection tiers").
+    <div className="flex min-h-0 flex-col" data-selection-pane="primary" onKeyDown={onKeyDown}>
       {/* The "New …" affordance, the project lens, and the search row lead the
           rail and stay pinned while the list scrolls: with a long list they must
           never hide below (or above) the scroll — creating and narrowing are the

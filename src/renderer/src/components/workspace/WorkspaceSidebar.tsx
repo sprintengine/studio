@@ -1394,6 +1394,10 @@ export default function WorkspaceSidebar({
     <aside
       ref={sidebarRef}
       aria-label="Workspaces"
+      // One of the surface's selection panes: the active workspace row and the
+      // active door entry drop to the resting tier while the keyboard is in
+      // another pane (assets/index.css, "Selection tiers").
+      data-selection-pane="auto"
       // Width is class-driven when collapsed (fixed icon rail) and style-driven
       // when expanded (user-resizable). The width glide is suppressed mid-drag
       // so the rail tracks the pointer instead of lagging the 150ms transition.

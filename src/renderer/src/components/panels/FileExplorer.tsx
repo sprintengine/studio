@@ -2084,6 +2084,10 @@ function ExplorerTree({
         ref={containerRef}
         tabIndex={0}
         role="tree"
+        // A selection pane: the tree's own selection drops to the resting tier
+        // while the keyboard is driving another list on the surface
+        // (assets/index.css, "Selection tiers").
+        data-selection-pane="auto"
         title={searchDiagnosticsTitle}
         onKeyDown={(event) => void handleKeyDown(event)}
         onContextMenu={(event) => void showContextMenu(event)}

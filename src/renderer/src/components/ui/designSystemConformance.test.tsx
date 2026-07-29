@@ -12,6 +12,11 @@ import { JSDOM } from 'jsdom'
 //
 //   T4   selection is a neutral `--bg-selected` fill, the title sits at
 //        `--text-strong`, and no accent left bar survives anywhere in the row.
+//   T18  the ink lift is a real step: an unselected title sits at
+//        `--text-default`. The resting tier itself is a cascade behaviour
+//        (`data-selection-pane` + `:focus-within`) and is measured in the built
+//        app by `scripts/testing/selection-tier-pass.mjs`, not here — jsdom
+//        loads no stylesheet, so it can only read class names.
 //   T5   every tab carries a `:focus-visible` ring; `focus:outline-none` is
 //        never left undischarged, and a bare `:focus` ring does not count.
 //   T11  the active tab is marked by an accent hairline underline plus an ink
@@ -214,6 +219,19 @@ async function main(): Promise<void> {
     assert.ok(
       hasClassMatching(title, /^text-\[color:var\(--text-strong\)\]$/),
       'the title is the second tier of the selection: ink lifted to --text-strong',
+    )
+  })
+
+  // The lift is only a signal if the row it lifts from sits lower. Before T18
+  // an unselected title was already `--text-strong`, so "selection lifts its
+  // title" changed nothing and the fill carried the state alone.
+  await run('T18 an unselected row title sits at --text-default, so the lift is a real step', () => {
+    const title = plainRow?.querySelector('.truncate')
+    assert.ok(title, 'the unselected row has a title line')
+    assert.equal(title?.textContent, 'Unselected item', 'and it is the title, not the supporting line')
+    assert.ok(
+      hasClassMatching(title, /^text-\[color:var\(--text-default\)\]$/),
+      'the unselected title is one rung below the selected one',
     )
   })
 
