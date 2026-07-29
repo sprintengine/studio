@@ -7,7 +7,7 @@ every child of the epic.
 
 **Verdict: conforms.** The decisive check passes — an invented thirteenth CLI
 resolves its skills and its servers, and receives an attach, with no edit to any
-production file. Four findings are recorded below; two were fixed in this review,
+production file. Five findings are recorded below; three were fixed in this review,
 two are residual and named with their owner.
 
 ## The decisive check, executed
@@ -102,20 +102,21 @@ stale-but-correct without claiming a read failure.
 known, and falls back to the workspace-wide inventory only where no single CLI
 applies (a conversation provider, an automation installing into a per-run
 worktree) — that fallback is documented in the file. One call site with a CLI in
-hand was not passing it; fixed (finding 1).
+hand was not passing it, and both layouts asked a conversation agent which CLI
+it was; fixed (findings 1 and 2).
 
 ## The plan's own claims
 
 - **`SKILL_PACK_HARNESSES` is no longer the source of truth — holds, partly.**
   It is gone from the capability read path and the attach path, both of which
   derive their own map. It remains the source of truth for the workspace-wide
-  inventory and the built-in installer (finding 3).
+  inventory and the built-in installer — see Residual risk.
 - **`agent-config-import.ts` migrated or explicitly marked — now marked.** It is
   *partly* migrated: its format parsing moved onto the shared adapters, so it and
   the capability query cannot disagree about what a config file says; its
   *sources* are still the literal `codex` / `claude-code` pair. That status, and
   why the remainder is blocked on the manifests rather than on the file, is now
-  stated at `sourceConfigs` in `src/main/agent-config-import.ts` (finding 2).
+  stated at `sourceConfigs` in `src/main/agent-config-import.ts` (finding 3).
 
 ## Findings
 
@@ -128,14 +129,24 @@ agent can reach. Exactly the divergence decision 7 exists to prevent. Fixed by
 passing `pluginId={composer.selectionCli}`
 (`src/renderer/src/components/workspace/agentComposer/AgentComposerPopover.tsx`).
 
-**2 — `agent-config-import.ts`'s status was undocumented. Fixed.** The file
+**2 — A conversation agent was asked "which CLI are you?". Fixed.** Found while
+reviewing finding 1's own fix. Both composer layouts offer skill attach for a
+conversation selection, and both passed `composer.selectionCli` for it — the
+*engine default* CLI, which is not what runs, since a conversation agent is a
+model provider and not a CLI at all. The list was therefore scoped to a harness
+that has nothing to do with the agent. `SkillPickerPopover`'s own contract
+already names this case: no `pluginId` means "no single CLI applies", which is
+what a conversation provider is. Fixed in both layouts by passing `null` for a
+conversation selection (`AgentComposer.tsx`, `AgentComposerPopover.tsx`).
+
+**3 — `agent-config-import.ts`'s status was undocumented. Fixed.** The file
 shared the adapters without stating why its hardcoded pair remained, leaving the
 next reader to conclude the migration had been missed. Now stated in place,
 including the real blocker: only `codex` and `opencode` declare an
 `mcpConfig.userPath`, so there is nothing for the manifest-driven path to resolve
 for the rest.
 
-**3 — User-scope MCP servers are invisible for the five claude-format CLIs.
+**4 — User-scope MCP servers are invisible for the five claude-format CLIs.
 Open; owner architect, then developer.** `claude-code`, `grok`, `kimi-claude`,
 `zai` and `cursor` declare `mcpConfig.path` and no `userPath`, so the read path
 lists workspace servers only. A user with servers in a user-scope Claude Code
@@ -151,7 +162,7 @@ to one manifest, writing a server into that file, and confirming it appears with
 `syncClaude` is unaffected — it resolves `'workspace'` unconditionally, so the
 write path does not change.
 
-**4 — A server the config marks disabled renders identically to a live one.
+**5 — A server the config marks disabled renders identically to a live one.
 Open; owner developer.** All three adapters parse `enabled`
 (`claude-code.ts:39`, `codex.ts:37`, `opencode.ts:22`) and `resolveTarget` drops
 it when building `AgentMcpServer`. Listing a disabled server is right — dropping

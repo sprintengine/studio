@@ -301,7 +301,11 @@ export default function AgentComposer({
                   open={skillPickerOpen}
                   onOpenChange={setSkillPickerOpen}
                   workspaceRoot={skillWorkspaceRoot}
-                  pluginId={composer.selectionCli}
+                  // A conversation agent is not a CLI, so no CLI is the honest
+                  // answer for it and the workspace-wide inventory is what it
+                  // gets; `selectionCli` would name the engine default, which is
+                  // not what runs. Every other selection launches that CLI.
+                  pluginId={selection.kind === 'conversation' ? null : composer.selectionCli}
                   onPick={(skill: WorkspaceSkill) => composer.setSkillAttachment(skill)}
                   placement="top-start"
                   renderTrigger={({ ref, triggerProps, togglePopover }) => (
