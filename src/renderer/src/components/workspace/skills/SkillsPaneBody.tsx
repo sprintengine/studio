@@ -254,6 +254,10 @@ function SkillRow({
             key="use"
             aria-label={`Use ${row.skillId} in ${agentLabel}`}
             onClick={() => onUse(row.skillId)}
+            // A remove in flight is about to take the skill away; naming it at
+            // the prompt in that window would park an invocation for something
+            // that is on its way out.
+            disabled={pending}
           >
             <ArrowRightGlyph />
           </IconButton>,

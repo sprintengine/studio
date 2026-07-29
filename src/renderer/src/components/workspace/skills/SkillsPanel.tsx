@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InboxSearchInput, GhostButton } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
@@ -102,6 +102,11 @@ export function SkillsPanel({ workspaceId }: Props) {
   // the layout is where a tab's session id lives; the agent record's own id is
   // the same fallback the terminal itself uses when the tab carries none.
   const focusedSessionId = focused?.sessionId ?? agent?.cliSessionId ?? null
+  // Which agent the pane is on *now*, for a send that lands after the user has
+  // moved on: a failure belonging to the tab they left must not be reported
+  // against the tab they are looking at.
+  const focusedSessionIdRef = useRef(focusedSessionId)
+  focusedSessionIdRef.current = focusedSessionId
 
   const runUse = useCallback(
     async (skillId: string) => {
@@ -124,7 +129,9 @@ export function SkillsPanel({ workspaceId }: Props) {
         ok: false as const,
         message: error instanceof Error ? error.message : 'Could not send the skill to this agent.',
       }))
-      if (!result.ok) setUseError({ skillId, message: result.message })
+      if (!result.ok && focusedSessionIdRef.current === focusedSessionId) {
+        setUseError({ skillId, message: result.message })
+      }
     },
     [focusedSessionId, workspaceRoot],
   )
