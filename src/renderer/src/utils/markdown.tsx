@@ -72,7 +72,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     h3: 'mt-6 first:mt-0 mb-3 text-xl font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
     h4: 'mt-5 first:mt-0 mb-2 text-lg font-semibold leading-snug text-[color:var(--text-strong)]',
     h5: 'mt-5 first:mt-0 mb-2 text-base font-semibold leading-snug text-[color:var(--text-strong)]',
-    h6: 'mt-5 first:mt-0 mb-2 text-sm font-semibold uppercase leading-snug tracking-[0.08em] text-[color:var(--text-default)]',
+    h6: 'mt-5 first:mt-0 mb-2 text-sm font-semibold leading-snug tracking-tight text-[color:var(--text-strong)]',
     p: `${baseTextClass} mb-4`,
     list: `mb-4 ml-6 space-y-2 ${baseTextClass}`,
     pre: 'my-4 overflow-x-auto rounded-lg border border-[color:var(--border-default)] bg-[color:var(--terminal-bg)] p-4 text-[13px] leading-6 text-[color:var(--terminal-fg)]',
@@ -90,7 +90,10 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     h3: 'mt-[22px] first:mt-0 mb-2 text-[12px] font-semibold leading-snug text-[color:var(--text-strong)]',
     h4: 'mt-[18px] first:mt-0 mb-1.5 text-[12px] font-semibold leading-snug text-[color:var(--text-default)]',
     h5: 'mt-[18px] first:mt-0 mb-1.5 text-[12px] font-medium leading-snug text-[color:var(--text-default)]',
-    h6: 'mt-[18px] first:mt-0 mb-1.5 text-[11px] font-semibold uppercase leading-snug tracking-[0.08em] text-[color:var(--text-muted)]',
+    // The last rung of the compact ladder: 11px is under the 13px floor for
+    // `tracking.tight`, so it holds normal tracking and takes its step down
+    // from ink, not from a transform.
+    h6: 'mt-[18px] first:mt-0 mb-1.5 text-[11px] font-semibold leading-snug tracking-normal text-[color:var(--text-muted)]',
     p: `${compactTextClass} mb-3`,
     list: `mb-3 ml-[18px] space-y-1.5 ${compactTextClass}`,
     pre: 'my-3.5 overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 text-[11px] leading-[1.7] text-[color:var(--text-default)]',

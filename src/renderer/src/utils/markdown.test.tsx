@@ -155,6 +155,26 @@ function testHostileSkillContentNeitherExecutesNorNavigates(): void {
 }
 
 /**
+ * The renderer styles an author's content, so it must never restyle their words.
+ * A heading arrives in whatever case its author wrote and leaves in the same one:
+ * no `uppercase`, no `text-transform`, at either density.
+ */
+function testHeadingsKeepTheAuthorsOwnCase(): void {
+  const source = [
+    '# Running the sprint',
+    '',
+    '###### Session notes',
+  ].join('\n')
+
+  for (const html of [render(source), renderWithCorpus(source, ['SKILL.md'])]) {
+    assert.doesNotMatch(html, /class="[^"]*\buppercase\b/, 'no uppercase class on any heading')
+    assert.doesNotMatch(html, /text-transform/i, 'no text-transform on any heading')
+    assert.match(html, />Running the sprint</)
+    assert.match(html, /<h6[^>]*>Session notes<\/h6>/)
+  }
+}
+
+/**
  * The reader's new link path: an href only becomes a control when the skill's
  * own manifest carries that file. Everything else is inert, and a traversal
  * out of the corpus is inert too.
@@ -203,5 +223,6 @@ testUnsafeAndRelativeLinksAreInert()
 testImagesRenderAsPlaceholders()
 testPreviewChangeMarkersAttachToChangedBlocks()
 testHostileSkillContentNeitherExecutesNorNavigates()
+testHeadingsKeepTheAuthorsOwnCase()
 testCorpusLinksOnlyOpenFilesTheSkillActuallyCarries()
 console.log('markdown: ok')

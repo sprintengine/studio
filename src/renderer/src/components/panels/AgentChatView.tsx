@@ -39,6 +39,7 @@ import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillPrefill } from '../../utils/skillInvocation'
 import { CreationBackdrop } from '../backdrops/CreationBackdrop'
+import { CheckIcon } from '../AppIcons'
 
 // ── Pure projection ─────────────────────────────────────────────────────────
 
@@ -2796,7 +2797,9 @@ function ModelPickerPill({
                       }`}
                     >
                       <TruncatedText as="span" text={model.displayName ?? model.id} className="min-w-0 flex-1" />
-                      {isCurrent ? <span className="text-[color:var(--accent-primary)]">✓</span> : null}
+                      {/* aria-checked on the radio carries the meaning; the
+                          mark inherits the selected row's ink. */}
+                      {isCurrent ? <CheckIcon className="icon-xs shrink-0" /> : null}
                     </button>
                   )
                 })}
@@ -3076,10 +3079,7 @@ function DockShell({
     >
       <div className="flex items-center gap-2 px-3.5 pt-2.5">
         <StatusDot tone={dotTone} label={eyebrow} />
-        <span
-          // design-tokens-allow: approved MC-1478 mockup eyebrow (10.5px/600 uppercase +0.08em) per the item's implementation spec
-          className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--text-subtle)]"
-        >
+        <span className="text-[11px] font-medium tracking-normal text-[color:var(--text-subtle)]">
           {eyebrow}
         </span>
       </div>
@@ -3471,10 +3471,7 @@ function ConversationQuestionCard({
                 <span className="block text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]">
                   {parsed.text}
                   {parsed.recommended ? (
-                    <span
-                      // design-tokens-allow: approved MC-1478 mockup renders "Recommended" as a quiet uppercase accent label inline with the option title
-                      className="ml-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-[color:var(--accent-primary)]"
-                    >
+                    <span className="ml-2 text-[11px] font-medium tracking-normal text-[color:var(--text-muted)]">
                       Recommended
                     </span>
                   ) : null}
@@ -3868,6 +3865,9 @@ function StepOutput({ output }: { output: string }) {
   return (
     <div className="mb-1.5 ml-2 mt-0.5 overflow-hidden rounded-lg border border-[color:var(--border-subtle)] bg-[color:var(--terminal-bg)]">
       <pre className="overflow-x-auto px-3 py-2 font-mono text-[11.5px] leading-[1.6] text-[color:var(--terminal-fg)]">
+        {/* Matches a tick the test runner already printed into its own output:
+            agent-authored text this pane only tones, never a glyph the product
+            draws. design-system-allow: matcher for agent-authored output */}
         {visible.map((line, index) => (
           <div key={index} className={/^\s*✓/.test(line) ? 'text-[color:var(--tone-good)]' : undefined}>
             {line || ' '}

@@ -202,7 +202,9 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
   return (
     <div>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
-        <span className="font-mono text-[10px] uppercase tracking-normal text-[color:var(--text-muted)]">{label}</span>
+        {/* The comment type is a word, not an identifier: it leaves mono to the
+            agent id beside it and separates by weight and ink instead of case. */}
+        <span className="text-[11px] font-medium tracking-normal text-[color:var(--text-default)]">{label}</span>
         <span className="font-mono text-[11px] text-[color:var(--text-muted)]">{authorLabel}</span>
         {comment.authorRole ? (
           <span className="text-[color:var(--text-disabled)]">{getSprintEngineRoleLabel(comment.authorRole)}</span>
@@ -1613,13 +1615,13 @@ function FeedbackDetail({
       ) : null}
       {feedback.topFriction ? (
         <div>
-          <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Top friction</div>
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Top friction</div>
           <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{feedback.topFriction}</div>
         </div>
       ) : null}
       {feedback.suggestedImprovement ? (
         <div>
-          <div className="text-[11px] font-semibold uppercase text-[color:var(--text-muted)]">Suggested improvement</div>
+          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Suggested improvement</div>
           <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{feedback.suggestedImprovement}</div>
         </div>
       ) : null}
