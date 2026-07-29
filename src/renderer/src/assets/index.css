@@ -239,9 +239,13 @@
   /* Focus ring helper for primitives. */
   --focus-ring: 0 0 0 2px var(--border-focus);
 
-  /* Canonical elevation. Drawers reuse this single shadow value so panel-local
-     drawers stop hand-rolling `shadow-[...]` literals. */
+  /* Canonical elevation, one alias per step of the bundle's three-step ramp.
+     Every step is an overlay: nothing in the document flow takes a shadow, so
+     a card, a row, or a hover state reaches for a hairline instead. Panel-local
+     drawers and dialogs use these instead of hand-rolling `shadow-[...]`
+     literals or a Tailwind `shadow-lg`. */
   --shadow-drawer: var(--sem-shadow-drawer);
+  --shadow-modal: var(--sem-shadow-modal);
 
   /* How much theme ink is mixed into the FileExplorer file-type badge label.
      0% on dark = the badge keeps its pure language hue; the Light theme raises
@@ -1966,7 +1970,8 @@ samp,
  * re-runs every frame anything behind it repaints (streaming terminals
  * guarantee this), which drops pointer/hover framerate to ~10fps on large
  * windows. Separation comes from the scrim tone plus the dialog surface
- * shadow. Small fixed-size chips (graph HUDs) may still frost locally. */
+ * shadow. There is no local exception either: a graph HUD sits over a canvas
+ * that repaints on every pan, so it takes an opaque surface and a hairline. */
 .overlay-scrim {
   background-color: var(--surface-overlay-backdrop);
 }
