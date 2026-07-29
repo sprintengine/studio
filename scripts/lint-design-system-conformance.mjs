@@ -60,18 +60,15 @@
 //                              `--bg-surface` ("Accessibility": the ink ramp
 //                              orders identically in both modes).
 //
-// ## Baselines
+// ## Tolerance
 //
-// Each rule owns one file at `scripts/design-system-conformance/<rule-id>.json`,
-// a JSON array of `"<project-relative-path>:<line>"` strings. One file per rule
-// is deliberate: a fix task owns exactly one baseline and never edits another's.
+// None. Every rule swept clean, so the guard carries no baseline mechanism at
+// all: one violation of one rule fails `npm run lint`. The per-rule baseline
+// files that let the twelve fix tasks land one at a time were deleted once the
+// last of them emptied — a tolerance file that is only ever empty is a place
+// for a regression to be parked, not a safety net.
 //
-// Line numbers drift as sibling tasks edit the same files, so reconciliation is
-// two-pass per (rule, path): violations whose line matches a baseline entry
-// exactly consume it first, then any remaining violations consume the remaining
-// entries for that path in order. What is left over is reported. Deleting an
-// entry while its violation is still in the tree therefore fails; a violation
-// that merely moved down a file does not.
+// A genuine exception is documented on the line, not in a list.
 //
 // ## Exemptions
 //
@@ -86,19 +83,13 @@
 //   node scripts/lint-design-system-conformance.mjs
 //   node scripts/lint-design-system-conformance.mjs --report        # never fails
 //   node scripts/lint-design-system-conformance.mjs --quiet
-//   node scripts/lint-design-system-conformance.mjs --write-baseline <rule-id>…
-//
-// `--write-baseline` names the rules to rewrite; there is no rewrite-everything
-// form, because the per-rule split exists precisely so one task cannot erase
-// another task's baseline.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { resolve, join, sep } from 'node:path'
 
 const SOURCE_ROOT = 'src/renderer/src'
 const APP_CSS_PATH = 'src/renderer/src/assets/index.css'
 const BUNDLE_CSS_PATH = 'design-system/foundations/tokens.css'
-const BASELINE_DIR = 'scripts/design-system-conformance'
 
 const SOURCE_EXT = new Set(['.tsx', '.ts'])
 // Review-only surfaces. `design-system/` is never scanned at all: the bundle
@@ -838,17 +829,14 @@ function walkSource(absoluteRoot, root) {
 const args = process.argv.slice(2)
 const REPORT_ONLY = args.includes('--report')
 const QUIET = args.includes('--quiet')
-const writeBaselineIndex = args.indexOf('--write-baseline')
-const BASELINES_TO_WRITE =
-  writeBaselineIndex === -1 ? [] : args.slice(writeBaselineIndex + 1).filter((arg) => !arg.startsWith('--'))
 
-if (writeBaselineIndex !== -1 && BASELINES_TO_WRITE.length === 0) {
-  process.stderr.write('--write-baseline needs one or more rule ids; there is no rewrite-all form.\n')
-  process.exit(2)
-}
-const unknownRules = BASELINES_TO_WRITE.filter((rule) => !RULE_IDS.includes(rule))
-if (unknownRules.length > 0) {
-  process.stderr.write(`Unknown rule id(s): ${unknownRules.join(', ')}\n`)
+// The baseline mechanism is gone (see "## Tolerance"). Fail loudly rather than
+// silently running at zero tolerance for someone reaching for the old flag.
+if (args.includes('--write-baseline')) {
+  process.stderr.write(
+    'This guard no longer carries baselines: every rule sweeps clean and any violation fails.\n' +
+      'Fix the violation, or document a genuine exception with a `design-system-allow: <reason>` marker.\n',
+  )
   process.exit(2)
 }
 
@@ -1045,88 +1033,24 @@ for (const theme of [...themeIds].sort()) {
 }
 
 /* ------------------------------------------------------------------ *
- * Exemptions, baselines, report
+ * Exemptions and report
  * ------------------------------------------------------------------ */
 
 const suppressed = violations.filter((violation) =>
   markerLinesByPath.get(violation.path)?.has(violation.line),
 )
 const suppressedSet = new Set(suppressed)
+// Everything an allow-marker did not carve out is a failure. There is nothing
+// between "the marker documents why" and "fix it".
 const live = violations.filter((violation) => !suppressedSet.has(violation))
-
-function baselinePath(rule) {
-  return `${BASELINE_DIR}/${rule}.json`
-}
-
-function readBaseline(rule) {
-  const abs = resolve(repoRoot, baselinePath(rule))
-  if (!existsSync(abs)) return null
-  const parsed = JSON.parse(readFileSync(abs, 'utf8'))
-  if (!Array.isArray(parsed)) throw new Error(`${baselinePath(rule)} must be a JSON array`)
-  return parsed
-}
 
 const byRule = new Map(RULE_IDS.map((rule) => [rule, []]))
 for (const violation of live) byRule.get(violation.rule).push(violation)
 for (const list of byRule.values()) list.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
 
-if (BASELINES_TO_WRITE.length > 0) {
-  for (const rule of BASELINES_TO_WRITE) {
-    const entries = byRule.get(rule).map((violation) => `${violation.path}:${violation.line}`)
-    writeFileSync(resolve(repoRoot, baselinePath(rule)), `${JSON.stringify(entries, null, 2)}\n`)
-    process.stdout.write(`wrote ${baselinePath(rule)} (${entries.length} entries)\n`)
-  }
-  process.exit(0)
-}
-
-const missingBaselines = []
-const unbaselined = []
-const baselineCounts = new Map()
-
-for (const rule of RULE_IDS) {
-  const baseline = readBaseline(rule)
-  if (baseline === null) {
-    missingBaselines.push(baselinePath(rule))
-    unbaselined.push(...byRule.get(rule))
-    continue
-  }
-  baselineCounts.set(rule, baseline.length)
-  const remainingByPath = new Map()
-  for (const entry of baseline) {
-    const split = entry.lastIndexOf(':')
-    const path = entry.slice(0, split)
-    const line = Number(entry.slice(split + 1))
-    if (!remainingByPath.has(path)) remainingByPath.set(path, [])
-    remainingByPath.get(path).push(line)
-  }
-  const candidates = byRule.get(rule)
-  const consumed = new Set()
-  // Exact line matches first, so a genuinely new violation is the one left
-  // over rather than displacing an existing entry.
-  for (const violation of candidates) {
-    const lines = remainingByPath.get(violation.path)
-    if (!lines) continue
-    const at = lines.indexOf(violation.line)
-    if (at === -1) continue
-    lines.splice(at, 1)
-    consumed.add(violation)
-  }
-  // Then absorb line drift: a baselined violation that moved keeps its pass.
-  for (const violation of candidates) {
-    if (consumed.has(violation)) continue
-    const lines = remainingByPath.get(violation.path)
-    if (!lines || lines.length === 0) continue
-    lines.shift()
-    consumed.add(violation)
-  }
-  for (const violation of candidates) {
-    if (!consumed.has(violation)) unbaselined.push(violation)
-  }
-}
-
 if (!QUIET) {
   const grouped = new Map()
-  for (const violation of unbaselined) {
+  for (const violation of live) {
     if (!grouped.has(violation.path)) grouped.set(violation.path, [])
     grouped.get(violation.path).push(violation)
   }
@@ -1151,28 +1075,21 @@ if (!QUIET) {
   process.stdout.write(
     `  scope: ${SOURCE_ROOT} (${sourceFiles.length} files) + ${APP_CSS_PATH} vs ${BUNDLE_CSS_PATH}\n`,
   )
+  process.stdout.write('  tolerance: none — any violation fails\n')
   for (const rule of RULE_IDS) {
-    const found = byRule.get(rule).length
-    const baselined = baselineCounts.get(rule)
-    process.stdout.write(
-      `  ${rule}: ${found} found / ${baselined === undefined ? 'no baseline' : `${baselined} baselined`}\n`,
-    )
+    process.stdout.write(`  ${rule}: ${byRule.get(rule).length} found\n`)
   }
   if (suppressed.length > 0) {
     process.stdout.write(`  suppressed by \`${ALLOW_MARKER}\` markers: ${suppressed.length}\n`)
   }
 }
 
-for (const path of missingBaselines) {
-  process.stdout.write(`\nMissing baseline ${path}. Every rule ships one, empty if it sweeps clean.\n`)
-}
-
-const failures = unbaselined.length + markerErrors.length + missingBaselines.length
-process.stdout.write(`Unbaselined violations: ${unbaselined.length}\n`)
+const failures = live.length + markerErrors.length
+process.stdout.write(`Violations: ${live.length}\n`)
 
 if (failures > 0 && !QUIET) {
   process.stdout.write('\n')
-  const rules = new Set(unbaselined.map((violation) => violation.rule))
+  const rules = new Set(live.map((violation) => violation.rule))
   for (const rule of RULE_IDS) {
     if (rules.has(rule)) process.stdout.write(`  ${rule} — ${FIX_HINT[rule]}\n`)
   }
