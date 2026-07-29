@@ -23,7 +23,8 @@ import { installJsdomEnvironment } from './jsdomEnvironment'
 //   5. MC-1884 × a CLI declaring no levels — absent, not disabled, not empty.
 //   6. The remaining shared-file pairs the plan's Seams table names:
 //      settingsSlice (one selection type, two owners), cliRuntimeOptions (the
-//      per-CLI guard), CliModelListbox (a discovered row hosting the picker).
+//      per-CLI guard), the model popover (a discovered row, with the reasoning
+//      selector beside it).
 //
 // Store hydration is exercised through the REAL persist envelope, so the seeding
 // below has to happen before workspaceStore is imported.
@@ -129,7 +130,7 @@ async function main(): Promise<void> {
   const { buildAgentCliCatalog, resolveCliReasoning, resolveSurfaceModel } = await import(
     '../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions'
   )
-  const { CliModelListbox } = await import('../renderer/src/components/ui/CliModelListbox')
+  const { CliModelPopoverSurface } = await import('../renderer/src/components/ui/CliModelPicker')
   const { reconcileSprintEngineAgents } = await import('../renderer/src/store/slices/runStateSlice')
   const { createInitialSprintEngineState } = await import('../renderer/src/utils/sprintengine')
   const { buildAgentShellCommand, renderAgentLaunchArgv } = await import('../main/agent-launch-render')
@@ -168,24 +169,25 @@ async function main(): Promise<void> {
     }
   }
 
-  type ListboxProps = Parameters<typeof CliModelListbox>[0]
+  type SurfaceProps = Parameters<typeof CliModelPopoverSurface>[0]
   const mounted: Array<() => void> = []
 
-  function mountListbox(props: Partial<ListboxProps>) {
+  function mountListbox(props: Partial<SurfaceProps>) {
     const container = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(container)
     const root = createRoot(container)
-    const render = (next: Partial<ListboxProps>): void => {
+    const render = (next: Partial<SurfaceProps>): void => {
       act(() => {
         root.render(
-          React.createElement(CliModelListbox, {
+          React.createElement(CliModelPopoverSurface, {
             ariaLabel: 'Agent runtime',
             effectiveModelFor: () => undefined,
             onSelectCli: () => {},
             onSelectModel: () => {},
+            showReasoning: true,
             ...props,
             ...next,
-          } as unknown as ListboxProps),
+          } as unknown as SurfaceProps),
         )
       })
     }
@@ -198,8 +200,8 @@ async function main(): Promise<void> {
     let unmounted = false
     const view = {
       render,
-      rows: () => scoped<HTMLElement>('[data-cli-model-row="true"]'),
-      pickers: () => scoped<HTMLButtonElement>('[data-reasoning-picker="true"]'),
+      rows: () => scoped<HTMLElement>('[data-model-row="true"]'),
+      pickers: () => scoped<HTMLButtonElement>('[data-reasoning-trigger="true"]'),
       menuItems: () =>
         [...dom.window.document.body.querySelectorAll('[data-reasoning-option="true"]')] as unknown as HTMLButtonElement[],
       click: async (element: Element | undefined | null) => {
@@ -666,10 +668,11 @@ async function main(): Promise<void> {
     })
   })
 
-  await check('SEAM: CliModelListbox — a DISCOVERED row is selectable and hosts the picker', async () => {
+  await check('SEAM: model popover — a DISCOVERED row is selectable and the level rides beside it', async () => {
     // The file's two owners meet here: MC-1865 renders rows the manifest never
-    // declared, MC-1884 hangs the picker off whichever row is selected. A
-    // discovered row must be a first-class row, not a read-only annotation.
+    // declared, MC-1884 puts an effort level on whatever runtime is selected. A
+    // discovered row must be a first-class row, not a read-only annotation, and
+    // the level must still write through from the surface that shows it.
     const discoveredId = 'claude-sonnet-5'
     const options = buildAgentCliCatalog(bundledCatalogEntries(['claude-code']) as never, undefined, {
       'claude-code': {
@@ -698,11 +701,11 @@ async function main(): Promise<void> {
     const discoveredRow = view.rows().find((row) => row.textContent?.includes('Sonnet 5'))
     assert.ok(discoveredRow, 'the discovered row rendered')
     assert.equal(discoveredRow.getAttribute('aria-selected'), 'true', 'and it is the selected row')
-    const picker = discoveredRow.querySelector('[data-reasoning-picker="true"]')
-    assert.ok(picker, 'the picker rides the discovered row like any other')
-    await view.click(picker)
-    await view.click(view.menuItems().find((item) => item.textContent?.includes('High')))
-    assert.equal(picked, 'high', 'and a level picked on a discovered row writes through')
+    const trigger = view.pickers()[0]
+    assert.ok(trigger, 'the reasoning selector rides the surface beside the model list')
+    await view.click(trigger)
+    await view.click(view.menuItems().find((item) => item.textContent?.startsWith('High')))
+    assert.equal(picked, 'high', 'and a level picked while a discovered row is selected writes through')
     view.unmount()
   })
 

@@ -834,7 +834,7 @@ const APP_TO_BUNDLE = new Map(
 const RAMP = ['--text-strong', '--text-default', '--text-muted', '--text-subtle', '--text-disabled']
 const DISABLED_CONTRAST_FLOOR = 3
 // Every surface disabled ink is actually painted on. `--bg-surface-raised` is
-// real chrome — `CliModelListbox` paints it and renders `--text-disabled`
+// real chrome — the model popover paints it and renders `--text-disabled`
 // inside it, as do `CommandPalette`, `ConfirmDialog`, `KbdChord` and
 // `SkillPickerPopover`. `--bg-selected` is deliberately absent: no surface in
 // the tree pairs it with disabled ink today, and a floor no rendered surface

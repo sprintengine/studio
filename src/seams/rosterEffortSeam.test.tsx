@@ -344,9 +344,9 @@ async function main(): Promise<void> {
         await press(trigger)
       },
       pickers: () =>
-        [...dom.window.document.body.querySelectorAll('[data-reasoning-picker="true"]')] as never,
+        [...dom.window.document.body.querySelectorAll('[data-reasoning-trigger="true"]')] as never,
       rows: () =>
-        [...dom.window.document.body.querySelectorAll('[data-cli-model-row="true"]')] as never,
+        [...dom.window.document.body.querySelectorAll('[data-model-row="true"]')] as never,
       unmount: () => {
         act(() => root.unmount())
         container.remove()
@@ -468,9 +468,9 @@ async function main(): Promise<void> {
         })
       },
       pickers: () =>
-        [...dom.window.document.body.querySelectorAll('[data-reasoning-picker="true"]')] as never,
+        [...dom.window.document.body.querySelectorAll('[data-reasoning-trigger="true"]')] as never,
       rows: () =>
-        [...dom.window.document.body.querySelectorAll('[data-cli-model-row="true"]')] as never,
+        [...dom.window.document.body.querySelectorAll('[data-model-row="true"]')] as never,
       unmount: () => {
         act(() => root.unmount())
         container.remove()
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
     const trigger = view.pickers()[0]
     assert.equal(
       trigger.getAttribute('aria-label'),
-      'Reasoning effort: High',
+      'Reasoning for General agent runtime: High',
       'the stored level rides the control’s accessible name',
     )
     await act(async () => {
