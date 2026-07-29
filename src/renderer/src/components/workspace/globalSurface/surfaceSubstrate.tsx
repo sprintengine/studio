@@ -319,7 +319,7 @@ export function SurfaceRail({
             <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">
               {row.title}
             </span>
-            <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
+            <span className="truncate text-[10px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
           </span>
           {/* Reserve the trailing gutter so revealing the overflow never reflows
               the title mid-hover. */}
@@ -403,7 +403,7 @@ export function SurfaceRail({
           <div key={group.key} className="flex min-w-0 flex-col">
             <div className="flex items-baseline gap-1.5 px-2 pb-1 pt-2 first:pt-0.5">
               <span className="text-[11px] font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
-              <span className="font-mono text-[10.5px] tabular-nums text-[color:var(--text-disabled)]">
+              <span className="font-mono text-[10px] tabular-nums text-[color:var(--text-disabled)]">
                 {group.rows.length}
               </span>
             </div>

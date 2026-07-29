@@ -385,7 +385,7 @@ function ConnectionFrame({
     <section className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-4">
       <div className="mb-3.5 flex items-center gap-2">
         <span
-          className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[9px] font-semibold text-[color:var(--text-muted)]"
+          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[11px] font-semibold text-[color:var(--text-muted)]"
           aria-hidden="true"
         >
           {trackerProviderMonogram(connection.provider)}
@@ -448,7 +448,7 @@ function CommentPreviewCard({ markdown }: { markdown: string }) {
   return (
     <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] px-3 py-2.5">
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-[8.5px] font-semibold text-[color:var(--text-on-accent)]">
+        <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-[11px] font-semibold text-[color:var(--text-on-accent)]">
           MC
         </span>
         <span className="text-[12px] font-medium text-[color:var(--text-strong)]">Multicode</span>

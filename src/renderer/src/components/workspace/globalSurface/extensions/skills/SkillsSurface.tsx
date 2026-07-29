@@ -275,7 +275,7 @@ export function SkillsSurface({
           <CompassGlyph />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">Discover</span>
-            <span className="truncate text-[10.5px] text-[color:var(--text-subtle)]">Skills on GitHub</span>
+            <span className="truncate text-[10px] text-[color:var(--text-subtle)]">Skills on GitHub</span>
           </span>
         </button>
       </div>

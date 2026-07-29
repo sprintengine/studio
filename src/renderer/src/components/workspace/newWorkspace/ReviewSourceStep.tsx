@@ -350,7 +350,7 @@ function ReviewDetectionCard({
           </span>
         ) : null}
       </span>
-      <span className="shrink-0 rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-[10.5px] text-[color:var(--text-subtle)]">
+      <span className="shrink-0 rounded-full border border-[color:var(--border-subtle)] px-2 py-0.5 text-[10px] text-[color:var(--text-subtle)]">
         {reachabilityChip}
       </span>
     </div>

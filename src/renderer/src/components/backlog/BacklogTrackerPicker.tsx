@@ -399,7 +399,7 @@ function Monogram({ provider }: { provider: RedactedTrackerConnection['provider'
   return (
     <span
       aria-hidden="true"
-      className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[9px] font-semibold text-[color:var(--text-muted)]"
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[11px] font-semibold text-[color:var(--text-muted)]"
     >
       {trackerProviderMonogram(provider)}
     </span>

@@ -39,7 +39,7 @@ type TestState =
   | { phase: 'done'; testKey: string; ok: boolean; message: string }
 
 const monogramClass =
-  'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[9px] font-semibold text-[color:var(--text-muted)]'
+  'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[11px] font-semibold text-[color:var(--text-muted)]'
 
 function Monogram({ provider }: { provider: TrackerProviderId }) {
   return (

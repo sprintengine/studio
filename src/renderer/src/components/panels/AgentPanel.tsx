@@ -487,7 +487,7 @@ export default function AgentPanel({
                     ? 'Resuming agent'
                     : 'Resume paused agent — click or type to resume'
                 }
-                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-[7px] text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+                className="group flex w-full items-center gap-2 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] px-3.5 py-2 text-left text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
               >
                 {/* Pause glyph, low-opacity — a status mark, not a call to action.
                     The pulse while resuming is the "alive right now" signal; it

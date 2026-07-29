@@ -48,7 +48,7 @@ export function TerminalReplaySkeleton() {
       <span role="status" className="sr-only">
         Restoring terminal history…
       </span>
-      <div aria-hidden="true" className="flex flex-col gap-[7px]">
+      <div aria-hidden="true" className="flex flex-col gap-2">
         {REPLAY_SKELETON_ROWS.map((row, rowIndex) => (
           <div key={rowIndex} className="flex items-center gap-2">
             <GhostLine widthClass={row.prompt} />

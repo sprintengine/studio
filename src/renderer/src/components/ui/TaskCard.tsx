@@ -152,7 +152,7 @@ export function TaskCard({
       className={className}
     >
       {leading === undefined ? (
-        <StatusDot tone={tone} pulse={pulse} className={isCard ? 'mt-1' : 'mt-[5px]'} />
+        <StatusDot tone={tone} pulse={pulse} className={isCard ? 'mt-1' : 'mt-1.5'} />
       ) : leading ? (
         <span className={`shrink-0 ${isCard ? 'mt-0.5' : 'mt-[2px]'}`}>{leading}</span>
       ) : null}

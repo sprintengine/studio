@@ -107,11 +107,11 @@ function RepoCard({
         {/* Entry zero is the repo that holds the run and its plan. A plain word,
             not a badge — the card's one tinted idiom is its status dot. */}
         {primary ? (
-          <span className="shrink-0 text-[10.5px] font-medium text-[color:var(--accent-primary)]">Primary</span>
+          <span className="shrink-0 text-[10px] font-medium text-[color:var(--accent-primary)]">Primary</span>
         ) : null}
       </div>
       <div
-        className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-[color:var(--text-muted)]"
+        className="flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-muted)]"
         title={repo.baseRef ? `${repo.branchName} → ${repo.baseRef}` : repo.branchName}
       >
         <BranchGlyph />
@@ -130,7 +130,7 @@ function RepoCard({
             View
           </a>
         ) : null}
-        <span className="ml-auto shrink-0 tabular-nums text-[10.5px] text-[color:var(--text-subtle)]">
+        <span className="ml-auto shrink-0 tabular-nums text-[10px] text-[color:var(--text-subtle)]">
           {taskCount === 1 ? '1 task' : `${taskCount} tasks`}
         </span>
         <RepoMergeButton
@@ -142,7 +142,7 @@ function RepoCard({
         />
       </div>
       {blockedByNames.length > 0 && state !== 'merged' ? (
-        <p className="text-[10.5px] leading-4 text-[color:var(--text-subtle)]">
+        <p className="text-[10px] leading-4 text-[color:var(--text-subtle)]">
           Merges after {formatProjectList(blockedByNames)}.
         </p>
       ) : null}

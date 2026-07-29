@@ -123,9 +123,9 @@ function SkillFileList({
                     {file.path}
                   </span>
                   {file.isEntry ? (
-                    <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">Entry</span>
+                    <span className="shrink-0 text-[10px] text-[color:var(--text-subtle)]">Entry</span>
                   ) : null}
-                  <span className="shrink-0 text-[10.5px] tabular-nums text-[color:var(--text-disabled)]">
+                  <span className="shrink-0 text-[10px] tabular-nums text-[color:var(--text-disabled)]">
                     {formatSkillFileSize(file.size)}
                   </span>
                 </button>

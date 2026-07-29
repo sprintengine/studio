@@ -65,7 +65,7 @@ export function AnnotateTray({
               <li key={`${annotation.selector}::${index}`} className="group flex items-start gap-2 px-2.5 py-1.5">
                 <span
                   aria-hidden="true"
-                  className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[color:var(--annotate-pin-bg)] text-[9px] font-semibold tabular-nums text-[color:var(--annotate-pin-ink)]"
+                  className="mt-0.5 grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-[color:var(--annotate-pin-bg)] px-1 text-[10px] font-semibold tabular-nums text-[color:var(--annotate-pin-ink)]"
                 >
                   {index + 1}
                 </span>

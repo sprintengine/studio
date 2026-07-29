@@ -122,7 +122,7 @@ export function SkillPage({
               {skill.allowedTools.map((tool) => (
                 <li
                   key={tool}
-                  className="rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 font-mono text-[10.5px] text-[color:var(--text-default)]"
+                  className="rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-default)]"
                 >
                   {tool}
                 </li>

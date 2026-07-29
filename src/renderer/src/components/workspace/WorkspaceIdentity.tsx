@@ -268,7 +268,7 @@ export function WorkspaceIdentity({
               {gitHasChanges ? (
                 <span
                   aria-hidden="true"
-                  className="ml-0.5 flex h-[15px] min-w-[15px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1 text-[9px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
+                  className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-[11px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
                 >
                   {gitChangeLabel}
                 </span>
@@ -282,7 +282,7 @@ export function WorkspaceIdentity({
             {gitHasChanges ? (
               <span
                 title={`${gitChangeCount} uncommitted ${gitChangeCount === 1 ? 'change' : 'changes'}`}
-                className="ml-0.5 flex h-[15px] min-w-[15px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1 text-[9px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
+                className="ml-0.5 flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--git-count-badge-bg)] px-1.5 text-[11px] font-bold leading-none tabular-nums text-[color:var(--git-count-badge-ink)]"
               >
                 {gitChangeLabel}
               </span>

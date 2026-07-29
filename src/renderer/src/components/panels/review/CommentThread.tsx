@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { ReviewComment } from '../../../../../shared/review'
 import { GhostButton } from '../../ui/Buttons'
 import { StatusDot } from '../../ui/StatusDot'
+import { ZONE_CONTENT_INSET } from './annotationZones'
 import { commentSyncChip, isCommentEditable } from './commentModel'
 import { CommentComposer } from './CommentComposer'
 
@@ -51,14 +52,9 @@ export function CommentThread({ comment, onEdit, onDelete }: CommentThreadProps)
   }
 
   return (
-    <div className="border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 pl-[55px] pr-3.5">
+    <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}>
       <div className="mb-1 flex items-center gap-2">
-        <span
-          className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-[color:var(--bg-active)] text-[8.5px] font-semibold text-[color:var(--text-muted)]"
-          aria-hidden="true"
-        >
-          You
-        </span>
+        {/* No avatar: it said "You" beside a label that already says "You". */}
         <span className="text-[11px] font-medium text-[color:var(--text-strong)]">You</span>
         <CommentSyncBadge comment={comment} context={comment.sync.state === 'pending' ? 'will post to PR' : undefined} />
       </div>

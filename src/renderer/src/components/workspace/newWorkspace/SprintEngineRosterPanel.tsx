@@ -26,6 +26,7 @@ import {
   listSprintEngineWizardRoles,
   sprintEngineRosterRoleFloor,
 } from '../../../utils/sprintengineRoleOptions'
+import { ChevronDownIcon } from '../../AppIcons'
 import { CliModelPickerButton, Field, Popover, PrimaryButton, RoleAvatar, SegmentedControl, Switch } from '../../ui'
 import { AgentCliPicker, type SprintEngineCliOption } from './SprintEngineRosterTable'
 import {
@@ -305,7 +306,7 @@ function RosterRoleRow({
             {label}
           </span>
           {isSprintEnginePlanningRole(role) ? (
-            <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1 text-[9px] font-semibold text-[color:var(--text-subtle)]">
+            <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
               Planner
             </span>
           ) : null}
@@ -438,7 +439,7 @@ function SavedRostersMenu({
           {...triggerProps}
         >
           {triggerLabel}
-          <span aria-hidden="true" className="text-[9px] text-[color:var(--text-subtle)]">▾</span>
+          <ChevronDownIcon className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
         </button>
       )}
     >
@@ -503,7 +504,7 @@ function SavedRostersMenu({
           <div className="my-1 border-t border-[color:var(--border-subtle)]" />
           {rosters.length > 0 ? (
             <>
-              <div className="px-2 pb-0.5 pt-1.5 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
+              <div className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
                 Saved rosters
               </div>
               {selectedRoster ? (

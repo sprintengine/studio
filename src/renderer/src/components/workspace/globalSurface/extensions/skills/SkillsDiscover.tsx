@@ -438,7 +438,7 @@ function RepoHitRow({
           {hit.curated ? (
             <span
               title="Carries .claude-plugin/marketplace.json — someone curated its contents."
-              className="shrink-0 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-[10.5px] text-[color:var(--text-subtle)]"
+              className="shrink-0 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-[10px] text-[color:var(--text-subtle)]"
             >
               Manifest
             </span>
@@ -484,7 +484,7 @@ function SearchHitRow({
               <span className="truncate text-[11px] text-[color:var(--text-muted)]">{hit.description}</span>
             ) : null}
           </span>
-          <span className="shrink-0 truncate font-mono text-[10.5px] text-[color:var(--text-subtle)]">
+          <span className="shrink-0 truncate font-mono text-[10px] text-[color:var(--text-subtle)]">
             {hit.repo}
           </span>
         </>

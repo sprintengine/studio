@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReviewAnnotation } from '../../../../../shared/review'
 import { GhostButton } from '../../ui/Buttons'
 import { anchorRangeLabel } from './anchorLabel'
+import { ZONE_CONTENT_INSET } from './annotationZones'
 
 interface AnnotationRibbonProps {
   annotation: ReviewAnnotation
@@ -48,7 +49,7 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
   return (
     <div
       ref={ref}
-      className="flex gap-2.5 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] py-2.5 pl-[55px] pr-3.5"
+      className={`flex gap-2.5 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}
     >
       <SparkMark />
       <div className="min-w-0 flex-1">
@@ -72,7 +73,7 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
           ) : null}
           <span className="font-medium text-[color:var(--text-strong)]">{annotation.title}</span>
           <span className="text-[color:var(--text-default)]"> — {annotation.summary}</span>
-          <span className="ml-2 font-mono text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="ml-2 font-mono text-[10px] tabular-nums text-[color:var(--text-subtle)]">
             {anchorRangeLabel(annotation.anchor)}
           </span>
         </button>

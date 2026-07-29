@@ -7,6 +7,14 @@
 import type { ReviewAnnotation } from '../../../../../shared/review'
 import { modifiedZoneLineForAnchor, type DiffFileModel } from './diffModel'
 
+// Left inset for anything rendered inside a view zone — the annotation ribbon, a
+// comment thread, the inline composer. It lines the zone's content up with the
+// editor's code column, past Monaco's line-number and decoration gutters, so a
+// zone never reads as a differently-indented block wedged into the diff. Named
+// once here because all three surfaces must move together if the gutter does.
+// design-system-allow: tracks Monaco's gutter width, not the app's space scale
+export const ZONE_CONTENT_INSET = 'pl-[55px]'
+
 export interface AnnotationPlacement {
   annotation: ReviewAnnotation
   // Modified-editor line the view zone attaches after (0 = above the first line).

@@ -954,7 +954,7 @@ function BacklogDoorList({
             onContextMenu={(event) => onContextMenu(event, row.key)}
             className={`cursor-pointer border-l-[3px] ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
               selected
-                ? `${swatch ? swatch.border : 'border-l-transparent'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--bg-selected)]'} ${indented ? 'pl-[21px]' : 'pl-[9px]'}`
+                ? `${swatch ? swatch.border : 'border-l-transparent'} ${litFill && swatch ? swatch.bg : 'bg-[color:var(--bg-selected)]'}`
                 : `${swatch ? `${swatch.border}${litFill ? ` ${swatch.dimBg}` : ''}` : 'border-l-transparent'} hover:bg-[color:var(--bg-hover)]`
             } ${item.status === 'archived' ? 'opacity-70' : ''}`}
           >
@@ -989,7 +989,7 @@ function BacklogDoorList({
                     Plain mono text, never a tinted pill — the row already has
                     exactly one status idiom (the lifecycle glyph). */}
                 {showProjectTag ? (
-                  <span className="max-w-[12ch] shrink-0 truncate pl-1 font-mono text-[10.5px] text-[color:var(--text-subtle)]">
+                  <span className="max-w-[12ch] shrink-0 truncate pl-1 font-mono text-[10px] text-[color:var(--text-subtle)]">
                     {project.name}
                   </span>
                 ) : null}

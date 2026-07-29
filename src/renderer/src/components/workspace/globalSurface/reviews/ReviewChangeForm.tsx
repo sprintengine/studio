@@ -412,7 +412,7 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
   if (probe.status === 'error') {
     return (
       <div className="flex items-start gap-2 rounded-[6px] border border-[color:var(--tone-error)] bg-[color:var(--tone-error-soft)] px-3 py-2">
-        <StatusDot tone="error" label="Could not read this source" className="mt-[5px]" />
+        <StatusDot tone="error" label="Could not read this source" className="mt-1.5" />
         <p className="text-[12px] leading-5 text-[color:var(--tone-error)]">{probe.message}</p>
       </div>
     )
@@ -420,7 +420,7 @@ function ProbeCard({ probe, sourceKind }: { probe: ProbeState; sourceKind: Revie
   const { title, stats } = probe.probe
   return (
     <div className="flex items-start gap-2 rounded-[6px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
-      <StatusDot tone="accent" label={reachabilityLabel(sourceKind)} className="mt-[5px]" />
+      <StatusDot tone="accent" label={reachabilityLabel(sourceKind)} className="mt-1.5" />
       <div className="min-w-0">
         <p className="truncate text-[12.5px] text-[color:var(--text-default)]">{title ?? 'Ready to review'}</p>
         {stats ? (

@@ -917,7 +917,7 @@ export function SprintEngineTaskGraphView({
  // no Escape close. Not a popover semantically — kept as a graph-overlay
  // disclosure card so it doesn't fight canvas pan/zoom interactions.
  <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] shadow-[var(--shadow-drawer)]">
- <div className="text-[9px] font-bold text-[color:var(--text-disabled)]">
+ <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">
  Status
  </div>
  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[color:var(--text-muted)]">

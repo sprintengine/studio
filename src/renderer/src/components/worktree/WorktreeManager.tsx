@@ -503,7 +503,7 @@ export default function WorktreeManager({
                     key={`${row.id}:${row.path}`}
                     className="group/wt flex min-h-[36px] items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[color:var(--bg-hover)]"
                   >
-                    <span className="flex w-4 shrink-0 items-center justify-center self-start pt-[3px]" title={glyph ? reason ?? glyph.label : undefined}>
+                    <span className="flex w-4 shrink-0 items-center justify-center self-start pt-1" title={glyph ? reason ?? glyph.label : undefined}>
                       {glyph ? <LifecycleGlyph state={glyph.state} live={false} label={glyph.label} /> : null}
                     </span>
                     <div className="min-w-0 flex-1">

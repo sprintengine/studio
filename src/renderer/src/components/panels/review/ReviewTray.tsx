@@ -63,28 +63,22 @@ export function ReviewTray({ comments, changeset, onPost, postState }: ReviewTra
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* No author avatar: this is "Your review", so every row is yours and a
+            per-row "You" mark repeats what the tray already says. */}
         {comments.map((comment) => (
           <div
             key={comment.id}
-            className="flex gap-3 border-b border-[color:var(--border-subtle)] py-3 last:border-b-0"
+            className="min-w-0 border-b border-[color:var(--border-subtle)] py-3 last:border-b-0"
           >
-            <span
-              className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[color:var(--bg-active)] text-[8.5px] font-semibold text-[color:var(--text-muted)]"
-              aria-hidden="true"
-            >
-              You
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
-                  {commentLocationLabel(comment)}
-                </span>
-                <CommentSyncBadge comment={comment} />
-              </div>
-              <p className="mt-0.5 max-w-[76ch] whitespace-pre-wrap text-[12px] leading-5 text-[color:var(--text-default)]">
-                {comment.body}
-              </p>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+                {commentLocationLabel(comment)}
+              </span>
+              <CommentSyncBadge comment={comment} />
             </div>
+            <p className="mt-0.5 max-w-[76ch] whitespace-pre-wrap text-[12px] leading-5 text-[color:var(--text-default)]">
+              {comment.body}
+            </p>
           </div>
         ))}
       </div>

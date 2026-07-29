@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { PrimaryButton, GhostButton } from '../../ui/Buttons'
 import { KbdChord } from '../../ui/KbdChord'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
+import { ZONE_CONTENT_INSET } from './annotationZones'
 
 interface CommentComposerProps {
   placeholder: string
@@ -55,7 +56,7 @@ export function CommentComposer({
   }
 
   return (
-    <div className="border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 pl-[55px] pr-3.5">
+    <div className={`border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] py-2.5 ${ZONE_CONTENT_INSET} pr-3.5`}>
       <textarea
         ref={ref}
         value={body}

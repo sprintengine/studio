@@ -517,7 +517,7 @@ function UseSkillMenu({
                     {session.agentSession?.displayName ?? session.agentId ?? session.sessionId}
                   </span>
                   {session.cli ? (
-                    <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">{session.cli}</span>
+                    <span className="shrink-0 text-[10px] text-[color:var(--text-subtle)]">{session.cli}</span>
                   ) : null}
                 </button>
               ))

@@ -190,7 +190,7 @@ function MockupRow({
         onOpen={() => onOpen({ path: entry.path, relativePath: optimistic.relativePath, absolutePath: optimistic.absolutePath })}
       />
       {entry.source === 'detected' ? (
-        <span className="px-1 text-[10.5px] text-[color:var(--text-subtle)]">Found in this item</span>
+        <span className="px-1 text-[10px] text-[color:var(--text-subtle)]">Found in this item</span>
       ) : null}
       {onRemove ? (
         <div className="absolute right-1.5 top-1.5">

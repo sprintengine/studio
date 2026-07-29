@@ -692,6 +692,25 @@ export function CheckIcon({ className }: IconProps) {
   )
 }
 
+// The finding marker: a real glyph, so it takes currentColor and scales with
+// --icon-size-* instead of being drawn as a `▲` character sized below the type
+// floor.
+export function WarningIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 4.75L20.5 19.25H3.5L12 4.75Z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M12 10V14" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path d="M12 16.75H12.01" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function CopyIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">

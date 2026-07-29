@@ -459,7 +459,10 @@ function EpicPill({ epic }: { epic: BacklogEpicMeta }): JSX.Element {
       <span
         role="img"
         aria-label={`Epic: ${epic.title}`}
-        className="inline-flex min-w-0 max-w-[14ch] shrink items-center gap-1 rounded-full border px-1.5 py-[1px] text-[10px] font-medium text-[color:var(--text-muted)]"
+        // No vertical padding: the pill's own line box already stands it a hair
+        // proud of the 11px supporting line, so a row's height no longer depends
+        // on whether the item has a parent epic.
+        className="inline-flex min-w-0 max-w-[14ch] shrink items-center gap-1 rounded-full border px-1.5 text-[10px] font-medium text-[color:var(--text-muted)]"
         style={
           swatch
             ? { borderColor: `${swatch.hex}59`, backgroundColor: `${swatch.hex}1f` }

@@ -246,7 +246,7 @@ function FileIcon({ name }: { name: string }) {
   const ink = `color-mix(in oklab, ${accent}, var(--text-strong) var(--file-badge-ink-mix, 0%))`
   return (
     <span
-      className="inline-flex h-[18px] w-[20px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[8px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
+      className="inline-flex h-[18px] w-[24px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[10px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
       style={{ color: ink, backgroundColor: bg, borderColor: border }}
     >
       {label}

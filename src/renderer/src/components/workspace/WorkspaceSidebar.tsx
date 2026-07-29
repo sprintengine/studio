@@ -406,7 +406,7 @@ function ShowOlderRow({
   const rowClass =
     'flex h-[26px] cursor-pointer select-none items-center gap-1.5 rounded-md text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
   return (
-    <div className="mx-1.5 my-[1px] flex items-center gap-1">
+    <div className="mx-1.5 my-0.5 flex items-center gap-1">
       {remaining > 0 ? (
         <button
           type="button"
@@ -1182,7 +1182,7 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        className={`group relative mx-1.5 my-[1px] flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-[13px] transition-colors ${FOCUS_RING_CLASS} ${
+        className={`group relative mx-1.5 my-0.5 flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-[13px] transition-colors ${FOCUS_RING_CLASS} ${
           active
             ? activeRowClass(workspace, moduleOverrides)
             : highlighted
@@ -1277,7 +1277,7 @@ export default function WorkspaceSidebar({
             ) : null}
             {showRecencyText ? (
               <span
-                className="text-[10.5px] tabular-nums text-[color:var(--text-subtle)]"
+                className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
                 title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
                 aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
               >
@@ -1744,7 +1744,7 @@ export default function WorkspaceSidebar({
                   <Icon className="icon-xs pointer-events-none shrink-0 text-[color:var(--text-subtle)]" />
                   <span className="min-w-0 flex-1 truncate">{`New ${model.label.toLowerCase()}`}</span>
                   {model.id === 'standard' ? (
-                    <kbd className="shrink-0 font-mono text-[10.5px] text-[color:var(--text-disabled)]">Ctrl+T</kbd>
+                    <kbd className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">Ctrl+T</kbd>
                   ) : null}
                 </button>
               )

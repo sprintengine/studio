@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { WarningIcon } from '../AppIcons'
 import { TruncatedText } from './TruncatedText'
 
 // Shared card primitive: a small live render of one HTML file on disk + title +
@@ -120,11 +121,11 @@ export function HtmlPreviewCard({
         ) : (
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center">
             {state.kind === 'loading' ? (
-              <span className="text-[10.5px] text-[color:var(--text-subtle)]">Loading…</span>
+              <span className="text-[10px] text-[color:var(--text-subtle)]">Loading…</span>
             ) : (
               <>
-                <span className="text-[13px] text-[color:var(--tone-error)]">△</span>
-                <span className="text-[10.5px] leading-4 text-[color:var(--text-muted)]">
+                <WarningIcon className="icon-sm text-[color:var(--tone-error)]" />
+                <span className="text-[10px] leading-4 text-[color:var(--text-muted)]">
                   Demo won’t render — open to see the file
                 </span>
               </>
@@ -137,7 +138,7 @@ export function HtmlPreviewCard({
         <TruncatedText
           as="span"
           text={relativePath}
-          className="font-mono text-[9.5px] text-[color:var(--text-subtle)]"
+          className="font-mono text-[10px] text-[color:var(--text-subtle)]"
         />
       </span>
     </button>

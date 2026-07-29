@@ -141,7 +141,7 @@ export function SprintEngineToolsPanel({
 function ToolGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mt-3.5 flex flex-col">
-      <div className="mb-0.5 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
+      <div className="mb-0.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
         {label}
       </div>
       {children}

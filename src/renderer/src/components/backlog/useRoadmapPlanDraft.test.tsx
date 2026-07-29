@@ -17,14 +17,25 @@ import { addLane } from './roadmapAuthoring'
 // bug this file exists for only appears on the single render where they disagree.
 
 let failures = 0
-function run(name: string, fn: () => void): void {
-  try {
-    fn()
-    console.log(`ok - ${name}`)
-  } catch (error) {
-    failures += 1
-    console.error(`not ok - ${name}`)
-    console.error(error)
+// Checks are queued and drained one at a time, because three of them are async
+// and each installs its OWN `window.api` stub. Running them fire-and-forget let
+// the next check swap the stub out from under an in-flight save, and reported
+// every async check as `ok` before its assertions had run.
+const checks: Array<{ name: string; fn: () => void | Promise<void> }> = []
+function run(name: string, fn: () => void | Promise<void>): void {
+  checks.push({ name, fn })
+}
+
+async function drain(): Promise<void> {
+  for (const { name, fn } of checks) {
+    try {
+      await fn()
+      console.log(`ok - ${name}`)
+    } catch (error) {
+      failures += 1
+      console.error(`not ok - ${name}`)
+      console.error(error)
+    }
   }
 }
 
@@ -167,8 +178,10 @@ run('a horizon with no file yet holds an empty plan and writes nothing', async (
   assert.equal(writes.length, 0)
 })
 
-if (failures > 0) {
-  console.error(`\n${failures} check(s) failed`)
-  process.exit(1)
-}
-console.log('roadmap plan draft: all checks passed')
+void drain().then(() => {
+  if (failures > 0) {
+    console.error(`\n${failures} check(s) failed`)
+    process.exit(1)
+  }
+  console.log('roadmap plan draft: all checks passed')
+})

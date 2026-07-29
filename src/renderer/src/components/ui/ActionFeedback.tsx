@@ -42,7 +42,7 @@ export function ActionStatusChip({
       key={status.nonce}
       role={role}
       aria-live={ariaLive}
-      className={`chip-enter inline-flex shrink-0 gap-1.5 rounded border px-1.5 py-0.5 text-[10.5px] leading-4 ${
+      className={`chip-enter inline-flex shrink-0 gap-1.5 rounded border px-1.5 py-0.5 text-[10px] leading-4 ${
         wrap ? 'max-w-full items-start' : 'max-w-[280px] items-center'
       } ${className}`}
       style={{

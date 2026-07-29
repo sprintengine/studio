@@ -155,7 +155,7 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
         state={RUN_LIFECYCLE[run.status]}
         live={run.status === 'running'}
         label={RUN_STATUS_LABEL[run.status]}
-        className="mt-[1px] translate-y-[1px]"
+        className="mt-0.5"
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">

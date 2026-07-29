@@ -269,7 +269,7 @@ function HorizonRunStrip({
             <TruncatedText
               as="span"
               text={`${primaryRepo.branchName}${primaryRepo.baseRef ? ` → ${primaryRepo.baseRef}` : ''}`}
-              className="min-w-0 font-mono text-[10.5px] text-[color:var(--text-subtle)]"
+              className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
             />
           ) : null}
         </span>
@@ -315,7 +315,7 @@ function HorizonRunStrip({
       {/* A read failure must not blank the strip that carries the steering — it
           says so quietly and keeps the controls. */}
       {error ? (
-        <p role="status" className="text-[10.5px] leading-4 text-[color:var(--tone-warn)]">
+        <p role="status" className="text-[10px] leading-4 text-[color:var(--tone-warn)]">
           Couldn’t read this sprint’s progress. {error}
         </p>
       ) : null}
@@ -347,7 +347,7 @@ function DetailMessage({ title, body, detail }: { title: string; body: string; d
       <h3 className="text-[13px] font-semibold text-[color:var(--text-strong)]">{title}</h3>
       <p className="max-w-[46ch] text-[12px] leading-5 text-[color:var(--text-muted)]">{body}</p>
       {detail ? (
-        <p className="max-w-[46ch] break-all font-mono text-[10.5px] text-[color:var(--text-subtle)]">{detail}</p>
+        <p className="max-w-[46ch] break-all font-mono text-[10px] text-[color:var(--text-subtle)]">{detail}</p>
       ) : null}
     </div>
   )

@@ -114,7 +114,9 @@ function DefinitionRow({
       // select.
       onClick={onSelect}
       className={[
-        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] px-4 py-2 transition-colors',
+        // px-3 is the shared row inset (ui/InboxRow, the backlog rows, the
+        // Sprint board): one horizontal rhythm across every list surface.
+        'group relative cursor-pointer border-b border-[color:var(--border-subtle)] px-3 py-2 transition-colors',
         selected
           ? 'bg-[color:var(--bg-selected)]'
           : 'hover:bg-[color:var(--bg-hover)]',
@@ -132,7 +134,7 @@ function DefinitionRow({
             state={DEFINITION_LIFECYCLE[def.status]}
             live={def.status === 'enabled'}
             label={statusLabel}
-            className="mt-[1px] translate-y-[1px]"
+            className="mt-0.5"
           />
         )}
         <div className="min-w-0 flex-1">

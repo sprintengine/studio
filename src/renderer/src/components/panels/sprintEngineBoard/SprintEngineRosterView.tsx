@@ -429,7 +429,7 @@ export function SprintEngineRosterView({
                   <span className="text-[11.5px] font-semibold text-[color:var(--text-default)]">
                     {roleLabel}
                   </span>
-                  <span className="text-[10.5px] tabular-nums text-[color:var(--text-subtle)]">{census}</span>
+                  <span className="text-[10px] tabular-nums text-[color:var(--text-subtle)]">{census}</span>
                   <span className="flex-1" />
                   <CliModelPickerButton
                     ariaLabel={`${roleLabel} model`}
@@ -595,7 +595,7 @@ export function SprintEngineRosterView({
           <span className="flex shrink-0 items-center gap-2">
             {divergedFrom ? (
               <span
-                className="font-mono text-[10.5px] text-[color:var(--text-subtle)]"
+                className="font-mono text-[10px] text-[color:var(--text-subtle)]"
                 title={`This session is still running ${divergedFrom}; it switches when it next starts.`}
               >
                 on {divergedFrom}

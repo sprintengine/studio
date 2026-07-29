@@ -481,7 +481,7 @@ function ColumnHint({ label, hint }: { label: string; hint: string }) {
       <button
         type="button"
         aria-label={`What does "${label}" mean?`}
-        className={`ml-1 inline-flex h-[13px] w-[13px] translate-y-[2px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-[9px] font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+        className={`ml-1 inline-flex h-[16px] w-[16px] translate-y-[3px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-[10px] font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
       >
         ?
       </button>
@@ -768,7 +768,7 @@ function ReviewTable({ rows }: { rows: SprintEngineAgentRow[] }) {
               const escalated = peerReview?.escalated ?? 0
               return (
                 <tr key={row.agentId}>
-                  <td className={`${border} py-[7px] pr-6`}>
+                  <td className={`${border} py-1.5 pr-6`}>
                     <AgentName role={row.role} agentId={row.agentId} />
                   </td>
                   <NumCellB border={border} sep={COL_SEP}>
@@ -853,7 +853,7 @@ function PlanningTable({
                 const diff = row.role === 'architect' ? architectDifficulty : null
                 return (
                   <tr key={row.agentId}>
-                    <td className={`${border} py-[7px] pr-6`}>
+                    <td className={`${border} py-1.5 pr-6`}>
                       <AgentName role={row.role} agentId={row.agentId} />
                     </td>
                     <NumCellB border={border} sep={COL_SEP}>
@@ -924,7 +924,7 @@ function SelfReportedMark() {
     <span
       title="Self-reported — found by the agent reviewing its own work; no independent review."
       aria-label="self-reported"
-      className="ml-0.5 align-super text-[9px] leading-none text-[color:var(--text-disabled)]"
+      className="ml-0.5 align-super text-[10px] leading-none text-[color:var(--text-disabled)]"
     >
       °
     </span>
@@ -986,7 +986,7 @@ function AgentRow({
 
   return (
     <tr className={rowClass}>
-      <td className={`${cellBorder} py-[7px] pr-6`}>
+      <td className={`${cellBorder} py-1.5 pr-6`}>
         {/* glyph + id already encode the role — the verbose role label was
             dropped to give the numeric columns room to breathe. */}
         {expandable ? (
@@ -1056,7 +1056,7 @@ function NumCellB({
   sep?: string
 }) {
   return (
-    <td className={`${border} ${sep ?? ''} py-[7px] px-3 text-right tabular-nums`}>{children}</td>
+    <td className={`${border} ${sep ?? ''} py-1.5 px-3 text-right tabular-nums`}>{children}</td>
   )
 }
 
