@@ -176,7 +176,7 @@ function Td({ children, numeric, title }: { children: React.ReactNode; numeric?:
 function SummaryStat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
   return (
     <div className="flex min-w-[96px] flex-col gap-0.5">
-      <span className="text-[10px] text-[color:var(--text-muted)]">{label}</span>
+      <span className="text-micro text-[color:var(--text-muted)]">{label}</span>
       <span
         className={`text-sm font-semibold tabular-nums ${
           tone === 'warn' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-strong)]'
@@ -257,7 +257,7 @@ function DashboardCard({
 }) {
   return (
     <div className="flex flex-col gap-0.5 rounded border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-2">
-      <span className="text-[10px] text-[color:var(--text-muted)]">{label}</span>
+      <span className="text-micro text-[color:var(--text-muted)]">{label}</span>
       <span
         className={`text-[15px] font-semibold tabular-nums ${
           tone === 'warn' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-strong)]'
@@ -265,7 +265,7 @@ function DashboardCard({
       >
         {value}
       </span>
-      {detail ? <span className="text-[10px] tabular-nums text-[color:var(--text-muted)]">{detail}</span> : null}
+      {detail ? <span className="text-micro tabular-nums text-[color:var(--text-muted)]">{detail}</span> : null}
     </div>
   )
 }
@@ -463,7 +463,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
       <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-4 py-2.5">
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-[color:var(--text-strong)]">Performance Diagnostics</span>
-          <span className="text-[10px] text-[color:var(--text-muted)]">dev · polling {PROCESS_METRICS_POLL_MS}ms</span>
+          <span className="text-micro text-[color:var(--text-muted)]">dev · polling {PROCESS_METRICS_POLL_MS}ms</span>
         </div>
         <div className="flex items-center gap-1.5">
           <button
@@ -631,7 +631,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           ) : (
             <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
           )}
-          <p className="mt-1 text-[10px] text-[color:var(--text-subtle)]">
+          <p className="mt-1 text-micro text-[color:var(--text-subtle)]">
             Electron rows use Electron working set; child rows use OS RSS. Their sum is reported process memory,
             not macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially
             for GPU-owned IOSurfaces. CPU % is the rolling share since the previous sample. Thread counts are
@@ -675,7 +675,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                   )}
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-[color:var(--text-subtle)]">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-micro text-[color:var(--text-subtle)]">
                 <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
                   renderer
                   <Sparkline values={memorySparklines.rendererRss} title="Renderer RSS over recent samples" />
@@ -786,7 +786,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
               <Sparkline values={frameDurations} title="Frame durations (ms) — spikes are stutters" />
             </span>
           </div>
-          <p className="mt-0.5 text-[10px] text-[color:var(--text-subtle)]">
+          <p className="mt-0.5 text-micro text-[color:var(--text-subtle)]">
             Catches per-frame jank (style/layout/compositing) that no single &gt;50ms task shows. Main-thread
             cadence — pure GPU draw stalls can read low here; confirm those in DevTools.
           </p>
@@ -847,7 +847,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             <h2 className="text-[11px] font-semibold text-[color:var(--text-muted)]">
               Terminals ({aggregation.rows.length})
             </h2>
-            <div className="flex items-center gap-1.5 text-[10px] text-[color:var(--text-muted)]">
+            <div className="flex items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
               <span>Sort</span>
               <Select<TerminalDiagnosticsSortKey>
                 ariaLabel="Sort terminals by"
@@ -909,7 +909,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
                             <span
                               key={warning}
                               title={WARNING_LABEL[warning]}
-                              className="rounded bg-[color:var(--tone-error-soft)] px-1 text-[10px] text-[color:var(--tone-error)]"
+                              className="rounded bg-[color:var(--tone-error-soft)] px-1 text-micro text-[color:var(--tone-error)]"
                             >
                               {WARNING_SHORT[warning]}
                             </span>
@@ -934,7 +934,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
             Reaped terminals ({metrics?.reapEvents?.length ?? 0})
           </h2>
-          <p className="mb-2 text-[10px] text-[color:var(--text-subtle)]">
+          <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
             Idle agents the reaper suspended (outside the hot set, past the idle threshold) or the 24h
             stale backstop disposed. Most recent first; bounded ring buffer, cleared on app restart. A
             reaped agent keeps its resume flags and relaunches with --resume on reopen.
@@ -995,7 +995,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           <h2 className="mb-1 text-[11px] font-semibold text-[color:var(--text-muted)]">
             Workspaces ({workspacesByMemory.length})
           </h2>
-          <p className="mb-2 text-[10px] text-[color:var(--text-subtle)]">
+          <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
             Memory is the real RSS of each workspace's agent/terminal subtrees (the CLI plus its MCP/dev-server
             children), summed in the main process. Shared app overhead (main, renderer, GPU) is not attributed here,
             so these sum to less than the app total. &quot;Live for&quot; is since the oldest live terminal started.

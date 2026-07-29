@@ -19,7 +19,7 @@ function StepRing({ view }: { view: StepView }) {
     )
   }
   return (
-    <span className="relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] text-[10px] font-semibold tabular-nums text-[color:var(--text-muted)]">
+    <span className="relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] text-micro font-semibold tabular-nums text-[color:var(--text-muted)]">
       {view.index}
     </span>
   )

@@ -481,7 +481,7 @@ function ColumnHint({ label, hint }: { label: string; hint: string }) {
       <button
         type="button"
         aria-label={`What does "${label}" mean?`}
-        className={`ml-1 inline-flex h-[16px] w-[16px] translate-y-[3px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-[10px] font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
+        className={`ml-1 inline-flex h-[16px] w-[16px] translate-y-[3px] items-center justify-center rounded-full border border-[color:var(--border-strong)] text-micro font-normal leading-none text-[color:var(--text-disabled)] hover:border-[color:var(--text-muted)] hover:text-[color:var(--text-muted)] ${FOCUS_RING_CLASS}`}
       >
         ?
       </button>
@@ -924,7 +924,7 @@ function SelfReportedMark() {
     <span
       title="Self-reported — found by the agent reviewing its own work; no independent review."
       aria-label="self-reported"
-      className="ml-0.5 align-super text-[10px] leading-none text-[color:var(--text-disabled)]"
+      className="ml-0.5 align-super text-micro leading-none text-[color:var(--text-disabled)]"
     >
       °
     </span>

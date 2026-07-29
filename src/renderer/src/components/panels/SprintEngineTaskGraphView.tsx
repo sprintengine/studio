@@ -481,7 +481,7 @@ export function SprintEngineTaskGraphView({
  minHeight: node.height,
  }}
  >
- <div className="flex items-center gap-1.5 text-[10px] font-bold text-[color:var(--tone-good)]">
+ <div className="flex items-center gap-1.5 text-micro font-bold text-[color:var(--tone-good)]">
  <svg className="icon-xs" viewBox="0 0 12 12" fill="none" aria-hidden="true">
  <path d="M2 6L5 9L10 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
  </svg>
@@ -493,7 +493,7 @@ export function SprintEngineTaskGraphView({
  text={formatSprintEngineGoalPreview(sprintEngineState.goal)}
  className="mt-2 line-clamp-3 text-sm font-semibold leading-5 text-[color:var(--tone-good)]"
  />
- <div className="mt-3 text-[10px] text-[color:var(--text-muted)]">
+ <div className="mt-3 text-micro text-[color:var(--text-muted)]">
  {terminalCount} final {terminalCount === 1 ? 'chain' : 'chains'}
  </div>
  </div>
@@ -545,7 +545,7 @@ export function SprintEngineTaskGraphView({
  <div className="flex items-start justify-between gap-3 pl-2">
  <div className="min-w-0">
  <TruncatedText as="div" multiline text={task.title} className="line-clamp-2 text-sm font-semibold leading-5 text-[color:var(--text-strong)]" />
- <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-[color:var(--text-disabled)]">
+ <div className="mt-1 flex min-w-0 items-center gap-1.5 text-micro text-[color:var(--text-disabled)]">
  <span>{task.id}</span>
  {/* design-tokens-allow: role accent swatch on the task-graph node label — role color is the documented exception. */}
  <span
@@ -560,7 +560,7 @@ export function SprintEngineTaskGraphView({
  </div>
  </div>
  <span
- className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-[10px] font-bold ${taskGraphStatusTone(task.status, boardColumn)}`}
+ className={`max-w-[92px] shrink-0 truncate rounded-full px-2 py-1 text-micro font-bold ${taskGraphStatusTone(task.status, boardColumn)}`}
  >
  {taskGraphNodeStatusLabel(task.status, boardColumn)}
  </span>
@@ -573,7 +573,7 @@ export function SprintEngineTaskGraphView({
  className="mt-3 line-clamp-2 pl-2 text-[12px] leading-5 text-[color:var(--text-muted)]"
  />
 
- <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-[10px] text-[color:var(--text-disabled)]">
+ <div className="mt-3 flex flex-wrap gap-x-2 gap-y-1 pl-2 text-micro text-[color:var(--text-disabled)]">
  <span>
  {dependencyLabel}
  </span>
@@ -731,7 +731,7 @@ export function SprintEngineTaskGraphView({
  >
  <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 py-3">
  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
- <h3 className="text-[10px] font-bold text-[color:var(--text-muted)]">
+ <h3 className="text-micro font-bold text-[color:var(--text-muted)]">
  Task Graph
  </h3>
  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[color:var(--text-subtle)]">
@@ -900,7 +900,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setLegendOpen((open) => !open)}
  aria-expanded={legendOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  Legend
  <svg
@@ -917,7 +917,7 @@ export function SprintEngineTaskGraphView({
  // no Escape close. Not a popover semantically — kept as a graph-overlay
  // disclosure card so it doesn't fight canvas pan/zoom interactions.
  <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] shadow-[var(--shadow-drawer)]">
- <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <div className="text-micro font-bold text-[color:var(--text-disabled)]">
  Status
  </div>
  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[color:var(--text-muted)]">
@@ -927,7 +927,7 @@ export function SprintEngineTaskGraphView({
  <TaskGraphLegendDot color="var(--tone-good)" label="Done" />
  <TaskGraphLegendDot color="var(--text-muted)" label="Todo" />
  </div>
- <div className="mt-3 border-t border-[color:var(--border-default)] pt-2 text-[10px] leading-5 text-[color:var(--text-subtle)]">
+ <div className="mt-3 border-t border-[color:var(--border-default)] pt-2 text-micro leading-5 text-[color:var(--text-subtle)]">
  <div>Left bar &middot; role accent</div>
  <div>Edge color &middot; dependency state (green when complete)</div>
  </div>
@@ -944,7 +944,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setMinimapOpen((open) => !open)}
  aria-expanded={minimapOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-micro font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  Minimap
  <svg

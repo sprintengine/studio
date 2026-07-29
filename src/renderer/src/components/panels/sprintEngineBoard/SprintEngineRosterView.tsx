@@ -388,7 +388,7 @@ export function SprintEngineRosterView({
             )}
           >
             <div role="none">
-              <p className="px-2 pb-0.5 pt-1 text-[10px] font-semibold text-[color:var(--text-subtle)]">
+              <p className="px-2 pb-0.5 pt-1 text-micro font-semibold text-[color:var(--text-subtle)]">
                 Start another agent for
               </p>
               {configuredRoleOptions.map((option) => (
@@ -429,7 +429,7 @@ export function SprintEngineRosterView({
                   <span className="text-[11.5px] font-semibold text-[color:var(--text-default)]">
                     {roleLabel}
                   </span>
-                  <span className="text-[10px] tabular-nums text-[color:var(--text-subtle)]">{census}</span>
+                  <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{census}</span>
                   <span className="flex-1" />
                   <CliModelPickerButton
                     ariaLabel={`${roleLabel} model`}
@@ -595,7 +595,7 @@ export function SprintEngineRosterView({
           <span className="flex shrink-0 items-center gap-2">
             {divergedFrom ? (
               <span
-                className="font-mono text-[10px] text-[color:var(--text-subtle)]"
+                className="font-mono text-micro text-[color:var(--text-subtle)]"
                 title={`This session is still running ${divergedFrom}; it switches when it next starts.`}
               >
                 on {divergedFrom}

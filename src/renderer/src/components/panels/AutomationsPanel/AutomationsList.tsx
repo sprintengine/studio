@@ -140,11 +140,11 @@ function DefinitionRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <TruncatedText as="span" text={def.name} className="text-[12px] font-medium text-[color:var(--text-strong)]" />
-            {def.ownerModuleId ? <ModuleAttribution moduleId={def.ownerModuleId} className="text-[10px]" /> : null}
+            {def.ownerModuleId ? <ModuleAttribution moduleId={def.ownerModuleId} className="text-micro" /> : null}
             {showStatusText ? (
               <span
                 className={[
-                  'shrink-0 text-[10px]',
+                  'shrink-0 text-micro',
                   overdue ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-subtle)]',
                 ].join(' ')}
               >

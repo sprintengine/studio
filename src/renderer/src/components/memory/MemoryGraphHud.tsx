@@ -80,7 +80,7 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
           {node.tags.slice(0, 6).map((tag) => (
             <span
               key={tag}
-              className="rounded-[5px] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-muted)]"
+              className="rounded-[5px] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-muted)]"
             >
               {tag}
             </span>

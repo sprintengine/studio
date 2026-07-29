@@ -483,7 +483,7 @@ function SprintEngineSeedInboxRow({
       }
       title={
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1 text-[10px] font-medium leading-4 text-[color:var(--text-muted)]">
+          <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1 text-micro font-medium leading-4 text-[color:var(--text-muted)]">
             Seed input
           </span>
           <span className="min-w-0 truncate">{title}</span>
@@ -608,7 +608,7 @@ function SprintEngineSeedRowButton({
             {row.fileName}
           </span>
           {row.isPrimary ? (
-            <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1 text-[10px] leading-4 text-[color:var(--text-muted)]">
+            <span className="shrink-0 rounded-sm border border-[color:var(--border-default)] px-1 text-micro leading-4 text-[color:var(--text-muted)]">
               Launched from
             </span>
           ) : null}

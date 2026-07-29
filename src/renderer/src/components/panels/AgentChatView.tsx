@@ -2745,7 +2745,7 @@ function ModelPickerPill({
               <div key={group.providerId} className="py-0.5">
                 <div className="flex items-baseline gap-1.5 px-2.5 pb-0.5 pt-1.5">
                   <span className="text-[11px] font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
-                  <span className="text-[10px] text-[color:var(--text-subtle)]">
+                  <span className="text-micro text-[color:var(--text-subtle)]">
                     {group.unavailable
                       ? 'not available'
                       : group.subscription
@@ -3096,7 +3096,7 @@ function DockShell({
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded border border-b-2 border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-1 py-px font-sans text-[10px] font-medium leading-none text-[color:var(--text-muted)]">
+    <kbd className="rounded border border-b-2 border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-1 py-px font-sans text-micro font-medium leading-none text-[color:var(--text-muted)]">
       {children}
     </kbd>
   )
@@ -3460,7 +3460,7 @@ function ConversationQuestionCard({
               {index < 9 ? (
                 <span
                   aria-hidden="true"
-                  className={`mt-0.5 shrink-0 rounded border px-1 py-px font-mono text-[10px] font-medium leading-none ${
+                  className={`mt-0.5 shrink-0 rounded border px-1 py-px font-mono text-micro font-medium leading-none ${
                     checked
                       ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
                       : 'border-[color:var(--border-strong)] text-[color:var(--text-subtle)]'

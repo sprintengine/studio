@@ -36,7 +36,7 @@ export function KbdChord({ keys, chord, platform, separator, ariaLabel, classNam
       {displayStrokes.map((stroke, strokeIndex) => (
         <React.Fragment key={`stroke-${strokeIndex}`}>
           {strokeIndex > 0 ? (
-            <span aria-hidden="true" className="px-0.5 font-mono text-[10px] text-[color:var(--text-disabled)]">
+            <span aria-hidden="true" className="px-0.5 font-mono text-micro text-[color:var(--text-disabled)]">
               then
             </span>
           ) : null}
@@ -45,12 +45,12 @@ export function KbdChord({ keys, chord, platform, separator, ariaLabel, classNam
               {index > 0 ? (
                 <span
                   aria-hidden="true"
-                  className="font-mono text-[10px] text-[color:var(--text-disabled)]"
+                  className="font-mono text-micro text-[color:var(--text-disabled)]"
                 >
                   {sep}
                 </span>
               ) : null}
-              <kbd className="font-mono inline-flex h-4 min-w-[16px] items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1 text-[10px] text-[color:var(--text-muted)]">
+              <kbd className="font-mono inline-flex h-4 min-w-[16px] items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1 text-micro text-[color:var(--text-muted)]">
                 {key}
               </kbd>
             </React.Fragment>

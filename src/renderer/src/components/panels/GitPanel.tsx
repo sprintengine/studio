@@ -2017,7 +2017,7 @@ function ConflictGroup({
                 <InboxRow
                   hideDot
                   title={title}
-                  trailing={<span className="font-mono text-[10px] font-bold opacity-80">!</span>}
+                  trailing={<span className="font-mono text-micro font-bold opacity-80">!</span>}
                   onSelect={() => void onOpenFile(entry)}
                   ariaLabel={`Open ${entry.relativePath}, conflicted`}
                 />
@@ -2079,7 +2079,7 @@ function StashList({
               {entry.message || 'Stashed changes'}
             </span>
             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-              <span className="flex min-w-[7rem] flex-1 items-center gap-1.5 overflow-hidden text-[10px] text-[color:var(--text-disabled)]">
+              <span className="flex min-w-[7rem] flex-1 items-center gap-1.5 overflow-hidden text-micro text-[color:var(--text-disabled)]">
                 <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{entry.ref}</span>
                 {entry.branch ? (
                   <>
@@ -2229,7 +2229,7 @@ function ChangeGroup({
                 </span>
               )
               const trailing = appearance.badge ? (
-                <span className="font-mono text-[10px] font-bold opacity-80">{appearance.badge}</span>
+                <span className="font-mono text-micro font-bold opacity-80">{appearance.badge}</span>
               ) : null
               const rowKey = changeSelectionKey(group.scope, entry.path)
               const rowSelected = selectedKeys.has(rowKey)

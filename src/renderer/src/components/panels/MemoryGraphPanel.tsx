@@ -241,7 +241,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               className="h-8 w-64 rounded-[5px] border border-[color:var(--border-strong)] bg-transparent pl-7 pr-7 text-xs text-[color:var(--text-strong)] outline-none transition-colors placeholder:text-[color:var(--text-subtle)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             />
             <kbd
-              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-[10px] text-[color:var(--text-disabled)]"
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded-[3px] bg-[color:var(--bg-surface-raised)] px-1 py-0.5 font-mono text-micro text-[color:var(--text-disabled)]"
             >
               /
             </kbd>

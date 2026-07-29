@@ -431,7 +431,7 @@ function GitGraphCommitRow({
               className="min-w-0 text-[color:var(--text-default)] group-hover:text-[color:var(--text-strong)]"
             />
           </span>
-          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-[10px] tabular-nums text-[color:var(--text-disabled)]">
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-micro tabular-nums text-[color:var(--text-disabled)]">
             <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
             <span aria-hidden="true" className="shrink-0">·</span>
             <span className="shrink-0 whitespace-nowrap">{commit.date}</span>
@@ -473,7 +473,7 @@ function GitRefPill({
     : `git-ref-pill-${colorIndex % LANE_PALETTE_SIZE}`
   return (
     <span
-      className={`inline-flex h-[17px] max-w-[150px] items-center rounded border px-1.5 text-[10px] ${
+      className={`inline-flex h-[17px] max-w-[150px] items-center rounded border px-1.5 text-micro ${
         isCurrent ? 'font-semibold' : 'font-medium'
       } ${surface}`}
       title={label}

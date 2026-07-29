@@ -73,7 +73,7 @@ export function AnnotationRibbon({ annotation, onAskGuide, onMeasured }: Annotat
           ) : null}
           <span className="font-medium text-[color:var(--text-strong)]">{annotation.title}</span>
           <span className="text-[color:var(--text-default)]"> — {annotation.summary}</span>
-          <span className="ml-2 font-mono text-[10px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="ml-2 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
             {anchorRangeLabel(annotation.anchor)}
           </span>
         </button>

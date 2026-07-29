@@ -162,7 +162,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
             <div className="truncate font-mono text-[12px] font-semibold text-[color:var(--text-strong)]" title={state.conflict.path}>
               {state.conflict.relativePath}
             </div>
-            <div className="mt-0.5 text-[10px] text-[color:var(--text-subtle)]">
+            <div className="mt-0.5 text-micro text-[color:var(--text-subtle)]">
               Pulled version / Your stashed changes / Final result
             </div>
           </div>

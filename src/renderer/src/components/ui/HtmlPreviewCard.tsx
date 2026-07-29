@@ -121,11 +121,11 @@ export function HtmlPreviewCard({
         ) : (
           <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center">
             {state.kind === 'loading' ? (
-              <span className="text-[10px] text-[color:var(--text-subtle)]">Loading…</span>
+              <span className="text-micro text-[color:var(--text-subtle)]">Loading…</span>
             ) : (
               <>
                 <WarningIcon className="icon-sm text-[color:var(--tone-error)]" />
-                <span className="text-[10px] leading-4 text-[color:var(--text-muted)]">
+                <span className="text-micro leading-4 text-[color:var(--text-muted)]">
                   Demo won’t render — open to see the file
                 </span>
               </>
@@ -138,7 +138,7 @@ export function HtmlPreviewCard({
         <TruncatedText
           as="span"
           text={relativePath}
-          className="font-mono text-[10px] text-[color:var(--text-subtle)]"
+          className="font-mono text-micro text-[color:var(--text-subtle)]"
         />
       </span>
     </button>

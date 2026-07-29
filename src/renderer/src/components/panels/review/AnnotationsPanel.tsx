@@ -30,7 +30,7 @@ export function AnnotationsPanel({ annotations, onJumpTo, onAskGuide }: Annotati
               <span className="min-w-0 flex-1 text-[13px] font-medium leading-tight text-[color:var(--text-strong)]">
                 {annotation.title}
               </span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-[color:var(--text-subtle)]">
+              <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
                 {anchorRangeLabel(annotation.anchor)}
               </span>
             </div>

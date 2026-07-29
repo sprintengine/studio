@@ -26,15 +26,15 @@ export function AutomationRunActions({
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2">
       {run.agentId ? (
-        <span className="truncate font-mono text-[10px] text-[color:var(--text-subtle)]">{run.agentId}</span>
+        <span className="truncate font-mono text-micro text-[color:var(--text-subtle)]">{run.agentId}</span>
       ) : null}
       {run.workspaceId ? (
-        <GhostButton onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)} className="h-5 px-1.5 text-[10px]">
+        <GhostButton onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)} className="h-5 px-1.5 text-micro">
           Open agent
         </GhostButton>
       ) : null}
       {canViewReport ? (
-        <GhostButton onClick={() => onViewReport!(run)} className="h-5 px-1.5 text-[10px]">
+        <GhostButton onClick={() => onViewReport!(run)} className="h-5 px-1.5 text-micro">
           View report
         </GhostButton>
       ) : null}
@@ -44,7 +44,7 @@ export function AutomationRunActions({
             href={run.pullRequestUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-[10px] font-medium text-[color:var(--accent-primary)] hover:underline"
+            className="inline-flex h-5 items-center gap-1 rounded px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:underline"
           >
             Pull request
           </a>
@@ -55,11 +55,11 @@ export function AutomationRunActions({
           <GhostButton
             onClick={() => onFinalize(run, 'completed')}
             disabled={finalizing}
-            className="h-5 px-1.5 text-[10px]"
+            className="h-5 px-1.5 text-micro"
           >
             {finalizing ? 'Finalizing…' : 'Finalize & open PR'}
           </GhostButton>
-          <p className="basis-full text-[10px] leading-4 text-[color:var(--text-subtle)]">
+          <p className="basis-full text-micro leading-4 text-[color:var(--text-subtle)]">
             Finalizes automatically when the agent reports done — this manual control is a fallback.
           </p>
         </>

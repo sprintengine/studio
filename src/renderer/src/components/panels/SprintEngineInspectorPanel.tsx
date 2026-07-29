@@ -211,7 +211,7 @@ function TaskCommentRow({ comment }: { comment: SprintEngineTaskComment }) {
         ) : null}
         <span
           title={absolute}
-          className="ml-auto tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]"
+          className="ml-auto tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
         >
           {relative}
         </span>
@@ -512,7 +512,7 @@ function SprintEngineArtifactInspector({
 
         {mobileDecision ? (
           <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Mobile decision</div>
+            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Mobile decision</div>
             <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
               {formatMobileArtifactDecision(mobileDecision)}
             </div>
@@ -521,7 +521,7 @@ function SprintEngineArtifactInspector({
 
         {artifact.status === 'approved' && artifact.approvalMode === 'policy' ? (
           <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Approval</div>
+            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Approval</div>
             <div className="text-[12px] leading-5 text-[color:var(--text-default)]">
               Approved automatically by run policy · on your behalf
               {artifact.approvedAt ? ` · ${formatRelativeTime(artifact.approvedAt)}` : ''}
@@ -531,7 +531,7 @@ function SprintEngineArtifactInspector({
 
         {readyForReview && autoApproval.label ? (
           <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Auto-approval</div>
+            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Auto-approval</div>
             <div
               className={`text-[12px] leading-5 ${
                 autoApproval.eligible
@@ -546,7 +546,7 @@ function SprintEngineArtifactInspector({
 
         {actionState && actionState.status !== 'pending' ? (
           <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Last action</div>
+            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Last action</div>
             <div
               className={`text-[12px] leading-5 ${
                 actionState.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-good)]'
@@ -622,7 +622,7 @@ export function SprintEngineArtifactList({
                     {confidencePct !== null ? (
                       <ConfidenceDial value={confidencePct} label="Agent confidence" />
                     ) : null}
-                    <span className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-bold ${artifactStatusTone(artifact.status)}`}>
+                    <span className={`shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-micro font-bold ${artifactStatusTone(artifact.status)}`}>
                       {isSourceHandoff ? 'Source' : sprintEngineArtifactStatusLabels[artifact.status]}
                     </span>
                   </div>
@@ -738,7 +738,7 @@ function ImplementerTicks({ passCount }: { passCount: number }) {
         <CompletedCheckGlyph key={`pass-${index}`} className="icon-xs text-[color:var(--tone-good)]" />
       ))}
       {overflow > 0 ? (
-        <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]">
+        <span className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]">
           +{overflow}
         </span>
       ) : null}
@@ -1268,7 +1268,7 @@ function TaskOpenFindings({
               {finding.file ? (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[10px] [overflow-wrap:anywhere]">
+                  <span className="font-mono text-micro [overflow-wrap:anywhere]">
                     {finding.file}
                   </span>
                 </>
@@ -1300,7 +1300,7 @@ function TaskOpenFindings({
               {issue.target ? (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[10px]">{issue.target}</span>
+                  <span className="font-mono text-micro">{issue.target}</span>
                 </>
               ) : null}
             </div>
@@ -1567,7 +1567,7 @@ function FeedbackDetail({
   const roleFit = feedback.scores.roleFitPct
   return (
     <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px] text-[color:var(--text-disabled)]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{sourceLabel}</span>
         <span>·</span>
         <span className="font-mono text-[color:var(--text-muted)]">
@@ -1667,7 +1667,7 @@ function ArtifactDetail({
   const statusLabel = sprintEngineArtifactStatusLabels[artifact.status] ?? artifact.status
   return (
     <div className="mt-2 space-y-1.5 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px] text-[color:var(--text-disabled)]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-micro text-[color:var(--text-disabled)]">
         <span>{kindLabel}</span>
         <span>·</span>
         <span>{statusLabel}</span>
@@ -1706,7 +1706,7 @@ function EvidenceDetail({
 
   return (
     <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
-      <div className="text-[10px] text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
+      <div className="text-micro text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
       {summary ? (
         <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{summary}</div>
       ) : (
@@ -1900,7 +1900,7 @@ function TaskActivityFeed({
                 </div>
                 <span
                   title={absolute}
-                  className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]"
+                  className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
                 >
                   {relative}
                 </span>
@@ -2041,7 +2041,7 @@ function AgentWorkedOnTasksList({
                 <span className="font-mono text-[color:var(--tone-warn)]">{task.id}</span>
                 <span>{statusLabel}</span>
                 {relative ? (
-                  <span className="ml-auto tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]">
+                  <span className="ml-auto tabular-nums font-mono text-micro text-[color:var(--text-disabled)]">
                     {relative}
                   </span>
                 ) : null}
@@ -2084,7 +2084,7 @@ function AgentActivityFeed({
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-        <div className="text-[10px] font-bold text-[color:var(--text-disabled)]">
+        <div className="text-micro font-bold text-[color:var(--text-disabled)]">
           Activity ({entries.length})
         </div>
         <div className="flex gap-0.5" role="group" aria-label="Filter activity">
@@ -2159,7 +2159,7 @@ function AgentActivityFeed({
                 </div>
                 <span
                   title={absolute}
-                  className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]"
+                  className="tabular-nums font-mono text-micro text-[color:var(--text-disabled)]"
                 >
                   {relative}
                 </span>
@@ -2577,7 +2577,7 @@ export function SprintEngineInspectorPanel({
 
         <div className="flex-1 space-y-5 overflow-auto px-5 py-4 text-[13px] leading-6 text-[color:var(--text-default)]">
           <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">Currently Working On</div>
+            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">Currently Working On</div>
             {currentTask ? (
               <button
                 type="button"
@@ -2593,7 +2593,7 @@ export function SprintEngineInspectorPanel({
           </div>
 
           <div>
-            <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+            <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">
               Tasks worked on ({workedOnTasks.length})
             </div>
             <AgentWorkedOnTasksList worked={workedOnTasks} onSelectTask={onSelectTask} />

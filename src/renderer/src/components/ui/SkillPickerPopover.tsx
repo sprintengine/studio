@@ -221,7 +221,7 @@ function SkillRow({
       ) : notInstalled ? (
         <span className="mt-0.5 shrink-0 text-[11px] font-medium text-[color:var(--accent-primary)]">Install</span>
       ) : (
-        <span className="mt-0.5 shrink-0 text-[10px] text-[color:var(--text-subtle)]">
+        <span className="mt-0.5 shrink-0 text-micro text-[color:var(--text-subtle)]">
           {SOURCE_LABEL[skill.source]}
         </span>
       )}

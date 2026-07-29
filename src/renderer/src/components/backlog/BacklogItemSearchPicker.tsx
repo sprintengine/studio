@@ -130,7 +130,7 @@ export function BacklogItemSearchPicker({
                   </span>
                 ) : null}
                 <span className="min-w-0 flex-1 truncate">{option.title}</span>
-                <span className="shrink-0 font-mono text-[10px] tabular-nums text-[color:var(--text-subtle)]">
+                <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
                   {option.displayId ?? option.value}
                 </span>
               </button>

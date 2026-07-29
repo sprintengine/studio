@@ -372,7 +372,7 @@ export default function WorktreeManager({
         {mode === 'tab' ? (
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Worktrees</span>
-            <span className="text-[10px] tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
+            <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
           </div>
         ) : (
           <button
@@ -390,7 +390,7 @@ export default function WorktreeManager({
               <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">Worktrees</span>
-            <span className="text-[10px] tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
+            <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
           </button>
         )}
         {contentOpen ? (

@@ -300,7 +300,7 @@ function ConfidenceChip({ value, compact = false, title }: { value: number; comp
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 rounded-[5px] border px-1.5 py-0.5 font-medium tabular-nums ${confidenceToneClass(value)} ${
-        compact ? 'text-[10px]' : 'text-[11px]'
+        compact ? 'text-micro' : 'text-[11px]'
       }`}
       title={title ? `${title}: ${label}` : label}
       aria-label={title ? `${title}: ${label}` : label}

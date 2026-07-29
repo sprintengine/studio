@@ -130,7 +130,7 @@ export function CliModelPickerButton({
             </span>
             <span
               aria-hidden="true"
-              className={`shrink-0 text-[10px] text-[color:var(--text-disabled)] ${
+              className={`shrink-0 text-micro text-[color:var(--text-disabled)] ${
                 quiet ? 'opacity-0 transition-opacity group-hover/pill:opacity-100 group-focus-visible/pill:opacity-100' : ''
               }`}
             >
@@ -248,12 +248,12 @@ function CliModelRow({
       )}
       <TruncatedText as="span" text={label} className="min-w-0 flex-1" />
       {monoId ? (
-        <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-[color:var(--text-subtle)]">
+        <span className="shrink-0 whitespace-nowrap font-mono text-micro text-[color:var(--text-subtle)]">
           {monoId}
         </span>
       ) : null}
       {note ? (
-        <span className="shrink-0 whitespace-nowrap font-sans text-[10px] text-[color:var(--text-muted)]">{note}</span>
+        <span className="shrink-0 whitespace-nowrap font-sans text-micro text-[color:var(--text-muted)]">{note}</span>
       ) : null}
       {picker ?? null}
       {/* The row already announces itself through aria-selected, so the mark is
@@ -421,7 +421,7 @@ export function CliModelListbox({
       {hostedOptions.length > 0 ? (
         <>
           <div aria-hidden="true" className="mx-1 my-1.5 h-px bg-[color:var(--border-subtle)]" />
-          <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold text-[color:var(--text-subtle)]">
+          <div className="px-2 pb-0.5 pt-1 text-micro font-semibold text-[color:var(--text-subtle)]">
             Models via Claude Code
           </div>
           {hostedOptions.map((option, index) => renderGroup(option, index))}

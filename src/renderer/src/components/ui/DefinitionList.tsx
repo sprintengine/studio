@@ -44,7 +44,7 @@ export function DefinitionList({ items, layout = 'two-column', className }: Defi
       <dl className={`grid gap-x-4 gap-y-3 sm:grid-cols-2 ${className ?? ''}`}>
         {items.map((item, index) => (
           <div key={item.id ?? index} className="min-w-0">
-            <dt className="text-[10px] text-[color:var(--text-disabled)]">{item.term}</dt>
+            <dt className="text-micro text-[color:var(--text-disabled)]">{item.term}</dt>
             <dd
               id={item.id}
               className="mt-1 text-[12px] font-medium text-[color:var(--text-strong)] [overflow-wrap:anywhere]"

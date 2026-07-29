@@ -190,7 +190,7 @@ function MockupRow({
         onOpen={() => onOpen({ path: entry.path, relativePath: optimistic.relativePath, absolutePath: optimistic.absolutePath })}
       />
       {entry.source === 'detected' ? (
-        <span className="px-1 text-[10px] text-[color:var(--text-subtle)]">Found in this item</span>
+        <span className="px-1 text-micro text-[color:var(--text-subtle)]">Found in this item</span>
       ) : null}
       {onRemove ? (
         <div className="absolute right-1.5 top-1.5">
@@ -351,7 +351,7 @@ function AttachMockupEditor({
                 <TruncatedText
                   as="span"
                   text={choice.relativePath}
-                  className="font-mono text-[10px] text-[color:var(--text-subtle)]"
+                  className="font-mono text-micro text-[color:var(--text-subtle)]"
                 />
               </button>
             </li>

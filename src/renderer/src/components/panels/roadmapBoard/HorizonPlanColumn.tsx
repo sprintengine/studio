@@ -503,7 +503,7 @@ function PlanBand({
   return (
     <div>
       {band.kind === 'rest' && leading ? null : (
-        <div className="flex items-center gap-2 py-1 pl-2.5 pr-1.5 pt-2.5 text-[10px] font-medium text-[color:var(--text-subtle)]">
+        <div className="flex items-center gap-2 py-1 pl-2.5 pr-1.5 pt-2.5 text-micro font-medium text-[color:var(--text-subtle)]">
           {band.label ? <span className="shrink-0">{band.label}</span> : null}
           <span aria-hidden="true" className="h-px min-w-0 flex-1 bg-[color:var(--border-subtle)]" />
           {band.count ? (
@@ -700,7 +700,7 @@ function StepRow({
         )}
         {showProjectTag ? (
           <span
-            className="shrink-0 max-w-[7rem] truncate rounded-sm border border-[color:var(--border-subtle)] px-1 font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
+            className="shrink-0 max-w-[7rem] truncate rounded-sm border border-[color:var(--border-subtle)] px-1 font-mono text-micro leading-4 text-[color:var(--text-subtle)]"
             title={
               row.state === 'unknown_project'
                 ? `${row.projectName} — this project is not open`
@@ -717,7 +717,7 @@ function StepRow({
             against this gutter, so a wider count ("12/19") must not grow the
             cell and slide under the chip. */}
         {row.sizeLabel ? (
-          <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-[color:var(--text-subtle)]">
+          <span className="w-9 shrink-0 text-right text-micro tabular-nums text-[color:var(--text-subtle)]">
             {row.sizeLabel}
           </span>
         ) : null}
@@ -794,13 +794,13 @@ function DriftAffordance({
   if (drift.removed > 0) parts.push(`${drift.removed} removed`)
   return (
     <div className="mb-1 ml-6 mr-2 mt-0.5 flex items-center gap-2 rounded-[5px] bg-[color:var(--bg-hover)] px-2.5 py-1">
-      <span className="min-w-0 flex-1 text-[10px] leading-4 text-[color:var(--text-muted)]">
+      <span className="min-w-0 flex-1 text-micro leading-4 text-[color:var(--text-muted)]">
         This epic has {parts.join(' and ')} since you placed it.
       </span>
       <button
         type="button"
         onClick={onResync}
-        className={`interactive shrink-0 rounded px-1.5 text-[10px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-active)] ${FOCUS_RING_CLASS}`}
+        className={`interactive shrink-0 rounded px-1.5 text-micro font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-active)] ${FOCUS_RING_CLASS}`}
       >
         Update step
       </button>
@@ -833,7 +833,7 @@ function DeliveredFooter({
       >
         <ChevronGlyph open={open} />
         Delivered
-        <span className="ml-auto tabular-nums text-[10px] text-[color:var(--text-subtle)]">
+        <span className="ml-auto tabular-nums text-micro text-[color:var(--text-subtle)]">
           {delivered.steps} {delivered.steps === 1 ? 'step' : 'steps'} · {delivered.items}{' '}
           {delivered.items === 1 ? 'item' : 'items'}
         </span>
@@ -869,7 +869,7 @@ function DeliveredFooter({
                     target="_blank"
                     rel="noreferrer"
                     aria-label={`View the pull request for ${row.title}`}
-                    className={`absolute right-2 top-1/2 -translate-y-1/2 rounded px-1 text-[10px] font-medium text-[color:var(--accent-primary)] opacity-0 transition-opacity hover:underline group-hover/step:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 rounded px-1 text-micro font-medium text-[color:var(--accent-primary)] opacity-0 transition-opacity hover:underline group-hover/step:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
                   >
                     PR
                   </a>

@@ -556,7 +556,7 @@ export default function CommandPalette({
               <div key={group.key} role="group" aria-label={group.label}>
                 <div
                   aria-hidden="true"
-                  className="flex items-center gap-3 px-4 pb-1 pt-2 text-[10px] font-medium text-[color:var(--text-disabled)]"
+                  className="flex items-center gap-3 px-4 pb-1 pt-2 text-micro font-medium text-[color:var(--text-disabled)]"
                 >
                   <span>{group.label}</span>
                   <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
@@ -583,11 +583,11 @@ export default function CommandPalette({
                       <div className="min-w-0">
                         <TruncatedText as="div" text={command.label} className="text-sm" />
                         {command.description && (
-                          <TruncatedText as="div" text={command.description} className="mt-0.5 text-[10px] text-[color:var(--text-disabled)]" />
+                          <TruncatedText as="div" text={command.description} className="mt-0.5 text-micro text-[color:var(--text-disabled)]" />
                         )}
                       </div>
                       {command.shortcut && (
-                        <kbd className="ml-3 shrink-0 rounded bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[10px] text-[color:var(--text-disabled)]">
+                        <kbd className="ml-3 shrink-0 rounded bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-disabled)]">
                           {command.shortcut}
                         </kbd>
                       )}

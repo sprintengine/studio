@@ -247,7 +247,7 @@ function SprintEngineModelField({
  const currentLabel = model ? knownLabel ?? model : 'Default'
  return (
  <div>
- <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">
  Model
  </div>
  <Popover
@@ -2911,7 +2911,7 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div className="min-w-0">
- <div className="mb-1 text-[10px] font-semibold text-[color:var(--text-disabled)]">
+ <div className="mb-1 text-micro font-semibold text-[color:var(--text-disabled)]">
  Verify Progress
  </div>
  <h3 id="recovery-dialog-title" className="truncate text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
@@ -2942,7 +2942,7 @@ export function SprintRunBoard({
  />
 
  <div>
- <div className="mb-2 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <div className="mb-2 text-micro font-bold text-[color:var(--text-disabled)]">
  Architect CLI
  </div>
  <Popover
@@ -3077,7 +3077,7 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div className="min-w-0">
- <div className="mb-1 text-[10px] font-semibold text-[color:var(--text-disabled)]">
+ <div className="mb-1 text-micro font-semibold text-[color:var(--text-disabled)]">
  Request Changes
  </div>
  <h3
@@ -3099,7 +3099,7 @@ export function SprintRunBoard({
 
  <ModalBody className="space-y-3">
  <label className="block">
- <span className="mb-2 block text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <span className="mb-2 block text-micro font-bold text-[color:var(--text-disabled)]">
  Feedback
  </span>
  <textarea
@@ -3183,7 +3183,7 @@ export function SprintRunBoard({
  >
  <div className="flex items-start justify-between gap-4 border-b border-[color:var(--border-default)] px-5 py-4">
  <div>
- <div className="mb-1 text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <div className="mb-1 text-micro font-bold text-[color:var(--text-disabled)]">
  SprintEngine agents
  </div>
  <h3 id="add-member-dialog-title" className="text-[18px] font-semibold leading-6 tracking-tight text-[color:var(--text-strong)]">
@@ -3247,7 +3247,7 @@ export function SprintRunBoard({
      name nor an immediate start. */}
  {hasResidentWorkspace ? (
  <label className="block">
- <span className="mb-2 block text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <span className="mb-2 block text-micro font-bold text-[color:var(--text-disabled)]">
  Name (optional)
  </span>
  <input
@@ -3261,7 +3261,7 @@ export function SprintRunBoard({
  ) : null}
 
  <div className="flex items-center justify-between gap-3">
- <span className="text-[10px] font-bold text-[color:var(--text-disabled)]">
+ <span className="text-micro font-bold text-[color:var(--text-disabled)]">
  Agent runtime
  </span>
  <CliModelPickerButton

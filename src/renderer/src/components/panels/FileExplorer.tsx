@@ -246,7 +246,7 @@ function FileIcon({ name }: { name: string }) {
   const ink = `color-mix(in oklab, ${accent}, var(--text-strong) var(--file-badge-ink-mix, 0%))`
   return (
     <span
-      className="inline-flex h-[18px] w-[24px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-[10px] font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
+      className="inline-flex h-[18px] w-[24px] shrink-0 items-center justify-center rounded-[4px] border font-mono text-micro font-black leading-none ring-1 ring-[color:var(--border-subtle)]"
       style={{ color: ink, backgroundColor: bg, borderColor: border }}
     >
       {label}
@@ -2182,7 +2182,7 @@ function ExplorerTree({
                     <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
                   )}
                   {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                    <span className="ml-auto shrink-0 font-mono text-micro font-bold text-current opacity-80">{gitAppearance.badge}</span>
                   )}
                 </>
               ) : (
@@ -2197,7 +2197,7 @@ function ExplorerTree({
                     <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
                   )}
                   {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-[10px] font-bold text-current opacity-80">{gitAppearance.badge}</span>
+                    <span className="ml-auto shrink-0 font-mono text-micro font-bold text-current opacity-80">{gitAppearance.badge}</span>
                   )}
                 </>
               )}
