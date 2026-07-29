@@ -34,12 +34,10 @@ function CheckGlyph({ checked, mixed }: { checked: boolean; mixed?: boolean }) {
     <span
       aria-hidden="true"
       className={[
-        'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border',
+        'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-strong)]',
         // The tick (or the dash) is the state; the box stays on the neutral
         // ramp so the accent is left to the one action in this view.
-        filled
-          ? 'border-[color:var(--text-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-          : 'border-[color:var(--border-strong)] bg-transparent',
+        filled ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]' : 'bg-transparent',
       ].join(' ')}
     >
       {mixed ? (

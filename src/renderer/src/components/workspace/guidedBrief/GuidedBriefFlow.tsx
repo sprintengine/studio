@@ -15,6 +15,7 @@ import {
   writeGuidedBriefBuildHandoff,
 } from '../../../utils/guidedBriefWorkspace'
 import { applyUserDisabledSprintEngineRoleCounts } from '../../../utils/sprintengine'
+import { WarningIcon } from '../../AppIcons'
 import { CloseIconButton, LifecycleGlyph, Tabs, Tooltip, TruncatedText, type TabItem } from '../../ui'
 import { parentPath } from '../../../utils/paths'
 import { RosterAndRunSettings } from '../newWorkspace/WizardControls'
@@ -1392,7 +1393,7 @@ function LintFindingsList({ findings }: { findings: string }) {
           key={`${issue.file}:${issue.detail}:${index}`}
           className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-1.5 text-[11px] leading-4 text-[color:var(--text-default)] last:border-b-0"
         >
-          <span aria-hidden="true" className="mt-px shrink-0 text-[9px] text-[color:var(--tone-error)]">▲</span>
+          <WarningIcon className="icon-xs mt-px shrink-0 text-[color:var(--tone-error)]" />
           <span className="min-w-0">
             {issue.detail}{' '}
             <code className="font-mono text-[10px] text-[color:var(--text-subtle)]">{issue.file}</code>

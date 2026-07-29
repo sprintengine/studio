@@ -2,6 +2,7 @@ import React from 'react'
 // Imported from the concrete modules rather than the `../../ui` barrel: the
 // barrel re-exports CliModelListbox, which imports ReasoningLevelPicker from
 // here, so going through it would make this module part of an import cycle.
+import { ChevronDownIcon } from '../../AppIcons'
 import { Popover } from '../../ui/Popover'
 import { Tooltip } from '../../ui/Tooltip'
 import { FOCUS_RING_CLASS } from '../../ui/tokens'
@@ -256,11 +257,10 @@ export function ReasoningLevelPicker({
           ].join(' ')}
         >
           <span aria-hidden="true">{selectedLabel ?? '—'}</span>
-          {/* The caret inherits the control's ink, as the mockup draws it. Its
-              own --text-disabled measured 1.03:1 at 8px — invisible. */}
-          <span aria-hidden="true" className="text-[8px]">
-            ▾
-          </span>
+          {/* A real glyph at --icon-size-xs, not a text caret. It inherits the
+              control's ink, as the mockup draws it — its own --text-disabled
+              measured 1.03:1 against this row, invisible. */}
+          <ChevronDownIcon className="icon-xs shrink-0" />
         </button>
       )}
     >
