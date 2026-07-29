@@ -88,8 +88,10 @@ async function loadInventory(workspaceRoot: string, pluginId: string | null): Pr
   if (capabilities.support === 'unsupported') {
     return { skills: [], error: 'This agent does not read workspace skills.' }
   }
-  // A path that failed to read must never render as an empty list.
-  const [failed] = capabilities.diagnostics
+  // A path that failed to read must never render as an empty list. Only the
+  // skills half is this list's business: an unparseable MCP config is a real
+  // fault, but not a reason to stop showing the skills that did read.
+  const [failed] = capabilities.diagnostics.filter((diagnostic) => diagnostic.capability === 'skills')
   if (failed) return { skills: [], error: `Could not read ${failed.path} — ${failed.message}` }
 
   const reachable = capabilities.skills.map((skill) => reachableRow(skill, capabilities.harnessId))

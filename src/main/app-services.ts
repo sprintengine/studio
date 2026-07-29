@@ -49,7 +49,8 @@ import { sprintTokenUsageDeps } from './sprintengine-token-sampling'
 import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
 import { createSprintEngineRunnerLog } from './sprintengine-runner-log'
 import { resolveMemoryRoot } from './memory-graph'
-import { listPluginRegistryEntries } from './plugin-registry-instance'
+import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
+import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
 import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
 import { SPRINT_RUNS_CHANGED_CHANNEL, type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
@@ -105,6 +106,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const agentCapabilityService = createAgentCapabilityService({
     reader: createFsSkillDirectoryReader(),
     listPlugins: () => listPluginRegistryEntries(),
+    lookupManifest: (pluginId) => getPluginManifest(pluginId),
+    mcpResolver: createMcpServerResolver(),
   })
 
   function getAuthenticatedMulticodeUserId(): string | null {

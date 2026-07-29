@@ -190,26 +190,35 @@ export type AgentSkill = {
 }
 
 /**
- * An MCP server a CLI is configured with. Populated by the MCP read path;
- * the resolver returns an empty list until then.
+ * An MCP server a CLI is configured with, read from that CLI's own config file
+ * by the format adapter its manifest declares.
  */
 export type AgentMcpServer = {
   id: string
   transport: string
   /** Absent unless the config states it — a count is never guessed. */
   toolCount?: number
+  /** Which of the CLI's two declared config files this entry won from. */
   scope: 'workspace' | 'user'
   configPath: string
 }
 
 /**
- * Why one path could not be read. A union, not a boolean: the MCP read path
- * adds `malformed` (a file that parsed to nothing usable), which is a different
- * fault from one that could not be opened at all.
+ * Why one path could not be read. A union, not a boolean: `malformed` (a file
+ * that opened but could not be parsed) is a different fault from one that could
+ * not be opened at all, and the likeliest real-world one for a config file.
  */
-export type CapabilityDiagnosticReason = 'unreadable'
+export type CapabilityDiagnosticReason = 'unreadable' | 'malformed'
+
+/** Which half of the answer a fault belongs to. */
+export type CapabilityKind = 'skills' | 'servers'
 
 export type CapabilityDiagnostic = {
+  /**
+   * A surface that renders one half must not be blanked by the other half's
+   * fault: an unparseable `.mcp.json` is not a reason to stop listing skills.
+   */
+  capability: CapabilityKind
   reason: CapabilityDiagnosticReason
   /** The path that failed, so the surface can name it. */
   path: string

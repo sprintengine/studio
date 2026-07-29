@@ -3,10 +3,11 @@ import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
-import { createPluginRegistry } from './plugin-registry'
+import type { PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
+import { createPluginRegistry, type PluginRegistry } from './plugin-registry'
 import { createAppPluginRegistryOptions } from './plugin-registry-instance'
 import { BUILTIN_SKILLS } from './builtin-skills'
+import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import {
   createAgentCapabilityService,
   createFsSkillDirectoryReader,
@@ -143,7 +144,7 @@ function fakeReader(byDir: Record<string, ReadSkillsResult>): SkillDirectoryRead
   }
 }
 
-function bundledPlugins(): PluginRegistryListEntry[] {
+function bundledRegistry(): PluginRegistry {
   const registry = createPluginRegistry(
     createAppPluginRegistryOptions(
       join(process.cwd(), 'node_modules', '.cache', 'multicode'),
@@ -152,11 +153,13 @@ function bundledPlugins(): PluginRegistryListEntry[] {
     ),
   )
   registry.loadSync()
-  return registry.list()
+  return registry
 }
 
 async function testAgentCapabilities(): Promise<void> {
-  const plugins = bundledPlugins()
+  const registry = bundledRegistry()
+  const plugins = registry.list()
+  const lookupManifest = (pluginId: string): PluginManifest | undefined => registry.get(pluginId)?.manifest
   const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-capabilities-'))
   const workspaceRoot = join(temp, 'workspace')
   await mkdir(workspaceRoot, { recursive: true })
@@ -183,9 +186,14 @@ async function testAgentCapabilities(): Promise<void> {
   )
   await mkdir(join(claudeSkills, 'hand-made'), { recursive: true })
 
+  // Home is pinned at a directory that does not exist so a user-scope config on
+  // the machine running the test cannot leak into the assertions below.
+  const homeDir = (): string => join(temp, 'home')
   const fsService = createAgentCapabilityService({
     reader: createFsSkillDirectoryReader(),
     listPlugins: () => plugins,
+    lookupManifest,
+    mcpResolver: createMcpServerResolver({ homeDir }),
   })
 
   const claude = await fsService.resolve({ workspaceRoot, pluginId: 'claude-code' })
@@ -193,7 +201,7 @@ async function testAgentCapabilities(): Promise<void> {
   assert.equal(claude.support, 'native')
   assert.equal(claude.harnessId, 'claude')
   assert.deepEqual(claude.diagnostics, [])
-  assert.deepEqual(claude.servers, [], 'the MCP half is not this service')
+  assert.deepEqual(claude.servers, [], 'no .mcp.json in this workspace yet')
   assert.deepEqual(
     claude.skills.map((skill) => [skill.id, skill.source, skill.invocation]),
     [
@@ -246,6 +254,7 @@ async function testAgentCapabilities(): Promise<void> {
     assert.deepEqual(locked.skills, [])
     // Running as root defeats the permission bits; only assert where it bit.
     if (locked.diagnostics.length > 0) {
+      assert.equal(locked.diagnostics[0].capability, 'skills')
       assert.equal(locked.diagnostics[0].reason, 'unreadable')
       assert.equal(locked.diagnostics[0].path, unreadableDir)
       assert.ok(locked.diagnostics[0].message.length > 0)
@@ -262,6 +271,7 @@ async function testAgentCapabilities(): Promise<void> {
   assert.ok(wrongType.ok)
   assert.deepEqual(wrongType.skills, [])
   assert.equal(wrongType.diagnostics.length, 1)
+  assert.equal(wrongType.diagnostics[0].capability, 'skills')
   assert.equal(wrongType.diagnostics[0].reason, 'unreadable')
   assert.equal(wrongType.diagnostics[0].path, join(wrongTypeRoot, '.claude', 'skills'))
 
@@ -273,7 +283,12 @@ async function testAgentCapabilities(): Promise<void> {
       skills: [{ id: 'debug', name: 'Debug', description: '', source: 'builtin' }],
     },
   })
-  const fakeService = createAgentCapabilityService({ reader, listPlugins: () => plugins })
+  const fakeService = createAgentCapabilityService({
+    reader,
+    listPlugins: () => plugins,
+    lookupManifest,
+    mcpResolver: createMcpServerResolver({ homeDir }),
+  })
   const shared = await fakeService.resolve({ workspaceRoot, pluginId: 'kimi-claude' })
   assert.ok(shared.ok)
   assert.equal(reader.reads.length, 1, 'one directory read')
@@ -305,6 +320,8 @@ async function testAgentCapabilities(): Promise<void> {
         },
       }),
       listPlugins: () => plugins,
+      lookupManifest,
+      mcpResolver: createMcpServerResolver({ homeDir }),
     }).resolve({ workspaceRoot, pluginId: plugin.id })
     assert.ok(result.ok)
     assert.equal(result.skills.length, 1, `${plugin.id} resolves its harness directory`)
@@ -318,6 +335,57 @@ async function testAgentCapabilities(): Promise<void> {
     opencode: 'Use the debug skill.',
     zai: '/debug',
   })
+
+  await testCapabilityServers({ plugins, lookupManifest, temp })
+}
+
+// The MCP half, through the same one query the surface asks: the halves are
+// independent declarations, and neither one's fault empties the other.
+async function testCapabilityServers(context: {
+  plugins: PluginRegistryListEntry[]
+  lookupManifest: (pluginId: string) => PluginManifest | undefined
+  temp: string
+}): Promise<void> {
+  const workspaceRoot = join(context.temp, 'with-mcp')
+  await mkdir(join(workspaceRoot, '.cursor'), { recursive: true })
+  await writeFile(
+    join(workspaceRoot, '.mcp.json'),
+    JSON.stringify({ mcpServers: { linear: { type: 'stdio', command: 'npx' } } }),
+    'utf-8',
+  )
+  await writeFile(join(workspaceRoot, '.cursor', 'mcp.json'), '{ "mcpServers": ', 'utf-8')
+
+  const service = createAgentCapabilityService({
+    reader: createFsSkillDirectoryReader(),
+    listPlugins: () => context.plugins,
+    lookupManifest: context.lookupManifest,
+    mcpResolver: createMcpServerResolver({ homeDir: () => join(context.temp, 'home') }),
+  })
+
+  const claude = await service.resolve({ workspaceRoot, pluginId: 'claude-code' })
+  assert.ok(claude.ok)
+  assert.deepEqual(
+    claude.servers.map((server) => [server.id, server.transport, server.scope, server.configPath]),
+    [['linear', 'stdio', 'workspace', join(workspaceRoot, '.mcp.json')]],
+  )
+  assert.deepEqual(claude.diagnostics, [])
+
+  // cursor declares an MCP config and no skill integration at all: nothing to
+  // read for skills must not skip the half it does declare.
+  const cursor = await service.resolve({ workspaceRoot, pluginId: 'cursor' })
+  assert.ok(cursor.ok)
+  assert.equal(cursor.support, 'unsupported')
+  assert.deepEqual(cursor.skills, [])
+  assert.equal(cursor.diagnostics.length, 1, 'its unparseable config is stated')
+  assert.equal(cursor.diagnostics[0].capability, 'servers')
+  assert.equal(cursor.diagnostics[0].reason, 'malformed')
+  assert.equal(cursor.diagnostics[0].path, join(workspaceRoot, '.cursor', 'mcp.json'))
+
+  // A CLI with no mcpConfig block at all answers with no servers and no fault.
+  const shell = await service.resolve({ workspaceRoot, pluginId: 'generic-shell' })
+  assert.ok(shell.ok)
+  assert.deepEqual(shell.servers, [])
+  assert.deepEqual(shell.diagnostics, [])
 }
 
 main().catch((error) => {
