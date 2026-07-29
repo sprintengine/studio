@@ -541,3 +541,407 @@ the built app unless noted.
   detail pane the item's own title renders at 14px while its markdown body's H1
   renders at ~28px, so the content outranks the item. That belongs to the
   epic's second pass.
+
+---
+
+# Re-check — 2026-07-29 (T23)
+
+Task T23. Under re-check: the eight findings T18–T22 claim to have fixed (F1,
+F2, F4, F5, F6, F7, F8, F9), each re-measured by its own verification step in
+the built app. **F3 is deliberately not adjudicated here** — it is an open owner
+decision. It is reported as observed, unchanged, and left where T13 left it.
+
+Verdict: **five of eight cleared.** F1, F2, F4, F6 and F9 are done. F5 and F7
+moved a long way and stop short of the bar their own findings set. F8 was fixed
+in the file it was filed against and not on the surface it was measured on.
+Three new findings, R1–R3, are filed below.
+
+The T21 retone carries a separate charge and it comes back clean: in all ten
+retoned themes the ink stayed on the theme's own hue and metadata still reads
+below body text.
+
+## Method
+
+Same harness as the original review and the same traps. Built from this branch
+(`npm run build`, `out/main/index.js`), driven through Playwright `_electron` on
+an isolated profile (`MULTICODE_USER_DATA_DIR`, `MULTICODE_ALLOW_MULTI_INSTANCE=1`),
+`ELECTRON_RENDERER_URL` / `NODE_ENV_ELECTRON_VITE` / `NODE_ENV` stripped before
+launch and `data-mode` asserted non-null before any number is read. Workspace
+under test: a throwaway copy of this repo's `backlog/` (205 rows), the same
+surface T13 measured. Colour is resolved through a 1×1 canvas and contrast is
+WCAG 2.1 relative luminance, so every "after" below is on the same scale as the
+"before" beside it.
+
+**Two traps of this pass's own, recorded because each produced a false finding
+before it was caught.**
+
+1. *The narrow viewport silently clamps.* The main window carries
+   `minWidth: 800` (`src/main/window-factory.ts:76`), so `setContentSize(390, …)`
+   returns a **800px** viewport and reports success. A 390×844 result taken that
+   way is measuring a viewport twice the width it names. `setMinimumSize(1, 1)`
+   first, and assert the achieved `clientWidth` equals the requested one.
+2. *An element past the right edge is not necessarily clipped.* Thirteen
+   elements extend beyond `innerWidth` at 1024×768 with an item selected. All
+   thirteen sit inside a horizontal scroll container — a markdown table that
+   scrolls, which is correct behaviour. The bare `right > innerWidth` test that
+   F6 is written around reports these as defects. Walk up for a scrollable
+   ancestor before believing it.
+
+A third, mine alone: the pre-T21 ink values must be read out of the theme blocks
+of the T13-era `index.css`, per theme. Reading them off a `git diff` hunk list
+scrambles the theme-to-value mapping and manufactures 30–180° of hue drift that
+did not happen.
+
+## Verdicts
+
+| finding | before (T13) | after (T23) | verdict |
+|---|---|---|---|
+| F1 selection under an identity tint | epic row steps 1.06:1 vs a plain row's 1.27:1; identical in grayscale | 1.162 vs 1.268 dark (8.4% apart), 1.275 vs 1.379 light (7.5%); 1.276:1 / 1.385:1 vs neighbour in grayscale | **cleared** |
+| F2 the resting selection tier | token empty in 19/19; 3 full-strength panes on Extensions, 4 on the composer | token resolves in 19/19; **1** full + 3 resting on Extensions, **1** full + 3 resting on the composer | **cleared** |
+| F3 colour-alone category code | 4 hues at once, hard-coded hexes | unchanged — 101 coloured bars and 43 tinted rows on one 205-row list | *not adjudicated — owner's* |
+| F4 the disabled floor | 14 themes under 3:1 on `--bg-surface-raised`; `light` 2.95 on `--bg-app` | 19/19 clear 3:1 on all three surfaces; rendered ink clears 3.23–4.10:1 | **cleared** |
+| F5 four focus treatments | 4 treatments, two at ≈1.2:1 and ≈1.33:1 | 30 of 33 stops on one 2px ring at 4.76–5.38:1; **3 stops still on the UA outline**, and the door search field draws no ring at all | **partly — see R1** |
+| F6 the detail pane clips at 1024px | content to `x = 1301`, no scrollbar | `scrollWidth === clientWidth` at 1024×768, 900×700, 768×1024 and a real 390×844; **0** clipped elements | **cleared** |
+| F7 sub-24px hit targets | 20×20, 22×22, 14×14; 2 unlabelled `svg` in focusable buttons | every named site fixed; **0** unnamed controls on four surfaces; **12 controls still under 24px** | **partly — see R2** |
+| F8 the ink lift is a no-op | resting and selected titles both `--text-strong` | `InboxRow` now lifts; **the Backlog door does not use `InboxRow`** and its title is still `--text-strong` in both states | **not cleared — see R3** |
+| F9 `MockupPreviewPane` active state | 2 sites on `--bg-surface-raised` | both `:545` and `:567` now `--bg-selected` + `--text-strong`, matching `:821` | **cleared** (source) |
+
+## Per finding
+
+### F1 — cleared
+
+Measured on the real list, dark and light, selecting a plain row and an
+identity-tinted row in turn:
+
+```
+dark    plain     rgb(12,12,16)  -> rgb(36,36,44)   step 1.268:1
+dark    tinted    rgb(23,22,33)  -> rgb(36,36,44)   step 1.162:1     8.4% apart
+light   plain     rgb(255,255,255) -> rgb(216,220,224)  step 1.379:1
+light   tinted    rgb(246,245,255) -> rgb(216,220,224)  step 1.275:1  7.5% apart
+```
+
+Both inside the 10% bar F1 set; the gap was 16% before. In grayscale the
+selected tinted row now stands off its unselected neighbour by 1.276:1 (dark)
+and 1.385:1 (light) where it was previously indistinguishable. The fix is paint
+order — `backlogRowPaintClass` drops the identity fill on the selected row and
+paints `--bg-selected` — so a selected row lands on the token whatever colour it
+carries, which is why both steps converge on the plain row's.
+
+Identity keeps its other channels: the 3px bar is still drawn in both states
+(`3px rgb(167,139,250)` on the measured row). That is F3's business, not F1's.
+
+### F2 — cleared
+
+`--bg-selected-resting` resolves in all nineteen themes (`#1c2024` dark,
+`#e4e8ec` light) where it was the empty string in all nineteen. Counting panes
+that paint a selection at full strength simultaneously:
+
+| surface | before | after |
+|---|---|---|
+| Extensions door | 3 full | **1** full + 3 resting |
+| New-chat composer | 4 full | **1** full + 3 resting |
+
+The ink half is live too: with focus in the composer, the sidebar's active
+workspace row carries `aria-current="true"` and draws its title at
+`--text-default`, not `--text-strong` — the resting tier dropping the lift back
+out, which is exactly the ramp F8 described.
+
+### F3 — unchanged, and left alone
+
+Confirmed present and untouched, as the task requires: on one 205-row list, 101
+rows carry a coloured 3px left bar and 43 carry the epic tint, from the same
+hard-coded hexes in `highlight.ts`. No judgement recorded here.
+
+### F4 — cleared
+
+`--text-disabled` contrast per surface, T13's number → this pass's:
+
+| theme | on `--bg-app` | on `--bg-surface` | on `--bg-surface-raised` |
+|---|---|---|---|
+| dark | 3.30 → 3.30 | 3.23 → 3.23 | 3.06 → **3.06** |
+| light | 2.95 → 3.07 | 3.44 → 3.58 | 3.44 → **3.58** |
+| paper | 3.07 → 3.07 | 3.29 → 3.29 | 3.38 → **3.38** |
+| vellum | 3.13 → 3.13 | 3.50 → 3.50 | 3.76 → **3.76** |
+| herbarium | 3.23 → 3.23 | 3.91 → 3.91 | 4.20 → **4.20** |
+| herbarium-dark | 3.29 → 3.65 | 3.15 → 3.49 | 2.86 → **3.17** |
+| verdigris | 3.25 → 3.61 | 3.07 → 3.41 | 2.85 → **3.17** |
+| slate | 3.29 → 3.69 | 3.13 → 3.52 | 2.81 → **3.15** |
+| conifer | 3.40 → 3.61 | 3.13 → 3.32 | 2.99 → **3.17** |
+| fernery | 3.43 → 3.79 | 3.11 → 3.43 | 2.78 → **3.08** |
+| sage | 3.45 → 3.85 | 3.12 → 3.49 | 2.78 → **3.11** |
+| greenhouse | 3.42 → 3.61 | 3.15 → 3.33 | 2.98 → **3.15** |
+| caramel | 3.37 → 3.79 | 3.08 → 3.47 | 2.77 → **3.12** |
+| lantern | 3.22 → 3.63 | 3.10 → 3.49 | 2.84 → **3.20** |
+| aubergine | 3.45 → 3.66 | 3.19 → 3.38 | 2.89 → **3.06** |
+| tokyo-night | 3.23 → 3.84 | 3.09 → 3.68 | 2.67 → **3.18** |
+| rose-pine | 3.26 → 3.46 | 3.12 → 3.31 | 2.93 → **3.11** |
+| ayu-mirage | 3.24 → 3.43 | 3.09 → 3.27 | 2.93 → **3.10** |
+| gruvbox | 3.58 → 4.73 | 3.10 → 4.09 | 2.44 → **3.22** |
+
+**Nineteen of nineteen clear 3:1 on all three surfaces**, from fourteen failing
+on `--bg-surface-raised` and one on `--bg-app`. Ramp ordering survives the
+retone: nineteen of nineteen still run strong → disabled monotonically.
+
+Measured a second way, because a token pair is not a rendered pairing: with the
+CLI/model listbox open — the surface T13 named, `--bg-surface-raised` chrome
+with 10px disabled ink inside it — every element actually painted in
+`--text-disabled` was read against the fill actually behind it. Five sites per
+theme, worst 3.23:1 (`dark`), best 4.10:1 (`gruvbox`). Nothing under the floor.
+
+### F5 — partly cleared
+
+Thirty-three tab stops walked across the Backlog door and the workspace shell.
+**Thirty draw one ring**, `0 0 0 2px var(--border-focus)` = `rgb(63,148,104)`,
+at **4.76–5.38:1** against the surface behind it. The 14%- and 12%-alpha
+hairlines T13 measured at ≈1.2:1 and ≈1.33:1 are gone, and the whole top-left
+navigation cluster — Collapse sidebar, Search, Back, Forward — is on the system
+ring. `Attach mockup…` and `Depends on…`, T13's two UA-outline stops, are fixed.
+Counting the `ring-inset` variant as a second treatment would be wrong: same
+colour, same width, drawn inside so a scroll container does not clip it.
+
+Three stops are not, and one control has no ring at all. See **R1**.
+
+### F6 — cleared
+
+At a genuinely achieved 1024×768, 900×700, 768×1024 and 390×844, with an item
+selected: `document.scrollWidth === document.clientWidth` at every one, and
+every element extending past the right edge sits inside a horizontal scroll
+container. Zero clipped. At 1024×768 the detail pane now shrinks with the
+surface and the title wraps instead of being sliced; the wide markdown table
+that used to push the container scrolls inside its own.
+
+### F7 — partly cleared
+
+Every site T13 named is fixed. The flexlayout 14×14 tab controls are gone, the
+Extensions door measures clean, and across four surfaces — Backlog door,
+workspace shell, Extensions door, new-chat composer — **not one interactive
+control reports an empty accessible name**, which closes the unlabelled-`svg`
+half of the finding outright.
+
+Twelve controls still measure under 24px. See **R2**.
+
+### F8 — not cleared
+
+`InboxRow` does now carry the lift: `--text-default` resting, `--text-strong`
+selected (`InboxRow.tsx:73`). But the Backlog door does not render `InboxRow` —
+it renders `BacklogRowContent`, whose title is hard-coded
+`text-[color:var(--text-strong)]` at `BacklogRow.tsx:239` and `:247` regardless
+of selection. Measured on the door, both themes, both a plain and a tinted row:
+
+```
+dark    title  rgb(236,236,236) -> rgb(236,236,236)     (--text-default is rgb(200,200,208))
+light   title  rgb(32,36,40)    -> rgb(32,36,40)        (--text-default is rgb(60,68,76))
+```
+
+Unchanged from T13. See **R3**.
+
+### F9 — cleared, by source
+
+`MockupPreviewPane.tsx:545` and `:567` both now read
+`bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]`, matching
+`:821`. Every remaining `--bg-surface-raised` in the file is a `hover:` state or
+a `Skeleton`. Source-only, for the same reason as the original: the guided-brief
+flow is still not reachable in the driven profile.
+
+## The T21 retone, looked at
+
+T21 could not clear 3:1 on `--bg-surface-raised` by moving `--text-disabled`
+alone, so it also lifted `--text-subtle` in ten themes and `--text-muted` in
+two. That lightens metadata ink. Two questions the lint cannot answer:
+
+**Did the ink keep the theme's hue, or drift grey?** Each before/after pair
+converted to OKLCH:
+
+| theme | `--text-subtle` | hue drift | chroma retained | lightness |
+|---|---|---|---|---|
+| aubergine | `#7c708c` → `#807490` | 0.0° | ×0.996 | 0.566 → 0.580 |
+| ayu-mirage | `#747884` → `#787c88` | 0.0° | ×0.995 | 0.573 → 0.587 |
+| caramel | `#7c7054` → `#887c60` | 0.0° | ×0.986 | 0.549 → 0.590 |
+| conifer | `#6c786c` → `#707c70` | 0.0° | ×0.996 | 0.559 → 0.573 |
+| gruvbox | `#907868` → `#a48c7c` | 0.1° | ×0.971 | 0.591 → 0.657 |
+| lantern | `#7c6c54` → `#84745c` | 0.0° | ×0.990 | 0.540 → 0.567 |
+| rose-pine | `#806c78` → `#84707c` | 0.0° | ×0.993 | 0.554 → 0.568 |
+| sage | `#808060` → `#888868` | 0.0° | ×0.991 | 0.591 → 0.618 |
+| slate | `#7c7c7c` → `#808080` | — | achromatic before *and* after | 0.586 → 0.600 |
+| tokyo-night | `#6c7090` → `#787c9c` | 0.1° | ×0.982 | 0.554 → 0.595 |
+
+**No.** Every retone is a pure lightness lift along the theme's own hue line:
+drift never exceeds 0.1°, chroma is retained at ×0.971–0.996. `slate` shows
+chroma 0 on both sides because slate's whole ramp is neutral by design
+(`#e8e8e8 / #cccccc / #9c9c9c / #808080 / #787878`) — it did not go grey, it was
+already grey, and its identity is that neutrality. The two `--text-muted` moves
+behave the same: tokyo-night `#707898` → `#8088a8` (0.1° drift, ×0.978),
+ayu-mirage `#7c8088` → `#848890` (0.0°, ×0.992).
+
+Confirmed by eye rather than by number: all ten rendered on the Backlog door at
+1440×900, plus native-resolution crops of the metadata strip. gruvbox reads warm
+tan on brown-black, tokyo-night periwinkle on navy, sage olive, caramel warm
+cream, slate neutral. Each is unmistakably itself.
+
+**Does metadata still read as secondary to body text?** `--text-subtle` against
+`--text-default`, before → after:
+
+```
+lantern 2.98 -> 2.66     caramel 2.93 -> 2.48     slate 2.60 -> 2.46
+gruvbox 2.51 -> 1.93     sage    2.48 -> 2.22     rose-pine 2.45 -> 2.31
+conifer 2.22 -> 2.10     aubergine 2.12 -> 2.00   ayu-mirage 2.01 -> 1.90
+tokyo-night 2.03 -> 1.72
+```
+
+**Yes, in all ten**, and `--text-subtle` stays separated from `--text-muted`
+above it everywhere. The step compresses — gruvbox most (2.51 → 1.93),
+tokyo-night lowest in absolute terms (1.72:1) — and on those two the row id and
+timestamp are visibly more present than in an untouched dark theme. They still
+read as a lower tier: the title sits at `--text-strong` and carries a weight
+step (medium vs normal) on top of the ink step, and nothing in the ten reads as
+metadata competing with the title. Not filed. Recorded as the closest thing in
+this sprint to a hierarchy cost, and the tier that a further lift would break.
+
+## New findings
+
+### R1 — Three controls still fall back to the Chromium UA outline, and the door search field draws no ring at all (medium)
+
+**Location** — `src/renderer/src/components/ui/InboxSearchInput.tsx:26-31`
+and `:47-54`; `src/renderer/src/components/panels/BacklogPanel.tsx:2450`,
+`:2863`; `src/renderer/src/components/backlog/BacklogLinksSection.tsx:173`.
+
+**What I found** — Of thirty-three tab stops, thirty draw the system ring. The
+other three draw `outline: rgb(229,151,0) 1px auto` — Chromium's UA default,
+inherited because the button declares no focus treatment at all: the search
+field's `Clear search`, the detail pane's `Open epic …` breadcrumb, and a linked
+-item button in the Links section. `BacklogPanel.tsx:2863` is a fourth of the
+same shape.
+
+Separately, and worse: the door search **input** has `outline-none` and no ring.
+Its only focus signal is the wrapper's border going from `--border-default`
+(`rgba(252,252,252,0.08)`, a near-invisible hairline) to `--accent-primary` at
+**1px** via `focus-within`. That is a hue-only change on a hairline, at half the
+system ring's width, and it spends the product accent on a focus indicator.
+`InboxSearchInput` is the shared search chrome on every door rail, so this is on
+Backlog, Extensions, Sprints and Reviews alike, not one screen.
+
+**Why it matters** — T22's own contract is one focus treatment. The UA outline
+is not a token: it is drawn by the platform, it changes with the OS and the
+Chromium version, and it is the one treatment the design system cannot theme.
+The search field is the first tab stop on a door and the most likely place a
+keyboard user enters the surface; a 1px hairline hue shift is not a focus
+indicator a user will find.
+
+This is a real improvement over T13 — the two effectively-invisible alpha
+treatments are gone and the worst surviving indicator is high-contrast rather
+than 1.2:1 — but the finding as written is not closed.
+
+**Recommended fix** — Add `FOCUS_RING_CLASS` to the four ringless buttons. In
+`InboxSearchInput`, move the ring onto the wrapper (`focus-within:` the system
+ring) and drop the `focus-within:border-[color:var(--accent-primary)]`, so the
+field gets the same 2px `--border-focus` ring as everything else and the accent
+goes back to being used once per view.
+
+**Owner** — frontend.
+
+**Verification** — Tab through the Backlog door with the search field non-empty,
+at 1440×900 in `dark` and `light`: every stop, the search input and its clear
+button included, reports a `box-shadow` ring in `--border-focus`, and no stop
+reports `outline-style: auto`.
+
+### R2 — Twelve controls are still drawn under the 24px hit-target floor, and nothing guards it (medium)
+
+**Location** — `src/renderer/src/components/workspace/WorkspaceIdentity.tsx:181`
+(`h-[22px] w-[22px]`) and `:237`; `src/renderer/src/components/ui/InboxSearchInput.tsx:47`;
+`src/renderer/src/components/workspace/agentComposer/AgentComposer.tsx:164`,
+`:319`, `:358`; `src/renderer/src/components/workspace/agentComposer/agentSpawnShared.tsx:240`.
+
+**What I found** — Every site T13 named is fixed, and the accessible-name half
+of F7 is fully closed. Measuring every visible, enabled `button` /
+`[role=button]` / `[role=tab]` / `[role=menuitem]` across four surfaces at
+1440×900 still returns twelve under 24px on an axis:
+
+| surface | controls |
+|---|---|
+| title bar | `Star workspace` 22×22, `Toggle file explorer` 90×22 |
+| Backlog door | `Clear search` **10×10** |
+| new-chat composer | `Close` 22×22, `+ Skill` 51×23, `+ Connector` 86×23, the workspace picker 108×23, and the five reasoning/mode chips at 21px tall |
+
+None of these is a regression — the composer chips carried `py-0.5` at T13 time
+too. They are the same rule failing in places the hand-fix did not reach, and
+`scripts/lint-design-system-conformance.mjs` has **no hit-target rule at all**,
+so nothing prevents the next one.
+
+`Clear search` at 10×10 is the sharpest: it is under half the floor, it is the
+control that undoes a filter, and it is on every door rail.
+
+**Why it matters** — *"Nothing interactive is drawn below
+`sem.size.hit-target-min`. A small glyph pads out to it with a transparent hit
+area rather than shrinking its target."* A 10×10 target is a miss-and-retry for
+a trackpad user and a real barrier for anyone with a motor impairment.
+
+**Recommended fix** — Pad each to 24×24 with a transparent hit area, keeping the
+drawn glyph and the chip's visual height where the density demands it (the
+composer chips can keep their 21px paint and take `py-1.5` on the button). Then
+add a `hit-target-min` rule to the guard so the floor is measured, not
+remembered — it is the only one of T13's findings with no mechanical backstop.
+
+**Owner** — frontend (padding), then developer (guard).
+
+**Verification** — every visible enabled `button` / `[role=button]` on the
+workspace shell, the Backlog and Extensions doors and the new-chat composer
+measures ≥24px on both axes at 1440×900, and the guard reports the twelve before
+the change and exits 0 after.
+
+### R3 — The ink lift landed in `InboxRow`; the Backlog door does not use `InboxRow` (low)
+
+**Location** — `src/renderer/src/components/backlog/BacklogRow.tsx:239`, `:247`;
+`src/renderer/src/components/workspace/globalSurface/backlog/BacklogGlobalSurface.tsx:982`;
+`src/renderer/src/components/panels/BacklogPanel.tsx`.
+
+**What I found** — F8 was filed with `InboxRow.tsx` in its Location line and
+measured on a Backlog row. T18 fixed `InboxRow`, which now ramps
+`--text-default` → `--text-strong` correctly. The Backlog door renders
+`BacklogRowContent` inside its own `<li role="option">`; that component's title
+is `text-[color:var(--text-strong)]` unconditionally. Re-measured on the door in
+both themes, both a plain and a tinted row, the title ink is byte-identical
+resting and selected. F8's stated verification — *"an unselected row title reads
+`--text-default`; selecting it moves the title to `--text-strong`"* — does not
+pass on the surface it was written for.
+
+**Why it matters** — Low on its own, and lower than when T13 filed it: F1 is
+fixed, so the fill now carries a proper 1.27:1 step and selection is no longer
+invisible. But F8's argument was that selection should not depend on a single
+channel, and on the Backlog door it still does. It also means the resting tier
+F2 built cannot express itself on this surface: a Backlog row in a pane that
+does not hold focus drops its fill to `--bg-selected-resting` while its title
+stays at full strength, so the two halves of the tier disagree.
+
+**Recommended fix** — Give `BacklogRowContent` the same conditional the
+`InboxRow` comment describes: `--text-default` unselected, `--text-strong`
+selected, driven from the `selected` flag the row already computes for
+`backlogRowPaintClass`. Both Backlog surfaces render through that one component,
+so it is a single edit.
+
+**Owner** — frontend.
+
+**Verification** — Backlog door and Backlog panel at 1440×900, `dark` and
+`light`: an unselected row title computes to `--text-default` and selecting it
+moves it to `--text-strong`; on a pane that does not hold focus, a row at
+`--bg-selected-resting` keeps its title at `--text-default`.
+
+## What this re-check did not establish
+
+- **F3 is untouched and unjudged**, by instruction. Everything F1 leaves in
+  place — the 3px bar, the tint on unselected rows, the derived risk heat —
+  still stands or falls on that decision.
+- **F9 is source-only, again.** The guided-brief flow is still unreachable in a
+  throwaway profile, so both corrected sites were read, not rendered.
+- **The retone was judged on one surface.** All ten themes were viewed on the
+  Backlog door — timestamps, row ids, size letters, project tags — and disabled
+  ink was measured on the CLI/model listbox. Disabled *menu* items in an open
+  menu were measured by token, not screenshotted per theme.
+- **F5 and F7 were swept by tab-walk and by DOM measurement on four surfaces**,
+  not on every surface in the product. Both counts in R1 and R2 are floors, not
+  totals; the Sprint board, Settings, Reviews and the guided-brief flow were not
+  measured.
+- **Nineteen themes measured, two walked.** The per-surface judgement passes
+  (selection, focus, hit targets, responsive) ran in `dark` and were
+  re-confirmed in `light`, as before.
+- **The sprint board is still not reviewed**, for the same reason as the
+  original: the throwaway profile cannot bind a live run.
