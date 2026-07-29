@@ -191,7 +191,10 @@ export type AgentSkill = {
 
 /**
  * An MCP server a CLI is configured with, read from that CLI's own config file
- * by the format adapter its manifest declares.
+ * by the format adapter its manifest declares. Configured, not necessarily
+ * loaded: a config that marks a server disabled still declares it, and both
+ * CLIs that express that state list it as disabled rather than omitting it, so
+ * dropping it here would hide something the user wrote.
  */
 export type AgentMcpServer = {
   id: string
