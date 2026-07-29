@@ -29,14 +29,14 @@ export function AutomationServerSettings() {
   return (
     <section className="space-y-2">
       <SettingsSectionTitle>Automation</SettingsSectionTitle>
-      <div className="space-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <div className="space-y-1 text-body leading-5 text-[color:var(--text-muted)]">
         <div className="font-medium text-[color:var(--text-default)]">{STUDIO_MCP_SERVER_NAME}</div>
         <div>
           Always enabled for Studio-launched agents. It exposes app tools through an owner-only local socket; Sprint Engine's Python runtime still starts only when its module is enabled and a run needs it.
         </div>
       </div>
       {status.running && status.socketPath ? (
-        <div className="space-y-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <div className="space-y-1 text-body leading-5 text-[color:var(--text-muted)]">
           <div>
             Listening on <span className="font-mono text-[color:var(--text-default)]">{status.socketPath}</span>
           </div>
@@ -51,7 +51,7 @@ export function AutomationServerSettings() {
         </div>
       ) : null}
       {status.lastError ? (
-        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5 text-[color:var(--tone-error)]">
+        <div className="border-l-2 border-[color:var(--tone-error)] pl-3 text-body leading-5 text-[color:var(--tone-error)]">
           {status.lastError}
         </div>
       ) : null}

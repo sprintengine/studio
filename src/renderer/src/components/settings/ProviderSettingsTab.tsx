@@ -26,7 +26,7 @@ import {
 } from './providerSettings'
 
 const INPUT_CLASS =
-  'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 type NoteTone = 'neutral' | 'accent' | 'warn' | 'error'
 
@@ -46,7 +46,7 @@ const NOTE_TEXT: Record<NoteTone, string> = {
 
 function Note({ tone, children }: { tone: NoteTone; children: React.ReactNode }) {
   return (
-    <div className={`border-l-2 pl-3 text-[12px] leading-5 ${NOTE_BORDER[tone]} ${NOTE_TEXT[tone]}`}>
+    <div className={`border-l-2 pl-3 text-body leading-5 ${NOTE_BORDER[tone]} ${NOTE_TEXT[tone]}`}>
       {children}
     </div>
   )
@@ -173,7 +173,7 @@ export function ProviderSettingsTab() {
       aria-labelledby="settings-tab-providers"
       className="space-y-5"
     >
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-body leading-5 text-[color:var(--text-muted)]">
         Add an API key to use a model provider in standard workspace agents. Keys are stored on this
         device and never shown again after saving.
       </p>
@@ -187,7 +187,7 @@ export function ProviderSettingsTab() {
           <Note tone="warn">{tabState.message}</Note>
           <GhostButton
             onClick={() => void loadProviders()}
-            className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             Retry
           </GhostButton>
@@ -270,18 +270,18 @@ function ProviderRow({
                 size="md"
                 onClick={onClear}
                 disabled={busy}
-                className="h-9 shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="h-control-md shrink-0 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 {pending === 'clearing' ? 'Removing…' : 'Remove'}
               </GhostButton>
             ) : null}
           </div>
           {!canClear ? (
-            <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+            <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
               Set from your environment. Remove it there to change it.
             </p>
           ) : secretView.persistence === 'session' ? (
-            <p className="text-[11px] leading-5 text-[color:var(--tone-warn)]">
+            <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
               Stored for this session only — clears when the app quits.
             </p>
           ) : null}
@@ -309,7 +309,7 @@ function ProviderRow({
               size="md"
               onClick={onSave}
               disabled={busy || !draft.trim()}
-              className="h-9 shrink-0"
+              className="h-control-md shrink-0"
             >
               {pending === 'saving' ? 'Saving…' : 'Save'}
             </PrimaryButton>

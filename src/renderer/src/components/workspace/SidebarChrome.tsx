@@ -19,7 +19,7 @@ import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 // Same transparent-strip idiom as AppTitleBar's STRIP_BUTTON: no fill at rest or
 // on hover, only a subtle→default ink shift, opts out of the drag region.
 const STRIP_BUTTON =
-  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+  'app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 type SidebarChromeProps<MenuItem extends string> = {
   isMac: boolean
@@ -48,7 +48,7 @@ function CollapseButton({ onToggle }: { onToggle: () => void }) {
         onClick={onToggle}
         aria-label="Collapse sidebar"
         aria-pressed={true}
-        className="app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-strong)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+        className="app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-strong)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
@@ -116,7 +116,7 @@ export function AppMenuButton<MenuItem extends string>({
             type="button"
             onClick={togglePopover}
             aria-label="Application menu"
-            className="app-no-drag inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="app-no-drag inline-flex size-control-sm items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             {...triggerProps}
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
@@ -136,7 +136,7 @@ export function AppMenuButton<MenuItem extends string>({
               setMenuOpen(false)
               onShowMenu(event, label)
             }}
-            className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-heading text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             {label}
           </button>

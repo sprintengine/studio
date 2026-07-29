@@ -121,14 +121,14 @@ export function AppThemePicker({ value, onChange }: AppThemePickerProps) {
                   <TruncatedText
                     as="span"
                     text={theme.label}
-                    className="text-[13px] font-semibold text-[color:var(--text-strong)]"
+                    className="text-body font-semibold text-[color:var(--text-strong)]"
                   />
                   <ThemeGlyphs lowBlueLight={theme.lowBlueLight} />
                 </div>
                 {theme.description ? (
                   <TruncatedText
                     text={theme.description}
-                    className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-muted)]"
+                    className="mt-0.5 text-meta leading-4 text-[color:var(--text-muted)]"
                   />
                 ) : null}
               </div>

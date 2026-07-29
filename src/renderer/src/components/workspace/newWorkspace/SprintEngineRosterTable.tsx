@@ -155,7 +155,7 @@ export function SprintEngineRosterTable({
                     {label}
                   </span>
                   {PLANNER_ROLE_IDS.has(role) ? (
-                    <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
+                    <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-micro font-semibold text-[color:var(--text-subtle)]">
                       Planner
                     </span>
                   ) : null}
@@ -328,7 +328,7 @@ export function AgentCliPicker({
               <CliIcon cli={selected.value} className="h-3.5 w-3.5 shrink-0 text-[color:var(--text-muted)]" />
               <span className="truncate">{selected.label}</span>
             </span>
-            <span aria-hidden="true" className="shrink-0 text-[10px] text-[color:var(--text-disabled)]">▾</span>
+            <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">▾</span>
           </button>
         </Tooltip>
       )}

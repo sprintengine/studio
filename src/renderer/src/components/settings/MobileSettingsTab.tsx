@@ -318,11 +318,11 @@ export default function MobileSettingsTab() {
               label={relayStatusLabel(state?.relayStatus)}
             />
           ) : null}
-          <span className="text-[13px] font-medium text-[color:var(--text-strong)]">
+          <span className="text-body font-medium text-[color:var(--text-strong)]">
             {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
           </span>
         </div>
-        <p className={`text-[12px] leading-5 ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'}`}>
+        <p className={`text-body leading-5 ${action.status === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-muted)]'}`}>
           {action.message || statusMessage(state)}
         </p>
       </div>
@@ -354,7 +354,7 @@ export default function MobileSettingsTab() {
             placeholder="https://relay.example.com"
             autoComplete="off"
             spellCheck={false}
-            className="h-8 w-60 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45"
+            className="h-control-md w-60 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45"
           />
           <PrimaryButton size="md" onClick={() => void saveRelayUrl()} disabled={busy || !relayUrlDirty}>
             Save
@@ -383,7 +383,7 @@ export default function MobileSettingsTab() {
             >
               {pairingChallenge.pairingCode}
             </button>
-            <div className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <div className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
               Expires {formatDate(pairingChallenge.expiresAt)} · tap to copy
             </div>
           </div>
@@ -402,10 +402,10 @@ export default function MobileSettingsTab() {
                 className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="min-w-0">
-                  <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                  <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
                     {device.displayName}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
                     <span className="capitalize">{device.platform}</span>
                     <span className="font-mono text-[color:var(--text-muted)]">v{device.appVersion}</span>
                     <span>Last seen {formatNullableDate(device.lastSeenAt)}</span>
@@ -423,7 +423,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             No phones paired yet. Generate a pairing code to link one.
           </p>
         )}
@@ -431,7 +431,7 @@ export default function MobileSettingsTab() {
 
       <section>
         <SettingsSectionTitle className="mb-1.5">Relay state</SettingsSectionTitle>
-        <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+        <div className="grid gap-x-6 gap-y-3 text-body sm:grid-cols-2">
           <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
           <MetaCell
             label="Relay polling"
@@ -453,14 +453,14 @@ export default function MobileSettingsTab() {
             {recentCommands.map((event) => (
               <div key={event.id} className="grid gap-1 py-2.5 first:pt-0 last:pb-0">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 truncate text-sm text-[color:var(--text-strong)]">
+                  <div className="min-w-0 truncate text-body text-[color:var(--text-strong)]">
                     {commandLabel(event.commandType)}
                   </div>
-                  <span className={`text-[11px] font-semibold ${commandStatusClass(event.status)}`}>
+                  <span className={`text-meta font-semibold ${commandStatusClass(event.status)}`}>
                     {event.status}
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--text-muted)]">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
                   <span>{event.deviceName ?? event.deviceId ?? 'Mobile device'}</span>
                   <span>{formatDate(event.receivedAt)}</span>
                   {event.resultCode ? <span className="font-mono">{event.resultCode}</span> : null}
@@ -469,7 +469,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          <p className="text-body leading-5 text-[color:var(--text-disabled)]">
             No mobile messages yet.
           </p>
         )}
@@ -482,7 +482,7 @@ export default function MobileSettingsTab() {
             <button
               type="button"
               onClick={() => void refreshDiagnostics()}
-              className="rounded-md px-2.5 py-1 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+              className="rounded-md px-2.5 py-1 text-meta font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             >
               {showDiagnostics ? 'Refresh' : 'Show'}
             </button>
@@ -493,7 +493,7 @@ export default function MobileSettingsTab() {
         {visibleDiagnostics.length > 0 ? (
           <div className="space-y-3">
             {visibleDiagnostics.map((entry) => (
-              <div key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-[12px] leading-5">
+              <div key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-body leading-5">
                 <StatusDot
                   tone={diagnosticDotTone(entry.level)}
                   label={entry.level}
@@ -501,7 +501,7 @@ export default function MobileSettingsTab() {
                 />
                 <div className="min-w-0">
                   <div className="text-[color:var(--text-default)]">{entry.message}</div>
-                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[color:var(--text-disabled)]">
+                  <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-disabled)]">
                     <span className="font-mono">{entry.code}</span>
                     <span>{formatDate(entry.timestamp)}</span>
                   </div>
@@ -510,7 +510,7 @@ export default function MobileSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          <p className="text-body leading-5 text-[color:var(--text-disabled)]">
             No diagnostics recorded.
           </p>
         )}

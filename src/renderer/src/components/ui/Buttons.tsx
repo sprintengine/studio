@@ -7,16 +7,18 @@ const SHARED =
   'interactive inline-flex items-center justify-center gap-1.5 rounded-[5px] font-medium ' +
   'disabled:cursor-not-allowed disabled:opacity-45'
 
-// xs is the dense-chrome size (24 px) for inline row actions and popover
-// triggers; sm/md carry the form-control sizes. Migrated hand-rolled buttons on
-// the roster and tracker surfaces land here so their radius, focus ring, and
-// hover all match the primitive rather than drifting per surface.
+// xs is the dense-chrome size for inline row actions and popover triggers;
+// sm/md carry the form-control sizes. Migrated hand-rolled buttons on the
+// roster and tracker surfaces land here so their radius, focus ring, and hover
+// all match the primitive rather than drifting per surface. Heights and label
+// sizes come from the ramp (sem.size.control.*, sem.font.size.*) so a control
+// and the label beside it keep their rhythm when the ramp moves.
 type ButtonSize = 'xs' | 'sm' | 'md'
 
 const SIZE: Record<ButtonSize, string> = {
-  xs: 'h-6 px-2 text-[11px]',
-  sm: 'h-7 px-2 text-[12px]',
-  md: 'h-8 px-3 text-[12px]',
+  xs: 'h-control-xs px-2 text-meta',
+  sm: 'h-control-sm px-2 text-body',
+  md: 'h-control-md px-3 text-body',
 }
 
 type SizedButtonProps = ButtonBase & { size?: ButtonSize }
@@ -93,8 +95,8 @@ type IconButtonProps = ButtonBase & {
 }
 
 const ICON_SIZE: Record<'sm' | 'md', string> = {
-  sm: 'h-6 w-6 text-[12px]',
-  md: 'h-7 w-7 text-[13px]',
+  sm: 'size-control-xs text-body',
+  md: 'size-control-sm text-heading',
 }
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(

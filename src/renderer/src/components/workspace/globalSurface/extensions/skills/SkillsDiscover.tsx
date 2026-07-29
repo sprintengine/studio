@@ -154,7 +154,7 @@ export function SkillsDiscover({
 
   return (
     <div className="min-w-0">
-      <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">Discover skills</h3>
+      <h3 className="text-title font-semibold text-[color:var(--text-strong)]">Discover skills</h3>
 
       <div className="mt-3 flex flex-wrap items-center gap-2.5">
         <SegmentedControl<DiscoverTab>
@@ -241,7 +241,7 @@ export function DiscoverRepoList({
   return (
     <>
       {tokenOnlyGap ? (
-        <p className="mt-3 text-[11px] text-[color:var(--text-subtle)]">
+        <p className="mt-3 text-meta text-[color:var(--text-subtle)]">
           Without a GitHub token this list is stars only — repositories carrying a plugin manifest are
           not included.
         </p>
@@ -252,7 +252,7 @@ export function DiscoverRepoList({
         label="Most starred"
         count={results.length}
         action={
-          <span className="text-[11px] text-[color:var(--text-subtle)]">
+          <span className="text-meta text-[color:var(--text-subtle)]">
             {tokenOnlyGap ? 'Sorted by stars' : 'Repositories carrying a plugin manifest first, then stars'}
           </span>
         }
@@ -331,7 +331,7 @@ export function DiscoverSearchResults({
             label={`Results for “${load.query}”`}
             count={results.length}
             action={
-              <span className="text-[11px] text-[color:var(--text-subtle)]">
+              <span className="text-meta text-[color:var(--text-subtle)]">
                 Skills, not repositories — GitHub&apos;s own relevance order
               </span>
             }
@@ -396,7 +396,7 @@ function HitRow({
       </button>
       <div className="flex shrink-0 items-center pr-1.5">
         {added ? (
-          <span className="px-2 text-[11px] text-[color:var(--text-muted)]">
+          <span className="px-2 text-meta text-[color:var(--text-muted)]">
             Added<span className="sr-only">{` — ${repo} is already one of your sources`}</span>
           </span>
         ) : (
@@ -428,17 +428,17 @@ function RepoHitRow({
       body={
         <>
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate font-mono text-[12px] font-medium text-[color:var(--text-strong)]">
+            <span className="truncate font-mono text-body font-medium text-[color:var(--text-strong)]">
               {hit.repo}
             </span>
             {hit.description ? (
-              <span className="truncate text-[11px] text-[color:var(--text-muted)]">{hit.description}</span>
+              <span className="truncate text-meta text-[color:var(--text-muted)]">{hit.description}</span>
             ) : null}
           </span>
           {hit.curated ? (
             <span
               title="Carries .claude-plugin/marketplace.json — someone curated its contents."
-              className="shrink-0 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-[10px] text-[color:var(--text-subtle)]"
+              className="shrink-0 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-meta text-[color:var(--text-subtle)]"
             >
               Manifest
             </span>
@@ -446,7 +446,7 @@ function RepoHitRow({
           {/* Never a zero: a repository the search returned without a star
               count has an unknown one, and 0 is a different fact. */}
           {hit.stars === null ? null : (
-            <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            <span className="flex shrink-0 items-center gap-1 text-meta tabular-nums text-[color:var(--text-subtle)]">
               <StarGlyph filled className="h-2.5 w-2.5" />
               {formatStars(hit.stars)}
               <span className="sr-only"> stars</span>
@@ -477,14 +477,14 @@ function SearchHitRow({
       body={
         <>
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+            <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
               {hit.name}
             </span>
             {hit.description ? (
-              <span className="truncate text-[11px] text-[color:var(--text-muted)]">{hit.description}</span>
+              <span className="truncate text-meta text-[color:var(--text-muted)]">{hit.description}</span>
             ) : null}
           </span>
-          <span className="shrink-0 truncate font-mono text-[10px] text-[color:var(--text-subtle)]">
+          <span className="shrink-0 truncate font-mono text-meta text-[color:var(--text-subtle)]">
             {hit.repo}
           </span>
         </>
@@ -529,12 +529,12 @@ function Condition({
 
 function Budget({ rateLimit }: { rateLimit: SkillDiscoveryResult<unknown>['rateLimit'] }): JSX.Element | null {
   const line = describeSearchBudget(rateLimit)
-  return line ? <p className="mt-2 text-[11px] text-[color:var(--text-subtle)]">{line}</p> : null
+  return line ? <p className="mt-2 text-meta text-[color:var(--text-subtle)]">{line}</p> : null
 }
 
 function Loading({ label }: { label: string }): JSX.Element {
   return (
-    <div className="flex items-center gap-2 py-8 text-[12px] text-[color:var(--text-muted)]">
+    <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">
       <Spinner size={14} />
       {label}
     </div>

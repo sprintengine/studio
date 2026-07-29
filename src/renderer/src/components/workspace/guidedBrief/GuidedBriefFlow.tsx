@@ -1396,7 +1396,7 @@ function LintFindingsList({ findings }: { findings: string }) {
           <WarningIcon className="icon-xs mt-px shrink-0 text-[color:var(--tone-error)]" />
           <span className="min-w-0">
             {issue.detail}{' '}
-            <code className="font-mono text-[10px] text-[color:var(--text-subtle)]">{issue.file}</code>
+            <code className="font-mono text-micro text-[color:var(--text-subtle)]">{issue.file}</code>
           </span>
         </li>
       ))}

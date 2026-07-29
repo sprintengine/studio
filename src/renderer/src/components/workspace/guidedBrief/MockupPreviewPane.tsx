@@ -526,7 +526,7 @@ export function HtmlArtifactFrame({
           <TruncatedText
             as="span"
             text={relativePath}
-            className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+            className="min-w-0 font-mono text-micro text-[color:var(--text-subtle)]"
           />
         </span>
         <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">
@@ -650,7 +650,7 @@ export function HtmlArtifactFrame({
                 <>
                   <span
                     aria-hidden="true"
-                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[10px] font-bold leading-none"
+                    className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-micro font-bold leading-none"
                   >
                     !
                   </span>

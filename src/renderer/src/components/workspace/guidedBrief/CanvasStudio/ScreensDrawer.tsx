@@ -117,7 +117,7 @@ export function ScreensDrawer({ screens, activeId, onSelect, onClose }: Props) {
                 <TruncatedText
                   as="span"
                   text={screen.path}
-                  className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+                  className="min-w-0 font-mono text-micro text-[color:var(--text-subtle)]"
                 />
               </span>
             </button>

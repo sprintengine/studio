@@ -167,10 +167,10 @@ export function PluginDetailPanel({
           <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={32} />
           <div className="min-w-0">
             {/* design-system-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus */}
-            <h5 ref={headingRef} tabIndex={-1} className="truncate text-[14px] font-semibold leading-5 text-[color:var(--text-strong)] focus:outline-none">
+            <h5 ref={headingRef} tabIndex={-1} className="truncate text-body font-semibold leading-5 text-[color:var(--text-strong)] focus:outline-none">
               {plugin.name}
             </h5>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
+            <div className="mt-0.5 flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
               <StatusDot tone={trust.tone} />
               <TruncatedText as="span" text={`${trust.label} · ${plugin.publisher.name}`} />
             </div>
@@ -179,21 +179,21 @@ export function PluginDetailPanel({
         <CloseIconButton onClick={onClose} aria-label="Close details" />
       </div>
 
-      <div className="mt-3 flex items-center gap-2 text-[11px] text-[color:var(--text-subtle)]">
+      <div className="mt-3 flex items-center gap-2 text-meta text-[color:var(--text-subtle)]">
         <span className="tabular-nums">Version {plugin.latest}</span>
         <span aria-hidden>·</span>
         <TruncatedText as="span" text={plugin.category} />
       </div>
 
-      <p className="mt-3 text-[12px] leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>
+      <p className="mt-3 text-body leading-5 text-[color:var(--text-muted)]">{plugin.summary}</p>
 
       {displayTags.length ? (
-        <p className="mt-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
+        <p className="mt-2 text-meta leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
       ) : null}
 
       <div className="mt-3">
-        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Provides</div>
-        <ul className="mt-1 space-y-1 text-[12px] text-[color:var(--text-muted)]">
+        <div className="text-meta font-semibold text-[color:var(--text-muted)]">Provides</div>
+        <ul className="mt-1 space-y-1 text-body text-[color:var(--text-muted)]">
           {/* Inline-MCP entries name the actual servers the trust grant adds;
               bundle entries list their component kinds (their bundled skills,
               when the catalogue enumerated them, get the section below). */}
@@ -201,7 +201,7 @@ export function PluginDetailPanel({
             ? inlineServers.map((server) => (
                 <li key={server.id} className="flex min-w-0 items-center gap-1.5">
                   <TruncatedText as="span" text={server.name} className="min-w-0" />
-                  <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+                  <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
                     {server.transport}
                   </span>
                 </li>
@@ -222,7 +222,7 @@ export function PluginDetailPanel({
           href={sourceHref}
           target="_blank"
           rel="noreferrer"
-          className={`mt-3 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
+          className={`mt-3 inline-flex text-body font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
         >
           View source
         </a>
@@ -246,7 +246,7 @@ export function PluginDetailPanel({
           installView.notice.tone === 'good' ? (
             // Success has no InlineNotice tone; mirror the Installed tab's
             // StatusDot + text so the state is never colour-only.
-            <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+            <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
               <StatusDot tone="good" />
               <span>{installView.notice.message}</span>
             </div>
@@ -265,20 +265,20 @@ export function PluginDetailPanel({
         ) : null}
 
         {workspaceBlocked && !installView.busy ? (
-          <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
             Open a workspace to install this extension.
           </p>
         ) : null}
 
         {installView.busy ? (
-          <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+          <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
             <Spinner size={14} />
             {installView.busyLabel}
           </div>
         ) : null}
 
         {claudePlugin && installView.action?.kind === 'install' ? (
-          <p className="text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
             Installing adds this plugin’s skills to this workspace for your
             installed agent CLIs. Its slash commands stay Claude-native.
           </p>
@@ -288,7 +288,7 @@ export function PluginDetailPanel({
           <div className={installView.trustPrompt ? 'flex gap-2' : ''}>
             <PrimaryButton
               size="md"
-              className="h-9 w-full"
+              className="h-control-md w-full"
               disabled={workspaceBlocked}
               onClick={() =>
                 void (installView.action?.kind === 'trust-install'
@@ -299,7 +299,7 @@ export function PluginDetailPanel({
               {installView.action.label}
             </PrimaryButton>
             {installView.trustPrompt ? (
-              <GhostButton size="md" className="h-9" onClick={() => setFlow({ status: 'idle' })}>
+              <GhostButton size="md" className="h-control-md" onClick={() => setFlow({ status: 'idle' })}>
                 Cancel
               </GhostButton>
             ) : null}
@@ -326,7 +326,7 @@ function PluginSkillsList({ skills }: { skills: NonNullable<MarketplacePluginEnt
   const hiddenCount = skills.length - visible.length
   return (
     <div className="mt-3">
-      <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Skills · {skills.length}</div>
+      <div className="text-meta font-semibold text-[color:var(--text-muted)]">Skills · {skills.length}</div>
       <ul className="mt-1 space-y-1.5">
         {/* The validator does not guarantee name/path uniqueness, so the index
             rides the key; the list is display-only and never reorders. */}
@@ -335,13 +335,13 @@ function PluginSkillsList({ skills }: { skills: NonNullable<MarketplacePluginEnt
             <TruncatedText
               as="div"
               text={skill.name}
-              className="text-[12px] font-medium leading-4 text-[color:var(--text-default)]"
+              className="text-body font-medium leading-4 text-[color:var(--text-default)]"
             />
             {skill.description ? (
               <TruncatedText
                 as="div"
                 text={skill.description}
-                className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]"
+                className="mt-0.5 text-meta leading-4 text-[color:var(--text-subtle)]"
               />
             ) : null}
           </li>
@@ -396,21 +396,21 @@ function TrustPrompt({
             }
   return (
     <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3">
-      <div className="text-[11px] font-semibold text-[color:var(--text-default)]">{copy.heading}</div>
-      <p className="mt-1 text-[11px] leading-4 text-[color:var(--text-subtle)]">{copy.body}</p>
+      <div className="text-meta font-semibold text-[color:var(--text-default)]">{copy.heading}</div>
+      <p className="mt-1 text-meta leading-4 text-[color:var(--text-subtle)]">{copy.body}</p>
       <div className="mt-2">
         {tier === 'inline' ? (
           <ul className="space-y-1">
             {inlineServers.map((server) => (
               <li key={server.id} className="min-w-0">
-                <div className="flex items-center gap-1.5 text-[11px] text-[color:var(--text-muted)]">
-                  <span className="font-mono text-[10px] text-[color:var(--text-subtle)]">{server.transport}</span>
+                <div className="flex items-center gap-1.5 text-meta text-[color:var(--text-muted)]">
+                  <span className="font-mono text-meta text-[color:var(--text-subtle)]">{server.transport}</span>
                   <TruncatedText as="span" text={server.name} className="font-medium" />
                 </div>
                 <TruncatedText
                   as="div"
                   text={inlineServerCommand(server)}
-                  className="mt-0.5 font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]"
+                  className="mt-0.5 font-mono text-meta leading-4 text-[color:var(--text-subtle)]"
                 />
               </li>
             ))}
@@ -437,18 +437,18 @@ function TrustFileListing({ files }: { files: string[] }) {
   const hiddenCount = files.length - visible.length
   return (
     <div>
-      <div className="text-[10px] font-semibold text-[color:var(--text-subtle)]">
+      <div className="text-meta font-semibold text-[color:var(--text-subtle)]">
         Adds {files.length} skill{files.length === 1 ? '' : 's'} to the workspace
       </div>
       <ul className="mt-1 space-y-0.5">
         {visible.map((file) => (
           <li key={file} className="min-w-0">
-            <TruncatedText as="div" text={file} className="font-mono text-[10px] leading-4 text-[color:var(--text-muted)]" />
+            <TruncatedText as="div" text={file} className="font-mono text-meta leading-4 text-[color:var(--text-muted)]" />
           </li>
         ))}
       </ul>
       {hiddenCount > 0 ? (
-        <div className="mt-0.5 text-[10px] leading-4 text-[color:var(--text-subtle)]">+{hiddenCount} more</div>
+        <div className="mt-0.5 text-meta leading-4 text-[color:var(--text-subtle)]">+{hiddenCount} more</div>
       ) : null}
     </div>
   )

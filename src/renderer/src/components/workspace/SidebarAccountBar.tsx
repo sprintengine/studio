@@ -103,7 +103,7 @@ function AccountMenuItem({ onSelect, children }: { onSelect: () => void; childre
       data-account-item="true"
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      className={`flex w-full items-center px-3 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+      className={`flex w-full items-center px-3 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
     >
       {children}
     </button>
@@ -140,26 +140,26 @@ function AccountPopover({
         <TruncatedText
           as="div"
           text={primaryLine}
-          className="text-[13px] font-medium text-[color:var(--text-strong)]"
+          className="text-heading font-medium text-[color:var(--text-strong)]"
         />
         {email ? (
           <TruncatedText
             as="div"
             text={email}
-            className="mt-0.5 text-[12px] text-[color:var(--text-muted)]"
+            className="mt-0.5 text-body text-[color:var(--text-muted)]"
           />
         ) : null}
         {metaLine ? (
           <TruncatedText
             as="div"
             text={metaLine}
-            className="mt-1 text-[11px] text-[color:var(--text-subtle)]"
+            className="mt-1 text-meta text-[color:var(--text-subtle)]"
           />
         ) : null}
       </div>
 
       {message || authState.entitlementStatus === 'offline_grace' ? (
-        <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+        <div className="border-t border-[color:var(--border-subtle)] px-3 py-2 text-body leading-5 text-[color:var(--tone-warn)]">
           {message ?? `Offline access expires ${formatShortDate(authState.graceExpiresAt)}.`}
         </div>
       ) : null}
@@ -217,7 +217,7 @@ export default function SidebarAccountBar({
   const avatar = (
     <span
       aria-hidden="true"
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold"
+      className="flex size-control-xs shrink-0 items-center justify-center rounded-full border text-meta font-semibold"
       style={{ borderColor: tierStyle.color, backgroundColor: tierStyle.soft, color: tierStyle.color }}
     >
       {initials === '?' ? <AccountUserGlyph className="icon-sm" /> : initials}
@@ -242,7 +242,7 @@ export default function SidebarAccountBar({
       <button
         type="button"
         onClick={() => openSettings(false)}
-        className={`inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
+        className={`inline-flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
           settingsOpen
             ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
             : 'border-transparent text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -250,7 +250,7 @@ export default function SidebarAccountBar({
         aria-label="Settings"
         aria-pressed={settingsOpen}
       >
-        <GearIcon className="h-[18px] w-[18px]" />
+        <GearIcon className="size-icon-md" />
       </button>
     </Tooltip>
   )
@@ -276,7 +276,7 @@ export default function SidebarAccountBar({
               ref={ref}
               type="button"
               onClick={togglePopover}
-              className={`flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
+              className={`flex size-control-md items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
                 accountOpen ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]' : 'border-transparent hover:bg-[color:var(--bg-hover)]'
               }`}
               aria-label={`Account · ${tierStyle.label} plan`}
@@ -290,7 +290,7 @@ export default function SidebarAccountBar({
             ref={ref}
             type="button"
             onClick={togglePopover}
-            className={`flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border px-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
+            className={`flex h-control-md min-w-0 flex-1 items-center gap-2 rounded-md border px-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
               accountOpen
                 ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)]'
                 : 'border-transparent hover:bg-[color:var(--bg-hover)]'
@@ -303,9 +303,9 @@ export default function SidebarAccountBar({
               <TruncatedText
                 as="span"
                 text={accountName}
-                className="block text-[12px] font-medium text-[color:var(--text-strong)]"
+                className="block text-body font-medium text-[color:var(--text-strong)]"
               />
-              <span className="block truncate text-[11px] text-[color:var(--text-subtle)]">
+              <span className="block truncate text-meta text-[color:var(--text-subtle)]">
                 {accountPlanLabel(authState)}
               </span>
             </span>
@@ -320,7 +320,7 @@ export default function SidebarAccountBar({
       type="button"
       onClick={() => void startLogin()}
       disabled={authState.status === 'checking'}
-      className={`inline-flex h-8 items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 ${FOCUS_RING_CLASS} ${
+      className={`inline-flex h-control-md items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-body font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 ${FOCUS_RING_CLASS} ${
         collapsed ? 'w-8 justify-center' : 'min-w-0 flex-1 justify-center px-3'
       }`}
       aria-busy={authState.status === 'checking'}

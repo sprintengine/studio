@@ -67,7 +67,7 @@ export function SkillReader({
       >
         <div className="max-w-[74ch] min-w-0">
           {!active ? (
-            <p className="text-[12px] text-[color:var(--text-subtle)]">This skill lists no files.</p>
+            <p className="text-body text-[color:var(--text-subtle)]">This skill lists no files.</p>
           ) : (
             <SkillDocument
               file={active}
@@ -94,7 +94,7 @@ function SkillFileList({
 }): JSX.Element {
   return (
     <nav aria-label="Files in this skill" className="min-w-0 pb-4 lg:sticky lg:top-0 lg:pb-0 lg:pr-4">
-      <p className="px-2 pb-2 text-[11px] text-[color:var(--text-subtle)]">
+      <p className="px-2 pb-2 text-meta text-[color:var(--text-subtle)]">
         {`${files.length} file${files.length === 1 ? '' : 's'}`}
       </p>
       <ul role="list" className="flex flex-col gap-px">
@@ -116,16 +116,16 @@ function SkillFileList({
                   }`}
                 >
                   <span
-                    className={`min-w-0 flex-1 truncate font-mono text-[11px] ${
+                    className={`min-w-0 flex-1 truncate font-mono text-meta ${
                       current ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)]'
                     }`}
                   >
                     {file.path}
                   </span>
                   {file.isEntry ? (
-                    <span className="shrink-0 text-[10px] text-[color:var(--text-subtle)]">Entry</span>
+                    <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">Entry</span>
                   ) : null}
-                  <span className="shrink-0 text-[10px] tabular-nums text-[color:var(--text-disabled)]">
+                  <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-disabled)]">
                     {formatSkillFileSize(file.size)}
                   </span>
                 </button>
@@ -169,7 +169,7 @@ export function SkillDocument({
 
   if (read.status === 'loading') {
     return (
-      <div className="flex items-center gap-2 py-6 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 py-6 text-body text-[color:var(--text-muted)]">
         <Spinner size={14} />
         {`Reading ${file.path}…`}
       </div>
@@ -189,7 +189,7 @@ export function SkillDocument({
 
   if (!isMarkdownSkillFile(file.path)) {
     return (
-      <pre className="overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 font-mono text-[11px] leading-[1.7] text-[color:var(--text-default)]">
+      <pre className="overflow-x-auto rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-3 font-mono text-meta leading-[1.7] text-[color:var(--text-default)]">
         {read.content}
       </pre>
     )
@@ -198,7 +198,7 @@ export function SkillDocument({
   const body = stripSkillFrontmatter(read.content).trim()
   if (!body) {
     return (
-      <p className="text-[12px] text-[color:var(--text-subtle)]">
+      <p className="text-body text-[color:var(--text-subtle)]">
         {`${file.path} carries frontmatter and no body.`}
       </p>
     )

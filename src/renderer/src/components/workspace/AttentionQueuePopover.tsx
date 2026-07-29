@@ -130,7 +130,7 @@ export function AttentionQueuePopover({
             {badge.tone ? (
               <span
                 aria-hidden="true"
-                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-surface)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
+                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-surface)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
                 style={{ backgroundColor: BADGE_TONE_VAR[badge.tone] }}
               >
                 {badge.count > 99 ? '99+' : badge.count}

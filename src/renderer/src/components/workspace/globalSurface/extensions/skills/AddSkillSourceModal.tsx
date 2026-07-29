@@ -113,7 +113,7 @@ export function AddSkillSourceModal({
         />
 
         {phase.kind === 'scanning' ? (
-          <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+          <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
             <Spinner size={14} />
             {`Walking ${repo.trim()}…`}
           </div>
@@ -164,7 +164,7 @@ export function AddSkillSourceModal({
 // asking "did it work?", not reading an inventory.
 function ScanSummary({ scan }: { scan: ScanResult }): JSX.Element {
   return (
-    <p className="text-[13px] leading-5 text-[color:var(--text-strong)]">
+    <p className="text-body leading-5 text-[color:var(--text-strong)]">
       {scan.groups.length > 0
         ? `${pluralSkills(scan.skills.length)} in ${scan.groups.length} ${
             scan.groupingSignal === 'manifest' ? 'plugins' : 'categories'

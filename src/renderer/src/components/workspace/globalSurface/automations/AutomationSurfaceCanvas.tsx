@@ -172,7 +172,7 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[12px] font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
           {stamp !== null ? (
-            <span className="shrink-0 tabular-nums text-[10px] text-[color:var(--text-subtle)]" title={absoluteTime(stamp)}>
+            <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]" title={absoluteTime(stamp)}>
               {relativeFromNow(stamp, now)}
             </span>
           ) : null}

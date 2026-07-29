@@ -30,11 +30,11 @@ export function SettingsSectionTitle({
   return (
     <div className={`flex items-center justify-between gap-3 ${className ?? ''}`}>
       <div className="flex min-w-0 items-baseline gap-2">
-        <h3 id={id} className="text-sm font-semibold text-[color:var(--text-strong)]">
+        <h3 id={id} className="text-title font-semibold text-[color:var(--text-strong)]">
           {children}
         </h3>
         {count !== undefined ? (
-          <span className="tabular-nums text-[12px] text-[color:var(--text-muted)]">{count}</span>
+          <span className="tabular-nums text-body text-[color:var(--text-muted)]">{count}</span>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
@@ -66,7 +66,7 @@ export function SettingsRow({
   children: React.ReactNode
   className?: string
 }) {
-  const labelClass = 'block text-[13px] font-medium text-[color:var(--text-strong)]'
+  const labelClass = 'block text-body font-medium text-[color:var(--text-strong)]'
   return (
     <div className={`flex items-center justify-between gap-8 py-2.5 first:pt-0 last:pb-0 ${className ?? ''}`}>
       <div className="min-w-0">
@@ -78,7 +78,7 @@ export function SettingsRow({
           <div className={labelClass}>{label}</div>
         )}
         {help ? (
-          <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">{help}</div>
+          <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">{help}</div>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
@@ -108,16 +108,16 @@ export function SettingToggle({
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
       <div className="min-w-0">
-        <div id={labelId} className="text-[13px] font-medium text-[color:var(--text-strong)]">
+        <div id={labelId} className="text-body font-medium text-[color:var(--text-strong)]">
           {label}
           {requirement ? (
-            <span className="ml-1.5 text-[11px] font-normal text-[color:var(--text-subtle)]">
+            <span className="ml-1.5 text-meta font-normal text-[color:var(--text-subtle)]">
               · {requirement}
             </span>
           ) : null}
         </div>
         {description ? (
-          <div id={helpId} className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <div id={helpId} className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
             {description}
           </div>
         ) : null}
@@ -145,7 +145,7 @@ export function MetaCell({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] text-[color:var(--text-muted)]">{label}</div>
+      <div className="text-meta text-[color:var(--text-muted)]">{label}</div>
       <div className={`mt-1 truncate font-medium ${metaToneClass(tone)}`}>{value}</div>
     </div>
   )

@@ -177,7 +177,7 @@ function InstalledView({
 }) {
   if (view.status === 'loading') {
     return (
-      <div className="flex items-center gap-2 py-6 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 py-6 text-body text-[color:var(--text-muted)]">
         <Spinner size={14} />
         Loading installed extensions…
       </div>
@@ -200,7 +200,7 @@ function InstalledView({
 
   if (view.status === 'empty') {
     return (
-      <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-5 text-[color:var(--text-muted)]">
         Nothing installed yet. Get MCP servers, skills, agent CLIs, or modules from the Browse view and they appear
         here.
       </div>
@@ -479,7 +479,7 @@ function UseSkillMenu({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          className="interactive inline-flex h-7 items-center justify-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] px-2 text-[12px] font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+          className="interactive inline-flex h-control-sm items-center justify-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] px-2 text-body font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
           {...triggerProps}
         >
           Use in agent
@@ -488,19 +488,19 @@ function UseSkillMenu({
     >
       <div className="flex w-[240px] flex-col p-1">
         {error ? (
-          <div className="px-2.5 py-1.5 text-[11.5px] text-[color:var(--tone-error)]" role="status">
+          <div className="px-2.5 py-1.5 text-meta text-[color:var(--tone-error)]" role="status">
             {error}
           </div>
         ) : null}
         {sessions === null ? (
-          <div className="flex items-center gap-2 px-2.5 py-2 text-[12px] text-[color:var(--text-muted)]" role="status">
+          <div className="flex items-center gap-2 px-2.5 py-2 text-body text-[color:var(--text-muted)]" role="status">
             <Spinner size={14} />
             Finding running agents…
           </div>
         ) : (
           <>
             {sessions.length === 0 ? (
-              <div className="px-2.5 py-1.5 text-[11.5px] text-[color:var(--text-subtle)]">
+              <div className="px-2.5 py-1.5 text-meta text-[color:var(--text-subtle)]">
                 No running agents
               </div>
             ) : (
@@ -511,13 +511,13 @@ function UseSkillMenu({
                   role="menuitem"
                   disabled={busy}
                   onClick={() => void insertIntoSession(session)}
-                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[12.5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
+                  className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {session.agentSession?.displayName ?? session.agentId ?? session.sessionId}
                   </span>
                   {session.cli ? (
-                    <span className="shrink-0 text-[10px] text-[color:var(--text-subtle)]">{session.cli}</span>
+                    <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">{session.cli}</span>
                   ) : null}
                 </button>
               ))
@@ -530,7 +530,7 @@ function UseSkillMenu({
                   role="menuitem"
                   disabled={busy}
                   onClick={() => void startNewAgent()}
-                  className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-[12.5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
+                  className="flex w-full items-center rounded px-2.5 py-1.5 text-left text-body text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-wait disabled:opacity-60"
                 >
                   New agent…
                 </button>

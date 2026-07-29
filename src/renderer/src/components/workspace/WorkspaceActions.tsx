@@ -594,7 +594,7 @@ export function WorkspaceActions({
                     </ChangePulse>
                     {sessions.length > 0 ? (
                       <span
-                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
+                        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]"
                         style={{ backgroundColor: `var(--tone-${sessionsTone})` }}
                       >
                         {sessions.length > 99 ? '99+' : sessions.length}
@@ -739,7 +739,7 @@ export function WorkspaceActions({
                     <NotificationBellIcon className="h-[18px] w-[18px]" />
                   </ChangePulse>
                   {unreadErrorCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-[10px] font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-[color:var(--bg-app)] bg-[color:var(--tone-error)] px-1 text-micro font-bold leading-none tabular-nums text-[color:var(--bg-app)]">
                       {unreadErrorCount > 99 ? '99+' : unreadErrorCount}
                     </span>
                   ) : null}

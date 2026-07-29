@@ -217,9 +217,9 @@ export function ReadyConnectorsRail({
               <TruncatedText
                 as="div"
                 text={server.name}
-                className="text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
+                className="text-body font-semibold leading-5 text-[color:var(--text-strong)]"
               />
-              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+              <div className="mt-0.5 flex items-center gap-1.5 text-meta leading-4 text-[color:var(--text-subtle)]">
                 <StatusDot tone="good" />
                 <span>Connector ready</span>
               </div>
@@ -311,7 +311,7 @@ export function ConnectorsBody({
 }) {
   if (view.status === 'loading') {
     return (
-      <div className="flex items-center gap-2 py-8 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">
         <Spinner size={14} />
         Loading connectors…
       </div>
@@ -330,7 +330,7 @@ export function ConnectorsBody({
 
   if (view.status === 'empty') {
     return (
-      <p className="px-1 py-10 text-center text-[12px] text-[color:var(--text-muted)]">
+      <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">
         No connectors are available yet.
       </p>
     )
@@ -338,7 +338,7 @@ export function ConnectorsBody({
 
   if (view.status === 'no-match') {
     return (
-      <p className="px-1 py-10 text-center text-[12px] text-[color:var(--text-muted)]">
+      <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">
         {view.query
           ? `No connectors match “${view.query}”${view.facet !== 'All' ? ` in ${view.facet}` : ''}.`
           : `No connectors in ${view.facet}.`}

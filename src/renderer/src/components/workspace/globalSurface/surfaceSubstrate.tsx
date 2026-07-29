@@ -345,7 +345,7 @@ export function SurfaceRail({
             >
               {row.title}
             </span>
-            <span className="truncate text-[10px] text-[color:var(--text-subtle)]">{row.stateLine}</span>
+            <span className="truncate text-micro text-[color:var(--text-subtle)]">{row.stateLine}</span>
           </span>
           {/* Reserve the trailing gutter so revealing the overflow never reflows
               the title mid-hover. */}
@@ -432,7 +432,7 @@ export function SurfaceRail({
               }`}
             >
               <span className="text-[11px] font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
-              <span className="font-mono text-[10px] tabular-nums text-[color:var(--text-disabled)]">
+              <span className="font-mono text-micro tabular-nums text-[color:var(--text-disabled)]">
                 {group.rows.length}
               </span>
             </div>

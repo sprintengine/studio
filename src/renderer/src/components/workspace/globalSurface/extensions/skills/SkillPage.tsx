@@ -52,7 +52,7 @@ export function SkillPage({
         <button
           type="button"
           onClick={onBack}
-          className={`mb-2.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          className={`mb-2.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
         >
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
             <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -64,11 +64,11 @@ export function SkillPage({
       <div className="flex items-start gap-3">
         {embedded ? null : <SourceMonogram monogram={sourceDisplayMonogram(source)} size="lg" />}
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-semibold text-[color:var(--text-strong)]">{skill.name}</h3>
+          <h3 className="text-title font-semibold text-[color:var(--text-strong)]">{skill.name}</h3>
           {embedded ? null : (
             /* The back crumb above already names the source, so repeating it
                here would state the same repository twice, two lines apart. */
-            <p className="mt-0.5 text-[11px] text-[color:var(--text-muted)]">
+            <p className="mt-0.5 text-meta text-[color:var(--text-muted)]">
               {[onBack ? null : sourceDisplayName(source), `${fileCount} file${fileCount === 1 ? '' : 's'}`]
                 .filter(Boolean)
                 .join(' · ')}
@@ -77,7 +77,7 @@ export function SkillPage({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {installed ? (
-            <span className="text-[11px] text-[color:var(--text-muted)]">Installed</span>
+            <span className="text-meta text-[color:var(--text-muted)]">Installed</span>
           ) : null}
           <PrimaryButton onClick={onInstall} disabled={!availability.enabled || installing}>
             {installing ? 'Installing…' : installed ? 'Reinstall' : 'Install skill'}
@@ -86,13 +86,13 @@ export function SkillPage({
       </div>
 
       {availability.reason ? (
-        <p className="mt-2 text-[11px] text-[color:var(--text-subtle)]">{availability.reason}</p>
+        <p className="mt-2 text-meta text-[color:var(--text-subtle)]">{availability.reason}</p>
       ) : null}
 
       {skill.description ? (
         <div className="mt-2.5 max-w-[74ch]">
           <p
-            className={`text-[12px] leading-5 text-[color:var(--text-muted)] ${
+            className={`text-body leading-5 text-[color:var(--text-muted)] ${
               longDescription && !descriptionOpen ? 'line-clamp-3' : ''
             }`}
           >
@@ -102,34 +102,34 @@ export function SkillPage({
             <button
               type="button"
               onClick={() => setDescriptionOpen((open) => !open)}
-              className={`mt-1 rounded text-[11px] text-[color:var(--text-muted)] underline underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+              className={`mt-1 rounded text-meta text-[color:var(--text-muted)] underline underline-offset-2 hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
             >
               {descriptionOpen ? 'Less' : 'More'}
             </button>
           ) : null}
         </div>
       ) : (
-        <p className="mt-2.5 text-[12px] text-[color:var(--text-subtle)]">
+        <p className="mt-2.5 text-body text-[color:var(--text-subtle)]">
           This skill's entry document declares no description.
         </p>
       )}
 
       {skill.allowedTools.length > 0 || skill.hasExecutables ? (
         <section className="mt-4 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-3">
-          <h4 className="text-[11px] font-medium text-[color:var(--text-muted)]">What it may run</h4>
+          <h4 className="text-meta font-medium text-[color:var(--text-muted)]">What it may run</h4>
           {skill.allowedTools.length > 0 ? (
             <ul role="list" className="mt-1.5 flex flex-wrap gap-1">
               {skill.allowedTools.map((tool) => (
                 <li
                   key={tool}
-                  className="rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-default)]"
+                  className="rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 font-mono text-meta text-[color:var(--text-default)]"
                 >
                   {tool}
                 </li>
               ))}
             </ul>
           ) : null}
-          <p className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-2.5 text-[11px] leading-5 text-[color:var(--text-subtle)]">
+          <p className="mt-2 border-l-2 border-[color:var(--border-strong)] pl-2.5 text-meta leading-5 text-[color:var(--text-subtle)]">
             {skill.allowedTools.length > 0
               ? "Declared by the skill's own allowed-tools. "
               : 'This skill declares no allowed-tools. '}
@@ -144,7 +144,7 @@ export function SkillPage({
           written is listed, and each one opens. */}
       <SkillReader key={`${source.id}::${skill.id}`} source={source} skill={skill} />
 
-      <p className="mt-5 border-t border-[color:var(--border-subtle)] pt-3 text-[11px] text-[color:var(--text-subtle)]">
+      <p className="mt-5 border-t border-[color:var(--border-subtle)] pt-3 text-meta text-[color:var(--text-subtle)]">
         Installing copies this skill's files into the skills directory of every agent CLI on this machine,
         inside the open workspace.
       </p>

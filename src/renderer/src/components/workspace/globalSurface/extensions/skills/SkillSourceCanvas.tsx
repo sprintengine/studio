@@ -244,13 +244,13 @@ function SourceHeader({
     <header className="flex items-start gap-3">
       <SourceMonogram monogram={sourceDisplayMonogram(source)} size="lg" />
       <div className="min-w-0 flex-1">
-        <h3 className={`text-[15px] font-semibold text-[color:var(--text-strong)] ${source.repo ? 'font-mono' : ''}`}>
+        <h3 className={`text-title font-semibold text-[color:var(--text-strong)] ${source.repo ? 'font-mono' : ''}`}>
           {sourceDisplayName(source)}
         </h3>
         {/* The sync outcome joins the facts the source already states, rather
             than arriving as a modal over them. It is allowed to wrap: a line
             that names a skill which failed to update must not be clipped. */}
-        <p className="mt-0.5 max-w-[74ch] text-[11px] text-[color:var(--text-muted)]">
+        <p className="mt-0.5 max-w-[74ch] text-meta text-[color:var(--text-muted)]">
           {meta.join(' · ')}
           {scanned ? `${meta.length > 0 ? ' · ' : ''}scanned ${scanned}` : ''}
           {sync.outcome ? `${meta.length > 0 || scanned ? ' · ' : ''}${sync.outcome}` : ''}
@@ -258,7 +258,7 @@ function SourceHeader({
         {/* A repository source's blurb is generated from the same counts the
             line above already states, so it would only repeat them. */}
         {source.blurb && !(source.repo && source.blurb.includes(source.repo)) ? (
-          <p className="mt-1.5 max-w-[74ch] text-[11px] text-[color:var(--text-muted)]">{source.blurb}</p>
+          <p className="mt-1.5 max-w-[74ch] text-meta text-[color:var(--text-muted)]">{source.blurb}</p>
         ) : null}
       </div>
       {sync.onSync || sync.onOpenHistory ? (
@@ -319,11 +319,11 @@ function BatchBar({
   const count = selected.size
   return (
     <div className="sticky bottom-0 mt-2.5 flex flex-wrap items-center gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-2">
-      <span className="text-[12px] font-medium text-[color:var(--text-strong)]">
+      <span className="text-body font-medium text-[color:var(--text-strong)]">
         {count > 0 ? `${count} selected` : 'Nothing selected'}
       </span>
       {availability.reason ? (
-        <span className="min-w-0 flex-1 text-[11px] text-[color:var(--text-subtle)]">{availability.reason}</span>
+        <span className="min-w-0 flex-1 text-meta text-[color:var(--text-subtle)]">{availability.reason}</span>
       ) : (
         <span className="flex-1" />
       )}
@@ -363,8 +363,8 @@ function GroupTree({
                 : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'
             }`}
           >
-            <span className="min-w-0 flex-1 truncate text-[12px]">{group.label}</span>
-            <span className="shrink-0 text-[11px] tabular-nums text-[color:var(--text-subtle)]">
+            <span className="min-w-0 flex-1 truncate text-body">{group.label}</span>
+            <span className="shrink-0 text-meta tabular-nums text-[color:var(--text-subtle)]">
               {group.count}
             </span>
           </button>
@@ -393,7 +393,7 @@ function GroupChips({
             type="button"
             aria-pressed={pressed}
             onClick={() => onSelect(pressed ? null : group.name)}
-            className={`inline-flex h-6 items-center gap-1.5 rounded-[5px] border px-2 text-[11px] transition-colors ${FOCUS_RING_CLASS} ${
+            className={`inline-flex h-control-xs items-center gap-1.5 rounded-[5px] border px-2 text-meta transition-colors ${FOCUS_RING_CLASS} ${
               pressed
                 ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -421,8 +421,8 @@ export function SectionHead({
 }): JSX.Element {
   return (
     <div className="mt-4 flex items-baseline gap-2 border-b border-[color:var(--border-subtle)] pb-1.5">
-      <h4 className="text-[12px] font-medium text-[color:var(--text-default)]">{label}</h4>
-      <span className="text-[11px] tabular-nums text-[color:var(--text-subtle)]">{count}</span>
+      <h4 className="text-body font-medium text-[color:var(--text-default)]">{label}</h4>
+      <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">{count}</span>
       {action ? <span className="ml-auto">{action}</span> : null}
     </div>
   )
@@ -440,8 +440,8 @@ export function EmptyState({
 }): JSX.Element {
   return (
     <div className="px-3 py-10 text-center">
-      <p className="text-[12px] text-[color:var(--text-muted)]">{title}</p>
-      {body ? <p className="mt-1 text-[11px] text-[color:var(--text-subtle)]">{body}</p> : null}
+      <p className="text-body text-[color:var(--text-muted)]">{title}</p>
+      {body ? <p className="mt-1 text-meta text-[color:var(--text-subtle)]">{body}</p> : null}
       {action ? <div className="mt-3 flex justify-center">{action}</div> : null}
     </div>
   )

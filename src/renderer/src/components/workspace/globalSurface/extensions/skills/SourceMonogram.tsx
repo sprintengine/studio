@@ -15,7 +15,7 @@ export function SourceMonogram({
     <span
       aria-hidden="true"
       className={`grid shrink-0 place-items-center rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] font-mono font-semibold text-[color:var(--text-muted)] ${
-        size === 'lg' ? 'h-9 w-9 text-[12px]' : 'h-[22px] w-[22px] text-[10px]'
+        size === 'lg' ? 'h-9 w-9 text-body' : 'h-[22px] w-[22px] text-meta'
       }`}
     >
       {monogram}

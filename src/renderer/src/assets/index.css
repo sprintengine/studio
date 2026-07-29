@@ -11,6 +11,48 @@
    useAppTheme.ts, and pre-paint by the boot script in src/renderer/index.html. */
 @import "../../../../design-system/foundations/tokens.css";
 
+/* The Tailwind mapping layer design-system/USAGE.md asks for: "map the token
+ * variables into your Tailwind config instead of restating their values".
+ * Tailwind here is v4 CSS-first, so `@theme` IS the config — there is no
+ * tailwind.config.*.
+ *
+ * Every entry aliases the renderer variable one layer down (`--text-size-*`,
+ * `--icon-*`, `--control-*` in the :root block below), which in turn aliases a
+ * `--sem-*` token. One ramp, one source, three names for three audiences:
+ * the bundle's, CSS's, and markup's. Nothing here restates a pixel value, so a
+ * change to design-system/foundations/tokens.tokens.json reaches markup on
+ * rebuild.
+ *
+ * The utilities this declares — use these, never `text-[Npx]` or `h-[Npx]`:
+ *
+ *   type     text-micro  text-meta  text-body  text-heading  text-title
+ *   icons    size-icon-xs / -sm / -md / -lg   (also w-/h-/min-w-/min-h-)
+ *   controls h-control-xs / -sm / -md         (also min-h-/w-)
+ *
+ * `text-*` names come from the bundle's own step names (sem.font.size.*). The
+ * icon and control ramps register in Tailwind's `--spacing-*` namespace, which
+ * is what feeds size-/w-/h-, and carry the same step names as the `.icon-*`
+ * classes further down this file, so `size-icon-sm` and `.icon-sm` are one
+ * ramp rather than two dialects. Tailwind's own `text-xs`/`text-sm`/`text-lg`
+ * are deliberately NOT overridden — retargeting them would silently move every
+ * existing call site in the app. */
+@theme {
+  --text-micro: var(--text-size-2xs);
+  --text-meta: var(--text-size-xs);
+  --text-body: var(--text-size-sm);
+  --text-heading: var(--text-size-md);
+  --text-title: var(--text-size-lg);
+
+  --spacing-icon-xs: var(--icon-xs);
+  --spacing-icon-sm: var(--icon-sm);
+  --spacing-icon-md: var(--icon-md);
+  --spacing-icon-lg: var(--icon-lg);
+
+  --spacing-control-xs: var(--control-xs);
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control-md: var(--control-md);
+}
+
 /* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
  * panel rebuilds. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
@@ -211,9 +253,10 @@
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(63, 148, 104, 0.08), transparent 48%);
 
-  /* Type scale. Body is 12 px to match existing flexlayout chrome. The
-     structural scales below are mode-invariant in the bundle, so they resolve
-     the same under either data-mode and every theme inherits them. */
+  /* Type scale. The structural scales below are mode-invariant in the bundle,
+     so they resolve the same under either data-mode and every theme inherits
+     them. Reach them from markup through the Tailwind utilities declared in
+     the `@theme` block at the top of this file, never as `text-[Npx]`. */
   --text-size-2xs: var(--sem-font-size-micro);
   --text-size-xs: var(--sem-font-size-meta);
   --text-size-sm: var(--sem-font-size-body);
@@ -230,6 +273,14 @@
   --icon-sm: var(--sem-icon-size-sm); /* default list-row and toolbar icons */
   --icon-md: var(--sem-icon-size-md); /* button-pair icons and panel header chrome */
   --icon-lg: var(--sem-icon-size-lg); /* prominent affordances and empty-state glyphs */
+
+  /* Control heights. The one vertical rhythm for anything interactive: an
+     input, a select, and a button sharing a row all sit on the same step.
+     `xs` is icon-only triggers, `sm` is the default for anything carrying a
+     label, `md` is overlay primary actions. */
+  --control-xs: var(--sem-size-control-xs);
+  --control-sm: var(--sem-size-control-sm);
+  --control-md: var(--sem-size-control-md);
 
   /* The floor no interactive box goes under, on either axis. A glyph keeps its
      drawn --icon-* size and the button pads out to this; it never shrinks to

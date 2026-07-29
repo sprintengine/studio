@@ -274,8 +274,8 @@ export function SkillsSurface({
         >
           <CompassGlyph />
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">Discover</span>
-            <span className="truncate text-[10px] text-[color:var(--text-subtle)]">Skills on GitHub</span>
+            <span className="truncate text-body font-medium text-[color:var(--text-strong)]">Discover</span>
+            <span className="truncate text-meta text-[color:var(--text-subtle)]">Skills on GitHub</span>
           </span>
         </button>
       </div>
@@ -318,7 +318,7 @@ export function SkillsSurface({
             }
           />
         ) : !activeScan || activeScan.status === 'loading' ? (
-          <div className="flex items-center gap-2 py-8 text-[12px] text-[color:var(--text-muted)]">
+          <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">
             <Spinner size={14} />
             {`Reading ${sourceDisplayName(activeSource)}…`}
           </div>
@@ -342,7 +342,7 @@ export function SkillsSurface({
                   <InlineNotice tone="error" title="Some skills did not install." hint={installReport.message} />
                 </div>
               ) : (
-                <p className="mb-3 text-[11px] text-[color:var(--text-muted)]">{installReport.message}</p>
+                <p className="mb-3 text-meta text-[color:var(--text-muted)]">{installReport.message}</p>
               )
             ) : null}
             {view?.kind === 'skill' ? (

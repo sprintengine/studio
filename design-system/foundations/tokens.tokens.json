@@ -791,7 +791,7 @@
       "size": {
         "micro": {
           "$type": "dimension",
-          "$value": "10px",
+          "$value": "11px",
           "$description": "Micro labels: kbd shortcuts in dense chrome.",
           "$extensions": {
             "com.multicode": {
@@ -803,7 +803,7 @@
         },
         "meta": {
           "$type": "dimension",
-          "$value": "11px",
+          "$value": "12px",
           "$description": "IDs, meta, and supporting copy.",
           "$extensions": {
             "com.multicode": {
@@ -815,7 +815,7 @@
         },
         "body": {
           "$type": "dimension",
-          "$value": "12px",
+          "$value": "13px",
           "$description": "Default body, card titles, row labels, buttons.",
           "$extensions": {
             "com.multicode": {
@@ -827,7 +827,7 @@
         },
         "heading": {
           "$type": "dimension",
-          "$value": "13px",
+          "$value": "14px",
           "$description": "Section headings and drawer body.",
           "$extensions": {
             "com.multicode": {
@@ -839,7 +839,7 @@
         },
         "title": {
           "$type": "dimension",
-          "$value": "15px",
+          "$value": "16px",
           "$description": "Panel and inspector titles.",
           "$extensions": {
             "com.multicode": {
@@ -930,7 +930,7 @@
         "tight": {
           "$type": "dimension",
           "$value": "-0.01em",
-          "$description": "Optical tightening for titles at 13px and up.",
+          "$description": "Optical tightening for titles at 14px and up.",
           "$extensions": {
             "com.multicode": {
               "role": "typography",
@@ -968,7 +968,7 @@
       "size": {
         "xs": {
           "$type": "dimension",
-          "$value": "12px",
+          "$value": "13px",
           "$description": "Inline glyphs next to body/meta copy.",
           "$extensions": {
             "com.multicode": {
@@ -980,7 +980,7 @@
         },
         "sm": {
           "$type": "dimension",
-          "$value": "14px",
+          "$value": "16px",
           "$description": "Default list-row and toolbar icons.",
           "$extensions": {
             "com.multicode": {
@@ -992,7 +992,7 @@
         },
         "md": {
           "$type": "dimension",
-          "$value": "16px",
+          "$value": "18px",
           "$description": "Button-pair icons and panel-header chrome.",
           "$extensions": {
             "com.multicode": {
@@ -1004,7 +1004,7 @@
         },
         "lg": {
           "$type": "dimension",
-          "$value": "20px",
+          "$value": "22px",
           "$description": "Prominent affordances and empty-state glyphs.",
           "$extensions": {
             "com.multicode": {
@@ -1248,7 +1248,7 @@
       "control": {
         "xs": {
           "$type": "dimension",
-          "$value": "24px",
+          "$value": "26px",
           "$description": "Dense control height: icon buttons and in-row triggers.",
           "$extensions": {
             "com.multicode": {
@@ -1260,7 +1260,7 @@
         },
         "sm": {
           "$type": "dimension",
-          "$value": "28px",
+          "$value": "30px",
           "$description": "Default control height: buttons, inputs, selects.",
           "$extensions": {
             "com.multicode": {
@@ -1271,7 +1271,7 @@
         },
         "md": {
           "$type": "dimension",
-          "$value": "32px",
+          "$value": "34px",
           "$description": "Comfortable control height for primary actions in overlays.",
           "$extensions": {
             "com.multicode": {

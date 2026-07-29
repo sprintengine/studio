@@ -136,7 +136,7 @@ const MESSAGE_CLASS: Record<NonNullable<Message>['tone'], string> = {
 // color-only.
 export function PermissionChips({ permissions }: { permissions: string[] }) {
   if (permissions.length === 0) {
-    return <span className="text-[11px] text-[color:var(--text-subtle)]">No special access requested.</span>
+    return <span className="text-meta text-[color:var(--text-subtle)]">No special access requested.</span>
   }
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -146,7 +146,7 @@ export function PermissionChips({ permissions }: { permissions: string[] }) {
           <span
             key={permission}
             title={permission}
-            className={`inline-flex items-center rounded-md bg-[color:var(--bg-active)] px-2 py-0.5 text-[11px] ${
+            className={`inline-flex items-center rounded-md bg-[color:var(--bg-active)] px-2 py-0.5 text-meta ${
               flagged ? 'text-[color:var(--tone-warn)]' : 'text-[color:var(--text-default)]'
             }`}
           >
@@ -209,10 +209,10 @@ export function ThirdPartyModuleRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-[color:var(--text-strong)]">
+            <span className="text-title font-semibold text-[color:var(--text-strong)]">
               {module.manifest.displayName}
             </span>
-            <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+            <span className="inline-flex items-center gap-1.5 text-body text-[color:var(--text-muted)]">
               {/* Decorative: the adjacent text already names the trust state, so
                   labelling the dot would double-announce it to screen readers. */}
               <StatusDot tone={trust.tone} />
@@ -220,13 +220,13 @@ export function ThirdPartyModuleRow({
             </span>
           </div>
           {module.manifest.summary ? (
-            <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
               {module.manifest.summary}
             </div>
           ) : null}
         </div>
         {isInvalid ? (
-          <span className="shrink-0 text-[11px] text-[color:var(--tone-error)]">Cannot be trusted</span>
+          <span className="shrink-0 text-meta text-[color:var(--tone-error)]">Cannot be trusted</span>
         ) : (
           <Switch
             checked={module.trust === 'trusted'}
@@ -237,20 +237,20 @@ export function ThirdPartyModuleRow({
         )}
       </div>
       {launch ? (
-        <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <div className="text-body leading-5 text-[color:var(--text-muted)]">
           <span className="text-[color:var(--text-default)]">{launch.label}</span>
           {` — ${launch.detail}`}
         </div>
       ) : null}
       {rendererEntry ? (
-        <div className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <div className="text-body leading-5 text-[color:var(--text-muted)]">
           <span className="text-[color:var(--text-default)]">{rendererEntry.label}</span>
           {` — ${rendererEntry.detail}`}
         </div>
       ) : null}
       {canEnable ? (
         <div className="flex items-center justify-between gap-3">
-          <span id={enableLabelId} className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <span id={enableLabelId} className="text-body leading-5 text-[color:var(--text-muted)]">
             {enableLabel}
           </span>
           <Switch checked={enabled} ariaLabelledBy={enableLabelId} onChange={onEnabledChange} />
@@ -332,8 +332,8 @@ export function ThirdPartyModuleList({
     <div className="flex flex-col gap-3 border-t border-[color:var(--border-subtle)] pt-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-[color:var(--text-strong)]">Third-party modules</div>
-          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <div className="text-title font-semibold text-[color:var(--text-strong)]">Third-party modules</div>
+          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
             Modules you install from disk. Review the access each one requests and trust the ones you
             approve — requested access is install-time disclosure, not a runtime sandbox. A trusted
             module&rsquo;s code runs in this app with the app&rsquo;s access and loads at app launch;
@@ -342,17 +342,17 @@ export function ThirdPartyModuleList({
             the next app launch.
           </p>
         </div>
-        <GhostButton size="md" onClick={() => void installFromFolder()} disabled={installing} className="h-9">
+        <GhostButton size="md" onClick={() => void installFromFolder()} disabled={installing} className="h-control-md">
           {installing ? 'Installing' : 'Install from folder'}
         </GhostButton>
       </div>
 
       {message ? (
-        <div className={`border-l-2 pl-3 text-[12px] leading-5 ${MESSAGE_CLASS[message.tone]}`}>{message.text}</div>
+        <div className={`border-l-2 pl-3 text-body leading-5 ${MESSAGE_CLASS[message.tone]}`}>{message.text}</div>
       ) : null}
 
       {modules.length === 0 ? (
-        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <div className="border-l-2 border-[color:var(--border-strong)] pl-3 text-body leading-5 text-[color:var(--text-muted)]">
           No third-party modules installed. Install a module folder (a manifest.json plus its files) to
           review and trust it.
         </div>
@@ -372,7 +372,7 @@ export function ThirdPartyModuleList({
       )}
 
       {rejected.length > 0 ? (
-        <div className="border-l-2 border-[color:var(--tone-warn)] pl-3 text-[12px] leading-5 text-[color:var(--tone-warn)]">
+        <div className="border-l-2 border-[color:var(--tone-warn)] pl-3 text-body leading-5 text-[color:var(--tone-warn)]">
           {rejected.length} module folder{rejected.length === 1 ? '' : 's'} could not be loaded:{' '}
           {rejected.map((entry) => entry.issues[0]?.message ?? entry.path).join('; ')}
         </div>

@@ -404,7 +404,7 @@ function ShowOlderRow({
 }) {
   const remaining = hiddenTotal - revealed
   const rowClass =
-    'flex h-[26px] cursor-pointer select-none items-center gap-1.5 rounded-md text-[12px] text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
+    'flex h-control-xs cursor-pointer select-none items-center gap-1.5 rounded-md text-meta text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]'
   return (
     <div className="mx-1.5 my-0.5 flex items-center gap-1">
       {remaining > 0 ? (
@@ -1182,7 +1182,7 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        className={`group relative mx-1.5 my-0.5 flex h-[30px] cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-[13px] transition-colors ${FOCUS_RING_CLASS} ${
+        className={`group relative mx-1.5 my-0.5 flex h-control-sm cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-heading transition-colors ${FOCUS_RING_CLASS} ${
           active
             ? activeRowClass(workspace, moduleOverrides)
             : highlighted
@@ -1222,7 +1222,7 @@ export default function WorkspaceSidebar({
               if (event.key === 'Escape') setRenamingId(null)
               event.stopPropagation()
             }}
-            className={`min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0 text-[13px] text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`min-w-0 flex-1 rounded border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0 text-heading text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           />
         ) : (
           <span
@@ -1277,7 +1277,7 @@ export default function WorkspaceSidebar({
             ) : null}
             {showRecencyText ? (
               <span
-                className="text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+                className="text-meta tabular-nums text-[color:var(--text-subtle)]"
                 title={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
                 aria-label={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)}`}
               >
@@ -1300,7 +1300,7 @@ export default function WorkspaceSidebar({
                     y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
                   })
                 }}
-                className={`inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                 aria-label="Workspace actions"
               >
                 <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
@@ -1317,7 +1317,7 @@ export default function WorkspaceSidebar({
                   event.stopPropagation()
                   handleClose(workspace.id)
                 }}
-                className={`inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                className={`inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                 aria-label={`Close ${workspace.name}`}
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
@@ -1482,7 +1482,7 @@ export default function WorkspaceSidebar({
                       onDragOver={handleTabDragOverNew}
                       onDragLeave={handleTabDragLeaveNew}
                       onDrop={handleTabDropOnNew}
-                      className={`flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-[13px] font-medium transition-colors ${FOCUS_RING_CLASS} ${
+                      className={`flex h-control-sm min-w-0 flex-1 items-center gap-2 rounded-l-md px-2 text-left text-heading font-medium transition-colors ${FOCUS_RING_CLASS} ${
                         tabDropTarget?.kind === 'new'
                           ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -1503,7 +1503,7 @@ export default function WorkspaceSidebar({
                         const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
                         setCreateMenu({ x: rect.right, y: rect.bottom })
                       }}
-                      className={`flex h-[30px] w-[26px] shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
+                      className={`flex h-control-sm w-control-xs shrink-0 items-center justify-center rounded-r-md transition-colors ${FOCUS_RING_CLASS} text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`}
                     >
                       <svg viewBox="0 0 16 16" fill="none" className="icon-sm pointer-events-none shrink-0" aria-hidden="true">
                         <path d="M8 3.5V12.5M3.5 8H12.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -1562,12 +1562,12 @@ export default function WorkspaceSidebar({
               onClick={() => setStarredCollapsed((prev) => !prev)}
               aria-expanded={!starredCollapsed}
               aria-controls="ws-starred-body"
-              className={`group/folder relative flex h-[26px] w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+              className={`group/folder relative flex h-control-xs w-full cursor-pointer select-none items-center gap-1.5 pl-4 pr-2 text-left text-[color:var(--text-muted)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
             >
               {/* One icon slot, Cursor-style: the star at rest, the collapse
                   chevron swapped in on hover — no dedicated chevron column, so
                   child rows don't have to indent past it. */}
-              <span className="relative flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
                 <StarGlyph
                   filled
                   className="icon-sm shrink-0 text-[color:var(--tone-warn)] transition-opacity group-hover/folder:opacity-0"
@@ -1583,7 +1583,7 @@ export default function WorkspaceSidebar({
                   <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
                 Starred
               </span>
             </button>
@@ -1625,7 +1625,7 @@ export default function WorkspaceSidebar({
                   event.preventDefault()
                   setFolderMenu({ folderKey: group.key, x: event.clientX, y: event.clientY })
                 }}
-                className={`group/folder relative flex h-[26px] select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
+                className={`group/folder relative flex h-control-xs select-none items-center gap-1.5 pr-2 text-[color:var(--text-muted)] ${
                   group.missing ? 'text-[color:var(--tone-warn)]' : ''
                 }`}
               >
@@ -1649,7 +1649,7 @@ export default function WorkspaceSidebar({
                 >
                   {/* One icon slot, Cursor-style: the folder glyph at rest, the
                       collapse chevron swapped in on hover. */}
-                  <span className="relative flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+                  <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
                     <svg
                       viewBox="0 0 16 16"
                       fill="none"
@@ -1673,12 +1673,12 @@ export default function WorkspaceSidebar({
                       <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[color:var(--text-strong)]">
+                  <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
                     {group.displayName}
                   </span>
                 </button>
                 {group.missing ? (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[color:var(--tone-warn)]">
+                  <span className="inline-flex items-center gap-1.5 text-meta font-medium text-[color:var(--tone-warn)]">
                     <StatusDot tone="warn" label="Folder missing" />
                     Missing
                   </span>
@@ -1694,7 +1694,7 @@ export default function WorkspaceSidebar({
                         y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
                       })
                     }}
-                    className={`ml-1 inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
+                    className={`ml-1 inline-flex size-control-xs items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
                     aria-label={`Folder actions: ${group.displayName}`}
                   >
                     <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
@@ -1752,12 +1752,12 @@ export default function WorkspaceSidebar({
                     else if (model.id === 'standard') onNewWorkspace()
                     else onNewWorkspaceMode(model.id)
                   }}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-heading text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
                 >
                   <Icon className="icon-xs pointer-events-none shrink-0 text-[color:var(--text-subtle)]" />
                   <span className="min-w-0 flex-1 truncate">{`New ${model.label.toLowerCase()}`}</span>
                   {model.id === 'standard' ? (
-                    <kbd className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">Ctrl+T</kbd>
+                    <kbd className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">Ctrl+T</kbd>
                   ) : null}
                 </button>
               )

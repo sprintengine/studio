@@ -385,7 +385,7 @@ function PlaceholderCard({
         <TruncatedText
           as="span"
           text={relativePath}
-          className="font-mono text-[10px] text-[color:var(--text-subtle)]"
+          className="font-mono text-micro text-[color:var(--text-subtle)]"
         />
       </span>
     </button>
@@ -406,14 +406,14 @@ function BuildingCard({ title, path }: { title: string; path: string }) {
           aria-hidden="true"
           className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[color:var(--border-default)] border-t-[color:var(--accent-primary)] motion-reduce:animate-none"
         />
-        <span className="text-[10px] text-[color:var(--text-subtle)]">Building {title}…</span>
+        <span className="text-micro text-[color:var(--text-subtle)]">Building {title}…</span>
       </span>
       <span className="flex flex-col gap-0.5 px-3 py-2">
         <span className="text-[12px] font-semibold text-[color:var(--text-strong)]">{title}</span>
         <TruncatedText
           as="span"
           text={path}
-          className="font-mono text-[10px] text-[color:var(--text-subtle)]"
+          className="font-mono text-micro text-[color:var(--text-subtle)]"
         />
       </span>
     </div>
@@ -500,7 +500,7 @@ function FoundationCard({
       <TruncatedText
         as="span"
         text={foundation.relativePath}
-        className="font-mono text-[10px] text-[color:var(--text-subtle)]"
+        className="font-mono text-micro text-[color:var(--text-subtle)]"
       />
     </button>
   )

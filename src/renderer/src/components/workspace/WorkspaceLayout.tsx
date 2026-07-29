@@ -256,7 +256,7 @@ function renderTerminalRecencyIndicator(
   const label = tabRecencyLabel(recency.source)
   return (
     <span
-      className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+      className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
       title={`${label} ${formatRelativeMsAgo(recency.at, now)} (${new Date(recency.at).toLocaleString()})`}
       aria-label={`${label} ${formatRelativeMsAgo(recency.at, now)}`}
     >
@@ -1230,7 +1230,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       const recencyIndicator = agentRecency !== null && agentRecencyText
         ? (
             <span
-              className="ml-0.5 shrink-0 text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+              className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
               title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
               aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
             >

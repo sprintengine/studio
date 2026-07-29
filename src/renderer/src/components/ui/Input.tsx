@@ -17,8 +17,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         type={type ?? 'text'}
         {...rest}
         className={[
-          'h-7 w-full rounded-[5px] border border-[color:var(--border-default)]',
-          'bg-[color:var(--bg-surface-raised)] px-2 text-[12px] text-[color:var(--text-default)]',
+          'h-control-sm w-full rounded-[5px] border border-[color:var(--border-default)]',
+          'bg-[color:var(--bg-surface-raised)] px-2 text-body text-[color:var(--text-default)]',
           'transition-colors placeholder:text-[color:var(--text-disabled)]',
           'hover:border-[color:var(--border-strong)]',
           FOCUS_RING_CLASS,

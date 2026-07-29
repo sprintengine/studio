@@ -10,7 +10,7 @@ import {
 import { isAbsolutePath } from '../../store/slices/memorySlice'
 
 const ROW_INPUT_CLASS =
-  'h-9 w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full min-w-0 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 type RowStatus = MemoryRootStatus | null
 
@@ -240,7 +240,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
 
   if (projects.length === 0) {
     return (
-      <p className="text-[12px] leading-5 text-[color:var(--text-subtle)]">
+      <p className="text-body leading-5 text-[color:var(--text-subtle)]">
         Open a workspace folder before configuring the Knowledge Graph.
       </p>
     )
@@ -255,13 +255,13 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
             role="checkbox"
             aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
             onClick={toggleAll}
-            className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
+            className="flex items-center gap-2 text-body text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]"
           >
             <CheckGlyph checked={allSelected} mixed={someSelected && !allSelected} />
             Select all
           </button>
           {someSelected ? (
-            <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+            <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
               <span className="tabular-nums">{selectedEntries.length} selected</span>
               <GhostButton size="sm" onClick={() => void chooseSharedFolder()}>
                 Point at shared folder…
@@ -305,21 +305,21 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="truncate text-sm font-medium text-[color:var(--text-strong)]">
+                    <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
                       {entry.name}
                     </span>
                     {isActive ? (
-                      <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+                      <span className="shrink-0 text-meta text-[color:var(--text-muted)]">
                         Current
                       </span>
                     ) : null}
                     {entry.workspaceCount > 1 ? (
-                      <span className="shrink-0 tabular-nums text-[11px] text-[color:var(--text-muted)]">
+                      <span className="shrink-0 tabular-nums text-meta text-[color:var(--text-muted)]">
                         {entry.workspaceCount} workspaces
                       </span>
                     ) : null}
                   </div>
-                  <div className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+                  <div className="truncate font-mono text-meta text-[color:var(--text-subtle)]">
                     {entry.projectRoot}
                   </div>
                 </div>
@@ -340,14 +340,14 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                   <GhostButton
                     size="md"
                     onClick={() => void chooseFolder(entry)}
-                    className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                    className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                   >
                     Choose
                   </GhostButton>
                 </div>
               </div>
               {error ? (
-                <p className="pb-2 pl-[3.25rem] text-[11px] text-[color:var(--tone-warn)]">{error}</p>
+                <p className="pb-2 pl-[3.25rem] text-meta text-[color:var(--tone-warn)]">{error}</p>
               ) : null}
             </li>
           )
@@ -358,7 +358,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
         bulkMessage.tone === 'warn' ? (
           <InlineNotice tone="warn">{bulkMessage.text}</InlineNotice>
         ) : (
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{bulkMessage.text}</p>
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">{bulkMessage.text}</p>
         )
       ) : null}
     </div>

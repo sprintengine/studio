@@ -97,7 +97,7 @@ function SpecialistPackCard({
         icon={
           <ModuleTileIcon
             name={pack.name}
-            glyph={<SpecialistPacksSettingsIcon className="h-[18px] w-[18px] text-[color:var(--icon-chip-ink)]" />}
+            glyph={<SpecialistPacksSettingsIcon className="size-icon-md text-[color:var(--icon-chip-ink)]" />}
           />
         }
         name={pack.name}
@@ -119,14 +119,14 @@ function SpecialistPackCard({
             <div key={specialist.id} className="flex items-center gap-3 px-3 py-2.5">
               <SpecialistActionIcon
                 icon={specialist.icon}
-                className="h-4 w-4 shrink-0 text-[color:var(--text-muted)]"
+                className="icon-md shrink-0 text-[color:var(--text-muted)]"
               />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">
+                <div className="truncate text-body font-medium text-[color:var(--text-strong)]">
                   {specialist.shortLabel}
                 </div>
                 {specialist.description ? (
-                  <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                  <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
                     {specialist.description}
                   </div>
                 ) : null}
@@ -176,7 +176,7 @@ export function ModulesSettingsTab() {
       aria-labelledby="settings-tab-modules"
       className="space-y-5"
     >
-      <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+      <p className="text-body leading-5 text-[color:var(--text-muted)]">
         Everything that plugs into the app, in one place. Turning a module off hides its surfaces —
         nothing is uninstalled, and you can turn it back on any time. Specialist packs group the
         agents offered in the spawn menu; turning a pack off hides its agents from the dropdown while
@@ -193,7 +193,7 @@ export function ModulesSettingsTab() {
       </div>
 
       {moduleGroups.length === 0 && visiblePacks.length === 0 ? (
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">
           Nothing matches &ldquo;{query.trim()}&rdquo;.
         </p>
       ) : null}
@@ -219,14 +219,14 @@ export function ModulesSettingsTab() {
         <section className="space-y-2">
           <ConnectorSectionHeading label="Specialist packs" count={0} />
           <div className="flex flex-col items-start gap-3 border-l-2 border-[color:var(--border-strong)] pl-3">
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               No specialist packs installed. Install one from the marketplace and its agents appear in
               the spawn menu, alongside the Terminal, General, and Conversation rows.
             </p>
             <GhostButton
               size="md"
               onClick={() => openExtensionsSurface({ view: 'browse' })}
-              className="h-9"
+              className="h-control-md"
             >
               Browse marketplace
             </GhostButton>

@@ -310,7 +310,7 @@ export function KeyboardShortcutsTab() {
       </div>
 
       {groups.length === 0 ? (
-        <p className="px-1 py-6 text-center text-[12px] text-[color:var(--text-muted)]">
+        <p className="px-1 py-6 text-center text-body text-[color:var(--text-muted)]">
           No commands match “{query.trim()}”.
         </p>
       ) : (
@@ -382,12 +382,12 @@ function ShortcutRowView({
   return (
     <li className="group flex items-center gap-3 py-1.5">
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate text-[13px] text-[color:var(--text-strong)]">{row.title}</span>
+        <span className="truncate text-body text-[color:var(--text-strong)]">{row.title}</span>
         {tone && message ? (
           <span className="inline-flex shrink-0 items-center gap-1.5">
             <StatusDot tone={tone} label={message} />
             <span
-              className={`whitespace-nowrap text-[11px] ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-warn)]'}`}
+              className={`whitespace-nowrap text-meta ${tone === 'error' ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--tone-warn)]'}`}
             >
               {message}
             </span>
@@ -430,7 +430,7 @@ function ChordList({ chords, platform }: { chords: readonly string[]; platform: 
     <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
       {chords.map((chord, index) => (
         <React.Fragment key={chord}>
-          {index > 0 ? <span className="text-[11px] text-[color:var(--text-subtle)]">or</span> : null}
+          {index > 0 ? <span className="text-meta text-[color:var(--text-subtle)]">or</span> : null}
           <KbdChord chord={chord} platform={platform} />
         </React.Fragment>
       ))}
@@ -498,7 +498,7 @@ function KeybindingCell({
         onKeyDown={handleKeyDown}
         onBlur={() => recording && onCancelRecording()}
         className={[
-          'interactive inline-flex h-7 min-w-[72px] items-center justify-end gap-1.5 rounded-[5px] px-2',
+          'interactive inline-flex h-control-sm min-w-[72px] items-center justify-end gap-1.5 rounded-[5px] px-2',
           FOCUS_RING_CLASS,
           recording
             ? 'bg-[color:var(--accent-primary-soft)]'
@@ -506,11 +506,11 @@ function KeybindingCell({
         ].join(' ')}
       >
         {recording ? (
-          <span className="text-[12px] font-medium text-[color:var(--accent-primary)]">Press keys…</span>
+          <span className="text-body font-medium text-[color:var(--accent-primary)]">Press keys…</span>
         ) : hasBinding ? (
           <ChordList chords={row.effective} platform={platform} />
         ) : (
-          <span className="text-[12px] text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-muted)]">
+          <span className="text-body text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-muted)]">
             Add shortcut
           </span>
         )}

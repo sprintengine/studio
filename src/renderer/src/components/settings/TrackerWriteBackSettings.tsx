@@ -42,7 +42,7 @@ type TransitionsState = {
 
 const INITIAL_TRANSITIONS: TransitionsState = { phase: 'idle', transitions: [], sampleKey: null }
 
-const GROUP_TITLE_CLASS = 'mb-2 text-[11px] font-medium text-[color:var(--text-subtle)]'
+const GROUP_TITLE_CLASS = 'mb-2 text-meta font-medium text-[color:var(--text-subtle)]'
 
 export function TrackerWriteBackSettings({
   connection,
@@ -206,7 +206,7 @@ export function TrackerWriteBackSettings({
   if (!config) {
     return (
       <ConnectionFrame connection={connection}>
-        <p className="text-[12px] text-[color:var(--text-subtle)]">Loading write-back settings…</p>
+        <p className="text-body text-[color:var(--text-subtle)]">Loading write-back settings…</p>
       </ConnectionFrame>
     )
   }
@@ -225,10 +225,10 @@ export function TrackerWriteBackSettings({
               ariaLabel={`Post updates back to ${providerDisplayName(connection.provider)} for ${connection.label}`}
             />
             <label htmlFor={masterId} className="cursor-pointer select-none">
-              <span className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+              <span className="block text-body font-medium text-[color:var(--text-strong)]">
                 Post updates back to {providerDisplayName(connection.provider)}
               </span>
-              <span className="block text-[12px] text-[color:var(--text-subtle)]">
+              <span className="block text-body text-[color:var(--text-subtle)]">
                 {masterDescription(config.enabled, connection.provider)}
               </span>
             </label>
@@ -267,7 +267,7 @@ export function TrackerWriteBackSettings({
                     onChange={(on) => toggleComment(event.key, on)}
                   />
                 ))}
-                <p className="mt-1.5 max-w-[54ch] text-[12px] leading-[1.5] text-[color:var(--text-subtle)]">
+                <p className="mt-1.5 max-w-[54ch] text-body leading-[1.5] text-[color:var(--text-subtle)]">
                   Each update posts exactly once, even across app restarts; a failed post shows on the backlog item and
                   never blocks the sprint.
                 </p>
@@ -289,7 +289,7 @@ export function TrackerWriteBackSettings({
                       }
                     />
                   ) : transitions.reason === 'no_sample_issue' ? (
-                    <p className="max-w-[52ch] text-[12px] leading-[1.5] text-[color:var(--text-subtle)]">
+                    <p className="max-w-[52ch] text-body leading-[1.5] text-[color:var(--text-subtle)]">
                       Add an issue from this tracker to your backlog first — its own statuses populate these options, so
                       a workflow is never guessed.
                     </p>
@@ -297,7 +297,7 @@ export function TrackerWriteBackSettings({
                     <>
                       {TRANSITION_EVENTS.map((event) => (
                         <div key={event.key} className="flex items-center gap-3 py-1.5">
-                          <span className="w-[150px] shrink-0 text-[13px] text-[color:var(--text-default)]">
+                          <span className="w-[150px] shrink-0 text-body text-[color:var(--text-default)]">
                             {event.label}
                           </span>
                           <Select
@@ -311,7 +311,7 @@ export function TrackerWriteBackSettings({
                           />
                         </div>
                       ))}
-                      <p className="mt-1.5 max-w-[54ch] text-[12px] leading-[1.5] text-[color:var(--text-subtle)]">
+                      <p className="mt-1.5 max-w-[54ch] text-body leading-[1.5] text-[color:var(--text-subtle)]">
                         Statuses come from this {providerDisplayName(connection.provider)} project’s own workflow
                         {transitions.sampleKey ? `, read from ${transitions.sampleKey}` : ''}. A transition is never
                         guessed.
@@ -339,13 +339,13 @@ export function TrackerWriteBackSettings({
         </div>
 
         <div>
-          <div className="mb-2 text-[11px] font-medium text-[color:var(--text-subtle)]">
+          <div className="mb-2 text-meta font-medium text-[color:var(--text-subtle)]">
             What your team sees {sampleLabel}
           </div>
           {!config.enabled ? (
-            <p className="text-[13px] text-[color:var(--text-subtle)]">Nothing — posting updates is off.</p>
+            <p className="text-body text-[color:var(--text-subtle)]">Nothing — posting updates is off.</p>
           ) : preview.length === 0 ? (
-            <p className="text-[13px] leading-[1.5] text-[color:var(--text-subtle)]">
+            <p className="text-body leading-[1.5] text-[color:var(--text-subtle)]">
               No comments will be posted.
               {config.transitions.onStart || config.transitions.onComplete
                 ? ' The issue’s status will change, with no comment.'
@@ -385,12 +385,12 @@ function ConnectionFrame({
     <section className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] p-4">
       <div className="mb-3.5 flex items-center gap-2">
         <span
-          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[11px] font-semibold text-[color:var(--text-muted)]"
+          className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-meta font-semibold text-[color:var(--text-muted)]"
           aria-hidden="true"
         >
           {trackerProviderMonogram(connection.provider)}
         </span>
-        <h3 className="text-[13px] font-medium text-[color:var(--text-strong)]">
+        <h3 className="text-body font-medium text-[color:var(--text-strong)]">
           {providerDisplayName(connection.provider)} · {connection.label}
         </h3>
       </div>
@@ -411,7 +411,7 @@ function CommentCheck({
   onChange: (next: boolean) => void
 }) {
   return (
-    <label className="flex cursor-pointer select-none items-center gap-2.5 py-1 text-[13px] text-[color:var(--text-default)]">
+    <label className="flex cursor-pointer select-none items-center gap-2.5 py-1 text-body text-[color:var(--text-default)]">
       <span className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
         <input
           type="checkbox"
@@ -448,17 +448,17 @@ function CommentPreviewCard({ markdown }: { markdown: string }) {
   return (
     <div className="rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-hover)] px-3 py-2.5">
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-[11px] font-semibold text-[color:var(--text-on-accent)]">
+        <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-meta font-semibold text-[color:var(--text-on-accent)]">
           MC
         </span>
-        <span className="text-[12px] font-medium text-[color:var(--text-strong)]">Sprint Engine Studio</span>
+        <span className="text-body font-medium text-[color:var(--text-strong)]">Sprint Engine Studio</span>
       </div>
-      <div className="flex flex-col gap-1.5 text-[12px] leading-[1.5] text-[color:var(--text-default)]">
+      <div className="flex flex-col gap-1.5 text-body leading-[1.5] text-[color:var(--text-default)]">
         {blocks.map((block, index) =>
           block.kind === 'link-list' ? (
             <ul key={index} className="flex flex-col gap-0.5">
               {block.urls.map((url) => (
-                <li key={url} className="truncate font-mono text-[11px] text-[color:var(--accent-primary)]">
+                <li key={url} className="truncate font-mono text-meta text-[color:var(--accent-primary)]">
                   {url}
                 </li>
               ))}

@@ -22,17 +22,17 @@ export function ModuleSectionErrorFallback({
   onRetry: () => void
 }) {
   return (
-    <div role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-[12px] leading-5">
+    <div role="alert" className="border-l-2 border-[color:var(--tone-error)] pl-3 text-body leading-5">
       <p className="text-[color:var(--tone-error)]">
         {section.label} failed to render. The rest of Settings is unaffected.
       </p>
-      <p className="mt-0.5 font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]">
+      <p className="mt-0.5 font-mono text-meta leading-4 text-[color:var(--text-subtle)]">
         From {section.moduleId}
       </p>
       <button
         type="button"
         onClick={onRetry}
-        className={`mt-1.5 text-[12px] font-semibold text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+        className={`mt-1.5 text-body font-semibold text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         Try again
       </button>

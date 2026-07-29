@@ -234,7 +234,7 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
 }
 
 const INPUT_CLASS =
-  'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 /**
  * Compact control for `SettingsRow`: callers add a width (`w-60` for the
@@ -244,10 +244,10 @@ const INPUT_CLASS =
  * (commands, model ids, tokens), not prose.
  */
 const ROW_INPUT_CLASS =
-  'h-8 max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-[12px] text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md max-w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-app)] px-2.5 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 const TEXTAREA_BASE_CLASS =
-  'w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[12px] leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'w-full resize-y rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-body leading-5 text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 // Instructions editor: the SKILL.md document the runtime parses, so it reads as a
 // structured document (mono) rather than prose. Tall by default since the author
 // is filling in a multi-section scaffold.
@@ -287,7 +287,7 @@ function MessageBlock({
 }) {
   return (
     <div
-      className={`border-l-2 pl-3 text-[12px] leading-5 ${MESSAGE_BORDER[tone]} ${MESSAGE_TEXT[tone]}`}
+      className={`border-l-2 pl-3 text-body leading-5 ${MESSAGE_BORDER[tone]} ${MESSAGE_TEXT[tone]}`}
     >
       {children}
     </div>
@@ -302,7 +302,7 @@ function StatusTag({
   label: string
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+    <span className="inline-flex items-center gap-1.5 text-body text-[color:var(--text-muted)]">
       <StatusDot tone={tone} label={label} />
       <span className="font-medium text-[color:var(--text-default)]">{label}</span>
     </span>
@@ -383,7 +383,7 @@ function CliCredentialRow({
 
   return (
     <div className="py-2.5 first:pt-0 last:pb-0">
-      <div className="text-[13px] font-medium text-[color:var(--text-strong)]">{label}</div>
+      <div className="text-body font-medium text-[color:var(--text-strong)]">{label}</div>
       <div className="mt-2 space-y-1.5">
         {configured ? (
           <div className="flex items-center gap-2">
@@ -392,7 +392,7 @@ function CliCredentialRow({
               <span aria-hidden="true">••••••••••••</span>
             </div>
             {canClear ? (
-              <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="h-8 shrink-0">
+              <GhostButton size="md" onClick={() => void clear()} disabled={busy} className="h-control-md shrink-0">
                 {busy ? 'Removing…' : 'Remove'}
               </GhostButton>
             ) : null}
@@ -418,21 +418,21 @@ function CliCredentialRow({
               disabled={busy}
               className={`${ROW_INPUT_CLASS} min-w-0 flex-1`}
             />
-            <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="h-8 shrink-0">
+            <PrimaryButton size="md" onClick={() => void save()} disabled={busy || !draft.trim()} className="h-control-md shrink-0">
               {busy ? 'Saving…' : 'Save'}
             </PrimaryButton>
           </div>
         )}
         {configured && source === 'environment' ? (
-          <p className="text-[11px] leading-5 text-[color:var(--text-subtle)]">
+          <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
             Set from the environment. Remove it there to change it.
           </p>
         ) : configured && persistence === 'session' ? (
-          <p className="text-[11px] leading-5 text-[color:var(--tone-warn)]">
+          <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
             Stored for this session only — clears when the app quits.
           </p>
         ) : null}
-        <div aria-live="polite" className="text-[11px] leading-5 text-[color:var(--text-muted)] empty:hidden">
+        <div aria-live="polite" className="text-meta leading-5 text-[color:var(--text-muted)] empty:hidden">
           {message}
         </div>
       </div>
@@ -458,17 +458,17 @@ function PluginModelSettings({
   }
   return (
     <div className="py-2.5 first:pt-0 last:pb-0">
-      <div className="text-[13px] font-medium text-[color:var(--text-strong)]">Custom model ids</div>
+      <div className="text-body font-medium text-[color:var(--text-strong)]">Custom model ids</div>
       <div className="mt-2 space-y-1">
         {userModels.map((model) => (
-          <div key={model} className="group -mx-1 flex h-8 items-center gap-2 rounded px-1">
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[color:var(--text-default)]">
+          <div key={model} className="group -mx-1 flex h-control-md items-center gap-2 rounded px-1">
+            <span className="min-w-0 flex-1 truncate font-mono text-body text-[color:var(--text-default)]">
               {model}
             </span>
             <button
               type="button"
               onClick={() => onUserModelsChange(userModels.filter((id) => id !== model))}
-              className="invisible rounded px-1.5 py-0.5 text-[11px] text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
+              className="invisible rounded px-1.5 py-0.5 text-meta text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)] focus-visible:visible group-focus-within:visible group-hover:visible"
             >
               Remove
               <span className="sr-only"> {model} from {displayName} models</span>
@@ -586,11 +586,11 @@ function RegistrySwitchRow({
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
       <div className="min-w-0">
-        <span id={labelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+        <span id={labelId} className="block text-body font-medium text-[color:var(--text-strong)]">
           {descriptor.label}
         </span>
         {descriptor.help ? (
-          <p id={helpId} className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p id={helpId} className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
             {descriptor.help}
           </p>
         ) : null}
@@ -729,16 +729,16 @@ function CliCard({
         />
       ) : null}
       <div className="flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-[color:var(--text-strong)]">
+        <span className="flex min-w-0 items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
           <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
           <span className="truncate">{plugin.displayName}</span>
         </span>
-        <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">
+        <span className="shrink-0 text-meta text-[color:var(--text-muted)]">
           {plugin.source === 'bundled' ? 'Built-in' : 'User'}
         </span>
       </div>
       <div className="mt-2.5 flex items-center justify-between gap-2">
-        <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+        <span className="flex min-w-0 items-center gap-1.5 text-body text-[color:var(--text-muted)]">
           {detecting ? (
             <Spinner className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
           ) : (
@@ -752,7 +752,7 @@ function CliCard({
         {!detecting && !installed ? (
           <PrimaryButton
             size="sm"
-            className="h-7 shrink-0"
+            className="h-control-sm shrink-0"
             onClick={(event) => {
               event.stopPropagation()
               onInstall()
@@ -784,11 +784,11 @@ function CompoundSwitchRow({
   return (
     <div className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
       <div className="min-w-0">
-        <span id={labelId} className="block text-[13px] font-medium text-[color:var(--text-strong)]">
+        <span id={labelId} className="block text-body font-medium text-[color:var(--text-strong)]">
           {label}
         </span>
         {description ? (
-          <p id={helpId} className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p id={helpId} className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
             {description}
           </p>
         ) : null}
@@ -829,7 +829,7 @@ function UserRoleAuthoringForm({
   const editing = mode.kind === 'edit'
   return (
     <div className="space-y-4 rounded-[var(--radius-md)] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-4">
-      <div className="text-[13px] font-semibold text-[color:var(--text-strong)]">
+      <div className="text-body font-semibold text-[color:var(--text-strong)]">
         {editing ? 'Edit custom role' : 'New custom role'}
       </div>
 
@@ -1680,12 +1680,12 @@ export default function SettingsPanel({
           supplies the section's heading (icon + label) here. */}
       {activeTab.moduleSection ? (
         <header className="mb-4 border-b border-[color:var(--border-subtle)] pb-3">
-          <h3 className="flex items-center gap-2 text-[15px] font-semibold text-[color:var(--text-strong)]">
-            <activeTab.moduleSection.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <h3 className="flex items-center gap-2 text-title font-semibold text-[color:var(--text-strong)]">
+            <activeTab.moduleSection.icon className="icon-md shrink-0" aria-hidden="true" />
             {activeTab.label}
           </h3>
           {activeTab.description ? (
-            <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
+            <p className="mt-1 text-body text-[color:var(--text-muted)]">
               {activeTab.description}
             </p>
           ) : null}
@@ -1701,7 +1701,7 @@ export default function SettingsPanel({
         >
           <div className="space-y-2">
             <SettingsSectionTitle>Theme</SettingsSectionTitle>
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               Theme applies across every workspace and panel. Every theme is anti-temporal-dither baseline (channel values are multiples of 4) so surfaces don&apos;t flicker on 6-bit-FRC panels. &lsquo;Match system&rsquo; follows your operating system&apos;s light or dark preference.
             </p>
           </div>
@@ -1720,7 +1720,7 @@ export default function SettingsPanel({
                     type="button"
                     aria-pressed={appearanceWindowMaterial === material}
                     onClick={() => setAppearanceWindowMaterial(material)}
-                    className={`interactive rounded px-3.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+                    className={`interactive rounded px-3.5 py-1 text-body font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
                       appearanceWindowMaterial === material
                         ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
                         : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -1768,12 +1768,12 @@ export default function SettingsPanel({
                 action renders instead of three buttons with two disabled. */}
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-3.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <MulticodeMark className="h-4 w-4 shrink-0" />
+                <MulticodeMark className="icon-md shrink-0" />
                 <div className="min-w-0">
-                  <div className="text-[13px] font-medium text-[color:var(--text-strong)]">
+                  <div className="text-body font-medium text-[color:var(--text-strong)]">
                     Sprint Engine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
                   </div>
-                  <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
+                  <div className="mt-0.5 text-body text-[color:var(--text-muted)]">
                     {formatUpdateChannel(updateState?.channel)} channel · last checked {formatNullableDate(updateState?.lastCheckedAt)}
                   </div>
                 </div>
@@ -1782,7 +1782,7 @@ export default function SettingsPanel({
                 <button
                   type="button"
                   onClick={() => void window.api.updateOpenReleaseNotes()}
-                  className={`text-[12px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+                  className={`text-body font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
                 >
                   Release notes
                 </button>
@@ -1812,7 +1812,7 @@ export default function SettingsPanel({
             </div>
 
             <p
-              className={`text-[12px] leading-5 ${
+              className={`text-body leading-5 ${
                 updateState?.status === 'error'
                   ? 'text-[color:var(--tone-error)]'
                   : 'text-[color:var(--text-muted)]'
@@ -1833,7 +1833,7 @@ export default function SettingsPanel({
           <section className="space-y-4">
             <SettingsSectionTitle>Privacy &amp; telemetry</SettingsSectionTitle>
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0 text-sm font-semibold text-[color:var(--text-strong)]">
+              <div className="min-w-0 text-title font-semibold text-[color:var(--text-strong)]">
                 SprintEngine usage data and diagnostics
               </div>
               <StatusTag
@@ -1866,12 +1866,12 @@ export default function SettingsPanel({
               ) : null}
             </div>
 
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               Raw source, prompts, transcripts, artifact bodies, descriptions, notes, and file contents are not collected by default.
               Production upload is separate from local export and remains disabled until you turn on Send anonymous usage data.
             </p>
 
-            <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
+            <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
               <MetaCell label="Last local export" value={formatNullableDate(usageTelemetry.lastExportAt)} />
               <MetaCell
                 label="Upload consent"
@@ -1934,7 +1934,7 @@ export default function SettingsPanel({
               </>
             ) : (
               <>
-                <span className="text-[12px] font-medium text-[color:var(--text-default)]">
+                <span className="text-body font-medium text-[color:var(--text-default)]">
                   {formatGitHubTokenStatus(githubTokenStatus)}
                 </span>
                 <GhostButton
@@ -1958,7 +1958,7 @@ export default function SettingsPanel({
           </SettingsRow>
 
           {githubTokenMessage ? (
-            <p role="status" className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p role="status" className="text-body leading-5 text-[color:var(--text-muted)]">
               {githubTokenMessage}
             </p>
           ) : null}
@@ -1981,7 +1981,7 @@ export default function SettingsPanel({
                 size="md"
                 onClick={() => void installCliFromFolder()}
                 disabled={cliInstallPending}
-                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 {cliInstallPending ? 'Installing' : 'Install CLI from folder'}
               </GhostButton>
@@ -1989,7 +1989,7 @@ export default function SettingsPanel({
           >
             Installed CLIs
           </SettingsSectionTitle>
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             The agent CLIs that can be launched. Select one to check its status or change how it runs.
           </p>
           {cliInstallMessage ? (
@@ -2005,7 +2005,7 @@ export default function SettingsPanel({
               </MessageBlock>
               <GhostButton
                 onClick={() => void refreshPluginCatalog()}
-                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Retry
               </GhostButton>
@@ -2015,7 +2015,7 @@ export default function SettingsPanel({
               <MessageBlock tone="neutral">No agent plugins are installed.</MessageBlock>
               <GhostButton
                 onClick={() => void refreshPluginCatalog()}
-                className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Refresh
               </GhostButton>
@@ -2063,7 +2063,7 @@ export default function SettingsPanel({
                     aria-label={`${plugin.displayName} details`}
                     className="mt-3 border-t border-[color:var(--border-subtle)] pt-4"
                   >
-                    <div className="flex items-center gap-2 text-[13px] font-semibold text-[color:var(--text-strong)]">
+                    <div className="flex items-center gap-2 text-body font-semibold text-[color:var(--text-strong)]">
                       <CliIcon cli={plugin.id} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />
                       <span className="truncate">{plugin.displayName}</span>
                     </div>
@@ -2088,7 +2088,7 @@ export default function SettingsPanel({
                     />
 
                     {declaredModels.length > 0 ? (
-                      <div className="mt-2 flex gap-2 text-[12px] leading-5">
+                      <div className="mt-2 flex gap-2 text-body leading-5">
                         <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
                         <span className="min-w-0 font-mono text-[color:var(--text-default)]">
                           {declaredModels.map((model) => model.label ?? model.id).join(' · ')}
@@ -2151,7 +2151,7 @@ export default function SettingsPanel({
           {idleSuspendDescriptor ? (
             <div className="space-y-3 border-t border-[color:var(--border-subtle)] pt-4">
               <SettingsSectionTitle>Memory</SettingsSectionTitle>
-              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <p className="text-body leading-5 text-[color:var(--text-muted)]">
                 Unused agent terminals are paused to free memory — their CLI process stops while the
                 last screen stays painted, and they resume the moment you click or type. Agents
                 waiting on you or actively working are never paused.
@@ -2189,7 +2189,7 @@ export default function SettingsPanel({
             >
               Workspace roles
             </SettingsSectionTitle>
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               Install accepts a registry folder, a roles folder of JSON manifests, or a skills folder of SKILL.md directories.
             </p>
           </div>
@@ -2234,34 +2234,34 @@ export default function SettingsPanel({
                       <div className="min-w-0 flex-1">
                         <span
                           id={switchLabelId}
-                          className="block truncate text-[13px] font-medium text-[color:var(--text-strong)]"
+                          className="block truncate text-body font-medium text-[color:var(--text-strong)]"
                         >
                           {label}
                         </span>
                         <div
                           id={switchHelpId}
-                          className="mt-0.5 truncate font-mono text-[11px] leading-4 text-[color:var(--text-subtle)]"
+                          className="mt-0.5 truncate font-mono text-meta leading-4 text-[color:var(--text-subtle)]"
                         >
                           {role.id} · {roleSourceLabel(role)}
                         </div>
                         {role.description ? (
-                          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
                             {role.description}
                           </p>
                         ) : null}
                         {manifestDisabled ? (
-                          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
                             Disabled by the role manifest; the app setting cannot override it.
                           </p>
                         ) : isArchitect ? (
-                          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">
                             Required for planning; cannot be disabled.
                           </p>
                         ) : null}
                         {warnings.map((warning) => (
                           <p
                             key={`${role.id}:${warning.code}:${warning.message}`}
-                            className="mt-1 text-[12px] leading-5 text-[color:var(--tone-warn)]"
+                            className="mt-1 text-body leading-5 text-[color:var(--tone-warn)]"
                           >
                             Warning: {warning.message}
                           </p>
@@ -2287,7 +2287,7 @@ export default function SettingsPanel({
               {roleRegistry.warnings.map((warning) => (
                 <p
                   key={`${warning.code}:${warning.message}`}
-                  className="text-[12px] leading-5 text-[color:var(--tone-warn)]"
+                  className="text-body leading-5 text-[color:var(--tone-warn)]"
                 >
                   Registry warning: {warning.message}
                 </p>
@@ -2325,7 +2325,7 @@ export default function SettingsPanel({
               >
                 Global roles
               </SettingsSectionTitle>
-              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <p className="text-body leading-5 text-[color:var(--text-muted)]">
                 Authored or installed here and available to every workspace. Invalid manifests are skipped; reload open workspaces to pick up changes.
               </p>
             </div>
@@ -2351,7 +2351,7 @@ export default function SettingsPanel({
             ) : null}
 
             {userRoles.length === 0 ? (
-              <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+              <p className="text-body leading-5 text-[color:var(--text-muted)]">
                 No global roles yet. {userRoleAuthoringSupported ? 'Create a custom role or install a folder of manifests.' : 'Install a folder of manifests to add some.'}
               </p>
             ) : (
@@ -2362,9 +2362,9 @@ export default function SettingsPanel({
                   return (
                     <div key={role.id} className="group flex items-baseline justify-between gap-3 py-2.5">
                       <div className="min-w-0">
-                        <div className="text-[12px] font-medium text-[color:var(--text-default)]">{role.label}</div>
+                        <div className="text-body font-medium text-[color:var(--text-default)]">{role.label}</div>
                         {role.description ? (
-                          <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+                          <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
                             {role.description}
                           </div>
                         ) : null}
@@ -2376,7 +2376,7 @@ export default function SettingsPanel({
                               type="button"
                               onClick={() => void openEditRole(role.id)}
                               disabled={editLoading || deletePending}
-                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
+                              className={`rounded px-1.5 py-0.5 text-meta font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
                             >
                               {editLoading ? 'Opening' : 'Edit'}
                               <span className="sr-only"> {role.label}</span>
@@ -2385,14 +2385,14 @@ export default function SettingsPanel({
                               type="button"
                               onClick={() => void deleteUserRole(role.id, role.label)}
                               disabled={editLoading || deletePending}
-                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
+                              className={`rounded px-1.5 py-0.5 text-meta font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
                             >
                               {deletePending ? 'Deleting' : 'Delete'}
                               <span className="sr-only"> {role.label}</span>
                             </button>
                           </div>
                         ) : null}
-                        <span className="font-mono text-[11px] text-[color:var(--text-subtle)]">{role.id}</span>
+                        <span className="font-mono text-meta text-[color:var(--text-subtle)]">{role.id}</span>
                       </div>
                     </div>
                   )
@@ -2415,7 +2415,7 @@ export default function SettingsPanel({
               action={
                 activeProjectRoot ? (
                   <span
-                    className="max-w-[260px] truncate font-mono text-[11px] text-[color:var(--text-subtle)]"
+                    className="max-w-[260px] truncate font-mono text-meta text-[color:var(--text-subtle)]"
                     title={activeProjectRoot}
                   >
                     {basename(activeProjectRoot)}
@@ -2425,7 +2425,7 @@ export default function SettingsPanel({
             >
               Markdown knowledge graph
             </SettingsSectionTitle>
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               Each project points at a knowledge folder; its workspaces and Sprint Engine runs inherit it.
             </p>
           </div>
@@ -2472,7 +2472,7 @@ export default function SettingsPanel({
           aria-labelledby="settings-tab-voice-dictation"
           className="space-y-4"
         >
-          <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="text-body leading-5 text-[color:var(--text-muted)]">
             Press the microphone in the top bar (or {window.api.platform === 'darwin' ? 'Cmd+Shift+1' : 'Ctrl+Shift+1'}) to record, then again to stop.
             The audio is sent to a Multivoice transcription host and the text is copied to your clipboard.
             The server can run on this machine, on your network, or be hosted remotely — point the URL at wherever it lives.
@@ -2516,7 +2516,7 @@ export default function SettingsPanel({
                 items={VOICE_MODEL_ITEMS}
                 value={voiceDictation.model}
                 onChange={(model: VoiceDictationModel) => setVoiceDictationSettings({ model })}
-                className="h-9 w-full"
+                className="h-control-md w-full"
               />
             </Field>
             <Field label="Language" htmlFor="voice-language">
@@ -2525,7 +2525,7 @@ export default function SettingsPanel({
                 items={VOICE_LANGUAGE_ITEMS}
                 value={voiceDictation.language}
                 onChange={(language: string) => setVoiceDictationSettings({ language })}
-                className="h-9 w-full"
+                className="h-control-md w-full"
               />
             </Field>
           </div>
@@ -2559,7 +2559,7 @@ export default function SettingsPanel({
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3.5">
           <h2
             id={titleId}
-            className="truncate text-[15px] font-semibold tracking-tight text-[color:var(--text-strong)]"
+            className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]"
           >
             Settings
           </h2>
@@ -2639,13 +2639,13 @@ function ProfileSection({
     return (
       <div className="space-y-4">
         <SettingsSectionTitle>Account</SettingsSectionTitle>
-        <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="text-body leading-5 text-[color:var(--text-muted)]">
           Sign in to sync entitlements and unlock Pro features.
         </p>
         <PrimaryButton size="md" onClick={onSignIn} disabled={pending || authState.status === 'checking'}>
           Sign in
         </PrimaryButton>
-        {message ? <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
+        {message ? <p className="text-body leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
       </div>
     )
   }
@@ -2662,22 +2662,22 @@ function ProfileSection({
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[15px] font-semibold text-[color:var(--text-strong)]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-title font-semibold text-[color:var(--text-strong)]"
         >
           {profileInitials(authState.user)}
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-medium text-[color:var(--text-strong)]">{name}</div>
-          {email ? <div className="truncate text-[12px] text-[color:var(--text-muted)]">{email}</div> : null}
+          <div className="truncate text-body font-medium text-[color:var(--text-strong)]">{name}</div>
+          {email ? <div className="truncate text-body text-[color:var(--text-muted)]">{email}</div> : null}
         </div>
       </div>
 
-      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-sm sm:grid-cols-2">
+      <div className="grid gap-x-6 gap-y-3 border-t border-[color:var(--border-subtle)] pt-4 text-body sm:grid-cols-2">
         <MetaCell label="Plan" value={profilePlanLabel(authState)} tone={pro ? 'positive' : undefined} />
         {orgName ? <MetaCell label="Organization" value={orgName} /> : null}
       </div>
 
-      {message ? <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
+      {message ? <p className="text-body leading-5 text-[color:var(--text-muted)]">{message}</p> : null}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[color:var(--border-subtle)] pt-4">
         {!pro ? (
@@ -2722,7 +2722,7 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
       tabIndex={active ? 0 : -1}
       onClick={onClick}
       onKeyDown={onKeyDown}
-      className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-[13px] leading-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+      className={`interactive flex w-full items-center gap-2 rounded-[5px] px-2 py-1 text-left text-body leading-5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
         active
           ? 'bg-[color:var(--bg-selected)] font-medium text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -2730,7 +2730,7 @@ const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
     >
       {Icon ? (
         <Icon
-          className={`h-4 w-4 shrink-0 ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)]'}`}
+          className={`icon-md shrink-0 ${active ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-subtle)]'}`}
         />
       ) : null}
       <span className="min-w-0 truncate">{tab.label}</span>

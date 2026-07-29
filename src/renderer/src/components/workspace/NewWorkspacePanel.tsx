@@ -3493,12 +3493,12 @@ function McpServersStep({
                       text={server.name}
                       className="block text-[13px] font-semibold text-[color:var(--text-strong)]"
                     />
-                    <span className="mt-0.5 block truncate font-mono text-[10px] leading-4 text-[color:var(--text-subtle)]">
+                    <span className="mt-0.5 block truncate font-mono text-micro leading-4 text-[color:var(--text-subtle)]">
                       {server.transport} · {server.category ?? 'Other'}
                     </span>
                   </span>
                   {server.recommendedScope === 'user' ? (
-                    <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-[10px] text-[color:var(--text-subtle)]">
+                    <span className="rounded-sm border border-[color:var(--border-default)] px-1.5 py-0.5 font-mono text-micro text-[color:var(--text-subtle)]">
                       user
                     </span>
                   ) : null}

@@ -96,14 +96,14 @@ function ComingSoonModuleRow({ manifest }: { manifest: CapabilityManifest }) {
   return (
     <div className="flex items-start justify-between gap-3 py-2.5 opacity-60">
       <div className="min-w-0">
-        <div className="text-[13px] font-medium text-[color:var(--text-subtle)]">{manifest.displayName}</div>
+        <div className="text-body font-medium text-[color:var(--text-subtle)]">{manifest.displayName}</div>
         {manifest.summary ? (
-          <div className="mt-0.5 text-[12px] leading-5 text-[color:var(--text-disabled)]">
+          <div className="mt-0.5 text-body leading-5 text-[color:var(--text-disabled)]">
             {manifest.summary}
           </div>
         ) : null}
       </div>
-      <span className="mt-0.5 shrink-0 whitespace-nowrap rounded-full border border-[color:var(--border-default)] px-2 py-0.5 text-[11px] font-medium text-[color:var(--text-subtle)]">
+      <span className="mt-0.5 shrink-0 whitespace-nowrap rounded-full border border-[color:var(--border-default)] px-2 py-0.5 text-meta font-medium text-[color:var(--text-subtle)]">
         Coming soon
       </span>
     </div>
@@ -121,7 +121,7 @@ export function ModuleToggleList({
     <div className="flex flex-col gap-5">
       {MODULE_CATEGORY_GROUPS.map(({ category, manifests }) => (
         <div key={category} className="flex flex-col gap-1">
-          <div className="text-[11px] font-medium text-[color:var(--text-subtle)]">
+          <div className="text-meta font-medium text-[color:var(--text-subtle)]">
             {categoryLabel(category)}
           </div>
           <div className="divide-y divide-[color:var(--border-subtle)]">

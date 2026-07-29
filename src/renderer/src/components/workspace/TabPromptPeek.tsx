@@ -183,7 +183,7 @@ export function TabPromptPeek({ prompt, children, tabLabel }: TabPromptPeekProps
           >
             {prompt.text}
           </p>
-          <p className="m-0 mt-1.5 text-[10px] tabular-nums text-[color:var(--text-subtle)]">
+          <p className="m-0 mt-1.5 text-micro tabular-nums text-[color:var(--text-subtle)]">
             {formatRelativeMsAgo(prompt.at, Date.now())}
           </p>
         </div>

@@ -122,9 +122,9 @@ person with everything at once.
 - Every padding, gap, and margin comes from `sem.space.*` — a 2px grid at the
   dense end opening to 4px steps at panel scale. A raw pixel value in a
   component means the scale is missing a step; add it here rather than locally.
-- Controls come from `sem.size.control.*`: `xs` (24px) for icon buttons and
-  in-row triggers, `sm` (28px) as the default for anything with a label, `md`
-  (32px) for overlay primary actions. An input and a select side by side must
+- Controls come from `sem.size.control.*`: `xs` (26px) for icon buttons and
+  in-row triggers, `sm` (30px) as the default for anything with a label, `md`
+  (34px) for overlay primary actions. An input and a select side by side must
   share a height.
 - Nothing interactive is drawn below `sem.size.hit-target-min`. A small glyph
   pads out to it with a transparent hit area rather than shrinking its target.
@@ -143,8 +143,8 @@ product. Introducing one is a system change, not a styling choice.
   letter-spaced labels as hierarchy — not on section headers, metadata,
   breadcrumbs, or chips.
 - The scale repeats title / body / meta. Primary content does not go below
-  `font.size.body` (12px).
-- Tracking is optical, not decorative: `tracking.tight` on titles at 13px and
+  `font.size.body` (13px).
+- Tracking is optical, not decorative: `tracking.tight` on titles at 14px and
   up, `tracking.wide` on mono identifiers and micro labels, `tracking.normal`
   everywhere else.
 - Line height by context: `line.tight` for display, `line.default` for UI,

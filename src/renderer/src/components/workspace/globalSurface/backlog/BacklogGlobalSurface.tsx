@@ -1010,7 +1010,7 @@ function BacklogDoorList({
                     Plain mono text, never a tinted pill — the row already has
                     exactly one status idiom (the lifecycle glyph). */}
                 {showProjectTag ? (
-                  <span className="max-w-[12ch] shrink-0 truncate pl-1 font-mono text-[10px] text-[color:var(--text-subtle)]">
+                  <span className="max-w-[12ch] shrink-0 truncate pl-1 font-mono text-micro text-[color:var(--text-subtle)]">
                     {project.name}
                   </span>
                 ) : null}

@@ -39,7 +39,7 @@ type TestState =
   | { phase: 'done'; testKey: string; ok: boolean; message: string }
 
 const monogramClass =
-  'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-[11px] font-semibold text-[color:var(--text-muted)]'
+  'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[3px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-app)] font-mono text-meta font-semibold text-[color:var(--text-muted)]'
 
 function Monogram({ provider }: { provider: TrackerProviderId }) {
   return (
@@ -53,7 +53,7 @@ function Monogram({ provider }: { provider: TrackerProviderId }) {
 // dot is decorative — the adjacent text already names the state to a reader.
 function StatusChip({ tone, label }: { tone: React.ComponentProps<typeof StatusDot>['tone']; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[color:var(--text-default)]">
+    <span className="inline-flex items-center gap-1.5 text-body font-medium text-[color:var(--text-default)]">
       <StatusDot tone={tone} />
       {label}
     </span>
@@ -78,19 +78,19 @@ function ConnectionRow({
       <div className="flex min-w-0 flex-1 items-center gap-2.5">
         <Monogram provider={connection.provider} />
         <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">{connection.label}</div>
-          <div className="truncate font-mono text-[11px] text-[color:var(--text-subtle)]">
+          <div className="truncate text-body font-medium text-[color:var(--text-strong)]">{connection.label}</div>
+          <div className="truncate font-mono text-meta text-[color:var(--text-subtle)]">
             {connectionHostLabel(connection)}
           </div>
         </div>
       </div>
-      <div className="hidden w-44 shrink-0 text-[12px] text-[color:var(--text-muted)] sm:block">
+      <div className="hidden w-44 shrink-0 text-body text-[color:var(--text-muted)] sm:block">
         {connectionCredentialKind(connection)}
       </div>
       <div className="flex w-40 shrink-0 flex-col items-start gap-0.5">
         <StatusChip tone={status.tone} label={status.label} />
         {status.reason ? (
-          <span className="text-[11px] leading-[1.35] text-[color:var(--text-subtle)]">{status.reason}</span>
+          <span className="text-meta leading-[1.35] text-[color:var(--text-subtle)]">{status.reason}</span>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
@@ -235,7 +235,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
     <div role="tabpanel" id="settings-panel-trackers" aria-labelledby="settings-tab-trackers" className="space-y-6">
       <section className="space-y-3">
         <SettingsSectionTitle count={connections?.length}>Connections</SettingsSectionTitle>
-        <p className="max-w-[68ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
+        <p className="max-w-[68ch] text-body leading-5 text-[color:var(--text-muted)]">
           A connection is a provider, a server address, and a credential — hold as many as you need, including
           self-hosted servers. Credentials are stored encrypted on this machine and never written to workspace files.
         </p>
@@ -253,9 +253,9 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
         ) : null}
 
         {connections === null ? (
-          <p className="py-3 text-[12px] text-[color:var(--text-subtle)]">Loading connections…</p>
+          <p className="py-3 text-body text-[color:var(--text-subtle)]">Loading connections…</p>
         ) : connections.length === 0 ? (
-          <p className="rounded-md border border-dashed border-[color:var(--border-subtle)] px-4 py-6 text-[12px] text-[color:var(--text-subtle)]">
+          <p className="rounded-md border border-dashed border-[color:var(--border-subtle)] px-4 py-6 text-body text-[color:var(--text-subtle)]">
             No trackers connected yet. Add one below to pull its issues into your backlog.
           </p>
         ) : (
@@ -295,7 +295,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
             />
           </Field>
         ) : spec.cloudOnlyNote ? (
-          <p className="rounded-md bg-[color:var(--bg-hover)] px-3 py-2.5 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="rounded-md bg-[color:var(--bg-hover)] px-3 py-2.5 text-body leading-5 text-[color:var(--text-muted)]">
             {spec.cloudOnlyNote}
           </p>
         ) : null}
@@ -344,7 +344,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
             {test.phase === 'testing' ? 'Testing…' : 'Test connection'}
           </OutlineButton>
 
-          <span role="status" aria-live="polite" className="min-w-0 flex-1 text-[12px]">
+          <span role="status" aria-live="polite" className="min-w-0 flex-1 text-body">
             {test.phase === 'testing' ? (
               <span className="inline-flex items-center gap-1.5 text-[color:var(--text-muted)]">
                 <StatusDot tone="neutral" />
@@ -372,7 +372,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
         </div>
 
         {addedMessage ? (
-          <p role="status" className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p role="status" className="text-body leading-5 text-[color:var(--text-muted)]">
             {addedMessage}
           </p>
         ) : null}
@@ -381,7 +381,7 @@ export function TrackerConnectionsTab({ workspaceRoot }: { workspaceRoot: string
       {connections && connections.length > 0 ? (
         <section className="space-y-3">
           <SettingsSectionTitle>Posting back to trackers</SettingsSectionTitle>
-          <p className="max-w-[68ch] text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="max-w-[68ch] text-body leading-5 text-[color:var(--text-muted)]">
             Off by default per connection. Sprints always read from your trackers; turn a connection on here to let a
             running sprint post progress comments — and, where the tracker supports it, move an issue’s status.
           </p>

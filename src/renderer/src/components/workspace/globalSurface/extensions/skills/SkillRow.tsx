@@ -60,27 +60,27 @@ export function SkillRow({
         className={`group/skill-row flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pr-2.5 text-left ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
       >
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">{item.name}</span>
+          <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{item.name}</span>
           {item.description ? (
-            <span className="truncate text-[11px] text-[color:var(--text-muted)]">{item.description}</span>
+            <span className="truncate text-meta text-[color:var(--text-muted)]">{item.description}</span>
           ) : null}
         </span>
         {showGroup && item.group ? (
-          <span className="shrink-0 font-mono text-[10px] text-[color:var(--text-subtle)]">
+          <span className="shrink-0 font-mono text-meta text-[color:var(--text-subtle)]">
             {skillGroupLabel(item.group)}
           </span>
         ) : null}
         <FileCountChip count={item.fileCount} />
         {item.hasExecutables ? (
-          <span className="shrink-0 text-[10px] text-[color:var(--text-subtle)]">Runs scripts</span>
+          <span className="shrink-0 text-meta text-[color:var(--text-subtle)]">Runs scripts</span>
         ) : null}
         {item.installed ? (
-          <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">Installed</span>
+          <span className="shrink-0 text-meta text-[color:var(--text-muted)]">Installed</span>
         ) : null}
         {/* The row body is the target; "Read" names what it does when the
             pointer or the keyboard is on it, and stays out of the way of the
             disclosures otherwise. */}
-        <span className="shrink-0 text-[11px] text-[color:var(--text-muted)] opacity-0 transition-opacity group-hover/skill-row:opacity-100 group-focus-visible/skill-row:opacity-100">
+        <span className="shrink-0 text-meta text-[color:var(--text-muted)] opacity-0 transition-opacity group-hover/skill-row:opacity-100 group-focus-visible/skill-row:opacity-100">
           Read
         </span>
       </button>
@@ -91,7 +91,7 @@ export function SkillRow({
 export function FileCountChip({ count }: { count: number }): JSX.Element {
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-[10px] tabular-nums text-[color:var(--text-subtle)]"
+      className="inline-flex shrink-0 items-center gap-1 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-meta tabular-nums text-[color:var(--text-subtle)]"
       title={`${count} file${count === 1 ? '' : 's'}`}
     >
       <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5" aria-hidden="true">

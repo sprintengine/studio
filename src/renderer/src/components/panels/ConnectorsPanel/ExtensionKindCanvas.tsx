@@ -54,7 +54,7 @@ export function ExtensionKindCanvas({
   // modules or CLIs, so its state must not gate (or blank) this page.
   if (sources.registryLoad.status === 'loading') {
     return (
-      <div className="flex items-center gap-2 py-8 text-[12px] text-[color:var(--text-muted)]">
+      <div className="flex items-center gap-2 py-8 text-body text-[color:var(--text-muted)]">
         <Spinner size={14} />
         Loading the marketplace…
       </div>
@@ -89,9 +89,9 @@ export function ExtensionKindCanvas({
       </div>
 
       {entries.length === 0 ? (
-        <p className="px-1 py-10 text-center text-[12px] text-[color:var(--text-muted)]">{copy.empty}</p>
+        <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">{copy.empty}</p>
       ) : matched.length === 0 ? (
-        <p className="px-1 py-10 text-center text-[12px] text-[color:var(--text-muted)]">
+        <p className="px-1 py-10 text-center text-body text-[color:var(--text-muted)]">
           {`No ${copy.label.toLowerCase()} match “${query.trim()}”.`}
         </p>
       ) : (

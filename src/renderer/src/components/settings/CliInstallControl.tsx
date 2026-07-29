@@ -170,7 +170,7 @@ export function CliInstallControl({
               label={installed ? `${displayName} detected` : `${displayName} not found`}
             />
           )}
-          <span className="truncate text-[12px] text-[color:var(--text-default)]">
+          <span className="truncate text-body text-[color:var(--text-default)]">
             {statusText}
           </span>
         </div>
@@ -179,12 +179,12 @@ export function CliInstallControl({
             <GhostButton
               size="sm"
               onClick={() => void runDetect()}
-              className="h-7 border border-[color:var(--border-default)] text-[color:var(--text-default)]"
+              className="h-control-sm border border-[color:var(--border-default)] text-[color:var(--text-default)]"
             >
               Re-check
             </GhostButton>
             {!installed && !expanded && (
-              <PrimaryButton size="sm" onClick={() => void openInstall()} className="h-7">
+              <PrimaryButton size="sm" onClick={() => void openInstall()} className="h-control-sm">
                 Install
               </PrimaryButton>
             )}
@@ -193,7 +193,7 @@ export function CliInstallControl({
       </div>
 
       {installed && detect?.resolvedPath && (
-        <div className="mt-1 pl-6 font-mono text-[11px] text-[color:var(--text-subtle)] truncate">
+        <div className="mt-1 pl-6 font-mono text-meta text-[color:var(--text-subtle)] truncate">
           {detect.resolvedPath}
         </div>
       )}
@@ -201,11 +201,11 @@ export function CliInstallControl({
       {expanded && !installed && (
         <div className="mt-2.5 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3">
           {methods === null ? (
-            <div className="flex items-center gap-2 text-[12px] text-[color:var(--text-muted)]">
+            <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]">
               <Spinner className="icon-sm" /> Loading install options…
             </div>
           ) : methods.length === 0 ? (
-            <p className="text-[12px] leading-5 text-[color:var(--text-muted)]">
+            <p className="text-body leading-5 text-[color:var(--text-muted)]">
               No automatic installer is available for {displayName} on this platform. Install{' '}
               <span className="font-mono text-[color:var(--text-default)]">{binary}</span> manually, then
               set its path in the command field above.
@@ -225,7 +225,7 @@ export function CliInstallControl({
                   size="sm"
                   onClick={() => void runInstall()}
                   disabled={installing || !selectedMethod?.available}
-                  className="h-8"
+                  className="h-control-md"
                 >
                   {installing ? 'Installing…' : 'Run install'}
                 </PrimaryButton>
@@ -233,7 +233,7 @@ export function CliInstallControl({
                   <GhostButton
                     size="sm"
                     onClick={() => setExpanded(false)}
-                    className="h-8 text-[color:var(--text-muted)]"
+                    className="h-control-md text-[color:var(--text-muted)]"
                   >
                     Cancel
                   </GhostButton>
@@ -242,23 +242,23 @@ export function CliInstallControl({
 
               {selectedMethod && (
                 <div className="mt-2">
-                  <div className="mb-1 text-[11px] text-[color:var(--text-subtle)]">
+                  <div className="mb-1 text-meta text-[color:var(--text-subtle)]">
                     Will run:
                   </div>
-                  <pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-[11px] text-[color:var(--text-default)]">
+                  <pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta text-[color:var(--text-default)]">
                     {selectedMethod.commandPreview}
                   </pre>
                 </div>
               )}
 
               {(installing || log) && (
-                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-[11px] leading-[1.5] text-[color:var(--text-muted)]">
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta leading-[1.5] text-[color:var(--text-muted)]">
                   {log || 'Starting…'}
                 </pre>
               )}
 
               {installError && (
-                <p className="mt-2 text-[11px] leading-5 text-[color:var(--tone-error)]">{installError}</p>
+                <p className="mt-2 text-meta leading-5 text-[color:var(--tone-error)]">{installError}</p>
               )}
             </>
           )}

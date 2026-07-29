@@ -112,7 +112,7 @@ export function AnnotateOverlay({
             className="
               pointer-events-auto absolute grid place-items-center rounded-full
               border-2 border-[color:var(--bg-surface)] bg-[color:var(--annotate-pin-bg)]
-              text-[10px] font-semibold tabular-nums text-[color:var(--annotate-pin-ink)]
+              text-micro font-semibold tabular-nums text-[color:var(--annotate-pin-ink)]
               shadow-[var(--shadow-drawer)] disabled:opacity-60
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
             "
@@ -188,7 +188,7 @@ function NoteComposer({
       `}
       style={{ left: position.left, top: position.top, width: ANNOTATE_COMPOSER_WIDTH }}
     >
-      <span className="truncate font-mono text-[10px] text-[color:var(--text-subtle)]">{selector}</span>
+      <span className="truncate font-mono text-micro text-[color:var(--text-subtle)]">{selector}</span>
       <textarea
         ref={textareaRef}
         value={message}

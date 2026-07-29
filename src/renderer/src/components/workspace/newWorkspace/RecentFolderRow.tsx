@@ -80,7 +80,7 @@ export function RecentFolderRow({ path, active, hints, onSelect }: RecentFolderR
             return (
               <span
                 key={hint}
-                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${styles.bg} ${styles.border} ${styles.text}`}
+                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-micro font-semibold ${styles.bg} ${styles.border} ${styles.text}`}
               >
                 {/* design-tokens-allow: hint identity dot inside a chip — color matches the chip's accent */}
                 <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} aria-hidden="true" />

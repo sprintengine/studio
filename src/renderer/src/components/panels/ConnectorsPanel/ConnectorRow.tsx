@@ -17,10 +17,10 @@ import type { ConnectorEntry } from './connectorsFacets'
 export function ConnectorSectionHeading({ label, count }: { label: string; count?: number }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">{label}</span>
+      <span className="text-body font-medium text-[color:var(--text-muted)]">{label}</span>
       <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
       {typeof count === 'number' ? (
-        <span className="tabular-nums font-mono text-[10px] text-[color:var(--text-subtle)]">{count}</span>
+        <span className="tabular-nums font-mono text-meta text-[color:var(--text-subtle)]">{count}</span>
       ) : null}
     </div>
   )
@@ -30,7 +30,7 @@ export function ConnectorSectionHeading({ label, count }: { label: string; count
 // plain text on the active-background token, never a mono string.
 export function ConnectorChip({ label }: { label: string }) {
   return (
-    <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+    <span className="shrink-0 rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
       {label}
     </span>
   )
@@ -70,7 +70,7 @@ export function ConnectorRow({
         <TruncatedText
           as="span"
           text={name}
-          className="min-w-0 text-[13px] font-medium leading-5 text-[color:var(--text-strong)]"
+          className="min-w-0 text-body font-medium leading-5 text-[color:var(--text-strong)]"
         />
         {chips.map((label) => (
           <ConnectorChip key={label} label={label} />
@@ -98,7 +98,7 @@ export function ConnectorRow({
         ) : (
           <span className="flex min-w-0 items-center gap-1.5">{nameAndChips}</span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-meta leading-4 text-[color:var(--text-subtle)]">
           {status}
           {actions}
         </span>
@@ -116,7 +116,7 @@ export function ConnectorRow({
           <TruncatedText
             as="span"
             text={name}
-            className="min-w-0 text-[13px] font-semibold leading-5 text-[color:var(--text-strong)]"
+            className="min-w-0 text-body font-semibold leading-5 text-[color:var(--text-strong)]"
           />
           {chips.map((label) => (
             <ConnectorChip key={label} label={label} />
@@ -126,11 +126,11 @@ export function ConnectorRow({
           <TruncatedText
             as="span"
             text={summary}
-            className="mt-0.5 block text-[12px] leading-4 text-[color:var(--text-subtle)]"
+            className="mt-0.5 block text-body leading-4 text-[color:var(--text-subtle)]"
           />
         ) : null}
         {status ? (
-          <span className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+          <span className="mt-0.5 flex items-center gap-1.5 text-meta leading-4 text-[color:var(--text-subtle)]">
             {status}
           </span>
         ) : null}
@@ -202,7 +202,7 @@ export function ConnectorEntryRow({
               Get
             </GhostButton>
           ) : entry.installed ? (
-            <span className="flex items-center gap-1 pr-1 text-[11px] font-medium text-[color:var(--accent-primary)]">
+            <span className="flex items-center gap-1 pr-1 text-meta font-medium text-[color:var(--accent-primary)]">
               <svg
                 viewBox="0 0 10 10"
                 className="h-2.5 w-2.5"

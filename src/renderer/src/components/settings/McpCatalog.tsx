@@ -157,13 +157,13 @@ export function McpInfoPanel({
             <TruncatedText
               as="h5"
               text={server.name}
-              className="text-[14px] font-semibold leading-5 text-[color:var(--text-strong)]"
+              className="text-body font-semibold leading-5 text-[color:var(--text-strong)]"
             />
             {server.category ? (
               <TruncatedText
                 as="div"
                 text={server.category}
-                className="mt-0.5 text-[11px] text-[color:var(--text-subtle)]"
+                className="mt-0.5 text-meta text-[color:var(--text-subtle)]"
               />
             ) : null}
           </div>
@@ -172,7 +172,7 @@ export function McpInfoPanel({
           type="button"
           onClick={onClose}
           aria-label="Close details"
-          className="interactive grid h-6 w-6 shrink-0 place-items-center rounded-md text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          className="interactive grid size-control-xs shrink-0 place-items-center rounded-md text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           <svg viewBox="0 0 12 12" className="icon-xs" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
             <path d="M3 3l6 6M9 3l-6 6" />
@@ -181,16 +181,16 @@ export function McpInfoPanel({
       </div>
       {server.description ? (
         <div className="mt-3">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">About</div>
-          <p className="mt-1 text-[12px] leading-5 text-[color:var(--text-muted)]">{server.description}</p>
+          <div className="text-meta font-semibold text-[color:var(--text-muted)]">About</div>
+          <p className="mt-1 text-body leading-5 text-[color:var(--text-muted)]">{server.description}</p>
         </div>
       ) : null}
       <div className="mt-3">
-        <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Provides</div>
-        <ul className="mt-1 space-y-1.5 text-[12px] text-[color:var(--text-muted)]">
+        <div className="text-meta font-semibold text-[color:var(--text-muted)]">Provides</div>
+        <ul className="mt-1 space-y-1.5 text-body text-[color:var(--text-muted)]">
           <li className="flex items-center gap-1.5">
             <span>MCP server</span>
-            <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+            <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
               {server.transport}
             </span>
           </li>
@@ -200,12 +200,12 @@ export function McpInfoPanel({
                 <span className="font-medium text-[color:var(--text-default)]">
                   {drivingSkill?.name ?? server.skill}
                 </span>
-                <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-[10px] leading-3 text-[color:var(--text-subtle)]">
+                <span className="rounded-full bg-[color:var(--bg-active)] px-1.5 py-0.5 text-meta leading-3 text-[color:var(--text-subtle)]">
                   Skill
                 </span>
               </div>
               {drivingSkill?.description ? (
-                <div className="mt-0.5 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+                <div className="mt-0.5 text-meta leading-4 text-[color:var(--text-subtle)]">
                   {firstSentence(drivingSkill.description)}
                 </div>
               ) : null}
@@ -215,8 +215,8 @@ export function McpInfoPanel({
       </div>
       {server.capabilities?.length ? (
         <div className="mt-3">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Capabilities</div>
-          <ul className="mt-1 space-y-0.5 text-[12px] text-[color:var(--text-muted)]">
+          <div className="text-meta font-semibold text-[color:var(--text-muted)]">Capabilities</div>
+          <ul className="mt-1 space-y-0.5 text-body text-[color:var(--text-muted)]">
             {server.capabilities.map((capability) => (
               <li key={capability} className="flex gap-1.5">
                 <span aria-hidden className="text-[color:var(--text-subtle)]">·</span>
@@ -228,12 +228,12 @@ export function McpInfoPanel({
       ) : null}
       {server.sourceUrl ? (
         <div className="mt-3">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Publisher &amp; source</div>
+          <div className="text-meta font-semibold text-[color:var(--text-muted)]">Publisher &amp; source</div>
           <a
             href={server.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            className={`mt-1 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
+            className={`mt-1 inline-flex text-body font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
           >
             Source docs
           </a>
@@ -241,14 +241,14 @@ export function McpInfoPanel({
       ) : null}
       {hasAuth ? (
         <div className="mt-3">
-          <div className="text-[11px] font-semibold text-[color:var(--text-muted)]">Auth</div>
-          <div className="mt-1 text-[12px] text-[color:var(--text-subtle)]">
+          <div className="text-meta font-semibold text-[color:var(--text-muted)]">Auth</div>
+          <div className="mt-1 text-body text-[color:var(--text-subtle)]">
             {server.auth} — authenticates in chat on first use
           </div>
         </div>
       ) : null}
       {server.setupNotes ? (
-        <p className="mt-3 border-l-2 border-[color:var(--border-strong)] pl-2 text-[11px] leading-4 text-[color:var(--text-subtle)]">
+        <p className="mt-3 border-l-2 border-[color:var(--border-strong)] pl-2 text-meta leading-4 text-[color:var(--text-subtle)]">
           {server.setupNotes}
         </p>
       ) : null}
@@ -257,14 +257,14 @@ export function McpInfoPanel({
           // A launchable connector leads with New chat (T1 runtime); Add/Remove
           // and Use in automation are the secondary actions.
           <>
-            <PrimaryButton onClick={onNewChat} size="md" className="h-9 w-full">
+            <PrimaryButton onClick={onNewChat} size="md" className="h-control-md w-full">
               New chat
             </PrimaryButton>
             {onUseInAutomation ? (
               <GhostButton
                 onClick={onUseInAutomation}
                 size="md"
-                className="h-9 w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="h-control-md w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               >
                 Use in automation
               </GhostButton>
@@ -272,7 +272,7 @@ export function McpInfoPanel({
             <GhostButton
               onClick={onToggle}
               size="md"
-              className="h-9 w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="h-control-md w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             >
               {installed ? 'Remove from active' : 'Add to active'}
             </GhostButton>
@@ -281,12 +281,12 @@ export function McpInfoPanel({
           <GhostButton
             onClick={onToggle}
             size="md"
-            className="h-9 w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="h-control-md w-full border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             Remove
           </GhostButton>
         ) : (
-          <PrimaryButton onClick={onToggle} size="md" className="h-9 w-full">
+          <PrimaryButton onClick={onToggle} size="md" className="h-control-md w-full">
             Add to active
           </PrimaryButton>
         )}

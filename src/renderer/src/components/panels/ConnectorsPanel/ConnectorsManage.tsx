@@ -30,7 +30,7 @@ const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
 ]
 
 const INPUT_CLASS =
-  'h-9 w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-sm text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
+  'h-control-md w-full rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 font-mono text-body text-[color:var(--text-strong)] outline-none placeholder:text-[color:var(--text-disabled)] focus:border-[color:var(--accent-primary)] disabled:opacity-45'
 
 type NoteTone = 'neutral' | 'accent' | 'warn'
 const NOTE_BORDER: Record<NoteTone, string> = {
@@ -46,7 +46,7 @@ const NOTE_TEXT: Record<NoteTone, string> = {
 
 function ManageNote({ tone, children }: { tone: NoteTone; children: ReactNode }) {
   return (
-    <div className={`border-l-2 pl-3 text-[12px] leading-5 ${NOTE_BORDER[tone]} ${NOTE_TEXT[tone]}`}>{children}</div>
+    <div className={`border-l-2 pl-3 text-body leading-5 ${NOTE_BORDER[tone]} ${NOTE_TEXT[tone]}`}>{children}</div>
   )
 }
 
@@ -227,9 +227,9 @@ export function ConnectorsManage({
       <section className="space-y-3 border-t border-[color:var(--border-subtle)] pt-5">
         <details className="group space-y-3 [&[open]]:space-y-3">
           {/* Row-sized affordance matching the inventory rows above it. */}
-          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-[13px] font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]">
+          <summary className="interactive flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] p-2.5 text-body font-semibold text-[color:var(--text-strong)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]">
             <span>Add a custom MCP</span>
-            <span aria-hidden className="text-[10px] font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
+            <span aria-hidden className="text-meta font-medium text-[color:var(--text-subtle)] transition-transform group-open:rotate-180">▾</span>
           </summary>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Server id" htmlFor="custom-mcp-id">
@@ -254,7 +254,7 @@ export function ConnectorsManage({
                 items={MCP_TRANSPORT_ITEMS}
                 value={customMcpTransport}
                 onChange={setCustomMcpTransport}
-                className="h-9 w-full"
+                className="h-control-md w-full"
               />
             </Field>
             <Field label={customMcpTransport === 'stdio' ? 'Command' : 'URL'} htmlFor="custom-mcp-endpoint">
@@ -299,7 +299,7 @@ export function ConnectorsManage({
             <GhostButton
               size="md"
               onClick={addCustomMcp}
-              className="h-9 border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="h-control-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             >
               Add custom MCP
             </GhostButton>
@@ -352,7 +352,7 @@ export function ConnectorsManage({
             })}
           </div>
         ) : (
-          <p className="py-1 text-[12px] leading-5 text-[color:var(--text-muted)]">
+          <p className="py-1 text-body leading-5 text-[color:var(--text-muted)]">
             Built-in skills have not loaded yet.
           </p>
         )}

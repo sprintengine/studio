@@ -141,7 +141,7 @@ export function SprintEngineToolsPanel({
 function ToolGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mt-3.5 flex flex-col">
-      <div className="mb-0.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
+      <div className="mb-0.5 text-micro font-semibold text-[color:var(--text-subtle)]">
         {label}
       </div>
       {children}
@@ -196,7 +196,7 @@ function McpToolRow({
         {displayName}
       </span>
       <span className="min-w-0 flex-1 truncate text-[11px] text-[color:var(--text-subtle)]">{purpose}</span>
-      <span className="shrink-0 font-mono text-[10px] text-[color:var(--text-disabled)]">
+      <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
         {server.transport}
         {server.category ? ` · ${server.category.toLowerCase()}` : ''}
       </span>

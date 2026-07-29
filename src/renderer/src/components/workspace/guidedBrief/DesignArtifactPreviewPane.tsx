@@ -60,7 +60,7 @@ function PreviewHeader({
         <TruncatedText
           as="span"
           text={relativePath}
-          className="min-w-0 font-mono text-[10px] text-[color:var(--text-subtle)]"
+          className="min-w-0 font-mono text-micro text-[color:var(--text-subtle)]"
         />
       </span>
       <span className="ml-auto flex shrink-0 items-center gap-2">

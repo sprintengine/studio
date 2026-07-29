@@ -233,9 +233,9 @@ export function Select<V extends string = string>({
           onKeyDown={onKey}
           style={selectedTone ? { backgroundColor: TONE_SOFT_VAR[selectedTone] } : undefined}
           className={[
-            'interactive inline-flex h-7 w-full items-center justify-between gap-2',
+            'interactive inline-flex h-control-sm w-full items-center justify-between gap-2',
             triggerMinWidthClassName,
-            'rounded-[5px] border px-2 text-left text-[12px]',
+            'rounded-[5px] border px-2 text-left text-body',
             selectedTone
               ? 'border-transparent'
               : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)]',
