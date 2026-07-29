@@ -9,6 +9,8 @@ import type {
   PluginSkillCatalog,
 } from '../shared/plugin-manifest'
 import type { AgentCapabilitiesInvalidation } from '../shared/skills'
+import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
+import { createAgentCapabilityService, createFsSkillDirectoryReader } from './workspace-skills-service'
 import {
   capabilityWatchGroups,
   createCapabilityWatcher,
@@ -151,6 +153,25 @@ function testWatchedPathsAreDerived(temp: string): void {
   assert.equal(cursor.harnessId, '')
   assert.deepEqual(cursor.pluginIds, ['cursor'])
   assert.equal(cursor.skillsDir, null)
+
+  // And the watcher acts on that derivation: subscribing watches the fixture's
+  // directory, with no production edit anywhere for a harness nobody declared.
+  const watched: string[] = []
+  const watcher = createCapabilityWatcher({
+    listPlugins: () => withFixture,
+    lookupManifest: (pluginId) => MANIFESTS.get(pluginId),
+    homeDir: () => join(temp, 'home'),
+    debounceMs: DEBOUNCE_MS,
+    watchDirectory: (target) => {
+      watched.push(target.path)
+      return { close: () => {} }
+    },
+  })
+  const release = watcher.subscribe(workspaceRoot, () => {})
+  assert.ok(watched.includes(join(workspaceRoot, '.fixture', 'skills')), 'the new harness directory is watched')
+  assert.ok(watched.includes(join(workspaceRoot, '.mcp.json')), 'the shared config file is watched')
+  assert.ok(watched.includes(workspaceRoot), 'and its parent, for atomic-rename saves')
+  release()
 }
 
 // 2. A skill directory created outside Multicode moves the pane, and an install
@@ -232,6 +253,14 @@ async function testAtomicRenameInvalidates(temp: string): Promise<void> {
   await seen.waitFor(() => seen.events.length > 0, 'the atomic save to invalidate')
   assert.equal(seen.events[0].harnessId, 'claude')
   assert.equal(await readFile(configPath, 'utf-8'), '{"mcpServers":{"linear":{"command":"npx"}}}')
+
+  // The second save is the one that proves the parent-directory fallback: the
+  // first rename already replaced the inode the file watch was attached to.
+  await settle()
+  const afterFirstSave = seen.events.length
+  await writeFile(staging, '{"mcpServers":{"docs":{"url":"https://example.test/mcp"}}}', 'utf-8')
+  await rename(staging, configPath)
+  await seen.waitFor(() => seen.events.length > afterFirstSave, 'the second atomic save to invalidate')
   release()
 }
 
@@ -382,7 +411,42 @@ async function testWorkspaceCapIsStated(temp: string): Promise<void> {
   releaseSecond()
 }
 
-// 9. No polling, anywhere in the added code — `fs.watchFile` polls, and so does
+// 9. The fallback is not just knowable, it is *in the payload*: the capability
+//    answer a surface renders carries the freshness fault beside the read ones.
+async function testDegradeReachesTheCapabilityResult(temp: string): Promise<void> {
+  const workspaceRoot = await makeWorkspace(temp, 'payload')
+  const watcher = watcherFor({
+    temp,
+    watchDirectory: () => {
+      throw Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' })
+    },
+  })
+  const capabilities = createAgentCapabilityService({
+    reader: createFsSkillDirectoryReader(),
+    listPlugins: () => PLUGINS,
+    lookupManifest: (pluginId) => MANIFESTS.get(pluginId),
+    mcpResolver: createMcpServerResolver({ homeDir: () => join(temp, 'home') }),
+    freshness: watcher,
+  })
+
+  const before = await capabilities.resolve({ workspaceRoot, pluginId: 'claude-code' })
+  assert.ok(before.ok)
+  assert.deepEqual(before.diagnostics, [], 'nothing is subscribed, so nothing claims to be watching')
+
+  const release = watcher.subscribe(workspaceRoot, () => {})
+  const during = await capabilities.resolve({ workspaceRoot, pluginId: 'claude-code' })
+  assert.ok(during.ok)
+  assert.ok(
+    during.diagnostics.some((diagnostic) =>
+      diagnostic.capability === 'freshness' && diagnostic.reason === 'watch_unavailable'),
+    'the surface can say the list may be stale',
+  )
+  assert.ok(during.skills.length >= 0 && during.diagnostics.every((diagnostic) => diagnostic.reason !== 'unreadable'),
+    'a watch failure is not reported as a failed read')
+  release()
+}
+
+// 10. No polling, anywhere in the added code — `fs.watchFile` polls, and so does
 //    any interval. The one timer is the debounce.
 async function testNoPollingLoop(): Promise<void> {
   const source = await readFile(join(process.cwd(), 'src', 'main', 'capability-watcher.ts'), 'utf-8')
@@ -409,6 +473,7 @@ async function main(): Promise<void> {
     await testLifecycleLeavesNothingOpen(temp)
     await testFailedWatcherDegradesHonestly(temp)
     await testWorkspaceCapIsStated(temp)
+    await testDegradeReachesTheCapabilityResult(temp)
     await testNoPollingLoop()
     console.log('capability-watcher tests passed')
   } finally {

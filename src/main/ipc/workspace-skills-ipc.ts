@@ -4,11 +4,15 @@ import type {
   WorkspaceSkillsListInput,
   WorkspaceSkillsListResult,
 } from '../../shared/electron-api'
-import type { AgentCapabilitiesInput, AgentCapabilitiesResult } from '../../shared/skills'
+import {
+  AGENT_CAPABILITIES_INVALIDATED_CHANNEL,
+  AGENT_CAPABILITIES_WATCH_START_CHANNEL,
+  AGENT_CAPABILITIES_WATCH_STOP_CHANNEL,
+  type AgentCapabilitiesInput,
+  type AgentCapabilitiesResult,
+} from '../../shared/skills'
 import type { CapabilityWatcher } from '../capability-watcher'
 import type { AgentCapabilityService, WorkspaceSkillsService } from '../workspace-skills-service'
-
-export const AGENT_CAPABILITIES_INVALIDATED_CHANNEL = 'skills:agent-capabilities-invalidated'
 
 export function registerWorkspaceSkillsIpc(
   ipcMain: IpcMain,
@@ -38,7 +42,7 @@ export function registerWorkspaceSkillsIpc(
   const trackedSenders = new Set<number>()
   const key = (sender: WebContents, workspaceRoot: string): string => `${sender.id}::${workspaceRoot}`
 
-  ipcMain.handle('skills:agent-capabilities-watch-start', (event, input: AgentCapabilitiesWatchInput): void => {
+  ipcMain.handle(AGENT_CAPABILITIES_WATCH_START_CHANNEL, (event, input: AgentCapabilitiesWatchInput): void => {
     const workspaceRoot = input.workspaceRoot?.trim()
     if (!workspaceRoot || subscriptions.has(key(event.sender, workspaceRoot))) return
     const sender = event.sender
@@ -59,7 +63,7 @@ export function registerWorkspaceSkillsIpc(
     })
   })
 
-  ipcMain.handle('skills:agent-capabilities-watch-stop', (event, input: AgentCapabilitiesWatchInput): void => {
+  ipcMain.handle(AGENT_CAPABILITIES_WATCH_STOP_CHANNEL, (event, input: AgentCapabilitiesWatchInput): void => {
     const workspaceRoot = input.workspaceRoot?.trim()
     if (!workspaceRoot) return
     const subscriptionKey = key(event.sender, workspaceRoot)

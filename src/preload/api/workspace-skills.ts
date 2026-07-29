@@ -6,9 +6,13 @@ import type {
   WorkspaceSkillsListInput,
   WorkspaceSkillsListResult,
 } from '../../shared/electron-api'
-import type { AgentCapabilitiesInput, AgentCapabilitiesResult } from '../../shared/skills'
-
-const AGENT_CAPABILITIES_INVALIDATED_CHANNEL = 'skills:agent-capabilities-invalidated'
+import {
+  AGENT_CAPABILITIES_INVALIDATED_CHANNEL,
+  AGENT_CAPABILITIES_WATCH_START_CHANNEL,
+  AGENT_CAPABILITIES_WATCH_STOP_CHANNEL,
+  type AgentCapabilitiesInput,
+  type AgentCapabilitiesResult,
+} from '../../shared/skills'
 
 export const workspaceSkillsApi = {
   workspaceSkillsList: (input: WorkspaceSkillsListInput): Promise<WorkspaceSkillsListResult> =>
@@ -16,9 +20,9 @@ export const workspaceSkillsApi = {
   agentCapabilities: (input: AgentCapabilitiesInput): Promise<AgentCapabilitiesResult> =>
     ipcRenderer.invoke('skills:agent-capabilities', input),
   agentCapabilitiesWatchStart: (input: AgentCapabilitiesWatchInput): Promise<void> =>
-    ipcRenderer.invoke('skills:agent-capabilities-watch-start', input),
+    ipcRenderer.invoke(AGENT_CAPABILITIES_WATCH_START_CHANNEL, input),
   agentCapabilitiesWatchStop: (input: AgentCapabilitiesWatchInput): Promise<void> =>
-    ipcRenderer.invoke('skills:agent-capabilities-watch-stop', input),
+    ipcRenderer.invoke(AGENT_CAPABILITIES_WATCH_STOP_CHANNEL, input),
   onAgentCapabilitiesInvalidated: (cb: (event: AgentCapabilitiesInvalidation) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, payload: unknown): void =>
       cb(payload as AgentCapabilitiesInvalidation)
