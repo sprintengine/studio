@@ -577,9 +577,10 @@ before it was caught.**
 
 1. *The narrow viewport silently clamps.* The main window carries
    `minWidth: 800` (`src/main/window-factory.ts:76`), so `setContentSize(390, …)`
-   returns a **800px** viewport and reports success. A 390×844 result taken that
-   way is measuring a viewport twice the width it names. `setMinimumSize(1, 1)`
-   first, and assert the achieved `clientWidth` equals the requested one.
+   returns an **800px** viewport and reports success. A 390×844 result taken
+   that way is measuring a viewport twice the width it names. Call
+   `setMinimumSize(1, 1)` first, and assert the achieved `clientWidth` equals
+   the requested one.
 2. *An element past the right edge is not necessarily clipped.* Thirteen
    elements extend beyond `innerWidth` at 1024×768 with an item selected. All
    thirteen sit inside a horizontal scroll container — a markdown table that
@@ -601,7 +602,7 @@ did not happen.
 | F3 colour-alone category code | 4 hues at once, hard-coded hexes | unchanged — 101 coloured bars and 43 tinted rows on one 205-row list | *not adjudicated — owner's* |
 | F4 the disabled floor | 14 themes under 3:1 on `--bg-surface-raised`; `light` 2.95 on `--bg-app` | 19/19 clear 3:1 on all three surfaces; rendered ink clears 3.23–4.10:1 | **cleared** |
 | F5 four focus treatments | 4 treatments, two at ≈1.2:1 and ≈1.33:1 | 30 of 33 stops on one 2px ring at 4.76–5.38:1; **3 stops still on the UA outline**, and the door search field draws no ring at all | **partly — see R1** |
-| F6 the detail pane clips at 1024px | content to `x = 1301`, no scrollbar | `scrollWidth === clientWidth` at 1024×768, 900×700, 768×1024 and a real 390×844; **0** clipped elements | **cleared** |
+| F6 the detail pane clips at 1024px | content to `x = 1301`, no scrollbar | **0** clipped at 1024×768, 900×700 and 768×1024; 390×844 still clips but is below the window's own 800px minimum | **cleared** in range |
 | F7 sub-24px hit targets | 20×20, 22×22, 14×14; 2 unlabelled `svg` in focusable buttons | every named site fixed; **0** unnamed controls on four surfaces; **12 controls still under 24px** | **partly — see R2** |
 | F8 the ink lift is a no-op | resting and selected titles both `--text-strong` | `InboxRow` now lifts; **the Backlog door does not use `InboxRow`** and its title is still `--text-strong` in both states | **not cleared — see R3** |
 | F9 `MockupPreviewPane` active state | 2 sites on `--bg-surface-raised` | both `:545` and `:567` now `--bg-selected` + `--text-strong`, matching `:821` | **cleared** (source) |
@@ -641,7 +642,7 @@ that paint a selection at full strength simultaneously:
 | Extensions door | 3 full | **1** full + 3 resting |
 | New-chat composer | 4 full | **1** full + 3 resting |
 
-The ink half is live too: with focus in the composer, the sidebar's active
+The ink half is live too: with focus in another pane, the sidebar's active
 workspace row carries `aria-current="true"` and draws its title at
 `--text-default`, not `--text-strong` — the resting tier dropping the lift back
 out, which is exactly the ramp F8 described.
@@ -701,14 +702,28 @@ colour, same width, drawn inside so a scroll container does not clip it.
 
 Three stops are not, and one control has no ring at all. See **R1**.
 
-### F6 — cleared
+### F6 — cleared inside the window's own size range
 
-At a genuinely achieved 1024×768, 900×700, 768×1024 and 390×844, with an item
-selected: `document.scrollWidth === document.clientWidth` at every one, and
-every element extending past the right edge sits inside a horizontal scroll
-container. Zero clipped. At 1024×768 the detail pane now shrinks with the
-surface and the title wraps instead of being sliced; the wide markdown table
-that used to push the container scrolls inside its own.
+At a genuinely achieved 1024×768, 900×700 and 768×1024, with an item selected:
+`document.scrollWidth === document.clientWidth` at every one, and every element
+extending past the right edge sits inside a horizontal scroll container — 13 at
+1024×768, 14 at 768×1024, **0 clipped** at either. At 900×700 nothing crosses
+the edge at all. The detail pane now shrinks with the surface and the title
+wraps instead of being sliced; the wide markdown table that used to push the
+container scrolls inside its own.
+
+**390×844 still clips, and is unreachable.** Eight elements — a top-bar button,
+the `Paused` chip, a count badge, the `Epic` picker — sit at `right` 391–412 in
+a 390px viewport with no scrollable ancestor. But the main window declares
+`minWidth: 800` (`src/main/window-factory.ts:76`), so that viewport only exists
+if a harness calls `setMinimumSize(1, 1)` first — `setContentSize(390, …)` alone
+returns 800px and reports success. A user cannot make the window that narrow.
+
+Recorded, not filed: the clipping is real but sits outside the window's own
+declared contract, and 800px — the narrowest a user can actually reach — is
+clean. If the product ever means to support a phone-width viewport, the 800px
+minimum is the thing to change first and this becomes a defect; until then the
+honest reading is that F6's third viewport tests a size the app does not offer.
 
 ### F7 — partly cleared
 
@@ -774,9 +789,15 @@ behave the same: tokyo-night `#707898` → `#8088a8` (0.1° drift, ×0.978),
 ayu-mirage `#7c8088` → `#848890` (0.0°, ×0.992).
 
 Confirmed by eye rather than by number: all ten rendered on the Backlog door at
-1440×900, plus native-resolution crops of the metadata strip. gruvbox reads warm
-tan on brown-black, tokyo-night periwinkle on navy, sage olive, caramel warm
-cream, slate neutral. Each is unmistakably itself.
+1440×900 and each inspected as a native-resolution crop of the metadata strip.
+gruvbox reads warm tan on brown-black, caramel warm cream, lantern gold-brown,
+sage and conifer olive-green, tokyo-night and ayu-mirage cool blue, aubergine
+violet, rose-pine mauve, slate neutral. Each is unmistakably itself.
+
+One caveat on the method, since the whole judgement rests on it: a downscaled
+full-window screenshot is not safe to read hue from — at thumbnail scale
+caramel's warm cream ink reads cool, and reading it that way would have
+manufactured a drift finding. Every hue call above is from a 1:1 crop.
 
 **Does metadata still read as secondary to body text?** `--text-subtle` against
 `--text-default`, before → after:
@@ -808,28 +829,32 @@ and `:47-54`; `src/renderer/src/components/panels/BacklogPanel.tsx:2450`,
 **What I found** — Of thirty-three tab stops, thirty draw the system ring. The
 other three draw `outline: rgb(229,151,0) 1px auto` — Chromium's UA default,
 inherited because the button declares no focus treatment at all: the search
-field's `Clear search`, the detail pane's `Open epic …` breadcrumb, and a linked
--item button in the Links section. `BacklogPanel.tsx:2863` is a fourth of the
-same shape.
+field's `Clear search`, the detail pane's `Open epic …` breadcrumb, and a
+linked-item button in the Links section. `BacklogPanel.tsx:2863` is a fourth of
+the same shape.
 
 Separately, and worse: the door search **input** has `outline-none` and no ring.
 Its only focus signal is the wrapper's border going from `--border-default`
 (`rgba(252,252,252,0.08)`, a near-invisible hairline) to `--accent-primary` at
 **1px** via `focus-within`. That is a hue-only change on a hairline, at half the
-system ring's width, and it spends the product accent on a focus indicator.
+system ring's width, and it reaches for `--accent-primary` where every other
+control reaches for `--border-focus` — the two happen to resolve to the same
+green in `dark`, so the substitution is invisible until a theme separates them.
 `InboxSearchInput` is the shared search chrome on every door rail, so this is on
 Backlog, Extensions, Sprints and Reviews alike, not one screen.
 
 **Why it matters** — T22's own contract is one focus treatment. The UA outline
 is not a token: it is drawn by the platform, it changes with the OS and the
 Chromium version, and it is the one treatment the design system cannot theme.
-The search field is the first tab stop on a door and the most likely place a
-keyboard user enters the surface; a 1px hairline hue shift is not a focus
-indicator a user will find.
+The search field is the entry point to filtering a door; a 1px hairline shifting
+hue is a weaker signal than the 2px ring every neighbouring control draws, and a
+keyboard user moving between them sees the indicator change shape.
 
 This is a real improvement over T13 — the two effectively-invisible alpha
-treatments are gone and the worst surviving indicator is high-contrast rather
-than 1.2:1 — but the finding as written is not closed.
+treatments are gone, and the three surviving UA outlines measure 7.71–8.14:1,
+where T13's worst treatments sat at ≈1.2:1 — but the finding as written is not
+closed. The search field's border was measured for width and colour, not for
+contrast.
 
 **Recommended fix** — Add `FOCUS_RING_CLASS` to the four ringless buttons. In
 `InboxSearchInput`, move the ring onto the wrapper (`focus-within:` the system
