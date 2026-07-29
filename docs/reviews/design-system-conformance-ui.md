@@ -970,3 +970,239 @@ moves it to `--text-strong`; on a pane that does not hold focus, a row at
   re-confirmed in `light`, as before.
 - **The sprint board is still not reviewed**, for the same reason as the
   original: the throwaway profile cannot bind a live run.
+
+---
+
+# Integration re-check — 2026-07-29 (T24)
+
+Task T24. T15 drove the conformance guard to zero tolerance across T2–T12 and
+then completed; T18–T22 landed after it, so that proof no longer covered the
+tree. This is the replacement integration pass, scoped to the fix batch and the
+seams it crossed — not a redo of T15, and not a redo of T23's per-finding
+re-check.
+
+Verdict: **three of five acceptance criteria met.** The guard, the suite and
+both shared seam files are clean. The two live-behaviour criteria are not met:
+the resting selection tier does not reach the Backlog door at all, and four of
+seventy-four tab stops across the two doors do not draw the converged ring.
+
+## Method
+
+Built from this branch (`npm run build`, `out/main/index.js`) and driven through
+Playwright `_electron` on an isolated profile (`MULTICODE_USER_DATA_DIR`,
+`MULTICODE_ALLOW_MULTI_INSTANCE=1`), with `ELECTRON_RENDERER_URL` /
+`NODE_ENV_ELECTRON_VITE` / `NODE_ENV` stripped before launch and `data-mode`
+asserted non-null before any number is read. Viewport 1440×900. Workspace under
+test: a seeded backlog carrying one purple epic with two members plus a plain
+row, so an identity-tinted row and an untinted one are on the same list.
+
+Harness: `scripts/testing/design-system-integration-pass.mjs`, kept alongside
+the T15/T18/T19 passes so this is re-runnable rather than a one-off transcript.
+
+**Three traps of this pass's own, each of which produced a false result before
+it was caught.** They are recorded because the next pass will hit them too.
+
+1. *The `--border-focus` probe must not be appended to the focused element.* An
+   `<input>` is a replaced element; its children never take part in the cascade,
+   so a probe span inside one resolves `var(--border-focus)` to the initial
+   value — black. Every input then reports "the ring is not the focus colour".
+   Read `getComputedStyle(el).getPropertyValue('--border-focus')` off the
+   element instead; custom properties inherit, so an ancestor theme override is
+   still honoured.
+2. *Ring colour must be compared by channel, not by string.* The ring reaches
+   the element through Tailwind's `--tw-ring-*` pipeline, which can hand back
+   `rgba(r, g, b, a)` where the token is `rgb(r, g, b)`. String equality then
+   reports twenty-two painted rings as absent — the first run of this pass
+   claimed 26 ringless stops where there are 4.
+3. *The ring fades in under `transition-colors`.* Read 90ms after the Tab
+   keypress, the ring layer is caught mid-transition at alpha 0.867–0.937, which
+   reads as a second, translucent focus treatment that does not exist. Settled
+   at 320ms every converged ring is alpha 1.
+
+A fourth, on the selection side: Backlog selection is single-choice, so the
+first theme's pass leaves the epic row still selected. Reading the second theme
+without handing selection back to another row measures the *selected* fill and
+calls it resting, collapsing all three tiers onto one number.
+
+## Criteria
+
+| # | criterion | result |
+|---|---|---|
+| 1 | `npm run lint` exits 0, every baseline file empty, non-empty baselines recorded as 0 | **met** |
+| 2 | `npm run verify:app` and the test suite pass | **met** |
+| 3 | both shared-seam files carry every concurrent writer's change intact | **met** |
+| 4 | resting / resting-selected / selected are three distinguishable states on an epic-member Backlog row, dark and light | **not met — see I1** |
+| 5 | every tab stop on the Backlog and Extensions doors draws the converged ring | **not met — confirms R1** |
+
+### 1 — the guard, at zero tolerance
+
+`npm run lint` exits **0**. The conformance guard reports `tolerance: none — any
+violation fails` and 0 found on all fourteen rules, over 595 renderer files plus
+`index.css` against `design-system/foundations/tokens.css`. Nine violations are
+suppressed by inline `design-system-allow:` markers, each carrying a written
+reason, at seven sites.
+
+**Non-empty baseline files: 0.** There are no baseline files at all —
+`scripts/design-system-conformance/` is empty and tracks nothing. T15 removed
+the general baseline mechanism (`--write-baseline` now exits 2 rather than
+writing one); T20 added the single narrow `disabled-contrast.json`, and T21
+drained and deleted it. A missing file is zero tolerance by construction, which
+the reader documents deliberately: *"A missing file is zero tolerance, which is
+what deleting it must mean."*
+
+### 2 — the suite
+
+`npm run verify:app` exits **0**. That is `typecheck` + `lint` + the full main /
+preload / renderer / shared / seam suite, including
+`test:seams:design-system-conformance`.
+
+### 3 — the two shared seams
+
+Both verified by reading the file at HEAD, not by trusting the commits.
+
+**`scripts/lint-design-system-conformance.mjs`** — T18's `APP_TO_BUNDLE` entry
+`'--bg-selected-resting': '--sem-color-bg-selected-resting'` is present at
+`:693`. T20's rule is present and, more to the point, **live**: reverting one
+theme's `--text-disabled` to its pre-T21 value makes the guard exit **1** with
+`theme "slate": --text-disabled (#707070) is 2.81:1 on --bg-surface-raised
+(#2c2c30), under the 3:1 floor` — the surface T20 added to the measurement.
+Restored, the guard exits 0 and the tree is byte-identical. Neither writer
+reformatted or dropped the other.
+
+**`src/renderer/src/assets/index.css`** — T18's 19 `--bg-selected-resting`
+declarations are all present (19 at T18's own final commit, 19 at HEAD) and its
+`data-selection-pane` rule block is intact. T21's lifted `--text-subtle` /
+`--text-disabled` values and T22's opaque `--border-focus`, `--hit-target-min`
+and FlexLayout floor are all present. Everything T21 and T22 added after T18 is
+purely additive to T18's block; the only edit inside it is T18's own.
+
+### 4 — the T18/T19 seam on one surface
+
+This is the criterion T24 exists for, and it does not hold.
+
+Measured on a seeded epic-member row, selection handed back to a plain row
+between themes so each resting read is a genuine resting read:
+
+```
+dark    resting          rgb(23, 22, 33)     (the epic tint)
+        resting-selected rgb(36, 36, 44)     step from resting 1.162:1
+        selected         rgb(36, 36, 44)     step from resting-selected 1.000:1
+
+light   resting          rgb(246, 245, 255)
+        resting-selected rgb(216, 220, 224)  step from resting 1.275:1
+        selected         rgb(216, 220, 224)  step from resting-selected 1.000:1
+```
+
+The resting→selected steps (1.162:1 dark, 1.275:1 light) reproduce T23's F1
+numbers exactly, so T19's compositing is confirmed independently and is not in
+question. What is in question is the third state: **`resting-selected` and
+`selected` are the same fill, to the byte, in both themes.** There are two
+states on this surface, not three.
+
+The cause is not a token and not a contrast miss. `--bg-selected-resting`
+resolves correctly (`rgb(28, 32, 36)` dark, `rgb(228, 232, 236)` light) and is
+distinct from `--bg-selected` in both. It is never applied, because the tier is
+opted into with `data-selection-pane` and **the Backlog door's item list is not
+one**: the row's nearest `[data-selection-pane]` ancestor is `null`, on a
+surface that has two such panes. Per `index.css`, an unmarked list is a
+single-pane surface and never rests — so the Backlog list is treated as a
+single-pane surface even though it is not one.
+
+Title ink was read in the same three states and is byte-identical across all
+three (`rgb(236,236,236)` dark, `rgb(32,36,40)` light), which corroborates T23's
+R3 from the fill side: both halves of the tier are missing on this surface, not
+just the ink half.
+
+### 5 — the converged ring, door by door
+
+Seventy-four tab stops walked end to end, each walk terminating when focus
+cycles back rather than at a fixed step count. Focus read as *computed* style
+off `document.activeElement`, with a stop counted as converged only when a
+painted box-shadow layer matches the theme's own `--border-focus` by channel.
+
+**Seventy of seventy-four draw the converged ring.** There is exactly one
+treatment across both doors — `rgb(63, 148, 104) 0px 0px 0px 2px` and its
+`inset` variant, alpha 1, one `--border-focus` (`#3f9468`) everywhere. On the
+narrower question the task contract asks — *did any stop lose its ring in the F5
+convergence?* — the answer is **no**. Every stop that draws a ring draws the
+same one.
+
+Four stops do not draw it:
+
+| door | stop | what it draws instead |
+|---|---|---|
+| Backlog | `Search every project’s backlog` (input) | nothing — `box-shadow: none`, `outline: none` |
+| Backlog | `Open epic Tinted epic` | `outline: auto 1px` — the Chromium UA default |
+| Extensions | `Search connectors by name, category, or capability` (input) | nothing — `box-shadow: none`, `outline: none` |
+| Extensions | the `Featured` tabpanel (`tabindex=0` scroll container) | `outline: auto 1px` — the Chromium UA default |
+
+The two search inputs are the same component, `InboxSearchInput`, the shared
+search chrome on every door rail — which is why the same defect appears once per
+door. Both ringless stops and the `Open epic` button are already filed as **R1**
+by T23, unchanged and unfixed; this pass confirms R1 on a second surface and
+narrows its count from "three stops and the search field" to four named stops
+across the two doors walked.
+
+The fourth is new and weaker than the others: the `Featured` tabpanel is a
+focusable scroll container rather than a control, so its UA outline is a
+different argument from a button's — a keyboard user needs *some* signal that
+the scroll region has focus, but it is still the one treatment the design system
+cannot theme. Recorded here rather than filed separately; it belongs to R1.
+
+Both counts are floors, not totals. R1's other named sites — the linked-item
+button in `BacklogLinksSection` and `BacklogPanel.tsx:2863` — need an item with
+links and were not reached by this walk.
+
+## New finding
+
+### I1 — The resting selection tier never reaches the Backlog door (medium)
+
+**Location** — `src/renderer/src/components/workspace/globalSurface/backlog/BacklogGlobalSurface.tsx`
+(the `ul[role="listbox"]` that holds the rows); compare
+`src/renderer/src/components/workspace/globalSurface/surfaceSubstrate.tsx:353`,
+which does carry `data-selection-pane="primary"`.
+
+**What I found** — On an epic-member Backlog row, `resting-selected` and
+`selected` paint the identical fill in both `dark` and `light`. The token is
+fine and distinct; the list is simply not a `data-selection-pane`, so the CSS
+that would drop it to `--bg-selected-resting` never matches. Two panes exist on
+that surface and the Backlog list is neither of them.
+
+**Why it matters** — F2 was filed because four panes shouted at once, and T18
+built the tier to answer "which of these lists is my keyboard driving?". T23
+confirmed the tier works — on the Extensions door and the composer. It does not
+work on the Backlog door, which is the surface F1, F3 and F8 were all measured
+on and the busiest list in the product. Together with R3 (the ink half, same
+surface) the effect is that the Backlog door is the one place the tier was
+supposed to help and the one place it is absent.
+
+**Recommended fix** — Put `data-selection-pane` on the Backlog list container,
+the same way `surfaceSubstrate` does for the other door rails, and land R3's
+conditional on `BacklogRowContent` in the same change so the fill and the ink
+rest together. Whether the Backlog list should be `"primary"` or `"auto"` is a
+design call, not a mechanical one: `"primary"` keeps the door showing one
+focused selection the moment it opens, which is the behaviour every other door
+has.
+
+**Owner** — frontend, after an owner ruling on `primary` vs `auto`.
+
+**Verification** — Backlog door at 1440×900, `dark` and `light`, on an
+epic-member row: with focus in the list the row paints `--bg-selected`; with
+focus moved to another pane it paints `--bg-selected-resting` and its title
+drops to `--text-default`; unselected it paints the epic tint. Three distinct
+fills, and `scripts/testing/design-system-integration-pass.mjs` exits 0.
+
+## What this pass did not establish
+
+- **Two doors, not every surface.** The ring walk covered the Backlog and
+  Extensions doors end to end, as the criterion asks. The Sprints and Reviews
+  doors carry the same `InboxSearchInput`, so R1 is on them too by construction,
+  but they were not walked.
+- **One theme for the ring walk.** Both walks ran in one theme. `--border-focus`
+  is opaque in all nineteen after T22 and the guard measures its contrast, so
+  the risk of a theme-specific ring failure is low, but it is not measured here.
+- **R2 and R3 were not re-measured.** Neither is in this task's criteria; both
+  stand where T23 left them.
+- **The mutation test covered one rule.** T20's disabled-contrast rule was
+  proven live by regressing a value and watching the guard fail. The other
+  thirteen rules were confirmed only by their zero counts on a clean tree.
