@@ -164,7 +164,9 @@ function readBundleDimensions() {
     process.exit(2)
   }
   const microFontSizePx = readTokenDimensionPx(tokens, 'sem.font.size.micro')
+  // `$`-prefixed keys are DTCG metadata on the group itself, not steps of it.
   const radiusSteps = Object.keys(tokens?.sem?.radius ?? {})
+    .filter((step) => !step.startsWith('$'))
     .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
     .filter((value) => value !== null)
   if (microFontSizePx === null || radiusSteps.length === 0) {
