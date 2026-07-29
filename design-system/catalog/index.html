@@ -770,13 +770,24 @@ code {
 
 /* ── Text ────────────────────────────────────────────────────────────────
  * Title is the row's one priority and claims the width; everything else is
- * demoted to the supporting line or the trailing slot. */
+ * demoted to the supporting line or the trailing slot.
+ *
+ * The text block is a flex row so both children blockify: the ellipsis they
+ * declare below is inert on an inline box. The gap also carries the word
+ * space between title and supporting that inline layout used to supply. */
 .ds-list-row-text {
   min-width: 0;
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-xs);
 }
 
+/* The title claims the width it needs; the supporting clause takes what is
+ * left (basis 0) and so truncates first. */
 .ds-list-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--sem-font-size-body);
   font-weight: var(--sem-font-weight-medium);
   letter-spacing: var(--sem-font-tracking-normal);
@@ -787,6 +798,8 @@ code {
 }
 
 .ds-list-row-supporting {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-subtle);
   white-space: nowrap;
@@ -829,6 +842,11 @@ code {
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
+/* In the host pattern the actions are the row's sibling, so the reveal hangs
+ * off the host — a descendant selector on the row can never match it. The
+ * row-scoped rules stay for rows used without the host wrapper. */
+.ds-list-row-host:hover .ds-list-row-actions,
+.ds-list-row-host:focus-within .ds-list-row-actions,
 .ds-list-row:hover .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
@@ -848,6 +866,19 @@ code {
   right: var(--sem-space-sm);
 }
 
+/* The absolute slot reserves no width of its own, so the host declares how
+ * many actions it carries and the row reserves that much trailing padding —
+ * text truncates before it reaches the icons, and revealing never reflows. */
+.ds-list-row-host[data-actions='1'] .ds-list-row {
+  padding-right: calc(var(--sem-space-sm) + var(--sem-size-control-xs) + var(--sem-space-xs));
+}
+
+.ds-list-row-host[data-actions='2'] .ds-list-row {
+  padding-right: calc(
+    var(--sem-space-sm) + var(--sem-size-control-xs) * 2 + var(--sem-space-3xs) + var(--sem-space-xs)
+  );
+}
+
 .ds-list-row-action {
   display: grid;
   place-items: center;
@@ -860,6 +891,9 @@ code {
   border-radius: var(--sem-radius-chip);
   background: transparent;
   color: var(--sem-color-text-muted);
+  /* Without this the button falls back to the UA font — a third family the
+   * system does not have. Latent while the actions are icon-only. */
+  font-family: inherit;
   cursor: pointer;
 }
 
@@ -1062,6 +1096,9 @@ code {
     font-size: var(--sem-font-size-meta);
     color: var(--sem-color-text-subtle);
     padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
+  }
+.ds-embed-component-list-row .demo-pane--narrow {
+    max-width: 220px;
   }
 .ds-embed-component-task-card {
     margin: 0;
@@ -1878,7 +1915,7 @@ code {
 
     <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
-      <div class="ds-list-row-host">
+      <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
           <span class="ds-list-row-text">
             <span class="ds-list-row-title">Engineering</span>
@@ -1908,11 +1945,50 @@ code {
       </button>
     </div>
 
+    <div class="demo-pane demo-pane--narrow">
+      <p class="demo-pane-title">Narrow — long lines truncate</p>
+      <div class="ds-list-row-host" data-actions="2">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">workspace-knowledge</span>
+            <span class="ds-list-row-supporting">Read and update the repo-local knowledge graph before implementing</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal workspace-knowledge in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove workspace-knowledge">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="ds-list-row-host" data-actions="1">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">design-system-conformance</span>
+            <span class="ds-list-row-supporting">Check a surface against the tokens and components it claims to use</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Remove design-system-conformance">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">backlog</span>
+          <span class="ds-list-row-supporting">Work, create, or triage backlog items and epics</span>
+        </span>
+      </button>
+    </div>
+
   </div>
 </div>
 
 <div class="demo-stage" data-mode="dark">
-  <p class="demo-label">Dark — the same three panes.</p>
+  <p class="demo-label">Dark — the same four panes.</p>
   <div class="demo-panes">
 
     <div class="demo-pane">
@@ -1973,7 +2049,7 @@ code {
 
     <div class="demo-pane">
       <p class="demo-pane-title">Hover or tab a row to reveal its actions</p>
-      <div class="ds-list-row-host">
+      <div class="ds-list-row-host" data-actions="2">
         <button type="button" class="ds-list-row">
           <span class="ds-list-row-text">
             <span class="ds-list-row-title">Engineering</span>
@@ -2003,6 +2079,45 @@ code {
       </button>
     </div>
 
+    <div class="demo-pane demo-pane--narrow">
+      <p class="demo-pane-title">Narrow — long lines truncate</p>
+      <div class="ds-list-row-host" data-actions="2">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">workspace-knowledge</span>
+            <span class="ds-list-row-supporting">Read and update the repo-local knowledge graph before implementing</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Reveal workspace-knowledge in folder">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="ds-list-row-action" aria-label="Remove workspace-knowledge">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <div class="ds-list-row-host" data-actions="1">
+        <button type="button" class="ds-list-row">
+          <span class="ds-list-row-text">
+            <span class="ds-list-row-title">design-system-conformance</span>
+            <span class="ds-list-row-supporting">Check a surface against the tokens and components it claims to use</span>
+          </span>
+        </button>
+        <span class="ds-list-row-actions">
+          <button type="button" class="ds-list-row-action" aria-label="Remove design-system-conformance">
+            <svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </span>
+      </div>
+      <button type="button" class="ds-list-row">
+        <span class="ds-list-row-text">
+          <span class="ds-list-row-title">backlog</span>
+          <span class="ds-list-row-supporting">Work, create, or triage backlog items and epics</span>
+        </span>
+      </button>
+    </div>
+
   </div>
 </div>
 </div>
@@ -2010,7 +2125,7 @@ code {
 <p>The pick-an-item worklist row: rails, source lists, inboxes, categories, search results. The most repeated surface in the product, and the default answer for any list of things a person chooses between.</p>
 <p>Use <code>task-card</code> instead when the item is a card on a board. Use this when the item is a row in a list.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — |</p>
+<p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — |</p>
 <p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — no modifier. The resting, unselected row.</li><li><strong><code>--selected</code></strong> — the selected row of the pane that currently has focus. Neutral <code>bg.selected</code> fill, title lifts to <code>text.primary</code>.</li><li><strong><code>--resting</code></strong> — the selected row of a pane that does not have focus. Quieter <code>bg.selected-resting</code> fill, title stays at <code>text.default</code>.</li></ul>
@@ -2020,7 +2135,7 @@ code {
 <p>| State | Treatment | |---|---| | Rest | Transparent background, <code>text.muted</code> | | Hover | <code>bg.hover</code>, ink lifts to <code>text.default</code>. Background only — no shadow, scale, glow, or border that shifts geometry | | Focus-visible | <code>focus.ring</code>, <code>outline: none</code>. Never on <code>:focus</code> — a mouse click must not draw a ring | | Selected (focused pane) | <code>bg.selected</code> + <code>text.primary</code> | | Selected (resting pane) | <code>bg.selected-resting</code> + <code>text.default</code> | | Disabled | <code>opacity: 0.5</code>, <code>cursor: not-allowed</code>. Stays in layout and stays readable |</p>
 <h4>Usage</h4>
 <p><strong>Actions are withheld until reached for.</strong> Per-row actions — remove, reveal in folder, roll back, close — live in <code>.ds-list-row-actions</code> and are invisible at rest. They appear on hover and on keyboard focus. Ceiling: two. A third action belongs in an overflow menu or the detail pane.</p>
-<p>The row itself is the <code>&lt;button&gt;</code>, so an action cannot be nested inside it — that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions in <code>.ds-list-row-host</code> instead, which positions the actions over the row's trailing padding. The slot reserves its space, so revealing never reflows.</p>
+<p>The row itself is the <code>&lt;button&gt;</code>, so an action cannot be nested inside it — that is invalid HTML and breaks Safari and JAWS. Wrap the row and its actions in <code>.ds-list-row-host</code> instead, which positions the actions over the row's trailing padding. Declare <code>data-actions=&quot;1&quot;</code> or <code>&quot;2&quot;</code> on that host: the actions are positioned absolutely and reserve no width themselves, so the count is what the row reserves its trailing padding from. Without it the text runs under the icons. With it the space is held at rest, so revealing never reflows.</p>
 <p>Do not put anything interactive in <code>.ds-list-row-trailing</code>. It is for a count, a timestamp, or a status word.</p>
 <p>Titles truncate to one line. If the full value matters, attach a tooltip that appears only when the text actually overflows — never a native <code>title</code> attribute on a control.</p>
 <h4>Accessibility</h4>
@@ -2113,13 +2228,24 @@ code {
 
 /* ── Text ────────────────────────────────────────────────────────────────
  * Title is the row's one priority and claims the width; everything else is
- * demoted to the supporting line or the trailing slot. */
+ * demoted to the supporting line or the trailing slot.
+ *
+ * The text block is a flex row so both children blockify: the ellipsis they
+ * declare below is inert on an inline box. The gap also carries the word
+ * space between title and supporting that inline layout used to supply. */
 .ds-list-row-text {
   min-width: 0;
   flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sem-space-xs);
 }
 
+/* The title claims the width it needs; the supporting clause takes what is
+ * left (basis 0) and so truncates first. */
 .ds-list-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--sem-font-size-body);
   font-weight: var(--sem-font-weight-medium);
   letter-spacing: var(--sem-font-tracking-normal);
@@ -2130,6 +2256,8 @@ code {
 }
 
 .ds-list-row-supporting {
+  flex: 1 1 0;
+  min-width: 0;
   font-size: var(--sem-font-size-meta);
   color: var(--sem-color-text-subtle);
   white-space: nowrap;
@@ -2172,6 +2300,11 @@ code {
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
+/* In the host pattern the actions are the row's sibling, so the reveal hangs
+ * off the host — a descendant selector on the row can never match it. The
+ * row-scoped rules stay for rows used without the host wrapper. */
+.ds-list-row-host:hover .ds-list-row-actions,
+.ds-list-row-host:focus-within .ds-list-row-actions,
 .ds-list-row:hover .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
@@ -2191,6 +2324,19 @@ code {
   right: var(--sem-space-sm);
 }
 
+/* The absolute slot reserves no width of its own, so the host declares how
+ * many actions it carries and the row reserves that much trailing padding —
+ * text truncates before it reaches the icons, and revealing never reflows. */
+.ds-list-row-host[data-actions='1'] .ds-list-row {
+  padding-right: calc(var(--sem-space-sm) + var(--sem-size-control-xs) + var(--sem-space-xs));
+}
+
+.ds-list-row-host[data-actions='2'] .ds-list-row {
+  padding-right: calc(
+    var(--sem-space-sm) + var(--sem-size-control-xs) * 2 + var(--sem-space-3xs) + var(--sem-space-xs)
+  );
+}
+
 .ds-list-row-action {
   display: grid;
   place-items: center;
@@ -2203,6 +2349,9 @@ code {
   border-radius: var(--sem-radius-chip);
   background: transparent;
   color: var(--sem-color-text-muted);
+  /* Without this the button falls back to the UA font — a third family the
+   * system does not have. Latent while the actions are icon-only. */
+  font-family: inherit;
   cursor: pointer;
 }
 
@@ -2269,6 +2418,12 @@ code {
     color: var(--sem-color-text-subtle);
     padding: var(--sem-space-2xs) var(--sem-space-md) var(--sem-space-sm);
   }
+  /* Deliberately the narrowest pane the grid allows: the width at which
+     truncation and the reserved action slot are actually exercised. A demo
+     whose strings never overflow cannot show whether either one works. */
+  .demo-pane--narrow {
+    max-width: 220px;
+  }
 &lt;/style&gt;
 &lt;/head&gt;
 &lt;body&gt;
@@ -2334,7 +2489,7 @@ code {
 
     &lt;div class=&quot;demo-pane&quot;&gt;
       &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
-      &lt;div class=&quot;ds-list-row-host&quot;&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
           &lt;span class=&quot;ds-list-row-text&quot;&gt;
             &lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;
@@ -2364,11 +2519,50 @@ code {
       &lt;/button&gt;
     &lt;/div&gt;
 
+    &lt;div class=&quot;demo-pane demo-pane--narrow&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Narrow — long lines truncate&lt;/p&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;workspace-knowledge&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Read and update the repo-local knowledge graph before implementing&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Reveal workspace-knowledge in folder&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove workspace-knowledge&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;1&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;design-system-conformance&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Check a surface against the tokens and components it claims to use&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove design-system-conformance&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;backlog&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Work, create, or triage backlog items and epics&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
   &lt;/div&gt;
 &lt;/div&gt;
 
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same three panes.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the same four panes.&lt;/p&gt;
   &lt;div class=&quot;demo-panes&quot;&gt;
 
     &lt;div class=&quot;demo-pane&quot;&gt;
@@ -2429,7 +2623,7 @@ code {
 
     &lt;div class=&quot;demo-pane&quot;&gt;
       &lt;p class=&quot;demo-pane-title&quot;&gt;Hover or tab a row to reveal its actions&lt;/p&gt;
-      &lt;div class=&quot;ds-list-row-host&quot;&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
         &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
           &lt;span class=&quot;ds-list-row-text&quot;&gt;
             &lt;span class=&quot;ds-list-row-title&quot;&gt;Engineering&lt;/span&gt;
@@ -2455,6 +2649,45 @@ code {
         &lt;span class=&quot;ds-list-row-text&quot;&gt;
           &lt;span class=&quot;ds-list-row-title&quot;&gt;Deprecated&lt;/span&gt;
           &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Unavailable while the source reindexes&lt;/span&gt;
+        &lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;demo-pane demo-pane--narrow&quot;&gt;
+      &lt;p class=&quot;demo-pane-title&quot;&gt;Narrow — long lines truncate&lt;/p&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;2&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;workspace-knowledge&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Read and update the repo-local knowledge graph before implementing&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Reveal workspace-knowledge in folder&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M1.8 3.6h3.4l1.1 1.4h5.9v5.4H1.8z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.2&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove workspace-knowledge&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-list-row-host&quot; data-actions=&quot;1&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+          &lt;span class=&quot;ds-list-row-text&quot;&gt;
+            &lt;span class=&quot;ds-list-row-title&quot;&gt;design-system-conformance&lt;/span&gt;
+            &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Check a surface against the tokens and components it claims to use&lt;/span&gt;
+          &lt;/span&gt;
+        &lt;/button&gt;
+        &lt;span class=&quot;ds-list-row-actions&quot;&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-list-row-action&quot; aria-label=&quot;Remove design-system-conformance&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/button&gt;
+        &lt;/span&gt;
+      &lt;/div&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;backlog&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-supporting&quot;&gt;Work, create, or triage backlog items and epics&lt;/span&gt;
         &lt;/span&gt;
       &lt;/button&gt;
     &lt;/div&gt;
