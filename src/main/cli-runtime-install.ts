@@ -28,7 +28,11 @@ const NOT_FOUND_EXIT = 3
 const PATH_SENTINEL = 'MULTICODE_PATH:'
 
 export type SpawnDescriptor = { file: string; args: string[] }
-type RunOutcome = { code: number; stdout: string; stderr: string }
+// `timedOut` is carried alongside the exit code because a killed probe reports
+// the not-found code (callers that only want a yes/no verdict keep treating it
+// as "absent"), while callers that must distinguish "no such binary" from "the
+// probe never answered" read this flag instead.
+type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: boolean }
 
 // Maps the OS platform + per-CLI WSL override onto the manifest install bucket.
 // WSL is a logical target (Windows host, POSIX guest) distinct from win32.
@@ -232,14 +236,19 @@ function runDescriptor(
       onData?.(text)
     })
     child.on('error', (error) => {
-      settle({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)) })
+      settle({ code: 1, stdout, stderr: stderr + (error.message ?? String(error)), timedOut: false })
     })
     child.on('close', (code) => {
       if (timedOut) {
-        settle({ code: NOT_FOUND_EXIT, stdout: '', stderr: `${stderr}\nprobe timed out after ${timeoutMs}ms` })
+        settle({
+          code: NOT_FOUND_EXIT,
+          stdout: '',
+          stderr: `${stderr}\nprobe timed out after ${timeoutMs}ms`,
+          timedOut: true,
+        })
         return
       }
-      settle({ code: code ?? 1, stdout, stderr })
+      settle({ code: code ?? 1, stdout, stderr, timedOut: false })
     })
   })
 }
@@ -276,6 +285,80 @@ function managedInstallEnv(): Record<string, string> | null {
   return withManagedRuntimePath(withShims, shims.prefixBinDir, runtimeEnv.platform)
 }
 
+type ProbeVerdict = {
+  parsed: ReturnType<typeof parseProbeOutput>
+  // True when a probe was killed at its deadline, so an "absent" parse is a
+  // non-answer rather than a verdict.
+  inconclusive: boolean
+}
+
+// Runs the login-shell probe, then the user's own interactive shell when the
+// binary did not resolve (terminal parity — see buildUserShellProbeDescriptor).
+async function runVersionProbe(input: {
+  binary: string
+  versionArgs: string[]
+  target: PluginInstallPlatform
+  env: NodeJS.ProcessEnv
+}): Promise<ProbeVerdict> {
+  const { binary, versionArgs, target, env } = input
+  const primary = await runDescriptor(
+    buildProbeDescriptor({ binary, versionArgs, target }),
+    undefined,
+    env,
+    PROBE_TIMEOUT_MS,
+  )
+  let parsed = parseProbeOutput(primary.code, primary.stdout)
+  let inconclusive = primary.timedOut
+  if (parsed.installed) return { parsed, inconclusive }
+  const fallback = buildUserShellProbeDescriptor({ binary, versionArgs, target, shell: process.env.SHELL })
+  if (!fallback) return { parsed, inconclusive }
+  const outcome = await runDescriptor(fallback, undefined, env, USER_SHELL_PROBE_TIMEOUT_MS)
+  const fallbackParsed = parseProbeOutput(outcome.code, outcome.stdout)
+  // Only an absolute executable path is accepted (the script enforces it), so
+  // an alias/function-only setup reads as not-found rather than producing a
+  // resolvedPath that cannot be spawned.
+  if (fallbackParsed.installed && fallbackParsed.resolvedPath?.startsWith('/')) {
+    return { parsed: fallbackParsed, inconclusive: false }
+  }
+  if (outcome.timedOut) inconclusive = true
+  return { parsed, inconclusive }
+}
+
+// PATH augmentation matching what terminal launches get (managed runtime shims
+// + the Multicode CLI bin dir), so a managed install is never invisible to a
+// probe.
+function defaultProbeEnv(): NodeJS.ProcessEnv {
+  return withMulticodeCliPath(managedInstallEnv() ?? stringProcessEnv())
+}
+
+// Outcome of probing a binary the app does not manage as an Agent CLI (`git`,
+// `gh`). The three cases stay distinct: a probe that could not answer is never
+// reported as a missing binary, and a resolved outcome always carries a real
+// version line.
+export type BinaryVersionProbe =
+  | { outcome: 'resolved'; version: string; resolvedPath: string | null }
+  | { outcome: 'not_installed' }
+  | { outcome: 'probe_failed' }
+
+export async function probeBinaryVersion(binary: string): Promise<BinaryVersionProbe> {
+  try {
+    const { parsed, inconclusive } = await runVersionProbe({
+      binary,
+      versionArgs: ['--version'],
+      target: resolveInstallPlatform(process.platform, false),
+      env: defaultProbeEnv(),
+    })
+    if (!parsed.installed) return inconclusive ? { outcome: 'probe_failed' } : { outcome: 'not_installed' }
+    // Resolved without a version line means the probe ran but told us nothing
+    // usable; reporting success with an empty version would put a placeholder
+    // on screen.
+    if (!parsed.version) return { outcome: 'probe_failed' }
+    return { outcome: 'resolved', version: parsed.version, resolvedPath: parsed.resolvedPath }
+  } catch {
+    return { outcome: 'probe_failed' }
+  }
+}
+
 export async function detectCli(
   cli: AgentCli,
   runtime?: Partial<CliRuntimeSettings>,
@@ -298,30 +381,13 @@ export async function detectCli(
   const target = resolveInstallPlatform(process.platform, useWsl)
   const versionArgs = manifest.detect?.versionArgs ?? ['--version']
   try {
-    // Probe with the same PATH augmentation terminal launches get (managed
-    // runtime shims + the Multicode CLI bin dir), so a managed install is
-    // never invisible to detection. An explicit caller env still wins.
-    const probeEnv = env ?? withMulticodeCliPath(managedInstallEnv() ?? stringProcessEnv())
-    const outcome = await runDescriptor(
-      buildProbeDescriptor({ binary, versionArgs, target }),
-      undefined,
-      probeEnv,
-      PROBE_TIMEOUT_MS,
-    )
-    let parsed = parseProbeOutput(outcome.code, outcome.stdout)
-    if (!parsed.installed) {
-      // Terminal-parity fallback: PTY terminals resolve the binary through the
-      // user's own shell config; consult it before concluding "not installed".
-      // Only an absolute executable path is accepted (the script enforces it),
-      // so an alias/function-only setup reads as not-found rather than
-      // producing a resolvedPath that cannot be spawned.
-      const fallback = buildUserShellProbeDescriptor({ binary, versionArgs, target, shell: process.env.SHELL })
-      if (fallback) {
-        const fallbackOutcome = await runDescriptor(fallback, undefined, probeEnv, USER_SHELL_PROBE_TIMEOUT_MS)
-        const fallbackParsed = parseProbeOutput(fallbackOutcome.code, fallbackOutcome.stdout)
-        if (fallbackParsed.installed && fallbackParsed.resolvedPath?.startsWith('/')) parsed = fallbackParsed
-      }
-    }
+    // An explicit caller env still wins over the default probe PATH.
+    const { parsed } = await runVersionProbe({
+      binary,
+      versionArgs,
+      target,
+      env: env ?? defaultProbeEnv(),
+    })
     return {
       cli,
       binary,
