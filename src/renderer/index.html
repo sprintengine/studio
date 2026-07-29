@@ -17,10 +17,36 @@
       // which inherits the default :root (Dark) until React mounts and
       // the normalizer rewrites it. One frame, theme-list-agnostic.
       //
-      // This means adding a new theme never touches index.html — only
+      // Adding a new DARK theme never touches index.html — only
       // src/renderer/src/types/appTheme.ts (one row) and index.css (one
-      // :root[data-theme="..."] block).
+      // :root[data-theme="..."] block). A new LIGHT-surface theme adds a row to
+      // LIGHT_SURFACES below, which drives both the canvas pre-paint and the
+      // data-mode stamp.
       (function () {
+        // The light-surface themes, mapped to the canvas colour to pre-paint.
+        // Membership must match LIGHT_SURFACE_THEMES in types/appTheme.ts (this
+        // script runs before any bundle exists, so it cannot import it).
+        var LIGHT_SURFACES = {
+          light: '#f6f6f4',
+          vellum: '#e8e0d0',
+          herbarium: '#d4dcc0',
+          paper: '#f4f1e8',
+        }
+        // The design-system bundle imported by index.css keys its dark values
+        // off data-mode; its bare :root is the LIGHT tier, the inverse of this
+        // app's dark-default :root. Without this attribute the first frame
+        // resolves a dark theme's aliased surfaces to the bundle's light
+        // values — the white flash this whole script exists to prevent.
+        // hasOwnProperty, not a truthiness check: a corrupt persisted value of
+        // `constructor` or `toString` would otherwise inherit off Object and
+        // stamp a light canvas over a dark theme.
+        function isLightSurface(theme) {
+          return Object.prototype.hasOwnProperty.call(LIGHT_SURFACES, theme)
+        }
+        function applyThemeAttributes(theme) {
+          document.documentElement.setAttribute('data-theme', theme)
+          document.documentElement.setAttribute('data-mode', isLightSurface(theme) ? 'light' : 'dark')
+        }
         try {
           var KEY = 'multicode-app-settings'
           var raw = window.localStorage.getItem(KEY)
@@ -32,7 +58,7 @@
             var mql = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)')
             theme = mql && mql.matches ? 'light' : 'dark'
           }
-          document.documentElement.setAttribute('data-theme', theme)
+          applyThemeAttributes(theme)
           // Window material (macOS glass) must be stamped just as synchronously:
           // main already created the window with vibrancy, so a late attribute
           // would flash a solid canvas over the frost. Same no-allow-list
@@ -47,17 +73,17 @@
           // Paint the canvas background immediately (before the bundled CSS
           // loads) so first launch never flashes the wrong scale. The exact
           // per-theme bg takes over once index.css applies; this is just the
-          // pre-paint guard. Light-surface themes each pre-paint their own warm
+          // pre-paint guard. Each LIGHT_SURFACES theme pre-paints its own warm
           // or cool canvas so a light theme never flashes the dark ink scale;
           // everything else falls through to the dark ink scale. Under glass
           // the canvas must stay unpainted — an opaque html background would
           // sit in front of the window vibrancy and block the frost.
           if (!glass) {
-            var prePaint = { light: '#f6f6f4', vellum: '#e8e0d0', herbarium: '#d4dcc0', paper: '#f4f1e8' }
-            document.documentElement.style.backgroundColor = prePaint[theme] || '#08090b'
+            document.documentElement.style.backgroundColor =
+              isLightSurface(theme) ? LIGHT_SURFACES[theme] : '#08090b'
           }
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark')
+          applyThemeAttributes('dark')
           document.documentElement.style.backgroundColor = '#08090b'
         }
       })()
