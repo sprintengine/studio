@@ -14,6 +14,7 @@ import { registerDiagnosticsIpc } from './ipc/diagnostics-ipc'
 import { registerFilesystemMutationIpc } from './ipc/filesystem-mutation-ipc'
 import { registerFilesystemReadIpc } from './ipc/filesystem-read-ipc'
 import { registerFilesystemWatchSearchIpc } from './ipc/filesystem-watch-search-ipc'
+import { createFolderOpenIpcDependencies, registerFolderOpenIpc } from './ipc/folder-open-ipc'
 import { registerGitHubTokenIpc } from './ipc/github-token-ipc'
 import { registerGitIpc } from './ipc/git-ipc'
 import { registerDesignSystemIpc } from './ipc/design-system-ipc'
@@ -36,6 +37,7 @@ import { registerGitHubTrackerProvider } from './tracker/github/register'
 import { registerJiraTrackerProvider } from './tracker/jira/register'
 import { registerLinearTrackerProvider } from './tracker/linear/register'
 import { registerUpdateIpc } from './ipc/update-ipc'
+import { registerVersionControlIpc } from './ipc/version-control-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
@@ -89,7 +91,11 @@ export function registerCoreIpc(
     agentSkillInstaller: services.agentSkillInstaller,
   })
   registerFilesystemWatchSearchIpc(ipcMain, createFilesystemWatchSearchHandlers())
-  registerFilesystemReadIpc(ipcMain, createFilesystemReadHandlers())
+  const filesystemReadHandlers = createFilesystemReadHandlers()
+  registerFilesystemReadIpc(ipcMain, filesystemReadHandlers)
+  // The file-manager target of the open-in-editor control is the same reveal the
+  // rest of the app already uses, so it is handed the very same handler.
+  registerFolderOpenIpc(ipcMain, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
   // Memory/knowledge-graph backend is foundational: agent context injection
   // (TerminalView, Sprint Engine auto-run) and the Knowledge Graph settings tab
   // depend on it, so it is always registered. The memory-graph capability
@@ -115,6 +121,7 @@ export function registerCoreIpc(
     logMainPerfEvent: services.logMainPerfEvent,
     withIpcDiagnostics: services.withIpcDiagnostics,
   })
+  registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)
   registerMenuDialogIpc(ipcMain)
   registerModuleEnablementIpc(ipcMain, { applyLive: options.applyModuleEnablementLive })

@@ -7,12 +7,16 @@ import type {
   ElectronApi,
   FileSearchResult,
   FileWatchEvent,
+  FolderOpenRequest,
+  FolderOpenResult,
+  FolderOpenTargetAvailability,
   MemoryGraphIndexResult,
   MemoryPreviewResult,
   MemoryRootStatus,
   OpenDialogOptions,
   ProcessMetricsSnapshot,
   SaveDialogOptions,
+  VersionControlProviderProbe,
   WorkspaceFolderCheckResult,
 } from '../../shared/electron-api'
 
@@ -67,7 +71,13 @@ export const filesystemApi = {
     ipcRenderer.invoke('fs:copy-into', sourcePath, destinationDir, options),
   deletePath: (targetPath: string) => ipcRenderer.invoke('fs:delete', targetPath),
   showItemInFolder: (targetPath: string) => ipcRenderer.invoke('fs:show-item-in-folder', targetPath),
+  probeVersionControlProviders: (): Promise<VersionControlProviderProbe[]> =>
+    ipcRenderer.invoke('version-control:probe-providers'),
   openHtmlFileInBrowser: (targetPath: string) => ipcRenderer.invoke('fs:open-html-file-in-browser', targetPath),
+  listFolderOpenTargets: (): Promise<FolderOpenTargetAvailability[]> =>
+    ipcRenderer.invoke('fs:folder-open-targets'),
+  openFolderInTarget: (request: FolderOpenRequest): Promise<FolderOpenResult> =>
+    ipcRenderer.invoke('fs:open-folder-in-target', request),
   watchPath: async (path: string, cb: (event: FileWatchEvent) => void) => {
     const watchId = await ipcRenderer.invoke('fs:watch-start', path)
     if (!watchId) {
@@ -119,7 +129,10 @@ export const filesystemApi = {
   | 'copyPathInto'
   | 'deletePath'
   | 'showItemInFolder'
+  | 'probeVersionControlProviders'
   | 'openHtmlFileInBrowser'
+  | 'listFolderOpenTargets'
+  | 'openFolderInTarget'
   | 'watchPath'
   | 'openDir'
   | 'defaultWorkspaceParentDir'

@@ -1,5 +1,19 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type {
+  FolderOpenRequest,
+  FolderOpenResult,
+  FolderOpenTargetAvailability,
+} from './folder-open-targets'
+// Re-exported because these shapes are the open-in-editor IPC contract itself:
+// the renderer reads them off this module like the rest of the API surface.
+export type {
+  FolderOpenFailureReason,
+  FolderOpenRequest,
+  FolderOpenResult,
+  FolderOpenTargetAvailability,
+  FolderOpenTargetId,
+} from './folder-open-targets'
+import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesInvalidation,
   AgentCapabilitiesResult,
@@ -237,6 +251,14 @@ import type {
   ReviewSourceKind,
   ReviewWorkspaceState,
 } from './review'
+import type { VersionControlProviderProbe } from './version-control'
+// Re-exported because the probe shape is part of this IPC contract: the
+// version-control settings sections read it straight off the api surface.
+export type {
+  VersionControlProbeFailure,
+  VersionControlProviderId,
+  VersionControlProviderProbe,
+} from './version-control'
 
 export type SaveDialogOptions = {
   title?: string
@@ -2938,6 +2960,8 @@ export type ElectronApi = {
   deletePath: (targetPath: string) => Promise<void>
   showItemInFolder: (targetPath: string) => Promise<void>
   openHtmlFileInBrowser: (targetPath: string) => Promise<void>
+  listFolderOpenTargets: () => Promise<FolderOpenTargetAvailability[]>
+  openFolderInTarget: (request: FolderOpenRequest) => Promise<FolderOpenResult>
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
   openDir: () => Promise<string | null>
   defaultWorkspaceParentDir: () => Promise<string | null>
@@ -2951,6 +2975,9 @@ export type ElectronApi = {
     wav: ArrayBuffer,
     settings: TranscriptionRequestSettings
   ) => Promise<VoiceTranscribeResponse>
+  // What this machine actually has: probed `git`/`gh` versions plus gh's own
+  // auth login. Read-only and argument-free — see src/shared/version-control.ts.
+  probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
   getGitRepoRoot: (folderPath: string) => Promise<string | null>
   getGitStatus: (repoRoot: string) => Promise<GitStatusSnapshot>
   getGitFileBase: (repoRoot: string, filePath: string) => Promise<GitFileBaseResult>
