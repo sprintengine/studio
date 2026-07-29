@@ -115,6 +115,15 @@ export function EpicColorDot({
   )
 }
 
+// The ink half of selection, for every Backlog row title (leaf rows and group
+// headers alike): one rung below on an unpicked row so the lift is a real step,
+// the same ramp `InboxRow` makes. On a pane that is not the one holding focus
+// the selection-tier rules in assets/index.css rebind `--text-strong` on the row
+// itself, so a selected title rests back down with its fill.
+function titleInkClass(selected: boolean): string {
+  return selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+}
+
 // Hover card for a backlog list row: the full (unclipped) title, the status
 // word with the id (and an epic's completion), and the file path. The Backlog
 // panel wraps each row in a Tooltip carrying this card, replacing the native
@@ -195,14 +204,10 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  hover card (which already carries the full title), so a clipped title
    *  never stacks two tooltips. */
   plainTitle?: boolean
-  /** The row is the picked one, so its title takes the ink half of the
-   *  selection — `--text-strong` selected, `--text-default` otherwise, the same
-   *  step `InboxRow` makes. Hosts pass the flag they already compute for
-   *  `backlogRowPaintClass`, which keeps the fill and the ink in step: on a pane
-   *  that is not the one holding focus, the selection-tier rules in
-   *  assets/index.css rebind BOTH `--bg-selected` and `--text-strong` on the row
-   *  and the two halves rest together. A list with no selection of its own (the
-   *  Horizon backlog source) leaves it unset: every row reads as unselected. */
+  /** The row is the picked one — see `titleInkClass`. Hosts pass the same flag
+   *  they give `backlogRowPaintClass`, so the fill and the ink cannot drift. A
+   *  list with no selection of its own (the Horizon backlog source) leaves it
+   *  unset and every row reads as unpicked. */
   selected?: boolean
 }): JSX.Element {
   // Blocked overrides the item's own status presentation — the stored `ready`
@@ -219,7 +224,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
   // renders the same quarter arc, static — per the glyph-system rule that
   // in_progress animates "only when genuinely live".
   const live = runGlyph?.live ?? false
-  const titleInk = selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+  const titleInk = titleInkClass(selected)
   // Every row leads with its status glyph (the glyph-system placement rule) —
   // an epic included, so in-progress/completed/archived epics read at a glance.
   // The epic keeps its stacked-layers mark as a second, identity-coloured glyph
@@ -245,10 +250,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           </Tooltip>
         ) : null}
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          {/* The ink lift is selection's second channel, so an unselected title
-              has to sit below the lifted one: --text-default resting,
-              --text-strong selected (docs/reviews/design-system-conformance-ui.md,
-              R3 — both Backlog surfaces render through this component). */}
           {plainTitle ? (
             <span
               className={`min-w-0 truncate text-[12px] ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}
@@ -614,8 +615,7 @@ export function BacklogEpicHeaderContent({
   dependencyState?: BacklogDependencyState | null
   /** The granular children rollup for the "N blocked" count beside the meter. */
   blockedRollup?: BacklogEpicBlockedRollup
-  /** A header is a selectable row like any other, so its title takes the same
-   *  ink half of the selection as a leaf row. See `BacklogRowContent`. */
+  /** A header is a selectable row like any other — see `titleInkClass`. */
   selected?: boolean
 }): JSX.Element {
   const { done, total } = progress ?? group.progress
@@ -652,9 +652,7 @@ export function BacklogEpicHeaderContent({
       <TruncatedText
         as="span"
         text={group.title}
-        className={`min-w-0 flex-1 text-[12px] font-semibold ${
-          selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
-        }`}
+        className={`min-w-0 flex-1 text-[12px] font-semibold ${titleInkClass(selected)}`}
       />
       {group.kind === 'unknown' && group.slug ? (
         <TruncatedText

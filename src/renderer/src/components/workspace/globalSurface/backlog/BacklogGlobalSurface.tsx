@@ -886,15 +886,12 @@ function BacklogDoorList({
     <ul
       role="listbox"
       aria-label="Backlog items across projects"
-      // This door's leading list, so it opts into the selection tier the same
-      // way every other door rail does (surfaceSubstrate's SurfaceRail; the
-      // "Selection tiers" block in assets/index.css). `primary` rather than
-      // `auto` because the tier answers "which list is my keyboard driving?",
-      // not "is anything focused": the row keeps its full-strength selection
-      // while focus sits in the toolbar or the detail pane, and drops to
-      // --bg-selected-resting only once another pane takes focus. The attribute
-      // belongs here, on the element that contains the `li` carrying
-      // aria-selected — the CSS rebinds the two tokens on that row.
+      // This door's leading list, so it takes the selection tier the same way
+      // every other door rail does (surfaceSubstrate; "Selection tiers" in
+      // assets/index.css). `primary`, so the row holds its full-strength
+      // selection while focus sits in the toolbar or the detail pane and rests
+      // only once another pane takes it. The attribute belongs on the element
+      // holding the `li` that carries aria-selected — the tokens rebind there.
       data-selection-pane="primary"
       tabIndex={0}
       onKeyDown={onKeyDown}
