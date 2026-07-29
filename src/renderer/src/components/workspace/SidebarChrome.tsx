@@ -19,7 +19,7 @@ import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 // Same transparent-strip idiom as AppTitleBar's STRIP_BUTTON: no fill at rest or
 // on hover, only a subtle→default ink shift, opts out of the drag region.
 const STRIP_BUTTON =
-  'app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+  'app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 type SidebarChromeProps<MenuItem extends string> = {
   isMac: boolean
@@ -48,7 +48,7 @@ function CollapseButton({ onToggle }: { onToggle: () => void }) {
         onClick={onToggle}
         aria-label="Collapse sidebar"
         aria-pressed={true}
-        className="app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-strong)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+        className="app-no-drag interactive inline-flex size-control-sm items-center justify-center bg-transparent text-[color:var(--text-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
           <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />

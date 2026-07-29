@@ -163,7 +163,7 @@ export function HorizonBacklogSource({
           type="button"
           onClick={onClose}
           aria-label="Back to the step"
-          className={`interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+          className={`interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
         >
           <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
             <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -271,7 +271,7 @@ function SourceProjectSection({
         type="button"
         onClick={onToggleCollapsed}
         aria-expanded={!collapsed}
-        className={`interactive sticky top-0 z-10 flex h-7 w-full min-w-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+        className={`interactive sticky top-0 z-10 flex h-7 w-full min-w-0 items-center gap-1.5 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-4 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
       >
         <ChevronGlyph open={!collapsed} />
         <TruncatedText

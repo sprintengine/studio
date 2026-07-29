@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { CliModelPickerButton, StatusDot } from '../../ui'
+import { CliModelPickerButton, StatusDot, Switch } from '../../ui'
 import type { GitBranchSnapshot, ReviewSourceInput, ReviewSourceProbe } from '../../../../../shared/electron-api'
 import type { AgentCli } from '../../../types/workspace'
 import { type AgentCliCatalogOption } from './cliRuntimeOptions'
@@ -190,25 +190,13 @@ export function ReviewSourceStep({
               {knowledgeRoot ? knowledgeRoot : 'None configured — the guide reads code only.'}
             </span>
           </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={knowledgeEnabled}
-            aria-label="Read the knowledge graph"
+          <Switch
+            checked={Boolean(knowledgeEnabled && knowledgeRoot)}
+            onChange={onChangeKnowledgeEnabled}
+            ariaLabel="Read the knowledge graph"
             disabled={!knowledgeRoot}
-            onClick={() => onChangeKnowledgeEnabled(!knowledgeEnabled)}
-            className={`mt-0.5 inline-flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:opacity-50 ${
-              knowledgeEnabled && knowledgeRoot
-                ? 'bg-[color:var(--accent-primary)]'
-                : 'bg-[color:var(--bg-selected)]'
-            }`}
-          >
-            <span
-              className={`h-3 w-3 rounded-full bg-white transition-transform ${
-                knowledgeEnabled && knowledgeRoot ? 'translate-x-3' : 'translate-x-0'
-              }`}
-            />
-          </button>
+            className="mt-0.5"
+          />
         </div>
 
         <div className="flex items-start justify-between gap-3">

@@ -99,7 +99,7 @@ export function RosterManagerModal({
                       key={entry.id}
                       type="button"
                       onClick={() => roster.onSelectRoster(entry.id)}
-                      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors ${
+                      className={`interactive flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] ${
                         entry.id === roster.selectedRosterId
                           ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
                           : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]'

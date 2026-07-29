@@ -1216,7 +1216,7 @@ function HorizonPolicyMenu({
             {...triggerProps}
             onClick={togglePopover}
             aria-label="Horizon options"
-            className={`interactive inline-flex h-[22px] w-[22px] items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`interactive inline-flex h-[22px] w-[22px] items-center justify-center rounded-md text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
               <circle cx="4" cy="8" r="1.2" fill="currentColor" />

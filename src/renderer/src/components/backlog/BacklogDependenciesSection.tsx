@@ -216,7 +216,7 @@ function NavigateButton({
     <button
       type="button"
       onClick={onNavigate}
-      className="interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+      className="interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
     >
       {displayId ? (
         <span className="shrink-0 font-mono text-[11px] tabular-nums text-[color:var(--text-muted)]">
@@ -235,7 +235,7 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
         type="button"
         aria-label={label}
         onClick={onClick}
-        className="interactive inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+        className="interactive inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
           <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -278,7 +278,7 @@ function DependsOnEditor({
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
+          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
             opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
           }`}
         >

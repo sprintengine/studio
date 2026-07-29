@@ -64,7 +64,7 @@ export function FilePreviewPane({
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
               aria-label="Back"
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
@@ -88,7 +88,7 @@ export function FilePreviewPane({
               <button
                 type="button"
                 onClick={onPopOut}
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded px-2 text-[11px] font-semibold text-[color:var(--text-muted)] interactive hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
                 aria-label="Open in editor tab"
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs">

@@ -173,7 +173,7 @@ function BacklogLinkControl({
           <button
             type="button"
             onClick={() => onOpen(link)}
-            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`interactive inline-flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <span className="min-w-0 truncate">{model.label}</span>
             <OpenLinkGlyph />
@@ -197,7 +197,7 @@ function BacklogLinkControl({
           type="button"
           aria-label={`Unlink ${model.label}`}
           onClick={() => onRemove(link)}
-          className="interactive inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
+          className="interactive inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           <UnlinkGlyph />
         </button>

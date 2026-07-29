@@ -1703,7 +1703,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
               <button
                 type="button"
                 onClick={() => setActionError(null)}
-                className="interactive text-[12px] font-semibold text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--text-strong)]"
+                className="interactive text-[12px] font-semibold text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
               >
                 Dismiss
               </button>
@@ -2386,7 +2386,7 @@ export function BacklogDetail({
               type="button"
               onClick={onBack}
               aria-label="Back to list"
-              className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+              className="interactive -ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
             >
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -2457,7 +2457,7 @@ export function BacklogDetail({
             type="button"
             onClick={() => onNavigate(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
-            className={`interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
+            className={`interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
           >
             <EpicColorDot color={parentEpicColor} size={7} />
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
@@ -2870,7 +2870,7 @@ function BacklogEpicChildren({
                   type="button"
                   onClick={() => onNavigate(child.id)}
                   title={child.relativePath}
-                  className={`interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
+                  className={`interactive flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                 >
                   <Tooltip
                     content={

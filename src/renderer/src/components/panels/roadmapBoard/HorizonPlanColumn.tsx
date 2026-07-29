@@ -800,7 +800,7 @@ function DriftAffordance({
       <button
         type="button"
         onClick={onResync}
-        className={`interactive shrink-0 rounded px-1.5 text-micro font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-active)] ${FOCUS_RING_CLASS}`}
+        className={`interactive shrink-0 rounded px-1.5 text-micro font-medium text-[color:var(--accent-primary)] hover:bg-[color:var(--bg-active)] ${FOCUS_RING_CLASS}`}
       >
         Update step
       </button>

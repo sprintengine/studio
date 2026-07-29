@@ -20,7 +20,7 @@ export const POLICY_ROSTER_TRIGGER_CLASS =
   'interactive inline-flex h-[30px] items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 text-[12px] text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 const ROW_ROSTER_TRIGGER_BASE =
-  'interactive inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-micro leading-[17px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+  'interactive inline-flex max-w-[9rem] shrink-0 items-center gap-1 rounded-sm px-1.5 text-micro leading-[17px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 // How a step row's roster reads at a glance. The common case is every step
 // inheriting, so INHERITED is quiet — it only appears on hover or focus (the

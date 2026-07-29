@@ -317,7 +317,7 @@ export function AgentCliPicker({
             onClick={togglePopover}
             className="
               interactive inline-flex h-7 min-w-[140px] items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
-              bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] transition-colors
+              bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)]
               hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
               focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
               disabled:cursor-not-allowed disabled:opacity-45

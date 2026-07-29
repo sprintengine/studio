@@ -479,7 +479,7 @@ function UseSkillMenu({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          className="interactive inline-flex h-control-sm items-center justify-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] px-2 text-body font-medium text-[color:var(--accent-primary)] transition-colors hover:bg-[color:var(--bg-hover)]"
+          className="interactive inline-flex h-control-sm items-center justify-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)] px-2 text-body font-medium text-[color:var(--accent-primary)] hover:bg-[color:var(--bg-hover)]"
           {...triggerProps}
         >
           Use in agent

@@ -34,7 +34,7 @@ export const TRAFFIC_LIGHT_INSET = 'pl-[78px]'
 // Square icon buttons in the strip: transparent chrome that brightens on hover,
 // opts out of the drag region, and carries a visible focus ring.
 const STRIP_BUTTON =
-  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
+  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 type AppTitleBarProps<MenuItem extends string> = {
   isMac: boolean

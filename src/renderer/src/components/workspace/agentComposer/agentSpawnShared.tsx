@@ -238,7 +238,7 @@ export function ReasoningLevelPicker({
           onKeyDown={(event) => event.stopPropagation()}
           className={[
             'interactive inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[3px]',
-            'border border-transparent px-1.5 py-px text-[11px] transition-colors',
+            'border border-transparent px-1.5 py-px text-[11px]',
             'hover:border-[color:var(--border-default)]',
             FOCUS_RING_CLASS,
             selectedLabel

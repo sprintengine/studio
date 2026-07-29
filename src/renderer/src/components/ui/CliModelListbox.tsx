@@ -109,14 +109,14 @@ export function CliModelPickerButton({
               quiet
                 ? `
                   interactive group/pill inline-flex h-6 ${maxWidthClassName} items-center justify-between gap-1.5 rounded border border-transparent
-                  px-1.5 text-left text-[11px] text-[color:var(--text-muted)] transition-colors
+                  px-1.5 text-left text-[11px] text-[color:var(--text-muted)]
                   hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-surface)] hover:text-[color:var(--text-default)]
                   focus:outline-none focus-visible:border-[color:var(--border-default)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                   disabled:cursor-not-allowed disabled:opacity-45
                 `
                 : `
                   interactive inline-flex h-7 min-w-[140px] ${maxWidthClassName} items-center justify-between gap-2 rounded-md border border-[color:var(--color-5)]
-                  bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] transition-colors
+                  bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)]
                   hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                   disabled:cursor-not-allowed disabled:opacity-45
@@ -233,7 +233,7 @@ function CliModelRow({
       // Never wraps and never grows: the label is the only flexible cell, every
       // trailing cell is shrink-0, so the row stays exactly one line tall
       // whatever combination of id, note, picker and check it carries.
-      className={`interactive flex w-full cursor-pointer items-center gap-2 rounded py-1.5 pr-2 text-left text-[12px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
+      className={`interactive flex w-full cursor-pointer items-center gap-2 rounded py-1.5 pr-2 text-left text-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
         indent ? 'pl-8' : 'pl-2'
       } ${
         mono ? 'font-mono text-[11px]' : ''

@@ -431,7 +431,7 @@ function SprintEngineArtifactInspector({
           type="button"
           onClick={() => onSelectTask(artifact.taskId)}
           disabled={!task}
-          className="interactive font-mono text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
+          className="interactive font-mono text-[color:var(--text-strong)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
         >
           {artifact.taskId}
           {task ? <span className="ml-1.5 font-sans text-[color:var(--text-muted)]">{task.title}</span> : null}
@@ -635,7 +635,7 @@ export function SprintEngineArtifactList({
                           type="button"
                           onClick={() => onSelectTask(artifact.taskId)}
                           disabled={!task}
-                          className="interactive font-mono text-[color:var(--text-muted)] transition-colors hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
+                          className="interactive font-mono text-[color:var(--text-muted)] hover:text-[color:var(--accent-primary)] disabled:text-[color:var(--text-disabled)]"
                         >
                           {artifact.taskId}
                           {task ? <span className="ml-1.5 font-sans">{task.title}</span> : null}
@@ -799,7 +799,7 @@ function TaskImplementerRow({
         }
         className={
           'interactive -mx-1.5 inline-flex items-center gap-2 rounded px-1.5 py-0.5 ' +
-          'transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
+          'hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ' +
           'disabled:cursor-not-allowed disabled:hover:bg-transparent ' +
           FOCUS_RING_CLASS
         }
@@ -1126,7 +1126,7 @@ function TaskInputResponsePrompt({
           disabled={pending}
           rows={3}
           placeholder="Reply to the agent… (Enter to send, Shift+Enter for a new line)"
-          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
         />
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1426,7 +1426,7 @@ function CollapsibleMessage({
         aria-expanded={expanded}
         className={
           'interactive text-[11px] text-[color:var(--text-muted)] underline-offset-2 ' +
-          'transition-colors hover:text-[color:var(--text-strong)] hover:underline ' +
+          'hover:text-[color:var(--text-strong)] hover:underline ' +
           FOCUS_RING_CLASS
         }
       >
@@ -1642,7 +1642,7 @@ function FeedbackDetail({
               onClick={onJumpToFindings}
               className={
                 'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
-                + 'text-[color:var(--accent-primary)] underline-offset-2 transition-colors '
+                + 'text-[color:var(--accent-primary)] underline-offset-2 '
                 + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
                 + FOCUS_RING_CLASS
               }
@@ -1679,7 +1679,7 @@ function ArtifactDetail({
           onClick={onOpen}
           className={
             'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
-            + 'text-[color:var(--accent-primary)] underline-offset-2 transition-colors '
+            + 'text-[color:var(--accent-primary)] underline-offset-2 '
             + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
             + FOCUS_RING_CLASS
           }
@@ -1734,7 +1734,7 @@ function EvidenceDetail({
           onClick={onViewDiff}
           className={
             'interactive -mx-1 inline-flex items-center rounded px-1 py-0.5 text-[11px] '
-            + 'text-[color:var(--accent-primary)] underline-offset-2 transition-colors '
+            + 'text-[color:var(--accent-primary)] underline-offset-2 '
             + 'hover:text-[color:var(--accent-primary-hover)] hover:underline '
             + FOCUS_RING_CLASS
           }
@@ -1795,7 +1795,7 @@ function TaskActivityFeed({
                 type="button"
                 aria-pressed={active}
                 onClick={() => setFilter(option.key)}
-                className={`interactive rounded px-2 py-1 text-[11px] transition-colors ${
+                className={`interactive rounded px-2 py-1 text-[11px] ${
                   active
                     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -1861,7 +1861,7 @@ function TaskActivityFeed({
                       aria-expanded={isExpanded}
                       className={
                         'interactive -mx-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded px-1 py-0.5 '
-                        + 'text-left text-[11px] text-[color:var(--text-muted)] transition-colors '
+                        + 'text-left text-[11px] text-[color:var(--text-muted)] '
                         + 'hover:text-[color:var(--text-strong)] '
                         + FOCUS_RING_CLASS
                       }
@@ -1996,7 +1996,7 @@ function TaskCommentComposer({
         disabled={pending}
         rows={3}
         placeholder="Add a comment for the agent… (⌘/Ctrl+Enter to comment)"
-        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="block w-full resize-y rounded-[5px] bg-[color:var(--bg-surface-raised)] px-3 py-2 text-[13px] leading-5 text-[color:var(--text-strong)] outline-none interactive placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
         <PrimaryButton onClick={() => void submit(false)} disabled={!canSubmit}>
@@ -2035,7 +2035,7 @@ function AgentWorkedOnTasksList({
             <button
               type="button"
               onClick={() => onSelectTask(task.id)}
-              className="block w-full px-1 py-2.5 text-left interactive transition-colors hover:bg-[color:var(--bg-surface-raised)]"
+              className="block w-full px-1 py-2.5 text-left interactive hover:bg-[color:var(--bg-surface-raised)]"
             >
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] text-[color:var(--text-muted)]">
                 <span className="font-mono text-[color:var(--tone-warn)]">{task.id}</span>
@@ -2096,7 +2096,7 @@ function AgentActivityFeed({
                 type="button"
                 aria-pressed={active}
                 onClick={() => setFilter(option.key)}
-                className={`interactive rounded px-2 py-1 text-[11px] transition-colors ${
+                className={`interactive rounded px-2 py-1 text-[11px] ${
                   active
                     ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
@@ -2134,7 +2134,7 @@ function AgentActivityFeed({
                       aria-label={`Open ${taskId}`}
                       className={
                         'interactive -mx-1 inline-flex items-baseline rounded px-1 py-0.5 '
-                        + 'font-mono text-[color:var(--tone-warn)] transition-colors '
+                        + 'font-mono text-[color:var(--tone-warn)] '
                         + 'hover:text-[color:var(--text-strong)] '
                         + FOCUS_RING_CLASS
                       }
@@ -2312,7 +2312,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
                   aria-expanded={expanded}
                   aria-controls={panelId}
                   onClick={() => toggle(diff.path)}
-                  className={`${rowLayout} interactive transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
+                  className={`${rowLayout} interactive hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
                 >
                   {rowContent}
                 </button>
@@ -2553,7 +2553,7 @@ export function SprintEngineInspectorPanel({
                     ? `Open Terminal — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-[11px] font-medium text-[color:var(--text-default)] interactive transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                className="h-7 rounded border border-[color:var(--border-strong)] px-2.5 text-[11px] font-medium text-[color:var(--text-default)] interactive hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Open Terminal
               </button>
@@ -2567,7 +2567,7 @@ export function SprintEngineInspectorPanel({
                     ? `Spawn — unavailable: ${terminalActionsUnavailable}`
                     : undefined
                 }
-                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive transition-colors hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45"
+                className="h-7 rounded border border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] px-2.5 text-[11px] font-semibold text-[color:var(--accent-primary)] interactive hover:bg-[color:var(--accent-primary-soft-strong)] disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Spawn
               </button>
@@ -2582,7 +2582,7 @@ export function SprintEngineInspectorPanel({
               <button
                 type="button"
                 onClick={() => onSelectTask(currentTask.id)}
-                className="block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]"
+                className="block w-full rounded-md border border-[color:var(--border-default)] px-3 py-2 text-left interactive hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-surface-raised)]"
               >
                 <div className="font-mono text-[11px] text-[color:var(--tone-warn)]">{currentTask.id}</div>
                 <TruncatedText as="div" text={currentTask.title} className="mt-1 text-sm font-semibold text-[color:var(--text-strong)]" />
@@ -2916,7 +2916,7 @@ function SprintEngineTaskBody({
                 onClick={() => {
                   window.open(selectedTask.source?.externalUrl, '_blank', 'noopener,noreferrer')
                 }}
-                className="mt-1 text-[11px] text-[color:var(--accent-primary)] interactive transition-colors hover:text-[color:var(--accent-primary-hover)]"
+                className="mt-1 text-[11px] text-[color:var(--accent-primary)] interactive hover:text-[color:var(--accent-primary-hover)]"
               >
                 Open issue →
               </button>

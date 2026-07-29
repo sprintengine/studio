@@ -95,7 +95,7 @@ export function SegmentedControl<V extends string = string>({
               if (!checked) onChange(item.value)
             }}
             className={`
-              interactive ${SEGMENT_SIZE[size]} font-medium transition-colors ${FOCUS_RING_CLASS}
+              interactive ${SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
               ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
               ${checked
                 ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
