@@ -32,9 +32,14 @@ export type SkillsPaneActions = {
   onExpand: (key: string | null) => void
   onAdd: (skillId: string) => void
   onRemove: (skillId: string) => void
+  /** Park this skill's invocation at the focused agent's prompt. */
+  onUse: (skillId: string) => void
+  /** Load the drag with the skill, for the terminal that receives the drop. */
+  onDragStart: (skillId: string, dataTransfer: DataTransfer) => void
   onRetry: () => void
   onOpenExtensions: () => void
   onDismissWriteReport: () => void
+  onDismissUseError: () => void
 }
 
 type BodyProps = SkillsPaneActions & {
@@ -44,6 +49,12 @@ type BodyProps = SkillsPaneActions & {
   pendingSkillId: string | null
   /** False for a CLI that cannot be written to, which disables Add. */
   canWrite: boolean
+  /**
+   * False for a CLI with no invocation to park — it reads no skills, or there is
+   * no workspace to resolve one against. Those rows offer neither the drag nor
+   * the Use action, rather than a control that cannot do anything.
+   */
+  canUse: boolean
   agentLabel: string
   /** True only for CLIs whose manifest declares `implicitInvocation`. */
   implicitInvocation: boolean
@@ -82,6 +93,21 @@ function MinusGlyph() {
   )
 }
 
+// Use: the invocation travels from the pane to the prompt on its right.
+function ArrowRightGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
+      <path
+        d="M3 8h9M8.5 4.5 12 8l-3.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function SectionHead({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-baseline gap-2 px-3 pb-1 pt-4 text-[11px] text-[color:var(--text-subtle)]">
@@ -107,6 +133,7 @@ function Row({
   actions,
   onToggle,
   ariaLabel,
+  onDragStart,
 }: {
   title: string
   supporting: string
@@ -116,6 +143,8 @@ function Row({
   actions: React.ReactNode[]
   onToggle: () => void
   ariaLabel: string
+  /** Set only for a row that can be dragged; its absence is what removes the handle. */
+  onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void
 }) {
   const expandButton = (
     <button
@@ -147,7 +176,14 @@ function Row({
   )
 
   return (
-    <div className={`group/row flex items-stretch ${open ? SELECTED_TIERS : 'hover:bg-[color:var(--bg-hover)]'}`}>
+    <div
+      // The whole row is the handle. Dragging is the mouse path only — the Use
+      // action beside it is the same operation for the keyboard, so nothing here
+      // is reachable one way and not the other.
+      draggable={onDragStart ? true : undefined}
+      onDragStart={onDragStart}
+      className={`group/row flex items-stretch ${open ? SELECTED_TIERS : 'hover:bg-[color:var(--bg-hover)]'}`}
+    >
       {tooltip ? (
         <Tooltip
           content={<span className="block max-w-[260px] whitespace-normal">{tooltip}</span>}
@@ -183,25 +219,46 @@ function SkillRow({
   open,
   pending,
   canWrite,
+  canUse,
   agentLabel,
   implicitInvocation,
   onExpand,
   onAdd,
   onRemove,
+  onUse,
+  onDragStart,
   onOpenExtensions,
 }: {
   row: PaneSkillRow
   open: boolean
   pending: boolean
   canWrite: boolean
+  canUse: boolean
   agentLabel: string
   implicitInvocation: boolean
-} & Pick<SkillsPaneActions, 'onExpand' | 'onAdd' | 'onRemove' | 'onOpenExtensions'>) {
-  // Ceiling of two revealed actions. `Use` is deliberately absent: parking an
-  // invocation at the prompt is the invoke task's, and a button that looks live
-  // while doing nothing is worse than one that is not there yet.
+} & Pick<
+  SkillsPaneActions,
+  'onExpand' | 'onAdd' | 'onRemove' | 'onUse' | 'onDragStart' | 'onOpenExtensions'
+>) {
+  // A skill this agent cannot reach has no invocation to park, so a row still
+  // under "Not installed" is Add-only — Use would be offering to name something
+  // that is not there.
+  const usable = row.installed && canUse
+
+  // Ceiling of two revealed actions. Anything more belongs in the disclosure.
   const actions = row.installed
     ? [
+      ...(usable
+        ? [
+          <IconButton
+            key="use"
+            aria-label={`Use ${row.skillId} in ${agentLabel}`}
+            onClick={() => onUse(row.skillId)}
+          >
+            <ArrowRightGlyph />
+          </IconButton>,
+        ]
+        : []),
       <IconButton
         key="remove"
         aria-label={`Remove ${row.skillId}`}
@@ -232,6 +289,9 @@ function SkillRow({
         actions={actions}
         ariaLabel={row.skillId}
         onToggle={() => onExpand(open ? null : row.key)}
+        onDragStart={
+          usable ? (event) => onDragStart(row.skillId, event.dataTransfer) : undefined
+        }
       />
       {open ? (
         <DetailShell>
@@ -249,8 +309,16 @@ function SkillRow({
               ? ` · ${agentLabel} may also run it unprompted when the description matches`
               : ''}
           </p>
+          {/* Exactly one accent fill in this pane, and it is the disclosure's
+              primary: Use for a skill the agent has, Add for one it does not. */}
           <div className="flex items-center gap-2">
-            {row.installed ? null : (
+            {row.installed ? (
+              usable ? (
+                <PrimaryButton size="xs" onClick={() => onUse(row.skillId)}>
+                  Use in {agentLabel}
+                </PrimaryButton>
+              ) : null
+            ) : (
               <PrimaryButton
                 size="xs"
                 onClick={() => onAdd(row.skillId)}
@@ -336,10 +404,11 @@ function Notice({
   agentLabel,
   onRetry,
   onDismissWriteReport,
+  onDismissUseError,
 }: {
   notice: PaneNotice
   agentLabel: string
-} & Pick<SkillsPaneActions, 'onRetry' | 'onDismissWriteReport'>) {
+} & Pick<SkillsPaneActions, 'onRetry' | 'onDismissWriteReport' | 'onDismissUseError'>) {
   switch (notice.kind) {
     case 'unsupported':
       return (
@@ -429,6 +498,21 @@ function Notice({
           />
         </div>
       )
+    case 'use-failed':
+      return (
+        <div className="px-3 pt-3">
+          <InlineNotice
+            tone="error"
+            title={`${notice.skillId} was not sent to ${notice.agentLabel}.`}
+            detail={notice.message}
+            action={
+              <GhostButton size="xs" onClick={onDismissUseError}>
+                Dismiss
+              </GhostButton>
+            }
+          />
+        </div>
+      )
     default:
       return null
   }
@@ -439,14 +523,18 @@ export function SkillsPaneBody({
   expandedKey,
   pendingSkillId,
   canWrite,
+  canUse,
   agentLabel,
   implicitInvocation,
   onExpand,
   onAdd,
   onRemove,
+  onUse,
+  onDragStart,
   onRetry,
   onOpenExtensions,
   onDismissWriteReport,
+  onDismissUseError,
 }: BodyProps) {
   const { notices, body } = view
 
@@ -457,8 +545,22 @@ export function SkillsPaneBody({
       agentLabel={agentLabel}
       onRetry={onRetry}
       onDismissWriteReport={onDismissWriteReport}
+      onDismissUseError={onDismissUseError}
     />
   ))
+
+  const skillRowProps = {
+    canWrite,
+    canUse,
+    agentLabel,
+    implicitInvocation,
+    onExpand,
+    onAdd,
+    onRemove,
+    onUse,
+    onDragStart,
+    onOpenExtensions,
+  }
 
   const content = ((): React.ReactNode => {
     switch (body.kind) {
@@ -516,13 +618,7 @@ export function SkillsPaneBody({
                     row={row}
                     open={expandedKey === row.key}
                     pending={pendingSkillId === row.skillId}
-                    canWrite={canWrite}
-                    agentLabel={agentLabel}
-                    implicitInvocation={implicitInvocation}
-                    onExpand={onExpand}
-                    onAdd={onAdd}
-                    onRemove={onRemove}
-                    onOpenExtensions={onOpenExtensions}
+                    {...skillRowProps}
                   />
                 ))}
               </>
@@ -536,13 +632,7 @@ export function SkillsPaneBody({
                     row={row}
                     open={expandedKey === row.key}
                     pending={pendingSkillId === row.skillId}
-                    canWrite={canWrite}
-                    agentLabel={agentLabel}
-                    implicitInvocation={implicitInvocation}
-                    onExpand={onExpand}
-                    onAdd={onAdd}
-                    onRemove={onRemove}
-                    onOpenExtensions={onOpenExtensions}
+                    {...skillRowProps}
                   />
                 ))}
               </>

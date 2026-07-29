@@ -1,9 +1,19 @@
-import type { BuiltinSkillTargetState, SkillHarness } from '../../../shared/electron-api'
+import type {
+  BuiltinSkillTargetState,
+  SkillHarness,
+  WorkspaceSkill,
+} from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
-import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
+import {
+  hasInstalledNativeSkillTarget,
+  renderSkillInvocation,
+  renderSkillInvocationTemplate,
+  skillInstalledForHarness,
+} from './skillInvocation'
 
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
 export const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
+export const MULTICODE_SKILL_DROP_MIME = 'application/x-multicode-skill-drop'
 
 export const BACKLOG_SKILL_ID = 'backlog'
 
@@ -16,6 +26,17 @@ export type FileDropPayload = {
     name: string
     isDir?: boolean
   }>
+}
+
+/**
+ * A skill dragged out of the Skills pane onto a terminal. It carries the id and
+ * the pane's workspace, never a rendered invocation: the form the agent reads
+ * belongs to the session it lands on, not to the pane it left.
+ */
+export type SkillDropPayload = {
+  version: 1
+  skillId: string
+  workspaceId: string | null
 }
 
 // Identifies a drop that handed a single backlog/ item to an agent terminal, so
@@ -76,6 +97,127 @@ export async function pasteDroppedCommitIntoTerminal(input: {
 function parseCommitDropHash(dataTransfer: DataTransfer): string | null {
   const raw = dataTransfer.getData(MULTICODE_COMMIT_DROP_MIME).trim()
   return /^[0-9a-fA-F]{4,64}$/.test(raw) ? raw : null
+}
+
+export function setSkillDropData(dataTransfer: DataTransfer, payload: SkillDropPayload): void {
+  dataTransfer.effectAllowed = 'copy'
+  dataTransfer.setData(MULTICODE_SKILL_DROP_MIME, JSON.stringify(payload))
+  // Dropped anywhere that is not a terminal — an editor, a note, a chat field —
+  // the id is the only text that means anything on its own.
+  dataTransfer.setData('text/plain', payload.skillId)
+}
+
+export function hasSkillDropData(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types).includes(MULTICODE_SKILL_DROP_MIME)
+}
+
+function parseSkillDropPayload(dataTransfer: DataTransfer): SkillDropPayload | null {
+  const raw = dataTransfer.getData(MULTICODE_SKILL_DROP_MIME)
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as Partial<SkillDropPayload>
+    if (value.version !== 1) return null
+    if (typeof value.skillId !== 'string' || !value.skillId.trim()) return null
+    if (value.workspaceId !== null && typeof value.workspaceId !== 'string') return null
+    return { version: 1, skillId: value.skillId, workspaceId: value.workspaceId }
+  } catch {
+    return null
+  }
+}
+
+export async function pasteDroppedSkillIntoTerminal(input: {
+  dataTransfer: DataTransfer
+  sessionId: string
+  workspaceId: string
+  workspaceRoot: string
+}): Promise<TerminalDropResult> {
+  const payload = parseSkillDropPayload(input.dataTransfer)
+  if (!payload) return { ok: false, message: 'No skill was dropped.' }
+  if (payload.workspaceId && payload.workspaceId !== input.workspaceId) {
+    return { ok: false, message: 'Drop skills into a terminal from the same workspace.' }
+  }
+  return sendSkillToTerminal({
+    skillId: payload.skillId,
+    sessionId: input.sessionId,
+    workspaceRoot: input.workspaceRoot,
+  })
+}
+
+/**
+ * Parks a skill's invocation at a terminal's prompt, unsubmitted, with the caret
+ * left after a trailing space. The single path behind both of the Skills pane's
+ * entry points — the drag onto a terminal and the row's Use action — which is
+ * what makes them behave identically.
+ *
+ * The invocation is rendered for the session it lands on, so a skill dragged out
+ * of a pane bound to Claude Code onto a Codex tab arrives in Codex's form. Two
+ * declarations decide it and neither is guessed here: the CLI's own manifest
+ * supplies the template, and the harness directory supplies whether the skill is
+ * there to be named natively. A skill this CLI cannot see falls back to the
+ * plain prompt mention every agent can follow.
+ *
+ * Nothing on this path writes to disk. Attach is the pane's other verb and has
+ * its own; a skill missing from the target's harness is never installed behind
+ * the user's back to make an invocation work.
+ */
+export async function sendSkillToTerminal(input: {
+  skillId: string
+  sessionId: string
+  workspaceRoot: string
+}): Promise<TerminalDropResult> {
+  const sessions = await window.api.terminalList()
+  const session = sessions.find(
+    (candidate) => candidate.sessionId === input.sessionId && candidate.processAlive
+  )
+  if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
+  // A shell has no agent to read a skill, and which CLI is running is what
+  // decides the form — a session that cannot answer that gets neither.
+  if (session.kind !== 'agent' || !session.cli) {
+    return { ok: false, message: 'Skills go to an agent, not a plain terminal.' }
+  }
+
+  let plugins: PluginRegistryListEntry[]
+  let workspaceSkills: WorkspaceSkill[]
+  try {
+    const [pluginsResult, skillsResult] = await Promise.all([
+      window.api.pluginsList(),
+      window.api.workspaceSkillsList({ workspaceRoot: input.workspaceRoot }),
+    ])
+    // Either read failing leaves the form of the invocation unknown, and a
+    // guessed one is worse than none: a Claude tab silently handed a sentence
+    // where `/skill` was expected looks like the skill simply did not work.
+    if (!pluginsResult.ok) return { ok: false, message: pluginsResult.message }
+    if (!skillsResult.ok) return { ok: false, message: skillsResult.message }
+    plugins = pluginsResult.plugins
+    workspaceSkills = skillsResult.skills
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Could not read this agent’s skills.',
+    }
+  }
+
+  const integration = plugins.find((entry) => entry.id === session.cli)?.skillIntegration
+  // A CLI that declares it reads no skills is refused rather than handed a
+  // sentence it will never act on. A CLI that declares no skill integration at
+  // all is a different answer — it gets the plain mention below.
+  if (integration?.support === 'unsupported') {
+    return { ok: false, message: 'This agent does not read skills.' }
+  }
+
+  const skill = workspaceSkills.find((candidate) => candidate.id === input.skillId)
+  const invocation = renderSkillInvocation({
+    skill: skill ?? { id: input.skillId, name: input.skillId },
+    integration,
+    nativeInstalled: skill ? skillInstalledForHarness(skill, integration) : false,
+  })
+
+  // The trailing space is the convention every other prefill follows: the
+  // invocation is complete, and the caret sits where arguments go. Nothing is
+  // submitted — a bracketed paste is text at the prompt, not a keypress.
+  const text = `${invocation} `
+  await window.api.terminalWrite(input.sessionId, bracketedPaste(text))
+  return { ok: true, text }
 }
 
 export async function pasteDroppedFilesIntoTerminal(input: {

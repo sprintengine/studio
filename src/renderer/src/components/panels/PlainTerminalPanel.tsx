@@ -18,6 +18,7 @@ import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
   hasFileDropData,
+  hasSkillDropData,
   pasteDroppedCommitIntoTerminal,
   pasteDroppedFilesIntoTerminal,
 } from '../../utils/terminalDrop'
@@ -339,6 +340,15 @@ export default function PlainTerminalPanel({
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    // A skill dragged here is caught and refused rather than ignored: this is a
+    // shell, and an ignored drop would let the raw id land in it as plain text.
+    // `none` refuses it for the whole hover, which says so earlier than a
+    // message after the release, and no drop-target highlight is drawn.
+    if (hasSkillDropData(event.dataTransfer)) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'none'
+      return
+    }
     if (!hasFileDropData(event.dataTransfer) && !hasCommitDropData(event.dataTransfer)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
@@ -353,13 +363,22 @@ export default function PlainTerminalPanel({
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     const isCommitDrop = hasCommitDropData(event.dataTransfer)
-    if (!hasFileDropData(event.dataTransfer) && !isCommitDrop) return
+    const isSkillDrop = hasSkillDropData(event.dataTransfer)
+    if (!hasFileDropData(event.dataTransfer) && !isCommitDrop && !isSkillDrop) return
     event.preventDefault()
     setIsFileDragOver(false)
 
     const dropAnchor = { x: event.clientX, y: event.clientY }
     const showDropError = (message: string) =>
       setDropError({ message, x: dropAnchor.x, y: dropAnchor.y })
+
+    // Normally unreachable — the refusal above ends the drag — but it is what
+    // stops a skill that did reach here falling through to the file path and
+    // reporting "no file was dropped", which explains nothing.
+    if (isSkillDrop) {
+      showDropError('This is a plain terminal. Drop a skill onto an agent instead.')
+      return
+    }
 
     if (isCommitDrop) {
       const commitResult = await pasteDroppedCommitIntoTerminal({

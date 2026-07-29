@@ -29,8 +29,10 @@ import { bindTerminalTheme, getTerminalTheme } from '../../utils/terminalTheme'
 import {
   hasCommitDropData,
   hasFileDropData,
+  hasSkillDropData,
   pasteDroppedCommitIntoTerminal,
   pasteDroppedFilesIntoTerminal,
+  pasteDroppedSkillIntoTerminal,
 } from '../../utils/terminalDrop'
 import { recordBacklogAgentHandoff } from '../../utils/backlogAgentHandoff'
 import { MONO_FONT_STACK, waitForMonoFontReady } from '../../utils/fonts'
@@ -1337,7 +1339,13 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!hasFileDropData(event.dataTransfer) && !hasCommitDropData(event.dataTransfer)) return
+    if (
+      !hasFileDropData(event.dataTransfer)
+      && !hasCommitDropData(event.dataTransfer)
+      && !hasSkillDropData(event.dataTransfer)
+    ) {
+      return
+    }
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
     setIsFileDragOver(true)
@@ -1351,7 +1359,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
   const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     const isCommitDrop = hasCommitDropData(event.dataTransfer)
-    if (!hasFileDropData(event.dataTransfer) && !isCommitDrop) return
+    const isSkillDrop = hasSkillDropData(event.dataTransfer)
+    if (!hasFileDropData(event.dataTransfer) && !isCommitDrop && !isSkillDrop) return
     event.preventDefault()
     setIsFileDragOver(false)
     focusTerminalRef.current()
@@ -1365,8 +1374,31 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       showDropError(
         isCommitDrop
           ? 'Start this agent terminal before dropping a commit into it.'
-          : 'Start this agent terminal before dropping files into it.'
+          : isSkillDrop
+            ? 'Start this agent terminal before dropping a skill into it.'
+            : 'Start this agent terminal before dropping files into it.'
       )
+      return
+    }
+
+    if (isSkillDrop) {
+      // The workspace's own folder, never a root carried in the payload: the
+      // invocation is decided by what THIS agent's harness directory holds.
+      const workspaceRoot = folderReadyPath ?? savedFolderPath
+      if (!workspaceRoot) {
+        showDropError('Open this workspace’s project folder before dropping a skill into it.')
+        return
+      }
+      const skillResult = await pasteDroppedSkillIntoTerminal({
+        dataTransfer: event.dataTransfer,
+        sessionId,
+        workspaceId,
+        workspaceRoot,
+      }).catch((error): { ok: false; message: string } => ({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Could not drop the skill into the terminal.',
+      }))
+      if (!skillResult.ok) showDropError(skillResult.message)
       return
     }
 

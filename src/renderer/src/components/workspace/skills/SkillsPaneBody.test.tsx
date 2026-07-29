@@ -41,6 +41,7 @@ function render(overrides: Partial<SkillsPaneInput> = {}, props: Partial<Paramet
     catalogue: [],
     restartPending: [],
     writeReport: null,
+    useError: null,
     ...overrides,
   })
   return renderToStaticMarkup(
@@ -49,14 +50,18 @@ function render(overrides: Partial<SkillsPaneInput> = {}, props: Partial<Paramet
       expandedKey={null}
       pendingSkillId={null}
       canWrite
+      canUse
       agentLabel="Claude Code"
       implicitInvocation={false}
       onExpand={() => {}}
       onAdd={() => {}}
       onRemove={() => {}}
+      onUse={() => {}}
+      onDragStart={() => {}}
       onRetry={() => {}}
       onOpenExtensions={() => {}}
       onDismissWriteReport={() => {}}
+      onDismissUseError={() => {}}
       {...props}
     />,
   )
@@ -195,6 +200,47 @@ assert.match(partial, /\.codex\/skills\/backlog/)
 const restart = render({ snapshot: snapshot({ skills: [SKILL] }), restartPending: ['backlog'] })
 assert.match(restart, /Restart Claude Code/)
 assert.equal((restart.match(/Restart Claude Code/g) ?? []).length, 1, 'one banner per tab, not one per row')
+
+// --- use: one operation, offered to the mouse and to the keyboard ------------
+// The row is the drag handle and the action beside it is the same thing for
+// anyone not using a mouse — the drag is never the only way to reach it.
+const usable = render({ snapshot: snapshot({ skills: [SKILL] }) })
+assert.match(usable, /draggable="true"/, 'an installed skill can be dragged onto a terminal')
+assert.match(usable, /aria-label="Use backlog in Claude Code"/, 'and clicked, for the keyboard')
+
+// A CLI that reads no skills has no invocation to park: neither affordance.
+const notUsable = render({ snapshot: snapshot({ skills: [SKILL] }) }, { canUse: false })
+assert.doesNotMatch(notUsable, /draggable="true"/, 'unsupported: no drag handle')
+assert.doesNotMatch(notUsable, /aria-label="Use backlog/, 'unsupported: no Use action')
+assert.match(notUsable, /aria-label="Remove backlog"/, 'the row itself is unchanged')
+
+// A skill the agent does not have yet is Add-only — Use would name something
+// that is not there.
+const notInstalled = render({
+  snapshot: snapshot({ skills: [] }),
+  catalogue: [{ id: 'review-guide', name: 'review-guide', version: '1', description: 'Build a walkthrough.' }],
+  query: 'review',
+})
+assert.doesNotMatch(notInstalled, /draggable="true"/)
+assert.doesNotMatch(notInstalled, /aria-label="Use review-guide/)
+
+// The disclosure keeps exactly one accent fill, and for an installed skill it
+// is Use — never a second Add beside it.
+const expandedUsable = render(
+  { snapshot: snapshot({ skills: [SKILL] }) },
+  { expandedKey: 'skill:backlog' },
+)
+assert.match(expandedUsable, /Use in Claude Code/)
+assert.doesNotMatch(expandedUsable, />Add</, 'an installed skill is never offered Add')
+
+// --- a Use that did not land is reported, never silent -----------------------
+const useFailed = render({
+  snapshot: snapshot({ skills: [SKILL] }),
+  useError: { skillId: 'backlog', message: 'Terminal session is no longer running.' },
+})
+assert.match(useFailed, /backlog was not sent to Claude Code\./)
+assert.match(useFailed, /Terminal session is no longer running\./)
+assert.match(useFailed, /backlog/, 'the list is still there — only the send failed')
 
 // --- no agent focused ---------------------------------------------------------
 assert.match(render({ agentLabel: null }), /No agent tab is focused\./)

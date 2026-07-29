@@ -4,8 +4,14 @@ import { InboxSearchInput, GhostButton } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { focusedAgentTabInLayout } from '../../../utils/modelRegistry'
 import type { BuiltinSkill } from '../../../../../shared/electron-api'
+import { sendSkillToTerminal, setSkillDropData } from '../../../utils/terminalDrop'
 import { SkillsPaneBody } from './SkillsPaneBody'
-import { buildSkillsPaneView, readsSkills, type SkillWriteReport } from './skillsPaneModel'
+import {
+  buildSkillsPaneView,
+  readsSkills,
+  type SkillUseError,
+  type SkillWriteReport,
+} from './skillsPaneModel'
 import { useAgentCapabilities } from './useAgentCapabilities'
 
 // The workspace's right-docked pane: what the focused agent can actually reach.
@@ -51,6 +57,7 @@ export function SkillsPanel({ workspaceId }: Props) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [pendingSkillId, setPendingSkillId] = useState<string | null>(null)
   const [writeReport, setWriteReport] = useState<SkillWriteReport | null>(null)
+  const [useError, setUseError] = useState<SkillUseError | null>(null)
   // Skill ids attached this session into a directory whose CLIs only pick them
   // up after a restart, keyed by the CLI that has to restart. One banner per
   // tab naming what is waiting — not a badge per row.
@@ -62,6 +69,7 @@ export function SkillsPanel({ workspaceId }: Props) {
   useEffect(() => {
     setExpandedKey(null)
     setWriteReport(null)
+    setUseError(null)
   }, [pluginId])
 
   useEffect(() => {
@@ -84,6 +92,41 @@ export function SkillsPanel({ workspaceId }: Props) {
 
   const canWrite = Boolean(
     workspaceRoot && capabilities.snapshot && readsSkills(capabilities.snapshot.support),
+  )
+  // The same two conditions as Add, for the other verb: the invocation is
+  // rendered from what is in this CLI's harness directory, so it needs the
+  // workspace root, and a CLI that reads no skills has none to park.
+  const canUse = canWrite
+
+  // The tab the pane is following. `terminalWrite` is addressed by session, and
+  // the layout is where a tab's session id lives; the agent record's own id is
+  // the same fallback the terminal itself uses when the tab carries none.
+  const focusedSessionId = focused?.sessionId ?? agent?.cliSessionId ?? null
+
+  const runUse = useCallback(
+    async (skillId: string) => {
+      // Both are guaranteed by canUse, and both still say so rather than
+      // returning quietly: a control that does nothing is the worse failure.
+      if (!workspaceRoot) {
+        setUseError({ skillId, message: 'Open a project folder before sending a skill.' })
+        return
+      }
+      if (!focusedSessionId) {
+        setUseError({ skillId, message: 'Start this agent before sending it a skill.' })
+        return
+      }
+      setUseError(null)
+      const result = await sendSkillToTerminal({
+        skillId,
+        sessionId: focusedSessionId,
+        workspaceRoot,
+      }).catch((error: unknown) => ({
+        ok: false as const,
+        message: error instanceof Error ? error.message : 'Could not send the skill to this agent.',
+      }))
+      if (!result.ok) setUseError({ skillId, message: result.message })
+    },
+    [focusedSessionId, workspaceRoot],
   )
 
   const runWrite = useCallback(
@@ -150,6 +193,7 @@ export function SkillsPanel({ workspaceId }: Props) {
         catalogue,
         restartPending: pluginId ? restartPending[pluginId] ?? [] : [],
         writeReport,
+        useError,
       }),
     [
       agentLabel,
@@ -160,6 +204,7 @@ export function SkillsPanel({ workspaceId }: Props) {
       pluginId,
       query,
       restartPending,
+      useError,
       writeReport,
     ],
   )
@@ -200,14 +245,19 @@ export function SkillsPanel({ workspaceId }: Props) {
         expandedKey={expandedKey}
         pendingSkillId={pendingSkillId}
         canWrite={canWrite}
+        canUse={canUse}
         agentLabel={agentLabel ?? ''}
         implicitInvocation={Boolean(plugin?.skillIntegration?.invocation?.implicitInvocation)}
         onExpand={setExpandedKey}
         onAdd={(skillId) => void runWrite('add', skillId)}
         onRemove={(skillId) => void runWrite('remove', skillId)}
+        onUse={(skillId) => void runUse(skillId)}
+        onDragStart={(skillId, dataTransfer) =>
+          setSkillDropData(dataTransfer, { version: 1, skillId, workspaceId })}
         onRetry={capabilities.refetch}
         onOpenExtensions={() => openExtensionsSurface({ view: 'installed' })}
         onDismissWriteReport={() => setWriteReport(null)}
+        onDismissUseError={() => setUseError(null)}
       />
 
       <div className="flex shrink-0 items-center border-t border-[color:var(--border-subtle)] px-3 py-1.5">

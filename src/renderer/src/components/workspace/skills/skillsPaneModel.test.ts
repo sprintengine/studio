@@ -51,6 +51,7 @@ function input(overrides: Partial<SkillsPaneInput> = {}): SkillsPaneInput {
     catalogue: [],
     restartPending: [],
     writeReport: null,
+    useError: null,
     ...overrides,
   }
 }
@@ -268,6 +269,25 @@ for (const reason of ['unreadable', 'malformed'] as const) {
     }),
   )
   assert.equal(view.notices[0].kind, 'write-failed')
+}
+
+// --- a Use that never reached the prompt is said, not swallowed -------------
+{
+  const view = buildSkillsPaneView(
+    input({
+      snapshot: snapshot({ skills: [skill({ id: 'backlog' })] }),
+      useError: { skillId: 'backlog', message: 'Terminal session is no longer running.' },
+    }),
+  )
+  const notice = view.notices.find((candidate) => candidate.kind === 'use-failed')
+  assert.deepEqual(notice, {
+    kind: 'use-failed',
+    agentLabel: 'Claude Code',
+    skillId: 'backlog',
+    message: 'Terminal session is no longer running.',
+  })
+  // The list is untouched by it: the skill is still there, it just did not go.
+  assert.equal(view.body.kind, 'sections')
 }
 
 // --- the restart banner is one per tab, and only where skills are read -------

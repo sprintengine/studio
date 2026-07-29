@@ -47,6 +47,16 @@ export type SkillsPaneInput = {
   restartPending: string[]
   /** The last add/remove that did not fully succeed, if it has not been dismissed. */
   writeReport: SkillWriteReport | null
+  /**
+   * The last Use that never reached the prompt. A drag onto a terminal reports
+   * at the cursor; a click has no cursor to report at, so the pane says it.
+   */
+  useError: SkillUseError | null
+}
+
+export type SkillUseError = {
+  skillId: string
+  message: string
 }
 
 export type SkillWriteReport = {
@@ -96,6 +106,7 @@ export type PaneNotice =
       failed: { path: string; message: string }[]
     }
   | { kind: 'write-failed'; verb: 'add' | 'remove'; skillId: string; message: string }
+  | { kind: 'use-failed'; agentLabel: string; skillId: string; message: string }
 
 export type PaneBody =
   | { kind: 'loading' }
@@ -244,6 +255,15 @@ function noticesFor(input: SkillsPaneInput, snapshot: CapabilitySnapshot | null)
         })
       }
     }
+  }
+
+  if (input.useError) {
+    notices.push({
+      kind: 'use-failed',
+      agentLabel,
+      skillId: input.useError.skillId,
+      message: input.useError.message,
+    })
   }
 
   if (input.restartPending.length > 0 && snapshot && readsSkills(snapshot.support)) {
