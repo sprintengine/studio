@@ -252,7 +252,17 @@ function setTokenValue(json, path, next) {
     `("${escaped}"\\s*:\\s*\\{[^}]*?"\\$value"\\s*:\\s*")${current.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(")`,
   )
   if (!pattern.test(json)) throw new Error(`could not locate ${path.join('.')} $value in the source text`)
-  return json.replace(pattern, `$1${next}$2`)
+  const edited = json.replace(pattern, `$1${next}$2`)
+  // The pattern anchors on the leaf key alone, so a same-named key elsewhere in
+  // the document would be edited instead. Re-parse and confirm the value moved
+  // where it was asked to move: without this the probe would mutate the wrong
+  // node and then blame the guard for not reacting.
+  let check = JSON.parse(edited)
+  for (const key of path) check = check?.[key]
+  if (check?.$value !== next) {
+    throw new Error(`the edit did not land on ${path.join('.')} (it reads ${JSON.stringify(check?.$value)})`)
+  }
+  return edited
 }
 
 /* ------------------------------------------------------------------ *
@@ -262,7 +272,6 @@ function setTokenValue(json, path, next) {
 function main() {
   const dir = buildHarness()
   console.log(`harness: ${dir}\n`)
-  let ok = true
   try {
     const pristine = new Map()
     for (const rel of [APP_CSS, TOKENS_JSON]) pristine.set(rel, read(dir, rel))
@@ -274,12 +283,13 @@ function main() {
       `exit=${clean.code} violations=${clean.violations.length}` +
         (clean.violations.length ? `\n        ${clean.violations.map((v) => `${v.rule}: ${v.message}`).join('\n        ')}` : ''),
     )
+    // `process.exit` here would skip the `finally` and leak the harness
+    // directory, so stop by not entering the loop.
     if (clean.code !== 0) {
       console.log('\nThe guard does not pass on an unmutated tree, so no probe below would mean anything.')
-      process.exit(1)
     }
 
-    for (const probe of probes) {
+    for (const probe of clean.code === 0 ? probes : []) {
       const label = `${probe.id} (${probe.finding}) — ${probe.name}`
       const before = pristine.get(probe.file)
       let mutated
@@ -327,7 +337,7 @@ function main() {
   }
 
   const failed = results.filter((r) => !r.ok)
-  ok = failed.length === 0
+  const ok = failed.length === 0
   console.log(`\n${results.length - failed.length}/${results.length} checks passed.`)
   if (!ok) {
     console.log('Failed:')

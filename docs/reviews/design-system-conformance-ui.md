@@ -1492,9 +1492,13 @@ commit's added lines against the file at HEAD, rather than by reading the newest
 diff:
 
 - `scripts/lint-design-system-conformance.mjs` — T20's contrast rule is **109/109
-  lines intact**; T27's own two commits are 159/159 and 2/2. T15's and T1's
-  losses are comment blocks that T20 and T27 rewrote in place while replacing the
-  code they described.
+  lines intact**; T27's own two commits are 159/159 and 2/2. T1's original 1069
+  lines are down to 938, and those 131 are not incidental: 98 are code. They are
+  the guard's own superseded machinery, each removed by the task whose contract
+  replaced it — the `--write-baseline` mechanism and `BASELINE_DIR` by T15 going
+  to zero tolerance, the single-surface `--bg-surface` contrast check by T20, and
+  `MICRO_FLOOR_PX = 10`, the F1 early-out and the two-block restatement loop by
+  T27. Nothing was dropped by a writer with no mandate to drop it.
 - `src/renderer/src/assets/index.css` — T22 **73/73**, T21 **30/30**, T18 **8/8**
   on its final commit, T7 **8/8**, T2 **110/110**. T3's 17 missing lines are its
   `--text-disabled` values, superseded by `03e56a00` — which *is* T21, whose whole
@@ -1508,28 +1512,37 @@ in its own contract.
 
 ## Finding
 
-### T1 — the marketing radius floor is not token-derived, as T27's criterion 5 asks (low)
+### T1 — T27's criterion 5 and the shipped guard disagree about the radius floor; the guard is right (low)
 
-T27's fifth criterion covers two constants. The micro floor is genuinely derived
-(criterion 3 above). The radius floor is not: `MARKETING_RADIUS_FLOOR_PX = 16`
-(`scripts/lint-design-system-conformance.mjs:479`) is still a hand-written
-literal. What T27 added is a *coherence assertion* beside it — if the bundle's
-largest `sem.radius.*` reaches 16px, the guard refuses to run.
+T27's fifth criterion covers two constants and asks for both to be read from
+`tokens.tokens.json`. The micro floor is genuinely derived (criterion 3 above).
+The radius floor is not: `MARKETING_RADIUS_FLOOR_PX = 16`
+(`scripts/lint-design-system-conformance.mjs:479`) is a hand-written literal with
+a *coherence assertion* beside it — if the bundle's largest `sem.radius.*`
+reaches 16px, the guard refuses to run.
 
 Probed: pushing `sem.radius.shell` to 20px makes the guard **exit 2** with
 *"declares a 20px radius, at or above the 16px marketing floor … Revisit the
 rule, not the bundle."*
 
-So the drift F6 warned about cannot land silently — the guard stops instead of
-disagreeing with the bundle, which is the right failure direction. But "reads the
-marketing radius floor from `tokens.tokens.json`" is not literally met, and the
-constant is still a second copy of a bundle fact. T27's implementer recorded this
-against their own work; this confirms it by probe.
+Read as a shortfall this is a miss. It is not one, and the Knowledge Graph
+already records why (`knowledge/brand/design-tokens.md`, "Enforcement"): **16px
+is Tailwind's `rounded-2xl`, not a bundle value.** The shape scale tops out at
+`sem.radius.shell`, 9px, so there is no `sem.radius.*` entry the floor could be
+derived *from* — deriving it would mean taking the largest declared step (9px)
+and failing every `rounded-[10px]` in the tree. The rule's subject is the
+Tailwind utility threshold the principles document rejects, and that threshold is
+a fact about Tailwind, not about this bundle.
 
-Not a blocker: today's steps are 3/5/7/9px, nowhere near the floor, and the
-assertion converts any future collision into a loud stop. Left as recorded rather
-than fixed — the rule needs a product decision about what "marketing radius"
-means once the bundle has a step that large, which is not this task's to make.
+So the finding is a record-keeping one, not a code one: the criterion as written
+asks for something that would make the rule wrong, and the implementer built the
+defensible thing instead and documented it. F6's actual concern — a hand-copied
+bundle value drifting silently — does not apply to a number that is not a bundle
+value, and the assertion converts any future collision into a loud stop rather
+than a quiet disagreement. Probe P5 now pins that behaviour.
+
+No code change. Recorded so the next reader of criterion 5 does not "fix" the
+guard into derivation.
 
 ## What this pass did not establish
 
@@ -1547,6 +1560,14 @@ means once the bundle has a step that large, which is not this task's to make.
   step in `npm run lint` or `npm run verify:app`. Wiring it in would need a
   decision about the ~15s it adds; nothing currently re-runs it automatically,
   which is the same shape of gap that let T14's findings go unre-checked.
+- **The harness is not referenced from the Knowledge Graph.**
+  `knowledge/brand/design-tokens.md` already describes the guard accurately,
+  including the radius exception, so nothing there is *stale* — but its
+  "Enforcement" list does not mention the mutation test. It was left alone
+  deliberately: another agent has that file uncommitted in this shared worktree,
+  and editing a file mid-write by a concurrent writer is the failure this sprint
+  spent two tasks proving it had avoided. One bullet, for whoever holds that file
+  next.
 - **`scripts/lint-knowledge-size.mjs` still crashes** with `EISDIR` on
   `knowledge/` subdirectories. Pre-existing, reported by T27, in no gate, and not
   touched here.
