@@ -842,12 +842,11 @@ code {
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-/* In the host pattern the actions are the row's sibling, so the reveal hangs
- * off the host — a descendant selector on the row can never match it. The
- * row-scoped rules stay for rows used without the host wrapper. */
+/* Hover reveal hangs off the host, not the row: in the host pattern the actions
+ * are the row's SIBLING, so a descendant selector on the row never matches.
+ * The row-scoped focus rule stays for a row used without the host wrapper. */
 .ds-list-row-host:hover .ds-list-row-actions,
 .ds-list-row-host:focus-within .ds-list-row-actions,
-.ds-list-row:hover .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
   opacity: 1;
@@ -2300,12 +2299,11 @@ code {
   transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
 }
 
-/* In the host pattern the actions are the row's sibling, so the reveal hangs
- * off the host — a descendant selector on the row can never match it. The
- * row-scoped rules stay for rows used without the host wrapper. */
+/* Hover reveal hangs off the host, not the row: in the host pattern the actions
+ * are the row's SIBLING, so a descendant selector on the row never matches.
+ * The row-scoped focus rule stays for a row used without the host wrapper. */
 .ds-list-row-host:hover .ds-list-row-actions,
 .ds-list-row-host:focus-within .ds-list-row-actions,
-.ds-list-row:hover .ds-list-row-actions,
 .ds-list-row:focus-visible .ds-list-row-actions,
 .ds-list-row-actions:focus-within {
   opacity: 1;
