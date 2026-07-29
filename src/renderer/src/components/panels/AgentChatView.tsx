@@ -3078,7 +3078,9 @@ function DockShell({
       className="mb-2 max-h-[60vh] overflow-y-auto rounded-xl border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] outline-none"
     >
       <div className="flex items-center gap-2 px-3.5 pt-2.5">
-        <StatusDot tone={dotTone} label={eyebrow} />
+        {/* Decorative: the eyebrow beside it is the same string, so a labelled
+            dot would announce the state twice. */}
+        <StatusDot tone={dotTone} />
         <span className="text-[11px] font-medium tracking-normal text-[color:var(--text-subtle)]">
           {eyebrow}
         </span>
