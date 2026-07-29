@@ -414,7 +414,14 @@ function commandExists(command: string): boolean {
   return pathValue.split(delimiter).some((dir) => names.some((name) => existsSync(join(dir, name))))
 }
 
-function resolveMcpTargetPath(
+/**
+ * The absolute path a plugin's declared MCP config template resolves to, or
+ * null when the plugin declares none for that scope. The one place those
+ * templates are substituted: the writers below and the read path
+ * (src/main/mcp-config-readers/resolve-servers.ts) must agree byte for byte, or
+ * the app would read a different file than it writes.
+ */
+export function resolveMcpConfigPath(
   spec: PluginMcpConfigSpec,
   scope: McpScope,
   workspaceRoot: string,
@@ -484,7 +491,7 @@ function syncCodex(input: SyncForFormatInput): {
 } {
   const { plugin, servers, knownServerIds, pruneUnlisted, workspaceRoot, write, context, client } = input
   const scope: McpScope = servers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
-  const resolved = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
+  const resolved = resolveMcpConfigPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
   const serverIds = servers.map((server) => server.id)
   if (!resolved) {
     return { target: { client, path: '', serverIds }, issues: [] }
@@ -523,7 +530,7 @@ function syncClaude(input: SyncForFormatInput): {
     serverId: server.id,
     message: `Claude user-scoped MCP sync is not implemented yet for ${server.name}; use workspace scope or claude mcp add.`,
   }))
-  const path = resolveMcpTargetPath(plugin.mcpConfig!, 'workspace', workspaceRoot, context.homeDir)
+  const path = resolveMcpConfigPath(plugin.mcpConfig!, 'workspace', workspaceRoot, context.homeDir)
   if (!path) {
     return {
       target: { client, path: '', serverIds: workspaceServers.map((server) => server.id) },
@@ -678,7 +685,7 @@ function syncOpencode(input: SyncForFormatInput): {
 
   const serverIds = writableServers.map((server) => server.id)
   const scope: McpScope = writableServers.some((server) => server.scope === 'user') ? 'user' : 'workspace'
-  const path = resolveMcpTargetPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
+  const path = resolveMcpConfigPath(plugin.mcpConfig!, scope, workspaceRoot, context.homeDir)
   if (!path) return { target: { client, path: '', serverIds }, issues }
   if (issues.some((issue) => issue.level === 'error')) {
     return { target: { client, path, serverIds }, issues }

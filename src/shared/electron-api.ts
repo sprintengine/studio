@@ -854,6 +854,19 @@ export type McpSyncInput = {
   pruneUnlistedServers?: boolean
 }
 
+/**
+ * The two CLIs the first-run import wizard scans for existing config. A closed
+ * pair, not a list of every CLI: the paths it scans are the *user-level* ones
+ * (`~/.codex/config.toml`, `~/.claude.json`), which no plugin manifest declares
+ * — manifests declare the workspace paths the writer owns.
+ *
+ * The parsers behind it are already shared with the manifest-driven read path
+ * (src/main/mcp-config-readers), so there is one parser per format. What is
+ * still literal here is the path list; widening the wizard to every CLI means
+ * declaring those user-level paths in the manifests and resolving them through
+ * `resolveMcpConfigPath`, which is the read path's job (MC-1960), not another
+ * hardcoded pair here.
+ */
 export type AgentConfigImportSource = 'codex' | 'claude-code'
 
 export type AgentConfigDetectedMcpServer = {

@@ -8,8 +8,9 @@ import type {
   WorkspaceSkillsListInput,
   WorkspaceSkillsListResult,
 } from '../shared/electron-api'
-import { buildHarnessMap } from '../shared/harness-map'
-import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
+import { buildHarnessMap, type HarnessBinding } from '../shared/harness-map'
+import type { PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
+import type { McpServerResolver, ResolvedMcpServers } from './mcp-config-readers/resolve-servers'
 import { plainSkillInvocation, resolveSkillInvocation } from '../shared/skill-invocation'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../shared/skill-harnesses'
 import {
@@ -123,6 +124,9 @@ export function createFsSkillDirectoryReader(): SkillDirectoryReader {
 export function createAgentCapabilityService(options: {
   reader: SkillDirectoryReader
   listPlugins: () => PluginRegistryListEntry[]
+  /** Manifests, not list entries: `mcpConfig` is not projected to the renderer. */
+  lookupManifest: (pluginId: string) => PluginManifest | undefined
+  mcpResolver: McpServerResolver
 }): AgentCapabilityService {
   return {
     async resolve({ workspaceRoot, pluginId }): Promise<AgentCapabilitiesResult> {
@@ -133,64 +137,85 @@ export function createAgentCapabilityService(options: {
 
       const plugins = options.listPlugins()
       const binding = buildHarnessMap(plugins).byPlugin.get(pluginId)
-      // A CLI that declares no skill integration, and one that declares
-      // `unsupported`, are both legitimate answers with nothing to read.
-      if (!binding || binding.support === 'unsupported') {
-        return {
-          ok: true,
-          support: binding?.support ?? 'unsupported',
-          harnessId: binding?.harnessId ?? '',
-          skills: [],
-          servers: [],
-          diagnostics: [],
-        }
-      }
-
-      // No workspace install target declared: nothing to read, and no path to
-      // report as failing either.
-      if (!binding.skillsDir) {
-        return {
-          ok: true,
-          support: binding.support,
-          harnessId: binding.harnessId,
-          skills: [],
-          servers: [],
-          diagnostics: [],
-        }
-      }
-
-      const integration = plugins.find((plugin) => plugin.id === pluginId)?.skillIntegration
-      const skillsDir = join(root, ...binding.skillsDir.split('/'))
-      const read = await options.reader.read(skillsDir)
-      const diagnostics: CapabilityDiagnostic[] = []
-      let skills: AgentSkill[] = []
-
-      if (read.ok) {
-        skills = read.skills
-          .map((skill): AgentSkill => ({
-            id: skill.id,
-            name: skill.name,
-            description: skill.description,
-            invocation:
-              resolveSkillInvocation(integration, skill.id) ?? plainSkillInvocation(skill.id),
-            source: skill.source,
-            pluginIds: binding.pluginIds,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name))
-      } else if (read.reason === 'unreadable') {
-        diagnostics.push({ reason: 'unreadable', path: skillsDir, message: read.message })
-      }
+      // The two halves are independent declarations: cursor declares an MCP
+      // config and no skill integration at all, so a CLI with nothing to read
+      // for skills still has servers to answer for.
+      const [skills, mcp] = await Promise.all([
+        resolveSkills(options, plugins, binding, pluginId, root),
+        resolveServers(options, pluginId, root),
+      ])
 
       return {
         ok: true,
-        support: binding.support,
-        harnessId: binding.harnessId,
-        skills,
-        servers: [],
-        diagnostics,
+        support: binding?.support ?? 'unsupported',
+        harnessId: binding?.harnessId ?? '',
+        skills: skills.skills,
+        servers: mcp.servers,
+        diagnostics: [...skills.diagnostics, ...mcp.diagnostics],
       }
     },
   }
+}
+
+async function resolveSkills(
+  options: { reader: SkillDirectoryReader },
+  plugins: PluginRegistryListEntry[],
+  binding: HarnessBinding | undefined,
+  pluginId: string,
+  workspaceRoot: string,
+): Promise<{ skills: AgentSkill[]; diagnostics: CapabilityDiagnostic[] }> {
+  // A CLI that declares no skill integration, one that declares `unsupported`,
+  // and one with no workspace install target are all legitimate answers with
+  // nothing to read and no path to report as failing.
+  if (!binding || binding.support === 'unsupported' || !binding.skillsDir) {
+    return { skills: [], diagnostics: [] }
+  }
+
+  const integration = plugins.find((plugin) => plugin.id === pluginId)?.skillIntegration
+  const skillsDir = join(workspaceRoot, ...binding.skillsDir.split('/'))
+  const read = await options.reader.read(skillsDir)
+
+  if (!read.ok) {
+    return {
+      skills: [],
+      diagnostics: read.reason === 'unreadable'
+        ? [{ capability: 'skills', reason: 'unreadable', path: skillsDir, message: read.message }]
+        : [],
+    }
+  }
+
+  return {
+    skills: read.skills
+      .map((skill): AgentSkill => ({
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        invocation: resolveSkillInvocation(integration, skill.id) ?? plainSkillInvocation(skill.id),
+        source: skill.source,
+        pluginIds: binding.pluginIds,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    diagnostics: [],
+  }
+}
+
+async function resolveServers(
+  options: {
+    lookupManifest: (pluginId: string) => PluginManifest | undefined
+    mcpResolver: McpServerResolver
+  },
+  pluginId: string,
+  workspaceRoot: string,
+): Promise<ResolvedMcpServers> {
+  const spec = options.lookupManifest(pluginId)?.mcpConfig
+  // No `mcpConfig` block: this CLI reads no MCP config Multicode knows of, which
+  // is an answer rather than a fault.
+  if (!spec) return { servers: [], diagnostics: [] }
+  const resolved = await options.mcpResolver.resolve({
+    workspaceRoot,
+    targets: [{ pluginId, spec }],
+  })
+  return resolved.get(pluginId) ?? { servers: [], diagnostics: [] }
 }
 
 async function readEntryFrontmatter(skillDir: string): Promise<{ name: string; description: string }> {
