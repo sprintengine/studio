@@ -180,7 +180,8 @@ export function createAgentSkillInstaller(options: AgentSkillInstallerOptions = 
 
       const builtin = findBuiltinSkill(skillId)
       const availability = await detectAvailability()
-      const targets = harnessTargets(listPlugins(), request.root, skillId)
+      const declared = harnessTargets(listPlugins(), request.root, skillId)
+      const targets = declared
         .map((target) => ({
           ...target,
           // Attribution, not filtering by count: `.claude` is reported for
@@ -190,7 +191,10 @@ export function createAgentSkillInstaller(options: AgentSkillInstallerOptions = 
         .filter((target) => target.pluginIds.length > 0 && allowsHarness(builtin, target.harnessId))
       if (targets.length === 0) return { ok: false, message: NO_TARGET_MESSAGE }
 
-      const origin = await resolveOrigin({ io, builtin, builtinSourceRoot, targets, skillId })
+      // Where the bytes may be *read* from is every declared harness, not only
+      // the ones being written: a skill sitting in the directory of a CLI the
+      // user has since uninstalled is still the copy to spread.
+      const origin = await resolveOrigin({ io, builtin, builtinSourceRoot, targets: declared, skillId })
       if (!origin) {
         return {
           ok: false,
@@ -362,6 +366,7 @@ async function attachOne(input: {
   // directory onto itself would delete it first.
   if (target.absoluteDir === origin.dir) return { ...base, status: 'unchanged' }
 
+  let writing = false
   try {
     const existing = await io.inspect(target.absoluteDir)
     // Someone else's bytes under a name we happen to want. Reported, never
@@ -370,6 +375,7 @@ async function attachOne(input: {
     if (existing.exists && existing.contentHash === origin.contentHash) {
       return { ...base, status: 'unchanged' }
     }
+    writing = true
     await io.write({
       sourceDir: origin.dir,
       destinationDir: target.absoluteDir,
@@ -377,6 +383,12 @@ async function attachOne(input: {
     })
     return { ...base, status: 'written' }
   } catch (error) {
+    // A write that died part-way leaves a directory with no marker, which the
+    // check above would read as the user's and refuse to touch ever again —
+    // the failure would be permanent. The half-copy is ours, so it goes. Only
+    // after a write actually started: an unreadable directory we never touched
+    // is somebody else's, whatever the error was.
+    if (writing) await io.remove(target.absoluteDir).catch(() => {})
     return { ...base, status: 'failed', message: formatError(error) }
   }
 }

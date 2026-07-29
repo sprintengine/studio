@@ -169,6 +169,12 @@ async function main(): Promise<void> {
   assert.equal(flakyByPath.get('.claude/skills/backlog')?.status, 'written')
   assert.equal(flakyByPath.get('.opencode/skills/backlog')?.status, 'written')
   await readFile(join(flakyRoot, '.claude', 'skills', 'backlog', 'SKILL.md'), 'utf-8')
+  // A write that died part-way must not leave a marker-less directory behind:
+  // the next attach would read it as the user's and refuse it forever.
+  await assert.rejects(readdir(join(flakyRoot, '.grok', 'skills', 'backlog')))
+  const retry = await installer().attach({ workspaceRoot: flakyRoot, skillId: 'backlog' })
+  assert.ok(retry.ok)
+  assert.equal(byPath(retry.targets).get('.grok/skills/backlog')?.status, 'written', 'a failed target retries clean')
 
   // ---------------------------------------------------------------------
   // A skill nobody ships: copied from the harness that already holds it, and
@@ -201,6 +207,19 @@ async function main(): Promise<void> {
   const removeNothing = await installer().remove({ workspaceRoot: handRoot, skillId: 'backlog' })
   assert.ok(removeNothing.ok)
   assert.ok(removeNothing.targets.every((target) => target.status === 'skipped' && target.reason === 'absent'))
+
+  // The only copy sits in the harness of a CLI the user has since uninstalled.
+  // It is still the bytes to spread — the read side is every declared harness,
+  // even though the write side is only the installed ones.
+  const strandedRoot = join(temp, 'stranded')
+  await writeSkillSource(join(strandedRoot, '.grok', 'skills', 'stranded'), '---\nname: stranded\n---\n\n# Stranded\n')
+  const stranded = await installer({
+    availability: { 'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/bin/claude', version: '1' } },
+  }).attach({ workspaceRoot: strandedRoot, skillId: 'stranded' })
+  assert.ok(stranded.ok)
+  assert.deepEqual(stranded.targets.map((target) => target.path), ['.claude/skills/stranded'])
+  assert.equal(stranded.targets[0].status, 'written')
+  await readFile(join(strandedRoot, '.claude', 'skills', 'stranded', 'SKILL.md'), 'utf-8')
 
   // A directory the user wrote where a built-in would go is reported, not
   // replaced, while its neighbours still receive the skill.
