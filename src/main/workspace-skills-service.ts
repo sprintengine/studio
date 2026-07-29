@@ -86,8 +86,10 @@ export function createFsSkillDirectoryReader(): SkillDirectoryReader {
       try {
         entries = await readdir(absoluteDir)
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'ENOENT' || code === 'ENOTDIR') {
+        // Only "never created" is normal. A permission error, or a file sitting
+        // where the directory should be (ENOTDIR), is a fault the surface must
+        // name rather than render as "no skills".
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           return { ok: false, reason: 'missing', message: 'No skills directory here yet.' }
         }
         return { ok: false, reason: 'unreadable', message: formatFsError(error) }
@@ -101,6 +103,8 @@ export function createFsSkillDirectoryReader(): SkillDirectoryReader {
           // symlink is a real skill to the CLI reading it.
           if (!(await stat(skillDir)).isDirectory()) continue
         } catch {
+          // A loose file or a dangling symlink in the skills directory is not a
+          // skill to the CLI reading it either, so it is skipped, not reported.
           continue
         }
         const frontmatter = await readEntryFrontmatter(skillDir)

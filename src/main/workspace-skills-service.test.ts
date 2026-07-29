@@ -254,6 +254,17 @@ async function testAgentCapabilities(): Promise<void> {
     await chmod(unreadableDir, 0o755)
   }
 
+  // A file where the skills directory should be is a fault, not "never created".
+  const wrongTypeRoot = join(temp, 'file-not-dir')
+  await mkdir(join(wrongTypeRoot, '.claude'), { recursive: true })
+  await writeFile(join(wrongTypeRoot, '.claude', 'skills'), 'not a directory', 'utf-8')
+  const wrongType = await fsService.resolve({ workspaceRoot: wrongTypeRoot, pluginId: 'claude-code' })
+  assert.ok(wrongType.ok)
+  assert.deepEqual(wrongType.skills, [])
+  assert.equal(wrongType.diagnostics.length, 1)
+  assert.equal(wrongType.diagnostics[0].reason, 'unreadable')
+  assert.equal(wrongType.diagnostics[0].path, join(wrongTypeRoot, '.claude', 'skills'))
+
   // Three CLIs on one harness read the directory once each time they are asked,
   // and each ask attributes the result to all three.
   const reader = fakeReader({

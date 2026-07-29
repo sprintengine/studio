@@ -195,6 +195,10 @@ export function backlogSkillInvocationForDrop(
 
 // Backwards-compatible export for older tests/callers. Prefer
 // backlogSkillInvocationForDrop for plugin-declared behavior.
+//
+// The inline manifests below state no install targets on purpose: this path
+// reads support, harnessId and invocation only, and a harness directory
+// written here would be a second declaration competing with the real one.
 export function backlogSlashCommandForDrop(
   payload: FileDropPayload,
   session: TerminalSessionSnapshot,
@@ -212,7 +216,7 @@ export function backlogSlashCommandForDrop(
       skillIntegration: {
         support: 'native',
         harnessId: 'claude',
-        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
+        installTargets: [],
         invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
       },
     },
@@ -227,7 +231,7 @@ export function backlogSlashCommandForDrop(
       skillIntegration: {
         support: 'native',
         harnessId: 'claude',
-        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
+        installTargets: [],
         invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
       },
     },
@@ -242,7 +246,7 @@ export function backlogSlashCommandForDrop(
       skillIntegration: {
         support: 'native',
         harnessId: 'codex',
-        installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.codex/skills/{{skillId}}', format: 'codex', restartRequired: true }],
+        installTargets: [],
         invocation: { fileDropTemplate: 'Use ${{skillId}} to work {{path}}.', explicitMention: true },
       },
     },
