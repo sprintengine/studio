@@ -3,9 +3,10 @@
 Epic: `backlog/epics/skills-aside.md` (1956). Fourteen tasks, nine children, five
 review tasks. Signed off 2026-07-29.
 
-Verdict: **the epic's acceptance is met.** Eight findings remain open; none
-blocks the epic's own acceptance and all are filed. One is high severity and
-should be scheduled before this surface is relied on for removal.
+Verdict: **the epic's acceptance is met.** Eleven findings remain open,
+collapsing to eight distinct issues; none blocks the epic's own acceptance and
+all are filed. One is high severity and should be scheduled before this surface
+is relied on for removal.
 
 ## The five acceptance criteria
 
@@ -61,9 +62,10 @@ a fabricated number.
 
 ## Findings ledger
 
-Forty-four findings were recorded across the fourteen tasks. Thirty-six were
-fixed in the session that raised them, each with its verification re-run. Eight
-remain open, and all eight are now filed:
+Forty-five findings were recorded across the fourteen tasks. Thirty-four were
+fixed in the session that raised them, each with its verification re-run. Eleven
+remain open; several are the same problem seen by more than one reviewer, so they
+collapse to eight distinct issues, and all eight are now filed:
 
 | Finding | Severity | Filed as |
 |---|---|---|
@@ -146,6 +148,16 @@ carries no status field — completion derives from its children.
 The six follow-up items above are deliberately **not** filed under
 `epic: skills-aside`. The epic derives completion from its children, so attaching
 open follow-ups to it would keep a finished epic permanently incomplete.
+
+## The hot seam
+
+The engine flagged `ipc:agent-skill-installer` as hot — three tasks have
+published changes to it — and asked whether a checkpoint review is warranted.
+**It is not, as a new task in this run.** T13 was a whole-change deep review that
+audited exactly this file as its highest-priority surface, and the one thing it
+found and could not fix forward is `T13-F1`, already filed. A checkpoint task now
+would re-read what T13 read and reach the same conclusion. The follow-up item
+carries it, and that item's own work should be reviewed when it lands.
 
 ## Residual risk
 
