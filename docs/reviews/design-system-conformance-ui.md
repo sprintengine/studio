@@ -1099,6 +1099,14 @@ question. What is in question is the third state: **`resting-selected` and
 `selected` are the same fill, to the byte, in both themes.** There are two
 states on this surface, not three.
 
+This is not a read artifact, and the harness asserts as much rather than
+inferring it: a row that scrolled away or a click that did not take returns no
+fill, which the contrast helper would read as black and hand back a clean
+1.000:1 — the exact shape of this finding. Both reads are checked for success,
+the row is asserted still `aria-selected` in both states, and focus is asserted
+to have actually landed inside a *different* `[data-selection-pane]`. All four
+assertions pass in both themes; the 1.000:1 is the product's own paint.
+
 The cause is not a token and not a contrast miss. `--bg-selected-resting`
 resolves correctly (`rgb(28, 32, 36)` dark, `rgb(228, 232, 236)` light) and is
 distinct from `--bg-selected` in both. It is never applied, because the tier is

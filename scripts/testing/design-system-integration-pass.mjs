@@ -498,6 +498,32 @@ async function measureTiers(page, theme) {
   await page.waitForTimeout(700)
   const restingSelectedRow = await page.evaluate(readRowScript(MEMBER))
 
+  // Fail loudly before comparing. A row that scrolled out of the list, or a
+  // click that did not take, returns `{ error }` with no `fill`; the contrast
+  // helper reads that as black and hands back a clean 1.000:1, which is exactly
+  // the shape of the finding this pass reports. An unguarded read here would
+  // manufacture "the tier never applies" out of a broken selector.
+  const reads = { selected: selectedRow, restingSelected: restingSelectedRow }
+  for (const [name, row] of Object.entries(reads)) {
+    if (row.error || typeof row.fill !== 'string') {
+      check(`${theme}: the ${name} state could be read off the row`, false, JSON.stringify(row))
+      return null
+    }
+  }
+  // The tier is about focus, not about selection: if the row stopped being the
+  // selected one when focus left, the two states are not comparable at all.
+  check(
+    `${theme}: the row stays selected while focus moves off its pane`,
+    selectedRow.selected === true && restingSelectedRow.selected === true,
+    `selected-state=${selectedRow.selected} resting-selected-state=${restingSelectedRow.selected}` +
+      ` focusMoved=${moved.moved} intoOtherPane=${moved.intoOtherPane}`,
+  )
+  check(
+    `${theme}: focus actually left the row's pane`,
+    moved.moved === true,
+    JSON.stringify(moved),
+  )
+
   const result = {
     theme,
     tokens,
