@@ -1375,3 +1375,178 @@ ring around the field, then one around the cross alone.
   selected is a subtle fill move; what makes the state legible is fill *and* ink
   moving together (1.408:1 on the title). A future ramp change that touches one
   channel without the other would weaken the tier without failing this pass.
+
+# Integration re-check after the guard change — 2026-07-29 (T28, after T27)
+
+T15 and T24 both completed before T27 was planned, so neither covers it. T27
+rewrote the `app-token-restates-bundle` rule — **widening** its scope, the change
+shape most likely to fire on code that was previously clean — and wrote to both
+files this sprint treats as shared seams. This re-establishes integration
+coverage over the tree as it now stands.
+
+T27's own evidence was not taken on trust. That is the point of the task: T14
+wrote that four of its findings "must be re-checked after the rewrite lands",
+nothing re-checked them, and all four were still live at sign-off. Every probe
+below was run here, from a pristine copy, against the guard at HEAD.
+
+Verdict: **all five criteria met.** One low finding, already self-reported by
+T27's implementer and confirmed here.
+
+## Criteria
+
+| # | criterion | result |
+|---|---|---|
+| 1 | `npm run verify:app` exits 0, including `test:seams:design-system-conformance` | **met** |
+| 2 | the integration harness passes end to end against a fresh build | **met** — 30/30 |
+| 3 | each of T27's four probes independently makes the guard exit 1; tree byte-identical after | **met** |
+| 4 | `npm run lint` exits 0 at `tolerance: none`, suppression count still nine | **met** |
+| 5 | both shared seam files carry every prior writer's change | **met** |
+
+### 1 — the suite
+
+`npm run verify:app` exits **0** — typecheck, the six lint guards, and the full
+main / preload / renderer / shared / seam suite, `test:seams:design-system-conformance`
+included (`designSystemConformance.test.tsx: ok`, T4/T5/T10/T11/T18 assertions).
+
+### 2 — the integration harness, against a fresh build
+
+`npm run build` exits 0 (bundle budget ok), and
+`scripts/testing/design-system-integration-pass.mjs` passes **30/30** against
+that build. Both halves of the T24 pass reproduce unchanged after T27:
+
+```
+dark    resting          rgb(23, 22, 33)     (the epic tint)
+        resting-selected rgb(28, 32, 36)     step from resting        1.092:1
+        selected         rgb(36, 36, 44)     step from resting-sel.   1.064:1
+
+light   resting          rgb(246, 245, 255)
+        resting-selected rgb(228, 232, 236)  step from resting        1.139:1
+        selected         rgb(216, 220, 224)  step from resting-sel.   1.119:1
+```
+
+Three distinct fills in both themes, ink lifting and resting with the fill, the
+row's pane still `primary`. **Seventy-six of seventy-six tab stops draw the
+converged ring, zero Chromium UA outlines** — the same numbers, token for token
+(`rgb(63, 148, 104) 0px 0px 0px 2px`), as the second T24 pass. T27 moved no
+rendered value.
+
+### 3 — T27's probes, re-run independently
+
+Each probe applied to a pristine isolated copy and reverted before the next, so
+no probe can mask another. The guard resolves every path from `process.cwd()`,
+so the copy is a complete harness and the shared worktree is never mutated.
+
+| probe | finding | guard | rule and message |
+|---|---|---|---|
+| `--bg-hover: var(--sem-color-bg-surface-raised)` in the base block | F1 | **exit 1** | `app-token-restates-bundle` — *dark --bg-hover aliases --sem-color-bg-surface-raised, counterpart is --sem-color-bg-hover* |
+| a third, bare `:root` declaring three mapped names | F2 | **exit 1** | `app-token-restates-bundle` ×3 — *… declared in `:root`, which applies to every theme; only the base dark and light blocks may carry a mapped name* |
+| `--shadow-modal` restated as its bundle literal | F6a | **exit 1** | `app-token-restates-bundle` — *dark --shadow-modal restates --sem-shadow-modal* |
+| `sem.font.size.micro` 10px → 13px, **guard source untouched** | F6b | **exit 1** | `micro-type-floor` — fires on a `text-[12px]` fixture that is clean at the shipped floor |
+
+The fourth is the one that matters most and the one a green `npm run lint` can
+never show: the floor the guard enforces now *follows* the token. `MICRO_FLOOR_PX`
+is `bundleDimensions.microFontSizePx`, so moving the bundle moves the rule with
+no second literal to update — the hand-maintained copy F6 named is gone.
+
+F4's other half is closed by construction rather than by probe:
+`--shadow-popover` is aliased in the base block (`index.css:269`) and the light
+block (`:359`), the bundle declares `--sem-shadow-popover` under both polarities
+(`tokens.css:73` in `:root`, `:159` in `[data-mode="dark"]`), and it is in
+`APP_TO_BUNDLE` (`:809`). The `shadow-in-flow` fix hint now names a token the app
+actually declares, so following it paints a shadow instead of nothing.
+
+**The tree afterwards.** `scripts/lint-design-system-conformance.mjs` and
+`src/renderer/src/assets/index.css` hash byte-identical to HEAD
+(`a11dca1b…`, `89c90658…`), and `tokens.tokens.json` / `tokens.css` have an empty
+diff. The only new path is the probe harness below.
+
+**The probes are now re-runnable.** `scripts/testing/design-system-guard-probes.mjs`
+carries all five as a standing mutation test, because the ad-hoc version is
+exactly what failed this sprint once: T14 ran these by hand, wrote that they must
+be re-checked, and the re-check never happened. It builds its own isolated tree,
+asserts the rule *name* and message per probe rather than merely a non-zero exit,
+and asserts the guard returns to green on revert.
+
+Counter-checked against the failure it is supposed to catch, because a probe
+suite that passes on a broken guard is worthless: run against the guard as it
+stood **before** T27 (`6d03160a`), it reports **6/11, with all five probes
+failing**. Against HEAD it reports **11/11**. The probes are load-bearing, not
+decorative.
+
+### 4 — the guard on the unmodified tree
+
+`npm run lint` exits **0**: `tolerance: none`, **0 found on all fourteen rules**
+across 595 renderer files plus `index.css`, and **9** violations suppressed by
+**7** `design-system-allow:` markers in 6 files.
+
+The count is the point of this criterion — a rule widened by quietly suppressing
+what it newly catches has not been fixed. Both T27 commits add and remove **zero**
+suppression markers, and the marker count is unchanged from T24's tip
+(`eee1ff16`): 7 markers, 9 suppressions, then and now. The widened rule fires on
+nothing it should not.
+
+### 5 — the shared seams
+
+Both files carry every prior writer's change. Checked by replaying each sprint
+commit's added lines against the file at HEAD, rather than by reading the newest
+diff:
+
+- `scripts/lint-design-system-conformance.mjs` — T20's contrast rule is **109/109
+  lines intact**; T27's own two commits are 159/159 and 2/2. T15's and T1's
+  losses are comment blocks that T20 and T27 rewrote in place while replacing the
+  code they described.
+- `src/renderer/src/assets/index.css` — T22 **73/73**, T21 **30/30**, T18 **8/8**
+  on its final commit, T7 **8/8**, T2 **110/110**. T3's 17 missing lines are its
+  `--text-disabled` values, superseded by `03e56a00` — which *is* T21, whose whole
+  contract was lifting that floor.
+
+Every superseded line traces to a deliberate later writer (`git log -S` per line),
+and in two cases to the same task's own second commit. **T27 removed nothing of
+another writer's work**: its `index.css` commit deletes zero lines, and its guard
+deletions are confined to the rule body, the two constants and the fix hint named
+in its own contract.
+
+## Finding
+
+### T1 — the marketing radius floor is not token-derived, as T27's criterion 5 asks (low)
+
+T27's fifth criterion covers two constants. The micro floor is genuinely derived
+(criterion 3 above). The radius floor is not: `MARKETING_RADIUS_FLOOR_PX = 16`
+(`scripts/lint-design-system-conformance.mjs:479`) is still a hand-written
+literal. What T27 added is a *coherence assertion* beside it — if the bundle's
+largest `sem.radius.*` reaches 16px, the guard refuses to run.
+
+Probed: pushing `sem.radius.shell` to 20px makes the guard **exit 2** with
+*"declares a 20px radius, at or above the 16px marketing floor … Revisit the
+rule, not the bundle."*
+
+So the drift F6 warned about cannot land silently — the guard stops instead of
+disagreeing with the bundle, which is the right failure direction. But "reads the
+marketing radius floor from `tokens.tokens.json`" is not literally met, and the
+constant is still a second copy of a bundle fact. T27's implementer recorded this
+against their own work; this confirms it by probe.
+
+Not a blocker: today's steps are 3/5/7/9px, nowhere near the floor, and the
+assertion converts any future collision into a loud stop. Left as recorded rather
+than fixed — the rule needs a product decision about what "marketing radius"
+means once the bundle has a step that large, which is not this task's to make.
+
+## What this pass did not establish
+
+- **T23's per-finding visual re-check was not re-run**, and F3 and R2 were not
+  re-adjudicated — all three are out of scope by the task card. R2 remains an
+  open owner decision from sign-off.
+- **Thirteen of the fourteen rules are proved only by mutation on two of them.**
+  The probe harness mutation-tests `app-token-restates-bundle` and
+  `micro-type-floor`; the second T24 pass covered `theme-ramp-contrast`. The
+  other eleven are confirmed only by their zero counts on a clean tree.
+- **Two doors, one theme for the ring walk.** Unchanged from T24: Sprints and
+  Reviews inherit the same primitives but were not walked, and both walks ran in
+  dark.
+- **The probe harness is not in a gate.** It is a script anyone can run, not a
+  step in `npm run lint` or `npm run verify:app`. Wiring it in would need a
+  decision about the ~15s it adds; nothing currently re-runs it automatically,
+  which is the same shape of gap that let T14's findings go unre-checked.
+- **`scripts/lint-knowledge-size.mjs` still crashes** with `EISDIR` on
+  `knowledge/` subdirectories. Pre-existing, reported by T27, in no gate, and not
+  touched here.
