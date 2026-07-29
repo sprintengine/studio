@@ -98,8 +98,8 @@
       },
       "slate-400": {
         "$type": "color",
-        "$value": "#838b97",
-        "$description": "Disabled text ink on light surfaces (3.44:1 on white, AA-large). Source: light --text-disabled."
+        "$value": "#808894",
+        "$description": "Disabled text ink on light surfaces (3.58:1 on white, 3.07:1 on the mist-100 canvas, AA-large). Source: light --text-disabled."
       },
       "green-400": {
         "$type": "color",

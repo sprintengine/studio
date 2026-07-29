@@ -362,7 +362,10 @@
 
      1. --text-strong → default → muted → subtle → disabled decreases in
         contrast against that theme's --bg-surface, and never inverts.
-     2. --text-disabled clears 3:1 on --bg-surface (WCAG 2.1 AA-large).
+     2. --text-disabled clears 3:1 on every surface it is painted on —
+        --bg-surface, --bg-surface-raised and --bg-app (WCAG 2.1 AA-large).
+        Raised chrome is where disabled ink most often lands: the CLI listbox,
+        the command palette, the confirm dialog.
 
    Steps are spaced at least 1.10x apart in contrast so each reads as its own
    rung — the bundle, which is the authority, runs its own bottom step at
@@ -1046,7 +1049,7 @@
   --text-default: #b8c4a8;
   --text-muted: #8c9880;
   --text-subtle: #7c8870;
-  --text-disabled: #5c6854;
+  --text-disabled: #607058;
   /* Terracotta accent takes white label text (the blue-tuned base ink would be
      illegible on it). */
   --text-on-accent: #ffffff;
@@ -1111,7 +1114,7 @@
   --text-default: #c4ccb4;
   --text-muted: #98a488;
   --text-subtle: #7c8868;
-  --text-disabled: #68785c;
+  --text-disabled: #6c8060;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(232, 236, 216, 0.07);
@@ -1221,7 +1224,7 @@
   --text-default: #d4ccb0;
   --text-muted: #a8a07c;
   --text-subtle: #888864;
-  --text-disabled: #7c7458;
+  --text-disabled: #807858;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(240, 234, 210, 0.08);
@@ -1285,7 +1288,7 @@
   --text-default: #c4ccb4;
   --text-muted: #9ca48c;
   --text-subtle: #7c8470;
-  --text-disabled: #647058;
+  --text-disabled: #68785c;
   /* Sage accent carries dark ink (a light label would wash out on it). */
   --text-on-accent: #181c14;
 

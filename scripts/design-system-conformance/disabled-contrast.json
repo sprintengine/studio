@@ -2,16 +2,11 @@
   "gruvbox:--bg-surface-raised",
   "tokyo-night:--bg-surface-raised",
   "caramel:--bg-surface-raised",
-  "fernery:--bg-surface-raised",
   "sage:--bg-surface-raised",
   "slate:--bg-surface-raised",
   "lantern:--bg-surface-raised",
-  "verdigris:--bg-surface-raised",
-  "herbarium-dark:--bg-surface-raised",
   "aubergine:--bg-surface-raised",
   "rose-pine:--bg-surface-raised",
   "ayu-mirage:--bg-surface-raised",
-  "greenhouse:--bg-surface-raised",
-  "conifer:--bg-surface-raised",
-  "light:--bg-app"
+  "conifer:--bg-surface-raised"
 ]
