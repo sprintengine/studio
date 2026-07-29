@@ -140,6 +140,37 @@ from its unselected neighbour. Screenshot: `32-backlog-grayscale.png`.
 
 ---
 
+## Pass 4 — glyph replacements in grayscale, per site
+
+T8 replaced emoji at fourteen sites across eight files. Each is recorded below
+with how it was checked. `filter: grayscale(1)` applied to the live document,
+then screenshotted and re-scanned for emoji codepoints in rendered text.
+
+| T8 site | how checked | outcome |
+|---|---|---|
+| `ui/CliModelListbox.tsx` | **rendered**, composer with the CLI/model tree open, grayscale (`71-cli-listbox-gray.png`) | **pass.** Each CLI header carries a distinct AppIcons glyph (Claude Code, Codex, Cursor, Grok Build) — four different shapes, legible with colour removed. The chosen CLI is `--bg-selected` plus a check mark: two shape-based signals, no colour dependency. Model ids in mono, right-aligned. |
+| `ui/WizardProgress.tsx` | **rendered**, creation wizard header (`72-wizard-gray.png`) | **pass.** Progress reads as a filled/unfilled bar, no emoji, no colour-only step state. |
+| `workspace/NewWorkspacePanel` creation rail | **rendered** (`03-post-onboarding.png`) | **pass.** `Chat / Workspace / Sprint / Design Wizard` each carry a distinct glyph; the active row is a neutral fill. |
+| `backlog/RosterMenu.tsx` | source | **pass.** No emoji codepoint in the file. |
+| `newWorkspace/SprintEngineRosterPanel.tsx` | source — sprint creation flow not reachable in the driven profile | **pass.** No emoji codepoint. |
+| `newWorkspace/SprintEngineRosterTable.tsx` | source — same | **pass.** No emoji codepoint. |
+| `newWorkspace/SprintEngineProjectPanel.tsx` | source — same | **pass.** No emoji codepoint. |
+| `guidedBrief/GuidedBriefFlow.tsx` | source — guided-brief flow not reachable | **pass.** Only `→` in code comments. |
+| `panels/AgentChatView.tsx` | source — needs a live chat agent | **pass with a note.** The only two emoji-range codepoints left anywhere in `src/renderer` are at `:3858` and `:3874`, and both are a `✓` inside a regex that colours *agent command output* — content T8 explicitly excludes. Separately `:2077` renders `↓ N new replies`; `↓` is a text arrow, not an emoji, and it sits beside its own label. |
+
+**Whole-renderer scan:** across every `.ts`/`.tsx` under `src/renderer/src`,
+exactly **two** lines contain an emoji-range codepoint, both the agent-output
+`✓` above. Rendered-text scans on Backlog, Extensions, Settings, the composer
+and the creation wizard returned **zero** emoji.
+
+One a11y gap surfaced by the same sweep and folded into F7 rather than filed
+separately: four 12×12 `svg` marks render with neither an accessible name nor
+`aria-hidden`, two of them inside focusable buttons. All four are flexlayout's
+tab-close and tab-toolbar controls — third-party markup, and the same controls
+F7 measures at 14×14.
+
+---
+
 ## Pass 3 — the tab primitive and the four active-state consumers
 
 | surface | how checked | active treatment | verdict |
@@ -384,19 +415,25 @@ boxes: `Folder actions: mc-review-ws` 20×20, `Workspace actions` 20×20,
 `Close review` 20×20, `Back` 22×22, and the flexlayout tab toolbar buttons
 14×14.
 
+Two of the flexlayout controls compound it: they are icon-only 12×12 `svg`
+marks inside focusable buttons with **neither an accessible name nor
+`aria-hidden`**, so a screen reader announces an unlabelled button.
+
 **Why it matters** — *"Nothing interactive is drawn below
 `sem.size.hit-target-min`. A small glyph pads out to it with a transparent hit
-area rather than shrinking its target."* Three of these are destructive or
-navigational.
+area rather than shrinking its target."* and *"`aria-label` on every icon-only
+button."* Three of these are destructive or navigational.
 
 **Recommended fix** — Keep the glyphs at their drawn size and pad the button to
-24×24 with a transparent hit area. The flexlayout ones need a wrapper, since
-the library owns that markup.
+24×24 with a transparent hit area, and give the two flexlayout controls an
+`aria-label`. The flexlayout ones need a wrapper, since the library owns that
+markup.
 
 **Owner** — frontend.
 
 **Verification** — every `button` / `[role=button]` in the workspace shell
-measures ≥24px on both axes at 1440×900.
+measures ≥24px on both axes at 1440×900, and every icon-only button reports a
+non-empty accessible name.
 
 ### F8 — The ink lift on selection is a no-op (low)
 
@@ -474,6 +511,11 @@ the built app unless noted.
   `MockupPreviewPane` need a Knowledge-configured workspace, a Watchtower
   workspace and the guided-brief flow respectively; none exists in the
   throwaway profile. Their source is unambiguous, but no pixel was inspected.
+- **Six of the fourteen T8 glyph sites were verified rendered in grayscale; six
+  by source.** The sprint-creation panels, the guided-brief flow and
+  `AgentChatView` need a sprint, a brief and a live chat agent respectively.
+  The whole-renderer emoji scan covers them, but only source-deep: a glyph that
+  is present yet illegible in grayscale at those sites would not be caught.
 - **`--text-disabled` is under 3:1 on `--bg-selected` in all nineteen themes**
   (1.38 gruvbox → 2.86 herbarium). I found no surface that actually pairs them
   in the app I drove, so this is filed as a risk, not F4's defect. If any
