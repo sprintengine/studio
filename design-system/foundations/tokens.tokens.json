@@ -1284,7 +1284,7 @@
       "hit-target-min": {
         "$type": "dimension",
         "$value": "24px",
-        "$description": "The smallest permitted pointer target, matching the IconButton contract.",
+        "$description": "The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it.",
         "$extensions": {
           "com.multicode": {
             "role": "sizing",

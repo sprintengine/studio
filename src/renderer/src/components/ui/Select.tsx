@@ -292,7 +292,7 @@ export function Select<V extends string = string>({
                 }}
                 onClick={() => selectAt(index)}
                 className={[
-                  'flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[12px]',
+                  'flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-body',
                   item.disabled ? 'cursor-not-allowed opacity-45' : '',
                   active ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]',
                 ].join(' ')}

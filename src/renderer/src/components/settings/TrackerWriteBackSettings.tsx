@@ -412,7 +412,7 @@ function CommentCheck({
 }) {
   return (
     <label className="flex cursor-pointer select-none items-center gap-2.5 py-1 text-body text-[color:var(--text-default)]">
-      <span className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+      <span className="relative inline-flex size-icon-sm shrink-0 items-center justify-center">
         <input
           type="checkbox"
           checked={checked}
@@ -422,7 +422,7 @@ function CommentCheck({
         <span
           aria-hidden="true"
           className={[
-            'inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border transition-colors',
+            'inline-flex size-icon-sm items-center justify-center rounded-[3px] border transition-colors',
             'peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--border-focus)] peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-[color:var(--bg-surface-raised)]',
             checked
               ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'

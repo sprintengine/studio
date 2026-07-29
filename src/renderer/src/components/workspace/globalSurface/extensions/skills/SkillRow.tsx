@@ -43,7 +43,7 @@ export function SkillRow({
       >
         <span
           aria-hidden="true"
-          className={`grid h-3.5 w-3.5 place-items-center rounded-[3px] border ${
+          className={`grid size-icon-sm place-items-center rounded-[3px] border ${
             selected
               ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
               : 'border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] text-transparent'
