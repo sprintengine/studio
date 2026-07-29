@@ -260,10 +260,13 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       type="button"
       tabIndex={-1}
       onClick={onClick}
-      // 24x24 box on a 12x18 flow advance: the negative margins give back the
-      // padding so the chevron sits exactly where it did and the row stays
-      // h-26, while the box a pointer has to hit clears the hit-target floor.
-      // The sibling spacer on file rows is still w-3, so the columns line up.
+      // 24x24 box on a 12x16 flow advance: the negative margins give back the
+      // padding, so the chevron draws exactly where it did while the box a
+      // pointer has to hit clears the hit-target floor. The 16px advance has to
+      // stay under FolderIcon's 20px — that glyph, not this one, is what sets a
+      // folder row's height (28px, measured unchanged either side of this
+      // change); drop the negative margins and the row jumps to 32px. The
+      // sibling spacer on file rows is still w-3, so the columns line up.
       className="-mx-1.5 -my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]"
       aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
     >
