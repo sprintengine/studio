@@ -21,8 +21,11 @@ type InboxRowProps = {
    *  because the row itself renders as a `<button>` and nested interactives are
    *  invalid HTML. */
   trailing?: React.ReactNode
-  /** Visual selection. A neutral --bg-selected fill — never the accent, and
-   *  never a left bar (`design-system/patterns/selection.html`). */
+  /** Visual selection. A neutral --bg-selected fill plus an ink lift on the
+   *  title — never the accent, and never a left bar
+   *  (`design-system/patterns/selection.html`). On a multi-pane surface, mark
+   *  each list with `data-selection-pane` and the row drops to the resting
+   *  tier whenever its pane is not the one holding focus. */
   selected?: boolean
   /** Row is interactive (renders as button). Default true when onSelect is set.
    *  Receives the click event so callers can read modifier keys (shift/meta) for
@@ -60,7 +63,16 @@ export function InboxRow({
         <StatusDot tone={tone} className="mt-1" />
       )}
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[12px] font-medium text-[color:var(--text-strong)]">
+        {/* The ink lift is the selection's second channel, so an unselected
+            title has to sit below the lifted one: --text-default resting,
+            --text-strong selected. In a pane that is not the one holding
+            focus, the selection-tier rules in assets/index.css rebind
+            --text-strong on this row and the lift drops back out. */}
+        <div
+          className={`truncate text-[12px] font-medium ${
+            selected ? 'text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'
+          }`}
+        >
           {title}
         </div>
         {supporting ? (
@@ -75,8 +87,9 @@ export function InboxRow({
 
   const className = [
     'group flex w-full items-start gap-2 px-3 py-2 text-left transition-colors',
-    // Selection is the neutral fill and nothing else: the title already sits at
-    // --text-strong, and the state is carried to AT by aria-current below.
+    // Selection is the neutral fill plus the title's ink lift, and nothing
+    // else. The state is carried to AT by aria-current below — which is also
+    // what the resting tier keys off.
     selected ? 'bg-[color:var(--bg-selected)]' : '',
     interactive ? 'cursor-pointer' : '',
     // Hover is skipped on the selected row: --bg-hover sits below --bg-selected,

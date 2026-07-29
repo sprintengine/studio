@@ -55,6 +55,13 @@
   --bg-hover: var(--sem-color-bg-hover);
   --bg-active: var(--sem-color-bg-active);
   --bg-selected: var(--sem-color-bg-selected);
+  /* The quieter of the two selection tiers: the remembered choice of a pane
+     that is not the one the keyboard is driving. Consumed through the
+     `data-selection-pane` rules near the end of this file, never written on a
+     row directly. The seventeen themes outside the bundle's two modes take it
+     from their own ramp — one rung below their `--bg-selected`, which is
+     exactly where the bundle puts it in dark. */
+  --bg-selected-resting: var(--sem-color-bg-selected-resting);
   /* Agent conversation panel canvas. Anchored to --bg-app — the same darkest ink
      the terminal content area sits on — so the chat reads as a working surface
      like the terminal, with the composer (--bg-surface) and the user's message
@@ -269,6 +276,7 @@
   --bg-hover: var(--sem-color-bg-hover);
   --bg-active: var(--sem-color-bg-active);
   --bg-selected: var(--sem-color-bg-selected);
+  --bg-selected-resting: var(--sem-color-bg-selected-resting);
   /* Inverted button is near-black here; hover intensifies toward black so its
      light label keeps contrast (a white hover would erase the text). */
   --bg-inverted-hover: #08080c;
@@ -372,6 +380,7 @@
   --bg-hover: #38383c;
   --bg-active: #44444c;
   --bg-selected: #505058;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(20, 20, 20, 0.68);
 
   --text-strong: #e8e8e8;
@@ -421,6 +430,7 @@
   --bg-hover: #2c3028;
   --bg-active: #2c342c;
   --bg-selected: #383c30;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 12, 8, 0.72);
 
   --text-strong: #b4c0b0;
@@ -467,6 +477,7 @@
   --bg-hover: #3c2c1c;
   --bg-active: #483824;
   --bg-selected: #54442c;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 8, 4, 0.72);
 
   --text-strong: #f4ecd8;
@@ -509,6 +520,7 @@
   --bg-hover: #2c2820;
   --bg-active: #383024;
   --bg-selected: #44382c;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 8, 4, 0.72);
 
   --text-strong: #f4e8c8;
@@ -551,6 +563,7 @@
   --bg-hover: #2c2c38;
   --bg-active: #383848;
   --bg-selected: #444458;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 12, 16, 0.72);
 
   --text-strong: #d0c8e0;
@@ -592,6 +605,7 @@
   --bg-hover: #2c3048;
   --bg-active: #383c58;
   --bg-selected: #444868;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 12, 20, 0.72);
 
   --text-strong: #c0c8dc;
@@ -632,6 +646,7 @@
   --bg-hover: #2c243c;
   --bg-active: #382c48;
   --bg-selected: #443454;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 8, 16, 0.72);
 
   --text-strong: #e0d4dc;
@@ -673,6 +688,7 @@
   --bg-hover: #2c3044;
   --bg-active: #343850;
   --bg-selected: #3c405c;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 16, 24, 0.72);
 
   --text-strong: #ccd0d8;
@@ -714,6 +730,7 @@
   --bg-hover: #4c4844;
   --bg-active: #585048;
   --bg-selected: #645c50;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(16, 16, 12, 0.72);
 
   --text-strong: #ecdcb4;
@@ -762,6 +779,7 @@
   --bg-hover: #ece4d4;
   --bg-active: #e0d8c4;
   --bg-selected: #d8ccb4;
+  --bg-selected-resting: var(--bg-active);
   /* Inverted button is a warm near-black espresso; hover deepens toward it so
      the light label keeps contrast. */
   --bg-inverted-hover: #1c1814;
@@ -852,6 +870,7 @@
   --bg-hover: #ece4d4;
   --bg-active: #e0d8c8;
   --bg-selected: #d4ccb8;
+  --bg-selected-resting: var(--bg-active);
   --bg-inverted-hover: #1c2018;
   --surface-overlay-backdrop: rgba(32, 36, 24, 0.42);
 
@@ -934,6 +953,7 @@
      website sage stays chrome identity; selection darkens the cream neutrally. */
   --bg-active: #e3dfd0;
   --bg-selected: #d9d4c4;
+  --bg-selected-resting: var(--bg-active);
   --bg-inverted-hover: #191613;
   --surface-overlay-backdrop: rgba(25, 22, 19, 0.42);
 
@@ -1018,6 +1038,7 @@
   --bg-hover: #18241c;
   --bg-active: #1c2820;
   --bg-selected: #24342c;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(8, 12, 8, 0.72);
 
   /* Aged-cream ink flipped up from the parchment; warm-sage at the muted end. */
@@ -1083,6 +1104,7 @@
   --bg-hover: #2c402c;
   --bg-active: #344c34;
   --bg-selected: #38542c;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(8, 16, 8, 0.72);
 
   --text-strong: #e8ecd8;
@@ -1137,6 +1159,7 @@
   --bg-hover: #3c4030;
   --bg-active: #44483c;
   --bg-selected: #444c30;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 16, 8, 0.72);
 
   --text-strong: #e8e8d4;
@@ -1191,6 +1214,7 @@
   --bg-hover: #3c3828;
   --bg-active: #44402c;
   --bg-selected: #384424;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(12, 12, 8, 0.72);
 
   --text-strong: #f0ead2;
@@ -1253,6 +1277,7 @@
   --bg-hover: #30342c;
   --bg-active: #3c4034;
   --bg-selected: #484c3c;
+  --bg-selected-resting: var(--bg-active);
   --surface-overlay-backdrop: rgba(8, 12, 8, 0.72);
 
   /* Cream-sage ink flipped up from the dark canvas; warm-sage at the muted end. */
@@ -2224,6 +2249,37 @@ samp,
   .interactive:active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;
   }
+}
+
+/* ── Selection tiers ───────────────────────────────────────────────────────
+ * Selection answers "what did I pick?"; the tier answers "which of these
+ * lists is my keyboard driving?" (design-system/patterns/selection.html). On a
+ * rail → list → detail surface every pane used to paint the full-strength
+ * `--bg-selected` at once, so nothing said which one had focus.
+ *
+ * A pane opts in with `data-selection-pane`. The selected row of a pane that
+ * is resting rebinds the two selection tokens on itself, so the fill drops to
+ * `--bg-selected-resting` and the ink lift drops back to `--text-default`.
+ * Rebinding the variables rather than restyling the row is what lets every
+ * list in the product tier from the markup it already has: sidebar rows, rail
+ * rows, tree rows and listbox options all read these two variables already,
+ * and the row is found by the ARIA state it already carries.
+ *
+ *   data-selection-pane="auto"     rests unless it holds focus.
+ *   data-selection-pane="primary"  the surface's leading list. Also rests when
+ *                                  another pane takes focus, but holds the
+ *                                  tier while focus sits outside every pane —
+ *                                  a door that has just opened has one focused
+ *                                  selection, never zero.
+ *
+ * An unmarked list is a single-pane surface: it never rests. */
+[data-selection-pane="auto"]:not(:focus-within)
+  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]),
+body:has([data-selection-pane]:focus-within)
+  [data-selection-pane="primary"]:not(:focus-within)
+  :is([aria-current="true"], [aria-current="page"], [aria-selected="true"]) {
+  --bg-selected: var(--bg-selected-resting);
+  --text-strong: var(--text-default);
 }
 
 /* flexlayout-react: compact neutral IDE chrome.

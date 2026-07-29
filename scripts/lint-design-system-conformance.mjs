@@ -675,6 +675,7 @@ const APP_TO_BUNDLE = new Map(
     '--bg-hover': '--sem-color-bg-hover',
     '--bg-active': '--sem-color-bg-active',
     '--bg-selected': '--sem-color-bg-selected',
+    '--bg-selected-resting': '--sem-color-bg-selected-resting',
     '--text-strong': '--sem-color-text-primary',
     '--text-default': '--sem-color-text-default',
     '--text-muted': '--sem-color-text-muted',
