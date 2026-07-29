@@ -184,7 +184,14 @@ export function TabPanel({ idPrefix, tabId, active, children, className }: TabPa
       role="tabpanel"
       id={`${idPrefix}-panel-${tabId}`}
       aria-labelledby={`${idPrefix}-tab-${tabId}`}
-      className={className}
+      // The panel is a focusable scroll container, so it is a tab stop and needs
+      // a signal that the keyboard is driving the region. Without this it falls
+      // back to Chromium's UA outline — the one treatment the design system
+      // cannot theme. Inset, as the door listboxes already do, because the ring
+      // sits at the edge of a scrolling region.
+      className={[className ?? '', FOCUS_RING_CLASS, 'focus-visible:ring-inset']
+        .filter(Boolean)
+        .join(' ')}
       tabIndex={0}
     >
       {children}

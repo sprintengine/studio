@@ -1,5 +1,7 @@
 import React from 'react'
 
+import { FOCUS_RING_CLASS } from './tokens'
+
 // InboxSearchInput — the 28 px search input used at the top of inbox-style
 // list panes. Owns the 5 px radius, hairline border, magnifier glyph, and
 // the trailing clear affordance. Callers own value/onChange and the
@@ -27,7 +29,13 @@ export function InboxSearchInput({
       className={[
         'flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-[color:var(--border-default)]',
         'bg-[color:var(--bg-surface-raised)] px-2 text-[12px]',
-        'focus-within:border-[color:var(--accent-primary)]',
+        // The field is a composite: the input is the tab stop, but the border
+        // box a user sees is this wrapper. So the wrapper draws the ring, on
+        // `focus-within`, in the same 2px `--border-focus` every other control
+        // uses (FOCUS_RING_CLASS's treatment). `focus-within` rather than
+        // `focus-visible` because the stop is a text field, which Chromium
+        // treats as focus-visible on click too — the two coincide here.
+        'focus-within:ring-2 focus-within:ring-[color:var(--border-focus)]',
       ].join(' ')}
     >
       <SearchGlyph />
@@ -48,7 +56,10 @@ export function InboxSearchInput({
           type="button"
           onClick={() => onChange('')}
           aria-label={clearAriaLabel}
-          className="shrink-0 text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]"
+          // 24px hit target with the 10px glyph unchanged: the padding is
+          // transparent and pulled back into the field's own right padding so
+          // the drawn cross stays where it was.
+          className={`-mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
         >
           <CrossGlyph />
         </button>
