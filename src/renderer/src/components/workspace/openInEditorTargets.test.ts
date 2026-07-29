@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   availableFolderOpenTargets,
   folderOpenTargetLabel,
+  offersFolderOpenMenu,
   resolveFolderOpenPrimary,
 } from './openInEditorTargets'
 import type { FolderOpenTargetAvailability } from '../../../../shared/folder-open-targets'
@@ -76,6 +77,19 @@ run('a remembered target uninstalled since the pick falls back, never arms a dea
     probe({ vscode: true, intellij: false, finder: true }),
   )
   assert.equal(resolveFolderOpenPrimary(available, 'intellij'), 'vscode')
+})
+
+run('with only the file manager resolving there is no menu to offer', () => {
+  const available = availableFolderOpenTargets(
+    probe({ vscode: false, intellij: false, finder: true }),
+  )
+  assert.deepEqual(available, ['finder'])
+  assert.equal(offersFolderOpenMenu(available), false)
+})
+
+run('a second target is what earns the menu', () => {
+  assert.equal(offersFolderOpenMenu(availableFolderOpenTargets(probe({ vscode: true, finder: true }))), true)
+  assert.equal(offersFolderOpenMenu([]), false)
 })
 
 run('the file manager is named by the OS, not by us', () => {

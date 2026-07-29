@@ -10,7 +10,7 @@
 // draggable span) to preserve the window grab area.
 
 import React from 'react'
-import { FOCUS_RING_CLASS, SplitButton, StarGlyph, Tooltip, type SplitButtonItem } from '../ui'
+import { FOCUS_RING_CLASS, OutlineButton, SplitButton, StarGlyph, Tooltip, type SplitButtonItem } from '../ui'
 import { CursorErrorPopover, type CursorAnchor } from '../ui/CursorErrorPopover'
 import { publishDiagnostic } from '../../utils/diagnostics'
 import { useWorkspaceStore } from '../../store/workspaceStore'
@@ -27,6 +27,7 @@ import type {
 import {
   availableFolderOpenTargets,
   folderOpenTargetLabel,
+  offersFolderOpenMenu,
   resolveFolderOpenPrimary,
 } from './openInEditorTargets'
 import type { Workspace } from '../../types/workspace'
@@ -70,14 +71,22 @@ function FolderGlyph({ className }: { className?: string }) {
 // The target mark: a two-letter mono mark for the editors, the folder glyph for
 // the OS file manager. Boxed at one size so the three read at the same weight
 // whichever form they take, and so the primary half says which tool it will
-// open without a caption.
+// open without a caption. Keyed by target rather than chained ternaries, so
+// adding a target to the shared id list fails to compile here instead of
+// silently drawing the wrong mark.
+const TARGET_MARK: Record<FolderOpenTargetId, React.ReactNode> = {
+  vscode: 'VS',
+  intellij: 'IJ',
+  finder: <FolderGlyph className="size-icon-xs" />,
+}
+
 function TargetGlyph({ target }: { target: FolderOpenTargetId }) {
   return (
     <span
       aria-hidden="true"
       className="grid size-icon-sm shrink-0 place-items-center rounded-[3px] bg-[color:var(--bg-active)] font-mono text-[11px] font-medium leading-none tracking-tight text-[color:var(--text-muted)]"
     >
-      {target === 'finder' ? <FolderGlyph className="size-icon-xs" /> : target === 'vscode' ? 'VS' : 'IJ'}
+      {TARGET_MARK[target]}
     </span>
   )
 }
@@ -147,24 +156,41 @@ function OpenWorkspaceFolderButton({
   const available = React.useMemo(() => availableFolderOpenTargets(availability), [availability])
   const primaryTarget = resolveFolderOpenPrimary(available, lastTarget)
 
+  const showFailure = React.useCallback(
+    (target: FolderOpenTargetId, detail: string) => {
+      const rect = primaryRef.current?.getBoundingClientRect()
+      setFailure({
+        message: `Could not open ${folderOpenTargetLabel(target, isMac)}: ${detail}`,
+        anchor: rect
+          ? { x: rect.left + rect.width / 2, y: rect.bottom }
+          : { x: window.innerWidth / 2, y: 0 },
+      })
+    },
+    [isMac],
+  )
+
   const openTarget = React.useCallback(
     async (target: FolderOpenTargetId, remember: boolean) => {
-      const result = await window.api.openFolderInTarget({ target, path: openPath })
+      let result
+      try {
+        result = await window.api.openFolderInTarget({ target, path: openPath })
+      } catch (error) {
+        // The channel itself failed, which is not one of the typed outcomes. It
+        // still has to reach the operator: every caller invokes this as
+        // fire-and-forget, so without this the click would be a silent no-op
+        // (and an unhandled rejection).
+        showFailure(target, error instanceof Error ? error.message : String(error))
+        return
+      }
       if (result.ok) {
         // Remembered only on a launch that happened: repointing the primary at
         // an editor that just failed would repeat the failure on the next click.
         if (remember) setLastTarget(target)
         return
       }
-      const rect = primaryRef.current?.getBoundingClientRect()
-      setFailure({
-        message: `Could not open ${folderOpenTargetLabel(target, isMac)}: ${result.message}`,
-        anchor: rect
-          ? { x: rect.left + rect.width / 2, y: rect.bottom }
-          : { x: window.innerWidth / 2, y: 0 },
-      })
+      showFailure(target, result.message)
     },
-    [isMac, openPath, setLastTarget],
+    [openPath, setLastTarget, showFailure],
   )
 
   // `Primary+O` (workspace.folder.reveal) reveals the same checkout in the file
@@ -199,24 +225,42 @@ function OpenWorkspaceFolderButton({
 
   if (!primaryTarget) return null
 
+  // Re-probed whenever the menu opens: an editor installed while the app was
+  // running should appear without a restart, and one uninstalled since boot
+  // should stop being offered.
+  const reprobe = (open: boolean) => {
+    if (open) void probe().then((result) => result && setAvailability(result))
+  }
+
   return (
     <>
-      <SplitButton
-        className="app-no-drag shrink-0"
-        label="Open"
-        glyph={<TargetGlyph target={primaryTarget} />}
-        primaryAriaLabel={`Open workspace folder in ${folderOpenTargetLabel(primaryTarget, isMac)}`}
-        menuAriaLabel="Open workspace folder in…"
-        items={items}
-        onPrimary={() => void openTarget(primaryTarget, false)}
-        onMenuOpenChange={(open) => {
-          // Re-probed on every open: an editor installed while the app was
-          // running should appear without a restart, and one uninstalled since
-          // boot should stop being offered.
-          if (open) void probe().then((result) => result && setAvailability(result))
-        }}
-        primaryRef={primaryRef}
-      />
+      {!offersFolderOpenMenu(available) ? (
+        // Nothing to choose between — no editor resolved, so the file manager is
+        // the only target. A chevron whose menu holds one row, already the
+        // primary, is a control that opens to say nothing; this is a plain
+        // button until a second target exists.
+        <OutlineButton
+          ref={primaryRef}
+          className="app-no-drag shrink-0 gap-1.5"
+          aria-label={`Open workspace folder in ${folderOpenTargetLabel(primaryTarget, isMac)}`}
+          onClick={() => void openTarget(primaryTarget, false)}
+        >
+          <TargetGlyph target={primaryTarget} />
+          Open
+        </OutlineButton>
+      ) : (
+        <SplitButton
+          className="app-no-drag shrink-0"
+          label="Open"
+          glyph={<TargetGlyph target={primaryTarget} />}
+          primaryAriaLabel={`Open workspace folder in ${folderOpenTargetLabel(primaryTarget, isMac)}`}
+          menuAriaLabel="Open workspace folder in…"
+          items={items}
+          onPrimary={() => void openTarget(primaryTarget, false)}
+          onMenuOpenChange={reprobe}
+          primaryRef={primaryRef}
+        />
+      )}
       {failure ? (
         <CursorErrorPopover
           key={`${failure.anchor.x},${failure.anchor.y},${failure.message}`}

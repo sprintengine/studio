@@ -46,6 +46,16 @@ export function resolveFolderOpenPrimary(
 }
 
 /**
+ * Whether the control has a genuine choice to offer, i.e. whether it renders as
+ * a split button at all. With only the file manager resolving there is nothing
+ * to choose between, and a chevron whose menu holds one row — already the
+ * primary — is a control that opens to say nothing.
+ */
+export function offersFolderOpenMenu(available: readonly FolderOpenTargetId[]): boolean {
+  return available.length > 1
+}
+
+/**
  * What a target is called in the UI. The file manager's name belongs to the OS,
  * not to us: "Finder" is only true on macOS.
  */
