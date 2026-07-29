@@ -437,7 +437,7 @@ function SourceItemRow({
         disabled={!addable}
         onClick={() => onAdd(itemRef)}
         aria-label={planned ? `${item.title} — already in the plan` : `Add ${item.title} to the plan`}
-        className={`interactive block w-full text-left ${indented ? 'pl-7 pr-4' : 'px-4'} py-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--accent-primary-soft)] ${
+        className={`interactive block w-full text-left ${indented ? 'pl-7 pr-4' : 'px-4'} py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)] ${
           planned ? 'opacity-40' : 'cursor-grab hover:bg-[color:var(--bg-hover)]'
         }`}
       >

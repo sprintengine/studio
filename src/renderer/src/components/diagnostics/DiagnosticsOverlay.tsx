@@ -66,7 +66,7 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
             <>
               <button
                 onClick={handlePopOut}
-                className="rounded px-2 py-1 font-mono text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+                className="rounded px-2 py-1 font-mono text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
                 aria-label="Open diagnostics in a separate window"
               >
                 Pop out ⧉
@@ -74,7 +74,7 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
               <button
                 ref={closeButtonRef}
                 onClick={onClose}
-                className="rounded px-2 py-1 font-mono text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+                className="rounded px-2 py-1 font-mono text-[12px] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
                 aria-label="Close diagnostics"
               >
                 Close

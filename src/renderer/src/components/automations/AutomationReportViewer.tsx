@@ -183,7 +183,7 @@ export function ReportPathPicker({
             onClick={() => onSelect(path)}
             title={path}
             className={[
-              'h-6 rounded px-2 text-[11px] font-medium outline-none transition-colors focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary)]',
+              'h-6 rounded px-2 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]',
               active
                 ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]',

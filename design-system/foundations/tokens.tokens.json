@@ -441,8 +441,8 @@
         },
         "focus": {
           "$type": "color",
-          "$value": "rgba(47, 106, 74, 0.55)",
-          "$description": "Focus ring color on every focusable primitive (green family, tracks the accent).",
+          "$value": "{ref.color.green-700}",
+          "$description": "Focus ring color on every focusable primitive (green family, tracks the accent). Opaque: at the 0.55/0.6 alphas it shipped with, the 2px ring composited to 2.31:1 on light and 2.58:1 on dark against bg.app — below the 3:1 non-text floor a focus indicator has to clear.",
           "$extensions": {
             "com.multicode": {
               "seeded": true,
@@ -450,8 +450,8 @@
               "use": "The 2px focus-visible ring on every focusable primitive.",
               "doNotUse": "Resting borders or dividers — focus only.",
               "modes": {
-                "light": "rgba(47, 106, 74, 0.55)",
-                "dark": "rgba(63, 148, 104, 0.6)"
+                "light": "{ref.color.green-700}",
+                "dark": "{ref.color.green-500}"
               }
             }
           }

@@ -122,7 +122,7 @@ export function BacklogItemSearchPicker({
                 data-backlog-search-result="true"
                 tabIndex={-1}
                 onClick={() => onSelect(option)}
-                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+                className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-[12px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
               >
                 {multiple ? (
                   <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">

@@ -423,7 +423,7 @@ function CommentCheck({
           aria-hidden="true"
           className={[
             'inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border transition-colors',
-            'peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--accent-primary)] peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-[color:var(--bg-surface-raised)]',
+            'peer-focus-visible:ring-2 peer-focus-visible:ring-[color:var(--border-focus)] peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-[color:var(--bg-surface-raised)]',
             checked
               ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]'
               : 'border-[color:var(--border-default)] bg-[color:var(--bg-app)]',

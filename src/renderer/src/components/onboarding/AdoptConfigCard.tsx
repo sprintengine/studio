@@ -210,7 +210,7 @@ function AdoptRow({
         checked={checked && !disabled}
         disabled={disabled}
         onChange={() => onToggle?.()}
-        className="h-3.5 w-3.5 shrink-0 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus:ring-1 focus:ring-[color:var(--border-focus)]"
+        className="h-3.5 w-3.5 shrink-0 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[12px] text-[color:var(--text-default)]">{name}</span>

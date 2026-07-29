@@ -12,7 +12,7 @@
 
 import React from 'react'
 import { SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
-import { ChangePulse, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
+import { ChangePulse, FOCUS_RING_CLASS, Popover, StarGlyph, StatusDot, Tooltip, TruncatedText } from '../ui'
 import {
   groupSessionItems,
   sessionsAttentionTone,
@@ -581,7 +581,7 @@ export function WorkspaceActions({
                     ref={ref}
                     type="button"
                     onClick={togglePopover}
-                    className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                    className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
                       sessionsOpen
                         ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
                         : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -727,7 +727,7 @@ export function WorkspaceActions({
                   ref={ref}
                   type="button"
                   onClick={togglePopover}
-                  className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
+                  className={`relative inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${FOCUS_RING_CLASS} ${
                     notificationsOpen
                       ? 'border-[color:var(--color-5)] bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
                       : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -838,7 +838,7 @@ export function WorkspaceActions({
                     }
                   }}
                   disabled={!activeWorkspaceId}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-l-[5px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                   aria-label={
                     standardSpawnIsGeneral
                       ? 'Spawn General agent'
@@ -877,7 +877,7 @@ export function WorkspaceActions({
                       ref={ref}
                       onClick={togglePopover}
                       disabled={!activeWorkspaceId}
-                      className="inline-flex h-8 w-6 items-center justify-center rounded-r-[5px] border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)]"
+                      className={`inline-flex h-8 w-6 items-center justify-center rounded-r-[5px] border-l border-[color:var(--color-6)] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-selected)] hover:text-[color:var(--text-strong)] disabled:opacity-40 disabled:hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS}`}
                       aria-label="Spawn agent"
                       {...triggerProps}
                     >

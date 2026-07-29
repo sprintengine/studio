@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
+import { FOCUS_RING_CLASS, InlineNotice, Popover, Section, Tooltip, TruncatedText } from '../ui'
 import type { BacklogItem } from '../../utils/backlog'
 import type {
   BacklogDependencyNode,
@@ -185,7 +185,7 @@ function PrerequisiteRow({
             tabIndex={0}
             role="note"
             aria-label={`${prerequisite.slug}: unknown prerequisite, no matching item`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
             {prerequisite.slug}
           </span>
@@ -278,7 +278,7 @@ function DependsOnEditor({
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
+          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
             opened ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
           }`}
         >

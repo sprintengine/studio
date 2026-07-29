@@ -151,7 +151,7 @@ export function TipStartupModal({
             type="checkbox"
             checked={showTipsOnStartup}
             onChange={(event) => setLearningShowTipsOnStartup(event.target.checked)}
-            className="h-3 w-3 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus:ring-1 focus:ring-[color:var(--border-focus)]"
+            className="h-3 w-3 rounded border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--accent-primary)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           />
           Show on startup
         </label>

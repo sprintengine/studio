@@ -248,7 +248,7 @@ function AttachChoiceRow({
       onClick={onSelect}
       className={`
         flex w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         ${active
           ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
           : 'border-[color:var(--bg-selected)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)]'}

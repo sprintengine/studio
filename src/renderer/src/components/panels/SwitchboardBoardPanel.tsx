@@ -947,7 +947,7 @@ function SwitchboardRunningAgentsAside({
                 type="button"
                 onClick={() => onSelectTask(entry.execution.taskId)}
                 aria-label={`Focus ${identifier} in board`}
-                className="interactive flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
+                className="interactive flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--border-focus)]"
               >
                 {role ? (
                   <RoleAvatar role={role} size="md" ariaLabel="" />

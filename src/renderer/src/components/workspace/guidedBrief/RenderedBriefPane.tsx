@@ -137,7 +137,7 @@ export function RenderedBriefPane({
             className="
               inline-flex h-6 shrink-0 items-center rounded-sm px-1.5 text-[11px] text-[color:var(--text-muted)]
               transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-default)]
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
             "
           >
             {copied ? 'Copied' : 'Copy path'}

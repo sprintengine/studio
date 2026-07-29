@@ -54,7 +54,7 @@
   --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
   --sem-color-border-default: rgba(32, 36, 40, 0.20);
   --sem-color-border-strong: rgba(32, 36, 40, 0.30);
-  --sem-color-border-focus: rgba(47, 106, 74, 0.55);
+  --sem-color-border-focus: var(--ref-color-green-700);
   --sem-color-accent-primary: var(--ref-color-green-700);
   --sem-color-accent-hover: var(--ref-color-green-800);
   --sem-color-accent-soft: rgba(47, 106, 74, 0.10);
@@ -141,7 +141,7 @@
   --sem-color-border-subtle: rgba(252, 252, 252, 0.06);
   --sem-color-border-default: rgba(252, 252, 252, 0.08);
   --sem-color-border-strong: rgba(252, 252, 252, 0.12);
-  --sem-color-border-focus: rgba(63, 148, 104, 0.6);
+  --sem-color-border-focus: var(--ref-color-green-500);
   --sem-color-accent-primary: var(--ref-color-green-500);
   --sem-color-accent-hover: var(--ref-color-green-400);
   --sem-color-accent-soft: rgba(63, 148, 104, 0.14);

@@ -110,7 +110,7 @@ export function PathRadio({
       className={`
         grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border text-left
         ${dense ? 'px-2.5 py-2' : 'px-3.5 py-3'}
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${checked
           ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'

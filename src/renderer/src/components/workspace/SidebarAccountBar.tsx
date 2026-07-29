@@ -320,7 +320,7 @@ export default function SidebarAccountBar({
       type="button"
       onClick={() => void startLogin()}
       disabled={authState.status === 'checking'}
-      className={`inline-flex h-8 items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 ${
+      className={`inline-flex h-8 items-center rounded-md border border-[color:var(--bg-selected)] bg-[color:var(--bg-surface-raised)] text-[12px] font-semibold text-[color:var(--text-default)] transition-colors hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:cursor-default disabled:opacity-60 ${FOCUS_RING_CLASS} ${
         collapsed ? 'w-8 justify-center' : 'min-w-0 flex-1 justify-center px-3'
       }`}
       aria-busy={authState.status === 'checking'}

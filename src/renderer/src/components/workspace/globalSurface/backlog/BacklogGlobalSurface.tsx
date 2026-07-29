@@ -599,7 +599,10 @@ export default function BacklogGlobalSurface(): JSX.Element {
               />
             </div>
           ))}
-        <div className="flex min-h-0 flex-1">
+        {/* min-w-0 all the way down the split: the root above is
+            overflow-hidden, so a pane that keeps its min-content width does not
+            scroll, it silently loses its right edge. */}
+        <div className="flex min-h-0 min-w-0 flex-1">
           {renderBody({
             projectCount: projects.length,
             loading,
@@ -727,17 +730,17 @@ function renderBody({
   }
   if (!isSplit) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {showDetailInSingle && hasSelection ? detailPane : listPane}
       </div>
     )
   }
   return (
     <>
-      <div className="flex min-h-0 w-[44%] max-w-[460px] flex-col border-r border-[color:var(--border-subtle)]">
+      <div className="flex min-h-0 min-w-0 w-[44%] max-w-[460px] flex-col border-r border-[color:var(--border-subtle)]">
         {listPane}
       </div>
-      <div className="min-h-0 flex-1">{detailPane}</div>
+      <div className="min-h-0 min-w-0 flex-1">{detailPane}</div>
     </>
   )
 }

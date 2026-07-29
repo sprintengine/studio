@@ -266,7 +266,7 @@ function SprintEngineModelField({
  ref={ref}
  type="button"
  onClick={togglePopover}
- className="flex h-10 w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
+ className="flex h-10 w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  {...triggerProps}
  >
  <TruncatedText
@@ -474,7 +474,7 @@ export function SprintEngineSettingsPopover({
  role="radio"
  aria-checked={checked}
  onClick={() => onChangeAutomationMode(option.value)}
- className="interactive flex w-full items-start gap-2 rounded-[5px] px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+ className="interactive flex w-full items-start gap-2 rounded-[5px] px-2 py-1.5 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  <span className="min-w-0 flex-1">
  <span className={`block text-[12px] ${checked ? 'font-medium text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]'}`}>
@@ -523,7 +523,7 @@ export function SprintEngineSettingsPopover({
  onClose()
  }}
  aria-label={`Open task ${runtimeTask.id} ${runtimeTask.title}`}
- className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+ className="interactive -mx-1 mt-1 flex w-[calc(100%+0.5rem)] items-baseline gap-2 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  <span className="shrink-0 font-mono tabular-nums text-[11px] text-[color:var(--text-muted)]">
  {runtimeTask.id}
@@ -2473,7 +2473,7 @@ export function SprintRunBoard({
  type="button"
  aria-pressed={active}
  onClick={() => setActiveTasksLayout(layout)}
- className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ className={`interactive rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
  active
  ? 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'
@@ -2537,7 +2537,7 @@ export function SprintRunBoard({
  aria-expanded={triggerProps['aria-expanded']}
  aria-controls={triggerProps['aria-controls']}
  onClick={togglePopover}
- className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-[11px] transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ className={`interactive flex h-6 max-w-[200px] shrink-0 items-center gap-1.5 rounded-[5px] px-1.5 text-[11px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
  settingsOpen
  ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
  : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
@@ -2640,7 +2640,7 @@ export function SprintRunBoard({
  type="button"
  onClick={() => showAutomationRuntimeTask(task.id)}
  aria-label={`Open ${task.id} ${task.title}`}
- className="interactive rounded-[3px] px-0.5 font-mono tabular-nums text-[11px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ className="interactive rounded-[3px] px-0.5 font-mono tabular-nums text-[11px] text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  {task.id}
  </button>
@@ -2958,7 +2958,7 @@ export function SprintRunBoard({
  ref={ref}
  type="button"
  onClick={togglePopover}
- className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--border-strong)]"
+ className="flex min-h-[58px] w-full items-center gap-3 rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-left text-[color:var(--text-strong)] outline-none interactive transition-colors hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  {...triggerProps}
  >
  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)]">
@@ -3113,7 +3113,7 @@ export function SprintRunBoard({
  disabled={requestChangesDialog.submitting}
  placeholder="Describe what needs to change before this artifact can be approved."
  rows={5}
- className="block w-full resize-y rounded-md bg-[color:var(--bg-surface-raised)] px-3 py-2 text-sm leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+ className="block w-full resize-y rounded-md bg-[color:var(--bg-surface-raised)] px-3 py-2 text-sm leading-5 text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-60"
  />
  </label>
  {requestChangesDialog.error ? (
@@ -3255,7 +3255,7 @@ export function SprintRunBoard({
  value={addMemberName}
  onChange={(event) => setAddMemberName(event.target.value)}
  placeholder={getSprintEngineRoleLabel(addMemberRole)}
- className="h-10 w-full rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus:ring-1 focus:ring-[color:var(--accent-primary-soft)]"
+ className="h-10 w-full rounded-md bg-[color:var(--bg-surface-raised)] px-3 text-sm text-[color:var(--text-strong)] outline-none interactive transition-colors placeholder:text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  />
  </label>
  ) : null}

@@ -524,7 +524,7 @@ export function SprintEngineTaskGraphView({
  data-task-graph-node={task.id}
  onClick={() => onSelectTask(task.id)}
  aria-pressed={isSelected}
- className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+ className={`absolute flex -translate-x-1/2 -translate-y-1/2 cursor-pointer flex-col overflow-hidden rounded-lg border p-3 text-left transition-transform hover:scale-[1.01] [content-visibility:auto] [contain-intrinsic-size:272px_154px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
  isSelected || isFocused ? 'z-10' : 'z-0'
  }`}
  style={{
@@ -784,7 +784,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'out'))}
  disabled={!canZoomOut}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+ className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
  aria-label="Zoom out task graph"
  >
  <ZoomOutSprintEngineIcon />
@@ -801,7 +801,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setGraphZoomFromAnchor(getNextTaskGraphZoom(graphZoom, 'in'))}
  disabled={!canZoomIn}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+ className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
  aria-label="Zoom in task graph"
  >
  <ZoomInSprintEngineIcon />
@@ -812,7 +812,7 @@ export function SprintEngineTaskGraphView({
  <button
  type="button"
  onClick={fitGraphToViewport}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  aria-label="Fit task graph to viewport"
  >
  <FitGraphZoomIcon />
@@ -823,7 +823,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setGraphZoomFromAnchor(defaultTaskGraphZoom)}
  disabled={!canResetZoom}
- className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
+ className="flex h-7 w-7 items-center justify-center rounded text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[color:var(--text-muted)]"
  aria-label="Reset task graph zoom"
  >
  <ResetGraphZoomIcon />
@@ -900,7 +900,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setLegendOpen((open) => !open)}
  aria-expanded={legendOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  Legend
  <svg
@@ -944,7 +944,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setMinimapOpen((open) => !open)}
  aria-expanded={minimapOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
  >
  Minimap
  <svg

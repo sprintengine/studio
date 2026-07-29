@@ -584,7 +584,7 @@ function SprintEngineSeedRowButton({
         type="button"
         onClick={onOpen}
         aria-current={selected ? 'true' : undefined}
-        className={`interactive flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] focus-visible:ring-inset ${isChild ? 'pl-2' : 'pl-8'} ${selected ? '' : 'hover:bg-[color:var(--bg-surface)]'}`}
+        className={`interactive flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] focus-visible:ring-inset ${isChild ? 'pl-2' : 'pl-8'} ${selected ? '' : 'hover:bg-[color:var(--bg-surface)]'}`}
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {completed ? (
@@ -651,7 +651,7 @@ function SprintEngineSeedRowButton({
           type="button"
           onClick={() => void window.api.openExternal(provenance.url)}
           aria-label={`View ${provenance.nativeKey} in ${sprintEngineSeedProvenanceProviderLabel(provenance.provider)}`}
-          className="interactive mr-1 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100 group-focus-within:opacity-100"
+          className="interactive mr-1 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] group-hover:opacity-100 group-focus-within:opacity-100"
         >
           View in {sprintEngineSeedProvenanceProviderLabel(provenance.provider)}
         </button>
@@ -661,7 +661,7 @@ function SprintEngineSeedRowButton({
           type="button"
           onClick={() => onOpenInBacklog(row.backlogPath as string)}
           aria-label={`Open ${row.fileName} in Backlog`}
-          className="interactive mr-2 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-hover:opacity-100 group-focus-within:opacity-100"
+          className="interactive mr-2 shrink-0 self-center rounded px-1.5 py-1 text-[11px] font-medium text-[color:var(--text-muted)] opacity-0 transition-opacity transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] group-hover:opacity-100 group-focus-within:opacity-100"
         >
           Open in Backlog
         </button>

@@ -66,7 +66,7 @@
   --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
   --sem-color-border-default: rgba(32, 36, 40, 0.20);
   --sem-color-border-strong: rgba(32, 36, 40, 0.30);
-  --sem-color-border-focus: rgba(47, 106, 74, 0.55);
+  --sem-color-border-focus: var(--ref-color-green-700);
   --sem-color-accent-primary: var(--ref-color-green-700);
   --sem-color-accent-hover: var(--ref-color-green-800);
   --sem-color-accent-soft: rgba(47, 106, 74, 0.10);
@@ -153,7 +153,7 @@
   --sem-color-border-subtle: rgba(252, 252, 252, 0.06);
   --sem-color-border-default: rgba(252, 252, 252, 0.08);
   --sem-color-border-strong: rgba(252, 252, 252, 0.12);
-  --sem-color-border-focus: rgba(63, 148, 104, 0.6);
+  --sem-color-border-focus: var(--ref-color-green-500);
   --sem-color-accent-primary: var(--ref-color-green-500);
   --sem-color-accent-hover: var(--ref-color-green-400);
   --sem-color-accent-soft: rgba(63, 148, 104, 0.14);
@@ -191,7 +191,7 @@
   --sem-color-border-subtle: rgba(252, 252, 252, 0.06);
   --sem-color-border-default: rgba(252, 252, 252, 0.08);
   --sem-color-border-strong: rgba(252, 252, 252, 0.12);
-  --sem-color-border-focus: rgba(63, 148, 104, 0.6);
+  --sem-color-border-focus: var(--ref-color-green-500);
   --sem-color-accent-primary: var(--ref-color-green-500);
   --sem-color-accent-hover: var(--ref-color-green-400);
   --sem-color-accent-soft: rgba(63, 148, 104, 0.14);
@@ -226,7 +226,7 @@
   --sem-color-border-subtle: rgba(32, 36, 40, 0.10);
   --sem-color-border-default: rgba(32, 36, 40, 0.20);
   --sem-color-border-strong: rgba(32, 36, 40, 0.30);
-  --sem-color-border-focus: rgba(47, 106, 74, 0.55);
+  --sem-color-border-focus: var(--ref-color-green-700);
   --sem-color-accent-primary: var(--ref-color-green-700);
   --sem-color-accent-hover: var(--ref-color-green-800);
   --sem-color-accent-soft: rgba(47, 106, 74, 0.10);
@@ -1257,7 +1257,7 @@ code {
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-subtle)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-subtle)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.subtle</code><code class="catalog-token-value">rgba(32, 36, 40, 0.10)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Default panel/section divider hairline. Section dividers and quiet card edges — borders carry the structure, not shadows.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-default)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-default)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.default</code><code class="catalog-token-value">rgba(32, 36, 40, 0.20)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Raised-surface divider, popover and input edge. Input borders, popover edges, clear hairlines.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-strong)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-strong)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.strong</code><code class="catalog-token-value">rgba(32, 36, 40, 0.30)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Hover emphasis and structural separators. Hover-emphasized edges, structural separators, ghost-button borders.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-focus)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-focus)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.focus</code><code class="catalog-token-value">rgba(47, 106, 74, 0.55)</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Focus ring color on every focusable primitive (green family, tracks the accent). The 2px focus-visible ring on every focusable primitive. <strong>Do not:</strong> Resting borders or dividers — focus only.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-border-focus)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-border-focus)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.border.focus</code><code class="catalog-token-value">{ref.color.green-700}</code><span class="catalog-badge">border</span></p><p class="catalog-token-meta">Focus ring color on every focusable primitive (green family, tracks the accent). Opaque: at the 0.55/0.6 alphas it shipped with, the 2px ring composited to 2.31:1 on light and 2.58:1 on dark against bg.app — below the 3:1 non-text floor a focus indicator has to clear. The 2px focus-visible ring on every focusable primitive. <strong>Do not:</strong> Resting borders or dividers — focus only.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-primary)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-primary)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.primary</code><code class="catalog-token-value">{ref.color.green-700}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">The single product accent — signature green. Selection and primary action share it. Primary CTA fill, active selection chrome, active-tab underline. <strong>Do not:</strong> Decoration, category coding, or a second accent hue anywhere in a view.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-hover)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-hover)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.hover</code><code class="catalog-token-value">{ref.color.green-800}</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Accent hover step: deepens on light, brightens on dark. Hover state of accent.primary fills.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-chip-pair"><span class="catalog-chip" data-mode="light" style="background: var(--sem-color-accent-soft)" title="light"></span><span class="catalog-chip" data-mode="dark" style="background: var(--sem-color-accent-soft)" title="dark"></span></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.color.accent.soft</code><code class="catalog-token-value">rgba(47, 106, 74, 0.10)</code><span class="catalog-badge">accent</span></p><p class="catalog-token-meta">Soft accent fill for selected rows. Selected-row fill, paired with a 2px left bar of accent.primary.</p></div></div>

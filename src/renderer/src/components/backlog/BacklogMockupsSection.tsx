@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Popover, Section, Tooltip, TruncatedText } from '../ui'
+import { FOCUS_RING_CLASS, Popover, Section, Tooltip, TruncatedText } from '../ui'
 import { HtmlPreviewCard } from '../ui/HtmlPreviewCard'
 import { basename, joinFilePath } from '../../utils/paths'
 import { humanizeFileTitle } from '../workspace/guidedBrief/MockupPreviewPane'
@@ -161,7 +161,7 @@ function MockupRow({
             tabIndex={0}
             role="note"
             aria-label={`${entry.path}: missing, no file on disk`}
-            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+            className="min-w-0 flex-1 truncate rounded px-1.5 py-1 font-mono text-[12px] text-[color:var(--text-disabled)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
             {entry.path}
           </span>
@@ -319,7 +319,7 @@ function AttachMockupEditor({
           aria-expanded={triggerProps['aria-expanded']}
           aria-controls={triggerProps['aria-controls']}
           onClick={togglePopover}
-          className={`interactive inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${
+          className={`interactive inline-flex min-h-6 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} ${
             opened
               ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
               : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'

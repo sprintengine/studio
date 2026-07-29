@@ -18,7 +18,7 @@ import { TRAFFIC_LIGHT_INSET } from './AppTitleBar'
 import type { WorkspaceId } from '../../types/workspace'
 
 const STRIP_BUTTON =
-  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]'
+  'app-no-drag interactive inline-flex h-7 w-7 items-center justify-center bg-transparent text-[color:var(--text-subtle)] transition-colors hover:text-[color:var(--text-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 type WorkspaceHeaderProps<MenuItem extends string> = {
   // Window-scoped active workspace — the panel switches derive their active

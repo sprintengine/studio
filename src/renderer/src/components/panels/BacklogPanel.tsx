@@ -2362,7 +2362,11 @@ export function BacklogDetail({
       : 'Unknown time'
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // min-w-0: this pane is a flex item on every surface that mounts it, and
+    // without it the header row and the markdown body hold their min-content
+    // width instead of shrinking — at 1024px the right edge is clipped away
+    // with no scrollbar to say so.
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
       <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
         {/* Nav + metadata row: the single back affordance leads, then the status
             glyph, id, status word, time, and file path — all the chrome the title
@@ -2447,7 +2451,7 @@ export function BacklogDetail({
             type="button"
             onClick={() => onNavigate(parentEpic.id)}
             aria-label={`Open epic ${parentEpic.title}`}
-            className="interactive mt-1.5 -ml-1.5 flex max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+            className="interactive mt-1.5 -ml-1.5 flex min-h-6 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
           >
             <EpicColorDot color={parentEpicColor} size={7} />
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
@@ -2965,7 +2969,7 @@ function BacklogEpicSearchEditor({
           aria-controls={triggerProps['aria-controls']}
           aria-label="Move to epic"
           onClick={togglePopover}
-          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+          className="interactive inline-flex h-7 w-full min-w-[140px] items-center justify-between gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 text-left text-[12px] text-[color:var(--text-default)] hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
         >
           <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">

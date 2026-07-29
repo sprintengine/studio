@@ -66,7 +66,7 @@ export function PermissionPresetChips({
               aria-pressed={active}
               disabled={disabled}
               onClick={() => onChange(option.value)}
-              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] disabled:cursor-not-allowed disabled:opacity-50 ${
                 active
                   ? isBypass
                     ? 'bg-[color:var(--tone-warn)]/12 text-[color:var(--tone-warn-on-tint)]'
@@ -104,7 +104,7 @@ export function SpawnDebugToggle({
         type="button"
         aria-pressed={active}
         onClick={() => onChange(!active)}
-        className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--tone-error)] ${
+        className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
           active
             ? 'bg-[color:var(--tone-error)]/12 text-[color:var(--tone-error-on-tint)]'
             : 'text-[color:var(--text-disabled)] hover:text-[color:var(--text-muted)]'

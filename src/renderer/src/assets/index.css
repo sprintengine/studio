@@ -231,6 +231,12 @@
   --icon-md: var(--sem-icon-size-md); /* button-pair icons and panel header chrome */
   --icon-lg: var(--sem-icon-size-lg); /* prominent affordances and empty-state glyphs */
 
+  /* The floor no interactive box goes under, on either axis. A glyph keeps its
+     drawn --icon-* size and the button pads out to this; it never shrinks to
+     the glyph. Needed as a CSS variable (not just a Tailwind h-6/w-6) because
+     the FlexLayout tab controls are third-party markup styled from here. */
+  --hit-target-min: var(--sem-size-hit-target-min);
+
   /* Radius. */
   --radius-xs: var(--sem-radius-chip);
   --radius-sm: var(--sem-radius-control);
@@ -243,7 +249,15 @@
   --motion-deliberate: var(--sem-motion-duration-deliberate);
   --motion-ease: var(--sem-motion-ease-standard);
 
-  /* Focus ring helper for primitives. */
+  /* The one focus treatment in the product. Restates the bundle's
+     `--sem-focus-ring` rather than aliasing it, because the ring has to
+     compose against each theme's OWN --border-focus and seventeen themes set
+     that themselves; `var(--sem-focus-ring)` would freeze every one of them on
+     the bundle's green. Consumed from CSS here and from Tailwind through
+     FOCUS_RING_CLASS in components/ui/tokens.ts — those two are the only
+     declarations of a focus indicator anywhere. Every --border-focus is opaque
+     so the 2px ring clears 3:1 against --bg-app / --bg-surface /
+     --bg-surface-raised in all nineteen themes. */
   --focus-ring: 0 0 0 2px var(--border-focus);
 
   /* Canonical elevation, one alias per step of the bundle's three-step ramp.
@@ -396,7 +410,7 @@
   --border-subtle: rgba(252, 252, 252, 0.07);
   --border-default: rgba(252, 252, 252, 0.10);
   --border-strong: rgba(252, 252, 252, 0.16);
-  --border-focus: rgba(92, 124, 252, 0.6);
+  --border-focus: #5c7cfc;
 
   --accent-primary: #5c7cfc;
   --accent-primary-hover: #7090fc;
@@ -448,7 +462,7 @@
   --border-subtle: rgba(180, 192, 176, 0.05);
   --border-default: rgba(180, 192, 176, 0.08);
   --border-strong: rgba(180, 192, 176, 0.14);
-  --border-focus: rgba(200, 164, 88, 0.45);
+  --border-focus: #c8a458;
 
   /* Muted gold accent (vintage-instrument family — Leica brass, library
      lamp). Differentiated from Sprint Engine identity gold by hue point,
@@ -493,7 +507,7 @@
   --border-subtle: rgba(244, 236, 216, 0.06);
   --border-default: rgba(244, 236, 216, 0.09);
   --border-strong: rgba(244, 236, 216, 0.14);
-  --border-focus: rgba(92, 124, 252, 0.6);
+  --border-focus: #5c7cfc;
 
   --accent-primary: #5c7cfc;
   --accent-primary-hover: #7090fc;
@@ -536,7 +550,7 @@
   --border-subtle: rgba(244, 232, 200, 0.06);
   --border-default: rgba(244, 232, 200, 0.10);
   --border-strong: rgba(244, 232, 200, 0.16);
-  --border-focus: rgba(232, 168, 80, 0.55);
+  --border-focus: #e8a850;
 
   /* Warm amber accent — already on multiples of 4. */
   --accent-primary: #e8a850;
@@ -579,7 +593,7 @@
   --border-subtle: rgba(208, 200, 224, 0.06);
   --border-default: rgba(208, 200, 224, 0.10);
   --border-strong: rgba(208, 200, 224, 0.16);
-  --border-focus: rgba(140, 124, 252, 0.55);
+  --border-focus: #8c7cfc;
 
   --accent-primary: #8c7cfc;
   --accent-primary-hover: #a08cfc;
@@ -621,7 +635,7 @@
   --border-subtle: rgba(192, 200, 220, 0.06);
   --border-default: rgba(192, 200, 220, 0.10);
   --border-strong: rgba(192, 200, 220, 0.16);
-  --border-focus: rgba(124, 180, 252, 0.55);
+  --border-focus: #7cb4fc;
 
   --accent-primary: #7cb4fc;
   --accent-primary-hover: #94c4fc;
@@ -662,7 +676,7 @@
   --border-subtle: rgba(224, 212, 220, 0.06);
   --border-default: rgba(224, 212, 220, 0.10);
   --border-strong: rgba(224, 212, 220, 0.16);
-  --border-focus: rgba(212, 136, 160, 0.55);
+  --border-focus: #d488a0;
 
   --accent-primary: #d488a0;
   --accent-primary-hover: #dc98ac;
@@ -704,7 +718,7 @@
   --border-subtle: rgba(204, 208, 216, 0.06);
   --border-default: rgba(204, 208, 216, 0.10);
   --border-strong: rgba(204, 208, 216, 0.16);
-  --border-focus: rgba(252, 204, 108, 0.55);
+  --border-focus: #fccc6c;
 
   --accent-primary: #fccc6c;
   --accent-primary-hover: #fcd884;
@@ -746,7 +760,7 @@
   --border-subtle: rgba(236, 220, 180, 0.06);
   --border-default: rgba(236, 220, 180, 0.10);
   --border-strong: rgba(236, 220, 180, 0.16);
-  --border-focus: rgba(252, 176, 76, 0.55);
+  --border-focus: #fcb04c;
 
   --accent-primary: #fcb04c;
   --accent-primary-hover: #fcc060;
@@ -802,7 +816,7 @@
   --border-subtle: rgba(44, 36, 24, 0.10);
   --border-default: rgba(44, 36, 24, 0.20);
   --border-strong: rgba(44, 36, 24, 0.30);
-  --border-focus: rgba(176, 68, 40, 0.55);
+  --border-focus: #b04428;
 
   --accent-primary: #b04428;
   --accent-primary-hover: #9c3c20;
@@ -892,7 +906,7 @@
   --border-subtle: rgba(36, 40, 24, 0.12);
   --border-default: rgba(36, 40, 24, 0.22);
   --border-strong: rgba(36, 40, 24, 0.32);
-  --border-focus: rgba(176, 68, 40, 0.55);
+  --border-focus: #b04428;
 
   /* Rust-terracotta accent, unchanged from Vellum — the warm spark on the
      green room. */
@@ -974,7 +988,7 @@
   --border-subtle: rgba(28, 32, 22, 0.10);
   --border-default: rgba(28, 32, 22, 0.18);
   --border-strong: rgba(28, 32, 22, 0.28);
-  --border-focus: rgba(47, 106, 74, 0.55);
+  --border-focus: #2f6a4a;
 
   /* Forest-green accent — the single accent, deep enough to pop on cream. */
   --accent-primary: #2f6a4a;
@@ -1058,7 +1072,7 @@
   --border-subtle: rgba(224, 232, 212, 0.06);
   --border-default: rgba(224, 232, 212, 0.10);
   --border-strong: rgba(224, 232, 212, 0.16);
-  --border-focus: rgba(192, 80, 56, 0.55);
+  --border-focus: #c05038;
 
   /* Rust-terracotta, brightened from Vellum's #b04428 to read on the dark
      canvas while clearing AA with white label text. */
@@ -1120,7 +1134,7 @@
   --border-subtle: rgba(232, 236, 216, 0.07);
   --border-default: rgba(232, 236, 216, 0.11);
   --border-strong: rgba(232, 236, 216, 0.18);
-  --border-focus: rgba(204, 88, 56, 0.5);
+  --border-focus: #cc5838;
 
   --accent-primary: #cc5838;
   --accent-primary-hover: #d86844;
@@ -1175,7 +1189,11 @@
   --border-subtle: rgba(232, 232, 212, 0.07);
   --border-default: rgba(232, 232, 212, 0.11);
   --border-strong: rgba(232, 232, 212, 0.18);
-  --border-focus: rgba(200, 88, 56, 0.5);
+  /* One step brighter than this theme's --accent-primary. Sage carries the
+     lightest raised surface of the three moss themes (#303428), and the accent
+     rust only reaches 2.98:1 against it — under the 3:1 a focus ring has to
+     clear. #d4603c reads 3.36:1 there and 4.16:1 on --bg-app. */
+  --border-focus: #d4603c;
 
   --accent-primary: #c85838;
   --accent-primary-hover: #d46844;
@@ -1230,7 +1248,7 @@
   --border-subtle: rgba(240, 234, 210, 0.08);
   --border-default: rgba(240, 234, 210, 0.12);
   --border-strong: rgba(240, 234, 210, 0.18);
-  --border-focus: rgba(200, 88, 56, 0.5);
+  --border-focus: #c85838;
 
   --accent-primary: #c85838;
   --accent-primary-hover: #d46844;
@@ -1296,7 +1314,7 @@
   --border-subtle: rgba(228, 232, 216, 0.06);
   --border-default: rgba(228, 232, 216, 0.10);
   --border-strong: rgba(228, 232, 216, 0.16);
-  --border-focus: rgba(212, 220, 192, 0.55);
+  --border-focus: #d4dcc0;
 
   /* Sage green is the single accent here — Herbarium's exact canvas sage
      (#d4dcc0) brought forward as the spark on the dark field. Pale enough that
@@ -2617,6 +2635,42 @@ body:has([data-selection-pane]:focus-within)
   justify-content: center;
 }
 
+/* The tabset controls (maximize/restore, close tabset, overflow) and the
+   per-tab close ship at 14x14 around a 12px glyph — under the hit-target floor.
+   The library owns this markup, so the floor is applied from here: the glyph
+   keeps its 1em box and the control pads out around it. Selectors are prefixed
+   with .flexlayout__layout because combined.css loads after this file and would
+   otherwise win on equal specificity. The strip is ~29px tall, so a 24px
+   control fits without moving the tabs. */
+.flexlayout__layout .flexlayout__tab_toolbar_button,
+.flexlayout__layout .flexlayout__tab_button_overflow,
+.flexlayout__layout .flexlayout__tab_button_trailing {
+  box-sizing: border-box;
+  min-width: var(--hit-target-min);
+  min-height: var(--hit-target-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* The per-tab close sits inside the tab's own 28px button, so widening it to
+   24px would push the label. Negative margin keeps the flow advance it had
+   (12px glyph + the 6px gap this file already gives it) while the box the
+   pointer and the a11y tree see is the full 24px. */
+.flexlayout__layout .flexlayout__tab_button_trailing {
+  margin-left: 0;
+  margin-right: -6px;
+}
+
+/* One focus treatment reaches the library's controls too — they ship with
+   `outline: none` and nothing in its place, which is a suppressed focus ring. */
+.flexlayout__layout .flexlayout__tab_toolbar_button:focus-visible,
+.flexlayout__layout .flexlayout__tab_button_overflow:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 /* The strip sits flat on the terminal ground under a hairline — a slim caption
    row (~29px: 28px tabs + the hairline), not a raised toolbar. Focus is
    signaled per-tab (accent underline + ink), so the focused tabset gets no
@@ -2656,12 +2710,15 @@ body:has([data-selection-pane]:focus-within)
    box-shadow) so it clears FlexLayout's rounded corners and top border, which
    otherwise clip a ring painted at the panel edge. pointer-events:none keeps it
    decorative; it sits inside the panel padding so it never overlaps the
-   terminal's first row. */
+   terminal's first row. Takes --border-focus, not --accent-primary: this is a
+   focus indicator, and it has to be the same colour as the one every control
+   draws. The two are the same value on dark and light; the seventeen literal
+   themes pick their focus hue separately. */
 .terminal-focus-ring::after {
   content: '';
   position: absolute;
   inset: 3px;
-  border: 2px solid var(--accent-primary);
+  border: 2px solid var(--border-focus);
   border-radius: 6px;
   opacity: 0;
   pointer-events: none;

@@ -399,7 +399,7 @@ function GitGraphCommitRow({
           event.preventDefault()
           openMenuRef.current?.()
         }}
-        className="flex min-w-0 flex-1 items-stretch gap-2 text-left text-[12px] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-default)]"
+        className="flex min-w-0 flex-1 items-stretch gap-2 text-left text-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
       >
         <GitGraphGutter
           commitHash={commit.hash}

@@ -657,7 +657,7 @@ export function SprintEngineRosterView({
                   const rect = event.currentTarget.getBoundingClientRect()
                   setMenu({ kind: 'actions', agentId: agent.id, x: rect.right, y: rect.bottom })
                 }}
-                className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] group-focus-within:opacity-100 group-hover:opacity-100"
+                className="interactive inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] group-focus-within:opacity-100 group-hover:opacity-100"
               >
                 <svg viewBox="0 0 16 16" className="icon-sm" fill="currentColor" aria-hidden="true">
                   <circle cx="8" cy="3.4" r="1.3" />

@@ -468,14 +468,14 @@ export default function DiagnosticsContent({ headerActions }: Props) {
         <div className="flex items-center gap-1.5">
           <button
             onClick={handleToggleBaseline}
-            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             aria-label={metricsTrend.baseline ? 'Clear memory baseline' : 'Mark current metrics as baseline'}
           >
             {metricsTrend.baseline ? 'Clear baseline' : 'Mark baseline'}
           </button>
           <button
             onClick={handleCopy}
-            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--border-strong)]"
+            className="rounded px-2 py-1 text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             aria-label="Copy diagnostics report to clipboard"
           >
             {copied ? 'Copied!' : 'Copy'}

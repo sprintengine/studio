@@ -434,7 +434,7 @@ function SavedRostersMenu({
           className="
             inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[color:var(--text-muted)]
             transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
           "
           {...triggerProps}
         >
@@ -711,7 +711,7 @@ function AgentCountStepButton({
         inline-flex h-7 w-7 items-center justify-center rounded-md border border-[color:var(--color-5)]
         bg-[color:var(--bg-surface-raised)] text-[14px] leading-none text-[color:var(--text-default)] transition-colors
         hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         disabled:cursor-not-allowed disabled:opacity-45
       "
     >

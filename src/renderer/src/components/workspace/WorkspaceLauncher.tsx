@@ -22,7 +22,7 @@ interface WorkspaceLauncherProps {
 // Shared chrome for the two secondary launch rows. One radius, hairline border,
 // no shadow — structure is spacing + hairline per the app's aesthetic.
 const MODE_ROW =
-  'group flex w-full items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]'
+  'group flex w-full items-center gap-3 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]'
 
 const ROW_ICON =
   'h-[18px] w-[18px] shrink-0 text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]'
@@ -79,7 +79,7 @@ export default function WorkspaceLauncher({
                 key={option.value}
                 type="button"
                 onClick={() => onSpawnAgent(option.value)}
-                className="group flex h-[46px] items-center gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+                className="group flex h-[46px] items-center gap-2.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 text-left transition-colors hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
               >
                 <CliIcon cli={option.value} className={ROW_ICON} />
                 <span className="truncate text-[13px] font-medium text-[color:var(--text-strong)]">

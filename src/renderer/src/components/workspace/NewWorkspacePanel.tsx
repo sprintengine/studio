@@ -2683,7 +2683,7 @@ export default function NewWorkspacePanel({
                           className="
                             -ml-1.5 inline-flex h-7 w-fit max-w-full items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-[color:var(--text-subtle)]
                             transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
-                            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                           "
                         >
                           <svg className="icon-sm shrink-0" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -3103,7 +3103,7 @@ export default function NewWorkspacePanel({
                             inline-flex h-9 items-center rounded-md px-2 text-[12.5px] font-medium text-[color:var(--text-subtle)]
                             transition-colors hover:bg-[color:var(--bg-surface-raised)] hover:text-[color:var(--text-strong)]
                             disabled:cursor-not-allowed disabled:text-[color:var(--text-disabled)] disabled:hover:bg-transparent
-                            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                            focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                           "
                         >
                           Skip the rest and create
@@ -3119,7 +3119,7 @@ export default function NewWorkspacePanel({
                           inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[color:var(--accent-primary)] px-4 text-[13px] font-semibold text-[color:var(--bg-app)]
                           transition-colors hover:bg-[color:var(--accent-primary-hover)]
                           disabled:cursor-not-allowed disabled:bg-[color:var(--bg-surface-raised)] disabled:text-[color:var(--text-disabled)]
-                          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                         "
                       >
                         {primaryLabel}
@@ -3366,7 +3366,7 @@ function AdvancedSetupDisclosure({
         onClick={() => setOpen((value) => !value)}
         className="
           flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left transition-colors
-          hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+          hover:bg-[color:var(--bg-surface-raised)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         "
       >
         <svg
@@ -3467,7 +3467,7 @@ function McpServersStep({
                   aria-pressed={enabled}
                   className={`
                     grid h-full min-h-[58px] w-full grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-md border px-3 py-2 text-left
-                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                     ${enabled
                       ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
                       : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
@@ -3532,7 +3532,7 @@ function LayoutTemplateRadio({
       onClick={() => onChange(template.id)}
       className={`
         grid w-full grid-cols-[18px_minmax(0,1fr)] items-start gap-3 rounded-md border px-3.5 py-3 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         ${active
           ? 'border-[color:var(--color-6)] bg-[color:var(--bg-surface-raised)]'
           : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] hover:border-[color:var(--color-5)] hover:bg-[color:var(--bg-surface-raised)]'}
@@ -4070,7 +4070,7 @@ function GuidedChoiceCard({
       onClick={onSelect}
       className={`
         flex min-h-[88px] w-full flex-col items-start gap-1.5 overflow-hidden rounded-md border p-3 text-left
-        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+        transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         disabled:cursor-not-allowed disabled:opacity-55
         ${active
           ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
@@ -4108,7 +4108,7 @@ function SprintEngineAccessNotice({
         className="
           mt-3 inline-flex h-8 items-center justify-center rounded-md bg-[color:var(--text-strong)] px-3
           text-[12px] font-semibold text-[color:var(--bg-app)] transition-colors hover:bg-[color:var(--bg-inverted-hover)]
-          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+          focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
         "
       >
         Sign in
@@ -4197,7 +4197,7 @@ function BacklogSourcePicker({
                 block w-full cursor-pointer border-b border-[color:var(--border-subtle)]
                 px-3 py-2 text-left transition-colors last:border-b-0
                 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset
-                focus-visible:ring-[color:var(--accent-primary)]
+                focus-visible:ring-[color:var(--border-focus)]
                 ${
                   selected
                     ? 'bg-[color:var(--bg-selected)]'
@@ -4419,7 +4419,7 @@ function SprintEngineTeamStep(props: {
                 className="
                   rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
                   hover:text-[color:var(--text-default)] hover:underline focus:outline-none
-                  focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                 "
               >
                 Back to backlog
@@ -4471,7 +4471,7 @@ function SprintEngineTeamStep(props: {
                   className="
                     shrink-0 rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
                     hover:text-[color:var(--text-default)] hover:underline focus:outline-none
-                    focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                    focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                   "
                 >
                   Change
@@ -4508,7 +4508,7 @@ function SprintEngineTeamStep(props: {
                     className="
                       rounded-sm text-[color:var(--text-default)] underline-offset-2
                       hover:underline focus:outline-none focus-visible:ring-2
-                      focus-visible:ring-[color:var(--accent-primary)]
+                      focus-visible:ring-[color:var(--border-focus)]
                     "
                   >
                     Change
@@ -4528,7 +4528,7 @@ function SprintEngineTeamStep(props: {
                 className="
                   rounded-sm text-[12px] leading-5 text-[color:var(--text-muted)] underline-offset-2
                   hover:text-[color:var(--text-default)] hover:underline focus:outline-none
-                  focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
+                  focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]
                 "
               >
                 Choose a file instead…

@@ -260,7 +260,11 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
       type="button"
       tabIndex={-1}
       onClick={onClick}
-      className="inline-flex h-[18px] w-3 shrink-0 items-center justify-center text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]"
+      // 24x24 box on a 12x18 flow advance: the negative margins give back the
+      // padding so the chevron sits exactly where it did and the row stays
+      // h-26, while the box a pointer has to hit clears the hit-target floor.
+      // The sibling spacer on file rows is still w-3, so the columns line up.
+      className="-mx-1.5 -my-1 inline-flex h-6 w-6 shrink-0 items-center justify-center text-[color:var(--text-muted)] transition-colors group-hover:text-[color:var(--text-default)]"
       aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
     >
       <svg
@@ -2095,7 +2099,7 @@ function ExplorerTree({
         onDragOver={handleRootDragOver}
         onDragLeave={handleRootDragLeave}
         onDrop={handleRootDrop}
-        className={`flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus:ring-1 focus:ring-[color:var(--border-strong)] ${
+        className={`flex min-h-full flex-col gap-px rounded-md px-1 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
           rootDropActive ? 'ring-1 ring-inset ring-[color:var(--accent-primary)]' : ''
         }`}
       >

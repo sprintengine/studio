@@ -1720,7 +1720,7 @@ export default function SettingsPanel({
                     type="button"
                     aria-pressed={appearanceWindowMaterial === material}
                     onClick={() => setAppearanceWindowMaterial(material)}
-                    className={`interactive rounded px-3.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)] ${
+                    className={`interactive rounded px-3.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
                       appearanceWindowMaterial === material
                         ? 'bg-[color:var(--accent-primary-soft-strong)] text-[color:var(--text-strong)]'
                         : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'

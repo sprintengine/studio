@@ -97,7 +97,7 @@ export function PanelSwitches({ activeWorkspaceId, leadingDivider = true }: Pane
     const shortcut = panel.commandId ? shortcutFor(panel.commandId) : null
     const tooltip = shortcut ? `${panel.label} (${shortcut})` : panel.label
     // app-no-drag: interactive control inside the title bar's drag region.
-    const buttonClass = `app-no-drag interactive relative inline-flex h-7 w-7 items-center justify-center bg-transparent transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)] ${
+    const buttonClass = `app-no-drag interactive relative inline-flex h-7 w-7 items-center justify-center bg-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
       active
         ? 'text-[color:var(--text-strong)]'
         : 'text-[color:var(--text-muted)] hover:text-[color:var(--text-default)]'

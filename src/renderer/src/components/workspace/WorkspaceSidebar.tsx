@@ -1300,7 +1300,7 @@ export default function WorkspaceSidebar({
                     y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
                   })
                 }}
-                className={`inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                className={`inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                 aria-label="Workspace actions"
               >
                 <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">
@@ -1317,7 +1317,7 @@ export default function WorkspaceSidebar({
                   event.stopPropagation()
                   handleClose(workspace.id)
                 }}
-                className={`inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
+                className={`inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] ${FOCUS_RING_CLASS}`}
                 aria-label={`Close ${workspace.name}`}
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
@@ -1413,6 +1413,15 @@ export default function WorkspaceSidebar({
                   ? dragWidthRef.current
                   : sidebarWidth
               ),
+              // The persisted width is absolute and this rail is shrink-0, so a
+              // window narrower than the width the user last dragged handed the
+              // sidebar most of it — 296px of a 390px window, leaving 94px for
+              // the whole workspace. The cap is a share of the shell, so the
+              // rail gives ground before the surface beside it does. It only
+              // binds under a ~1156px window (45% of that is SIDEBAR_MAX_WIDTH);
+              // on a narrower one a drag past the cap still records the width the
+              // pointer asked for, so widening the window restores it.
+              maxWidth: '45%',
             }
       }
       className={`relative flex shrink-0 flex-col bg-[color:var(--bg-canvas)] ${
@@ -1685,7 +1694,7 @@ export default function WorkspaceSidebar({
                         y: (event.currentTarget as HTMLElement).getBoundingClientRect().bottom,
                       })
                     }}
-                    className={`ml-1 inline-flex h-5 w-5 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
+                    className={`ml-1 inline-flex h-6 w-6 items-center justify-center rounded text-[color:var(--text-disabled)] opacity-0 transition-opacity hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] group-hover/folder:opacity-100 focus-visible:opacity-100 ${FOCUS_RING_CLASS}`}
                     aria-label={`Folder actions: ${group.displayName}`}
                   >
                     <svg viewBox="0 0 16 16" fill="currentColor" className="icon-xs" aria-hidden="true">

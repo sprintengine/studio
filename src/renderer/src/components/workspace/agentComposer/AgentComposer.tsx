@@ -165,7 +165,7 @@ export default function AgentComposer({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+            className="ml-auto rounded p-1 text-[color:var(--text-disabled)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
               <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -370,7 +370,7 @@ export default function AgentComposer({
             <button
               type="button"
               onClick={() => commit(selection)}
-              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-[13px] font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+              className="inline-flex items-center gap-2 rounded-md bg-[color:var(--accent-primary)] px-4 py-1.5 text-[13px] font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
             >
               {selection.kind === 'terminal' ? 'Open terminal' : 'Start chat'}
               <kbd className="rounded bg-black/15 px-1 font-mono text-[11px]">⏎</kbd>
@@ -431,7 +431,7 @@ function ProjectScopeChip({
           ref={ref}
           type="button"
           onClick={togglePopover}
-          className="inline-flex min-w-0 items-center gap-1.5 rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+          className="inline-flex min-w-0 items-center gap-1.5 rounded border border-[color:var(--border-subtle)] px-2 py-0.5 text-[11.5px] text-[color:var(--text-muted)] transition-colors hover:border-[color:var(--border-strong)] hover:text-[color:var(--text-default)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
           {...triggerProps}
         >
           <FolderGlyph className="icon-xs shrink-0" />
@@ -541,7 +541,7 @@ function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => voi
       type="button"
       onClick={onOpenMarketplace}
       aria-label="Get specialist roles"
-      className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]"
+      className="grid w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded py-1.5 pl-2.5 pr-2 text-left text-[color:var(--text-default)] transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)]"
     >
       <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
       <TruncatedText as="span" text="Get specialist roles" className="text-[13px]" />

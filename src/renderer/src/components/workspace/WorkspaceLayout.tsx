@@ -18,6 +18,7 @@ import {
 // rule with hardcoded dark color variables that painted over our theme
 // tokens on every non-dark theme — the dark horizontal bars in light mode.
 import 'flexlayout-react/style/combined.css'
+import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
 import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
@@ -1310,6 +1311,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, agentClis, onSpawnAge
       <Layout
         model={modelRef.current}
         factory={factory}
+        icons={FLEX_LAYOUT_ICONS}
         onAction={handleAction}
         onAuxMouseClick={handleAuxMouseClick}
         onContextMenu={handleContextMenu}

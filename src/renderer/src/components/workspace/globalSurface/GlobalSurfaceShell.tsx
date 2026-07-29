@@ -1,6 +1,8 @@
 import React, { useContext } from 'react'
 import { createPortal } from 'react-dom'
 
+import { FOCUS_RING_CLASS } from '../../ui'
+
 // A host that mounts a global surface as a full-page "door" can lift the surface
 // bar out of the surface body and into the app's top strip, collapsing what would
 // otherwise be two stacked bars (the empty workspace strip + the surface's own
@@ -144,7 +146,7 @@ function BarBackChevron({ onBack }: { onBack: () => void }): JSX.Element {
       type="button"
       onClick={onBack}
       aria-label="Back"
-      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]"
+      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
     >
       <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
         <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
