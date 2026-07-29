@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelListbox, FOCUS_RING_CLASS, SkillPickerPopover, StarGlyph, Tooltip, TruncatedText } from '../../ui'
+import { CliModelPopoverSurface, FOCUS_RING_CLASS, SkillPickerPopover, StarGlyph, Tooltip, TruncatedText } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import {
@@ -305,15 +305,20 @@ export default function AgentComposerPopover({
                       data-chip-popover="true"
                       aria-label={`Agent runtime for ${rowLabel(row)}`}
                       // design-tokens-allow: popover elevation matches OverflowMenu shadow for the same nested case.
-                      className="fixed z-50 w-[220px] overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] p-1 shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
+                      className="fixed z-50 overflow-hidden rounded-md border border-[color:var(--color-5)] bg-[color:var(--bg-surface)] shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
                     >
-                      <CliModelListbox
+                      {/* This host has no trigger row to sit the reasoning
+                          selector beside — the trigger is the row's engine chip
+                          — so the two controls stack: models above, reasoning
+                          and context window on the surface's trailing row. */}
+                      <CliModelPopoverSurface
                         ariaLabel={`Agent runtime for ${rowLabel(row)}`}
                         options={row.kind === 'general' ? composer.generalCliOptions : composer.agentCliOptions}
                         currentCli={composer.cliForSelection(target)}
                         effectiveModelFor={(cli) => composer.modelForSelection(target, cli)}
                         effectiveReasoningFor={(cli) => composer.reasoningForSelection(target, cli)}
                         onSelectReasoning={(cli, reasoning) => composer.setEngineReasoning(target, cli, reasoning)}
+                        showReasoning
                         onSelectCli={(cli) => {
                           composer.setEngineCli(target, cli)
                           setEngineFlyoutRowKey(null)

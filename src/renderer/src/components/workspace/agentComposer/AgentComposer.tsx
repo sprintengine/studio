@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelListbox, FOCUS_RING_CLASS, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
+import { CliModelPickerButton, FOCUS_RING_CLASS, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -621,23 +621,20 @@ function ComposerConfig({
       </div>
       <p className="mt-1 max-w-[52ch] text-[12.5px] leading-relaxed text-[color:var(--text-muted)]">{description}</p>
 
-      {/* Inline engine list: each CLI vertically, its models indented beneath.
-          One click picks CLI + model together and persists as this agent's
-          remembered default — same grouping as the popover's chip flyout, just
-          always visible. */}
-      <div className="mt-5 max-w-[340px]">
-        <CliModelListbox
+      {/* The runtime, as the two controls it is: the model, and the reasoning
+          level with its context window. Picking either persists as this agent's
+          remembered default. */}
+      <div className="mt-5 flex flex-wrap items-center gap-1">
+        <CliModelPickerButton
           ariaLabel={`Agent runtime for ${name}`}
           options={isSpecialist ? agentCliOptions : generalCliOptions}
-          currentCli={selectionCli}
+          cli={selectionCli}
           effectiveModelFor={modelFor}
           effectiveReasoningFor={reasoningFor}
           onSelectReasoning={onSelectReasoning}
           onSelectCli={onSelectCli}
           onSelectModel={onSelectModel}
-          // The config column owns the scrolling (one scrollbar per column);
-          // an inner cap here would nest a second scrollbar inside it.
-          className="max-h-none"
+          maxWidthClassName="max-w-[260px]"
         />
       </div>
 

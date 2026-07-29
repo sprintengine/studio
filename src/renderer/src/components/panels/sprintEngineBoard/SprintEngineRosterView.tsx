@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import {
-  CliModelListbox,
   CliModelPickerButton,
+  CliModelPopoverSurface,
   ContextMenu,
   GhostButton,
   LifecycleGlyph,
@@ -13,7 +13,7 @@ import {
   StatusDot,
   Tooltip,
   TruncatedText,
-  type CliModelListboxOption,
+  type CliRuntimeOption,
   type LifecycleState,
   type Tone,
 } from '../../ui'
@@ -169,7 +169,7 @@ export function SprintEngineRosterView({
   onAddAgent: (role: SprintEngineRole) => void
   isAgentTerminalLive: (agentId: string) => boolean
   willResumeAgent: (agentId: string) => boolean
-  cliOptions: CliModelListboxOption[]
+  cliOptions: CliRuntimeOption[]
   // Role-level runtime control (the band's in-place editor). Writes go to the
   // run's canonical roleRuntimes via the host — never renderer state.
   roleRuntimeCli: (role: SprintEngineRoleId) => AgentCli
@@ -473,13 +473,14 @@ export function SprintEngineRosterView({
               y={menu.y}
               ariaLabel={`Runtime for ${displayName}`}
               onClose={close}
-              surfaceClassName="w-[220px] p-1"
+              surfaceClassName="overflow-hidden"
             >
-              <CliModelListbox
+              <CliModelPopoverSurface
                 ariaLabel={`Runtime options for ${displayName}`}
                 options={cliOptions}
                 currentCli={agentRuntimeCli(menuAgent.id)}
                 effectiveModelFor={(cli) => effectiveModelForAgent(menuAgent.id, cli)}
+                showReasoning
                 onSelectCli={(cli) => { onSelectAgentCli(menuAgent.id, cli); close() }}
                 onSelectModel={(cli, model) => { onSelectAgentModel(menuAgent.id, cli, model); close() }}
               />
@@ -505,13 +506,14 @@ export function SprintEngineRosterView({
             <MenuFlyoutItem
               label="CLI / model (this agent)"
               ariaLabel={`Runtime for ${displayName}`}
-              surfaceClassName="min-w-[220px] p-1"
+              surfaceClassName="overflow-hidden"
             >
-              <CliModelListbox
+              <CliModelPopoverSurface
                 ariaLabel={`Runtime options for ${displayName}`}
                 options={cliOptions}
                 currentCli={agentRuntimeCli(menuAgent.id)}
                 effectiveModelFor={(cli) => effectiveModelForAgent(menuAgent.id, cli)}
+                showReasoning
                 onSelectCli={(cli) => { onSelectAgentCli(menuAgent.id, cli); close() }}
                 onSelectModel={(cli, model) => { onSelectAgentModel(menuAgent.id, cli, model); close() }}
               />
