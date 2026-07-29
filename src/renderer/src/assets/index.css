@@ -389,8 +389,8 @@
   --text-strong: #e8e8e8;
   --text-default: #cccccc;
   --text-muted: #9c9c9c;
-  --text-subtle: #7c7c7c;
-  --text-disabled: #707070;
+  --text-subtle: #808080;
+  --text-disabled: #787878;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(252, 252, 252, 0.07);
@@ -439,8 +439,8 @@
   --text-strong: #b4c0b0;
   --text-default: #a8b8a8;
   --text-muted: #8c988c;
-  --text-subtle: #6c786c;
-  --text-disabled: #607060;
+  --text-subtle: #707c70;
+  --text-disabled: #647464;
   /* Dark sage on muted-gold accent — used by PrimaryButton's label and
      Switch's thumb when checked. */
   --text-on-accent: #141814;
@@ -486,8 +486,8 @@
   --text-strong: #f4ecd8;
   --text-default: #d4c8a8;
   --text-muted: #a89c78;
-  --text-subtle: #7c7054;
-  --text-disabled: #746854;
+  --text-subtle: #887c60;
+  --text-disabled: #7c705c;
   --text-on-accent: #08080c;
 
   --border-subtle: rgba(244, 236, 216, 0.06);
@@ -529,8 +529,8 @@
   --text-strong: #f4e8c8;
   --text-default: #d8c4a0;
   --text-muted: #a89870;
-  --text-subtle: #7c6c54;
-  --text-disabled: #746450;
+  --text-subtle: #84745c;
+  --text-disabled: #7c6c58;
   --text-on-accent: #181408;
 
   --border-subtle: rgba(244, 232, 200, 0.06);
@@ -572,8 +572,8 @@
   --text-strong: #d0c8e0;
   --text-default: #b4acc4;
   --text-muted: #888098;
-  --text-subtle: #7c708c;
-  --text-disabled: #70687c;
+  --text-subtle: #807490;
+  --text-disabled: #746c80;
   --text-on-accent: #14141c;
 
   --border-subtle: rgba(208, 200, 224, 0.06);
@@ -613,9 +613,9 @@
 
   --text-strong: #c0c8dc;
   --text-default: #a0a8c0;
-  --text-muted: #707898;
-  --text-subtle: #6c7090;
-  --text-disabled: #646884;
+  --text-muted: #8088a8;
+  --text-subtle: #787c9c;
+  --text-disabled: #707490;
   --text-on-accent: #181824;
 
   --border-subtle: rgba(192, 200, 220, 0.06);
@@ -655,8 +655,8 @@
   --text-strong: #e0d4dc;
   --text-default: #c4b4bc;
   --text-muted: #9c8c98;
-  --text-subtle: #806c78;
-  --text-disabled: #74646c;
+  --text-subtle: #84707c;
+  --text-disabled: #786870;
   --text-on-accent: #181420;
 
   --border-subtle: rgba(224, 212, 220, 0.06);
@@ -696,9 +696,9 @@
 
   --text-strong: #ccd0d8;
   --text-default: #a8b0b8;
-  --text-muted: #7c8088;
-  --text-subtle: #747884;
-  --text-disabled: #6c7074;
+  --text-muted: #848890;
+  --text-subtle: #787c88;
+  --text-disabled: #707478;
   --text-on-accent: #1c2030;
 
   --border-subtle: rgba(204, 208, 216, 0.06);
@@ -739,8 +739,8 @@
   --text-strong: #ecdcb4;
   --text-default: #d8c8a8;
   --text-muted: #a89880;
-  --text-subtle: #907868;
-  --text-disabled: #807060;
+  --text-subtle: #a48c7c;
+  --text-disabled: #948474;
   --text-on-accent: #1c1c18;
 
   --border-subtle: rgba(236, 220, 180, 0.06);
@@ -1168,8 +1168,8 @@
   --text-strong: #e8e8d4;
   --text-default: #ccccb0;
   --text-muted: #a0a084;
-  --text-subtle: #808060;
-  --text-disabled: #74785c;
+  --text-subtle: #888868;
+  --text-disabled: #7c8064;
   --text-on-accent: #ffffff;
 
   --border-subtle: rgba(232, 232, 212, 0.07);
