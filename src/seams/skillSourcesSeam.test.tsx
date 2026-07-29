@@ -270,6 +270,7 @@ async function main(): Promise<void> {
   const { createAgentCapabilityService, createFsSkillDirectoryReader, createWorkspaceSkillsService } =
     await import('../main/workspace-skills-service')
   const { createCapabilityWatcher } = await import('../main/capability-watcher')
+  const { createAgentSkillInstaller } = await import('../main/agent-skill-installer')
   const { createMcpServerResolver } = await import('../main/mcp-config-readers/resolve-servers')
   const { registerSkillsIpc } = await import('../main/ipc/skills-ipc')
   const { registerWorkspaceSkillsIpc } = await import('../main/ipc/workspace-skills-ipc')
@@ -305,6 +306,7 @@ async function main(): Promise<void> {
       freshness: capabilityWatcher,
     }),
     capabilityWatcher,
+    agentSkillInstaller: createAgentSkillInstaller({ listPlugins: () => [] }),
   })
   domWindow.api = withInertPreloadFallback({ platform: 'darwin', ...skillsApi, ...workspaceSkillsApi })
 
