@@ -148,6 +148,13 @@ export const COMMAND_REGISTRY = [
   // target is the workspace's mounted worktree when it has one, so this and the
   // control resolve the same folder; the control owns that resolution and this
   // command routes to it as a panel event.
+  //
+  // Consequence of routing to the control: it acts only while the workspace bar
+  // is on screen. A door surface replaces the identity cluster with its own bar
+  // (WorkspaceHeader), so this is inert there — the same shape as the git.*
+  // panel commands, which gate on `gitPanelActive` for the same reason. It has
+  // no equivalent flag because the control's presence also depends on the
+  // main-process target probe, which the renderer cannot report as availability.
   command({
     id: 'workspace.folder.reveal',
     title: 'Reveal Workspace Folder',

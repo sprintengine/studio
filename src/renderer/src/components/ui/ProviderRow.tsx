@@ -42,7 +42,9 @@ export type ProviderRowProps = {
   health: StatusTone
   name: string
   /** Rendered mono when known. Absent (or empty) renders nothing — never a
-   *  placeholder. */
+   *  placeholder. Real `--version` output is not always a semver (`grok 0.2.114
+   *  (0c785038798) [stable]`, a whole sentence from GNU bash), so the slot caps
+   *  and truncates rather than letting the version starve the name. */
   version?: string | null
   /** One line of state, in words: "Ready — /usr/local/bin/claude", "Not
    *  installed", "Unavailable — startup timed out after 15s". State, never a
@@ -173,11 +175,18 @@ export function ProviderRow({
 
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">
+            {/* The name wins the row: it takes the free space and truncates
+                last. The version is capped at 45% and truncates first — a CLI
+                whose `--version` prints a sentence must not reduce its own name
+                to one letter, which is what an uncapped shrink-0 slot did. */}
+            <span className="min-w-0 flex-1 truncate text-body font-semibold text-[color:var(--text-strong)]">
               {name}
             </span>
             {version ? (
-              <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
+              <span
+                title={version}
+                className="max-w-[45%] shrink-0 truncate font-mono text-micro tabular-nums text-[color:var(--text-subtle)]"
+              >
                 {version}
               </span>
             ) : null}
