@@ -242,8 +242,10 @@ async function readEntryFrontmatter(skillDir: string): Promise<{ name: string; d
 }
 
 // Provenance comes from the marker the installers write, so a hand-made
-// directory reads as `local` rather than being claimed by anything. The two
-// marker shapes are documented in src/main/skills/install.ts.
+// directory reads as `local` rather than being claimed by anything. The marker
+// shapes are documented in src/main/skills/install.ts; a copy the attach path
+// made of an unmarked local skill carries a third one, which is neither
+// built-in nor from a source and so reads as `local` — which is what it is.
 async function readSkillProvenance(skillDir: string): Promise<AgentSkillSource> {
   let parsed: unknown
   try {

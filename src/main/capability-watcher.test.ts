@@ -462,6 +462,36 @@ async function testNoPollingLoop(): Promise<void> {
   )
 }
 
+// 11. A write Multicode made itself says so, without waiting on the OS — and
+//     the filesystem events that same write causes do not double it.
+async function testInProcessWriteInvalidates(temp: string): Promise<void> {
+  const workspaceRoot = await makeWorkspace(temp, 'attached')
+  const watcher = watcherFor({ temp })
+  const seen = collector()
+  const release = watcher.subscribe(workspaceRoot, seen.notify)
+
+  const skillDir = join(workspaceRoot, '.claude', 'skills', 'attached-by-multicode')
+  await mkdir(skillDir, { recursive: true })
+  await writeFile(join(skillDir, 'SKILL.md'), '---\nname: attached\n---\n', 'utf-8')
+  watcher.invalidate(workspaceRoot, 'claude')
+
+  await seen.waitFor(() => seen.events.length > 0, 'the write to invalidate')
+  assert.deepEqual(seen.events[0], { workspaceRoot, harnessId: 'claude', pluginIds: ['claude-code', 'zai'] })
+  await settle()
+  assert.equal(seen.events.length, 1, 'the explicit call and the fs events it caused are one invalidation')
+
+  // A harness nothing was written to stays quiet, and so does a workspace with
+  // no subscriber — there is no surface holding a stale answer to correct.
+  watcher.invalidate(workspaceRoot, 'codex')
+  await settle()
+  assert.equal(seen.events.length, 2, 'a second harness is its own invalidation')
+  watcher.invalidate(join(temp, 'never-subscribed'), 'claude')
+  await settle()
+  assert.equal(seen.events.length, 2)
+
+  release()
+}
+
 async function main(): Promise<void> {
   const temp = await mkdtemp(join(tmpdir(), 'multicode-capability-watcher-'))
   try {
@@ -474,6 +504,7 @@ async function main(): Promise<void> {
     await testFailedWatcherDegradesHonestly(temp)
     await testWorkspaceCapIsStated(temp)
     await testDegradeReachesTheCapabilityResult(temp)
+    await testInProcessWriteInvalidates(temp)
     await testNoPollingLoop()
     console.log('capability-watcher tests passed')
   } finally {

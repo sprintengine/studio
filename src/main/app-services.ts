@@ -31,6 +31,7 @@ import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
+import { createAgentSkillInstaller } from './agent-skill-installer'
 import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
@@ -121,6 +122,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     lookupManifest: (pluginId) => getPluginManifest(pluginId),
     mcpResolver: createMcpServerResolver(),
     freshness: capabilityWatcher,
+  })
+  const agentSkillInstaller = createAgentSkillInstaller({
+    listPlugins: () => listPluginRegistryEntries(),
+    invalidate: (workspaceRoot, harnessId) => capabilityWatcher.invalidate(workspaceRoot, harnessId),
   })
 
   function getAuthenticatedMulticodeUserId(): string | null {
@@ -677,6 +682,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     workspaceBackupService,
     workspaceSkillsService,
     agentCapabilityService,
+    agentSkillInstaller,
     capabilityWatcher,
     workspaceSyncService,
     workspaceSyncRoutingSnapshotStore,

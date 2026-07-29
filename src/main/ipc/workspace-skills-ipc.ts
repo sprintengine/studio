@@ -1,9 +1,12 @@
 import type { IpcMain, WebContents } from 'electron'
 import type {
   AgentCapabilitiesWatchInput,
+  AgentSkillWriteInput,
+  AgentSkillWriteResult,
   WorkspaceSkillsListInput,
   WorkspaceSkillsListResult,
 } from '../../shared/electron-api'
+import type { AgentSkillInstaller } from '../agent-skill-installer'
 import {
   AGENT_CAPABILITIES_INVALIDATED_CHANNEL,
   AGENT_CAPABILITIES_WATCH_START_CHANNEL,
@@ -20,6 +23,7 @@ export function registerWorkspaceSkillsIpc(
     workspaceSkills: WorkspaceSkillsService
     agentCapabilities: AgentCapabilityService
     capabilityWatcher: CapabilityWatcher
+    agentSkillInstaller: AgentSkillInstaller
   },
 ): void {
   ipcMain.handle(
@@ -31,6 +35,16 @@ export function registerWorkspaceSkillsIpc(
     'skills:agent-capabilities',
     (_, input: AgentCapabilitiesInput): Promise<AgentCapabilitiesResult> =>
       services.agentCapabilities.resolve(input),
+  )
+  ipcMain.handle(
+    'skills:agent-skill-attach',
+    (_, input: AgentSkillWriteInput): Promise<AgentSkillWriteResult> =>
+      services.agentSkillInstaller.attach(input),
+  )
+  ipcMain.handle(
+    'skills:agent-skill-remove',
+    (_, input: AgentSkillWriteInput): Promise<AgentSkillWriteResult> =>
+      services.agentSkillInstaller.remove(input),
   )
 
   // One subscription per (sender, workspace), refcounted in the watcher: the

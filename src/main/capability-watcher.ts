@@ -59,6 +59,14 @@ export type CapabilityWatcher = {
    * it, and nothing claims to be.
    */
   diagnosticsFor(workspaceRoot: string, pluginId: string): CapabilityDiagnostic[]
+  /**
+   * Say a harness changed because Multicode just changed it. Writes made in
+   * process do not wait on `fs.watch` to notice them — and on a mount where
+   * watching failed, nothing would notice at all. Goes through the same
+   * debounce as a filesystem event, so a write and the events it causes are one
+   * invalidation rather than two.
+   */
+  invalidate(workspaceRoot: string, harnessId: string): void
 }
 
 /**
@@ -252,6 +260,16 @@ export function createCapabilityWatcher(options: {
           releaseFocus()
           releaseFocus = null
         }
+      }
+    },
+
+    invalidate(workspaceRoot, harnessId) {
+      const workspace = workspaces.get(workspaceRoot.trim())
+      // Nobody is subscribed for this workspace, so there is no surface holding
+      // a stale answer to correct.
+      if (!workspace) return
+      for (const group of workspace.groups) {
+        if (group.group.harnessId === harnessId) schedule(workspace, group)
       }
     },
 
