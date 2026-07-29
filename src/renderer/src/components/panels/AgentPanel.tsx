@@ -324,6 +324,7 @@ export default function AgentPanel({
                 open={skillPickerOpen}
                 onOpenChange={setSkillPickerOpen}
                 workspaceRoot={workspaceFolderPath}
+                pluginId={cli}
                 onPick={(skill) => void useSkillInTerminal(skill)}
                 onManageSkills={() => openExtensionsSurface({ view: 'installed' })}
                 placement="bottom-end"

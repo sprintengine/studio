@@ -301,6 +301,7 @@ export default function AgentComposer({
                   open={skillPickerOpen}
                   onOpenChange={setSkillPickerOpen}
                   workspaceRoot={skillWorkspaceRoot}
+                  pluginId={composer.selectionCli}
                   onPick={(skill: WorkspaceSkill) => composer.setSkillAttachment(skill)}
                   placement="top-start"
                   renderTrigger={({ ref, triggerProps, togglePopover }) => (
