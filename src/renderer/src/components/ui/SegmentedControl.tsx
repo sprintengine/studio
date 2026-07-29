@@ -98,7 +98,7 @@ export function SegmentedControl<V extends string = string>({
               interactive ${SEGMENT_SIZE[size]} font-medium transition-colors ${FOCUS_RING_CLASS}
               ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
               ${checked
-                ? 'bg-[color:var(--accent-primary-soft)] text-[color:var(--accent-primary)]'
+                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'}
               disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[color:var(--bg-surface)]
             `}

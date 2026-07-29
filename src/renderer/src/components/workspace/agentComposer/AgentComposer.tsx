@@ -231,7 +231,7 @@ export default function AgentComposer({
 
                 {specialistRows.length > 0 ? (
                   <div className="border-t border-[color:var(--border-subtle)] pt-1">
-                    <div className="px-2 pb-1 pt-1 text-[10.5px] text-[color:var(--text-subtle)]">Specialists</div>
+                    <div className="px-2 pb-1 pt-1 text-[10px] text-[color:var(--text-subtle)]">Specialists</div>
                     {specialistRows.map((row) => (
                       <ComposerRosterRow
                         key={row.key}
@@ -248,7 +248,7 @@ export default function AgentComposer({
                   // No specialists installed (only shown for the whole roster, not
                   // a search that filtered them out): offer the marketplace path.
                   <div className="border-t border-[color:var(--border-subtle)] pt-1">
-                    <div className="px-2 pb-1 pt-1 text-[10.5px] text-[color:var(--text-subtle)]">Specialists</div>
+                    <div className="px-2 pb-1 pt-1 text-[10px] text-[color:var(--text-subtle)]">Specialists</div>
                     <GetSpecialistsRow onOpenMarketplace={openSpecialistMarketplace} />
                   </div>
                 )}
@@ -449,7 +449,7 @@ function ProjectScopeChip({
             <FolderGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
             <span className="min-w-0">
               <span className="block truncate text-[12px] text-[color:var(--text-default)]">{option.label}</span>
-              <span className="block truncate font-mono text-[10.5px] text-[color:var(--text-subtle)]">{option.path}</span>
+              <span className="block truncate font-mono text-[10px] text-[color:var(--text-subtle)]">{option.path}</span>
             </span>
             {current ? (
               <svg className="icon-sm shrink-0 text-[color:var(--accent-primary)]" viewBox="0 0 10 10" aria-hidden="true">

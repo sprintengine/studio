@@ -19,7 +19,7 @@ function StepRing({ view }: { view: StepView }) {
     )
   }
   return (
-    <span className="relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] text-[10.5px] font-semibold tabular-nums text-[color:var(--text-muted)]">
+    <span className="relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] text-[10px] font-semibold tabular-nums text-[color:var(--text-muted)]">
       {view.index}
     </span>
   )
@@ -54,7 +54,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         aria-current={activePaneId === OVERVIEW_PANE_ID ? 'true' : undefined}
         className={`relative mb-0.5 flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${
           activePaneId === OVERVIEW_PANE_ID
-            ? 'bg-[color:var(--accent-primary-soft)] before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:bg-[color:var(--accent-primary)] before:content-[""]'
+            ? 'bg-[color:var(--bg-selected)]'
             : 'hover:bg-[color:var(--bg-hover)]'
         }`}
       >
@@ -88,7 +88,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
               aria-current={active ? 'true' : undefined}
               className={`relative flex w-full items-start gap-2.5 px-4 py-2.5 text-left ${
                 active
-                  ? 'bg-[color:var(--accent-primary-soft)] before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:bg-[color:var(--accent-primary)] before:content-[""]'
+                  ? 'bg-[color:var(--bg-selected)]'
                   : 'hover:bg-[color:var(--bg-hover)]'
               }`}
             >

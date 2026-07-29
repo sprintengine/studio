@@ -123,7 +123,7 @@ export function InterviewQuestionCard({
                 transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]
                 ${
                   selected
-                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+                    ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
                     : 'border-[color:var(--border-subtle)] hover:bg-[color:var(--bg-hover)]'
                 }
               `}

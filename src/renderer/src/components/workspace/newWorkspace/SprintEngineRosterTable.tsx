@@ -154,7 +154,7 @@ export function SprintEngineRosterTable({
                     {label}
                   </span>
                   {PLANNER_ROLE_IDS.has(role) ? (
-                    <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1 text-[9px] font-semibold text-[color:var(--text-subtle)]">
+                    <span className="shrink-0 rounded border border-[color:var(--border-default)] px-1.5 text-[10px] font-semibold text-[color:var(--text-subtle)]">
                       Planner
                     </span>
                   ) : null}

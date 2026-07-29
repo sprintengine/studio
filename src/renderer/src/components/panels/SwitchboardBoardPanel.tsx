@@ -1064,7 +1064,7 @@ function AttemptRow({
 }) {
   return (
     <li className="grid grid-cols-[12px_1fr] items-start gap-3">
-      <span className="mt-[5px]">
+      <span className="mt-1.5">
         <StatusDot tone={EXECUTION_TONES[status]} />
       </span>
       <div className="min-w-0 space-y-0.5">
@@ -1856,7 +1856,7 @@ function RunnerSettingsFields({
                 }}
                 className={`interactive h-6 rounded-[5px] border px-2 text-[11px] font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--border-focus)] ${
                   active
-                    ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                    ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                     : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)]'
                 } disabled:opacity-50`}
               >

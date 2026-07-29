@@ -417,7 +417,7 @@ export function CliModelListbox({
       {hostedOptions.length > 0 ? (
         <>
           <div aria-hidden="true" className="mx-1 my-1.5 h-px bg-[color:var(--border-subtle)]" />
-          <div className="px-2 pb-0.5 pt-1 text-[10.5px] font-semibold text-[color:var(--text-subtle)]">
+          <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold text-[color:var(--text-subtle)]">
             Models via Claude Code
           </div>
           {hostedOptions.map((option, index) => renderGroup(option, index))}

@@ -203,7 +203,7 @@ export function KnowledgeStep({ projectRoot, committedRelativeRoot, onCommit, au
                     'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors',
                     'focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-primary)]',
                     active
-                      ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                      ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                       : 'border-[color:var(--border-default)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]',
                   ].join(' ')}
                 >

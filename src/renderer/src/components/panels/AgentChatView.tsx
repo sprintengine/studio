@@ -2744,7 +2744,7 @@ function ModelPickerPill({
               <div key={group.providerId} className="py-0.5">
                 <div className="flex items-baseline gap-1.5 px-2.5 pb-0.5 pt-1.5">
                   <span className="text-[11px] font-semibold text-[color:var(--text-default)]">{group.providerLabel}</span>
-                  <span className="text-[10.5px] text-[color:var(--text-subtle)]">
+                  <span className="text-[10px] text-[color:var(--text-subtle)]">
                     {group.unavailable
                       ? 'not available'
                       : group.subscription
@@ -3078,7 +3078,7 @@ function DockShell({
         <StatusDot tone={dotTone} label={eyebrow} />
         <span
           // design-tokens-allow: approved MC-1478 mockup eyebrow (10.5px/600 uppercase +0.08em) per the item's implementation spec
-          className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[color:var(--text-subtle)]"
+          className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--text-subtle)]"
         >
           {eyebrow}
         </span>
@@ -3473,7 +3473,7 @@ function ConversationQuestionCard({
                   {parsed.recommended ? (
                     <span
                       // design-tokens-allow: approved MC-1478 mockup renders "Recommended" as a quiet uppercase accent label inline with the option title
-                      className="ml-2 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-[color:var(--accent-primary)]"
+                      className="ml-2 text-[10px] font-semibold uppercase tracking-[0.05em] text-[color:var(--accent-primary)]"
                     >
                       Recommended
                     </span>

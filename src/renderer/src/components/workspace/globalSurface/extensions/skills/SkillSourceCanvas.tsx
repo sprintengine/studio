@@ -395,7 +395,7 @@ function GroupChips({
             onClick={() => onSelect(pressed ? null : group.name)}
             className={`inline-flex h-6 items-center gap-1.5 rounded-[5px] border px-2 text-[11px] transition-colors ${FOCUS_RING_CLASS} ${
               pressed
-                ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)] text-[color:var(--text-strong)]'
+                ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
                 : 'border-[color:var(--border-default)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
             }`}
           >

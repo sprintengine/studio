@@ -26,7 +26,7 @@ export function SkillRow({
     <div
       className={`flex items-stretch overflow-hidden rounded-md border transition-colors ${
         selected
-          ? 'border-[color:var(--accent-primary)] bg-[color:var(--accent-primary-soft)]'
+          ? 'border-[color:var(--border-strong)] bg-[color:var(--bg-selected)]'
           : 'border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)]'
       }`}
     >
@@ -66,13 +66,13 @@ export function SkillRow({
           ) : null}
         </span>
         {showGroup && item.group ? (
-          <span className="shrink-0 font-mono text-[10.5px] text-[color:var(--text-subtle)]">
+          <span className="shrink-0 font-mono text-[10px] text-[color:var(--text-subtle)]">
             {skillGroupLabel(item.group)}
           </span>
         ) : null}
         <FileCountChip count={item.fileCount} />
         {item.hasExecutables ? (
-          <span className="shrink-0 text-[10.5px] text-[color:var(--text-subtle)]">Runs scripts</span>
+          <span className="shrink-0 text-[10px] text-[color:var(--text-subtle)]">Runs scripts</span>
         ) : null}
         {item.installed ? (
           <span className="shrink-0 text-[11px] text-[color:var(--text-muted)]">Installed</span>
@@ -91,7 +91,7 @@ export function SkillRow({
 export function FileCountChip({ count }: { count: number }): JSX.Element {
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-[10.5px] tabular-nums text-[color:var(--text-subtle)]"
+      className="inline-flex shrink-0 items-center gap-1 rounded-[3px] bg-[color:var(--bg-active)] px-1.5 py-px text-[10px] tabular-nums text-[color:var(--text-subtle)]"
       title={`${count} file${count === 1 ? '' : 's'}`}
     >
       <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5" aria-hidden="true">

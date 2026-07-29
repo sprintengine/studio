@@ -1266,7 +1266,7 @@ function TaskOpenFindings({
               {finding.file ? (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[10.5px] [overflow-wrap:anywhere]">
+                  <span className="font-mono text-[10px] [overflow-wrap:anywhere]">
                     {finding.file}
                   </span>
                 </>
@@ -1298,7 +1298,7 @@ function TaskOpenFindings({
               {issue.target ? (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[10.5px]">{issue.target}</span>
+                  <span className="font-mono text-[10px]">{issue.target}</span>
                 </>
               ) : null}
             </div>
@@ -1565,7 +1565,7 @@ function FeedbackDetail({
   const roleFit = feedback.scores.roleFitPct
   return (
     <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10.5px] text-[color:var(--text-disabled)]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px] text-[color:var(--text-disabled)]">
         <span>{sourceLabel}</span>
         <span>·</span>
         <span className="font-mono text-[color:var(--text-muted)]">
@@ -1665,7 +1665,7 @@ function ArtifactDetail({
   const statusLabel = sprintEngineArtifactStatusLabels[artifact.status] ?? artifact.status
   return (
     <div className="mt-2 space-y-1.5 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10.5px] text-[color:var(--text-disabled)]">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[10px] text-[color:var(--text-disabled)]">
         <span>{kindLabel}</span>
         <span>·</span>
         <span>{statusLabel}</span>
@@ -1704,7 +1704,7 @@ function EvidenceDetail({
 
   return (
     <div className="mt-2 space-y-2 border-l border-[color:var(--border-subtle)] pl-3 text-[12px] leading-5">
-      <div className="text-[10.5px] text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
+      <div className="text-[10px] text-[color:var(--text-disabled)]">Recorded evidence (latest snapshot)</div>
       {summary ? (
         <div className="text-[color:var(--text-default)] [overflow-wrap:anywhere]">{summary}</div>
       ) : (
@@ -1898,7 +1898,7 @@ function TaskActivityFeed({
                 </div>
                 <span
                   title={absolute}
-                  className="tabular-nums font-mono text-[10.5px] text-[color:var(--text-disabled)]"
+                  className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]"
                 >
                   {relative}
                 </span>
@@ -2039,7 +2039,7 @@ function AgentWorkedOnTasksList({
                 <span className="font-mono text-[color:var(--tone-warn)]">{task.id}</span>
                 <span>{statusLabel}</span>
                 {relative ? (
-                  <span className="ml-auto tabular-nums font-mono text-[10.5px] text-[color:var(--text-disabled)]">
+                  <span className="ml-auto tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]">
                     {relative}
                   </span>
                 ) : null}
@@ -2157,7 +2157,7 @@ function AgentActivityFeed({
                 </div>
                 <span
                   title={absolute}
-                  className="tabular-nums font-mono text-[10.5px] text-[color:var(--text-disabled)]"
+                  className="tabular-nums font-mono text-[10px] text-[color:var(--text-disabled)]"
                 >
                   {relative}
                 </span>
