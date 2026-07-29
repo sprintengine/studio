@@ -26,6 +26,15 @@
 // `--border-focus`. A stop on `outline-style: auto` is Chromium's UA default —
 // the one treatment the design system cannot theme — and is reported separately.
 //
+// T26 keeps that colour test and widens only WHERE the layer may be painted. A
+// composite control — the door search field, whose tab stop is the <input> but
+// whose visible border box is the wrapper holding the border, the glyph and the
+// clear button — draws its ring on the wrapper, on `:focus-within`. The
+// element-only read reported such a stop as ringless while a 2px `--border-focus`
+// ring was plainly on screen around it. `ringOn` now records `self` or
+// `composite`, the composite's box is named in the transcript, and a stop with
+// no converged layer anywhere still fails.
+//
 // Trap carried forward from the T13/T15/T18/T19 passes, still true: this shell
 // inherits ELECTRON_RENDERER_URL / NODE_ENV_ELECTRON_VITE from a running dev
 // server. Left in the environment they make the built main process load the dev
@@ -164,6 +173,52 @@ const tokensScript = `(() => {
   return out
 })()`
 
+// Put focus in the row's own pane, which is what the "selected" read is meant
+// to measure. `element.click()` in the renderer is a SYNTHETIC click: unlike a
+// real pointer press it never runs the browser's focus-the-nearest-focusable-
+// ancestor step, so on its own it leaves focus wherever the previous state put
+// it. That made the first theme read full strength by luck (nothing focused, so
+// a `primary` pane holds the tier) and the second read the RESTING fill, because
+// focus was still in the sidebar pane the resting-selected step had focused —
+// selected and resting-selected then came back byte-identical on a surface where
+// the tier is working. Focus the pane explicitly, the way a mouse click does.
+const focusRowPaneScript = `(() => {
+  const li = document.querySelector('li[role="option"][aria-selected="true"]')
+  const pane = li ? li.closest('[data-selection-pane]') : null
+  if (!pane) return { focused: false, reason: li ? 'the selected row is in no pane' : 'no selected row' }
+  const self = pane.matches('[tabindex]:not([tabindex="-1"]), button, a[href], input') ? pane : null
+  const target = self || pane.querySelector('[tabindex]:not([tabindex="-1"]), button, a[href], input')
+  if (!target) return { focused: false, reason: 'no focusable in the row pane' }
+  target.focus()
+  return { focused: pane.matches(':focus-within'), into: target.tagName, onPaneItself: Boolean(self) }
+})()`
+
+// Focus a control on the same surface that is inside NO pane — the door's
+// toolbar and its detail side. `primary` is defined to hold the full-strength
+// tier here (assets/index.css, "Selection tiers"): a door that has just opened,
+// or one whose user is typing in the search field, shows one focused selection
+// rather than none. Scoped to the row's own surface section first so the control
+// is genuinely this door's chrome and not some other region of the shell.
+const focusOutsideEveryPaneScript = `(() => {
+  const li = document.querySelector('li[role="option"][aria-selected="true"]')
+  const surface = li ? li.closest('section[aria-label], aside[aria-label], [role="tabpanel"]') : null
+  const pick = (scope) =>
+    Array.from(scope.querySelectorAll('button, a[href], input, [tabindex]:not([tabindex="-1"])')).find((n) => {
+      if (n.closest('[data-selection-pane]')) return false
+      const r = n.getBoundingClientRect()
+      return r.width > 0 && r.height > 0 && !n.disabled
+    })
+  const target = (surface && pick(surface)) || pick(document.body)
+  if (!target) return { moved: false, reason: 'no focusable outside every pane' }
+  target.focus()
+  return {
+    moved: document.activeElement === target,
+    into: (target.getAttribute('aria-label') || target.textContent || '').trim().slice(0, 40),
+    onThisSurface: Boolean(surface && surface.contains(target)),
+    anyPaneFocused: Boolean(document.querySelector('[data-selection-pane]:focus-within')),
+  }
+})()`
+
 // Selection is left where it is; only focus moves. That is the whole point of
 // the tier: the remembered choice stays remembered, and only the answer to
 // "which list is my keyboard driving?" changes.
@@ -269,6 +324,39 @@ const DESCRIBE_STOP = `(() => {
     )
   })
   const ringAlpha = ringLayer ? layerColour(ringLayer).alpha : null
+
+  // A composite control paints its ring on the box a user sees, not on the box
+  // that takes focus: a search field's tab stop is the <input>, but its visible
+  // border box is the wrapper that owns the border, the glyph and the clear
+  // button, and the wrapper draws the ring on \`:focus-within\`. An element-only
+  // read reports such a stop as ringless when it is in fact ringed. Walk up
+  // while each ancestor is itself :focus-within — that chain terminates at the
+  // composite, so this cannot borrow a ring from an unrelated ancestor — and
+  // look for the same converged layer. Kept as its own field, never folded into
+  // \`convergedRing\`, so the transcript always says WHERE the ring was drawn.
+  const matchesBorderFocus = (l) => {
+    const c = layerColour(l)
+    return Boolean(c && borderFocusRgb && c.rgb.every((n, i) => Math.abs(n - borderFocusRgb[i]) <= 1))
+  }
+  let compositeRing = null
+  if (!ringLayer) {
+    let node = el.parentElement
+    while (node && node !== document.body) {
+      let within = false
+      try { within = node.matches(':focus-within') } catch (e) { within = false }
+      if (!within) break
+      const found = paintedLayers(getComputedStyle(node).boxShadow).find(matchesBorderFocus)
+      if (found) {
+        compositeRing = {
+          layer: found.trim(),
+          on: node.tagName + (node.getAttribute('class') ? '.' + node.getAttribute('class').split(/\\s+/)[0] : ''),
+        }
+        break
+      }
+      node = node.parentElement
+    }
+  }
+
   const outlineWidth = parseFloat(style.outlineWidth || '0')
   const rect = el.getBoundingClientRect()
   let focusVisible = false
@@ -284,6 +372,9 @@ const DESCRIBE_STOP = `(() => {
     convergedRing: Boolean(ringLayer),
     ringLayer: ringLayer ? ringLayer.trim() : null,
     ringAlpha,
+    // The ring the stop actually shows, and which box draws it.
+    compositeRing,
+    ringOn: ringLayer ? 'self' : compositeRing ? 'composite' : null,
     focusVisible,
     anyPaintedShadow: layers.length > 0,
     paintedLayers: layers.map((l) => l.trim()),
@@ -330,9 +421,10 @@ async function tabWalk(page, surface, cap = 70) {
     stops.push(s)
     console.log(
       `  ${String(s.index).padStart(2)}  ${s.tag}${s.role ? '/' + s.role : ''} "${s.label}" in[${s.container}]` +
-        `  ring=${s.convergedRing}${s.ringAlpha !== null && s.ringAlpha < 1 ? `(alpha ${s.ringAlpha})` : ''}` +
+        `  ring=${Boolean(s.ringOn)}${s.ringOn === 'composite' ? ` (on ${s.compositeRing.on})` : ''}` +
+        `${s.ringAlpha !== null && s.ringAlpha < 1 ? `(alpha ${s.ringAlpha})` : ''}` +
         `${s.uaOutline ? ' UA-OUTLINE' : ''} focusVisible=${s.focusVisible}` +
-        (!s.convergedRing
+        (!s.ringOn
           ? `\n        --border-focus=${s.borderFocus} painted=[${s.paintedLayers.join(' | ') || 'none'}] outline=${s.outline}`
           : ''),
     )
@@ -343,16 +435,22 @@ async function tabWalk(page, surface, cap = 70) {
 
 function assertConvergedRing(surface, stops) {
   const landed = stops.filter((s) => !s.offscreen)
-  const missing = landed.filter((s) => !s.convergedRing)
+  const missing = landed.filter((s) => !s.ringOn)
+  const composite = landed.filter((s) => s.ringOn === 'composite')
   const ua = landed.filter((s) => s.uaOutline)
   check(
     `${surface}: every tab stop draws the converged ring`,
     landed.length > 0 && missing.length === 0,
     `${landed.length} stop(s); ${missing.length} without the ring` +
       (missing.length ? ` → ${missing.map((s) => `${s.tag}/${s.role || '-'} "${s.label}"`).join(' | ')}` : '') +
+      (composite.length
+        ? `; ${composite.length} drawn by the composite's own box → ${composite
+            .map((s) => `"${s.label}" on ${s.compositeRing.on}`)
+            .join(' | ')}`
+        : '') +
       (ua.length ? `; ${ua.length} on the Chromium UA outline` : ''),
   )
-  return { landed, missing, ua }
+  return { landed, missing, composite, ua }
 }
 
 /* ------------------------------------------------------------------ *
@@ -395,6 +493,30 @@ async function finishOnboarding(page) {
     }
   }
   return false
+}
+
+// The clear affordance only exists while the field has a value, so a walk over
+// an empty field never measures it. React owns the input, so the value has to go
+// in through the native setter for the component to see it.
+async function fillSearchField(page, labelFragment, text) {
+  const filled = await page.evaluate(
+    ({ fragment, value }) => {
+      const input = Array.from(document.querySelectorAll('input[type="search"]')).find((n) =>
+        (n.getAttribute('aria-label') || '').includes(fragment),
+      )
+      if (!input) return { ok: false, reason: 'no search field matching ' + fragment }
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      setter.call(input, value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      return { ok: true }
+    },
+    { fragment: labelFragment, value: text },
+  )
+  await page.waitForTimeout(600)
+  const hasClear = await page.evaluate(() =>
+    Boolean(document.querySelector('button[aria-label="Clear search"]')),
+  )
+  return { ...filled, hasClear }
 }
 
 async function enterSurface(page, selector) {
@@ -480,7 +602,8 @@ async function measureTiers(page, theme) {
     return null
   }
 
-  // 2. selected — clicked, with focus in the list.
+  // 2. selected — clicked, with focus in the list (see focusRowPaneScript: the
+  // synthetic click does not put it there by itself).
   await page.evaluate(
     (needle) => {
       const li = Array.from(document.querySelectorAll('li[role="option"]')).find((n) =>
@@ -490,8 +613,21 @@ async function measureTiers(page, theme) {
     },
     MEMBER,
   )
+  const listFocused = await page.evaluate(focusRowPaneScript)
   await page.waitForTimeout(700)
   const selectedRow = await page.evaluate(readRowScript(MEMBER))
+  check(
+    `${theme}: focus is inside the row's own pane for the selected read`,
+    listFocused.focused === true,
+    JSON.stringify(listFocused),
+  )
+
+  // 2b. selected, focus outside every pane — the door's toolbar / detail side.
+  // A `primary` pane holds the full-strength tier here; an `auto` one would
+  // already be resting, which is the difference the ruling turns on.
+  const outside = await page.evaluate(focusOutsideEveryPaneScript)
+  await page.waitForTimeout(700)
+  const selectedNoPaneRow = await page.evaluate(readRowScript(MEMBER))
 
   // 3. resting-selected — selection unchanged, focus moved off the row's pane.
   const moved = await page.evaluate(focusElsewhereScript)
@@ -503,7 +639,11 @@ async function measureTiers(page, theme) {
   // helper reads that as black and hands back a clean 1.000:1, which is exactly
   // the shape of the finding this pass reports. An unguarded read here would
   // manufacture "the tier never applies" out of a broken selector.
-  const reads = { selected: selectedRow, restingSelected: restingSelectedRow }
+  const reads = {
+    selected: selectedRow,
+    selectedFocusOutsideEveryPane: selectedNoPaneRow,
+    restingSelected: restingSelectedRow,
+  }
   for (const [name, row] of Object.entries(reads)) {
     if (row.error || typeof row.fill !== 'string') {
       check(`${theme}: the ${name} state could be read off the row`, false, JSON.stringify(row))
@@ -529,13 +669,17 @@ async function measureTiers(page, theme) {
     tokens,
     pane: restingRow.pane,
     panesOnSurface: restingRow.panesOnSurface,
+    listFocused,
+    focusOutsideEveryPane: outside,
     focusMovedTo: moved,
     resting: restingRow.fill,
     selected: selectedRow.fill,
+    selectedFocusOutsideEveryPane: selectedNoPaneRow.fill,
     restingSelected: restingSelectedRow.fill,
     titleInk: {
       resting: restingRow.titleInk,
       selected: selectedRow.titleInk,
+      selectedFocusOutsideEveryPane: selectedNoPaneRow.titleInk,
       restingSelected: restingSelectedRow.titleInk,
     },
     steps: {
@@ -550,6 +694,8 @@ async function measureTiers(page, theme) {
     `  resting          ${result.resting}\n` +
       `  resting-selected ${result.restingSelected}   (step from resting ${result.steps.restingToRestingSelected.toFixed(3)}:1)\n` +
       `  selected         ${result.selected}   (step from resting-selected ${result.steps.restingSelectedToSelected.toFixed(3)}:1, from resting ${result.steps.restingToSelected.toFixed(3)}:1)\n` +
+      `  selected, focus outside every pane  ${result.selectedFocusOutsideEveryPane}   (into ${JSON.stringify(outside)})\n` +
+      `  title ink: resting ${result.titleInk.resting} · selected ${result.titleInk.selected} · resting-selected ${result.titleInk.restingSelected}\n` +
       `  row pane: ${result.pane === null ? 'NONE — the list is not a data-selection-pane' : result.pane}` +
       ` · panes on surface: ${result.panesOnSurface} · focus moved into: ${JSON.stringify(moved)}`,
   )
@@ -560,6 +706,22 @@ async function measureTiers(page, theme) {
     distinct === 3,
     `${distinct} distinct fill(s): resting=${result.resting} resting-selected=${result.restingSelected} selected=${result.selected}` +
       (result.pane === null ? ' — the Backlog list carries no data-selection-pane, so it never rests' : ''),
+  )
+  // `primary`, not `auto`: the tier survives focus leaving the list for the
+  // door's own chrome, and only another pane takes it away.
+  check(
+    `${theme}: the row keeps the full-strength fill while focus sits outside every pane`,
+    outside.moved === true && result.selectedFocusOutsideEveryPane === result.selected,
+    `focus in ${JSON.stringify(outside)} → ${result.selectedFocusOutsideEveryPane} (selected ${result.selected})`,
+  )
+  // The ink half of the same tier (review R3). One channel is not a tier: the
+  // title has to move with the fill, and rest with it.
+  check(
+    `${theme}: the title ink lifts on selection and rests with the fill`,
+    result.titleInk.resting !== null &&
+      result.titleInk.resting !== result.titleInk.selected &&
+      result.titleInk.restingSelected === result.titleInk.resting,
+    `resting=${result.titleInk.resting} selected=${result.titleInk.selected} resting-selected=${result.titleInk.restingSelected}`,
   )
   return result
 }
@@ -653,6 +815,12 @@ async function main() {
     console.log('\n\n################ PART B — the converged ring, door by door ################')
 
     console.log('\n=== Backlog door ===')
+    const backlogSearch = await fillSearchField(page, 'backlog', 'row')
+    check(
+      'the Backlog search field is non-empty for the walk, so `Clear search` is a stop',
+      backlogSearch.ok && backlogSearch.hasClear,
+      JSON.stringify(backlogSearch),
+    )
     await enterSurface(page, 'section[aria-label="Backlog"], aside[aria-label="Backlog list"], main')
     const backlogStops = await tabWalk(page, 'Backlog door')
     const backlogRings = assertConvergedRing('Backlog door', backlogStops)
@@ -666,6 +834,12 @@ async function main() {
       () => document.querySelectorAll('li, [role="option"], [role="tab"]').length,
     )
     check('the Extensions door rendered', extRowCount > 0, `${extRowCount} list/tab node(s)`)
+    const extSearch = await fillSearchField(page, 'connectors', 'a')
+    check(
+      'the Extensions search field is non-empty for the walk, so `Clear search` is a stop',
+      extSearch.ok && extSearch.hasClear,
+      JSON.stringify(extSearch),
+    )
     await enterSurface(page, 'section[aria-label="Extensions"], aside[aria-label], main')
     const extStops = await tabWalk(page, 'Extensions door')
     const extRings = assertConvergedRing('Extensions door', extStops)
@@ -674,13 +848,18 @@ async function main() {
     /* ---------------- Summary ---------------- */
     console.log('\n\n################ SUMMARY ################')
     const allMissing = [...backlogRings.missing, ...extRings.missing]
+    const allComposite = [...backlogRings.composite, ...extRings.composite]
     const allUa = [...backlogRings.ua, ...extRings.ua]
     console.log(
       `  tab stops measured: ${backlogRings.landed.length} (Backlog) + ${extRings.landed.length} (Extensions)` +
         ` = ${backlogRings.landed.length + extRings.landed.length}\n` +
         `  without the converged ring: ${allMissing.length}\n` +
+        `  drawn by the composite's own box: ${allComposite.length}\n` +
         `  on the Chromium UA outline: ${allUa.length}`,
     )
+    for (const s of allComposite) {
+      console.log(`    ~ ${s.tag}/${s.role || '-'} "${s.label}"  ring on ${s.compositeRing.on}: ${s.compositeRing.layer}`)
+    }
     for (const s of allMissing) {
       console.log(`    - ${s.tag}/${s.role || '-'} "${s.label}"  boxShadow=${s.boxShadow}  outline=${s.outline}`)
     }

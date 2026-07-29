@@ -889,8 +889,8 @@ run('row context menu reuses module-contributed Sprint actions', () => {
 run('the new-workspace source picker renders the same shared row interior', () => {
   assert.match(
     sourcePickerSource,
-    /<BacklogRowContent item=\{item\} now=\{now\} \/>/,
-    'the picker composes BacklogRowContent, so the marks flow in without a fork',
+    /<BacklogRowContent item=\{item\} now=\{now\} selected=\{selected\} \/>/,
+    'the picker composes BacklogRowContent — with its own selection flag, so the picked row lifts its ink like every other Tier 1 row',
   )
 })
 
@@ -922,6 +922,49 @@ run('a row with two dangling mockups pluralizes and names both refs', () => {
 run('a row with no dangling mockups renders no Missing-mockup badge — the warning is earned', () => {
   const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} />)
   assert.ok(!markup.includes('Missing mockup'), 'no placeholder warning on a clean row')
+})
+
+// T25 / review I1 + R3: selection on a Backlog row is two channels, fill and
+// ink, and both have to rest together when the row's pane is not the one
+// holding focus. The fill is measured live on the door by
+// scripts/testing/design-system-integration-pass.mjs; these pin the ink and the
+// wiring the two surfaces share, which is the half a live pass on one door
+// cannot prove for the other.
+run('an unselected Backlog row title sits at --text-default, and selection lifts it to --text-strong', () => {
+  for (const plain of [true, false]) {
+    const idle = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} plainTitle={plain} />)
+    const picked = renderToStaticMarkup(
+      <BacklogRowContent item={itemWith()} now={NOW} plainTitle={plain} selected />,
+    )
+    assert.match(idle, /text-\[color:var\(--text-default\)\]/, `unselected title is one rung down (plainTitle=${plain})`)
+    assert.ok(
+      !idle.includes('text-[color:var(--text-strong)]'),
+      `an unselected title never sits at the lifted ink (plainTitle=${plain})`,
+    )
+    assert.match(picked, /text-\[color:var\(--text-strong\)\]/, `selection lifts the ink (plainTitle=${plain})`)
+  }
+})
+
+run('the Backlog door list opts into the selection tier as the surface primary pane', () => {
+  assert.match(
+    backlogDoorSource,
+    /role="listbox"[\s\S]{0,900}?data-selection-pane="primary"/,
+    'the listbox that holds the rows is the pane — the CSS rebinds the tokens on the row inside it',
+  )
+})
+
+run('both Backlog surfaces hand the row its selected flag, so fill and ink cannot drift apart', () => {
+  for (const [name, source] of [
+    ['the door', backlogDoorSource],
+    ['the panel', backlogPanelSource],
+  ] as const) {
+    assert.match(source, /<BacklogRowContent[\s\S]{0,600}?selected=\{selected\}/, `${name} passes it to the row`)
+    assert.match(
+      source,
+      /<BacklogEpicHeaderContent[\s\S]{0,400}?selected=\{/,
+      `${name} passes it to the group header too`,
+    )
+  }
 })
 
 if (failures > 0) {
