@@ -85,6 +85,10 @@ function spacingPx(value: string): number | null {
   if (arbitrary) return Math.abs(Number(arbitrary[1]))
   const arbitraryRem = value.match(/^\[(-?\d+(?:\.\d+)?)rem\]$/)
   if (arbitraryRem) return Math.abs(Number(arbitraryRem[1]) * 16)
+  // `px` is deliberately not a spacing step. It is the hairline unit — the same
+  // 1px the system spends on borders and the active-tab underline — and the tab
+  // strip legitimately uses `-mb-px` to pull itself over the container's border
+  // so the two hairlines meet. Resolving it here would fail correct code.
   if (!/^\d+(?:\.\d+)?$/.test(value)) return null
   return Number(value) * 4
 }

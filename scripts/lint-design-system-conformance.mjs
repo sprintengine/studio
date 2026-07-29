@@ -450,8 +450,8 @@ function scanSourceFile(file, push) {
     // A hairline underline or rule may carry the accent — the budget permits
     // accent as ink or a hairline, only not as a fill.
     if (HAIRLINE_SHAPE.test(context)) return
-    // A left bar belongs to selection-accent-bar; the two rules stay disjoint
-    // so one fix task never has to touch another's baseline.
+    // A left bar belongs to selection-accent-bar; the two rules stay disjoint so
+    // one violation is reported once, under the rule whose fix hint applies.
     if (ACCENT_LEFT_BORDER.test(context) || ACCENT_BORDER.test(context)) {
       ACCENT_LEFT_BORDER.lastIndex = 0
       ACCENT_BORDER.lastIndex = 0
