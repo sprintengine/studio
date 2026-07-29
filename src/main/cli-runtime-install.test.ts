@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import {
+  binaryVersionProbeFrom,
   buildExistsDescriptor,
   buildInstallDescriptor,
   buildProbeDescriptor,
@@ -8,6 +9,9 @@ import {
   parseProbeOutput,
   resolveInstallPlatform,
 } from './cli-runtime-install'
+
+// The exit code the probe scripts use for "binary not found on PATH".
+const NOT_FOUND_CODE = 3
 
 function main(): void {
   // resolveInstallPlatform: WSL only when on Windows with the override on.
@@ -104,6 +108,32 @@ function main(): void {
   assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'wsl', shell: '/bin/zsh' }), null)
   assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: undefined }), null)
   assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '  ' }), null)
+
+  // Unmanaged-binary probe (git/gh): the three outcomes stay distinct. Versions
+  // below are synthetic fixtures; real ones only ever come from a real probe.
+  assert.deepEqual(
+    binaryVersionProbeFrom({
+      parsed: parseProbeOutput(0, 'MULTICODE_PATH:/usr/bin/git\ngit version 0.0.0-fixture\n'),
+      inconclusive: false,
+    }),
+    { outcome: 'resolved', version: 'git version 0.0.0-fixture', resolvedPath: '/usr/bin/git' },
+  )
+  // A binary that is genuinely absent: a definitive verdict.
+  assert.deepEqual(
+    binaryVersionProbeFrom({ parsed: parseProbeOutput(NOT_FOUND_CODE, ''), inconclusive: false }),
+    { outcome: 'not_installed' },
+  )
+  // A probe killed at its deadline parses as absent, but that is a non-answer:
+  // it must never read as a missing binary.
+  assert.deepEqual(
+    binaryVersionProbeFrom({ parsed: parseProbeOutput(NOT_FOUND_CODE, ''), inconclusive: true }),
+    { outcome: 'probe_failed' },
+  )
+  // Resolves on PATH but prints no version line: ran, told us nothing usable.
+  assert.deepEqual(
+    binaryVersionProbeFrom({ parsed: parseProbeOutput(0, 'MULTICODE_PATH:/usr/bin/true\n'), inconclusive: false }),
+    { outcome: 'probe_failed' },
+  )
 
   console.log('cli-runtime-install: all assertions passed')
 }

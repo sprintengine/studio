@@ -285,7 +285,7 @@ function managedInstallEnv(): Record<string, string> | null {
   return withManagedRuntimePath(withShims, shims.prefixBinDir, runtimeEnv.platform)
 }
 
-type ProbeVerdict = {
+export type ProbeVerdict = {
   parsed: ReturnType<typeof parseProbeOutput>
   // True when a probe was killed at its deadline, so an "absent" parse is a
   // non-answer rather than a verdict.
@@ -340,20 +340,27 @@ export type BinaryVersionProbe =
   | { outcome: 'not_installed' }
   | { outcome: 'probe_failed' }
 
+// Exported so the branch that keeps a killed probe out of the not-installed
+// bucket is directly asserted; probeBinaryVersion is the only caller.
+export function binaryVersionProbeFrom({ parsed, inconclusive }: ProbeVerdict): BinaryVersionProbe {
+  if (!parsed.installed) return inconclusive ? { outcome: 'probe_failed' } : { outcome: 'not_installed' }
+  // Resolved without a version line means the probe ran but told us nothing
+  // usable; reporting success with an empty version would put a placeholder on
+  // screen.
+  if (!parsed.version) return { outcome: 'probe_failed' }
+  return { outcome: 'resolved', version: parsed.version, resolvedPath: parsed.resolvedPath }
+}
+
 export async function probeBinaryVersion(binary: string): Promise<BinaryVersionProbe> {
   try {
-    const { parsed, inconclusive } = await runVersionProbe({
-      binary,
-      versionArgs: ['--version'],
-      target: resolveInstallPlatform(process.platform, false),
-      env: defaultProbeEnv(),
-    })
-    if (!parsed.installed) return inconclusive ? { outcome: 'probe_failed' } : { outcome: 'not_installed' }
-    // Resolved without a version line means the probe ran but told us nothing
-    // usable; reporting success with an empty version would put a placeholder
-    // on screen.
-    if (!parsed.version) return { outcome: 'probe_failed' }
-    return { outcome: 'resolved', version: parsed.version, resolvedPath: parsed.resolvedPath }
+    return binaryVersionProbeFrom(
+      await runVersionProbe({
+        binary,
+        versionArgs: ['--version'],
+        target: resolveInstallPlatform(process.platform, false),
+        env: defaultProbeEnv(),
+      }),
+    )
   } catch {
     return { outcome: 'probe_failed' }
   }
