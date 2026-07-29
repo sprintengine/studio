@@ -23,6 +23,7 @@ import {
   CloseIconButton,
   DefinitionList,
   Drawer,
+  FOCUS_RING_CLASS,
   GhostButton,
   OverflowMenu,
   PanelHeader,
@@ -508,7 +509,7 @@ export default function SwitchboardBoardPanel({ workspaceId }: { workspaceId: st
         onKeyDown={handleBoardKeyDown}
         aria-label="Switchboard board"
         aria-labelledby="switchboard-panel-title"
-        className="flex min-w-0 flex-1 flex-col focus:outline-none"
+        className={`flex min-w-0 flex-1 flex-col ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
       >
         <PanelHeader
           tool="switchboard"

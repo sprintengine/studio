@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FilePreviewPane, InboxRow, InboxSearchInput, Section, SidePane } from '../../ui'
+import { FilePreviewPane, FOCUS_RING_CLASS, InboxRow, InboxSearchInput, Section, SidePane } from '../../ui'
 import { HtmlArtifactFrame } from '../../workspace/guidedBrief/MockupPreviewPane'
 import { isEditableTarget } from '../../../utils/keyboard'
 import { getSprintEngineArtifactDependencyBlockers, isCanceledSprintEngineRun } from '../../../utils/sprintengine'
@@ -307,7 +307,7 @@ export function SprintEngineInboxView({
             <div
               tabIndex={0}
               onKeyDown={handleInboxKeyDown}
-              className="focus:outline-none"
+              className={`${FOCUS_RING_CLASS} focus-visible:ring-inset`}
               role="region"
               aria-label="Inbox artifacts (use arrow keys)"
             >

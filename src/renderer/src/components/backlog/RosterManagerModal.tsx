@@ -74,7 +74,7 @@ export function RosterManagerModal({
         role="dialog"
         aria-modal="true"
         aria-label="Manage rosters"
-        className="flex max-h-[80vh] w-[720px] max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-lg"
+        className="flex max-h-[80vh] w-[720px] max-w-full flex-col overflow-hidden rounded-lg border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]"
       >
         <header className="shrink-0 border-b border-[color:var(--border-default)] px-4 py-3">
           <h2 className="text-[14px] font-semibold text-[color:var(--text-strong)]">Rosters</h2>

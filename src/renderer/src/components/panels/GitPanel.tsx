@@ -14,7 +14,7 @@ import {
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, IconButton, InboxRow, InlineNotice, PanelHeader, RefreshIcon, Select, Skeleton, Tooltip, type LifecycleState } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { GitGraphView, type GitCommitActions, type GitGraphState, type GitMergeTarget } from './GitGraphView'
 import type { GitPanelView } from '../../types/workspace'
@@ -1600,7 +1600,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   type="button"
                   onClick={() => void handlePull()}
                   disabled={Boolean(busy)}
-                  className="flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                 >
                   <SyncArrowIcon direction="down" />
                   Pull {behind}
@@ -1613,7 +1613,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                   type="button"
                   onClick={() => void handlePush()}
                   disabled={Boolean(busy)}
-                  className="flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                  className={`flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-semibold tabular-nums text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                 >
                   <SyncArrowIcon direction="up" />
                   Push {ahead}
@@ -1709,7 +1709,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
                     type="button"
                     onClick={() => void handleReviewDiff()}
                     disabled={Boolean(busy) || !repoRoot}
-                    className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                    className={`h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                   >
                     Review changes
                   </button>
@@ -1939,7 +1939,7 @@ function GitPanelTab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] ${
+      className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors ${FOCUS_RING_CLASS} ${
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-default)]'
@@ -2275,7 +2275,7 @@ function ChangeGroup({
                       type="button"
                       onClick={() => void onRowPrimaryAction(entry, group.scope)}
                       disabled={Boolean(busy)}
-                      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-30 ${actionVisibility}`}
+                      className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:opacity-100 disabled:opacity-30 ${FOCUS_RING_CLASS} ${actionVisibility}`}
                       aria-label={`${primaryTitle}: ${entry.relativePath}`}
                     >
                       <GitActionIcon kind={group.actionIcon} />
@@ -2287,7 +2287,7 @@ function ChangeGroup({
                         type="button"
                         onClick={() => void onRowRevert(entry, group.scope)}
                         disabled={Boolean(busy)}
-                        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 focus:outline-none focus:ring-1 focus:ring-[color:var(--tone-error)] disabled:opacity-30 ${actionVisibility}`}
+                        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[color:var(--tone-error)] transition-colors hover:bg-[color:var(--tone-error-soft)] hover:text-[color:var(--tone-error)] focus:opacity-100 disabled:opacity-30 ${FOCUS_RING_CLASS} ${actionVisibility}`}
                         aria-label={`${revertTitle ?? group.secondaryAction.title}: ${entry.relativePath}`}
                       >
                         <GitActionIcon kind={group.secondaryAction.icon} />

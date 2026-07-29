@@ -8,6 +8,7 @@ import type { RegisteredSettingsSection } from '../../modules/renderer-host'
 import { moduleSettingsNamespace } from '../../store/slices/settingsSlice'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { SuspenseFallback } from '../ui/SuspenseFallback'
+import { FOCUS_RING_CLASS } from '../ui/tokens'
 
 const EMPTY_SECTION_VALUES: Readonly<Record<string, unknown>> = Object.freeze({})
 
@@ -31,7 +32,7 @@ export function ModuleSectionErrorFallback({
       <button
         type="button"
         onClick={onRetry}
-        className="mt-1.5 text-[12px] font-semibold text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
+        className={`mt-1.5 text-[12px] font-semibold text-[color:var(--text-default)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
       >
         Try again
       </button>

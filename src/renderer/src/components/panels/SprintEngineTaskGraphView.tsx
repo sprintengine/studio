@@ -726,7 +726,7 @@ export function SprintEngineTaskGraphView({
 
  return (
  <div
- className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-surface)] focus:outline-none"
+ className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--bg-surface)]"
  onKeyDown={handleGraphKeyDown}
  >
  <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-6 py-3">
@@ -900,7 +900,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setLegendOpen((open) => !open)}
  aria-expanded={legendOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] backdrop-blur interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
  Legend
  <svg
@@ -916,7 +916,7 @@ export function SprintEngineTaskGraphView({
  // Inline disclosure under the legend toggle: flow-positioned, no outside-click,
  // no Escape close. Not a popover semantically — kept as a graph-overlay
  // disclosure card so it doesn't fight canvas pan/zoom interactions.
- <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] backdrop-blur shadow-[var(--shadow-drawer)]">
+ <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-3 text-[11px] shadow-[var(--shadow-drawer)]">
  <div className="text-[9px] font-bold text-[color:var(--text-disabled)]">
  Status
  </div>
@@ -944,7 +944,7 @@ export function SprintEngineTaskGraphView({
  type="button"
  onClick={() => setMinimapOpen((open) => !open)}
  aria-expanded={minimapOpen}
- className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] backdrop-blur interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
+ className="flex items-center gap-1.5 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1 text-[10px] font-bold text-[color:var(--text-muted)] interactive transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--accent-primary-soft)]"
  >
  Minimap
  <svg
@@ -960,7 +960,7 @@ export function SprintEngineTaskGraphView({
  // Inline disclosure under the minimap toggle: flow-positioned, no
  // outside-click, no Escape close. Not a popover semantically — kept as a
  // graph-overlay disclosure card so canvas pan/zoom keeps working.
- <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 backdrop-blur shadow-[var(--shadow-drawer)]">
+ <div className="mt-1 rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-2 shadow-[var(--shadow-drawer)]">
  <div
  className="relative cursor-crosshair overflow-hidden rounded bg-[color:var(--bg-surface)]"
  style={{ width: minimapInnerWidth, height: minimapInnerHeight }}

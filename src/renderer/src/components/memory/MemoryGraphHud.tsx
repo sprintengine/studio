@@ -17,11 +17,10 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
   }
   const entries = [...counts.entries()].sort((a, b) => b[1] - a[1])
   if (entries.length === 0) return null
+  // Opaque surface + hairline, never a frost: the graph canvas underneath
+  // repaints on every pan, and a blur over it re-runs each frame.
   return (
-    <div
-      className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 px-3 py-2 text-[11px] text-[color:var(--text-default)] backdrop-blur-md"
-      style={{ WebkitBackdropFilter: 'blur(12px)' }}
-    >
+    <div className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[11px] text-[color:var(--text-default)]">
       <div className="mb-1.5 text-[11px] font-semibold text-[color:var(--text-disabled)]">
         Types
       </div>
@@ -57,8 +56,8 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
   const title = node.title?.trim() || node.name
   return (
     <div
-      className="pointer-events-none absolute z-10 max-w-[280px] rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 px-3 py-2 text-[11px] text-[color:var(--text-muted)] backdrop-blur-md"
-      style={{ left: x + 16, top: y + 16, WebkitBackdropFilter: 'blur(12px)' }}
+      className="pointer-events-none absolute z-10 max-w-[280px] rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-[11px] text-[color:var(--text-muted)]"
+      style={{ left: x + 16, top: y + 16 }}
     >
       <div className="flex items-center gap-2">
         <span

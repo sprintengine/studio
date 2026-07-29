@@ -223,12 +223,9 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     >
       {/* Floating top bar sits over the canvas without owning atmosphere. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-end gap-2 p-3">
-        <div
-          className="pointer-events-auto flex items-center gap-1.5 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 p-1 backdrop-blur-md"
-          style={{
-            WebkitBackdropFilter: 'blur(12px)',
-          }}
-        >
+        {/* Opaque surface + hairline, never a frost: the graph canvas underneath
+            repaints on every pan, and a blur over it re-runs each frame. */}
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] p-1">
           <div className="relative">
             <span
               className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[color:var(--text-subtle)]"
@@ -384,12 +381,7 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
       role="status"
       aria-live="polite"
     >
-      <div
-        className="flex items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]/85 px-2.5 py-1.5 text-[11px] backdrop-blur-md"
-        style={{
-          WebkitBackdropFilter: 'blur(10px)',
-        }}
-      >
+      <div className="flex items-center gap-2 rounded-[5px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-2.5 py-1.5 text-[11px]">
         <StatusDot tone={dotTone} pulse={isLive} />
         {!status.isInstalled ? (
           <span className={labelTone}>Activity tracking off</span>

@@ -17,7 +17,7 @@ import { isCommandEnabled, isCommandIdEnabled, type CommandAvailabilityContext }
 import type { CommandScope } from '../commands/types'
 import { getRendererHost, selectModuleEnabled } from '../modules'
 import { commandMatchesQuery, workspaceSearchKeywords } from './commandPaletteSearch'
-import { TruncatedText } from './ui'
+import { FOCUS_RING_CLASS, TruncatedText } from './ui'
 
 // The four canonical source groups the global-search palette organizes results
 // into (T6), plus a Files group for the active workspace's open editors. The
@@ -527,7 +527,7 @@ export default function CommandPalette({
       className="overlay-scrim fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
       onClick={(event) => event.target === event.currentTarget && onClose()}
     >
-      <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-2xl">
+      <div className="w-[600px] max-w-[95vw] overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]">
         <div className="flex items-center gap-2 border-b border-[color:var(--border-default)] px-4 py-3">
           <span className="text-sm text-[color:var(--text-disabled)]">⌘</span>
           <input
@@ -544,7 +544,7 @@ export default function CommandPalette({
             aria-expanded={filtered.length > 0}
             aria-controls="command-palette-results"
             aria-activedescendant={activeOptionId}
-            className="flex-1 bg-transparent text-sm text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] focus:outline-none"
+            className={`flex-1 bg-transparent text-sm text-[color:var(--text-strong)] placeholder-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
 

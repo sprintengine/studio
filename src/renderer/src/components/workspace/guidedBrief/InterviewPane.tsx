@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { TruncatedText } from '../../ui'
+import { FOCUS_RING_CLASS, TruncatedText } from '../../ui'
 import type { GuidedInterviewDecision, GuidedInterviewQuestion } from './interviewProtocol'
 
 // Native rendering of the structured specialist interview: resolved decisions
@@ -168,10 +168,10 @@ export function InterviewQuestionCard({
                   submit()
                 }
               }}
-              className="
+              className={`
                 w-full bg-transparent text-[12px] text-[color:var(--text-default)]
-                placeholder:text-[color:var(--text-subtle)] focus:outline-none
-              "
+                placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}
+              `}
             />
           </div>
         ) : null}

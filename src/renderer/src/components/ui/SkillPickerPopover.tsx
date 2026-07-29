@@ -10,6 +10,7 @@ import React, {
 import type { WorkspaceSkill, WorkspaceSkillSource } from '../../../../shared/electron-api'
 import { ensureSkillForAgent } from '../../utils/skillInvocation'
 import { Popover, type PopoverPlacement, type PopoverProps } from './Popover'
+import { FOCUS_RING_CLASS } from './tokens'
 import { Spinner } from './Spinner'
 import { StarGlyph } from './StarGlyph'
 import { Tooltip } from './Tooltip'
@@ -395,7 +396,7 @@ export function SkillPickerPopover({
             onKeyDown={onSearchKeyDown}
             placeholder="Search skills…"
             aria-label="Search skills"
-            className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
+            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
         <SkillList

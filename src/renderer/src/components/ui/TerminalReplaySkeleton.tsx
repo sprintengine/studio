@@ -41,7 +41,10 @@ function GhostLine({ widthClass }: { widthClass: string }) {
 
 export function TerminalReplaySkeleton() {
   return (
-    <div className="pointer-events-none absolute inset-0 z-[5] overflow-hidden bg-[color:var(--terminal-bg,var(--bg-app))] p-2 pb-4">
+    // The sticky layer (10): xterm's own helper layers are numbered inside the
+    // terminal box and `.xterm` opens no stacking context, so the placeholder
+    // has to name a layer to stay over them rather than rely on tree order.
+    <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden bg-[color:var(--terminal-bg,var(--bg-app))] p-2 pb-4">
       <span role="status" className="sr-only">
         Restoring terminal history…
       </span>

@@ -3,7 +3,7 @@ import type { McpCatalogServer } from '../../../../../shared/electron-api'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { launchableConnectors } from '../../panels/ConnectorsPanel/connectorsFacets'
 import { McpBrandIcon, mcpIconSlug } from '../../settings/McpCatalog'
-import { Popover, Spinner, TruncatedText, type PopoverPlacement, type PopoverProps } from '../../ui'
+import { FOCUS_RING_CLASS, Popover, Spinner, TruncatedText, type PopoverPlacement, type PopoverProps } from '../../ui'
 
 // The composer's "+ Connector" picker: the same launchable population as the
 // Connectors surface's Ready-to-launch rail (skill-paired catalog entries plus
@@ -182,7 +182,7 @@ export function ConnectorPickerPopover({
             onKeyDown={onSearchKeyDown}
             placeholder="Search connectors…"
             aria-label="Search connectors"
-            className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
+            className={`min-w-0 flex-1 bg-transparent px-1 py-1 text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
           />
         </div>
         {inventory.loading && matched.length === 0 ? (

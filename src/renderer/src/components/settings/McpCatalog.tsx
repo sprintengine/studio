@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import type { BuiltinSkill } from '../../../../shared/electron-api'
 import type { McpCatalogServer, McpServerConfig } from '../../types/workspace'
-import { GhostButton, PrimaryButton, TruncatedText } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, PrimaryButton, TruncatedText } from '../ui'
 import { mcpMonogram } from './mcpMonogram'
 
 export function mcpServerFromCatalog(server: McpCatalogServer): McpServerConfig {
@@ -233,7 +233,7 @@ export function McpInfoPanel({
             href={server.sourceUrl}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
+            className={`mt-1 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
           >
             Source docs
           </a>

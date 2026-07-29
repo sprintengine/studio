@@ -11,7 +11,7 @@ interface StepRailProps {
 function StepRing({ view }: { view: StepView }) {
   if (view.read) {
     return (
-      <span className="relative z-[1] mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]">
+      <span className="relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]">
         <svg viewBox="0 0 16 16" className="icon-xs" fill="none" aria-hidden="true">
           <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -19,7 +19,7 @@ function StepRing({ view }: { view: StepView }) {
     )
   }
   return (
-    <span className="relative z-[1] mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] text-[10.5px] font-semibold tabular-nums text-[color:var(--text-muted)]">
+    <span className="relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] text-[10.5px] font-semibold tabular-nums text-[color:var(--text-muted)]">
       {view.index}
     </span>
   )
@@ -59,7 +59,7 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         }`}
       >
         <span
-          className={`relative z-[1] mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border bg-[color:var(--bg-surface)] text-[11px] ${
+          className={`relative mt-px inline-flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full border bg-[color:var(--bg-surface)] text-[11px] ${
             activePaneId === OVERVIEW_PANE_ID
               ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
               : 'border-[color:var(--border-strong)] text-[color:var(--text-muted)]'
@@ -74,6 +74,9 @@ export function StepRail({ rail, activePaneId, onSelectPane }: StepRailProps) {
         </span>
       </button>
 
+      {/* The connector line is this element's ::before, so the step rings mask
+          it by tree order alone — they are siblings on the same layer, not a
+          raise above it, and take no z-index. */}
       <div className="relative before:absolute before:bottom-3.5 before:left-[26px] before:top-3.5 before:w-px before:bg-[color:var(--border-subtle)] before:content-['']">
         {rail.steps.map((view) => {
           const active = activePaneId === view.step.id

@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelListbox, SkillPickerPopover, StarGlyph, Tooltip, TruncatedText } from '../../ui'
+import { CliModelListbox, FOCUS_RING_CLASS, SkillPickerPopover, StarGlyph, Tooltip, TruncatedText } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SpecialistActionId, SprintEngineCliPermissionPreset } from '../../../types/workspace'
 import {
@@ -220,7 +220,7 @@ export default function AgentComposerPopover({
           aria-label="Search agents"
           aria-controls="agent-composer-pop-roster"
           aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-          className="min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
+          className={`min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
         />
       </div>
 
@@ -387,7 +387,7 @@ export default function AgentComposerPopover({
                 }}
                 placeholder="name (auto)"
                 aria-label="Worktree name — leave empty to derive from the agent's name"
-                className="w-24 min-w-0 bg-transparent font-normal text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] focus:outline-none"
+                className={`w-24 min-w-0 bg-transparent font-normal text-[color:var(--text-default)] placeholder:text-[color:var(--text-subtle)] ${FOCUS_RING_CLASS}`}
               />
               <button
                 type="button"

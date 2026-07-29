@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { GhostButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import { FOCUS_RING_CLASS, GhostButton, PrimaryButton, StatusDot, type Tone } from '../ui'
 import { MetaCell, SettingsRow, SettingsSectionTitle, SettingToggle, formatNullableDate } from './SettingsAtoms'
 
 type MobileControlCommandType =
@@ -378,7 +378,7 @@ export default function MobileSettingsTab() {
             <button
               type="button"
               onClick={() => void copyPairingCode()}
-              className="block font-mono text-[32px] font-semibold tracking-[0.2em] text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] focus:outline-none focus-visible:text-[color:var(--accent-primary)]"
+              className={`block font-mono text-[32px] font-semibold tracking-[0.2em] text-[color:var(--text-strong)] transition-colors hover:text-[color:var(--accent-primary)] focus-visible:text-[color:var(--accent-primary)] ${FOCUS_RING_CLASS}`}
               aria-label={`Copy pairing code ${pairingChallenge.pairingCode}`}
             >
               {pairingChallenge.pairingCode}

@@ -5,7 +5,7 @@ import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
 import { slugifyWorktreeName, worktreeContainerPath, worktreeIdFromPath } from '../../utils/workspaceWorktree'
-import { Field, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
+import { Field, FOCUS_RING_CLASS, LifecycleGlyph, OverflowMenu, Select, Spinner, type LifecycleState, type SelectItem } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
 type WorktreeMessage = {
@@ -378,7 +378,7 @@ export default function WorktreeManager({
           <button
             type="button"
             onClick={() => setOpen((current) => !current)}
-            className="group flex min-w-0 items-center gap-1.5 rounded-md pr-2 text-left focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)]"
+            className={`group flex min-w-0 items-center gap-1.5 rounded-md pr-2 text-left ${FOCUS_RING_CLASS}`}
             aria-expanded={open}
           >
             <svg
@@ -400,7 +400,7 @@ export default function WorktreeManager({
               onClick={() => setCreating((current) => !current)}
               disabled={formDisabled}
               aria-expanded={creating}
-              className="h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+              className={`h-6 rounded-md px-2 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
             >
               {creating ? 'Cancel' : '+ New worktree'}
             </button>
@@ -466,7 +466,7 @@ export default function WorktreeManager({
                   type="button"
                   onClick={() => setCreating(false)}
                   disabled={formDisabled}
-                  className="h-8 rounded-md px-3 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-default)] disabled:opacity-35"
+                  className={`h-8 rounded-md px-3 text-[11px] font-semibold text-[color:var(--text-muted)] transition-colors hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)] disabled:opacity-35 ${FOCUS_RING_CLASS}`}
                 >
                   Cancel
                 </button>
@@ -474,7 +474,7 @@ export default function WorktreeManager({
                   type="button"
                   onClick={() => void handleCreate()}
                   disabled={!canCreate}
-                  className="h-8 rounded-md bg-[color:var(--accent-primary)] px-3 text-[11px] font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] focus:outline-none focus:ring-1 focus:ring-[color:var(--accent-primary)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)]"
+                  className={`h-8 rounded-md bg-[color:var(--accent-primary)] px-3 text-[11px] font-semibold text-[color:var(--text-on-accent)] transition-colors hover:bg-[color:var(--accent-primary-hover)] disabled:bg-[color:var(--bg-hover)] disabled:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
                 >
                   Create worktree
                 </button>

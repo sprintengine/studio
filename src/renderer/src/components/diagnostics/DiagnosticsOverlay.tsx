@@ -49,14 +49,17 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
 
   return (
     <div
-      className="overlay-scrim fixed inset-0 z-[60] flex items-center justify-center p-6"
+      // Diagnostics is a modal dialog, so it takes the modal layer by name.
+      // It is deliberately the app's topmost surface: it is opened to observe
+      // whatever is already on screen, so it must never sit under it.
+      className="overlay-scrim fixed inset-0 z-[var(--sem-z-modal)] flex items-center justify-center p-6"
       onClick={handleBackdropClick}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Performance diagnostics"
-        className="flex h-full max-h-[90vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-2xl"
+        className="flex h-full max-h-[90vh] w-full max-w-[1100px] flex-col overflow-hidden rounded-xl border border-[color:var(--border-strong)] bg-[color:var(--bg-surface)] shadow-[var(--shadow-modal)]"
       >
         <DiagnosticsContent
           headerActions={

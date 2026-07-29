@@ -2310,7 +2310,7 @@ function ChangedFilesSection({ task }: { task: SprintEngineTask }) {
                   aria-expanded={expanded}
                   aria-controls={panelId}
                   onClick={() => toggle(diff.path)}
-                  className={`${rowLayout} interactive transition-colors hover:bg-[color:var(--bg-hover)] focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]`}
+                  className={`${rowLayout} interactive transition-colors hover:bg-[color:var(--bg-hover)] ${FOCUS_RING_CLASS} focus-visible:ring-inset`}
                 >
                   {rowContent}
                 </button>

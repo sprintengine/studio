@@ -23,6 +23,7 @@ import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
   CloseIconButton,
   Field,
+  FOCUS_RING_CLASS,
   GhostButton,
   LifecycleGlyph,
   PrimaryButton,
@@ -1781,7 +1782,7 @@ export default function SettingsPanel({
                 <button
                   type="button"
                   onClick={() => void window.api.updateOpenReleaseNotes()}
-                  className="text-[12px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline"
+                  className={`text-[12px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_CLASS}`}
                 >
                   Release notes
                 </button>
@@ -2375,7 +2376,7 @@ export default function SettingsPanel({
                               type="button"
                               onClick={() => void openEditRole(role.id)}
                               disabled={editLoading || deletePending}
-                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus:outline-none focus-visible:underline focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--text-strong)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
                             >
                               {editLoading ? 'Opening' : 'Edit'}
                               <span className="sr-only"> {role.label}</span>
@@ -2384,7 +2385,7 @@ export default function SettingsPanel({
                               type="button"
                               onClick={() => void deleteUserRole(role.id, role.label)}
                               disabled={editLoading || deletePending}
-                              className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus:outline-none focus-visible:underline focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                              className={`rounded px-1.5 py-0.5 text-[11px] font-semibold text-[color:var(--text-subtle)] opacity-0 transition-[color,opacity] hover:text-[color:var(--tone-error)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 ${FOCUS_RING_CLASS}`}
                             >
                               {deletePending ? 'Deleting' : 'Delete'}
                               <span className="sr-only"> {role.label}</span>

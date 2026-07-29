@@ -1,7 +1,7 @@
 import React from 'react'
 import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
-import { CliModelListbox, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
+import { CliModelListbox, FOCUS_RING_CLASS, Popover, SkillPickerPopover, StarGlyph, TruncatedText } from '../../ui'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../shared/electron-api'
@@ -191,7 +191,7 @@ export default function AgentComposer({
               aria-label="Search agents"
               aria-controls="agent-composer-roster"
               aria-activedescendant={selectedRow ? optionId(selectedRow) : undefined}
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] focus:outline-none"
+              className={`min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--text-strong)] placeholder:text-[color:var(--text-disabled)] ${FOCUS_RING_CLASS}`}
             />
           </div>
 

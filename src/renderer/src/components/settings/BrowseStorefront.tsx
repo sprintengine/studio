@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { CloseIconButton, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
+import { CloseIconButton, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
 import { mcpMonogram } from './McpCatalog'
 import { PermissionChips } from './ThirdPartyModuleList'
 import { componentKindLabels, externalSourceHref } from './storefrontView'
@@ -166,6 +166,7 @@ export function PluginDetailPanel({
         <div className="flex min-w-0 items-center gap-3">
           <PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={32} />
           <div className="min-w-0">
+            {/* design-system-allow: heading is a programmatic focus target only (tabIndex -1, moved to on selection) — it never receives keyboard focus */}
             <h5 ref={headingRef} tabIndex={-1} className="truncate text-[14px] font-semibold leading-5 text-[color:var(--text-strong)] focus:outline-none">
               {plugin.name}
             </h5>
@@ -221,7 +222,7 @@ export function PluginDetailPanel({
           href={sourceHref}
           target="_blank"
           rel="noreferrer"
-          className="mt-3 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] focus:outline-none focus-visible:underline"
+          className={`mt-3 inline-flex text-[12px] font-semibold text-[color:var(--accent-primary)] hover:text-[color:var(--accent-primary-hover)] ${FOCUS_RING_CLASS}`}
         >
           View source
         </a>

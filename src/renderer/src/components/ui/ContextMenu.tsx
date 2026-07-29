@@ -164,6 +164,7 @@ export function ContextMenu({ x, y, ariaLabel, onClose, children, surfaceClassNa
       tabIndex={-1}
       onKeyDown={(event) => roveMenuFocus(event, ref.current)}
       style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: MENU_Z_INDEX }}
+      // design-system-allow: tabIndex -1 surface focused only to seed roving focus; the menu item that takes focus carries the shared ring
       className={`${MENU_SURFACE_CLASS} focus:outline-none ${surfaceClassName ?? ''}`}
     >
       {children}
@@ -371,6 +372,7 @@ function MenuFlyoutSurface({
         roveMenuFocus(event, ref.current)
       }}
       style={{ position: 'fixed', left: pos.left, top: pos.top, zIndex: MENU_Z_INDEX }}
+      // design-system-allow: tabIndex -1 flyout surface focused only to seed roving focus; the menu item that takes focus carries the shared ring
       className={`${MENU_SURFACE_CLASS} focus:outline-none ${surfaceClassName ?? ''}`}
     >
       {children}
