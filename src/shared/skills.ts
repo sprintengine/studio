@@ -207,14 +207,21 @@ export type AgentMcpServer = {
 }
 
 /**
- * Why one path could not be read. A union, not a boolean: `malformed` (a file
- * that opened but could not be parsed) is a different fault from one that could
- * not be opened at all, and the likeliest real-world one for a config file.
+ * Why one path could not be read, or could not be kept true. A union, not a
+ * boolean: `malformed` (a file that opened but could not be parsed) is a
+ * different fault from one that could not be opened at all, and the likeliest
+ * real-world one for a config file. `watch_unavailable` is not a read failure
+ * at all — the answer is correct as of the read and may go stale.
  */
-export type CapabilityDiagnosticReason = 'unreadable' | 'malformed'
+export type CapabilityDiagnosticReason = 'unreadable' | 'malformed' | 'watch_unavailable'
 
-/** Which half of the answer a fault belongs to. */
-export type CapabilityKind = 'skills' | 'servers'
+/**
+ * Which half of the answer a fault belongs to, or `freshness` for one that
+ * belongs to neither: a path that could not be watched leaves both halves
+ * readable but possibly stale, which a surface must say differently from a
+ * half that failed to read.
+ */
+export type CapabilityKind = 'skills' | 'servers' | 'freshness'
 
 export type CapabilityDiagnostic = {
   /**
@@ -250,6 +257,25 @@ export type AgentCapabilitiesResult =
       diagnostics: CapabilityDiagnostic[]
     }
   | { ok: false; message: string }
+
+export type AgentCapabilitiesWatchInput = {
+  workspaceRoot: string
+}
+
+/**
+ * "Ask again" — never the new answer. One per `(workspaceRoot, harnessId)`
+ * after the watcher's debounce, so a ten-file install moves the surface once.
+ *
+ * `harnessId` is the coalescing identity; `pluginIds` says which CLIs' queries
+ * it covers, because a CLI can declare an MCP config and no skill integration
+ * at all (cursor) and so has no harness id to be addressed by.
+ */
+export type AgentCapabilitiesInvalidation = {
+  workspaceRoot: string
+  /** '' when the group is a CLI that declares no skill integration. */
+  harnessId: string
+  pluginIds: string[]
+}
 
 export type SkillFrontmatter = {
   name: string

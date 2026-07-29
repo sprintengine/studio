@@ -267,7 +267,10 @@ async function main(): Promise<void> {
   const userDataDir = temporaryDir('multicode-seam-skills-userdata-')
 
   const { createSkillsService } = await import('../main/skills')
-  const { createWorkspaceSkillsService } = await import('../main/workspace-skills-service')
+  const { createAgentCapabilityService, createFsSkillDirectoryReader, createWorkspaceSkillsService } =
+    await import('../main/workspace-skills-service')
+  const { createCapabilityWatcher } = await import('../main/capability-watcher')
+  const { createMcpServerResolver } = await import('../main/mcp-config-readers/resolve-servers')
   const { registerSkillsIpc } = await import('../main/ipc/skills-ipc')
   const { registerWorkspaceSkillsIpc } = await import('../main/ipc/workspace-skills-ipc')
   const { skillsApi } = await import('../preload/api/skills')
@@ -289,7 +292,20 @@ async function main(): Promise<void> {
   // to `ipcRenderer.invoke`: a channel the preload spells differently from the
   // one main registers fails here rather than in production.
   registerSkillsIpc(ipcMain, service)
-  registerWorkspaceSkillsIpc(ipcMain, createWorkspaceSkillsService())
+  // No plugins in this seam: it exercises the skill-source half, and an empty
+  // registry is what "this machine has no CLI installed" resolves to.
+  const capabilityWatcher = createCapabilityWatcher({ listPlugins: () => [], lookupManifest: () => undefined })
+  registerWorkspaceSkillsIpc(ipcMain, {
+    workspaceSkills: createWorkspaceSkillsService(),
+    agentCapabilities: createAgentCapabilityService({
+      reader: createFsSkillDirectoryReader(),
+      listPlugins: () => [],
+      lookupManifest: () => undefined,
+      mcpResolver: createMcpServerResolver(),
+      freshness: capabilityWatcher,
+    }),
+    capabilityWatcher,
+  })
   domWindow.api = withInertPreloadFallback({ platform: 'darwin', ...skillsApi, ...workspaceSkillsApi })
 
   await testScanBrowseReadInstallSync(workspaceRoot)

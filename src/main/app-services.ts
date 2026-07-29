@@ -31,6 +31,7 @@ import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
+import { createCapabilityWatcher } from './capability-watcher'
 import { createMcpConfigService } from './mcp-config-service'
 import { createSkillsService } from './skills'
 import {
@@ -103,11 +104,23 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // means the hub process cannot start, by explicit error rather than silence.
   const sprintEngineMcpHub = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ logMainPerfEvent }))
   const workspaceSkillsService = createWorkspaceSkillsService()
+  // The watcher is built first because the capability answer has to state
+  // whether it can be kept true: a workspace whose paths could not be watched
+  // is stale-but-correct, and the surface says so from `diagnostics`.
+  const capabilityWatcher = createCapabilityWatcher({
+    listPlugins: () => listPluginRegistryEntries(),
+    lookupManifest: (pluginId) => getPluginManifest(pluginId),
+    onWorkspaceFocus: (listener) => {
+      app.on('browser-window-focus', listener)
+      return () => app.off('browser-window-focus', listener)
+    },
+  })
   const agentCapabilityService = createAgentCapabilityService({
     reader: createFsSkillDirectoryReader(),
     listPlugins: () => listPluginRegistryEntries(),
     lookupManifest: (pluginId) => getPluginManifest(pluginId),
     mcpResolver: createMcpServerResolver(),
+    freshness: capabilityWatcher,
   })
 
   function getAuthenticatedMulticodeUserId(): string | null {
@@ -664,6 +677,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     workspaceBackupService,
     workspaceSkillsService,
     agentCapabilityService,
+    capabilityWatcher,
     workspaceSyncService,
     workspaceSyncRoutingSnapshotStore,
   }

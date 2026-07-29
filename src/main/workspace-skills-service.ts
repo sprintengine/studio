@@ -9,6 +9,7 @@ import type {
   WorkspaceSkillsListResult,
 } from '../shared/electron-api'
 import { buildHarnessMap, type HarnessBinding } from '../shared/harness-map'
+import type { CapabilityWatcher } from './capability-watcher'
 import type { PluginManifest, PluginRegistryListEntry } from '../shared/plugin-manifest'
 import type { McpServerResolver, ResolvedMcpServers } from './mcp-config-readers/resolve-servers'
 import { plainSkillInvocation, resolveSkillInvocation } from '../shared/skill-invocation'
@@ -127,6 +128,12 @@ export function createAgentCapabilityService(options: {
   /** Manifests, not list entries: `mcpConfig` is not projected to the renderer. */
   lookupManifest: (pluginId: string) => PluginManifest | undefined
   mcpResolver: McpServerResolver
+  /**
+   * The freshness watcher, when one is running. It answers whether this list
+   * can be kept true; a workspace it could not watch is stale-but-correct, and
+   * the surface must be able to say so rather than present it as live.
+   */
+  freshness?: Pick<CapabilityWatcher, 'diagnosticsFor'>
 }): AgentCapabilityService {
   return {
     async resolve({ workspaceRoot, pluginId }): Promise<AgentCapabilitiesResult> {
@@ -151,7 +158,11 @@ export function createAgentCapabilityService(options: {
         harnessId: binding?.harnessId ?? '',
         skills: skills.skills,
         servers: mcp.servers,
-        diagnostics: [...skills.diagnostics, ...mcp.diagnostics],
+        diagnostics: [
+          ...skills.diagnostics,
+          ...mcp.diagnostics,
+          ...(options.freshness?.diagnosticsFor(root, pluginId) ?? []),
+        ],
       }
     },
   }

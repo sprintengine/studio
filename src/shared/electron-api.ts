@@ -1,7 +1,9 @@
 import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './voiceTranscription'
 import type {
   AgentCapabilitiesInput,
+  AgentCapabilitiesInvalidation,
   AgentCapabilitiesResult,
+  AgentCapabilitiesWatchInput,
   ScanResult,
   SkillDiscoveryResult,
   SkillHarness,
@@ -16,7 +18,9 @@ export type { SkillHarness } from './skills'
 // IPC envelopes, same split as the skill-source calls below.
 export type {
   AgentCapabilitiesInput,
+  AgentCapabilitiesInvalidation,
   AgentCapabilitiesResult,
+  AgentCapabilitiesWatchInput,
   AgentMcpServer,
   AgentSkill,
   AgentSkillSource,
@@ -2932,6 +2936,13 @@ export type ElectronApi = {
   // Everything the agent in one CLI can reach in one workspace, in one call:
   // its skills, its MCP servers, and any path that failed to read.
   agentCapabilities: (input: AgentCapabilitiesInput) => Promise<AgentCapabilitiesResult>
+  // Keeping that answer true while a surface stays open. Main watches the paths
+  // it resolved and says only *that* they changed; the refetch goes back through
+  // agentCapabilities, so there is one source of truth for the list. Refcounted:
+  // stop what you start, or the watchers outlive the surface.
+  agentCapabilitiesWatchStart: (input: AgentCapabilitiesWatchInput) => Promise<void>
+  agentCapabilitiesWatchStop: (input: AgentCapabilitiesWatchInput) => Promise<void>
+  onAgentCapabilitiesInvalidated: (cb: (event: AgentCapabilitiesInvalidation) => void) => () => void
   skillsListSources: () => Promise<SkillSourcesResult>
   skillsAddSource: (input: SkillAddSourceInput) => Promise<SkillAddSourceResult>
   skillsRemoveSource: (input: SkillRemoveSourceInput) => Promise<SkillRemoveSourceResult>
