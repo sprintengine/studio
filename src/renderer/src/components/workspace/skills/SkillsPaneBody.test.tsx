@@ -125,6 +125,46 @@ const stale = render({
 assert.match(stale, /This list may be out of date\./)
 assert.match(stale, /backlog/, 'stale: the list is still shown, because it is still correct')
 
+// An unreadable path is normally unwatchable too. The danger banner already
+// names that path and offers the retry, so the quieter stale banner must not
+// repeat the same failure — with the watcher's raw error string attached.
+const failedAndUnwatchable = render({
+  snapshot: snapshot({
+    diagnostics: [
+      { capability: 'skills', reason: 'unreadable', path: '.claude/skills', message: 'EACCES' },
+      {
+        capability: 'freshness',
+        reason: 'watch_unavailable',
+        path: '.claude/skills',
+        message: 'EACCES: permission denied, watch \'.claude/skills\'. Picked up on focus.',
+      },
+    ],
+  }),
+})
+assert.match(failedAndUnwatchable, /Could not read this agent’s skills\./)
+assert.doesNotMatch(
+  failedAndUnwatchable,
+  /This list may be out of date\./,
+  'one failed path is one banner, not two',
+)
+
+// A watch that fails on a path that still reads is its own state, and keeps its
+// banner.
+const staleOnly = render({
+  snapshot: snapshot({
+    skills: [SKILL],
+    diagnostics: [
+      {
+        capability: 'freshness',
+        reason: 'watch_unavailable',
+        path: '.claude/skills',
+        message: 'Watching is unavailable here.',
+      },
+    ],
+  }),
+})
+assert.match(staleOnly, /This list may be out of date\./, 'a lone watch failure still says so')
+
 // --- search with no matches is its own empty, and offers Extensions ----------
 const noMatches = render({ snapshot: snapshot({ skills: [SKILL] }), query: 'zzz' })
 assert.match(noMatches, /No skill or server matches “zzz”\./)

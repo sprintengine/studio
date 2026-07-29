@@ -212,9 +212,22 @@ function noticesFor(input: SkillsPaneInput, snapshot: CapabilitySnapshot | null)
     notices.push({ kind: 'unsupported', agentLabel })
   }
 
+  // A path that cannot be read usually cannot be watched either, so the same
+  // failure arrives twice: once as `unreadable`, once as `watch_unavailable`.
+  // The danger banner already names that path and offers the retry, so a second
+  // banner repeating it in a quieter voice — carrying the watcher's raw error
+  // string — is the one failure read twice.
+  const unreadablePaths = new Set(
+    (snapshot?.diagnostics ?? [])
+      .filter((diagnostic) => diagnostic.capability !== 'freshness' && diagnostic.path)
+      .map((diagnostic) => diagnostic.path),
+  )
+
   for (const diagnostic of snapshot?.diagnostics ?? []) {
     if (diagnostic.reason === 'watch_unavailable') {
-      notices.push({ kind: 'stale', message: diagnostic.message })
+      if (!unreadablePaths.has(diagnostic.path)) {
+        notices.push({ kind: 'stale', message: diagnostic.message })
+      }
       continue
     }
     // `unreadable` and `malformed` are both "this path did not answer". They
