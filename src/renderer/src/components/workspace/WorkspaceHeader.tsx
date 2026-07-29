@@ -183,7 +183,13 @@ export function WorkspaceHeader<MenuItem extends string>({
         >
           {onOpenDiagnostics ? <DiagnosticsButton onOpen={onOpenDiagnostics} /> : null}
           <AttentionQueuePopover {...attentionQueue} />
-          <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
+          {/* Workspace-scoped, so it goes with the left cluster while a door
+              paints over the card: diagnostics and the attention cue stay useful
+              on a door, but toggling a pane in a layout nobody can see would be
+              a control that visibly does nothing. */}
+          {globalSurfaceActive ? null : (
+            <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
+          )}
         </div>
       </div>
     </div>
