@@ -56,11 +56,19 @@ export function Switch({
       onClick={toggle}
       onKeyDown={handleKeyDown}
       className={[
-        'interactive relative inline-flex h-4 w-7 shrink-0 items-center rounded-full',
+        // 32×18 track, 12px thumb, 2px inset at both ends. The off-state
+        // hairline is an inset shadow rather than a border so the content box
+        // stays a true 32px: a layout border would push the thumb 1px in on
+        // the off state only, and would pop rather than fade on toggle. It
+        // rides `.interactive`'s box-shadow transition, and composes with the
+        // focus ring (a separate Tailwind shadow slot) instead of replacing
+        // it. Travel, press stretch, and the reduced-motion guard live on
+        // `.switch-track`/`.switch-thumb` in assets/index.css.
+        'switch-track interactive relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full',
         'disabled:cursor-not-allowed disabled:opacity-45',
         checked
-          ? 'bg-[color:var(--accent-primary)]'
-          : 'border border-[color:var(--border-default)] bg-[color:var(--bg-active)]',
+          ? 'bg-[color:var(--accent-primary)] shadow-[inset_0_0_0_1px_transparent]'
+          : 'bg-[color:var(--bg-active)] shadow-[inset_0_0_0_1px_var(--border-default)]',
         FOCUS_RING_CLASS,
         className ?? '',
       ].join(' ')}
@@ -76,11 +84,10 @@ export function Switch({
           // --text-strong broke on themes where accent + text were both
           // bright (Conifer gold + pale sage, Lantern amber + warm cream,
           // Graphite white + light grey).
-          'inline-block h-3 w-3 transform rounded-full transition-transform',
+          'switch-thumb inline-block h-3 w-3 rounded-full',
           checked
             ? 'bg-[color:var(--text-on-accent)]'
             : 'bg-[color:var(--text-strong)]',
-          checked ? 'translate-x-3.5' : 'translate-x-0.5',
         ].join(' ')}
       />
     </button>

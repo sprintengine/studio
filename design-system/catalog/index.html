@@ -86,11 +86,11 @@
   --sem-shadow-modal: 0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18);
   --sem-font-family-ui: Inter, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --sem-font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-  --sem-font-size-micro: 10px;
-  --sem-font-size-meta: 11px;
-  --sem-font-size-body: 12px;
-  --sem-font-size-heading: 13px;
-  --sem-font-size-title: 15px;
+  --sem-font-size-micro: 11px;
+  --sem-font-size-meta: 12px;
+  --sem-font-size-body: 13px;
+  --sem-font-size-heading: 14px;
+  --sem-font-size-title: 16px;
   --sem-font-weight-regular: 400;
   --sem-font-weight-medium: 500;
   --sem-font-weight-emphasis: 600;
@@ -100,10 +100,10 @@
   --sem-font-tracking-tight: -0.01em;
   --sem-font-tracking-normal: 0;
   --sem-font-tracking-wide: 0.02em;
-  --sem-icon-size-xs: 12px;
-  --sem-icon-size-sm: 14px;
-  --sem-icon-size-md: 16px;
-  --sem-icon-size-lg: 20px;
+  --sem-icon-size-xs: 13px;
+  --sem-icon-size-sm: 16px;
+  --sem-icon-size-md: 18px;
+  --sem-icon-size-lg: 22px;
   --sem-radius-chip: 3px;
   --sem-radius-control: 5px;
   --sem-radius-overlay: 7px;
@@ -122,9 +122,9 @@
   --sem-space-2xl: 20px;
   --sem-space-3xl: 24px;
   --sem-space-4xl: 32px;
-  --sem-size-control-xs: 24px;
-  --sem-size-control-sm: 28px;
-  --sem-size-control-md: 32px;
+  --sem-size-control-xs: 26px;
+  --sem-size-control-sm: 30px;
+  --sem-size-control-md: 34px;
   --sem-size-hit-target-min: 24px;
   --sem-focus-ring-width: 2px;
   --sem-focus-ring: 0 0 0 2px var(--sem-color-border-focus);
@@ -489,6 +489,10 @@ code {
 #ds-view-component-input:checked ~ .ds-catalog #component-input { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-list-row:checked ~ .ds-catalog #component-list-row { display: block; }
+#ds-view-component-split-button:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-split-button:checked ~ .ds-catalog #component-split-button { display: block; }
+#ds-view-component-switch:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-switch:checked ~ .ds-catalog #component-switch { display: block; }
 #ds-view-component-task-card:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-task-card:checked ~ .ds-catalog #component-task-card { display: block; }
 #ds-view-component-tooltip:checked ~ .ds-catalog #components { display: block; }
@@ -501,6 +505,10 @@ code {
 #ds-view-component-input:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-input"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-list-row:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-list-row:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-list-row"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-split-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-split-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-split-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-split-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-switch:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-switch"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-switch:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-switch"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-task-card:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-task-card:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-tooltip:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tooltip"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -928,6 +936,215 @@ code {
   }
 }
 
+/* components/split-button/component.css */
+/* Split button — one bordered group carrying two targets: a default action and
+ * a menu that lists the alternatives. Extracted from the source product's
+ * open-in-editor control (src/renderer/src/components/ui/SplitButton.tsx).
+ *
+ * The group owns the border, the radius, and the height; the halves are
+ * borderless and separated by one internal hairline. That is what keeps it a
+ * single object rather than two buttons that happen to touch. */
+
+.ds-split-button {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--sem-size-control-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  /* Clips each half's hover fill to the group's rounded corners. The focus ring
+   * is drawn inset for the same reason — an outer ring would be clipped here. */
+  overflow: hidden;
+}
+
+.ds-split-button__primary,
+.ds-split-button__chevron {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  border: none;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-split-button__primary {
+  padding: 0 var(--sem-space-md);
+}
+
+/* The menu half: narrower than the label half, and the only place the internal
+ * hairline lives. */
+.ds-split-button__chevron {
+  padding: 0 var(--sem-space-2xs);
+  border-left: 1px solid var(--sem-color-border-subtle);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-split-button__chevron svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-split-button__primary:hover:not(:disabled),
+.ds-split-button__chevron:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Held open: the menu half stays lit while its popover is on screen, so the
+ * open surface is visibly tied to the half that opened it. */
+.ds-split-button__chevron[aria-expanded='true'] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-split-button__primary:focus-visible,
+.ds-split-button__chevron:focus-visible {
+  outline: none;
+  /* Inset, not the shared --sem-focus-ring: the group clips overflow. */
+  box-shadow: inset var(--sem-focus-ring);
+}
+
+.ds-split-button__primary:disabled,
+.ds-split-button__chevron:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The target mark leading the label — a two-letter mono mark or a small glyph,
+ * boxed so every target reads at the same weight whichever form it takes. */
+.ds-split-button__glyph {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  line-height: 1;
+}
+
+.ds-split-button__glyph svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* Size step for surfaces on the md control row (overlay footers, forms). */
+.ds-split-button--md {
+  height: var(--sem-size-control-md);
+}
+
+.ds-split-button--md .ds-split-button__primary,
+.ds-split-button--md .ds-split-button__chevron {
+  font-size: var(--sem-font-size-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-split-button__primary,
+  .ds-split-button__chevron {
+    transition: none;
+  }
+}
+
+/* components/switch/component.css */
+/* Switch — extracted from the source product's Switch primitive
+ * (src/renderer/src/components/ui/Switch.tsx plus the .switch-thumb rule in
+ * src/renderer/src/assets/index.css). */
+
+/* 32x18 track holding a 12px thumb at a 2px inset on both ends.
+ *
+ * The off-state hairline is an inset shadow, not a border: a border would eat
+ * 1px of the box on the off state only, so the thumb would sit 1px further in
+ * when off than when on, and the hairline would pop rather than fade on
+ * toggle. As a shadow it crossfades with the fill and composes with the focus
+ * ring instead of fighting it. */
+.ds-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--sem-color-bg-active);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-switch[aria-checked='true'] {
+  background: var(--sem-color-accent-primary);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+
+.ds-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The thumb is the one place the system animates a size. Travel reads at
+ * `normal`; the ink crossfade rides `fast` with the track under it. Offsets
+ * are absolute, not deltas: 2px at rest, 32 - 12 - 2 = 18px at the far end. */
+.ds-switch-thumb {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--sem-color-text-primary);
+  translate: 2px 0;
+  transition-property: translate, width, background-color;
+  transition-duration:
+    var(--sem-motion-duration-normal), var(--sem-motion-duration-normal),
+    var(--sem-motion-duration-fast);
+  transition-timing-function: var(--sem-motion-ease-standard);
+}
+
+/* On the accent fill the thumb takes the accent's own foreground. A static
+ * light thumb disappears on any theme whose accent is itself bright. */
+.ds-switch[aria-checked='true'] .ds-switch-thumb {
+  background: var(--sem-color-text-on-accent);
+  translate: 18px 0;
+}
+
+/* One detail, not a spring: under the press the thumb stretches 3px, anchored
+ * at the end it is resting against, and settles back on release. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-switch:active:not(:disabled) .ds-switch-thumb {
+    width: 15px;
+  }
+  .ds-switch[aria-checked='true']:active:not(:disabled) .ds-switch-thumb {
+    translate: 15px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-switch,
+  .ds-switch-thumb {
+    transition: none;
+  }
+}
+
 /* components/task-card/component.css */
 /* Task card — extracted from the source product's TaskCard primitive
  * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
@@ -1158,6 +1375,94 @@ code {
   }
 .ds-embed-component-list-row .demo-pane--narrow {
     max-width: 220px;
+  }
+.ds-embed-component-split-button {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-split-button .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-split-button .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+.ds-embed-component-split-button .demo-row:last-child {
+    margin-bottom: 0;
+  }
+.ds-embed-component-split-button .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+.ds-embed-component-split-button .demo-menu {
+    min-width: 200px;
+    padding: var(--sem-space-2xs);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+  }
+.ds-embed-component-split-button .demo-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    width: 100%;
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    border: none;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    text-align: left;
+    cursor: pointer;
+  }
+.ds-embed-component-split-button .demo-item:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+.ds-embed-component-split-button .demo-trail {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+  }
+.ds-embed-component-switch {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-switch .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-switch .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+.ds-embed-component-switch .demo-row:last-child {
+    margin-bottom: 0;
+  }
+.ds-embed-component-switch .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+.ds-embed-component-switch .demo-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
   }
 .ds-embed-component-task-card {
     margin: 0;
@@ -1558,6 +1863,8 @@ code {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-input" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-list-row" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-split-button" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-switch" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-patterns" />
@@ -1583,6 +1890,8 @@ code {
 <label class="catalog-nav-item" for="ds-view-component-button">Button</label>
 <label class="catalog-nav-item" for="ds-view-component-input">Input</label>
 <label class="catalog-nav-item" for="ds-view-component-list-row">List row</label>
+<label class="catalog-nav-item" for="ds-view-component-split-button">Split button</label>
+<label class="catalog-nav-item" for="ds-view-component-switch">Switch</label>
 <label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
 <label class="catalog-nav-group" for="ds-view-patterns">Patterns</label>
@@ -1663,18 +1972,18 @@ code {
 <h3>Type</h3>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--sem-font-family-ui)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.family.ui</code><code class="catalog-token-value">Inter, SF Pro Text, Segoe UI, Roboto, Helvetica, Arial, sans-serif</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default UI face for prose, labels, and chrome. Load Inter with font-feature-settings 'cv11', 'ss01', 'ss03'. All UI text: labels, body, headings, chrome.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-family: var(--sem-font-family-mono)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.family.mono</code><code class="catalog-token-value">JetBrains Mono, ui-monospace, SFMono-Regular, SF Mono, Cascadia Code, Menlo, Consolas, monospace</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Monospace face for identifiers, code, kbd, and terminals. Load with font-feature-settings 'tnum', 'zero'. Identifiers, code, keyboard shortcuts, numeric IDs.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-micro)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.micro</code><code class="catalog-token-value">10px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Micro labels: kbd shortcuts in dense chrome. Micro labels only — kbd shortcuts, dense chrome.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-meta)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.meta</code><code class="catalog-token-value">11px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">IDs, meta, and supporting copy. Identifiers, meta rows, help and error text.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-body)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.body</code><code class="catalog-token-value">12px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default body, card titles, row labels, buttons. The default text size for body copy, labels, and controls.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-heading)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.heading</code><code class="catalog-token-value">13px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Section headings and drawer body. Section headings inside panels and drawers.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-title)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.title</code><code class="catalog-token-value">15px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Panel and inspector titles. Panel titles (H2) and inspector titles — keep at most 3 sizes per view.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-micro)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.micro</code><code class="catalog-token-value">11px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Micro labels: kbd shortcuts in dense chrome. Micro labels only — kbd shortcuts, dense chrome.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-meta)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.meta</code><code class="catalog-token-value">12px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">IDs, meta, and supporting copy. Identifiers, meta rows, help and error text.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-body)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.body</code><code class="catalog-token-value">13px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default body, card titles, row labels, buttons. The default text size for body copy, labels, and controls.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-heading)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.heading</code><code class="catalog-token-value">14px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Section headings and drawer body. Section headings inside panels and drawers.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-size-title)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.size.title</code><code class="catalog-token-value">16px</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Panel and inspector titles. Panel titles (H2) and inspector titles — keep at most 3 sizes per view.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-regular)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.regular</code><code class="catalog-token-value">400</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Regular body weight. Body copy and meta text.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-medium)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.medium</code><code class="catalog-token-value">500</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Medium weight for labels, buttons, and card titles. Button labels, field labels, row titles.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-weight: var(--sem-font-weight-emphasis)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.weight.emphasis</code><code class="catalog-token-value">600</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Semibold for headings and selected emphasis. Headings and selected-state emphasis where weight must move with color.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.tight</code><code class="catalog-token-value">1.25</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Display and panel-title line height. Titles and single-line labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-default)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.default</code><code class="catalog-token-value">1.4</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Body and row-label line height. Body copy and row labels.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-line-relaxed)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.line.relaxed</code><code class="catalog-token-value">1.5</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Long-form prose line height. Long-form prose in inspectors and docs.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.tight</code><code class="catalog-token-value">-0.01em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical tightening for titles at 13px and up. font.size.heading and font.size.title, which read loose at their default metrics. <strong>Do not:</strong> Body or meta text — tightening small text costs legibility.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-tight)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.tight</code><code class="catalog-token-value">-0.01em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical tightening for titles at 14px and up. font.size.heading and font.size.title, which read loose at their default metrics. <strong>Do not:</strong> Body or meta text — tightening small text costs legibility.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-normal)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.normal</code><code class="catalog-token-value">0</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Default tracking: body, labels, and every row title. All UI text that is not a title or a micro label.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-type-specimen" style="font-size: var(--sem-font-tracking-wide)">AaBb</span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.font.tracking.wide</code><code class="catalog-token-value">0.02em</code><span class="catalog-badge">typography</span></p><p class="catalog-token-meta">Optical opening for mono identifiers and micro labels. font.family.mono identifiers and font.size.micro labels, which jam at their default metrics. <strong>Do not:</strong> Uppercase-tracked section headings — the system has none.</p></div></div>
 </div>
@@ -1696,10 +2005,10 @@ code {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.drawer</code><code class="catalog-token-value">0 1px 3px rgba(16, 20, 24, 0.06), 0 8px 24px -6px rgba(16, 20, 24, 0.10)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">The one canonical elevation shadow, shared by drawers and overlay panels. Drawer and overlay-panel elevation — the only drop shadow in the system. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.popover</code><code class="catalog-token-value">0 1px 2px rgba(16, 20, 24, 0.08), 0 4px 12px -4px rgba(16, 20, 24, 0.12)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for trigger-anchored surfaces: popovers, menus, tooltips. Popover, ContextMenu, Select listbox, and Tooltip shells. <strong>Do not:</strong> Cards, rows, or hover states — structure comes from hairline borders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.shadow.modal</code><code class="catalog-token-value">0 2px 6px rgba(16, 20, 24, 0.08), 0 16px 48px -12px rgba(16, 20, 24, 0.18)</code><span class="catalog-badge">elevation</span></p><p class="catalog-token-meta">Elevation for centred modal shells sitting over a scrim. Modal and ConfirmDialog shells only. <strong>Do not:</strong> Anchored surfaces — those use shadow.popover.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.xs</code><code class="catalog-token-value">12px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Inline glyphs next to body/meta copy. Inline glyphs beside meta copy and inside chips.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.sm</code><code class="catalog-token-value">14px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Default list-row and toolbar icons. The default icon size for rows, toolbars, and close glyphs.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.md</code><code class="catalog-token-value">16px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Button-pair icons and panel-header chrome. Icons paired with button labels and panel-header affordances.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.lg</code><code class="catalog-token-value">20px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Prominent affordances and empty-state glyphs. Empty-state glyphs and large overlay close buttons.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.xs</code><code class="catalog-token-value">13px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Inline glyphs next to body/meta copy. Inline glyphs beside meta copy and inside chips.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.sm</code><code class="catalog-token-value">16px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Default list-row and toolbar icons. The default icon size for rows, toolbars, and close glyphs.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.md</code><code class="catalog-token-value">18px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Button-pair icons and panel-header chrome. Icons paired with button labels and panel-header affordances.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.icon.size.lg</code><code class="catalog-token-value">22px</code><span class="catalog-badge">iconography</span></p><p class="catalog-token-meta">Prominent affordances and empty-state glyphs. Empty-state glyphs and large overlay close buttons.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-chip)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.chip</code><code class="catalog-token-value">3px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Inner chips (rarely needed). Small inner chips nested inside a rounded parent.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-control)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.control</code><code class="catalog-token-value">5px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Cards, rows, buttons, and inputs in panel chrome. The default control radius: buttons, inputs, cards, rows — keep at most 2 radii per view.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-radius-box" style="border-radius: var(--sem-radius-overlay)"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.radius.overlay</code><code class="catalog-token-value">7px</code><span class="catalog-badge">shape</span></p><p class="catalog-token-meta">Popovers and drawers. Popovers, drawers, and floating surfaces.</p></div></div>
@@ -1708,10 +2017,10 @@ code {
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.normal</code><code class="catalog-token-value">180ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Reorder and popover enter. Popover enters and list reorders.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.duration.deliberate</code><code class="catalog-token-value">260ms</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">Drawer enter/exit. Drawer and large-surface enter/exit.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.motion.ease.standard</code><code class="catalog-token-value">cubic-bezier(0.2, 0.8, 0.2, 1)</code><span class="catalog-badge">motion</span></p><p class="catalog-token-meta">The single easing curve for all UI motion. Every transition and animation — one ease, no exceptions. <strong>Do not:</strong> Introducing a second easing curve.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons and controls that sit inside a list row. <strong>Do not:</strong> Any control carrying a text label — those start at sm.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">28px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">32px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes.</p></div></div>
-<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target, matching the IconButton contract. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.xs</code><code class="catalog-token-value">26px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Dense control height: icon buttons and in-row triggers. Height of icon buttons and controls that sit inside a list row. <strong>Do not:</strong> Any control carrying a text label — those start at sm.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.sm</code><code class="catalog-token-value">30px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Default control height: buttons, inputs, selects. The default height for every labelled control. An input and a select side by side must share it.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.control.md</code><code class="catalog-token-value">34px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">Comfortable control height for primary actions in overlays. Modal and drawer primary actions, where density relaxes.</p></div></div>
+<div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.size.hit-target-min</code><code class="catalog-token-value">24px</code><span class="catalog-badge">sizing</span></p><p class="catalog-token-meta">The smallest permitted pointer target. A floor, not a size: every step of size.control.* clears it. Minimum interactive area. A control drawn smaller than this pads out to it with a transparent hit area. <strong>Do not:</strong> Shrinking a target below this because the glyph inside is small.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring-width</code><code class="catalog-token-value">2px</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">Thickness of the focus ring. The one focus-ring thickness, everywhere.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.focus.ring</code><code class="catalog-token-value">0 0 0 2px var(--sem-color-border-focus)</code><span class="catalog-badge">focus</span></p><p class="catalog-token-meta">The single composite focus ring, applied on :focus-visible. Keyboard focus on every interactive element. Apply on :focus-visible with outline:none, never on :focus. <strong>Do not:</strong> Hover, selection, or validation — focus is its own signal and never shares a treatment.</p></div></div>
 <div class="catalog-token-row"><span class="catalog-specimen-blank"></span><div class="catalog-token-text"><p class="catalog-token-name"><code>sem.z.base</code><code class="catalog-token-value">0</code><span class="catalog-badge">layering</span></p><p class="catalog-token-meta">Default in-flow content. The stacking order of overlay surfaces. Pick the layer by what the surface is, never by trial and error. <strong>Do not:</strong> Arbitrary z-index values. A surface that needs to sit between two layers is a sign the surface is the wrong kind.</p></div></div>
@@ -1764,10 +2073,10 @@ code {
 <h4>Hairlines carry the structure</h4>
 <ul><li>Borders do the structural work. Cards, fills, and shadows do not. Group with space and a heading before reaching for a container; a card inside a card needs a real containment reason.</li><li>Hairlines are 1px at canonical zoom. No doubled borders where surfaces meet, no 2px divider as decoration.</li><li><strong>Elevation is a three-step ramp, and every step is an overlay:</strong> <code>shadow.popover</code> for trigger-anchored surfaces, <code>shadow.drawer</code> for drawers and side panels, <code>shadow.modal</code> for centred dialogs. Nothing in the document flow — no card, row, or hover state — takes a shadow.</li><li>In light mode, <code>bg.surface-raised</code> is deliberately the same white as <code>bg.surface</code>: raised surfaces separate by shadow and <code>border.strong</code>, not by tone. In dark mode the tone step does the work.</li><li><strong>Inside an overlay, space separates — rules do not.</strong> A dialog's title, its content, and its buttons are divided by padding. A rule under the title and another above the buttons cuts a small surface into three boxed strips and buys nothing: the shell already draws its own edge, and a shell that scrolls as one piece never needed the rules as scroll affordances.</li><li><strong>One chrome row per content region.</strong> Everything that is chrome for the same content shares a band — status on the left, controls on the right. A tools bar stacked on a status bar spends a second band of vertical space to say what the first could hold. When you reach for a second row, the question is which row the new control belongs in, not where to put the new row.</li><li><strong>A notice carries its tone with a glyph, not a coloured edge.</strong> A 2px stripe down one side of an error or warning card is decoration wearing a hairline's clothes: it doubles the card's own border, breaks the 1px rule, and leaves the tone carried by colour alone. Use a 1px neutral hairline, the soft tone tint, and the tone glyph at the leading edge — which is what makes it survive greyscale.</li></ul>
 <h4>Space and size</h4>
-<ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (24px) for icon buttons and in-row triggers, <code>sm</code> (28px) as the default for anything with a label, <code>md</code> (32px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li></ul>
+<ul><li>Every padding, gap, and margin comes from <code>sem.space.*</code> — a 2px grid at the dense end opening to 4px steps at panel scale. A raw pixel value in a component means the scale is missing a step; add it here rather than locally.</li><li>Controls come from <code>sem.size.control.*</code>: <code>xs</code> (26px) for icon buttons and in-row triggers, <code>sm</code> (30px) as the default for anything with a label, <code>md</code> (34px) for overlay primary actions. An input and a select side by side must share a height.</li><li>Nothing interactive is drawn below <code>sem.size.hit-target-min</code>. A small glyph pads out to it with a transparent hit area rather than shrinking its target.</li><li>At most 2 radii per view. <code>radius.control</code> (5px) is the default; larger radii belong to overlay and modal shells. Marketing radii (<code>rounded-2xl</code> and up) never appear on operational chrome.</li></ul>
 <h4>Type</h4>
 <p><strong>Two families, permanently.</strong> <code>font.family.ui</code> (Inter) for everything a person reads; <code>font.family.mono</code> (JetBrains Mono) for identifiers, paths, hashes, code, and <code>kbd</code>. There is no third family, and no serif anywhere in the product. Introducing one is a system change, not a styling choice.</p>
-<ul><li>Sentence case everywhere except real keyboard shortcuts. No uppercase letter-spaced labels as hierarchy — not on section headers, metadata, breadcrumbs, or chips.</li><li>The scale repeats title / body / meta. Primary content does not go below <code>font.size.body</code> (12px).</li><li>Tracking is optical, not decorative: <code>tracking.tight</code> on titles at 13px and up, <code>tracking.wide</code> on mono identifiers and micro labels, <code>tracking.normal</code> everywhere else.</li><li>Line height by context: <code>line.tight</code> for display, <code>line.default</code> for UI, <code>line.relaxed</code> for prose. Not a single default applied everywhere.</li></ul>
+<ul><li>Sentence case everywhere except real keyboard shortcuts. No uppercase letter-spaced labels as hierarchy — not on section headers, metadata, breadcrumbs, or chips.</li><li>The scale repeats title / body / meta. Primary content does not go below <code>font.size.body</code> (13px).</li><li>Tracking is optical, not decorative: <code>tracking.tight</code> on titles at 14px and up, <code>tracking.wide</code> on mono identifiers and micro labels, <code>tracking.normal</code> everywhere else.</li><li>Line height by context: <code>line.tight</code> for display, <code>line.default</code> for UI, <code>line.relaxed</code> for prose. Not a single default applied everywhere.</li></ul>
 <p><strong>The micro-typography pass</strong> — run before any surface is called done:</p>
 <ul><li><code>tabular-nums</code> on every numeric column: counts, ids, timestamps, durations.</li><li>Mono for identifiers only, never for prose.</li><li>Numbers, ids, and percentages right-align in columns; titles left-align. Dense data is never centre-aligned.</li><li>Curly quotes and em-dashes in copy, no double spaces. Code is exempt.</li></ul>
 <h4>Copy</h4>
@@ -3058,6 +3367,689 @@ code {
       &lt;/button&gt;
     &lt;/div&gt;
 
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-split-button" class="catalog-view catalog-component">
+<h3>Split button</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-split-button">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — at rest, held open, md size, disabled</p>
+  <div class="demo-row">
+    <span class="ds-split-button">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in IntelliJ IDEA">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--md">
+      <button type="button" class="ds-split-button__primary">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button">
+      <button type="button" class="ds-split-button__primary" disabled>
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" disabled>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+  </div>
+  <div class="demo-row">
+    <div class="demo-menu" role="menu" aria-label="Open in">
+      <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="true">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>VS Code<span class="demo-trail">✓</span>
+      </button>
+      <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="false">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>IntelliJ IDEA
+      </button>
+      <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="false">
+        <span class="ds-split-button__glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none"><path d="M2.1 4.4a1.3 1.3 0 0 1 1.3-1.3h2.6l1.4 1.5h5.2a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3H3.4a1.3 1.3 0 0 1-1.3-1.3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        </span>Finder<span class="demo-trail">⌘O</span>
+      </button>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — at rest, held open, md size, disabled</p>
+  <div class="demo-row">
+    <span class="ds-split-button">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in VS Code">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button">
+      <button type="button" class="ds-split-button__primary" aria-label="Open in IntelliJ IDEA">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="true">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button ds-split-button--md">
+      <button type="button" class="ds-split-button__primary">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+    <span class="ds-split-button">
+      <button type="button" class="ds-split-button__primary" disabled>
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>Open
+      </button>
+      <button type="button" class="ds-split-button__chevron" aria-label="Open in…" aria-haspopup="menu" disabled>
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </span>
+  </div>
+  <div class="demo-row">
+    <div class="demo-menu" role="menu" aria-label="Open in">
+      <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="true">
+        <span class="ds-split-button__glyph" aria-hidden="true">VS</span>VS Code<span class="demo-trail">✓</span>
+      </button>
+      <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="false">
+        <span class="ds-split-button__glyph" aria-hidden="true">IJ</span>IntelliJ IDEA
+      </button>
+      <button type="button" class="demo-item" role="menuitemcheckbox" aria-checked="false">
+        <span class="ds-split-button__glyph" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none"><path d="M2.1 4.4a1.3 1.3 0 0 1 1.3-1.3h2.6l1.4 1.5h5.2a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3H3.4a1.3 1.3 0 0 1-1.3-1.3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+        </span>Finder<span class="demo-trail">⌘O</span>
+      </button>
+    </div>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>One control with a default action and a menu of alternatives, for a repeated action whose target changes rarely: the primary half runs the last-used target, the menu half lists the others and re-points the primary. Extracted from the source product's open-in-editor control on the workspace bar.</p>
+<p>Use it only when the alternatives are genuinely the *same action against a different target*. Two unrelated actions welded together are two buttons.</p>
+<h4>Anatomy</h4>
+<ul><li><code>ds-split-button</code> — the group. It owns the border, the radius, the height, and the overflow clip; the halves own nothing structural. One object, not two buttons that touch.</li><li><code>ds-split-button__primary</code> — the default-action half: optional target glyph, then the verb. Padding <code>sem.space.md</code>, label in <code>font.size.meta</code> at <code>font.weight.medium</code>.</li><li><code>ds-split-button__chevron</code> — the menu half, carrying the single internal hairline (<code>color.border.subtle</code>) on its left edge and a chevron at <code>icon.size.xs</code>. Narrower than the label half (<code>sem.space.2xs</code>).</li><li><code>ds-split-button__glyph</code> — the target mark leading the label: a two-letter mono mark or a small glyph, boxed at <code>icon.size.sm</code> on <code>color.bg.active</code> so every target reads at one weight whichever form it takes.</li><li>The menu itself is a standard popover surface, <strong>not</strong> part of this component. It carries one checkable row per target, the current default checked, and any keyboard hint right-aligned.</li></ul>
+<h4>Variants</h4>
+<ul><li>Default (no modifier) — the neutral outlined group at <code>size.control.sm</code>. This is the only tone the system offers.</li><li><code>ds-split-button--md</code> — the <code>size.control.md</code> step, with the label on <code>font.size.body</code>. For overlay footers and forms, where the surrounding controls sit on that row.</li><li><strong>No accent-filled variant, deliberately.</strong> A view gets one primary button (see <code>foundations/principles.md</code>); a control whose whole point is that its action is ambiguous until you read its glyph is not it.</li></ul>
+<h4>States</h4>
+<ul><li>Hover: the hovered half alone takes <code>bg.hover</code> and lifts to <code>text.primary</code>. The other half does not move — the halves are separately clickable and must say so.</li><li>Open: while the menu is on screen the chevron half stays at <code>bg.hover</code> via <code>[aria-expanded=&quot;true&quot;]</code>, tying the surface to the half that opened it.</li><li>Focus-visible: a 2px <code>border.focus</code> ring, drawn <strong>inset</strong> (<code>inset var(--sem-focus-ring)</code>) because the group clips its overflow — an outer ring would be cut off. Each half rings independently.</li><li>Disabled: 45% opacity and <code>not-allowed</code> on both halves. Disable the whole group or neither: a live primary beside a dead menu reads as a bug.</li><li>No press-scale. The group would scale as one object while only one half was pressed.</li></ul>
+<h4>Usage</h4>
+<ul><li>The primary half must announce what it will do without a caption — that is the glyph's job. If the target cannot be shown in the resting state, this is the wrong control.</li><li>Choosing from the menu runs that target immediately <strong>and</strong> becomes the new primary. A menu that only re-points the primary makes every switch two clicks.</li><li>Offer only targets that resolve. A row for something that is not installed is a fake affordance — omit it, never disable it.</li><li>Keep the menu at two or more rows. One alternative is a plain button.</li><li>Persist the primary where the choice belongs (per app, per project) and fall back to the first available target when the remembered one is gone.</li></ul>
+<h4>Accessibility</h4>
+<ul><li>Two real <code>&lt;button&gt;</code>s, so both halves are in the tab order and operable with Enter and Space. Never collapse them into one element with a click-position test.</li><li>The primary half carries an <code>aria-label</code> naming its resolved target (&quot;Open in VS Code&quot;) when the visible label is only the verb.</li><li>The menu half carries <code>aria-haspopup=&quot;menu&quot;</code> and a live <code>aria-expanded</code>, and it owns the popover's <code>aria-controls</code>.</li><li>The surface is <code>role=&quot;menu&quot;</code>; each row is <code>role=&quot;menuitemcheckbox&quot;</code> with <code>aria-checked</code> on the current default — the check is state, not decoration, so it must not be conveyed by the glyph alone.</li><li>Arrow keys rove within the open menu, Escape closes it and returns focus to the chevron half.</li><li>Contrast: label and glyph clear AA in both modes; the internal hairline is decorative and is never the only thing separating the halves — hover and focus both resolve which half is live.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/split-button/component.css</summary><pre><code>/* Split button — one bordered group carrying two targets: a default action and
+ * a menu that lists the alternatives. Extracted from the source product's
+ * open-in-editor control (src/renderer/src/components/ui/SplitButton.tsx).
+ *
+ * The group owns the border, the radius, and the height; the halves are
+ * borderless and separated by one internal hairline. That is what keeps it a
+ * single object rather than two buttons that happen to touch. */
+
+.ds-split-button {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--sem-size-control-sm);
+  border: 1px solid var(--sem-color-border-default);
+  border-radius: var(--sem-radius-control);
+  background: var(--sem-color-bg-surface-raised);
+  /* Clips each half's hover fill to the group's rounded corners. The focus ring
+   * is drawn inset for the same reason — an outer ring would be clipped here. */
+  overflow: hidden;
+}
+
+.ds-split-button__primary,
+.ds-split-button__chevron {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  border: none;
+  background: transparent;
+  color: var(--sem-color-text-default);
+  font-family: var(--sem-font-family-ui);
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-medium);
+  line-height: var(--sem-font-line-tight);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-split-button__primary {
+  padding: 0 var(--sem-space-md);
+}
+
+/* The menu half: narrower than the label half, and the only place the internal
+ * hairline lives. */
+.ds-split-button__chevron {
+  padding: 0 var(--sem-space-2xs);
+  border-left: 1px solid var(--sem-color-border-subtle);
+  color: var(--sem-color-text-muted);
+}
+
+.ds-split-button__chevron svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-split-button__primary:hover:not(:disabled),
+.ds-split-button__chevron:hover:not(:disabled) {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+/* Held open: the menu half stays lit while its popover is on screen, so the
+ * open surface is visibly tied to the half that opened it. */
+.ds-split-button__chevron[aria-expanded='true'] {
+  background: var(--sem-color-bg-hover);
+  color: var(--sem-color-text-primary);
+}
+
+.ds-split-button__primary:focus-visible,
+.ds-split-button__chevron:focus-visible {
+  outline: none;
+  /* Inset, not the shared --sem-focus-ring: the group clips overflow. */
+  box-shadow: inset var(--sem-focus-ring);
+}
+
+.ds-split-button__primary:disabled,
+.ds-split-button__chevron:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The target mark leading the label — a two-letter mono mark or a small glyph,
+ * boxed so every target reads at the same weight whichever form it takes. */
+.ds-split-button__glyph {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--sem-icon-size-sm);
+  height: var(--sem-icon-size-sm);
+  border-radius: var(--sem-radius-chip);
+  background: var(--sem-color-bg-active);
+  color: var(--sem-color-text-muted);
+  font-family: var(--sem-font-family-mono);
+  font-size: var(--sem-font-size-micro);
+  font-weight: var(--sem-font-weight-medium);
+  letter-spacing: var(--sem-font-tracking-tight);
+  line-height: 1;
+}
+
+.ds-split-button__glyph svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+/* Size step for surfaces on the md control row (overlay footers, forms). */
+.ds-split-button--md {
+  height: var(--sem-size-control-md);
+}
+
+.ds-split-button--md .ds-split-button__primary,
+.ds-split-button--md .ds-split-button__chevron {
+  font-size: var(--sem-font-size-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-split-button__primary,
+  .ds-split-button__chevron {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/split-button/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Split button&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  /* The menu is a standard popover surface, not part of this component. It is
+     drawn here only to show the open state's anatomy: the checked default and
+     the shortcut hint. */
+  .demo-menu {
+    min-width: 200px;
+    padding: var(--sem-space-2xs);
+    border: 1px solid var(--sem-color-border-default);
+    border-radius: var(--sem-radius-overlay);
+    background: var(--sem-color-bg-surface-raised);
+    box-shadow: var(--sem-shadow-popover);
+  }
+  .demo-item {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-sm);
+    width: 100%;
+    padding: var(--sem-space-xs) var(--sem-space-sm);
+    border: none;
+    border-radius: var(--sem-radius-control);
+    background: transparent;
+    color: var(--sem-color-text-default);
+    font-family: var(--sem-font-family-ui);
+    font-size: var(--sem-font-size-meta);
+    text-align: left;
+    cursor: pointer;
+  }
+  .demo-item:hover {
+    background: var(--sem-color-bg-hover);
+    color: var(--sem-color-text-primary);
+  }
+  .demo-trail {
+    margin-left: auto;
+    color: var(--sem-color-text-subtle);
+    font-family: var(--sem-font-family-mono);
+    font-size: var(--sem-font-size-micro);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — at rest, held open, md size, disabled&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;ds-split-button&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in VS Code&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;false&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in IntelliJ IDEA&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;IJ&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;true&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--md&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;false&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; disabled&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; disabled&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;div class=&quot;demo-menu&quot; role=&quot;menu&quot; aria-label=&quot;Open in&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;demo-item&quot; role=&quot;menuitemcheckbox&quot; aria-checked=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;VS Code&lt;span class=&quot;demo-trail&quot;&gt;✓&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;demo-item&quot; role=&quot;menuitemcheckbox&quot; aria-checked=&quot;false&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;IJ&lt;/span&gt;IntelliJ IDEA
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;demo-item&quot; role=&quot;menuitemcheckbox&quot; aria-checked=&quot;false&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M2.1 4.4a1.3 1.3 0 0 1 1.3-1.3h2.6l1.4 1.5h5.2a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3H3.4a1.3 1.3 0 0 1-1.3-1.3z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;Finder&lt;span class=&quot;demo-trail&quot;&gt;⌘O&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — at rest, held open, md size, disabled&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;ds-split-button&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in VS Code&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;false&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; aria-label=&quot;Open in IntelliJ IDEA&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;IJ&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;true&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button ds-split-button--md&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; aria-expanded=&quot;false&quot;&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;ds-split-button&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__primary&quot; disabled&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;Open
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-split-button__chevron&quot; aria-label=&quot;Open in…&quot; aria-haspopup=&quot;menu&quot; disabled&gt;
+        &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot; aria-hidden=&quot;true&quot;&gt;&lt;path d=&quot;M4.5 6.5L8 10L11.5 6.5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;div class=&quot;demo-menu&quot; role=&quot;menu&quot; aria-label=&quot;Open in&quot;&gt;
+      &lt;button type=&quot;button&quot; class=&quot;demo-item&quot; role=&quot;menuitemcheckbox&quot; aria-checked=&quot;true&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;VS&lt;/span&gt;VS Code&lt;span class=&quot;demo-trail&quot;&gt;✓&lt;/span&gt;
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;demo-item&quot; role=&quot;menuitemcheckbox&quot; aria-checked=&quot;false&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;IJ&lt;/span&gt;IntelliJ IDEA
+      &lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;demo-item&quot; role=&quot;menuitemcheckbox&quot; aria-checked=&quot;false&quot;&gt;
+        &lt;span class=&quot;ds-split-button__glyph&quot; aria-hidden=&quot;true&quot;&gt;
+          &lt;svg viewBox=&quot;0 0 16 16&quot; fill=&quot;none&quot;&gt;&lt;path d=&quot;M2.1 4.4a1.3 1.3 0 0 1 1.3-1.3h2.6l1.4 1.5h5.2a1.3 1.3 0 0 1 1.3 1.3v5.4a1.3 1.3 0 0 1-1.3 1.3H3.4a1.3 1.3 0 0 1-1.3-1.3z&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.3&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+        &lt;/span&gt;Finder&lt;span class=&quot;demo-trail&quot;&gt;⌘O&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-switch" class="catalog-view catalog-component">
+<h3>Switch</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-switch">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-on">Follow the run</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="l-on" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="l-off">Notify on failure</span>
+      <button type="button" role="switch" aria-checked="false" aria-labelledby="l-off" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="l-dis">Read the knowledge graph</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="l-dis" class="ds-switch" disabled>
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="d-on">Follow the run</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="d-on" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="d-off">Notify on failure</span>
+      <button type="button" role="switch" aria-checked="false" aria-labelledby="d-off" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="d-dis">Read the knowledge graph</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="d-dis" class="ds-switch" disabled>
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>A setting that takes effect the moment it is thrown. There is no Save, no confirmation, and no third value: the control *is* the state, and the state is boolean.</p>
+<p>Use a checkbox when the value is one entry in a set the person submits later, and a segmented control when there are three or more choices. A switch that needs an explainer sentence under it is the wrong control, or the wrong label.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Track | <code>.ds-switch</code> | yes — <code>role=&quot;switch&quot;</code>, <code>aria-checked</code>, and a name from <code>aria-label</code> or <code>aria-labelledby</code> | | Thumb | <code>.ds-switch-thumb</code> | yes — <code>aria-hidden</code>, purely the position indicator |</p>
+<p>The track is 32x18 with a 12px thumb inset 2px from whichever end it rests against, so the whole control clears <code>size.hit-target-min</code> on its short axis once its row padding is counted.</p>
+<p>The off-state hairline is an inset shadow rather than a border. A border would take 1px out of the box on the off state only — the thumb would then sit 1px further in when off than when on — and it would pop in and out on toggle instead of crossfading. As a shadow it is free of layout, and it composes with the focus ring rather than replacing it.</p>
+<p>There is no label part. The name is the consumer's own text, pointed at with <code>aria-labelledby</code>, or an <code>aria-label</code> when the control is genuinely alone.</p>
+<h4>Variants</h4>
+<p>None. One size, one shape, one accent.</p>
+<p>A small variant is a rejected idea: the control is already at the floor of what reads in a dense row. A tone variant is also rejected — the fill is the one accent, and a red or amber switch would be a state a person must act on, which belongs in a notice rather than in a setting.</p>
+<h4>States</h4>
+<p>| State | Treatment | |---|---| | Off | <code>bg.active</code> fill, <code>border.default</code> hairline, thumb in <code>text.primary</code> at the leading end | | On | <code>accent.primary</code> fill, hairline faded to transparent, thumb in <code>text.on-accent</code> at the trailing end | | Pressed | Thumb stretches to 15px, anchored at the end it is resting against | | Focus | <code>focus-ring</code>, from <code>:focus-visible</code> only | | Disabled | 45% opacity, <code>not-allowed</code> cursor, no press stretch |</p>
+<p>The thumb's ink follows the surface under it: <code>text.on-accent</code> on the accent fill, <code>text.primary</code> on the neutral one. A statically light thumb vanishes on any theme whose accent is itself bright.</p>
+<p>Travel runs at <code>motion.duration.normal</code> on the standard ease — slow enough to be read as movement rather than a jump. The fill, the hairline, and the thumb's ink all crossfade at <code>fast</code>, so the colour has settled by the time the thumb lands. The press stretch is one detail, not a spring: 3px, anchored, gone on release.</p>
+<h4>Usage</h4>
+<p><strong>It commits immediately.</strong> Never pair a switch with a Save button, and never put one in a form that submits later — that is a checkbox. If the write can fail, the row owns the failure: show the error next to the control and put the switch back where it was.</p>
+<p><strong>Label the setting, not the state.</strong> &quot;Notify on failure&quot;, not &quot;Notifications are on&quot; — the control already says which way it is thrown, and a label that restates it goes stale the moment it is toggled.</p>
+<p><strong>No caption under it.</strong> A switch whose meaning needs a sentence is a naming problem. Rewrite the label.</p>
+<p><strong>Disabled means unavailable, not forbidden.</strong> Disable only when the setting genuinely cannot apply — its dependency is missing, the workspace has no such capability. When a person merely lacks permission, say so where the row can be read rather than presenting a dead control.</p>
+<p><strong>One per row.</strong> Two switches on the same row are two settings sharing one label, and neither is named.</p>
+<p><strong>Rebuilding it in a framework:</strong> it is a <code>&lt;button&gt;</code>, never an <code>&lt;input type=&quot;checkbox&quot;&gt;</code> with the box hidden. The checkbox carries the wrong role and the wrong keyboard contract, and its native focus outline lands on a box nobody can see. Keep the thumb a real element rather than a <code>::after</code>, so the framework can key its position off the same <code>aria-checked</code> the accessibility tree reads.</p>
+<h4>Accessibility</h4>
+<ul><li><code>role=&quot;switch&quot;</code> with <code>aria-checked</code> reflecting the live value. Not <code>aria-pressed</code> — that is a toggle button, which is a different announcement.</li><li><strong>Space toggles, Enter does not.</strong> This is the ARIA switch contract, and it is the one place a switch diverges from an ordinary button: swallow Enter rather than letting it fall through to a click.</li><li>A name is mandatory — <code>aria-labelledby</code> pointing at the visible setting name where there is one, <code>aria-label</code> only when the control stands alone. A switch with no name announces as &quot;switch, on&quot; and names nothing.</li><li><code>:focus-visible</code>, never <code>:focus</code>, so clicking one does not leave a ring behind on a control the pointer already answered.</li><li>The disabled state uses the <code>disabled</code> attribute, so the control leaves the tab order rather than sitting in it as an unusable stop.</li><li>State is never carried by the fill alone: the thumb's position says the same thing, which is what keeps the control readable when the accent and the neutral fill are close in value.</li><li>Every transition and the press stretch sit behind <code>prefers-reduced-motion: reduce</code>. Position, colour, and contrast are identical with motion off — nothing about the state is disclosed by the animation itself.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/switch/component.css</summary><pre><code>/* Switch — extracted from the source product's Switch primitive
+ * (src/renderer/src/components/ui/Switch.tsx plus the .switch-thumb rule in
+ * src/renderer/src/assets/index.css). */
+
+/* 32x18 track holding a 12px thumb at a 2px inset on both ends.
+ *
+ * The off-state hairline is an inset shadow, not a border: a border would eat
+ * 1px of the box on the off state only, so the thumb would sit 1px further in
+ * when off than when on, and the hairline would pop rather than fade on
+ * toggle. As a shadow it crossfades with the fill and composes with the focus
+ * ring instead of fighting it. */
+.ds-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--sem-color-bg-active);
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-default);
+  cursor: pointer;
+  transition:
+    background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard),
+    box-shadow var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-switch[aria-checked='true'] {
+  background: var(--sem-color-accent-primary);
+  box-shadow: inset 0 0 0 1px transparent;
+}
+
+.ds-switch:focus-visible {
+  outline: none;
+  box-shadow: var(--sem-focus-ring);
+}
+
+.ds-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* The thumb is the one place the system animates a size. Travel reads at
+ * `normal`; the ink crossfade rides `fast` with the track under it. Offsets
+ * are absolute, not deltas: 2px at rest, 32 - 12 - 2 = 18px at the far end. */
+.ds-switch-thumb {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--sem-color-text-primary);
+  translate: 2px 0;
+  transition-property: translate, width, background-color;
+  transition-duration:
+    var(--sem-motion-duration-normal), var(--sem-motion-duration-normal),
+    var(--sem-motion-duration-fast);
+  transition-timing-function: var(--sem-motion-ease-standard);
+}
+
+/* On the accent fill the thumb takes the accent's own foreground. A static
+ * light thumb disappears on any theme whose accent is itself bright. */
+.ds-switch[aria-checked='true'] .ds-switch-thumb {
+  background: var(--sem-color-text-on-accent);
+  translate: 18px 0;
+}
+
+/* One detail, not a spring: under the press the thumb stretches 3px, anchored
+ * at the end it is resting against, and settles back on release. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-switch:active:not(:disabled) .ds-switch-thumb {
+    width: 15px;
+  }
+  .ds-switch[aria-checked='true']:active:not(:disabled) .ds-switch-thumb {
+    translate: 15px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-switch,
+  .ds-switch-thumb {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/switch/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Switch&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  /* The real consumer pairs the control with a visible label and targets it
+     with aria-labelledby; the demo does the same so each state is named. */
+  .demo-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;l-on&quot;&gt;Follow the run&lt;/span&gt;
+      &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-labelledby=&quot;l-on&quot; class=&quot;ds-switch&quot;&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;l-off&quot;&gt;Notify on failure&lt;/span&gt;
+      &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-labelledby=&quot;l-off&quot; class=&quot;ds-switch&quot;&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;l-dis&quot;&gt;Read the knowledge graph&lt;/span&gt;
+      &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-labelledby=&quot;l-dis&quot; class=&quot;ds-switch&quot; disabled&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;div class=&quot;demo-row&quot;&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;d-on&quot;&gt;Follow the run&lt;/span&gt;
+      &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-labelledby=&quot;d-on&quot; class=&quot;ds-switch&quot;&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;d-off&quot;&gt;Notify on failure&lt;/span&gt;
+      &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;false&quot; aria-labelledby=&quot;d-off&quot; class=&quot;ds-switch&quot;&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
+    &lt;span class=&quot;demo-field&quot;&gt;
+      &lt;span id=&quot;d-dis&quot;&gt;Read the knowledge graph&lt;/span&gt;
+      &lt;button type=&quot;button&quot; role=&quot;switch&quot; aria-checked=&quot;true&quot; aria-labelledby=&quot;d-dis&quot; class=&quot;ds-switch&quot; disabled&gt;
+        &lt;span aria-hidden=&quot;true&quot; class=&quot;ds-switch-thumb&quot;&gt;&lt;/span&gt;
+      &lt;/button&gt;
+    &lt;/span&gt;
   &lt;/div&gt;
 &lt;/div&gt;
 &lt;/body&gt;

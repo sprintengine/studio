@@ -22,6 +22,8 @@
       "button",
       "input",
       "list-row",
+      "split-button",
+      "switch",
       "task-card",
       "tooltip"
     ],

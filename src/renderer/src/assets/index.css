@@ -1828,12 +1828,46 @@ samp,
 
 .interactive {
   transition-property: background-color, border-color, color, transform, box-shadow, opacity;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--motion-ease);
 }
 
 .interactive:active:not(:disabled):not([aria-disabled="true"]) {
   transform: scale(0.97);
+}
+
+/* ── Switch thumb ──────────────────────────────────────────────────────────
+ * The track (components/ui/Switch.tsx) is a 32×18 box whose fill and hairline
+ * already crossfade through `.interactive` at `fast`. Only the thumb needs its
+ * own timing: it travels at `normal` so the movement reads, while its ink
+ * crossfades at `fast` with the track underneath it.
+ *
+ * Position lives here rather than on Tailwind `translate-x-*` utilities so the
+ * travel, the press stretch, and the reduced-motion guard are one rule instead
+ * of three class lists. Offsets are absolute (not deltas): 2px at rest, and
+ * 32 − 12 − 2 = 18px at the far end, which is what puts a true 2px inset on
+ * both ends. The track carries no layout border — its hairline is an inset
+ * shadow — so the content box really is the full 32px these numbers assume. */
+.switch-thumb {
+  translate: 2px 0;
+  transition-property: translate, width, background-color;
+  transition-duration: var(--motion-normal), var(--motion-normal), var(--motion-fast);
+  transition-timing-function: var(--motion-ease);
+}
+
+.switch-track[aria-checked="true"] .switch-thumb {
+  translate: 18px 0;
+}
+
+/* One detail, not a spring: under the press the thumb stretches 3px, anchored
+ * at the end it is resting against, and settles back on release. */
+@media (prefers-reduced-motion: no-preference) {
+  .switch-track:active:not(:disabled) .switch-thumb {
+    width: 15px;
+  }
+  .switch-track[aria-checked="true"]:active:not(:disabled) .switch-thumb {
+    translate: 15px 0;
+  }
 }
 
 @keyframes chip-enter {
@@ -2045,7 +2079,7 @@ samp,
 }
 
 .popover-enter {
-  animation: popover-enter 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: popover-enter var(--motion-normal) var(--motion-ease);
 }
 
 .settings-overlay-panel {
@@ -2319,6 +2353,12 @@ samp,
   .skeleton-shimmer,
   .status-dot-pulse {
     animation: none;
+  }
+  /* The press scale was already guarded; the hover crossfade was not, so
+   * every `.interactive` surface still animated its colours under reduce. */
+  .interactive,
+  .switch-thumb {
+    transition: none;
   }
   .interactive:active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Switch</title>
+<link rel="stylesheet" href="../../foundations/tokens.css" />
+<link rel="stylesheet" href="component.css" />
+<style>
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sem-space-3xl);
+    flex-wrap: wrap;
+    margin: 0 0 var(--sem-space-lg);
+  }
+  .demo-row:last-child {
+    margin-bottom: 0;
+  }
+  .demo-label {
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+    width: 100%;
+  }
+  /* The real consumer pairs the control with a visible label and targets it
+     with aria-labelledby; the demo does the same so each state is named. */
+  .demo-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sem-space-md);
+    font-size: var(--sem-font-size-body);
+    color: var(--sem-color-text-default);
+  }
+</style>
+</head>
+<body>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="l-on">Follow the run</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="l-on" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="l-off">Notify on failure</span>
+      <button type="button" role="switch" aria-checked="false" aria-labelledby="l-off" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="l-dis">Read the knowledge graph</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="l-dis" class="ds-switch" disabled>
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <div class="demo-row">
+    <span class="demo-field">
+      <span id="d-on">Follow the run</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="d-on" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="d-off">Notify on failure</span>
+      <button type="button" role="switch" aria-checked="false" aria-labelledby="d-off" class="ds-switch">
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+    <span class="demo-field">
+      <span id="d-dis">Read the knowledge graph</span>
+      <button type="button" role="switch" aria-checked="true" aria-labelledby="d-dis" class="ds-switch" disabled>
+        <span aria-hidden="true" class="ds-switch-thumb"></span>
+      </button>
+    </span>
+  </div>
+</div>
+</body>
+</html>
