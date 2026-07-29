@@ -1182,7 +1182,7 @@ export default function WorkspaceSidebar({
           event.preventDefault()
           setContextMenu({ workspaceId: workspace.id, x: event.clientX, y: event.clientY })
         }}
-        className={`group relative mx-1.5 my-0.5 flex h-control-sm cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-heading transition-colors ${FOCUS_RING_CLASS} ${
+        className={`interactive group relative mx-1.5 my-0.5 flex h-control-sm cursor-pointer select-none items-center gap-2 rounded-md border-l-[4px] border-l-transparent pl-[26px] pr-1.5 text-heading ${FOCUS_RING_CLASS} ${
           active
             ? activeRowClass(workspace, moduleOverrides)
             : highlighted

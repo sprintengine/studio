@@ -329,7 +329,7 @@ export function SurfaceRail({
           // The tooltip carries the untruncated row — title AND state — so a
           // clipped title or a terse state line is always readable on hover.
           title={row.tooltip ?? `${row.title} — ${row.stateLine}`}
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${FOCUS_RING_CLASS} ${
+          className={`interactive flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${FOCUS_RING_CLASS} ${
             selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
           }`}
         >
