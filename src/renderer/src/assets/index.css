@@ -1,5 +1,15 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
+/* The design system is the authority on the palette (design-system/USAGE.md).
+   The base dark block and the light block below alias these `--sem-*`
+   variables name-for-name instead of restating their values, so a change to
+   design-system/foundations/tokens.tokens.json reaches the app on rebuild.
+   The bundle's bare :root is its LIGHT tier and its dark tier keys off
+   `[data-mode="dark"]` — the inverse of this file's dark-default :root — so
+   <html> must always carry `data-mode` alongside `data-theme`. Both are
+   stamped together by applyThemeAttributes() in src/renderer/src/hooks/
+   useAppTheme.ts, and pre-paint by the boot script in src/renderer/index.html. */
+@import "../../../../design-system/foundations/tokens.css";
 
 /* Shared UI tokens — shared by Switchboard, Watchtower, and Sprint Engine
  * panel rebuilds. Existing tool-identity / theme variables are kept
@@ -15,7 +25,10 @@
  * radius/motion scales stay constant.
  *
  * Color literals live here intentionally — the design-token lint guard scopes
- * forbidden inline hex usage to the four target panel files, not this file. */
+ * forbidden inline hex usage to the four target panel files, not this file.
+ * In the base dark block and the light block, a literal now means the bundle
+ * has no counterpart for that variable; everything it does name is aliased.
+ * The seventeen other theme blocks stay literal throughout. */
 :root,
 :root[data-theme="dark"] {
   /* Anti-dither baseline: every solid hex channel value is a multiple of 4
@@ -36,12 +49,12 @@
   --icon-chip-bg: #f4f4f4;
   --icon-chip-border: rgba(12, 12, 16, 0.12);
   --icon-chip-ink: #3c3c44;
-  --bg-app: #08080c;
-  --bg-surface: #0c0c10;
-  --bg-surface-raised: #101418;
-  --bg-hover: #18181c;
-  --bg-active: #1c2024;
-  --bg-selected: #24242c;
+  --bg-app: var(--sem-color-bg-app);
+  --bg-surface: var(--sem-color-bg-surface);
+  --bg-surface-raised: var(--sem-color-bg-surface-raised);
+  --bg-hover: var(--sem-color-bg-hover);
+  --bg-active: var(--sem-color-bg-active);
+  --bg-selected: var(--sem-color-bg-selected);
   /* Agent conversation panel canvas. Anchored to --bg-app — the same darkest ink
      the terminal content area sits on — so the chat reads as a working surface
      like the terminal, with the composer (--bg-surface) and the user's message
@@ -67,51 +80,54 @@
      label stays legible instead of vanishing on a white hover. */
   --bg-inverted-hover: #ffffff;
   /* Modal / dialog scrim above panel chrome. */
-  --surface-overlay-backdrop: rgba(8, 8, 12, 0.7);
+  --surface-overlay-backdrop: var(--sem-color-overlay-scrim);
 
-  /* Text. */
-  --text-strong: #ececec;
-  --text-default: #c8c8d0;
-  --text-muted: #9c9ca4;
-  --text-subtle: #707078;
-  --text-disabled: #5c5c64;
-  --text-on-accent: #08080c;
+  /* Text. The bundle names this tier `primary`; the app has always called it
+     `strong`. The names differ on purpose — neither side is renamed here. */
+  --text-strong: var(--sem-color-text-primary);
+  --text-default: var(--sem-color-text-default);
+  --text-muted: var(--sem-color-text-muted);
+  --text-subtle: var(--sem-color-text-subtle);
+  --text-disabled: var(--sem-color-text-disabled);
+  --text-on-accent: var(--sem-color-text-on-accent);
 
   /* Hairlines. White-alpha values composite to surface + light tint; the
      anti-dither claim is strongest on solid surfaces, alpha-blended chrome
      accepts some residual dithering on the alpha layer. */
-  --border-subtle: rgba(252, 252, 252, 0.06);
-  --border-default: rgba(252, 252, 252, 0.08);
-  --border-strong: rgba(252, 252, 252, 0.12);
-  --border-focus: rgba(63, 148, 104, 0.6);
+  --border-subtle: var(--sem-color-border-subtle);
+  --border-default: var(--sem-color-border-default);
+  --border-strong: var(--sem-color-border-strong);
+  --border-focus: var(--sem-color-border-focus);
 
   /* One product accent for active selection and primary action across the
      four target panels. Tool color is limited to header identity dots.
      Dark + Light are the green-signature defaults; alt themes override (e.g.
      Dark Conifer amber, Slate/Caramel/Tokyo Night blue). */
-  --accent-primary: #3f9468;
-  --accent-primary-hover: #4daf7d;
-  --accent-primary-soft: rgba(63, 148, 104, 0.14);
-  --accent-primary-soft-strong: rgba(63, 148, 104, 0.22);
+  --accent-primary: var(--sem-color-accent-primary);
+  --accent-primary-hover: var(--sem-color-accent-hover);
+  --accent-primary-soft: var(--sem-color-accent-soft);
+  --accent-primary-soft-strong: var(--sem-color-accent-soft-strong);
 
-  /* Semantic tones for StatusDot and inline status copy. */
-  --tone-neutral: #9c9ca4;
+  /* Semantic tones for StatusDot and inline status copy. --tone-accent has no
+     bundle counterpart and stays a literal: themes override --accent-primary
+     without overriding it, so aliasing the two together would re-tint them. */
+  --tone-neutral: var(--sem-color-status-neutral);
   --tone-accent: #3f9468;
-  --tone-good: #30d058;
-  --tone-warn: #fcc030;
-  --tone-error: #fc787c;
+  --tone-good: var(--sem-color-status-good);
+  --tone-warn: var(--sem-color-status-warn);
+  --tone-error: var(--sem-color-status-danger);
   /* Merged-branch purple, borrowed from GitHub's merged-PR semantic so a
      completed-and-merged run reads distinctly from a plain green "done". A
      single base value (no per-theme override): this mid purple clears the 3:1
      non-text contrast floor on both the dark surfaces and the cream light
      themes, and staying constant keeps "merged" recognisable across themes the
      way GitHub keeps it constant across light/dark. */
-  --tone-merged: #8957e5;
-  --tone-neutral-soft: rgba(156, 156, 164, 0.18);
+  --tone-merged: var(--sem-color-status-merged);
+  --tone-neutral-soft: var(--sem-color-status-neutral-soft);
   --tone-accent-soft: rgba(63, 148, 104, 0.16);
-  --tone-good-soft: rgba(48, 208, 88, 0.18);
-  --tone-warn-soft: rgba(252, 192, 48, 0.18);
-  --tone-error-soft: rgba(252, 120, 124, 0.18);
+  --tone-good-soft: var(--sem-color-status-good-soft);
+  --tone-warn-soft: var(--sem-color-status-warn-soft);
+  --tone-error-soft: var(--sem-color-status-danger-soft);
 
   /* Label ink for active soft-tint chips (full-strength tone over a 12% fill of
      the same tone — the DEBUG error chip and the Bypass warn chip), sitting on
@@ -188,42 +204,44 @@
   --memory-graph-atmosphere:
     radial-gradient(circle at 50% 45%, rgba(63, 148, 104, 0.08), transparent 48%);
 
-  /* Type scale. Body is 12 px to match existing flexlayout chrome. */
-  --text-size-2xs: 10.5px;
-  --text-size-xs: 11px;
-  --text-size-sm: 12px;
-  --text-size-md: 13px;
-  --text-size-lg: 15px;
-  --text-line-tight: 1.25;
-  --text-line-default: 1.4;
-  --text-line-relaxed: 1.5;
+  /* Type scale. Body is 12 px to match existing flexlayout chrome. The
+     structural scales below are mode-invariant in the bundle, so they resolve
+     the same under either data-mode and every theme inherits them. */
+  --text-size-2xs: var(--sem-font-size-micro);
+  --text-size-xs: var(--sem-font-size-meta);
+  --text-size-sm: var(--sem-font-size-body);
+  --text-size-md: var(--sem-font-size-heading);
+  --text-size-lg: var(--sem-font-size-title);
+  --text-line-tight: var(--sem-font-line-tight);
+  --text-line-default: var(--sem-font-line-default);
+  --text-line-relaxed: var(--sem-font-line-relaxed);
 
   /* Iconography. Canonical icon sizes for primitives and panel chrome.
      Pair with the type scale so glyphs sit on the same rhythm as their
      adjacent labels. */
-  --icon-xs: 12px; /* inline glyphs sitting next to body/meta copy */
-  --icon-sm: 14px; /* default list-row and toolbar icons */
-  --icon-md: 16px; /* button-pair icons and panel header chrome */
-  --icon-lg: 20px; /* prominent affordances and empty-state glyphs */
+  --icon-xs: var(--sem-icon-size-xs); /* inline glyphs next to body/meta copy */
+  --icon-sm: var(--sem-icon-size-sm); /* default list-row and toolbar icons */
+  --icon-md: var(--sem-icon-size-md); /* button-pair icons and panel header chrome */
+  --icon-lg: var(--sem-icon-size-lg); /* prominent affordances and empty-state glyphs */
 
   /* Radius. */
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius-md: 7px;
-  --radius-lg: 9px;
+  --radius-xs: var(--sem-radius-chip);
+  --radius-sm: var(--sem-radius-control);
+  --radius-md: var(--sem-radius-overlay);
+  --radius-lg: var(--sem-radius-shell);
 
   /* Motion. */
-  --motion-fast: 120ms;
-  --motion-normal: 180ms;
-  --motion-deliberate: 260ms;
-  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-fast: var(--sem-motion-duration-fast);
+  --motion-normal: var(--sem-motion-duration-normal);
+  --motion-deliberate: var(--sem-motion-duration-deliberate);
+  --motion-ease: var(--sem-motion-ease-standard);
 
   /* Focus ring helper for primitives. */
   --focus-ring: 0 0 0 2px var(--border-focus);
 
   /* Canonical elevation. Drawers reuse this single shadow value so panel-local
      drawers stop hand-rolling `shadow-[...]` literals. */
-  --shadow-drawer: 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --shadow-drawer: var(--sem-shadow-drawer);
 
   /* How much theme ink is mixed into the FileExplorer file-type badge label.
      0% on dark = the badge keeps its pure language hue; the Light theme raises
@@ -241,54 +259,53 @@
      black are kept as-is — every panel renders the extremes natively. */
   /* App is a touch greyer than the white card surfaces so panels/cards read as
      elevated against it (a distinct neutral step) instead of white-on-white. */
-  --bg-app: #eaeef2;
-  --bg-surface: #ffffff;
-  --bg-surface-raised: #ffffff;
-  --bg-hover: #f0f0f4;
-  --bg-active: #e0e4e8;
-  --bg-selected: #d8dce0;
+  --bg-app: var(--sem-color-bg-app);
+  --bg-surface: var(--sem-color-bg-surface);
+  --bg-surface-raised: var(--sem-color-bg-surface-raised);
+  --bg-hover: var(--sem-color-bg-hover);
+  --bg-active: var(--sem-color-bg-active);
+  --bg-selected: var(--sem-color-bg-selected);
   /* Inverted button is near-black here; hover intensifies toward black so its
      light label keeps contrast (a white hover would erase the text). */
   --bg-inverted-hover: #08080c;
-  --surface-overlay-backdrop: rgba(20, 24, 28, 0.42);
+  --surface-overlay-backdrop: var(--sem-color-overlay-scrim);
 
-  --text-strong: #202428;
-  --text-default: #3c444c;
-  --text-muted: #646c78;
+  --text-strong: var(--sem-color-text-primary);
+  --text-default: var(--sem-color-text-default);
+  --text-muted: var(--sem-color-text-muted);
   /* Secondary + tertiary text darkened from #889098/#a8b0bc: these carry
-     meaning-bearing copy (counts, labels, hints), so subtle now clears AA body
-     (≥4.5:1) and disabled stays clearly de-emphasised (~3:1) but legible. */
-  --text-subtle: #5f6772;
-  /* #8f97a3 measured 2.95:1 on white — a hair under AA-large (3:1), so disabled
-     copy in empty states / hints sat just below the legibility floor. #838b97
-     clears it (3.44:1) while staying clearly de-emphasised vs muted. */
-  --text-disabled: #838b97;
-  --text-on-accent: #ffffff;
+     meaning-bearing copy (counts, labels, hints), so subtle clears AA body
+     (≥4.5:1) and disabled stays clearly de-emphasised (~3:1) but legible.
+     Both now come from the bundle, which is where that ramp is tuned. */
+  --text-subtle: var(--sem-color-text-subtle);
+  --text-disabled: var(--sem-color-text-disabled);
+  --text-on-accent: var(--sem-color-text-on-accent);
 
   /* Hairlines lifted so structure reads on white (was 0.08/0.13/0.20, nearly
      invisible): subtle divider → clear hairline → structural separator. */
-  --border-subtle: rgba(32, 36, 40, 0.10);
-  --border-default: rgba(32, 36, 40, 0.20);
-  --border-strong: rgba(32, 36, 40, 0.30);
-  --border-focus: rgba(47, 106, 74, 0.55);
+  --border-subtle: var(--sem-color-border-subtle);
+  --border-default: var(--sem-color-border-default);
+  --border-strong: var(--sem-color-border-strong);
+  --border-focus: var(--sem-color-border-focus);
 
-  --accent-primary: #2f6a4a;
-  --accent-primary-hover: #275842;
-  --accent-primary-soft: rgba(47, 106, 74, 0.10);
-  --accent-primary-soft-strong: rgba(47, 106, 74, 0.18);
+  --accent-primary: var(--sem-color-accent-primary);
+  --accent-primary-hover: var(--sem-color-accent-hover);
+  --accent-primary-soft: var(--sem-color-accent-soft);
+  --accent-primary-soft-strong: var(--sem-color-accent-soft-strong);
 
   /* Solid status tones overridden for light: the dark-theme hexes (#30d058,
      #fcc030, #fc787c) are luminous-on-dark and wash out on white — the git
      count badge rendered white-on-bright-amber at ~1.6:1. These darker tones
      read as status dots on light and carry white badge text (≥4:1). */
-  --tone-neutral: #6b7280;
+  --tone-neutral: var(--sem-color-status-neutral);
   --tone-accent: #2f6a4a;
-  /* #1a8f43 gave white-on-good and good-on-white both 4.16:1 — under AA (4.5)
-     for the white-text git/status count badges. #157f37 clears it at 5.09:1
-     both directions while staying recognisably emerald. */
-  --tone-good: #157f37;
-  --tone-warn: #9a6000;
-  --tone-error: #d92d2d;
+  /* The bundle's light `good` is #157f37: #1a8f43 gave white-on-good and
+     good-on-white both 4.16:1 — under AA (4.5) for the white-text git/status
+     count badges — where #157f37 clears it at 5.09:1 both directions while
+     staying recognisably emerald. */
+  --tone-good: var(--sem-color-status-good);
+  --tone-warn: var(--sem-color-status-warn);
+  --tone-error: var(--sem-color-status-danger);
   /* Light theme uses a deeper red than the shared coral, so its danger ink
      flips to white (near-black would be illegible on #d92d2d). */
   --tone-error-ink: #ffffff;
@@ -300,20 +317,18 @@
   --tone-error-on-tint: #c42424;
   --tone-warn-on-tint: #8a5600;
 
-  --tone-neutral-soft: rgba(100, 108, 120, 0.14);
+  --tone-neutral-soft: var(--sem-color-status-neutral-soft);
   --tone-accent-soft: rgba(47, 106, 74, 0.14);
-  --tone-good-soft: rgba(21, 127, 55, 0.20);
-  --tone-warn-soft: rgba(204, 132, 0, 0.20);
-  --tone-error-soft: rgba(220, 40, 40, 0.16);
+  --tone-good-soft: var(--sem-color-status-good-soft);
+  --tone-warn-soft: var(--sem-color-status-warn-soft);
+  --tone-error-soft: var(--sem-color-status-danger-soft);
 
   --scrollbar-thumb: #d0d4d8;
   --scrollbar-thumb-hover: #b8bcc4;
   --skeleton-shimmer-low: rgba(32, 36, 40, 0.04);
   --skeleton-shimmer-high: rgba(32, 36, 40, 0.09);
 
-  --shadow-drawer:
-    0 1px 3px rgba(16, 20, 24, 0.06),
-    0 8px 24px -6px rgba(16, 20, 24, 0.10);
+  --shadow-drawer: var(--sem-shadow-drawer);
 
   --terminal-bg: #fafafb;
   --terminal-fg: #202428;

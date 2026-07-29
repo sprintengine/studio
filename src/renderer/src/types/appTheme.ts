@@ -9,8 +9,9 @@
 // Adding a new theme:
 //   1. Add a row to APP_THEMES below.
 //   2. Add the matching `:root[data-theme="<id>"]` block in index.css.
-//   3. Add the literal id string to the boot script in
-//      `src/renderer/index.html` (it can't import bundled code).
+//   3. Only if it paints a light surface: add the literal id to LIGHT_SURFACES
+//      in the boot script in `src/renderer/index.html` (it can't import bundled
+//      code). LIGHT_SURFACE_THEMES below derives itself from the swatches.
 // Nothing else needs to change.
 
 type SelectItem<V extends string = string> = {
@@ -364,6 +365,21 @@ export function colorSchemeForResolvedTheme(resolved: ResolvedAppTheme): ColorSc
   if (!bgApp) return 'dark'
   return hexLuminance(bgApp) > 0.5 ? 'light' : 'dark'
 }
+
+// The themes that paint a light surface: today `light`, `paper`, `vellum`, and
+// `herbarium`. Derived from the same swatch luminance as the scheme above so a
+// theme can never be light by one measure and dark by the other; a theme with
+// no swatch counts as dark, matching the app's dark-default :root.
+//
+// This is the app's half of the polarity bridge to the design-system bundle.
+// The bundle's bare :root is its LIGHT tier and its dark tier keys off
+// `[data-mode="dark"]` — the inverse of index.css, whose bare :root is Dark —
+// so <html> carries `data-mode` alongside `data-theme`. applyThemeAttributes()
+// in hooks/useAppTheme.ts writes both; the boot script in index.html stamps the
+// same pair before any CSS evaluates.
+export const LIGHT_SURFACE_THEMES: readonly ResolvedAppTheme[] = APP_THEMES.flatMap((t) =>
+  t.resolved && colorSchemeForResolvedTheme(t.resolved) === 'light' ? [t.resolved] : [],
+)
 
 export const APP_THEME_SELECT_ITEMS: SelectItem<AppTheme>[] = APP_THEMES.map(
   (t) => ({ value: t.id, label: t.label }),

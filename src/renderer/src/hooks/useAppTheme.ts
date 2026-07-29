@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import {
   colorSchemeForResolvedTheme,
+  LIGHT_SURFACE_THEMES,
   type AppTheme,
   type ColorScheme,
   type ResolvedAppTheme,
@@ -24,9 +25,27 @@ export function resolveTheme(theme: AppTheme): ResolvedAppTheme {
   return theme
 }
 
-function applyTheme(resolved: ResolvedAppTheme): void {
+// Writes the two appearance attributes <html> carries. `data-theme` selects the
+// theme block in index.css; `data-mode` selects the light/dark tier of the
+// design-system bundle that index.css's base and light blocks alias. They must
+// be written together — the bundle's polarity is the inverse of the app's (its
+// bare :root is light, ours is Dark), so a `data-theme` written without a
+// matching `data-mode` resolves every aliased surface to the wrong mode.
+//
+// The boot script in src/renderer/index.html stamps the same pair before any
+// CSS evaluates; it cannot import this module, so it repeats the rule.
+export function applyThemeAttributes(resolved: ResolvedAppTheme): void {
   if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-theme', resolved)
+  document.documentElement.setAttribute(
+    'data-mode',
+    LIGHT_SURFACE_THEMES.includes(resolved) ? 'light' : 'dark',
+  )
+}
+
+function applyTheme(resolved: ResolvedAppTheme): void {
+  if (typeof document === 'undefined') return
+  applyThemeAttributes(resolved)
   // Mirror the resolved light/dark scheme to main so newly-spawned agent CLIs
   // launch matching the app surface (e.g. Claude Code's --settings theme).
   // Best-effort: the API is absent in non-Electron/test contexts.
